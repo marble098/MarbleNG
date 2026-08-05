@@ -1,21 +1,21 @@
-package com.marbleng
-
+package com.Marbleng
 
 class XrayManager {
 
 
-    fun start(config:Config){
+    fun start(config: Config): Boolean {
 
         println(
-            "Starting Xray ${config.server}:${config.port}"
+            "Starting ${config.type}://${config.address}:${config.port}"
         )
 
+        return true
     }
 
 
-    fun stop(){
+    fun stop() {
 
-        println("Stopping Xray")
+        println("Xray stopped")
 
     }
 
