@@ -1,14 +1,9 @@
-package com.marbleng
-
+package com.Marbleng
 
 data class Config(
-
-    var name:String,
-
-    var server:String,
-
-    var port:Int,
-
-    var protocol:String
-
+    val remark: String,
+    val address: String,
+    val port: Int,
+    val type: String,
+    val uuid: String? = null
 )
