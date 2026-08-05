@@ -1,4 +1,4 @@
-package com.marbleng
+package com.Marbleng
 
 import android.app.Activity
 import android.os.Bundle
@@ -6,9 +6,15 @@ import android.widget.Button
 import android.widget.TextView
 import android.widget.LinearLayout
 
+
 class MainActivity : Activity() {
 
+
+    private val xray = XrayManager()
+
+
     override fun onCreate(savedInstanceState: Bundle?) {
+
         super.onCreate(savedInstanceState)
 
 
@@ -17,11 +23,9 @@ class MainActivity : Activity() {
         layout.orientation = LinearLayout.VERTICAL
 
 
-        val title = TextView(this)
+        val status = TextView(this)
 
-        title.text = "Trivox Xray Client"
-
-        title.textSize = 22f
+        status.text = "Disconnected"
 
 
         val button = Button(this)
@@ -29,14 +33,29 @@ class MainActivity : Activity() {
         button.text = "Connect"
 
 
+
         button.setOnClickListener {
 
-            title.text = "Starting Xray..."
+
+            val config = Config(
+                "Test Server",
+                "example.com",
+                443,
+                "VLESS"
+            )
+
+
+            if(xray.start(config)){
+
+                status.text = "Connected"
+
+            }
 
         }
 
 
-        layout.addView(title)
+
+        layout.addView(status)
 
         layout.addView(button)
 
