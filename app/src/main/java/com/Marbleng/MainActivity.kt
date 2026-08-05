@@ -1,21 +1,27 @@
 package com.Marbleng
 
+
 import android.app.Activity
 import android.os.Bundle
+import android.content.Intent
 import android.widget.Button
 import android.widget.TextView
 import android.widget.LinearLayout
 
 
+
 class MainActivity : Activity() {
 
 
-    private val xray = XrayManager()
+    private lateinit var statusText: TextView
+
 
 
     override fun onCreate(savedInstanceState: Bundle?) {
 
+
         super.onCreate(savedInstanceState)
+
 
 
         val layout = LinearLayout(this)
@@ -23,45 +29,87 @@ class MainActivity : Activity() {
         layout.orientation = LinearLayout.VERTICAL
 
 
-        val status = TextView(this)
 
-        status.text = "Disconnected"
+        statusText = TextView(this)
 
+        statusText.text = "Disconnected"
 
-        val button = Button(this)
-
-        button.text = "Connect"
+        statusText.textSize = 20f
 
 
 
-        button.setOnClickListener {
+        val connectButton = Button(this)
+
+        connectButton.text = "Connect"
 
 
-            val config = Config(
-                "Test Server",
-                "example.com",
-                443,
-                "VLESS"
+
+        val disconnectButton = Button(this)
+
+        disconnectButton.text = "Disconnect"
+
+
+
+        connectButton.setOnClickListener {
+
+
+            val intent = Intent(
+
+                this,
+
+                XrayService::class.java
+
             )
 
 
-            if(xray.start(config)){
+            startService(intent)
 
-                status.text = "Connected"
 
-            }
+
+            statusText.text = "Connecting..."
+
 
         }
 
 
 
-        layout.addView(status)
 
-        layout.addView(button)
+        disconnectButton.setOnClickListener {
+
+
+            val intent = Intent(
+
+                this,
+
+                XrayService::class.java
+
+            )
+
+
+            stopService(intent)
+
+
+
+            statusText.text = "Disconnected"
+
+
+        }
+
+
+
+
+        layout.addView(statusText)
+
+        layout.addView(connectButton)
+
+        layout.addView(disconnectButton)
+
 
 
         setContentView(layout)
 
+
     }
+
 
 }
