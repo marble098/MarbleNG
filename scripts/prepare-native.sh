@@ -86,6 +86,62 @@ require_command() {
     }
 }
 
+# ==============================================================================
+# Resilient HTTPS download helper
+#
+# GitHub release/CDN transfers can occasionally terminate with curl error 56
+# (receive failure / connection reset).  Download to a temporary file so a
+# failed transfer can never leave a truncated file at the final destination.
+# --retry-all-errors makes receive-side failures retryable as well.
+# HTTP/1.1 avoids a class of flaky HTTP/2 stream/proxy resets seen on CI paths.
+# ==============================================================================
+
+download_file() {
+    local url="$1"
+    local output="$2"
+    local max_time="$3"
+    shift 3
+
+    local tmp="${output}.part"
+    local status=0
+
+    rm -f "$tmp"
+
+    log "Downloading: $url"
+
+    curl \
+        --fail \
+        --show-error \
+        --location \
+        --http1.1 \
+        --retry 8 \
+        --retry-all-errors \
+        --retry-delay 2 \
+        --retry-max-time "$max_time" \
+        --connect-timeout 20 \
+        --max-time "$max_time" \
+        --speed-time 30 \
+        --speed-limit 1024 \
+        "$@" \
+        -o "$tmp" \
+        "$url" || status=$?
+
+    if (( status != 0 )); then
+        rm -f "$tmp"
+        warn "Download failed with curl exit code $status: $url"
+        return "$status"
+    fi
+
+    if [[ ! -s "$tmp" ]]; then
+        rm -f "$tmp"
+        warn "Download produced an empty file: $url"
+        return 1
+    fi
+
+    mv -f "$tmp" "$output"
+    ok "Downloaded: $output"
+}
+
 
 # ==============================================================================
 # Failure diagnostics
@@ -1061,19 +1117,15 @@ log "[4/4] Downloading Xray geo assets for $XRAY_TAG"
 XRAY_RELEASE_JSON="$CORE/xray-release.json"
 XRAY_ZIP="$CORE/xray-release.zip"
 
-curl \
-    --fail \
-    --silent \
-    --show-error \
-    --location \
-    --retry 5 \
-    --retry-delay 2 \
-    --connect-timeout 20 \
-    --max-time 120 \
-    -H "Accept: application/vnd.github+json" \
-    -H "X-GitHub-Api-Version: 2022-11-28" \
+download_file \
     "https://api.github.com/repos/XTLS/Xray-core/releases/tags/$XRAY_TAG" \
-    -o "$XRAY_RELEASE_JSON"
+    "$XRAY_RELEASE_JSON" \
+    180 \
+    --silent \
+    -H "Accept: application/vnd.github+json" \
+    -H "X-GitHub-Api-Version: 2022-11-28" || {
+        die "Xray release metadata download failed after retries"
+    }
 
 [[ -s "$XRAY_RELEASE_JSON" ]] || {
     die "Xray release metadata download failed"
@@ -1118,16 +1170,12 @@ echo
 # Download release ZIP
 # ==============================================================================
 
-curl \
-    --fail \
-    --show-error \
-    --location \
-    --retry 5 \
-    --retry-delay 2 \
-    --connect-timeout 20 \
-    --max-time 300 \
-    -o "$XRAY_ZIP" \
-    "$XRAY_ASSET_URL"
+download_file \
+    "$XRAY_ASSET_URL" \
+    "$XRAY_ZIP" \
+    600 || {
+        die "Xray release ZIP download failed after retries"
+    }
 
 [[ -s "$XRAY_ZIP" ]] || {
     die "Downloaded Xray release ZIP is empty"
@@ -1140,8 +1188,20 @@ curl \
 
 log "Validating Xray release archive"
 
-unzip -t "$XRAY_ZIP" >/dev/null || {
-    die "Downloaded Xray ZIP failed integrity validation"
+if ! unzip -t "$XRAY_ZIP" >/dev/null 2>&1; then
+    warn "Downloaded Xray ZIP failed validation; deleting it and retrying once"
+    rm -f "$XRAY_ZIP" "${XRAY_ZIP}.part"
+
+    download_file \
+        "$XRAY_ASSET_URL" \
+        "$XRAY_ZIP" \
+        600 || {
+            die "Xray release ZIP re-download failed"
+        }
+fi
+
+unzip -t "$XRAY_ZIP" >/dev/null 2>&1 || {
+    die "Downloaded Xray ZIP failed integrity validation after re-download"
 }
 
 ok "Xray release ZIP validated"
