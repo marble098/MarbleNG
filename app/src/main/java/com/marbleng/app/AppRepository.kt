@@ -20,8 +20,13 @@ class AppRepository(private val context:Context,val xray:XrayManager){
     val profiles=mutableStateListOf<ProxyProfile>().apply{addAll(store.loadProfiles())};val subscriptions=mutableStateListOf<Subscription>().apply{addAll(store.loadSubscriptions())};val history=mutableStateListOf<ConnectionRecord>().apply{addAll(store.loadHistory())}
     var settings by mutableStateOf(store.settings());private set;var state by mutableStateOf("DISCONNECTED");private set;var stateDetail by mutableStateOf("");private set;var busy by mutableStateOf(false);private set;var message by mutableStateOf("");private set
     var benchmarks by mutableStateOf<List<BenchmarkResult>>(emptyList());private set;var privacy by mutableStateOf<PrivacyReport?>(null);private set;var radarConfigs by mutableStateOf<List<String>>(emptyList());private set;var radarResults by mutableStateOf<List<BenchmarkResult>>(emptyList());private set
+    // Live tunnel telemetry — fed from MarbleVpnService while a tunnel is up (HEV byte counters + SOCKS ping).
+    var livePingMs by mutableStateOf(0);private set;var liveDownBps by mutableStateOf(0L);private set;var liveUpBps by mutableStateOf(0L);private set
+    fun updateTelemetry(downBps:Long,upBps:Long){liveDownBps=downBps.coerceAtLeast(0);liveUpBps=upBps.coerceAtLeast(0)}
+    fun updatePing(ms:Int){if(ms>=0)livePingMs=ms}
+    fun resetTelemetry(){livePingMs=0;liveDownBps=0;liveUpBps=0}
     fun profile(id:String)=profiles.firstOrNull{it.id==id}
-    fun setRuntimeState(s:String,d:String){state=s;stateDetail=d}
+    fun setRuntimeState(s:String,d:String){state=s;stateDetail=d;if(s!="CONNECTED")resetTelemetry()}
     fun updateSettings(v:AppSettings){settings=v;store.saveSettings(v)}
     fun addSubscription(name:String,url:String){val id=sha(url).take(12);subscriptions.removeAll{it.id==id};subscriptions+=Subscription(id,name.ifBlank{"Subscription"},url,System.currentTimeMillis());store.saveSubscriptions(subscriptions);refresh(id)}
     fun refresh(id:String){val sub=subscriptions.firstOrNull{it.id==id}?:return;task("Refreshing ${sub.name}"){val text=http(sub.url);val parsed=ProxyParser.parseInput(text,sub.id,sub.name);profiles.removeAll{it.subscriptionId==sub.id};profiles.addAll(parsed);store.saveProfiles(profiles);message="${parsed.size} profiles imported"}}

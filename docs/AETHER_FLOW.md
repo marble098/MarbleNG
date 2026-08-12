@@ -92,10 +92,28 @@ object + `AetherFlowTheme`, an MD3 `MaterialTheme` wrapper). To adopt the
 exact "Aether Flow" voice, drop **Inter** or **Manrope** into `res/font/` and
 point `AetherFontFamily` at it — the weights and tracking are already tuned.
 
-## Telemetry note
+## Live telemetry (implemented)
 
-`ProxyState` carries `pingMs`, `downloadKbps`, and `uploadKbps`. Ping is
-derived from the last benchmark for the connected node. Real-time up/down
-throughput fields are wired and ready — feed them from a live tunnel-stats
-source (e.g. HEV byte counters surfaced through `MarbleVpnService`) and the
-orbiting telemetry animates automatically.
+The orb's **ping / down / up** are real, not placeholders:
+
+- **Throughput** — `MarbleVpnService.startTelemetry()` samples the native HEV
+  byte counters (`HevTunnel.stats()` → `[txPackets, txBytes, rxPackets,
+  rxBytes]`) once per second and computes per-second deltas. `txBytes` maps to
+  **upload**, `rxBytes` to **download** (hev-socks5-tunnel convention — swap
+  `s[1]`/`s[3]` if your build reports them inverted).
+- **Ping** — every ~4 s the service opens a SOCKS5 `CONNECT` handshake to
+  `www.gstatic.com:443` through the local proxy and times the reply. Because
+  the service adds `addDisallowedApplication(packageName)`, the app's own
+  sockets bypass the TUN, so this measures true egress RTT through Xray.
+- Values land in observable `AppRepository` state (`liveDownBps`, `liveUpBps`,
+  `livePingMs`); `toProxyState()` reads them, so the orb recomposes ~1×/s while
+  connected and resets to idle on disconnect/block.
+
+## Cross-page consistency
+
+Every screen (Library, Lab, Radar, Settings) now shares the same Aether Flow
+language via upgraded primitives in `MarbleApp.kt`: `Header`, `SectionLabel`,
+`GlassCard` (true frosted glass + hairline border), and `ActionGrid`/
+`AetherPill`. Remaining cryptic tags were decoded in place — theme chips
+`AUR/OCE/SUN` → `Aurora/Ocean/Sunset`, and benchmark modes `REL/BAL/FAS` →
+`Reliability / Balanced / Maximum Speed` via `benchModeLabel()`.
