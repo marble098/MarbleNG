@@ -616,6 +616,49 @@ ok "HEV source ready"
 
 
 # ==============================================================================
+# MarbleNG HEV JNI_OnLoad collision fix v1
+#
+# HEV's Android library includes src/hev-jni.c by default. That file defines
+# JNI_OnLoad() and attempts to register hev/htproxy/TProxyService.
+#
+# MarbleNG does not use HEV's bundled Java JNI API. It supplies
+# app/src/main/jni/marbleng_jni.c and directly calls HEV's public C library API.
+#
+# Rename only that upstream JNI source before ndk-build. HEV's recursive *.c
+# source discovery will then skip it while all tunnel/core C APIs remain.
+# ==============================================================================
+
+HEV_UPSTREAM_JNI="$HEVDST/src/hev-jni.c"
+HEV_UPSTREAM_JNI_DISABLED="$HEVDST/src/hev-jni.c.marbleng-disabled"
+
+[[ -f "$HEV_UPSTREAM_JNI" ]] || {
+    die "Expected upstream HEV JNI source missing: $HEV_UPSTREAM_JNI"
+}
+
+grep -q 'JNI_OnLoad' "$HEV_UPSTREAM_JNI" || {
+    die "HEV src/hev-jni.c no longer contains JNI_OnLoad; review upstream integration."
+}
+
+grep -q 'hev/htproxy' "$HEV_UPSTREAM_JNI" || {
+    die "HEV JNI default package changed; review upstream integration."
+}
+
+mv \
+    "$HEV_UPSTREAM_JNI" \
+    "$HEV_UPSTREAM_JNI_DISABLED"
+
+[[ ! -f "$HEV_UPSTREAM_JNI" ]] || {
+    die "Could not disable upstream HEV JNI source."
+}
+
+[[ -f "$HEV_UPSTREAM_JNI_DISABLED" ]] || {
+    die "Disabled HEV JNI source backup is missing."
+}
+
+ok "Disabled upstream HEV JNI_OnLoad glue; MarbleNG bridge will own JNI."
+
+
+# ==============================================================================
 # Check MarbleNG JNI makefiles
 # ==============================================================================
 
@@ -667,6 +710,81 @@ log "Building HEV + MarbleNG JNI bridge"
     -j"$CPU_COUNT"
 
 ok "HEV + MarbleNG JNI compilation completed"
+
+
+# ==============================================================================
+# Verify HEV JNI collision cannot regress
+# ==============================================================================
+
+log "Verifying native JNI ownership"
+
+LLVM_READELF="$NDK_BIN/llvm-readelf"
+
+[[ -x "$LLVM_READELF" ]] || {
+    die "NDK llvm-readelf not found: $LLVM_READELF"
+}
+
+for abi in \
+    arm64-v8a \
+    armeabi-v7a \
+    x86_64 \
+    x86
+do
+    HEV_LIB="$JNILIBS/$abi/libhev-socks5-tunnel.so"
+    BRIDGE_LIB="$JNILIBS/$abi/libmarbleng.so"
+
+    [[ -s "$HEV_LIB" ]] || {
+        die "HEV library missing before JNI verification: $HEV_LIB"
+    }
+
+    [[ -s "$BRIDGE_LIB" ]] || {
+        die "MarbleNG JNI library missing before JNI verification: $BRIDGE_LIB"
+    }
+
+    if "$LLVM_READELF" -Ws "$HEV_LIB" |
+        awk '{print $8}' |
+        grep -Fxq 'JNI_OnLoad'
+    then
+        die "JNI_OnLoad collision still present in $HEV_LIB"
+    fi
+
+    if "$LLVM_READELF" -Ws "$BRIDGE_LIB" |
+        awk '{print $8}' |
+        grep -Fxq 'JNI_OnLoad'
+    then
+        die "Unexpected JNI_OnLoad exported by MarbleNG bridge: $BRIDGE_LIB"
+    fi
+
+    for symbol in \
+        Java_com_marbleng_app_nativebridge_HevTunnel_run \
+        Java_com_marbleng_app_nativebridge_HevTunnel_quit \
+        Java_com_marbleng_app_nativebridge_HevTunnel_stats
+    do
+        if ! "$LLVM_READELF" -Ws "$BRIDGE_LIB" |
+            awk '{print $8}' |
+            grep -Fxq "$symbol"
+        then
+            die "Required MarbleNG JNI symbol missing for $abi: $symbol"
+        fi
+    done
+
+    for symbol in \
+        hev_socks5_tunnel_main_from_str \
+        hev_socks5_tunnel_quit \
+        hev_socks5_tunnel_stats
+    do
+        if ! "$LLVM_READELF" -Ws "$HEV_LIB" |
+            awk '{print $8}' |
+            grep -Fxq "$symbol"
+        then
+            die "Required HEV C API symbol missing for $abi: $symbol"
+        fi
+    done
+
+    ok "$abi / JNI ownership verified"
+done
+
+ok "HEV JNI_OnLoad collision eliminated for all ABIs"
 
 
 # ==============================================================================
