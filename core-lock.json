@@ -1,0 +1,13 @@
+{
+  "xray": {
+    "repo": "XTLS/Xray-core",
+    "tag": "v26.7.28",
+    "channel": "prerelease"
+  },
+  "hev": {
+    "repo": "heiher/hev-socks5-tunnel",
+    "tag": "2.17.0",
+    "channel": "latest-release"
+  },
+  "updated": "2026-08-12"
+}

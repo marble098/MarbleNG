@@ -1,0 +1,13 @@
+name: Source verification
+on:
+  pull_request:
+  workflow_dispatch:
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Shell syntax
+        run: bash -n scripts/*.sh
+      - name: Validate core lock
+        run: jq -e '.xray.tag and .hev.tag' core-lock.json

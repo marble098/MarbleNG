@@ -1,0 +1,3 @@
+-keep class com.marbleng.app.nativebridge.HevTunnel { *; }
+-keepclasseswithmembers class * { native <methods>; }
+-dontwarn org.jetbrains.annotations.**

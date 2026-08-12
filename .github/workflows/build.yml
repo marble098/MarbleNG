@@ -1,0 +1,85 @@
+name: Build signed Android APKs
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: marbleng-release-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-java@v5
+        with: { distribution: temurin, java-version: '17' }
+      - uses: android-actions/setup-android@v3
+      - name: Install Android SDK/NDK
+        shell: bash
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager 'platforms;android-37' 'build-tools;36.0.0' 'ndk;28.2.13676358'
+          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/28.2.13676358" >> "$GITHUB_ENV"
+      - name: Clone pinned Xray source for Go version
+        run: |
+          mkdir -p .bootstrap
+          git clone --depth 1 --branch "$(jq -r .xray.tag core-lock.json)" https://github.com/XTLS/Xray-core.git .bootstrap/xray
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: .bootstrap/xray/go.mod
+          cache: true
+      - name: Prepare all native ABIs
+        run: ./scripts/prepare-native.sh
+      - name: Install Gradle 9.5.1
+        uses: gradle/actions/setup-gradle@v4
+        with: { gradle-version: '9.5.1' }
+      - name: Restore stable release signer
+        env:
+          KS_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          KS_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KS_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASS: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          test -n "$KS_B64" && test -n "$KS_PASS" && test -n "$KS_ALIAS" && test -n "$KEY_PASS"
+          printf '%s' "$KS_B64" | base64 -d > release.jks
+          cat > signing.properties <<EOF
+          storeFile=release.jks
+          storePassword=$KS_PASS
+          keyAlias=$KS_ALIAS
+          keyPassword=$KEY_PASS
+          EOF
+      - name: Automatic version
+        run: |
+          V="1.0.$(date -u +%Y%m%d).${GITHUB_RUN_NUMBER}"
+          C="$(date -u +%s)"
+          echo "VERSION_NAME=$V" >> "$GITHUB_ENV"
+          echo "VERSION_CODE=$C" >> "$GITHUB_ENV"
+      - name: Unit/build checks + signed release
+        run: gradle --no-daemon clean assembleRelease -PVERSION_NAME="$VERSION_NAME" -PVERSION_CODE="$VERSION_CODE"
+      - name: Collect and fingerprint APKs
+        run: |
+          mkdir -p dist
+          find app/build/outputs/apk/release -type f -name '*.apk' -print0 | while IFS= read -r -d '' f; do
+            n="$(basename "$f")"; cp "$f" "dist/MarbleNG-${VERSION_NAME}-${n#app-}"
+          done
+          (cd dist && sha256sum *.apk > SHA256SUMS.txt)
+          APKSIGNER="$ANDROID_SDK_ROOT/build-tools/36.0.0/apksigner"
+          : > dist/SIGNING-CERTS.txt
+          for apk in dist/*.apk; do echo "===== $(basename "$apk") =====" >> dist/SIGNING-CERTS.txt; "$APKSIGNER" verify --verbose --print-certs "$apk" >> dist/SIGNING-CERTS.txt; done
+          ls -lh dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MarbleNG-${{ env.VERSION_NAME }}-all-architectures
+          path: dist/*
+          if-no-files-found: error
+      - name: Publish GitHub Release
+        env: { GH_TOKEN: '${{ github.token }}' }
+        run: |
+          tag="v$VERSION_NAME"
+          gh release view "$tag" >/dev/null 2>&1 && gh release delete "$tag" -y || true
+          git tag -f "$tag" "$GITHUB_SHA"; git push -f origin "$tag"
+          gh release create "$tag" dist/* --title "MarbleNG $VERSION_NAME" --notes "Signed multi-ABI build. Xray $(jq -r .xray.tag core-lock.json), HEV $(jq -r .hev.tag core-lock.json). Same release signing identity is reused via repository secrets."

@@ -1,0 +1,13 @@
+.gradle/
+.idea/
+local.properties
+*.iml
+build/
+app/build/
+.cores/
+app/src/main/jni/hev/
+app/src/main/jniLibs/
+signing.properties
+*.jks
+*.keystore
+.DS_Store
