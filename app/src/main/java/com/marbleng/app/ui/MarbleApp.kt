@@ -23,10 +23,10 @@ import java.util.Date
 private enum class Tab(val label:String,val icon:String){HOME("Deck","⚡"),LIB("Library","📦"),LAB("Lab","🧠"),RADAR("Radar","📡"),SETTINGS("Settings","⚙")}
 
 @Composable fun MarbleApp(repo:AppRepository,onConnect:(ProxyProfile)->Unit,onImportFile:()->Unit){
-    MarbleTheme(repo.settings.theme){var tab by remember{mutableStateOf(Tab.HOME)};var dialog by remember{mutableStateOf<String?>(null)}
+    AetherFlowTheme{var tab by remember{mutableStateOf(Tab.HOME)};var dialog by remember{mutableStateOf<String?>(null)}
         Scaffold(bottomBar={NavigationBar{Tab.entries.forEach{t->NavigationBarItem(selected=tab==t,onClick={tab=t},icon={Text(t.icon)},label={Text(t.label)})}}}){pad->
             Box(Modifier.fillMaxSize().padding(pad).background(Brush.verticalGradient(listOf(MaterialTheme.colorScheme.background,MaterialTheme.colorScheme.surface.copy(alpha=.78f))))){
-                when(tab){Tab.HOME->Dashboard(repo,onConnect){dialog=it};Tab.LIB->Library(repo,onConnect,onImportFile);Tab.LAB->Lab(repo,onConnect);Tab.RADAR->Radar(repo);Tab.SETTINGS->Settings(repo){dialog=it}}
+                when(tab){Tab.HOME->AetherDeck(repo,onConnect,onOpenLibrary={tab=Tab.LIB}){dialog=it};Tab.LIB->Library(repo,onConnect,onImportFile);Tab.LAB->Lab(repo,onConnect);Tab.RADAR->Radar(repo);Tab.SETTINGS->Settings(repo){dialog=it}}
             }
             if(repo.message.isNotBlank()) AlertDialog(onDismissRequest={if(!repo.busy)repo.clearMessage()},confirmButton={if(!repo.busy)TextButton(onClick=repo::clearMessage){Text("OK")}},title={Text(if(repo.busy)"Working" else "MarbleNG")},text={Text(repo.message)})
             dialog?.let{d->AlertDialog(onDismissRequest={dialog=null},confirmButton={TextButton(onClick={dialog=null}){Text("Close")}},title={Text(d)},text={SelectionContainer{Text(dialogText(d,repo))}})}
@@ -41,16 +41,6 @@ private fun dialogText(d:String,r:AppRepository)=when(d){
 @Composable private fun Header(title:String,sub:String){Column(Modifier.padding(18.dp)){Text(title,style=MaterialTheme.typography.headlineMedium,fontWeight=FontWeight.Black);Text(sub,color=MaterialTheme.colorScheme.secondary)}}
 @Composable private fun GlassCard(mod:Modifier=Modifier,content:@Composable ColumnScope.()->Unit){Card(mod,shape=RoundedCornerShape(22.dp),colors=CardDefaults.cardColors(containerColor=MaterialTheme.colorScheme.surface.copy(alpha=.93f))){Column(Modifier.padding(16.dp),content=content)}}
 @Composable private fun ActionGrid(actions:List<Pair<String,()->Unit>>){Column(Modifier.padding(horizontal=14.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){actions.chunked(2).forEach{row->Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){row.forEach{(n,a)->OutlinedButton(onClick=a,Modifier.weight(1f)){Text(n)}};if(row.size==1)Spacer(Modifier.weight(1f))}}}}
-
-@Composable private fun Dashboard(repo:AppRepository,onConnect:(ProxyProfile)->Unit,onDialog:(String)->Unit){
-    LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(bottom=24.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
-        item{Header("XRAY GENIUS","Android control deck • ${repo.profiles.size} profiles")}
-        item{GlassCard(Modifier.padding(horizontal=14.dp).fillMaxWidth()){Row(verticalAlignment=Alignment.CenterVertically){Text(if(repo.state=="CONNECTED")"●" else if(repo.state=="BLOCKED")"◆" else "○",color=if(repo.state=="CONNECTED")Color(0xFF4DFFB8) else Color(0xFFFF648A),style=MaterialTheme.typography.headlineLarge);Spacer(Modifier.width(12.dp));Column{Text(repo.state,fontWeight=FontWeight.Black);Text(repo.stateDetail.ifBlank{"No active profile"},color=MaterialTheme.colorScheme.onSurface.copy(alpha=.65f))}};Spacer(Modifier.height(8.dp));Text("SOCKS5h 127.0.0.1:${repo.settings.socksPort} • HEV TUN • privacy sentinel",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.secondary)}}
-        item{Row(Modifier.padding(horizontal=14.dp).fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(10.dp)){Button(onClick={repo.auto(onConnect)},Modifier.weight(1f),enabled=repo.profiles.isNotEmpty()){Text("⚡ Auto")};FilledTonalButton(onClick={repo.smart(onConnect)},Modifier.weight(1f),enabled=!repo.busy&&repo.profiles.isNotEmpty()){Text("🧠 Smart")}}}
-        item{ActionGrid(listOf("🚀 Reconnect" to {repo.lastProfile()?.let(onConnect)},"🛡 Privacy" to {repo.audit()},"🤖 Google AI" to {repo.googleAi()},"⏹ Disconnect" to {repo.stopVpn()},"⬆ Core update" to {repo.checkCoreUpdates()},"🧾 Logs" to {onDialog("Logs")},"🕘 History" to {onDialog("History")},"🧰 Doctor" to {onDialog("System Doctor")},"🗂 Capabilities" to {onDialog("Capabilities")},"🔐 Core lock" to {onDialog("Core lock")}))}
-        repo.privacy?.let{r->item{GlassCard(Modifier.padding(horizontal=14.dp).fillMaxWidth()){Text("Privacy Center",fontWeight=FontWeight.Bold);Text("Proxy egress: ${r.proxyIp.ifBlank{"?"}} • ${r.cloudflareLocation}");Text("DNS: ${r.dnsServers}",style=MaterialTheme.typography.bodySmall);Text(r.note,color=MaterialTheme.colorScheme.secondary)}}}
-    }
-}
 
 @Composable private fun Library(repo:AppRepository,onConnect:(ProxyProfile)->Unit,onImportFile:()->Unit){
     var url by remember{mutableStateOf("")};var name by remember{mutableStateOf("")};var raw by remember{mutableStateOf("")}
