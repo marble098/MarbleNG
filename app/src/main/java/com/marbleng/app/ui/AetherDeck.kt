@@ -1,146 +1,82 @@
 package com.marbleng.app.ui
 
-import androidx.compose.animation.animateColor
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.core.updateTransition
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.SheetState
-import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.rotate
-import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.marbleng.app.AppRepository
-import com.marbleng.app.model.BenchMode
+import com.marbleng.app.model.ConnectionMode
 import com.marbleng.app.model.ProxyProfile
-import kotlinx.coroutines.launch
+import com.marbleng.app.model.RoutingMode
 
-// =============================================================================
-// STATE MODEL
-//
-// A single immutable snapshot the whole deck renders from. Keeping the UI a
-// pure function of `ProxyState` makes every phase trivially previewable and
-// keeps the composables free of repository plumbing.
-// =============================================================================
+private enum class ConnectionPhase { Disconnected, Connecting, Connected, Blocked }
 
-enum class ConnectionPhase { Disconnected, Connecting, Connected, Blocked }
-
-data class ProxyState(
+private data class ProxyState(
     val phase: ConnectionPhase,
     val nodeName: String,
     val endpoint: String,
-    val regionFlag: String = "🌐", // 🌐
-    val pingMs: Int = 0,
-    val downloadKbps: Double = 0.0,
-    val uploadKbps: Double = 0.0,
-    val libraryCount: Int = 0,
-    val routingMode: BenchMode = BenchMode.BALANCED,
-    val statusLine: String = "",
+    val pingMs: Int,
+    val downloadKbps: Double,
+    val uploadKbps: Double,
+    val libraryCount: Int,
+    val mode: ConnectionMode,
+    val routingMode: RoutingMode,
+    val statusLine: String
 ) {
     val isConnected get() = phase == ConnectionPhase.Connected
     val isBusy get() = phase == ConnectionPhase.Connecting
-
-    companion object {
-        /** Mock snapshot used by @Preview and to demonstrate reactive theming. */
-        val PreviewConnected = ProxyState(
-            phase = ConnectionPhase.Connected,
-            nodeName = "Amsterdam · Reality Vision",
-            endpoint = "socks5h · 127.0.0.1:10808",
-            regionFlag = "🇳🇱", // 🇳🇱
-            pingMs = 42,
-            downloadKbps = 8421.0,
-            uploadKbps = 1180.0,
-            libraryCount = 24,
-            routingMode = BenchMode.BALANCED,
-            statusLine = "Fail-closed tunnel · privacy sentinel armed",
-        )
-    }
 }
 
-/** Projects live repository state into the immutable deck snapshot. */
-fun AppRepository.toProxyState(): ProxyState {
-    val phase = when {
-        state == "CONNECTED" -> ConnectionPhase.Connected
-        state == "BLOCKED" -> ConnectionPhase.Blocked
-        busy -> ConnectionPhase.Connecting
+private fun AppRepository.toProxyState(): ProxyState {
+    val phase = when (state) {
+        "CONNECTED" -> ConnectionPhase.Connected
+        "CONNECTING" -> ConnectionPhase.Connecting
+        "BLOCKED" -> ConnectionPhase.Blocked
         else -> ConnectionPhase.Disconnected
     }
-    // Live ping from the tunnel sampler; fall back to the last benchmark for this node.
-    val ping = when {
-        livePingMs > 0 -> livePingMs
-        else -> benchmarks.firstOrNull { it.name == stateDetail && it.success > 0 }?.latencyMs?.toInt() ?: 0
-    }
+    val fallbackPing = benchmarks.firstOrNull { it.name == stateDetail && it.success > 0 }?.latencyMs?.toInt() ?: 0
     return ProxyState(
         phase = phase,
         nodeName = when (phase) {
-            ConnectionPhase.Connected -> stateDetail.ifBlank { "Secured node" }
-            ConnectionPhase.Connecting -> "Locating fastest node"
-            ConnectionPhase.Blocked -> "Tunnel blocked · tap to retry"
-            ConnectionPhase.Disconnected -> "No active node"
+            ConnectionPhase.Connected -> stateDetail.ifBlank { "Protected connection" }
+            ConnectionPhase.Connecting -> stateDetail.ifBlank { "Preparing route" }
+            ConnectionPhase.Blocked -> stateDetail.ifBlank { "Connection blocked" }
+            ConnectionPhase.Disconnected -> lastProfile()?.name ?: "No active node"
         },
-        endpoint = "socks5h · 127.0.0.1:${settings.socksPort}",
-        pingMs = ping,
+        endpoint = when (settings.connectionMode) {
+            ConnectionMode.FULL_TUN -> "Full-device TUN • internal SOCKS 127.0.0.1:${settings.socksPort}"
+            ConnectionMode.LOCAL_PROXY -> "SOCKS5 • 127.0.0.1:${settings.localProxyPort}"
+        },
+        pingMs = if (livePingMs > 0) livePingMs else fallbackPing,
         downloadKbps = liveDownBps / 1024.0,
         uploadKbps = liveUpBps / 1024.0,
         libraryCount = profiles.size,
-        routingMode = settings.benchMode,
-        statusLine = if (busy) message else stateDetail,
+        mode = settings.connectionMode,
+        routingMode = settings.routingMode,
+        statusLine = when (phase) {
+            ConnectionPhase.Connected -> "Traffic path is active"
+            ConnectionPhase.Connecting -> "Starting Xray and validating route"
+            ConnectionPhase.Blocked -> stateDetail
+            ConnectionPhase.Disconnected -> "Ready when you are"
+        }
     )
 }
-
-// =============================================================================
-// SCREEN — MAIN CONTROL DECK
-// =============================================================================
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -148,590 +84,448 @@ fun AetherDeck(
     repo: AppRepository,
     onConnect: (ProxyProfile) -> Unit,
     onOpenLibrary: () -> Unit,
-    onDialog: (String) -> Unit,
+    onDialog: (String) -> Unit
 ) {
     val state = repo.toProxyState()
     var engineRoomOpen by remember { mutableStateOf(false) }
 
-    Column(
+    LazyColumn(
         modifier = Modifier
             .fillMaxSize()
             .background(
                 Brush.verticalGradient(
-                    0f to Aether.Void,
-                    0.55f to Aether.Void,
-                    1f to Aether.VoidElevated,
-                ),
+                    listOf(Aether.Void, MaterialTheme.colorScheme.primary.copy(alpha = 0.035f), Aether.Void)
+                )
             ),
+        contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 12.dp, bottom = 28.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        DeckTopBar(
-            state = state,
-            onEngineRoom = { engineRoomOpen = true },
-        )
-
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp, vertical = 4.dp),
-            verticalArrangement = Arrangement.spacedBy(22.dp),
-        ) {
-            Spacer(Modifier.height(4.dp))
-
-            ConnectionHero(
-                state = state,
-                onTap = {
-                    if (state.isConnected) repo.stopVpn() else repo.auto(onConnect)
-                },
-                modifier = Modifier.fillMaxWidth(),
+        item { DeckTopBar(state, onEngineRoom = { engineRoomOpen = true }) }
+        item {
+            ConnectionModeSelector(
+                selected = state.mode,
+                localPort = repo.settings.localProxyPort,
+                onSelect = repo::setConnectionMode
             )
-
+        }
+        item {
+            ConnectionPanel(
+                state = state,
+                onToggle = {
+                    if (state.isConnected || state.isBusy) repo.stopVpn() else repo.auto(onConnect)
+                }
+            )
+        }
+        item {
             QuickActions(
-                state = state,
-                onSmartRoute = { repo.smart(onConnect) },
-                onNodeLibrary = onOpenLibrary,
-                onPrivacyShield = { repo.audit() },
+                libraryCount = state.libraryCount,
+                onSmart = { repo.smart(onConnect) },
+                onLibrary = onOpenLibrary,
+                onAudit = repo::audit
             )
-
-            RoutingIntelligence(
+        }
+        item {
+            RoutingSummary(
                 selected = state.routingMode,
-                onSelect = { repo.updateSettings(repo.settings.copy(benchMode = it)) },
+                onSelect = { repo.updateSettings(repo.settings.copy(routingMode = it)) },
+                onPrepare = { repo.prepareRoutingAssets(false) }
+            )
+        }
+        item {
+            Text(
+                "HTTPS RTT is measured through the complete proxy route and smoothed with a rolling median. Local proxy mode exposes SOCKS5 only on localhost.",
+                style = MaterialTheme.typography.bodySmall,
+                color = Aether.InkFaint,
+                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
             )
         }
     }
 
     if (engineRoomOpen) {
         DiagnosticsBottomSheet(
-            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
             onDismiss = { engineRoomOpen = false },
-            onCoreUpdate = { repo.checkCoreUpdates() },
+            onCoreUpdate = repo::checkCoreUpdates,
             onImport = onOpenLibrary,
-            onDialog = onDialog,
+            onDialog = onDialog
         )
     }
 }
-
-// =============================================================================
-// TOP BAR
-// =============================================================================
 
 @Composable
 private fun DeckTopBar(state: ProxyState, onEngineRoom: () -> Unit) {
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(start = 24.dp, end = 16.dp, top = 22.dp, bottom = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically
     ) {
         Column(Modifier.weight(1f)) {
+            Text("MarbleNG", style = MaterialTheme.typography.headlineMedium, color = Aether.Ink)
             Text(
-                "Aether Flow",
-                style = MaterialTheme.typography.headlineMedium,
-                color = Aether.Ink,
-            )
-            Text(
-                state.statusLine.ifBlank { "Invisible network nexus" },
-                style = MaterialTheme.typography.labelSmall,
+                state.statusLine,
+                style = MaterialTheme.typography.bodySmall,
                 color = Aether.InkFaint,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+                overflow = TextOverflow.Ellipsis
             )
         }
-        StatusPill(state)
-        Spacer(Modifier.width(10.dp))
-        // Engine Room handle — also reachable via swipe-up affordance below the deck.
-        Box(
-            modifier = Modifier
-                .size(44.dp)
-                .clip(CircleShape)
-                .background(Aether.Glass)
-                .clickable(onClick = onEngineRoom),
-            contentAlignment = Alignment.Center,
+        StatusPill(state.phase)
+        Spacer(Modifier.width(8.dp))
+        Surface(
+            modifier = Modifier.size(42.dp).clickable(onClick = onEngineRoom),
+            shape = CircleShape,
+            color = Aether.GlassStrong,
+            border = BorderStroke(1.dp, Aether.GlassBorderSoft)
         ) {
-            Text("⚙", style = MaterialTheme.typography.titleMedium, color = Aether.InkMuted) // ⚙
-        }
-    }
-}
-
-@Composable
-private fun StatusPill(state: ProxyState) {
-    val (dot, label) = when (state.phase) {
-        ConnectionPhase.Connected -> Aether.Emerald to "SECURED"
-        ConnectionPhase.Connecting -> Aether.Cyan to "LINKING"
-        ConnectionPhase.Blocked -> Aether.Danger to "BLOCKED"
-        ConnectionPhase.Disconnected -> Aether.SlateBright to "OFFLINE"
-    }
-    Row(
-        modifier = Modifier
-            .clip(CircleShape)
-            .background(Aether.Glass)
-            .border(BorderStroke(1.dp, Aether.GlassBorderSoft), CircleShape)
-            .padding(horizontal = 12.dp, vertical = 7.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(7.dp),
-    ) {
-        Box(Modifier.size(7.dp).clip(CircleShape).background(dot))
-        Text(label, style = MaterialTheme.typography.labelSmall, color = Aether.InkMuted)
-    }
-}
-
-// =============================================================================
-// HERO — THE CONNECTION ORB
-//
-// A fluid circular nexus. `updateTransition` cross-fades the accent between
-// phases; a `rememberInfiniteTransition` drives the "breathing" pulse and the
-// slow rotation of the conic ring; a tap fires an expanding ripple ring.
-// =============================================================================
-
-@Composable
-fun ConnectionHero(
-    state: ProxyState,
-    onTap: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val phase = state.phase
-    val active = phase == ConnectionPhase.Connected || phase == ConnectionPhase.Connecting
-
-    // --- Phase-driven accent cross-fade --------------------------------------
-    val transition = updateTransition(phase, label = "phase")
-    val accentA by transition.animateColor(
-        transitionSpec = { tween(700, easing = FastOutSlowInEasing) }, label = "accentA",
-    ) {
-        when (it) {
-            ConnectionPhase.Connected -> Aether.Amethyst
-            ConnectionPhase.Connecting -> Aether.Amethyst
-            ConnectionPhase.Blocked -> Aether.Danger
-            ConnectionPhase.Disconnected -> Aether.Slate
-        }
-    }
-    val accentB by transition.animateColor(
-        transitionSpec = { tween(700, easing = FastOutSlowInEasing) }, label = "accentB",
-    ) {
-        when (it) {
-            ConnectionPhase.Connected -> Aether.Cyan
-            ConnectionPhase.Connecting -> Aether.AmethystBright
-            ConnectionPhase.Blocked -> Aether.DangerBright
-            ConnectionPhase.Disconnected -> Aether.SlateBright
-        }
-    }
-
-    // --- Continuous motion ----------------------------------------------------
-    val loop = rememberInfiniteTransition(label = "orb")
-    val breathe by loop.animateFloat(
-        initialValue = 0.965f,
-        targetValue = 1.055f,
-        animationSpec = infiniteRepeatable(tween(2400, easing = FastOutSlowInEasing), RepeatMode.Reverse),
-        label = "breathe",
-    )
-    val spin by loop.animateFloat(
-        initialValue = 0f,
-        targetValue = 360f,
-        animationSpec = infiniteRepeatable(
-            tween(if (phase == ConnectionPhase.Connecting) 2600 else 11000, easing = LinearEasing),
-        ),
-        label = "spin",
-    )
-    val pulse = if (active) breathe else 1f
-
-    // --- Tap ripple -----------------------------------------------------------
-    var tapKey by remember { mutableIntStateOf(0) }
-    val ripple = remember { Animatable(0f) }
-    LaunchedEffect(tapKey) {
-        if (tapKey == 0) return@LaunchedEffect
-        ripple.snapTo(0f)
-        ripple.animateTo(1f, tween(720, easing = FastOutSlowInEasing))
-    }
-
-    Box(
-        modifier = modifier
-            .aspectRatio(1f)
-            .padding(horizontal = 26.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth(0.86f)
-                .aspectRatio(1f)
-                .drawBehind {
-                    val c = Offset(size.width / 2f, size.height / 2f)
-                    val r = size.minDimension / 2f
-
-                    // Ambient bloom
-                    drawCircle(
-                        brush = Brush.radialGradient(
-                            colors = listOf(accentA.copy(alpha = if (active) 0.42f else 0.20f), Color.Transparent),
-                            center = c,
-                            radius = r * 1.28f,
-                        ),
-                        radius = r * 1.28f,
-                        center = c,
-                    )
-                    // Glass core disc
-                    drawCircle(
-                        brush = Brush.linearGradient(
-                            colors = listOf(Aether.GlassStrong, Aether.Glass),
-                            start = Offset(0f, 0f),
-                            end = Offset(size.width, size.height),
-                        ),
-                        radius = r * 0.80f,
-                        center = c,
-                    )
-                    // Rotating conic accent ring
-                    rotate(spin, pivot = c) {
-                        drawCircle(
-                            brush = Brush.sweepGradient(
-                                colors = listOf(accentA, accentB, accentA.copy(alpha = 0.15f), accentA),
-                                center = c,
-                            ),
-                            radius = r * 0.80f * pulse,
-                            center = c,
-                            style = Stroke(width = r * 0.045f),
-                        )
-                    }
-                    // Inner hairline
-                    drawCircle(
-                        color = Color.White.copy(alpha = 0.06f),
-                        radius = r * 0.66f,
-                        center = c,
-                        style = Stroke(width = 1.dp.toPx()),
-                    )
-                    // Tap ripple
-                    if (ripple.value in 0.001f..0.999f) {
-                        drawCircle(
-                            color = accentB.copy(alpha = (1f - ripple.value) * 0.55f),
-                            radius = r * (0.60f + ripple.value * 0.55f),
-                            center = c,
-                            style = Stroke(width = r * 0.03f * (1f - ripple.value)),
-                        )
-                    }
-                }
-                .clip(CircleShape)
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                ) {
-                    tapKey++
-                    onTap()
-                },
-            contentAlignment = Alignment.Center,
-        ) {
-            OrbFace(state)
-        }
-    }
-}
-
-@Composable
-private fun OrbFace(state: ProxyState) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        val glyph = when (state.phase) {
-            ConnectionPhase.Connected -> "⚡" // ⚡
-            ConnectionPhase.Connecting -> "∙∙∙" // ···
-            ConnectionPhase.Blocked -> "⚠" // ⚠
-            ConnectionPhase.Disconnected -> "⏻" // ⏻ power
-        }
-        Text(
-            glyph,
-            style = MaterialTheme.typography.displayLarge,
-            color = Aether.Ink,
-        )
-        Spacer(Modifier.height(6.dp))
-        Text(
-            when (state.phase) {
-                ConnectionPhase.Connected -> "CONNECTED"
-                ConnectionPhase.Connecting -> "CONNECTING"
-                ConnectionPhase.Blocked -> "TAP TO RETRY"
-                ConnectionPhase.Disconnected -> "TAP TO CONNECT"
-            },
-            style = MaterialTheme.typography.labelLarge,
-            color = if (state.isConnected) Aether.CyanBright else Aether.InkMuted,
-        )
-        Spacer(Modifier.height(2.dp))
-        Text(
-            state.nodeName,
-            style = MaterialTheme.typography.bodyMedium,
-            color = Aether.InkFaint,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.widthIn(max = 190.dp),
-        )
-
-        // Live telemetry — fades in only once there is a tunnel to measure.
-        if (state.isConnected) {
-            Spacer(Modifier.height(14.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
-                Telemetry("PING", if (state.pingMs > 0) "${state.pingMs} ms" else "—")
-                Telemetry("DOWN", formatRate(state.downloadKbps))
-                Telemetry("UP", formatRate(state.uploadKbps))
+            Box(contentAlignment = Alignment.Center) {
+                Text("⚙︎", color = Aether.InkMuted, style = MaterialTheme.typography.titleMedium)
             }
         }
     }
 }
 
 @Composable
-private fun Telemetry(label: String, value: String) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(value, style = MaterialTheme.typography.titleMedium, color = Aether.Ink)
-        Text(label, style = MaterialTheme.typography.labelSmall, color = Aether.InkFaint)
+private fun StatusPill(phase: ConnectionPhase) {
+    val color = when (phase) {
+        ConnectionPhase.Connected -> Aether.Emerald
+        ConnectionPhase.Connecting -> MaterialTheme.colorScheme.secondary
+        ConnectionPhase.Blocked -> MaterialTheme.colorScheme.error
+        ConnectionPhase.Disconnected -> Aether.InkFaint
     }
-}
-
-private fun formatRate(kbps: Double): String = when {
-    kbps <= 0.0 -> "—"
-    kbps >= 1024 -> "%.1f MB/s".format(kbps / 1024)
-    else -> "%.0f KB/s".format(kbps)
-}
-
-// =============================================================================
-// SMART ACTION ROW — exactly three contextual cards
-// =============================================================================
-
-@Composable
-fun QuickActions(
-    state: ProxyState,
-    onSmartRoute: () -> Unit,
-    onNodeLibrary: () -> Unit,
-    onPrivacyShield: () -> Unit,
-) {
-    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        QuickActionCard(
-            glyph = "🧭", // 🧭
-            title = "Smart Route",
-            caption = "Auto-pick best egress",
-            modifier = Modifier.weight(1f),
-            onClick = onSmartRoute,
-        )
-        QuickActionCard(
-            glyph = state.regionFlag,
-            title = "Node Library",
-            caption = "${state.libraryCount} nodes",
-            modifier = Modifier.weight(1f),
-            onClick = onNodeLibrary,
-        )
-        QuickActionCard(
-            glyph = "🛡", // 🛡
-            title = "Privacy Shield",
-            caption = "Audit leaks",
-            modifier = Modifier.weight(1f),
-            onClick = onPrivacyShield,
-        )
+    val label = when (phase) {
+        ConnectionPhase.Connected -> "ONLINE"
+        ConnectionPhase.Connecting -> "STARTING"
+        ConnectionPhase.Blocked -> "BLOCKED"
+        ConnectionPhase.Disconnected -> "OFFLINE"
     }
-}
-
-@Composable
-private fun QuickActionCard(
-    glyph: String,
-    title: String,
-    caption: String,
-    modifier: Modifier = Modifier,
-    onClick: () -> Unit,
-) {
-    Column(
-        modifier = modifier
-            .clip(RoundedCornerShape(22.dp))
-            .background(Aether.Glass)
-            .border(BorderStroke(1.dp, Aether.GlassBorderSoft), RoundedCornerShape(22.dp))
-            .clickable(onClick = onClick)
-            .padding(vertical = 18.dp, horizontal = 12.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+    Row(
+        modifier = Modifier
+            .clip(CircleShape)
+            .background(color.copy(alpha = 0.11f))
+            .border(1.dp, color.copy(alpha = 0.24f), CircleShape)
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        Text(glyph, style = MaterialTheme.typography.headlineMedium)
-        Text(
-            title,
-            style = MaterialTheme.typography.labelLarge,
-            color = Aether.Ink,
-            textAlign = TextAlign.Center,
-        )
-        Text(
-            caption,
-            style = MaterialTheme.typography.labelSmall,
-            color = Aether.InkFaint,
-            textAlign = TextAlign.Center,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
+        Box(Modifier.size(6.dp).clip(CircleShape).background(color))
+        Text(label, style = MaterialTheme.typography.labelSmall, color = color)
     }
 }
 
-// =============================================================================
-// ROUTING INTELLIGENCE — cryptic REL/BAL/FAS -> human selector cards
-// =============================================================================
-
-private data class RoutingOption(
-    val mode: BenchMode,
-    val glyph: String,
-    val title: String,
-    val description: String,
-    val accent: Color,
-)
-
-private val routingOptions = listOf(
-    RoutingOption(BenchMode.RELIABLE, "🛡", "Reliability Mode", "Locks onto the most stable, long-lived nodes.", Aether.Cyan),
-    RoutingOption(BenchMode.BALANCED, "⚖", "Balanced", "The optimal blend of speed and stability.", Aether.Amethyst),
-    RoutingOption(BenchMode.FAST, "⚡", "Maximum Speed", "Chases the absolute lowest-latency egress.", Aether.AmethystBright),
-    RoutingOption(BenchMode.TURBO, "🚀", "Turbo Burst", "Aggressive parallel probing for peak throughput.", Aether.CyanBright),
-)
-
 @Composable
-fun RoutingIntelligence(selected: BenchMode, onSelect: (BenchMode) -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text(
-            "ROUTING INTELLIGENCE",
-            style = MaterialTheme.typography.labelSmall,
-            color = Aether.InkFaint,
-            modifier = Modifier.padding(start = 4.dp),
-        )
+private fun ConnectionModeSelector(
+    selected: ConnectionMode,
+    localPort: Int,
+    onSelect: (ConnectionMode) -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+        Text("CONNECTION MODE", style = MaterialTheme.typography.labelSmall, color = Aether.InkFaint)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                .clip(RoundedCornerShape(16.dp))
+                .background(Aether.Glass)
+                .border(1.dp, Aether.GlassBorderSoft, RoundedCornerShape(16.dp))
+                .padding(4.dp)
         ) {
-            routingOptions.forEach { option ->
-                RoutingCard(
-                    option = option,
-                    selected = option.mode == selected,
-                    onClick = { onSelect(option.mode) },
+            ModeSegment(
+                title = "Full TUN",
+                subtitle = "All device traffic",
+                selected = selected == ConnectionMode.FULL_TUN,
+                modifier = Modifier.weight(1f),
+                onClick = { onSelect(ConnectionMode.FULL_TUN) }
+            )
+            Spacer(Modifier.width(4.dp))
+            ModeSegment(
+                title = "Local proxy",
+                subtitle = "127.0.0.1:$localPort",
+                selected = selected == ConnectionMode.LOCAL_PROXY,
+                modifier = Modifier.weight(1f),
+                onClick = { onSelect(ConnectionMode.LOCAL_PROXY) }
+            )
+        }
+        Text(
+            if (selected == ConnectionMode.FULL_TUN)
+                "Android VpnService captures device traffic."
+            else
+                "No VPN permission. Point supported apps to SOCKS5 127.0.0.1:$localPort.",
+            style = MaterialTheme.typography.bodySmall,
+            color = Aether.InkFaint,
+            modifier = Modifier.padding(horizontal = 4.dp)
+        )
+    }
+}
+
+@Composable
+private fun ModeSegment(
+    title: String,
+    subtitle: String,
+    selected: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    val primary = MaterialTheme.colorScheme.primary
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(if (selected) primary.copy(alpha = 0.16f) else Color.Transparent)
+            .border(
+                1.dp,
+                if (selected) primary.copy(alpha = 0.40f) else Color.Transparent,
+                RoundedCornerShape(12.dp)
+            )
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 10.dp)
+    ) {
+        Text(title, style = MaterialTheme.typography.labelLarge, color = if (selected) Aether.Ink else Aether.InkMuted)
+        Text(subtitle, style = MaterialTheme.typography.labelSmall, color = if (selected) primary else Aether.InkFaint)
+    }
+}
+
+@Composable
+private fun ConnectionPanel(state: ProxyState, onToggle: () -> Unit) {
+    val primary = MaterialTheme.colorScheme.primary
+    val active = state.phase == ConnectionPhase.Connected
+    val statusColor = when (state.phase) {
+        ConnectionPhase.Connected -> Aether.Emerald
+        ConnectionPhase.Connecting -> MaterialTheme.colorScheme.secondary
+        ConnectionPhase.Blocked -> MaterialTheme.colorScheme.error
+        ConnectionPhase.Disconnected -> Aether.InkFaint
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(24.dp))
+            .background(
+                Brush.linearGradient(
+                    listOf(
+                        if (active) primary.copy(alpha = 0.15f) else Aether.GlassStrong,
+                        Aether.Glass
+                    )
+                )
+            )
+            .border(
+                1.dp,
+                if (active) primary.copy(alpha = 0.32f) else Aether.GlassBorder,
+                RoundedCornerShape(24.dp)
+            )
+            .padding(18.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Box(Modifier.size(8.dp).clip(CircleShape).background(statusColor))
+                    Text(
+                        when (state.phase) {
+                            ConnectionPhase.Connected -> "ACTIVE ROUTE"
+                            ConnectionPhase.Connecting -> "NEGOTIATING"
+                            ConnectionPhase.Blocked -> "ROUTE BLOCKED"
+                            ConnectionPhase.Disconnected -> "READY"
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = statusColor
+                    )
+                }
+                Spacer(Modifier.height(7.dp))
+                Text(
+                    state.nodeName,
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = Aether.Ink,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    state.endpoint,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Aether.InkMuted,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            Spacer(Modifier.width(12.dp))
+            Button(
+                onClick = onToggle,
+                shape = RoundedCornerShape(16.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (active) Aether.GlassStrong else primary,
+                    contentColor = if (active) Aether.Ink else MaterialTheme.colorScheme.onPrimary
+                ),
+                border = if (active) BorderStroke(1.dp, Aether.GlassBorder) else null,
+                contentPadding = PaddingValues(horizontal = 18.dp, vertical = 12.dp)
+            ) {
+                Text(
+                    when (state.phase) {
+                        ConnectionPhase.Connected -> "Disconnect"
+                        ConnectionPhase.Connecting -> "Stop"
+                        ConnectionPhase.Blocked -> "Retry"
+                        ConnectionPhase.Disconnected -> "Connect"
+                    }
+                )
+            }
+        }
+
+        HorizontalDivider(color = Aether.GlassBorderSoft)
+
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            MetricTile(
+                label = "HTTPS RTT",
+                value = if (state.pingMs > 0) "${state.pingMs} ms" else "—",
+                modifier = Modifier.weight(1f)
+            )
+            MetricTile(
+                label = "DOWN",
+                value = formatRate(state.downloadKbps),
+                modifier = Modifier.weight(1f)
+            )
+            MetricTile(
+                label = "UP",
+                value = formatRate(state.uploadKbps),
+                modifier = Modifier.weight(1f)
+            )
+        }
+    }
+}
+
+@Composable
+private fun MetricTile(label: String, value: String, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(14.dp))
+            .background(Aether.Void.copy(alpha = 0.48f))
+            .padding(horizontal = 10.dp, vertical = 10.dp)
+    ) {
+        Text(label, style = MaterialTheme.typography.labelSmall, color = Aether.InkFaint)
+        Spacer(Modifier.height(3.dp))
+        Text(value, style = MaterialTheme.typography.labelLarge, color = Aether.Ink)
+    }
+}
+
+@Composable
+private fun QuickActions(
+    libraryCount: Int,
+    onSmart: () -> Unit,
+    onLibrary: () -> Unit,
+    onAudit: () -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("QUICK ACTIONS", style = MaterialTheme.typography.labelSmall, color = Aether.InkFaint)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            QuickAction("Smart test", "Rank nodes", "◎", Modifier.weight(1f), onSmart)
+            QuickAction("Library", "$libraryCount nodes", "▦", Modifier.weight(1f), onLibrary)
+            QuickAction("Privacy", "Audit route", "◇", Modifier.weight(1f), onAudit)
+        }
+    }
+}
+
+@Composable
+private fun QuickAction(
+    title: String,
+    subtitle: String,
+    glyph: String,
+    modifier: Modifier,
+    onClick: () -> Unit
+) {
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(18.dp))
+            .background(Aether.Glass)
+            .border(1.dp, Aether.GlassBorderSoft, RoundedCornerShape(18.dp))
+            .clickable(onClick = onClick)
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(5.dp)
+    ) {
+        Text(glyph, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.secondary)
+        Text(title, style = MaterialTheme.typography.labelLarge, color = Aether.Ink, maxLines = 1)
+        Text(subtitle, style = MaterialTheme.typography.labelSmall, color = Aether.InkFaint, maxLines = 1)
+    }
+}
+
+@Composable
+private fun RoutingSummary(
+    selected: RoutingMode,
+    onSelect: (RoutingMode) -> Unit,
+    onPrepare: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
+            .background(Aether.Glass)
+            .border(1.dp, Aether.GlassBorderSoft, RoundedCornerShape(20.dp))
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Routing policy", style = MaterialTheme.typography.titleMedium, color = Aether.Ink)
+                Text(
+                    "Unmatched traffic always falls back to the proxy.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Aether.InkFaint
+                )
+            }
+            TextButton(onClick = onPrepare) { Text("Prepare data") }
+        }
+        Row(
+            modifier = Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(7.dp)
+        ) {
+            RoutingMode.entries.forEach { mode ->
+                FilterChip(
+                    selected = selected == mode,
+                    onClick = { onSelect(mode) },
+                    label = { Text(routingLabel(mode)) }
                 )
             }
         }
     }
 }
 
-@Composable
-private fun RoutingCard(option: RoutingOption, selected: Boolean, onClick: () -> Unit) {
-    val border by animateColorAsState(
-        if (selected) option.accent else Aether.GlassBorderSoft, tween(300), label = "routeBorder",
-    )
-    val fill by animateColorAsState(
-        if (selected) option.accent.copy(alpha = 0.18f) else Aether.Glass,
-        tween(300), label = "routeFill",
-    )
-    Column(
-        modifier = Modifier
-            .width(168.dp)
-            .clip(RoundedCornerShape(20.dp))
-            .background(fill)
-            .border(BorderStroke(if (selected) 1.5.dp else 1.dp, border), RoundedCornerShape(20.dp))
-            .clickable(onClick = onClick)
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(option.glyph, style = MaterialTheme.typography.titleMedium)
-            Spacer(Modifier.weight(1f))
-            if (selected) {
-                Box(Modifier.size(9.dp).clip(CircleShape).background(option.accent))
-            }
-        }
-        Text(option.title, style = MaterialTheme.typography.titleMedium, color = Aether.Ink)
-        Text(
-            option.description,
-            style = MaterialTheme.typography.labelSmall,
-            color = Aether.InkMuted,
-        )
-    }
+private fun routingLabel(mode: RoutingMode) = when (mode) {
+    RoutingMode.PROXY_ALL -> "Proxy all"
+    RoutingMode.BYPASS_PRIVATE -> "Private bypass"
+    RoutingMode.GEO_DIRECT -> "Geo direct"
+    RoutingMode.CUSTOM -> "Custom"
 }
-
-// =============================================================================
-// ENGINE ROOM — the developer sandbox, swept into a bottom sheet
-// =============================================================================
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DiagnosticsBottomSheet(
-    sheetState: SheetState,
+private fun DiagnosticsBottomSheet(
     onDismiss: () -> Unit,
     onCoreUpdate: () -> Unit,
     onImport: () -> Unit,
-    onDialog: (String) -> Unit,
+    onDialog: (String) -> Unit
 ) {
-    val scope = rememberCoroutineScope()
-    fun close(after: () -> Unit) = scope.launch {
-        sheetState.hide()
-    }.invokeOnCompletion {
-        onDismiss()
-        after()
-    }
-
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        sheetState = sheetState,
         containerColor = Aether.VoidElevated,
-        contentColor = Aether.Ink,
+        contentColor = Aether.Ink
     ) {
         Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp)
-                .padding(bottom = 32.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
+            Modifier.fillMaxWidth().padding(start = 18.dp, end = 18.dp, bottom = 30.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Text("Engine Room", style = MaterialTheme.typography.headlineMedium, color = Aether.Ink)
-            Text(
-                "Advanced diagnostics & core internals",
-                style = MaterialTheme.typography.labelSmall,
-                color = Aether.InkFaint,
-            )
-            Spacer(Modifier.height(14.dp))
-
-            EngineGroup("Observability") {
-                EngineRow("🧾", "Runtime Logs", "Live Xray + HEV tunnel bundle") { close { onDialog("Logs") } }
-                EngineRow("🕙", "Connection History", "Recent sessions & reasons") { close { onDialog("History") } }
+            Text("Engine room", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+            Text("Diagnostics and maintenance without crowding the main deck.", style = MaterialTheme.typography.bodySmall, color = Aether.InkFaint)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilledTonalButton(onClick = onCoreUpdate, modifier = Modifier.weight(1f)) { Text("Check cores") }
+                FilledTonalButton(onClick = onImport, modifier = Modifier.weight(1f)) { Text("Import") }
             }
-            EngineGroup("Integrity") {
-                EngineRow("🩺", "System Doctor", "Native binary & bridge checks") { close { onDialog("System Doctor") } }
-                EngineRow("🗂", "Capabilities", "Supported protocols & transports") { close { onDialog("Capabilities") } }
-                EngineRow("🔐", "Core Lock", "Pinned core manifest") { close { onDialog("Core lock") } }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = { onDialog("System Doctor") }, modifier = Modifier.weight(1f)) { Text("Doctor") }
+                OutlinedButton(onClick = { onDialog("Logs") }, modifier = Modifier.weight(1f)) { Text("Logs") }
             }
-            EngineGroup("Maintenance") {
-                EngineRow("⬆", "Core Update", "Check Xray / HEV releases") { close { onCoreUpdate() } }
-                EngineRow("📥", "Import Xray JSON", "Paste or load raw configs") { close { onImport() } }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = { onDialog("Capabilities") }, modifier = Modifier.weight(1f)) { Text("Capabilities") }
+                OutlinedButton(onClick = { onDialog("Core lock") }, modifier = Modifier.weight(1f)) { Text("Core lock") }
             }
         }
     }
 }
 
-@Composable
-private fun EngineGroup(title: String, content: @Composable () -> Unit) {
-    Spacer(Modifier.height(6.dp))
-    Text(
-        title.uppercase(),
-        style = MaterialTheme.typography.labelSmall,
-        color = Aether.InkFaint,
-        modifier = Modifier.padding(start = 4.dp, bottom = 8.dp),
-    )
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp))
-            .background(Aether.Glass)
-            .border(BorderStroke(1.dp, Aether.GlassBorderSoft), RoundedCornerShape(20.dp)),
-    ) { content() }
-    Spacer(Modifier.height(14.dp))
-}
-
-@Composable
-private fun EngineRow(glyph: String, title: String, subtitle: String, onClick: () -> Unit) {
-    Column {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable(onClick = onClick)
-                .padding(horizontal = 16.dp, vertical = 14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
-        ) {
-            Box(
-                modifier = Modifier.size(38.dp).clip(RoundedCornerShape(12.dp)).background(Aether.GlassStrong),
-                contentAlignment = Alignment.Center,
-            ) { Text(glyph, style = MaterialTheme.typography.titleMedium) }
-            Column(Modifier.weight(1f)) {
-                Text(title, style = MaterialTheme.typography.titleMedium, color = Aether.Ink)
-                Text(subtitle, style = MaterialTheme.typography.labelSmall, color = Aether.InkFaint)
-            }
-            Text("›", style = MaterialTheme.typography.headlineMedium, color = Aether.InkFaint)
-        }
-    }
+private fun formatRate(kbps: Double): String = when {
+    kbps <= 0.0 -> "—"
+    kbps >= 1024.0 -> "%.1f MB/s".format(kbps / 1024.0)
+    else -> "%.0f KB/s".format(kbps)
 }

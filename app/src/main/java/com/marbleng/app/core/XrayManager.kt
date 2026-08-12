@@ -1,447 +1,293 @@
 package com.marbleng.app.core
 
 import android.content.Context
+import com.marbleng.app.model.AppSettings
 import com.marbleng.app.model.ProxyProfile
+import com.marbleng.app.model.RoutingMode
 import java.io.File
+import java.net.HttpURLConnection
 import java.net.InetSocketAddress
 import java.net.Socket
+import java.net.URL
 
-class XrayManager(
-    private val context: Context
-) {
+/** Status of the two Xray geo data files used by managed routing. */
+data class RoutingAssetStatus(
+    val geoIpReady: Boolean,
+    val geoIpBytes: Long,
+    val geoIpRemote: Boolean,
+    val geoSiteReady: Boolean,
+    val geoSiteBytes: Long,
+    val geoSiteRemote: Boolean
+)
 
-    @Volatile
-    private var process: Process? = null
+class XrayManager(private val context: Context) {
+    @Volatile private var process: Process? = null
 
-    val isAlive: Boolean
-        get() = process?.isAlive == true
-
-    val logFile: File
-        get() = File(context.filesDir, "logs/xray.log")
-
-    private val bin: File
-        get() = File(
-            context.applicationInfo.nativeLibraryDir,
-            "libxray.so"
-        )
-
-    private val assetsDir: File =
-        File(context.filesDir, "xray-assets")
-
-    private val runtimeConfig: File
-        get() = File(context.filesDir, "runtime.json")
+    val isAlive: Boolean get() = process?.isAlive == true
+    val logFile: File get() = File(context.filesDir, "logs/xray.log")
+    private val bin: File get() = File(context.applicationInfo.nativeLibraryDir, "libxray.so")
+    private val assetsDir = File(context.filesDir, "xray-assets")
+    private val runtimeConfig: File get() = File(context.filesDir, "runtime.json")
 
     /**
-     * Copies Xray geo assets from APK assets into app private storage.
-     *
-     * Xray uses XRAY_LOCATION_ASSET to locate these files.
+     * Ensures geoip.dat and geosite.dat exist. If a user URL is configured, the file is downloaded
+     * once for that exact URL and then reused on every start. Changing the URL triggers one new
+     * download. force=true explicitly refreshes the selected source.
      */
-    fun prepareAssets() {
+    @Synchronized
+    fun prepareRoutingAssets(settings: AppSettings = AppSettings(), force: Boolean = false): RoutingAssetStatus {
         assetsDir.mkdirs()
+        ensureAsset("geoip.dat", settings.geoIpUrl.trim(), force)
+        ensureAsset("geosite.dat", settings.geoSiteUrl.trim(), force)
+        return routingAssetStatus()
+    }
 
-        listOf(
-            "geoip.dat",
-            "geosite.dat"
-        ).forEach { name ->
+    @Synchronized
+    fun deleteRoutingAssets() {
+        listOf("geoip.dat", "geosite.dat").forEach { name ->
+            File(assetsDir, name).delete()
+            sourceMarker(name).delete()
+            File(assetsDir, "$name.download").delete()
+        }
+    }
 
-            val destination = File(assetsDir, name)
+    fun routingAssetStatus(): RoutingAssetStatus {
+        val ip = File(assetsDir, "geoip.dat")
+        val site = File(assetsDir, "geosite.dat")
+        val ipSource = runCatching { sourceMarker("geoip.dat").readText() }.getOrDefault("")
+        val siteSource = runCatching { sourceMarker("geosite.dat").readText() }.getOrDefault("")
+        return RoutingAssetStatus(
+            geoIpReady = ip.isFile && ip.length() > 0,
+            geoIpBytes = ip.takeIf { it.isFile }?.length() ?: 0L,
+            geoIpRemote = ipSource.startsWith("http://") || ipSource.startsWith("https://"),
+            geoSiteReady = site.isFile && site.length() > 0,
+            geoSiteBytes = site.takeIf { it.isFile }?.length() ?: 0L,
+            geoSiteRemote = siteSource.startsWith("http://") || siteSource.startsWith("https://")
+        )
+    }
 
-            if (!destination.exists() || destination.length() <= 0L) {
-                runCatching {
-                    context.assets
-                        .open("xray/$name")
-                        .use { source ->
+    private fun ensureAsset(name: String, remoteUrl: String, force: Boolean) {
+        val destination = File(assetsDir, name)
+        val marker = sourceMarker(name)
+        val currentSource = runCatching { marker.readText().trim() }.getOrDefault("")
+        val ready = destination.isFile && destination.length() > 1024L
 
-                            destination.outputStream().use { output ->
-                                source.copyTo(output)
-                            }
-                        }
+        if (remoteUrl.isNotBlank()) {
+            val sameRemote = ready && currentSource == remoteUrl
+            if (!force && sameRemote) return
+            require(remoteUrl.startsWith("https://")) {
+                "$name URL must use https:// because cleartext HTTP is disabled by the app network security policy"
+            }
+            downloadAsset(remoteUrl, destination)
+            marker.writeText(remoteUrl)
+            return
+        }
+
+        if (!force && ready) return
+        val temp = File(assetsDir, "$name.download")
+        val copied = runCatching {
+            context.assets.open("xray/$name").use { input ->
+                temp.outputStream().use { output -> input.copyTo(output) }
+            }
+            require(temp.length() > 1024L) { "Bundled $name is empty" }
+            replaceFile(temp, destination)
+            marker.writeText("apk://xray/$name")
+        }.isSuccess
+        if (!copied) temp.delete()
+    }
+
+    private fun downloadAsset(url: String, destination: File) {
+        val temp = File(assetsDir, "${destination.name}.download")
+        temp.delete()
+        val connection = URL(url).openConnection() as HttpURLConnection
+        connection.instanceFollowRedirects = true
+        connection.connectTimeout = 15_000
+        connection.readTimeout = 60_000
+        connection.setRequestProperty("User-Agent", "MarbleNG/1 routing-assets")
+        connection.connect()
+        val code = connection.responseCode
+        require(code in 200..299) { "${destination.name} download HTTP $code" }
+        val declared = connection.contentLengthLong
+        require(declared <= 128L * 1024L * 1024L || declared < 0) { "${destination.name} is too large" }
+
+        connection.inputStream.use { input ->
+            temp.outputStream().use { output ->
+                val buffer = ByteArray(32 * 1024)
+                var total = 0L
+                while (true) {
+                    val read = input.read(buffer)
+                    if (read <= 0) break
+                    total += read
+                    require(total <= 128L * 1024L * 1024L) { "${destination.name} exceeds 128 MiB" }
+                    output.write(buffer, 0, read)
                 }
             }
         }
+        connection.disconnect()
+        require(temp.length() > 1024L) { "${destination.name} download is empty" }
+        replaceFile(temp, destination)
     }
 
-    /**
-     * Creates a ProcessBuilder configured for Xray.
-     *
-     * Important:
-     * XRAY_LOCATION_ASSET is configured for every Xray invocation,
-     * including configuration validation and benchmark processes.
-     */
-    private fun createProcessBuilder(
-        vararg args: String
-    ): ProcessBuilder {
+    private fun replaceFile(temp: File, destination: File) {
+        destination.parentFile?.mkdirs()
+        if (destination.exists() && !destination.delete()) error("Cannot replace ${destination.name}")
+        if (!temp.renameTo(destination)) {
+            temp.inputStream().use { input -> destination.outputStream().use { output -> input.copyTo(output) } }
+            temp.delete()
+        }
+    }
 
+    private fun sourceMarker(name: String) = File(assetsDir, "$name.source")
+
+    private fun requiresGeoIp(settings: AppSettings): Boolean {
+        if (settings.routingMode == RoutingMode.BYPASS_PRIVATE && settings.routeBypassPrivate) return true
+        if (settings.routingMode in setOf(RoutingMode.GEO_DIRECT, RoutingMode.CUSTOM) && settings.routeGeoIpTags.isNotBlank()) return true
+        return listOf(settings.routeDirectIps, settings.routeBlockIps).any { raw ->
+            raw.split(',', '\n', '\r', ';').any { it.trim().startsWith("geoip:", ignoreCase = true) }
+        }
+    }
+
+    private fun requiresGeoSite(settings: AppSettings): Boolean {
+        if (settings.routeBlockAds && settings.routeAdsTag.isNotBlank()) return true
+        if (settings.routingMode in setOf(RoutingMode.GEO_DIRECT, RoutingMode.CUSTOM) && settings.routeGeoSiteTags.isNotBlank()) return true
+        return listOf(settings.routeDirectDomains, settings.routeProxyDomains, settings.routeBlockDomains).any { raw ->
+            raw.split(',', '\n', '\r', ';').any { it.trim().startsWith("geosite:", ignoreCase = true) }
+        }
+    }
+
+    private fun createProcessBuilder(vararg args: String): ProcessBuilder {
         val command = ArrayList<String>()
-
         command += bin.absolutePath
         command += args
-
         return ProcessBuilder(command).apply {
-
             redirectErrorStream(true)
-
-            environment()["XRAY_LOCATION_ASSET"] =
-                assetsDir.absolutePath
+            environment()["XRAY_LOCATION_ASSET"] = assetsDir.absolutePath
         }
     }
 
-    /**
-     * Start Xray using the supplied profile.
-     *
-     * Flow:
-     * 1. Stop previous process.
-     * 2. Prepare geo assets.
-     * 3. Generate hardened runtime config.
-     * 4. Run Xray config validation.
-     * 5. Start actual Xray process.
-     * 6. Wait until local SOCKS port is available.
-     */
     @Synchronized
-    fun start(
-        profile: ProxyProfile,
-        port: Int
-    ): Boolean {
-
+    fun start(profile: ProxyProfile, port: Int, settings: AppSettings = AppSettings()): Boolean {
         stop()
-
-        prepareAssets()
-
-        if (!bin.exists()) {
-            return false
-        }
-
+        if (!bin.exists()) return false
         logFile.parentFile?.mkdirs()
-
         val config = runtimeConfig
 
         return runCatching {
-
-            config.writeText(
-                XrayConfigHardener.harden(
-                    profile.configJson,
-                    port
-                )
-            )
-
-            /*
-             * First validate generated Xray configuration.
-             *
-             * Do not use ProcessBuilder.Redirect.DISCARD here.
-             * Android does not expose it consistently.
-             */
-            val testProcess =
-                createProcessBuilder(
-                    "run",
-                    "-test",
-                    "-c",
-                    config.absolutePath
-                )
-                    .redirectOutput(
-                        ProcessBuilder.Redirect.appendTo(logFile)
-                    )
-                    .start()
-
-            val testExitCode = testProcess.waitFor()
-
-            if (testExitCode != 0) {
-                return@runCatching false
+            val needGeoIp = requiresGeoIp(settings)
+            val needGeoSite = requiresGeoSite(settings)
+            val shouldPrepareAssets = needGeoIp || needGeoSite || settings.geoIpUrl.isNotBlank() || settings.geoSiteUrl.isNotBlank()
+            val assetStatus = if (shouldPrepareAssets) prepareRoutingAssets(settings, force = false) else routingAssetStatus()
+            if (needGeoIp && !assetStatus.geoIpReady) {
+                error("geoip.dat is required by the selected routing policy. Add a download URL in Settings → Routing.")
             }
+            if (needGeoSite && !assetStatus.geoSiteReady) {
+                error("geosite.dat is required by the selected routing policy. Add a download URL in Settings → Routing.")
+            }
+            config.writeText(XrayConfigHardener.harden(profile.configJson, port, settings))
 
-            /*
-             * Start actual Xray process.
-             *
-             * stdout + stderr are appended to the Xray log.
-             */
-            val startedProcess =
-                createProcessBuilder(
-                    "run",
-                    "-c",
-                    config.absolutePath
-                )
-                    .redirectOutput(
-                        ProcessBuilder.Redirect.appendTo(logFile)
-                    )
-                    .start()
+            val testProcess = createProcessBuilder("run", "-test", "-c", config.absolutePath)
+                .redirectOutput(ProcessBuilder.Redirect.appendTo(logFile))
+                .start()
+            if (testProcess.waitFor() != 0) return@runCatching false
 
+            val startedProcess = createProcessBuilder("run", "-c", config.absolutePath)
+                .redirectOutput(ProcessBuilder.Redirect.appendTo(logFile))
+                .start()
             process = startedProcess
 
-            /*
-             * Xray process may technically start but fail before SOCKS
-             * becomes ready, so verify the localhost listener.
-             */
             if (!waitPort(port, 5_000L)) {
-
                 stopProcess(startedProcess)
-
-                if (process === startedProcess) {
-                    process = null
-                }
-
+                if (process === startedProcess) process = null
                 false
             } else {
                 true
             }
-
         }.getOrElse {
-
-            process?.let {
-                stopProcess(it)
-            }
-
+            process?.let(::stopProcess)
             process = null
-
             false
         }
     }
 
-    /**
-     * Stop currently active Xray process.
-     *
-     * We intentionally avoid an unlimited waitFor() because a broken native
-     * process could otherwise freeze the caller indefinitely.
-     */
     @Synchronized
     fun stop() {
-
         val current = process ?: return
-
         process = null
-
         stopProcess(current)
     }
 
-    /**
-     * Gracefully stop a process, then force-stop it when necessary.
-     */
-    private fun stopProcess(
-        target: Process
-    ) {
-
-        runCatching {
-            target.destroy()
-        }
-
-        /*
-         * Give Xray a short opportunity to terminate normally.
-         */
-        val deadline =
-            System.currentTimeMillis() + 1_500L
-
-        while (
-            target.isAlive &&
-            System.currentTimeMillis() < deadline
-        ) {
+    private fun stopProcess(target: Process) {
+        runCatching { target.destroy() }
+        val deadline = System.currentTimeMillis() + 1_500L
+        while (target.isAlive && System.currentTimeMillis() < deadline) {
             try {
                 Thread.sleep(50L)
             } catch (_: InterruptedException) {
-
                 Thread.currentThread().interrupt()
-
                 break
             }
         }
-
-        /*
-         * Native processes occasionally ignore normal destroy().
-         */
-        if (target.isAlive) {
-            runCatching {
-                target.destroyForcibly()
-            }
-        }
-
-        /*
-         * Final short wait, without risking an infinite block.
-         */
-        val forceDeadline =
-            System.currentTimeMillis() + 750L
-
-        while (
-            target.isAlive &&
-            System.currentTimeMillis() < forceDeadline
-        ) {
+        if (target.isAlive) runCatching { target.destroyForcibly() }
+        val forceDeadline = System.currentTimeMillis() + 750L
+        while (target.isAlive && System.currentTimeMillis() < forceDeadline) {
             try {
                 Thread.sleep(25L)
             } catch (_: InterruptedException) {
-
                 Thread.currentThread().interrupt()
-
                 break
             }
         }
     }
 
-    /**
-     * Starts a temporary Xray instance for benchmark/testing operations.
-     *
-     * This does not replace the primary Xray process.
-     *
-     * The temporary process gets its own configuration and log file.
-     */
-    fun temporary(
-        profile: ProxyProfile,
-        port: Int,
-        block: (Int) -> Unit
-    ): Boolean {
-
-        prepareAssets()
-
-        if (!bin.exists()) {
-            return false
-        }
-
-        val config =
-            File(
-                context.cacheDir,
-                "bench-$port.json"
-            )
-
-        val benchmarkLog =
-            File(
-                context.cacheDir,
-                "xray-bench-$port.log"
-            )
+    /** Temporary benchmark instances always use proxy-all routing to avoid route policy skewing node tests. */
+    fun temporary(profile: ProxyProfile, port: Int, block: (Int) -> Unit): Boolean {
+        if (!bin.exists()) return false
+        val config = File(context.cacheDir, "bench-$port.json")
+        val benchmarkLog = File(context.cacheDir, "xray-bench-$port.log")
 
         return runCatching {
+            config.writeText(XrayConfigHardener.harden(profile.configJson, port, AppSettings()))
 
-            config.writeText(
-                XrayConfigHardener.harden(
-                    profile.configJson,
-                    port
-                )
-            )
+            val testProcess = createProcessBuilder("run", "-test", "-c", config.absolutePath)
+                .redirectOutput(ProcessBuilder.Redirect.appendTo(benchmarkLog))
+                .start()
+            if (testProcess.waitFor() != 0) return@runCatching false
 
-            /*
-             * Validate temporary config before starting benchmark process.
-             */
-            val testProcess =
-                createProcessBuilder(
-                    "run",
-                    "-test",
-                    "-c",
-                    config.absolutePath
-                )
-                    .redirectOutput(
-                        ProcessBuilder.Redirect.appendTo(
-                            benchmarkLog
-                        )
-                    )
-                    .start()
-
-            if (testProcess.waitFor() != 0) {
-                return@runCatching false
-            }
-
-            /*
-             * Android-compatible replacement for Redirect.DISCARD.
-             *
-             * Writing to a private benchmark log means the child process
-             * cannot block because stdout/stderr pipe buffers became full.
-             */
-            val temporaryProcess =
-                createProcessBuilder(
-                    "run",
-                    "-c",
-                    config.absolutePath
-                )
-                    .redirectOutput(
-                        ProcessBuilder.Redirect.appendTo(
-                            benchmarkLog
-                        )
-                    )
-                    .start()
-
+            val temporaryProcess = createProcessBuilder("run", "-c", config.absolutePath)
+                .redirectOutput(ProcessBuilder.Redirect.appendTo(benchmarkLog))
+                .start()
             try {
-
-                if (!waitPort(port, 5_000L)) {
-
-                    false
-
-                } else {
-
+                if (!waitPort(port, 5_000L)) false else {
                     block(port)
-
                     true
                 }
-
             } finally {
-
                 stopProcess(temporaryProcess)
-
-                runCatching {
-                    config.delete()
-                }
+                runCatching { config.delete() }
             }
-
         }.getOrElse {
-
-            runCatching {
-                config.delete()
-            }
-
+            runCatching { config.delete() }
             false
         }
     }
 
-    /**
-     * Wait for localhost TCP port to become available.
-     */
-    private fun waitPort(
-        port: Int,
-        timeoutMs: Long
-    ): Boolean {
+    private fun waitPort(port: Int, timeoutMs: Long): Boolean {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline) {
+            val connected = runCatching {
+                Socket().use { socket -> socket.connect(InetSocketAddress("127.0.0.1", port), 200) }
+            }.isSuccess
+            if (connected) return true
 
-        val deadline =
-            System.currentTimeMillis() + timeoutMs
-
-        while (
-            System.currentTimeMillis() < deadline
-        ) {
-
-            val connected =
-                runCatching {
-
-                    Socket().use { socket ->
-
-                        socket.connect(
-                            InetSocketAddress(
-                                "127.0.0.1",
-                                port
-                            ),
-                            200
-                        )
-                    }
-
-                }.isSuccess
-
-            if (connected) {
-                return true
-            }
-
-            /*
-             * If the main Xray process already died, don't waste the entire
-             * timeout waiting for a port that can never open.
-             */
             val current = process
-
-            if (
-                current != null &&
-                !current.isAlive
-            ) {
-                return false
-            }
-
+            if (current != null && !current.isAlive) return false
             try {
                 Thread.sleep(100L)
             } catch (_: InterruptedException) {
-
                 Thread.currentThread().interrupt()
-
                 return false
             }
         }
-
         return false
     }
 }
