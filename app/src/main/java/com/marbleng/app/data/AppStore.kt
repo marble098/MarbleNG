@@ -24,8 +24,19 @@ class AppStore(context: Context) {
     fun channels(): MutableList<String> = prefs.getStringSet("channels", emptySet())?.toMutableList() ?: mutableListOf()
     fun saveChannels(v: List<String>) = prefs.edit().putStringSet("channels", v.toSet()).apply()
 
+    fun loadRoutingRules(): MutableList<RoutingRule> = parseArray("routingRules") { RoutingRule.fromJson(it) }
+    fun saveRoutingRules(v: List<RoutingRule>) = saveArray("routingRules", v.map { it.toJson() })
+
     fun settings(): AppSettings = AppSettings(
         socksPort = prefs.getInt("socksPort",10808),
+        localProxyPort = prefs.getInt("localProxyPort",10101),
+        tunnelMode = prefs.getString("tunnelMode","vpn") ?: "vpn",
+        routingEnabled = prefs.getBoolean("routingEnabled",false),
+        routeDomainStrategy = prefs.getString("routeDomainStrategy","IPIfNonMatch") ?: "IPIfNonMatch",
+        bypassLan = prefs.getBoolean("bypassLan",true),
+        blockAds = prefs.getBoolean("blockAds",false),
+        geoipUrl = prefs.getString("geoipUrl", AppSettings().geoipUrl) ?: AppSettings().geoipUrl,
+        geositeUrl = prefs.getString("geositeUrl", AppSettings().geositeUrl) ?: AppSettings().geositeUrl,
         autoCoreUpdate = prefs.getBoolean("autoCoreUpdate",true),
         benchMode = runCatching { BenchMode.valueOf(prefs.getString("benchMode","BALANCED")!!) }.getOrDefault(BenchMode.BALANCED),
         benchCandidates = prefs.getInt("benchCandidates",20), benchSamples = prefs.getInt("benchSamples",4),
@@ -39,6 +50,10 @@ class AppStore(context: Context) {
         icons = prefs.getBoolean("icons",true)
     )
     fun saveSettings(s: AppSettings) = prefs.edit()
+        .putInt("localProxyPort",s.localProxyPort).putString("tunnelMode",s.tunnelMode)
+        .putBoolean("routingEnabled",s.routingEnabled).putString("routeDomainStrategy",s.routeDomainStrategy)
+        .putBoolean("bypassLan",s.bypassLan).putBoolean("blockAds",s.blockAds)
+        .putString("geoipUrl",s.geoipUrl).putString("geositeUrl",s.geositeUrl)
         .putInt("socksPort",s.socksPort).putBoolean("autoCoreUpdate",s.autoCoreUpdate).putString("benchMode",s.benchMode.name)
         .putInt("benchCandidates",s.benchCandidates).putInt("benchSamples",s.benchSamples).putInt("benchTimeoutSec",s.benchTimeoutSec)
         .putInt("benchBytes",s.benchBytes).putInt("tcpPrecheckTimeoutMs",s.tcpPrecheckTimeoutMs).putInt("tcpWorkers",s.tcpWorkers)

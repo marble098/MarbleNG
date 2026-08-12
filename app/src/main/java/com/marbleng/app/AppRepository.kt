@@ -10,6 +10,7 @@ import com.marbleng.app.data.SecretStore
 import com.marbleng.app.model.*
 import com.marbleng.app.net.*
 import com.marbleng.app.vpn.MarbleVpnService
+import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
@@ -20,14 +21,36 @@ class AppRepository(private val context:Context,val xray:XrayManager){
     val profiles=mutableStateListOf<ProxyProfile>().apply{addAll(store.loadProfiles())};val subscriptions=mutableStateListOf<Subscription>().apply{addAll(store.loadSubscriptions())};val history=mutableStateListOf<ConnectionRecord>().apply{addAll(store.loadHistory())}
     var settings by mutableStateOf(store.settings());private set;var state by mutableStateOf("DISCONNECTED");private set;var stateDetail by mutableStateOf("");private set;var busy by mutableStateOf(false);private set;var message by mutableStateOf("");private set
     var benchmarks by mutableStateOf<List<BenchmarkResult>>(emptyList());private set;var privacy by mutableStateOf<PrivacyReport?>(null);private set;var radarConfigs by mutableStateOf<List<String>>(emptyList());private set;var radarResults by mutableStateOf<List<BenchmarkResult>>(emptyList());private set
-    // Live tunnel telemetry — fed from MarbleVpnService while a tunnel is up (HEV byte counters + SOCKS ping).
+    val routingRules=mutableStateListOf<RoutingRule>().apply{addAll(store.loadRoutingRules())}
+    // Live tunnel telemetry — throughput from MarbleVpnService (HEV byte counters); ping from a shared probe ticker (both modes).
     var livePingMs by mutableStateOf(0);private set;var liveDownBps by mutableStateOf(0L);private set;var liveUpBps by mutableStateOf(0L);private set
+    @Volatile private var activePort=0
+    init{io.execute{while(true){try{Thread.sleep(3000)}catch(_:InterruptedException){return@execute};val p=activePort;if(state=="CONNECTED"&&p>0){val ms=LatencyProbe.through(p);if(ms>=0)updatePing(ms)}}}}
     fun updateTelemetry(downBps:Long,upBps:Long){liveDownBps=downBps.coerceAtLeast(0);liveUpBps=upBps.coerceAtLeast(0)}
     fun updatePing(ms:Int){if(ms>=0)livePingMs=ms}
     fun resetTelemetry(){livePingMs=0;liveDownBps=0;liveUpBps=0}
     fun profile(id:String)=profiles.firstOrNull{it.id==id}
-    fun setRuntimeState(s:String,d:String){state=s;stateDetail=d;if(s!="CONNECTED")resetTelemetry()}
+    fun setRuntimeState(s:String,d:String){state=s;stateDetail=d;if(s!="CONNECTED"){resetTelemetry();activePort=0}}
     fun updateSettings(v:AppSettings){settings=v;store.saveSettings(v)}
+    // --- Routing management ---------------------------------------------------
+    fun routingSpec():RoutingSpec?{
+        if(!settings.routingEnabled)return null
+        val ready=xray.geoAssetsReady()
+        fun geoOk(s:String)=ready|| !(s.startsWith("geoip:")||s.startsWith("geosite:"))
+        val rules=routingRules.filter{it.enabled}.map{it.copy(domains=it.domains.filter(::geoOk),ips=it.ips.filter(::geoOk))}.filter{it.domains.isNotEmpty()||it.ips.isNotEmpty()}
+        return RoutingSpec(settings.routeDomainStrategy,settings.bypassLan&&ready,settings.blockAds&&ready,rules)
+    }
+    fun addRoutingRule(name:String,action:RouteAction,domains:String,ips:String){routingRules.add(RoutingRule(sha(name+System.nanoTime()).take(10),name.ifBlank{"Rule"},action,splitList(domains),splitList(ips)));store.saveRoutingRules(routingRules)}
+    fun removeRoutingRule(id:String){routingRules.removeAll{it.id==id};store.saveRoutingRules(routingRules)}
+    fun toggleRoutingRule(id:String){val i=routingRules.indexOfFirst{it.id==id};if(i>=0){routingRules[i]=routingRules[i].copy(enabled=!routingRules[i].enabled);store.saveRoutingRules(routingRules)}}
+    fun geoReady()=xray.geoAssetsReady();fun geoStatus()=xray.assetInfo()
+    fun downloadGeoAssets(force:Boolean=false){task("Downloading routing databases"){val ip=xray.assetFile("geoip.dat");val site=xray.assetFile("geosite.dat");if(force||ip.length()<=0)downloadTo(settings.geoipUrl,ip);if(force||site.length()<=0)downloadTo(settings.geositeUrl,site);message="Routing databases • ${xray.assetInfo()}"}}
+    private fun downloadTo(url:String,dest:File):Boolean=runCatching{val c=URL(url).openConnection() as HttpURLConnection;c.instanceFollowRedirects=true;c.connectTimeout=15000;c.readTimeout=60000;c.setRequestProperty("User-Agent","MarbleNG/1");c.inputStream.use{input->val tmp=File(dest.absolutePath+".part");tmp.outputStream().use{input.copyTo(it)};if(tmp.length()>0){dest.delete();tmp.renameTo(dest);true}else{tmp.delete();false}}}.getOrDefault(false)
+    private fun splitList(s:String)=s.split(',','\n',';',' ').map{it.trim()}.filter{it.isNotBlank()}
+    // --- Local proxy mode (no TUN; SOCKS listener the user points apps at) ----
+    fun startLocalProxy(p:ProxyProfile){task("Starting local proxy"){val ok=xray.start(p,settings.localProxyPort,routingSpec());if(ok){state="CONNECTED";stateDetail=p.name;activePort=settings.localProxyPort;if(settings.rememberLast)store.setLastProfileId(p.id);history+=ConnectionRecord(p.id,p.name,System.currentTimeMillis(),"local-proxy");store.saveHistory(history);message="Local proxy ready • 127.0.0.1:${settings.localProxyPort}"}else{xray.stop();setRuntimeState("BLOCKED","Xray rejected profile");message="Local proxy failed to start"}}}
+    fun stopLocalProxy(){task("Stopping local proxy"){xray.stop();setRuntimeState("DISCONNECTED","Local proxy stopped");message="Local proxy stopped"}}
+    fun autoProxy(){lastProfile()?.let{startLocalProxy(it)}?:smart{startLocalProxy(it)}}
     fun addSubscription(name:String,url:String){val id=sha(url).take(12);subscriptions.removeAll{it.id==id};subscriptions+=Subscription(id,name.ifBlank{"Subscription"},url,System.currentTimeMillis());store.saveSubscriptions(subscriptions);refresh(id)}
     fun refresh(id:String){val sub=subscriptions.firstOrNull{it.id==id}?:return;task("Refreshing ${sub.name}"){val text=http(sub.url);val parsed=ProxyParser.parseInput(text,sub.id,sub.name);profiles.removeAll{it.subscriptionId==sub.id};profiles.addAll(parsed);store.saveProfiles(profiles);message="${parsed.size} profiles imported"}}
     fun refreshAll(){task("Refreshing subscriptions"){subscriptions.forEach{sub->runCatching{val parsed=ProxyParser.parseInput(http(sub.url),sub.id,sub.name);profiles.removeAll{it.subscriptionId==sub.id};profiles.addAll(parsed)}};store.saveProfiles(profiles);message="Subscriptions refreshed"}}
@@ -36,7 +59,7 @@ class AppRepository(private val context:Context,val xray:XrayManager){
     fun removeProfile(id:String){profiles.removeAll{it.id==id};store.saveProfiles(profiles)}
     fun lastProfile()=profile(store.lastProfileId())
     fun auto(onConnect:(ProxyProfile)->Unit){lastProfile()?.let(onConnect)?:smart(onConnect)}
-    fun markConnected(p:ProxyProfile){state="CONNECTED";stateDetail=p.name;if(settings.rememberLast)store.setLastProfileId(p.id);history+=ConnectionRecord(p.id,p.name,System.currentTimeMillis(),"connected");store.saveHistory(history)}
+    fun markConnected(p:ProxyProfile){state="CONNECTED";stateDetail=p.name;activePort=settings.socksPort;if(settings.rememberLast)store.setLastProfileId(p.id);history+=ConnectionRecord(p.id,p.name,System.currentTimeMillis(),"connected");store.saveHistory(history)}
     fun startVpn(p:ProxyProfile){val i=Intent(context,MarbleVpnService::class.java).setAction(MarbleVpnService.ACTION_START).putExtra(MarbleVpnService.EXTRA_PROFILE,p.id);if(Build.VERSION.SDK_INT>=26)context.startForegroundService(i) else context.startService(i)}
     fun stopVpn(){context.startService(Intent(context,MarbleVpnService::class.java).setAction(MarbleVpnService.ACTION_STOP))}
     fun smart(onBest:(ProxyProfile)->Unit){task("Benchmarking"){val r=BenchmarkEngine(xray).run(profiles.toList(),settings){a,b,n->message="Testing $a/$b • $n"};benchmarks=r;val best=r.firstOrNull{it.success>0}?.let{profile(it.profileId)};message=if(best==null)"No working candidate" else "Best: ${best.name}";best?.let{android.os.Handler(android.os.Looper.getMainLooper()).post{onBest(it)}}}}

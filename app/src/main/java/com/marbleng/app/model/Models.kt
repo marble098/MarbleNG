@@ -1,5 +1,6 @@
 package com.marbleng.app.model
 
+import org.json.JSONArray
 import org.json.JSONObject
 
 data class ProxyProfile(
@@ -42,8 +43,51 @@ data class ConnectionRecord(val profileId: String, val name: String, val at: Lon
 
 enum class BenchMode { RELIABLE, BALANCED, FAST, TURBO, CUSTOM }
 
+enum class RouteAction { PROXY, DIRECT, BLOCK }
+
+/** A single user routing rule: matchers (domains / ips) resolved to an action. */
+data class RoutingRule(
+    val id: String,
+    val name: String,
+    val action: RouteAction,
+    val domains: List<String> = emptyList(),
+    val ips: List<String> = emptyList(),
+    val enabled: Boolean = true
+) {
+    fun toJson() = JSONObject().apply {
+        put("id", id); put("name", name); put("action", action.name)
+        put("domains", JSONArray(domains)); put("ips", JSONArray(ips)); put("enabled", enabled)
+    }
+    companion object {
+        fun fromJson(o: JSONObject): RoutingRule {
+            fun list(k: String) = o.optJSONArray(k)?.let { a -> (0 until a.length()).map { a.optString(it) }.filter { it.isNotBlank() } } ?: emptyList()
+            return RoutingRule(
+                o.optString("id"), o.optString("name"),
+                runCatching { RouteAction.valueOf(o.optString("action", "PROXY")) }.getOrDefault(RouteAction.PROXY),
+                list("domains"), list("ips"), o.optBoolean("enabled", true)
+            )
+        }
+    }
+}
+
+/** Everything the config hardener needs to build a routing block. Null = pure proxy (fail-closed). */
+data class RoutingSpec(
+    val domainStrategy: String = "IPIfNonMatch",
+    val bypassLan: Boolean = true,
+    val blockAds: Boolean = false,
+    val rules: List<RoutingRule> = emptyList()
+)
+
 data class AppSettings(
     val socksPort: Int = 10808,
+    val localProxyPort: Int = 10101,
+    val tunnelMode: String = "vpn", // "vpn" (full TUN) | "proxy" (local SOCKS only)
+    val routingEnabled: Boolean = false,
+    val routeDomainStrategy: String = "IPIfNonMatch",
+    val bypassLan: Boolean = true,
+    val blockAds: Boolean = false,
+    val geoipUrl: String = "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat",
+    val geositeUrl: String = "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat",
     val autoCoreUpdate: Boolean = true,
     val benchMode: BenchMode = BenchMode.BALANCED,
     val benchCandidates: Int = 20,

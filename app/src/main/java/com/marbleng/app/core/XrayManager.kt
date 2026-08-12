@@ -2,6 +2,7 @@ package com.marbleng.app.core
 
 import android.content.Context
 import com.marbleng.app.model.ProxyProfile
+import com.marbleng.app.model.RoutingSpec
 import java.io.File
 import java.net.InetSocketAddress
 import java.net.Socket
@@ -30,6 +31,22 @@ class XrayManager(
 
     private val runtimeConfig: File
         get() = File(context.filesDir, "runtime.json")
+
+    /** Location of a geo asset (geoip.dat / geosite.dat) in Xray's asset dir. */
+    fun assetFile(name: String): File {
+        assetsDir.mkdirs()
+        return File(assetsDir, name)
+    }
+
+    /** True when both routing databases are present and non-empty. */
+    fun geoAssetsReady(): Boolean =
+        assetFile("geoip.dat").length() > 0L && assetFile("geosite.dat").length() > 0L
+
+    /** Human-readable summary of the installed geo assets. */
+    fun assetInfo(): String {
+        fun kb(f: File) = if (f.length() > 0) "${f.length() / 1024} KB" else "missing"
+        return "geoip.dat ${kb(assetFile("geoip.dat"))} • geosite.dat ${kb(assetFile("geosite.dat"))}"
+    }
 
     /**
      * Copies Xray geo assets from APK assets into app private storage.
@@ -100,7 +117,8 @@ class XrayManager(
     @Synchronized
     fun start(
         profile: ProxyProfile,
-        port: Int
+        port: Int,
+        routing: RoutingSpec? = null
     ): Boolean {
 
         stop()
@@ -120,7 +138,8 @@ class XrayManager(
             config.writeText(
                 XrayConfigHardener.harden(
                     profile.configJson,
-                    port
+                    port,
+                    routing
                 )
             )
 

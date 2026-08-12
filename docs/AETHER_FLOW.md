@@ -109,6 +109,46 @@ The orb's **ping / down / up** are real, not placeholders:
   `livePingMs`); `toProxyState()` reads them, so the orb recomposes ~1×/s while
   connected and resets to idle on disconnect/block.
 
+## Accurate ping (fixed)
+
+The earlier probe timed only the SOCKS5 CONNECT reply, which Xray answers
+locally *before* dialing upstream — so it read a meaningless 2–4 ms. `LatencyProbe`
+now completes the tunnel: after the SOCKS handshake it sends a real HTTP request
+to `www.gstatic.com/generate_204` (plain HTTP, no TLS to skew the figure) and
+times the first response byte. That interval includes the true outbound dial +
+server round-trip. A single shared ticker in `AppRepository` runs it every 3 s
+through the active port and works in **both** connection modes.
+
+## Two connection modes (main deck)
+
+A segmented control on the deck picks how traffic is captured:
+
+- **Full Tunnel (VPN)** — the original device-wide TUN via HEV + Xray.
+- **Local Proxy** — starts Xray only, exposing a SOCKS listener on
+  `127.0.0.1:10101` (port adjustable in Settings) for the user to point chosen
+  apps/browser at. No VPN permission, no TUN. Throughput counters aren't
+  available here (no TUN), so the orb shows ping + the SOCKS address instead of
+  down/up. Implemented via `AppRepository.startLocalProxy / stopLocalProxy /
+  autoProxy`; the toggle is locked while a tunnel is live.
+
+## Smart routing + geo databases (Settings)
+
+`XrayConfigHardener` stays fail-closed by default, but when the user enables
+**Smart routing** it accepts a `RoutingSpec` and builds a real routing table:
+
+- **geoip.dat / geosite.dat** — the app bundles none, so Settings lets the user
+  paste URLs (default: Loyalsoldier rules-dat) and downloads them **once** into
+  Xray's asset dir (`AppRepository.downloadGeoAssets`, streamed to a `.part`
+  temp then renamed). `routingSpec()` guards against missing databases by
+  dropping `geoip:`/`geosite:` matchers until they're installed, so a partial
+  setup never breaks `xray -test`.
+- **Full management** — domain strategy (AsIs / IPIfNonMatch / IPOnDemand),
+  quick toggles (bypass LAN via `geoip:private`, block ads via
+  `geosite:category-ads-all`), and unlimited custom rules (name + action
+  PROXY/DIRECT/BLOCK + domain & IP/CIDR matchers), persisted in `AppStore`. A
+  single `direct` freedom outbound is added only when a rule actually needs it,
+  and `verify()` permits it solely under that explicit opt-in.
+
 ## Cross-page consistency
 
 Every screen (Library, Lab, Radar, Settings) now shares the same Aether Flow

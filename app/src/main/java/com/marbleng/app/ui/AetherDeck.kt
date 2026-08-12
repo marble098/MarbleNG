@@ -85,10 +85,14 @@ data class ProxyState(
     val uploadKbps: Double = 0.0,
     val libraryCount: Int = 0,
     val routingMode: BenchMode = BenchMode.BALANCED,
+    val mode: String = "vpn", // "vpn" | "proxy"
+    val localPort: Int = 10101,
+    val routingOn: Boolean = false,
     val statusLine: String = "",
 ) {
     val isConnected get() = phase == ConnectionPhase.Connected
     val isBusy get() = phase == ConnectionPhase.Connecting
+    val isProxy get() = mode == "proxy"
 
     companion object {
         /** Mock snapshot used by @Preview and to demonstrate reactive theming. */
@@ -128,12 +132,15 @@ fun AppRepository.toProxyState(): ProxyState {
             ConnectionPhase.Blocked -> "Tunnel blocked · tap to retry"
             ConnectionPhase.Disconnected -> "No active node"
         },
-        endpoint = "socks5h · 127.0.0.1:${settings.socksPort}",
+        endpoint = if (settings.tunnelMode == "proxy") "SOCKS · 127.0.0.1:${settings.localProxyPort}" else "socks5h · 127.0.0.1:${settings.socksPort}",
         pingMs = ping,
         downloadKbps = liveDownBps / 1024.0,
         uploadKbps = liveUpBps / 1024.0,
         libraryCount = profiles.size,
         routingMode = settings.benchMode,
+        mode = settings.tunnelMode,
+        localPort = settings.localProxyPort,
+        routingOn = settings.routingEnabled,
         statusLine = if (busy) message else stateDetail,
     )
 }
@@ -178,10 +185,21 @@ fun AetherDeck(
         ) {
             Spacer(Modifier.height(4.dp))
 
+            ConnectionModeToggle(
+                mode = state.mode,
+                enabled = state.phase == ConnectionPhase.Disconnected || state.phase == ConnectionPhase.Blocked,
+                onSelect = { repo.updateSettings(repo.settings.copy(tunnelMode = it)) },
+            )
+
             ConnectionHero(
                 state = state,
                 onTap = {
-                    if (state.isConnected) repo.stopVpn() else repo.auto(onConnect)
+                    when {
+                        state.isConnected && state.isProxy -> repo.stopLocalProxy()
+                        state.isConnected -> repo.stopVpn()
+                        state.isProxy -> repo.autoProxy()
+                        else -> repo.auto(onConnect)
+                    }
                 },
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -272,6 +290,51 @@ private fun StatusPill(state: ProxyState) {
     ) {
         Box(Modifier.size(7.dp).clip(CircleShape).background(dot))
         Text(label, style = MaterialTheme.typography.labelSmall, color = Aether.InkMuted)
+    }
+}
+
+// =============================================================================
+// CONNECTION MODE — Full Tunnel (VPN) vs Local Proxy (port selector)
+// =============================================================================
+
+@Composable
+private fun ConnectionModeToggle(mode: String, enabled: Boolean, onSelect: (String) -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(Aether.Glass)
+            .border(BorderStroke(1.dp, Aether.GlassBorderSoft), RoundedCornerShape(18.dp))
+            .padding(5.dp),
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
+    ) {
+        ModeSegment("🛰", "Full Tunnel", "Device-wide VPN", mode == "vpn", enabled, Modifier.weight(1f)) { onSelect("vpn") }
+        ModeSegment("🔌", "Local Proxy", "SOCKS for chosen apps", mode == "proxy", enabled, Modifier.weight(1f)) { onSelect("proxy") }
+    }
+}
+
+@Composable
+private fun ModeSegment(
+    glyph: String, title: String, caption: String,
+    selected: Boolean, enabled: Boolean, modifier: Modifier, onClick: () -> Unit,
+) {
+    val fill by animateColorAsState(if (selected) Aether.Amethyst.copy(alpha = 0.18f) else Color.Transparent, tween(250), label = "segFill")
+    val border by animateColorAsState(if (selected) Aether.Amethyst else Color.Transparent, tween(250), label = "segBorder")
+    Row(
+        modifier = modifier
+            .clip(RoundedCornerShape(14.dp))
+            .background(fill)
+            .border(BorderStroke(1.dp, border), RoundedCornerShape(14.dp))
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(9.dp),
+    ) {
+        Text(glyph, style = MaterialTheme.typography.titleMedium)
+        Column {
+            Text(title, style = MaterialTheme.typography.labelLarge, color = if (enabled) Aether.Ink else Aether.InkFaint)
+            Text(caption, style = MaterialTheme.typography.labelSmall, color = Aether.InkFaint, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
     }
 }
 
@@ -459,10 +522,23 @@ private fun OrbFace(state: ProxyState) {
         // Live telemetry — fades in only once there is a tunnel to measure.
         if (state.isConnected) {
             Spacer(Modifier.height(14.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
-                Telemetry("PING", if (state.pingMs > 0) "${state.pingMs} ms" else "—")
-                Telemetry("DOWN", formatRate(state.downloadKbps))
-                Telemetry("UP", formatRate(state.uploadKbps))
+            if (state.isProxy) {
+                // Local-proxy mode has no TUN byte counters — surface ping + the address to point apps at.
+                Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+                    Telemetry("PING", if (state.pingMs > 0) "${state.pingMs} ms" else "—")
+                    Telemetry("SOCKS", "127.0.0.1")
+                    Telemetry("PORT", state.localPort.toString())
+                }
+            } else {
+                Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+                    Telemetry("PING", if (state.pingMs > 0) "${state.pingMs} ms" else "—")
+                    Telemetry("DOWN", formatRate(state.downloadKbps))
+                    Telemetry("UP", formatRate(state.uploadKbps))
+                }
+            }
+            if (state.routingOn) {
+                Spacer(Modifier.height(8.dp))
+                Text("◈ SMART ROUTING ON", style = MaterialTheme.typography.labelSmall, color = Aether.CyanBright)
             }
         }
     }
