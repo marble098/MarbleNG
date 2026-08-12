@@ -21,11 +21,28 @@ class MarbleVpnService:VpnService(){
         startForeground(NOTIFY,note("Connecting • ${p.name}",false));running.set(true)
         worker.execute{
             if(!xray.start(p,settings.socksPort)){blocked("Xray rejected profile");return@execute}
-            val builder=Builder().setSession("MarbleNG • ${p.name}").setMtu(8500).addAddress("198.18.0.1",32).addRoute("0.0.0.0",0).addDnsServer("1.1.1.1")
+            val builder=Builder().setSession("MarbleNG • ${p.name}").setMtu(8500).setBlocking(false).addAddress("198.18.0.1",32).addRoute("0.0.0.0",0).addDnsServer("1.1.1.1")
             runCatching{builder.addAddress("fc00::1",128).addRoute("::",0)}
             runCatching{builder.addDisallowedApplication(packageName)}
             tun=builder.establish();if(tun==null){blocked("VPN establish failed");return@execute}
-            hevFd=ParcelFileDescriptor.dup(tun!!.fileDescriptor).detachFd();val cfg="""tunnel:\n  mtu: 8500\n  ipv4: 198.18.0.1\n  ipv6: 'fc00::1'\nsocks5:\n  address: 127.0.0.1\n  port: ${settings.socksPort}\n  udp: 'udp'\n  pipeline: true\nmisc:\n  log-level: warn\n  task-stack-size: 65536\n  tcp-buffer-size: 65536\n  udp-recv-buffer-size: 524288\n"""
+            hevFd=ParcelFileDescriptor.dup(tun!!.fileDescriptor).detachFd();val cfg=listOf(
+                "tunnel:",
+                "  mtu: 8500",
+                "  ipv4: 198.18.0.1",
+                "  ipv6: 'fc00::1'",
+                "  icmp: 'reply'",
+                "socks5:",
+                "  address: '127.0.0.1'",
+                "  port: ${settings.socksPort}",
+                "  udp: 'udp'",
+                "  pipeline: false",
+                "misc:",
+                "  log-level: warn",
+                "  task-stack-size: 86016",
+                "  tcp-buffer-size: 65536",
+                "  udp-recv-buffer-size: 524288"
+            ).joinToString(separator="\n",postfix="\n") // MarbleNG HEV YAML/LF hotfix v2
+            if(cfg.contains("\\n") || !cfg.contains('\n')){blocked("Internal HEV YAML encoding failure");return@execute}
             app.repo.markConnected(p);notifyNow("Protected • ${p.name}",true)
             val code=runCatching{HevTunnel.run(cfg,hevFd)}.getOrDefault(-1)
             if(running.get()){blocked("HEV stopped ($code) — traffic held")}
