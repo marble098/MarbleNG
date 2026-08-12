@@ -10,6 +10,8 @@ import com.marbleng.app.MarbleApplication
 import com.marbleng.app.core.XrayManager
 import com.marbleng.app.core.RuntimeDiagnostics
 import com.marbleng.app.nativebridge.HevTunnel
+import java.net.InetSocketAddress
+import java.net.Socket
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -50,7 +52,7 @@ class MarbleVpnService:VpnService(){
             ).joinToString(separator="\n",postfix="\n") // MarbleNG HEV YAML/LF hotfix v2
             if(cfg.contains("\\n") || !cfg.contains('\n')){diag.event("HEV","yaml-invalid","session" to session,"bytes" to cfg.toByteArray().size);blocked("Internal HEV YAML encoding failure");return@execute}
             diag.event("HEV","config-ready","session" to session,"bytes" to cfg.toByteArray().size,"lines" to cfg.lineSequence().count(),"sha256" to diag.sha256(cfg),"nativeLog" to diag.hevLog.absolutePath)
-            app.repo.markConnected(p);notifyNow("Protected • ${p.name}",true);hevActive=true;startHevMonitor(session)
+            app.repo.markConnected(p);notifyNow("Protected • ${p.name}",true);hevActive=true;startHevMonitor(session);startTelemetry(session)
             diag.event("HEV","run-enter","session" to session,"hevFd" to hevFd,"xrayAlive" to xray.isAlive)
             val result=runCatching{HevTunnel.run(cfg,hevFd)};hevActive=false
             val code=result.getOrElse{diag.error("HEV","jni-run-exception",it,"session" to session,"hevFd" to hevFd);-10001}
@@ -60,6 +62,32 @@ class MarbleVpnService:VpnService(){
     }
     private fun startHevMonitor(session:String){worker.execute{var ticks=0;while(running.get()&&hevActive&&activeSession==session){try{Thread.sleep(2000)}catch(_:InterruptedException){Thread.currentThread().interrupt();return@execute};if(!running.get()||!hevActive||activeSession!=session)break;ticks++;if(ticks%2==0)diag.event("HEV","heartbeat","session" to session,"stats" to hevStats(),"xrayAlive" to xray.isAlive,"tunOpen" to (tun!=null),"hevFd" to hevFd,"nativeLogBytes" to diag.hevLog.length())}}}
     private fun hevStats():String=if(hevFd<0)"not-started" else runCatching{val s=HevTunnel.stats();if(s.size>=4)"txPackets=${s[0]},txBytes=${s[1]},rxPackets=${s[2]},rxBytes=${s[3]}" else "unexpected-size=${s.size}"}.getOrElse{"stats-error=${it::class.simpleName}:${it.message}"}
+    // Live telemetry: derive per-second throughput from HEV byte counters (tx=upload, rx=download) and probe egress RTT through SOCKS.
+    private fun startTelemetry(session:String){worker.execute{
+        val repo=(application as MarbleApplication).repo;var lastUp=-1L;var lastDown=-1L;var lastT=System.nanoTime();var tick=0
+        while(running.get()&&hevActive&&activeSession==session){
+            try{Thread.sleep(1000)}catch(_:InterruptedException){Thread.currentThread().interrupt();return@execute}
+            if(!running.get()||!hevActive||activeSession!=session)break
+            val s=runCatching{HevTunnel.stats()}.getOrNull()
+            if(s!=null&&s.size>=4){val now=System.nanoTime();val dt=(now-lastT)/1e9;val up=s[1];val down=s[3]
+                if(lastUp>=0&&dt>0.25){repo.updateTelemetry(((down-lastDown)/dt).toLong(),((up-lastUp)/dt).toLong())}
+                lastUp=up;lastDown=down;lastT=now}
+            if(tick%4==0){val ms=proxyPingMs(repo.settings.socksPort);if(ms>=0)repo.updatePing(ms)}
+            tick++
+        }
+        repo.resetTelemetry()
+    }}
+    private fun proxyPingMs(port:Int):Int=runCatching{
+        val host="www.gstatic.com".toByteArray();val start=System.nanoTime()
+        Socket().use{s->s.tcpNoDelay=true;s.soTimeout=4000;s.connect(InetSocketAddress("127.0.0.1",port),4000)
+            val o=s.getOutputStream();val i=s.getInputStream()
+            o.write(byteArrayOf(5,1,0));o.flush();if(i.read()!=5||i.read()!=0)return@runCatching -1
+            o.write(byteArrayOf(5,1,0,3,host.size.toByte()));o.write(host);o.write(byteArrayOf(1,-69));o.flush() // domain CONNECT to :443 (0x01BB)
+            val head=ByteArray(4);var p=0;while(p<4){val n=i.read(head,p,4-p);if(n<=0)return@runCatching -1;p+=n}
+            if(head[1].toInt()!=0)return@runCatching -1
+            ((System.nanoTime()-start)/1_000_000L).toInt()
+        }
+    }.getOrDefault(-1)
     private fun blocked(reason:String){hevActive=false;diag.event("VPN","blocked","session" to activeSession,"reason" to reason,"xrayAlive" to xray.isAlive,"hevFd" to hevFd,"tunOpen" to (tun!=null),"stats" to hevStats(),"hevLogBytes" to diag.hevLog.length());xray.stop();notifyNow("BLOCKED • $reason",true);(application as MarbleApplication).repo.setRuntimeState("BLOCKED",reason)}
     private fun shutdown(explicit:Boolean){diag.event("VPN","shutdown-begin","session" to activeSession,"explicit" to explicit,"xrayAlive" to xray.isAlive,"hevFd" to hevFd,"stats" to hevStats());running.set(false);hevActive=false;runCatching{HevTunnel.quit()}.onFailure{diag.error("HEV","quit-failed",it,"session" to activeSession)};xray.stop();runCatching{if(hevFd>=0)ParcelFileDescriptor.adoptFd(hevFd).close()}.onFailure{diag.error("TUN","hev-fd-close-failed",it,"fd" to hevFd)};hevFd=-1;runCatching{tun?.close()}.onFailure{diag.error("TUN","vpn-fd-close-failed",it)};tun=null;(application as MarbleApplication).repo.setRuntimeState("DISCONNECTED",if(explicit)"User disconnected" else "Stopped");diag.event("VPN","shutdown-complete","session" to activeSession,"explicit" to explicit);activeSession="";stopForeground(STOP_FOREGROUND_REMOVE);stopSelf()}
     override fun onRevoke(){diag.event("VPN","permission-revoked","session" to activeSession);if(running.get())shutdown(false);super.onRevoke()}

@@ -115,9 +115,11 @@ fun AppRepository.toProxyState(): ProxyState {
         busy -> ConnectionPhase.Connecting
         else -> ConnectionPhase.Disconnected
     }
-    val ping = benchmarks
-        .firstOrNull { it.name == stateDetail && it.success > 0 }
-        ?.latencyMs?.toInt() ?: 0
+    // Live ping from the tunnel sampler; fall back to the last benchmark for this node.
+    val ping = when {
+        livePingMs > 0 -> livePingMs
+        else -> benchmarks.firstOrNull { it.name == stateDetail && it.success > 0 }?.latencyMs?.toInt() ?: 0
+    }
     return ProxyState(
         phase = phase,
         nodeName = when (phase) {
@@ -128,6 +130,8 @@ fun AppRepository.toProxyState(): ProxyState {
         },
         endpoint = "socks5h · 127.0.0.1:${settings.socksPort}",
         pingMs = ping,
+        downloadKbps = liveDownBps / 1024.0,
+        uploadKbps = liveUpBps / 1024.0,
         libraryCount = profiles.size,
         routingMode = settings.benchMode,
         statusLine = if (busy) message else stateDetail,
