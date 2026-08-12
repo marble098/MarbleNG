@@ -28,10 +28,14 @@ jobs:
         run: |
           mkdir -p .bootstrap
           git clone --depth 1 --branch "$(jq -r .xray.tag core-lock.json)" https://github.com/XTLS/Xray-core.git .bootstrap/xray
-      - uses: actions/setup-go@v6
+          
+      # --- بخش اصلاح شده برای قفل کردن Go روی نسخه 1.22 ---
+      - uses: actions/setup-go@v5
         with:
-          go-version-file: .bootstrap/xray/go.mod
+          go-version: '1.22.x'
           cache: true
+      # --------------------------------------------------
+          
       - name: Prepare all native ABIs
         run: ./scripts/prepare-native.sh
       - name: Install Gradle 9.5.1
@@ -83,3 +87,4 @@ jobs:
           gh release view "$tag" >/dev/null 2>&1 && gh release delete "$tag" -y || true
           git tag -f "$tag" "$GITHUB_SHA"; git push -f origin "$tag"
           gh release create "$tag" dist/* --title "MarbleNG $VERSION_NAME" --notes "Signed multi-ABI build. Xray $(jq -r .xray.tag core-lock.json), HEV $(jq -r .hev.tag core-lock.json). Same release signing identity is reused via repository secrets."
+          
