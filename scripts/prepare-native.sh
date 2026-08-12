@@ -25,15 +25,18 @@ set -euo pipefail
 #     - geosite.dat
 #     - core-lock.json
 #
-# Important design:
+# Design rules:
 #
-#   1. Never downgrade Xray go.mod.
+#   1. Never downgrade or edit upstream Xray go.mod/go.sum.
 #   2. GOTOOLCHAIN=auto lets Xray select its required Go toolchain.
 #   3. Xray is built using Android NDK clang + CGO.
 #   4. -checklinkname=0 is used for current Xray dependencies.
 #   5. Xray binaries are built into an isolated staging directory.
 #   6. HEV/JNI ndk-build runs BEFORE Xray is copied into jniLibs.
-#   7. Final verification guarantees every requested native file exists.
+#   7. HEV's upstream JNI_OnLoad glue is disabled intentionally.
+#   8. MarbleNG uses its own JNI symbol bridge.
+#   9. Verification avoids grep -q pipelines under pipefail.
+#  10. Final verification guarantees every requested native file exists.
 #
 # ==============================================================================
 
@@ -100,25 +103,26 @@ failure_diagnostics() {
 
         echo "Exit code:"
         echo "  $status"
-        echo
 
+        echo
         echo "Go:"
         go version 2>/dev/null || true
-        echo
 
+        echo
         echo "GOTOOLCHAIN:"
         echo "  ${GOTOOLCHAIN:-unset}"
-        echo
 
+        echo
         echo "ANDROID_NDK_HOME:"
         echo "  ${ANDROID_NDK_HOME:-unset}"
-        echo
 
+        echo
         echo "ANDROID_NDK_ROOT:"
         echo "  ${ANDROID_NDK_ROOT:-unset}"
-        echo
 
+        echo
         echo "Existing staged Xray files:"
+
         if [[ -d "$XRAY_STAGE" ]]; then
             find "$XRAY_STAGE" \
                 -maxdepth 3 \
@@ -131,6 +135,7 @@ failure_diagnostics() {
 
         echo
         echo "Existing jniLibs:"
+
         if [[ -d "$JNILIBS" ]]; then
             find "$JNILIBS" \
                 -maxdepth 3 \
@@ -168,7 +173,8 @@ for cmd in \
     grep \
     find \
     sha256sum \
-    wc
+    wc \
+    tr
 do
     require_command "$cmd"
 done
@@ -236,17 +242,28 @@ NDK_TOOLCHAIN_ROOT="$NDK/toolchains/llvm/prebuilt"
     die "Android NDK LLVM toolchain missing: $NDK_TOOLCHAIN_ROOT"
 }
 
-# GitHub Actions normally provides linux-x86_64.
+# GitHub Actions Linux runners normally provide linux-x86_64.
 if [[ -d "$NDK_TOOLCHAIN_ROOT/linux-x86_64" ]]; then
+
     NDK_HOST_DIR="$NDK_TOOLCHAIN_ROOT/linux-x86_64"
+
 else
+
+    # Do NOT use:
+    #
+    #   find ... | head -n 1
+    #
+    # under pipefail because head may close the pipe early and make find
+    # terminate with SIGPIPE.
     NDK_HOST_DIR="$(
         find "$NDK_TOOLCHAIN_ROOT" \
             -mindepth 1 \
             -maxdepth 1 \
             -type d \
-            | head -n 1
+            -print \
+            -quit
     )"
+
 fi
 
 [[ -n "$NDK_HOST_DIR" ]] || {
@@ -263,6 +280,17 @@ NDK_BIN="$NDK_HOST_DIR/bin"
     die "NDK compiler directory missing: $NDK_BIN"
 }
 
+LLVM_NM="$NDK_BIN/llvm-nm"
+LLVM_READELF="$NDK_BIN/llvm-readelf"
+
+[[ -x "$LLVM_NM" ]] || {
+    die "NDK llvm-nm not found: $LLVM_NM"
+}
+
+[[ -x "$LLVM_READELF" ]] || {
+    die "NDK llvm-readelf not found: $LLVM_READELF"
+}
+
 ok "NDK LLVM toolchain: $NDK_BIN"
 
 
@@ -270,8 +298,6 @@ ok "NDK LLVM toolchain: $NDK_BIN"
 # Android API
 # ==============================================================================
 
-# API 24 gives broad Android compatibility while providing the current
-# NDK compiler targets required for the native build.
 ANDROID_NATIVE_API="${ANDROID_NATIVE_API:-24}"
 
 [[ "$ANDROID_NATIVE_API" =~ ^[0-9]+$ ]] || {
@@ -351,7 +377,7 @@ echo
 
 
 # ==============================================================================
-# Ensure upstream go.mod was NOT modified
+# Ensure upstream go.mod/go.sum were NOT modified
 # ==============================================================================
 
 if git -C "$XRAY_SRC" diff --quiet -- go.mod go.sum; then
@@ -383,15 +409,20 @@ ok "Xray dependencies prepared"
 
 
 # ==============================================================================
-# Verify go.mod still untouched
+# Verify go.mod/go.sum still untouched
 # ==============================================================================
 
 if git -C "$XRAY_SRC" diff --quiet -- go.mod go.sum; then
+
     ok "Xray module files remain pristine"
+
 else
+
     echo
     git -C "$XRAY_SRC" diff -- go.mod go.sum || true
+
     die "Dependency preparation modified upstream module files"
+
 fi
 
 
@@ -402,9 +433,9 @@ fi
 log "[2/4] Building Xray Android binaries"
 
 
-# ------------------------------------------------------------------------------
-# Build helper
-# ------------------------------------------------------------------------------
+# ==============================================================================
+# Xray build helper
+# ==============================================================================
 
 build_xray() {
     local abi="$1"
@@ -449,6 +480,7 @@ build_xray() {
     echo "Xray commit  : $commit_id"
 
     echo -n "Go toolchain : "
+
     (
         cd "$XRAY_SRC"
         go version
@@ -458,10 +490,10 @@ build_xray() {
     echo "================================================================"
     echo
 
-    (
-        cd "$XRAY_SRC"
+    if [[ -n "$goarm" ]]; then
 
-        if [[ -n "$goarm" ]]; then
+        (
+            cd "$XRAY_SRC"
 
             env \
                 GOTOOLCHAIN=auto \
@@ -478,8 +510,12 @@ build_xray() {
                     -ldflags="-X github.com/xtls/xray-core/core.build=${commit_id} -s -w -buildid= -checklinkname=0" \
                     -o "$output" \
                     ./main
+        )
 
-        else
+    else
+
+        (
+            cd "$XRAY_SRC"
 
             env \
                 GOTOOLCHAIN=auto \
@@ -495,9 +531,9 @@ build_xray() {
                     -ldflags="-X github.com/xtls/xray-core/core.build=${commit_id} -s -w -buildid= -checklinkname=0" \
                     -o "$output" \
                     ./main
+        )
 
-        fi
-    )
+    fi
 
     [[ -s "$output" ]] || {
         die "Xray Android build produced no file for $abi"
@@ -505,7 +541,8 @@ build_xray() {
 
     chmod 755 "$output"
 
-    local size hash
+    local size
+    local hash
 
     size="$(
         wc -c < "$output" |
@@ -616,16 +653,25 @@ ok "HEV source ready"
 
 
 # ==============================================================================
-# MarbleNG HEV JNI_OnLoad collision fix v1
+# Disable HEV upstream JNI_OnLoad
 #
-# HEV's Android library includes src/hev-jni.c by default. That file defines
-# JNI_OnLoad() and attempts to register hev/htproxy/TProxyService.
+# HEV's Android source contains its own JNI glue in:
 #
-# MarbleNG does not use HEV's bundled Java JNI API. It supplies
-# app/src/main/jni/marbleng_jni.c and directly calls HEV's public C library API.
+#   src/hev-jni.c
 #
-# Rename only that upstream JNI source before ndk-build. HEV's recursive *.c
-# source discovery will then skip it while all tunnel/core C APIs remain.
+# It defines JNI_OnLoad() for HEV's own Java package.
+#
+# MarbleNG does NOT use that Java integration. MarbleNG uses:
+#
+#   app/src/main/jni/marbleng_jni.c
+#
+# and directly invokes HEV's public C API.
+#
+# Therefore the upstream HEV JNI source is renamed so recursive *.c source
+# discovery ignores it.
+#
+# MarbleNG JNI methods remain ordinary exported JNI symbols and do NOT need
+# JNI_OnLoad.
 # ==============================================================================
 
 HEV_UPSTREAM_JNI="$HEVDST/src/hev-jni.c"
@@ -655,7 +701,7 @@ mv \
     die "Disabled HEV JNI source backup is missing."
 }
 
-ok "Disabled upstream HEV JNI_OnLoad glue; MarbleNG bridge will own JNI."
+ok "Disabled upstream HEV JNI_OnLoad glue; MarbleNG JNI bridge remains active."
 
 
 # ==============================================================================
@@ -713,16 +759,72 @@ ok "HEV + MarbleNG JNI compilation completed"
 
 
 # ==============================================================================
-# Verify HEV JNI collision cannot regress
+# Native verification helpers
+#
+# IMPORTANT:
+#
+# Do NOT use:
+#
+#   readelf | awk | grep -q
+#
+# with:
+#
+#   set -o pipefail
+#
+# grep -q exits as soon as the match is found. The upstream process can then
+# receive SIGPIPE and the pipeline may return a failure even though the symbol
+# exists.
+#
+# The helpers below let awk consume the complete stream before returning.
+# ==============================================================================
+
+symbol_exists() {
+    local library="$1"
+    local wanted="$2"
+
+    "$LLVM_NM" \
+        -D \
+        --defined-only \
+        "$library" |
+    awk \
+        -v wanted="$wanted" \
+        '
+        $NF == wanted {
+            found = 1
+        }
+
+        END {
+            exit(found ? 0 : 1)
+        }
+        '
+}
+
+dependency_exists() {
+    local library="$1"
+    local wanted="$2"
+
+    "$LLVM_READELF" \
+        -d \
+        "$library" |
+    awk \
+        -v wanted="$wanted" \
+        '
+        /NEEDED/ && index($0, "[" wanted "]") {
+            found = 1
+        }
+
+        END {
+            exit(found ? 0 : 1)
+        }
+        '
+}
+
+
+# ==============================================================================
+# Verify HEV / MarbleNG JNI ownership
 # ==============================================================================
 
 log "Verifying native JNI ownership"
-
-LLVM_READELF="$NDK_BIN/llvm-readelf"
-
-[[ -x "$LLVM_READELF" ]] || {
-    die "NDK llvm-readelf not found: $LLVM_READELF"
-}
 
 for abi in \
     arm64-v8a \
@@ -730,6 +832,12 @@ for abi in \
     x86_64 \
     x86
 do
+
+    echo
+    echo "------------------------------------------------------------"
+    echo "Verifying JNI ABI: $abi"
+    echo "------------------------------------------------------------"
+
     HEV_LIB="$JNILIBS/$abi/libhev-socks5-tunnel.so"
     BRIDGE_LIB="$JNILIBS/$abi/libmarbleng.so"
 
@@ -741,54 +849,153 @@ do
         die "MarbleNG JNI library missing before JNI verification: $BRIDGE_LIB"
     }
 
-    if "$LLVM_READELF" -Ws "$HEV_LIB" |
-        awk '{print $8}' |
-        grep -Fxq 'JNI_OnLoad'
+
+    # --------------------------------------------------------------------------
+    # HEV must no longer export JNI_OnLoad.
+    # --------------------------------------------------------------------------
+
+    if symbol_exists \
+        "$HEV_LIB" \
+        "JNI_OnLoad"
     then
-        die "JNI_OnLoad collision still present in $HEV_LIB"
+
+        echo
+        echo "HEV exported symbols:"
+        "$LLVM_NM" \
+            -D \
+            --defined-only \
+            "$HEV_LIB" || true
+
+        die "HEV upstream JNI_OnLoad is still exported for $abi"
     fi
 
-    if "$LLVM_READELF" -Ws "$BRIDGE_LIB" |
-        awk '{print $8}' |
-        grep -Fxq 'JNI_OnLoad'
+    ok "$abi / HEV has no JNI_OnLoad"
+
+
+    # --------------------------------------------------------------------------
+    # MarbleNG bridge intentionally uses exported Java_* JNI symbols and does
+    # not require JNI_OnLoad.
+    # --------------------------------------------------------------------------
+
+    if symbol_exists \
+        "$BRIDGE_LIB" \
+        "JNI_OnLoad"
     then
-        die "Unexpected JNI_OnLoad exported by MarbleNG bridge: $BRIDGE_LIB"
+
+        echo
+        echo "MarbleNG bridge exported symbols:"
+        "$LLVM_NM" \
+            -D \
+            --defined-only \
+            "$BRIDGE_LIB" || true
+
+        die "Unexpected JNI_OnLoad exported by MarbleNG bridge for $abi"
     fi
 
-    for symbol in \
-        Java_com_marbleng_app_nativebridge_HevTunnel_run \
-        Java_com_marbleng_app_nativebridge_HevTunnel_quit \
-        Java_com_marbleng_app_nativebridge_HevTunnel_stats
-    do
-        if ! "$LLVM_READELF" -Ws "$BRIDGE_LIB" |
-            awk '{print $8}' |
-            grep -Fxq "$symbol"
+    ok "$abi / MarbleNG bridge has no JNI_OnLoad"
+
+
+    # --------------------------------------------------------------------------
+    # Required MarbleNG JNI entry points
+    # --------------------------------------------------------------------------
+
+    REQUIRED_BRIDGE_SYMBOLS=(
+        "Java_com_marbleng_app_nativebridge_HevTunnel_run"
+        "Java_com_marbleng_app_nativebridge_HevTunnel_quit"
+        "Java_com_marbleng_app_nativebridge_HevTunnel_stats"
+    )
+
+    for symbol in "${REQUIRED_BRIDGE_SYMBOLS[@]}"; do
+
+        if ! symbol_exists \
+            "$BRIDGE_LIB" \
+            "$symbol"
         then
+
+            echo
+            echo "Available MarbleNG dynamic symbols:"
+
+            "$LLVM_NM" \
+                -D \
+                --defined-only \
+                "$BRIDGE_LIB" || true
+
             die "Required MarbleNG JNI symbol missing for $abi: $symbol"
         fi
+
+        ok "$abi / bridge symbol: $symbol"
+
     done
 
-    for symbol in \
-        hev_socks5_tunnel_main_from_str \
-        hev_socks5_tunnel_quit \
-        hev_socks5_tunnel_stats
-    do
-        if ! "$LLVM_READELF" -Ws "$HEV_LIB" |
-            awk '{print $8}' |
-            grep -Fxq "$symbol"
+
+    # --------------------------------------------------------------------------
+    # Required HEV C API
+    # --------------------------------------------------------------------------
+
+    REQUIRED_HEV_SYMBOLS=(
+        "hev_socks5_tunnel_main_from_str"
+        "hev_socks5_tunnel_quit"
+        "hev_socks5_tunnel_stats"
+    )
+
+    for symbol in "${REQUIRED_HEV_SYMBOLS[@]}"; do
+
+        if ! symbol_exists \
+            "$HEV_LIB" \
+            "$symbol"
         then
+
+            echo
+            echo "Available HEV dynamic symbols:"
+
+            "$LLVM_NM" \
+                -D \
+                --defined-only \
+                "$HEV_LIB" || true
+
             die "Required HEV C API symbol missing for $abi: $symbol"
         fi
+
+        ok "$abi / HEV symbol: $symbol"
+
     done
 
-    ok "$abi / JNI ownership verified"
+
+    # --------------------------------------------------------------------------
+    # Verify libmarbleng.so is dynamically linked against HEV.
+    #
+    # This catches a build that happens to produce both libraries but where the
+    # bridge is not actually connected to HEV.
+    # --------------------------------------------------------------------------
+
+    if ! dependency_exists \
+        "$BRIDGE_LIB" \
+        "libhev-socks5-tunnel.so"
+    then
+
+        echo
+        echo "Dynamic dependencies of libmarbleng.so:"
+
+        "$LLVM_READELF" \
+            -d \
+            "$BRIDGE_LIB" || true
+
+        die "MarbleNG JNI bridge is not linked to libhev-socks5-tunnel.so for $abi"
+    fi
+
+    ok "$abi / libmarbleng.so -> libhev-socks5-tunnel.so"
+
+    echo
+    ok "$abi / JNI ownership fully verified"
+
 done
 
-ok "HEV JNI_OnLoad collision eliminated for all ABIs"
+echo
+ok "HEV JNI_OnLoad collision eliminated for all Android ABIs"
 
 
 # ==============================================================================
-# Important:
+# Important
 #
 # ndk-build owns NDK_LIBS_OUT and may recreate/update jniLibs.
 #
@@ -803,6 +1010,7 @@ for abi in \
     x86_64 \
     x86
 do
+
     src="$XRAY_STAGE/$abi/libxray.so"
     dst_dir="$JNILIBS/$abi"
     dst="$dst_dir/libxray.so"
@@ -838,6 +1046,7 @@ do
     }
 
     ok "Installed Xray -> $abi"
+
 done
 
 ok "All Xray binaries safely installed after ndk-build"
@@ -876,23 +1085,26 @@ fi
 
 
 # ==============================================================================
-# Locate release ZIP
+# Locate Xray release ZIP
+#
+# Avoid:
+#
+#   jq ... | head -n 1
+#
+# under pipefail. jq's first() performs the selection internally instead.
 # ==============================================================================
 
 XRAY_ASSET_URL="$(
     jq -r '
-        .assets[]
-        | select(.name == "Xray-linux-64.zip")
-        | .browser_download_url
-    ' "$XRAY_RELEASE_JSON" |
-    head -n 1
+        first(
+            .assets[]
+            | select(.name == "Xray-linux-64.zip")
+            | .browser_download_url
+        ) // empty
+    ' "$XRAY_RELEASE_JSON"
 )"
 
 [[ -n "$XRAY_ASSET_URL" ]] || {
-    die "Xray-linux-64.zip URL is empty"
-}
-
-[[ "$XRAY_ASSET_URL" != "null" ]] || {
     die "Xray-linux-64.zip is unavailable for $XRAY_TAG"
 }
 
@@ -936,16 +1148,69 @@ ok "Xray release ZIP validated"
 
 
 # ==============================================================================
-# Ensure required geo assets exist
+# ZIP member finder
+#
+# This avoids:
+#
+#   unzip -l file.zip | grep -q ...
+#
+# which has the same early-exit/SIGPIPE problem under pipefail.
+#
+# It also supports a future release where the files might be stored in a
+# subdirectory rather than directly at ZIP root.
 # ==============================================================================
 
-if ! unzip -l "$XRAY_ZIP" | grep -qE '(^|[[:space:]])geoip\.dat$'; then
-    die "geoip.dat missing from Xray release ZIP"
-fi
+zip_member_by_basename() {
+    local zip_file="$1"
+    local wanted_basename="$2"
 
-if ! unzip -l "$XRAY_ZIP" | grep -qE '(^|[[:space:]])geosite\.dat$'; then
+    unzip -Z1 "$zip_file" |
+    awk \
+        -v wanted="$wanted_basename" \
+        '
+        {
+            path = $0
+            base = path
+            sub(/^.*\//, "", base)
+
+            if (!found && base == wanted) {
+                found = path
+            }
+        }
+
+        END {
+            if (!found) {
+                exit 1
+            }
+
+            print found
+        }
+        '
+}
+
+
+# ==============================================================================
+# Locate required geo assets
+# ==============================================================================
+
+GEOIP_MEMBER="$(
+    zip_member_by_basename \
+        "$XRAY_ZIP" \
+        "geoip.dat"
+)" || {
+    die "geoip.dat missing from Xray release ZIP"
+}
+
+GEOSITE_MEMBER="$(
+    zip_member_by_basename \
+        "$XRAY_ZIP" \
+        "geosite.dat"
+)" || {
     die "geosite.dat missing from Xray release ZIP"
-fi
+}
+
+echo "geoip.dat ZIP entry   : $GEOIP_MEMBER"
+echo "geosite.dat ZIP entry : $GEOSITE_MEMBER"
 
 
 # ==============================================================================
@@ -954,7 +1219,7 @@ fi
 
 unzip -p \
     "$XRAY_ZIP" \
-    geoip.dat \
+    "$GEOIP_MEMBER" \
     > "$XRAY_ASSETS/geoip.dat"
 
 [[ -s "$XRAY_ASSETS/geoip.dat" ]] || {
@@ -970,7 +1235,7 @@ ok "geoip.dat extracted"
 
 unzip -p \
     "$XRAY_ZIP" \
-    geosite.dat \
+    "$GEOSITE_MEMBER" \
     > "$XRAY_ASSETS/geosite.dat"
 
 [[ -s "$XRAY_ASSETS/geosite.dat" ]] || {
@@ -1011,6 +1276,7 @@ for abi in \
     x86_64 \
     x86
 do
+
     echo
     echo "------------------------------------------------------------"
     echo "Checking ABI: $abi"
@@ -1020,11 +1286,13 @@ do
     HEV_FILE="$JNILIBS/$abi/libhev-socks5-tunnel.so"
     BRIDGE_FILE="$JNILIBS/$abi/libmarbleng.so"
 
+
     # --------------------------------------------------------------------------
     # Xray
     # --------------------------------------------------------------------------
 
     if [[ -s "$XRAY_FILE" ]]; then
+
         XRAY_SIZE="$(
             wc -c < "$XRAY_FILE" |
             tr -d ' '
@@ -1032,17 +1300,23 @@ do
 
         echo "[OK] $abi / Xray"
         echo "     $XRAY_SIZE bytes"
+
     else
+
         echo "[FAIL] $abi / Xray missing:"
         echo "       $XRAY_FILE"
+
         FAILED=1
+
     fi
+
 
     # --------------------------------------------------------------------------
     # HEV
     # --------------------------------------------------------------------------
 
     if [[ -s "$HEV_FILE" ]]; then
+
         HEV_SIZE="$(
             wc -c < "$HEV_FILE" |
             tr -d ' '
@@ -1050,17 +1324,23 @@ do
 
         echo "[OK] $abi / HEV"
         echo "     $HEV_SIZE bytes"
+
     else
+
         echo "[FAIL] $abi / HEV missing:"
         echo "       $HEV_FILE"
+
         FAILED=1
+
     fi
+
 
     # --------------------------------------------------------------------------
     # MarbleNG JNI
     # --------------------------------------------------------------------------
 
     if [[ -s "$BRIDGE_FILE" ]]; then
+
         BRIDGE_SIZE="$(
             wc -c < "$BRIDGE_FILE" |
             tr -d ' '
@@ -1068,11 +1348,16 @@ do
 
         echo "[OK] $abi / MarbleNG JNI"
         echo "     $BRIDGE_SIZE bytes"
+
     else
+
         echo "[FAIL] $abi / MarbleNG JNI missing:"
         echo "       $BRIDGE_FILE"
+
         FAILED=1
+
     fi
+
 done
 
 
@@ -1129,6 +1414,7 @@ for abi in \
     x86_64 \
     x86
 do
+
     staged="$XRAY_STAGE/$abi/libxray.so"
     final="$JNILIBS/$abi/libxray.so"
 
@@ -1147,6 +1433,69 @@ do
     fi
 
     ok "$abi Xray checksum verified"
+
+done
+
+
+# ==============================================================================
+# Final native JNI verification
+#
+# Recheck the installed libraries at the very end so a later build step cannot
+# silently reintroduce a JNI/HEV problem.
+# ==============================================================================
+
+log "Running final HEV/JNI integrity verification"
+
+for abi in \
+    arm64-v8a \
+    armeabi-v7a \
+    x86_64 \
+    x86
+do
+
+    HEV_LIB="$JNILIBS/$abi/libhev-socks5-tunnel.so"
+    BRIDGE_LIB="$JNILIBS/$abi/libmarbleng.so"
+
+    if symbol_exists "$HEV_LIB" "JNI_OnLoad"; then
+        die "Final verification: HEV JNI_OnLoad collision detected for $abi"
+    fi
+
+    if symbol_exists "$BRIDGE_LIB" "JNI_OnLoad"; then
+        die "Final verification: unexpected MarbleNG JNI_OnLoad for $abi"
+    fi
+
+    for symbol in \
+        "Java_com_marbleng_app_nativebridge_HevTunnel_run" \
+        "Java_com_marbleng_app_nativebridge_HevTunnel_quit" \
+        "Java_com_marbleng_app_nativebridge_HevTunnel_stats"
+    do
+
+        symbol_exists "$BRIDGE_LIB" "$symbol" || {
+            die "Final verification: MarbleNG JNI symbol missing for $abi: $symbol"
+        }
+
+    done
+
+    for symbol in \
+        "hev_socks5_tunnel_main_from_str" \
+        "hev_socks5_tunnel_quit" \
+        "hev_socks5_tunnel_stats"
+    do
+
+        symbol_exists "$HEV_LIB" "$symbol" || {
+            die "Final verification: HEV API symbol missing for $abi: $symbol"
+        }
+
+    done
+
+    dependency_exists \
+        "$BRIDGE_LIB" \
+        "libhev-socks5-tunnel.so" || {
+            die "Final verification: libmarbleng.so is not linked to HEV for $abi"
+        }
+
+    ok "$abi final HEV/JNI integrity verified"
+
 done
 
 
@@ -1164,6 +1513,7 @@ for abi in \
     x86_64 \
     x86
 do
+
     echo "============================================================"
     echo "$abi"
     echo "============================================================"
@@ -1181,6 +1531,7 @@ do
     sha256sum "$JNILIBS/$abi/libmarbleng.so"
 
     echo
+
 done
 
 
@@ -1213,6 +1564,7 @@ echo "  Tag             : $XRAY_TAG"
 echo "  Go requirement  : $XRAY_GO_REQUIRED"
 
 echo -n "  Effective Go    : "
+
 (
     cd "$XRAY_SRC"
     go version
@@ -1245,7 +1597,7 @@ echo "  $ASSETS_ROOT"
 echo
 ok "Native cores ready."
 
-# Disable failure diagnostics because everything succeeded.
+# Everything succeeded. Disable EXIT failure diagnostics.
 trap - EXIT
 
 exit 0
