@@ -1,20 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"; LOCK="$ROOT/core-lock.json"; CORE="$ROOT/.cores"; JNILIBS="$ROOT/app/src/main/jniLibs"; HEVDST="$ROOT/app/src/main/jni/hev"
-
 for x in git jq go curl unzip; do command -v "$x" >/dev/null || { echo "Missing $x" >&2; exit 1; }; done
 NDK="${ANDROID_NDK_HOME:-${ANDROID_NDK_ROOT:-}}"; [[ -n "$NDK" && -x "$NDK/ndk-build" ]] || { echo 'ANDROID_NDK_HOME must point to NDK 28.2.13676358+' >&2; exit 1; }
-
 XRAY_TAG="$(jq -r .xray.tag "$LOCK")"; HEV_TAG="$(jq -r .hev.tag "$LOCK")"
 rm -rf "$CORE" "$JNILIBS" "$HEVDST"; mkdir -p "$CORE" "$JNILIBS" "$ROOT/app/src/main/assets/xray"
-
 echo "[1/4] Xray source $XRAY_TAG"; git clone --quiet --depth 1 --branch "$XRAY_TAG" https://github.com/XTLS/Xray-core.git "$CORE/xray"
-
-# --- بخش اضافه شده برای رفع خطای Go 1.23+ و anet ---
-echo "Updating anet package to fix net.zoneCache issue..."
-(cd "$CORE/xray" && go get github.com/wlynxg/anet@latest && go mod tidy)
-# ---------------------------------------------------
-
 echo "[2/4] Xray Android binaries"
 build_xray(){ local abi="$1" arch="$2" arm="${3:-}"; mkdir -p "$JNILIBS/$abi"; (cd "$CORE/xray"; env CGO_ENABLED=0 GOOS=android GOARCH="$arch" ${arm:+GOARM=$arm} go build -buildmode=pie -trimpath -buildvcs=false -ldflags='-s -w' -o "$JNILIBS/$abi/libxray.so" ./main); chmod +x "$JNILIBS/$abi/libxray.so"; }
 build_xray arm64-v8a arm64; build_xray armeabi-v7a arm 7; build_xray x86_64 amd64; build_xray x86 386
