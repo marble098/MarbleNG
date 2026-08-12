@@ -4,42 +4,61 @@ set -euo pipefail
 # ==============================================================================
 # MarbleNG Native Core Builder
 #
-# Builds:
-#   - Xray-core for Android:
-#       arm64-v8a
-#       armeabi-v7a
-#       x86_64
-#       x86
+# Builds and prepares:
 #
-#   - hev-socks5-tunnel Android native libraries
-#   - MarbleNG JNI bridge
-#   - Xray geoip.dat / geosite.dat assets
+#   Xray-core:
+#     - arm64-v8a
+#     - armeabi-v7a
+#     - x86_64
+#     - x86
 #
-# Important:
-#   NEVER downgrade Xray's go.mod.
-#   Xray decides its required Go version itself.
+#   HEV SOCKS5 Tunnel:
+#     - arm64-v8a
+#     - armeabi-v7a
+#     - x86_64
+#     - x86
+#
+#   MarbleNG JNI bridge
+#
+#   Assets:
+#     - geoip.dat
+#     - geosite.dat
+#     - core-lock.json
+#
+# Important design:
+#
+#   1. Never downgrade Xray go.mod.
+#   2. GOTOOLCHAIN=auto lets Xray select its required Go toolchain.
+#   3. Xray is built using Android NDK clang + CGO.
+#   4. -checklinkname=0 is used for current Xray dependencies.
+#   5. Xray binaries are built into an isolated staging directory.
+#   6. HEV/JNI ndk-build runs BEFORE Xray is copied into jniLibs.
+#   7. Final verification guarantees every requested native file exists.
+#
 # ==============================================================================
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 LOCK="$ROOT/core-lock.json"
+
 CORE="$ROOT/.cores"
 XRAY_SRC="$CORE/xray"
+XRAY_STAGE="$CORE/xray-android"
 
 JNILIBS="$ROOT/app/src/main/jniLibs"
+
 JNI_ROOT="$ROOT/app/src/main/jni"
 HEVDST="$JNI_ROOT/hev"
 
 ASSETS_ROOT="$ROOT/app/src/main/assets"
 XRAY_ASSETS="$ASSETS_ROOT/xray"
 
-# Allow modern Go versions to automatically select/download the toolchain
-# required by Xray's own go.mod.
 export GOTOOLCHAIN=auto
 
-# ------------------------------------------------------------------------------
-# Helpers
-# ------------------------------------------------------------------------------
+
+# ==============================================================================
+# Logging helpers
+# ==============================================================================
 
 log() {
     printf '\n\033[1;36m[MarbleNG]\033[0m %s\n' "$*"
@@ -59,12 +78,84 @@ die() {
 }
 
 require_command() {
-    command -v "$1" >/dev/null 2>&1 || die "Missing required command: $1"
+    command -v "$1" >/dev/null 2>&1 || {
+        die "Missing required command: $1"
+    }
 }
 
-# ------------------------------------------------------------------------------
-# Requirements
-# ------------------------------------------------------------------------------
+
+# ==============================================================================
+# Failure diagnostics
+# ==============================================================================
+
+failure_diagnostics() {
+    local status=$?
+
+    if (( status != 0 )); then
+        echo
+        echo "================================================================"
+        echo " MarbleNG native preparation FAILED"
+        echo "================================================================"
+        echo
+
+        echo "Exit code:"
+        echo "  $status"
+        echo
+
+        echo "Go:"
+        go version 2>/dev/null || true
+        echo
+
+        echo "GOTOOLCHAIN:"
+        echo "  ${GOTOOLCHAIN:-unset}"
+        echo
+
+        echo "ANDROID_NDK_HOME:"
+        echo "  ${ANDROID_NDK_HOME:-unset}"
+        echo
+
+        echo "ANDROID_NDK_ROOT:"
+        echo "  ${ANDROID_NDK_ROOT:-unset}"
+        echo
+
+        echo "Existing staged Xray files:"
+        if [[ -d "$XRAY_STAGE" ]]; then
+            find "$XRAY_STAGE" \
+                -maxdepth 3 \
+                -type f \
+                -printf '%p %s bytes\n' \
+                2>/dev/null || true
+        else
+            echo "  staging directory does not exist"
+        fi
+
+        echo
+        echo "Existing jniLibs:"
+        if [[ -d "$JNILIBS" ]]; then
+            find "$JNILIBS" \
+                -maxdepth 3 \
+                -type f \
+                -printf '%p %s bytes\n' \
+                2>/dev/null || true
+        else
+            echo "  jniLibs directory does not exist"
+        fi
+
+        echo
+        echo "================================================================"
+    fi
+
+    exit "$status"
+}
+
+trap failure_diagnostics EXIT
+
+
+# ==============================================================================
+# Required commands
+# ==============================================================================
+
+log "Checking build environment"
 
 for cmd in \
     git \
@@ -76,44 +167,123 @@ for cmd in \
     awk \
     grep \
     find \
-    sha256sum
+    sha256sum \
+    wc
 do
     require_command "$cmd"
 done
 
-[[ -f "$LOCK" ]] || die "Missing core lock file: $LOCK"
+ok "Required command-line tools are available"
 
-# ------------------------------------------------------------------------------
-# Android NDK
-# ------------------------------------------------------------------------------
 
-NDK="${ANDROID_NDK_HOME:-${ANDROID_NDK_ROOT:-}}"
+# ==============================================================================
+# Check core-lock.json
+# ==============================================================================
 
-[[ -n "$NDK" ]] || \
-    die "ANDROID_NDK_HOME or ANDROID_NDK_ROOT is not set."
+[[ -f "$LOCK" ]] || {
+    die "Missing core-lock.json: $LOCK"
+}
 
-[[ -x "$NDK/ndk-build" ]] || \
-    die "ndk-build not found at: $NDK/ndk-build"
-
-ok "Android NDK: $NDK"
-
-# ------------------------------------------------------------------------------
-# Read locked versions
-# ------------------------------------------------------------------------------
+if ! jq -e . "$LOCK" >/dev/null 2>&1; then
+    die "core-lock.json is not valid JSON"
+fi
 
 XRAY_TAG="$(jq -r '.xray.tag // empty' "$LOCK")"
 HEV_TAG="$(jq -r '.hev.tag // empty' "$LOCK")"
 
-[[ -n "$XRAY_TAG" ]] || die "Missing .xray.tag in core-lock.json"
-[[ -n "$HEV_TAG" ]] || die "Missing .hev.tag in core-lock.json"
+[[ -n "$XRAY_TAG" ]] || {
+    die "Missing .xray.tag in core-lock.json"
+}
+
+[[ -n "$HEV_TAG" ]] || {
+    die "Missing .hev.tag in core-lock.json"
+}
 
 log "Locked native versions"
+
 echo "Xray : $XRAY_TAG"
 echo "HEV  : $HEV_TAG"
 
-# ------------------------------------------------------------------------------
-# Clean old native build
-# ------------------------------------------------------------------------------
+
+# ==============================================================================
+# Android NDK
+# ==============================================================================
+
+NDK="${ANDROID_NDK_HOME:-${ANDROID_NDK_ROOT:-}}"
+
+[[ -n "$NDK" ]] || {
+    die "ANDROID_NDK_HOME or ANDROID_NDK_ROOT is not set"
+}
+
+[[ -d "$NDK" ]] || {
+    die "Android NDK directory does not exist: $NDK"
+}
+
+[[ -x "$NDK/ndk-build" ]] || {
+    die "ndk-build not found: $NDK/ndk-build"
+}
+
+ok "Android NDK: $NDK"
+
+
+# ==============================================================================
+# Find NDK LLVM toolchain
+# ==============================================================================
+
+NDK_TOOLCHAIN_ROOT="$NDK/toolchains/llvm/prebuilt"
+
+[[ -d "$NDK_TOOLCHAIN_ROOT" ]] || {
+    die "Android NDK LLVM toolchain missing: $NDK_TOOLCHAIN_ROOT"
+}
+
+# GitHub Actions normally provides linux-x86_64.
+if [[ -d "$NDK_TOOLCHAIN_ROOT/linux-x86_64" ]]; then
+    NDK_HOST_DIR="$NDK_TOOLCHAIN_ROOT/linux-x86_64"
+else
+    NDK_HOST_DIR="$(
+        find "$NDK_TOOLCHAIN_ROOT" \
+            -mindepth 1 \
+            -maxdepth 1 \
+            -type d \
+            | head -n 1
+    )"
+fi
+
+[[ -n "$NDK_HOST_DIR" ]] || {
+    die "Could not locate NDK host LLVM toolchain"
+}
+
+[[ -d "$NDK_HOST_DIR" ]] || {
+    die "Invalid NDK host toolchain: $NDK_HOST_DIR"
+}
+
+NDK_BIN="$NDK_HOST_DIR/bin"
+
+[[ -d "$NDK_BIN" ]] || {
+    die "NDK compiler directory missing: $NDK_BIN"
+}
+
+ok "NDK LLVM toolchain: $NDK_BIN"
+
+
+# ==============================================================================
+# Android API
+# ==============================================================================
+
+# API 24 gives broad Android compatibility while providing the current
+# NDK compiler targets required for the native build.
+ANDROID_NATIVE_API="${ANDROID_NATIVE_API:-24}"
+
+[[ "$ANDROID_NATIVE_API" =~ ^[0-9]+$ ]] || {
+    die "ANDROID_NATIVE_API must be numeric"
+}
+
+echo "Android native API: $ANDROID_NATIVE_API"
+
+
+# ==============================================================================
+# Clean previous native build
+# ==============================================================================
 
 log "Cleaning previous native build"
 
@@ -124,8 +294,12 @@ rm -rf \
 
 mkdir -p \
     "$CORE" \
+    "$XRAY_STAGE" \
     "$JNILIBS" \
     "$XRAY_ASSETS"
+
+ok "Native workspace cleaned"
+
 
 # ==============================================================================
 # 1/4 - Xray source
@@ -140,16 +314,31 @@ git clone \
     https://github.com/XTLS/Xray-core.git \
     "$XRAY_SRC"
 
-[[ -f "$XRAY_SRC/go.mod" ]] || \
-    die "Xray go.mod was not found after cloning."
+[[ -d "$XRAY_SRC/.git" ]] || {
+    die "Xray source clone failed"
+}
+
+[[ -f "$XRAY_SRC/go.mod" ]] || {
+    die "Xray go.mod missing after clone"
+}
+
+
+# ==============================================================================
+# Determine Xray Go requirement
+# ==============================================================================
 
 XRAY_GO_REQUIRED="$(
-    awk '/^go[[:space:]]+/ { print $2; exit }' \
-        "$XRAY_SRC/go.mod"
+    awk '
+        /^go[[:space:]]+/ {
+            print $2
+            exit
+        }
+    ' "$XRAY_SRC/go.mod"
 )"
 
-[[ -n "$XRAY_GO_REQUIRED" ]] || \
-    die "Could not determine Xray Go version requirement."
+[[ -n "$XRAY_GO_REQUIRED" ]] || {
+    die "Could not determine Xray Go requirement"
+}
 
 echo
 echo "------------------------------------------------------------"
@@ -160,21 +349,22 @@ echo "GOTOOLCHAIN          : ${GOTOOLCHAIN}"
 echo "------------------------------------------------------------"
 echo
 
-# DO NOT run:
-#
-#   go mod edit -go=1.22
-#   go mod edit -toolchain=none
-#
-# Xray's original go.mod must remain untouched.
 
-if git -C "$XRAY_SRC" diff --quiet -- go.mod; then
-    ok "Xray go.mod preserved unchanged"
+# ==============================================================================
+# Ensure upstream go.mod was NOT modified
+# ==============================================================================
+
+if git -C "$XRAY_SRC" diff --quiet -- go.mod go.sum; then
+    ok "Xray Go module files preserved unchanged"
 else
-    die "Xray go.mod was unexpectedly modified."
+    die "Xray go.mod/go.sum were unexpectedly modified"
 fi
 
-# Ask Go to resolve the module once before compiling all ABIs.
-# With GOTOOLCHAIN=auto Go can select the version requested by go.mod.
+
+# ==============================================================================
+# Prepare Xray dependencies
+# ==============================================================================
+
 log "Preparing Xray Go dependencies"
 
 (
@@ -183,64 +373,37 @@ log "Preparing Xray Go dependencies"
     echo "Effective Go toolchain:"
     go version
 
+    echo
+    echo "Downloading modules..."
+
     go mod download
 )
 
 ok "Xray dependencies prepared"
 
+
+# ==============================================================================
+# Verify go.mod still untouched
+# ==============================================================================
+
+if git -C "$XRAY_SRC" diff --quiet -- go.mod go.sum; then
+    ok "Xray module files remain pristine"
+else
+    echo
+    git -C "$XRAY_SRC" diff -- go.mod go.sum || true
+    die "Dependency preparation modified upstream module files"
+fi
+
+
 # ==============================================================================
 # 2/4 - Xray Android binaries
 # ==============================================================================
 
-log "[2/4] Building Xray Android binaries using official Android build method"
+log "[2/4] Building Xray Android binaries"
+
 
 # ------------------------------------------------------------------------------
-# Locate Android NDK LLVM toolchain
-# ------------------------------------------------------------------------------
-
-NDK_TOOLCHAIN_ROOT="$NDK/toolchains/llvm/prebuilt"
-
-[[ -d "$NDK_TOOLCHAIN_ROOT" ]] || \
-    die "Android NDK LLVM toolchain directory not found: $NDK_TOOLCHAIN_ROOT"
-
-NDK_HOST_DIR="$(
-    find "$NDK_TOOLCHAIN_ROOT" \
-        -mindepth 1 \
-        -maxdepth 1 \
-        -type d \
-        | head -n 1
-)"
-
-[[ -n "$NDK_HOST_DIR" && -d "$NDK_HOST_DIR" ]] || \
-    die "Could not locate Android NDK host toolchain."
-
-NDK_BIN="$NDK_HOST_DIR/bin"
-
-[[ -d "$NDK_BIN" ]] || \
-    die "Android NDK compiler directory not found: $NDK_BIN"
-
-echo
-echo "Android NDK LLVM:"
-echo "  $NDK_BIN"
-echo
-
-# Android API 24 matches the current official Xray Android release build.
-ANDROID_NATIVE_API=24
-
-# ------------------------------------------------------------------------------
-# Xray Android builder
-#
-# IMPORTANT:
-#
-# Current Xray Android builds require the same important linker behavior used by
-# Xray's official GitHub workflow:
-#
-#   CGO_ENABLED=1
-#   Android NDK clang
-#   -gcflags="all=-l=4"
-#   -checklinkname=0
-#
-# Do NOT remove -checklinkname=0.
+# Build helper
 # ------------------------------------------------------------------------------
 
 build_xray() {
@@ -249,49 +412,49 @@ build_xray() {
     local cc_name="$3"
     local goarm="${4:-}"
 
-    local out_dir="$JNILIBS/$abi"
+    local out_dir="$XRAY_STAGE/$abi"
     local output="$out_dir/libxray.so"
     local cc="$NDK_BIN/$cc_name"
 
     mkdir -p "$out_dir"
 
     [[ -x "$cc" ]] || {
-        warn "Android compiler not available for $abi:"
-        warn "  $cc"
-        return 1
+        die "Android compiler for $abi does not exist: $cc"
     }
 
     local commit_id
 
     commit_id="$(
         git -C "$XRAY_SRC" \
-            describe \
-            --always \
-            --dirty \
-            2>/dev/null ||
-        git -C "$XRAY_SRC" \
             rev-parse \
-            --short=7 HEAD
+            --short=12 \
+            HEAD
     )"
 
     echo
     echo "================================================================"
     echo " Building Xray for Android"
     echo "================================================================"
-    echo " ABI          : $abi"
-    echo " GOOS         : android"
-    echo " GOARCH       : $goarch"
+    echo "ABI          : $abi"
+    echo "GOOS         : android"
+    echo "GOARCH       : $goarch"
 
     if [[ -n "$goarm" ]]; then
-        echo " GOARM        : $goarm"
+        echo "GOARM        : $goarm"
     fi
 
-    echo " API          : $ANDROID_NATIVE_API"
-    echo " CGO          : enabled"
-    echo " Compiler     : $cc"
-    echo " Xray commit  : $commit_id"
-    echo " Go           : $(cd "$XRAY_SRC" && go version)"
-    echo " Output       : $output"
+    echo "Android API  : $ANDROID_NATIVE_API"
+    echo "CGO          : enabled"
+    echo "Compiler     : $cc"
+    echo "Xray commit  : $commit_id"
+
+    echo -n "Go toolchain : "
+    (
+        cd "$XRAY_SRC"
+        go version
+    )
+
+    echo "Stage output : $output"
     echo "================================================================"
     echo
 
@@ -308,12 +471,12 @@ build_xray() {
                 CGO_ENABLED=1 \
                 CC="$cc" \
                 go build \
-                    -o "$output" \
+                    -buildmode=pie \
                     -trimpath \
                     -buildvcs=false \
                     -gcflags="all=-l=4" \
                     -ldflags="-X github.com/xtls/xray-core/core.build=${commit_id} -s -w -buildid= -checklinkname=0" \
-                    -v \
+                    -o "$output" \
                     ./main
 
         else
@@ -325,44 +488,54 @@ build_xray() {
                 CGO_ENABLED=1 \
                 CC="$cc" \
                 go build \
-                    -o "$output" \
+                    -buildmode=pie \
                     -trimpath \
                     -buildvcs=false \
                     -gcflags="all=-l=4" \
                     -ldflags="-X github.com/xtls/xray-core/core.build=${commit_id} -s -w -buildid= -checklinkname=0" \
-                    -v \
+                    -o "$output" \
                     ./main
 
         fi
     )
 
-    [[ -s "$output" ]] || \
-        die "Xray Android build produced no binary for $abi"
+    [[ -s "$output" ]] || {
+        die "Xray Android build produced no file for $abi"
+    }
 
     chmod 755 "$output"
 
-    local size
-    size="$(wc -c < "$output" | tr -d ' ')"
+    local size hash
 
-    ok "Xray Android $abi built successfully — $size bytes"
+    size="$(
+        wc -c < "$output" |
+        tr -d ' '
+    )"
+
+    hash="$(
+        sha256sum "$output" |
+        awk '{print $1}'
+    )"
+
+    ok "Xray staged: $abi"
+    echo "     size   : $size bytes"
+    echo "     sha256 : $hash"
 }
 
-# ------------------------------------------------------------------------------
-# Android ARM64
-#
-# This is an officially built Xray Android target.
-# ------------------------------------------------------------------------------
+
+# ==============================================================================
+# Xray ARM64
+# ==============================================================================
 
 build_xray \
     "arm64-v8a" \
     "arm64" \
     "aarch64-linux-android${ANDROID_NATIVE_API}-clang"
 
-# ------------------------------------------------------------------------------
-# Android ARMv7 / 32-bit
-#
-# Kept for MarbleNG compatibility.
-# ------------------------------------------------------------------------------
+
+# ==============================================================================
+# Xray ARMv7
+# ==============================================================================
 
 build_xray \
     "armeabi-v7a" \
@@ -370,68 +543,51 @@ build_xray \
     "armv7a-linux-androideabi${ANDROID_NATIVE_API}-clang" \
     "7"
 
-# ------------------------------------------------------------------------------
-# Android x86_64
-#
-# Go calls this architecture amd64.
-# This is also an officially built Xray Android target.
-# ------------------------------------------------------------------------------
+
+# ==============================================================================
+# Xray x86_64
+# ==============================================================================
 
 build_xray \
     "x86_64" \
     "amd64" \
     "x86_64-linux-android${ANDROID_NATIVE_API}-clang"
 
-# ------------------------------------------------------------------------------
-# Android x86 / 32-bit
-#
-# Kept for MarbleNG compatibility.
-# ------------------------------------------------------------------------------
+
+# ==============================================================================
+# Xray x86
+# ==============================================================================
 
 build_xray \
     "x86" \
     "386" \
     "i686-linux-android${ANDROID_NATIVE_API}-clang"
 
-# ------------------------------------------------------------------------------
-# Verify Xray outputs
-# ------------------------------------------------------------------------------
 
-log "Verifying Xray Android binaries"
+# ==============================================================================
+# Verify staging BEFORE HEV build
+# ==============================================================================
 
-XRAY_ABIS=(
-    "arm64-v8a"
-    "armeabi-v7a"
-    "x86_64"
-    "x86"
-)
+log "Verifying staged Xray binaries"
 
-for abi in "${XRAY_ABIS[@]}"; do
+for abi in \
+    arm64-v8a \
+    armeabi-v7a \
+    x86_64 \
+    x86
+do
+    file="$XRAY_STAGE/$abi/libxray.so"
 
-    binary="$JNILIBS/$abi/libxray.so"
+    [[ -s "$file" ]] || {
+        die "Staged Xray missing for $abi: $file"
+    }
 
-    [[ -s "$binary" ]] || \
-        die "Missing Xray binary after build: $binary"
-
-    size="$(
-        wc -c < "$binary" |
-        tr -d ' '
-    )"
-
-    hash="$(
-        sha256sum "$binary" |
-        awk '{print $1}'
-    )"
-
-    echo
-    echo "$abi"
-    echo "  size   : $size"
-    echo "  sha256 : $hash"
+    ok "$abi / Xray staging"
 done
 
-ok "All requested Xray Android binaries generated."
+
 # ==============================================================================
-# 3/4 - HEV SOCKS5 TUN
+# 3/4 - HEV SOCKS5 Tunnel
 # ==============================================================================
 
 log "[3/4] Cloning HEV SOCKS5 Tunnel $HEV_TAG"
@@ -444,11 +600,12 @@ git clone \
     https://github.com/heiher/hev-socks5-tunnel.git \
     "$HEVDST"
 
-[[ -d "$HEVDST" ]] || \
-    die "HEV repository clone failed."
+[[ -d "$HEVDST" ]] || {
+    die "HEV repository clone failed"
+}
 
-# In some git configurations shallow clone + --recursive can leave nested
-# submodules incomplete. Explicitly ensure every required submodule exists.
+log "Ensuring HEV submodules are initialized"
+
 git -C "$HEVDST" \
     submodule update \
     --init \
@@ -457,20 +614,26 @@ git -C "$HEVDST" \
 
 ok "HEV source ready"
 
-# ------------------------------------------------------------------------------
-# Check MarbleNG JNI build files
-# ------------------------------------------------------------------------------
+
+# ==============================================================================
+# Check MarbleNG JNI makefiles
+# ==============================================================================
 
 ANDROID_MK="$JNI_ROOT/Android.mk"
 APPLICATION_MK="$JNI_ROOT/Application.mk"
 
-[[ -f "$ANDROID_MK" ]] || \
+[[ -f "$ANDROID_MK" ]] || {
     die "Missing JNI Android.mk: $ANDROID_MK"
+}
 
-[[ -f "$APPLICATION_MK" ]] || \
+[[ -f "$APPLICATION_MK" ]] || {
     die "Missing JNI Application.mk: $APPLICATION_MK"
+}
 
-log "Building HEV + MarbleNG JNI bridge"
+
+# ==============================================================================
+# Determine CPU count
+# ==============================================================================
 
 CPU_COUNT="$(
     getconf _NPROCESSORS_ONLN 2>/dev/null ||
@@ -478,7 +641,22 @@ CPU_COUNT="$(
     echo 4
 )"
 
-[[ "$CPU_COUNT" =~ ^[0-9]+$ ]] || CPU_COUNT=4
+[[ "$CPU_COUNT" =~ ^[0-9]+$ ]] || {
+    CPU_COUNT=4
+}
+
+if (( CPU_COUNT < 1 )); then
+    CPU_COUNT=1
+fi
+
+echo "Native build workers: $CPU_COUNT"
+
+
+# ==============================================================================
+# Build HEV + MarbleNG JNI
+# ==============================================================================
+
+log "Building HEV + MarbleNG JNI bridge"
 
 "$NDK/ndk-build" \
     -C "$ROOT/app/src/main" \
@@ -488,16 +666,73 @@ CPU_COUNT="$(
     NDK_LIBS_OUT="$JNILIBS" \
     -j"$CPU_COUNT"
 
-ok "HEV and JNI compilation completed"
+ok "HEV + MarbleNG JNI compilation completed"
+
 
 # ==============================================================================
-# 4/4 - Xray geo assets
+# Important:
+#
+# ndk-build owns NDK_LIBS_OUT and may recreate/update jniLibs.
+#
+# Therefore Xray is copied AFTER ndk-build.
+# ==============================================================================
+
+log "Installing staged Xray binaries into Android jniLibs"
+
+for abi in \
+    arm64-v8a \
+    armeabi-v7a \
+    x86_64 \
+    x86
+do
+    src="$XRAY_STAGE/$abi/libxray.so"
+    dst_dir="$JNILIBS/$abi"
+    dst="$dst_dir/libxray.so"
+
+    [[ -s "$src" ]] || {
+        die "Staged Xray binary disappeared for $abi: $src"
+    }
+
+    mkdir -p "$dst_dir"
+
+    cp -f \
+        "$src" \
+        "$dst"
+
+    chmod 755 "$dst"
+
+    [[ -s "$dst" ]] || {
+        die "Could not install Xray into jniLibs for $abi"
+    }
+
+    src_hash="$(
+        sha256sum "$src" |
+        awk '{print $1}'
+    )"
+
+    dst_hash="$(
+        sha256sum "$dst" |
+        awk '{print $1}'
+    )"
+
+    [[ "$src_hash" == "$dst_hash" ]] || {
+        die "Xray copy checksum mismatch for $abi"
+    }
+
+    ok "Installed Xray -> $abi"
+done
+
+ok "All Xray binaries safely installed after ndk-build"
+
+
+# ==============================================================================
+# 4/4 - Xray assets
 # ==============================================================================
 
 log "[4/4] Downloading Xray geo assets for $XRAY_TAG"
 
 XRAY_RELEASE_JSON="$CORE/xray-release.json"
-XRAY_ZIP="$CORE/xray.zip"
+XRAY_ZIP="$CORE/xray-release.zip"
 
 curl \
     --fail \
@@ -513,8 +748,18 @@ curl \
     "https://api.github.com/repos/XTLS/Xray-core/releases/tags/$XRAY_TAG" \
     -o "$XRAY_RELEASE_JSON"
 
-[[ -s "$XRAY_RELEASE_JSON" ]] || \
-    die "Could not download Xray release metadata."
+[[ -s "$XRAY_RELEASE_JSON" ]] || {
+    die "Xray release metadata download failed"
+}
+
+if ! jq -e . "$XRAY_RELEASE_JSON" >/dev/null 2>&1; then
+    die "GitHub returned invalid Xray release metadata"
+fi
+
+
+# ==============================================================================
+# Locate release ZIP
+# ==============================================================================
 
 XRAY_ASSET_URL="$(
     jq -r '
@@ -525,11 +770,23 @@ XRAY_ASSET_URL="$(
     head -n 1
 )"
 
-[[ -n "$XRAY_ASSET_URL" && "$XRAY_ASSET_URL" != "null" ]] || \
-    die "Xray-linux-64.zip asset was not found for $XRAY_TAG"
+[[ -n "$XRAY_ASSET_URL" ]] || {
+    die "Xray-linux-64.zip URL is empty"
+}
 
-echo "Downloading:"
-echo "$XRAY_ASSET_URL"
+[[ "$XRAY_ASSET_URL" != "null" ]] || {
+    die "Xray-linux-64.zip is unavailable for $XRAY_TAG"
+}
+
+echo
+echo "Xray release asset:"
+echo "  $XRAY_ASSET_URL"
+echo
+
+
+# ==============================================================================
+# Download release ZIP
+# ==============================================================================
 
 curl \
     --fail \
@@ -542,52 +799,88 @@ curl \
     -o "$XRAY_ZIP" \
     "$XRAY_ASSET_URL"
 
-[[ -s "$XRAY_ZIP" ]] || \
-    die "Downloaded Xray archive is empty."
+[[ -s "$XRAY_ZIP" ]] || {
+    die "Downloaded Xray release ZIP is empty"
+}
 
-# ------------------------------------------------------------------------------
-# Validate archive
-# ------------------------------------------------------------------------------
 
-unzip -t "$XRAY_ZIP" >/dev/null || \
-    die "Downloaded Xray ZIP is invalid."
+# ==============================================================================
+# Validate ZIP
+# ==============================================================================
 
-# ------------------------------------------------------------------------------
-# Extract geo databases
-# ------------------------------------------------------------------------------
+log "Validating Xray release archive"
+
+unzip -t "$XRAY_ZIP" >/dev/null || {
+    die "Downloaded Xray ZIP failed integrity validation"
+}
+
+ok "Xray release ZIP validated"
+
+
+# ==============================================================================
+# Ensure required geo assets exist
+# ==============================================================================
+
+if ! unzip -l "$XRAY_ZIP" | grep -qE '(^|[[:space:]])geoip\.dat$'; then
+    die "geoip.dat missing from Xray release ZIP"
+fi
+
+if ! unzip -l "$XRAY_ZIP" | grep -qE '(^|[[:space:]])geosite\.dat$'; then
+    die "geosite.dat missing from Xray release ZIP"
+fi
+
+
+# ==============================================================================
+# Extract geoip.dat
+# ==============================================================================
 
 unzip -p \
     "$XRAY_ZIP" \
     geoip.dat \
     > "$XRAY_ASSETS/geoip.dat"
 
+[[ -s "$XRAY_ASSETS/geoip.dat" ]] || {
+    die "geoip.dat extraction failed"
+}
+
+ok "geoip.dat extracted"
+
+
+# ==============================================================================
+# Extract geosite.dat
+# ==============================================================================
+
 unzip -p \
     "$XRAY_ZIP" \
     geosite.dat \
     > "$XRAY_ASSETS/geosite.dat"
 
-[[ -s "$XRAY_ASSETS/geoip.dat" ]] || \
-    die "geoip.dat extraction failed."
+[[ -s "$XRAY_ASSETS/geosite.dat" ]] || {
+    die "geosite.dat extraction failed"
+}
 
-[[ -s "$XRAY_ASSETS/geosite.dat" ]] || \
-    die "geosite.dat extraction failed."
+ok "geosite.dat extracted"
 
-ok "Xray geo databases installed"
 
-# ------------------------------------------------------------------------------
-# Copy native-core lock into APK assets
-# ------------------------------------------------------------------------------
+# ==============================================================================
+# Copy core-lock.json into APK assets
+# ==============================================================================
 
 mkdir -p "$ASSETS_ROOT"
 
-cp \
+cp -f \
     "$LOCK" \
     "$ASSETS_ROOT/core-lock.json"
 
-ok "core-lock.json copied to Android assets"
+[[ -s "$ASSETS_ROOT/core-lock.json" ]] || {
+    die "Could not copy core-lock.json into Android assets"
+}
+
+ok "core-lock.json installed into Android assets"
+
 
 # ==============================================================================
-# Final verification
+# Final native verification
 # ==============================================================================
 
 log "Running final native-core verification"
@@ -601,74 +894,150 @@ for abi in \
     x86
 do
     echo
+    echo "------------------------------------------------------------"
     echo "Checking ABI: $abi"
+    echo "------------------------------------------------------------"
 
     XRAY_FILE="$JNILIBS/$abi/libxray.so"
     HEV_FILE="$JNILIBS/$abi/libhev-socks5-tunnel.so"
     BRIDGE_FILE="$JNILIBS/$abi/libmarbleng.so"
 
+    # --------------------------------------------------------------------------
+    # Xray
+    # --------------------------------------------------------------------------
+
     if [[ -s "$XRAY_FILE" ]]; then
-        ok "$abi / Xray"
+        XRAY_SIZE="$(
+            wc -c < "$XRAY_FILE" |
+            tr -d ' '
+        )"
+
+        echo "[OK] $abi / Xray"
+        echo "     $XRAY_SIZE bytes"
     else
-        echo "Missing: $XRAY_FILE" >&2
+        echo "[FAIL] $abi / Xray missing:"
+        echo "       $XRAY_FILE"
         FAILED=1
     fi
+
+    # --------------------------------------------------------------------------
+    # HEV
+    # --------------------------------------------------------------------------
 
     if [[ -s "$HEV_FILE" ]]; then
-        ok "$abi / HEV"
+        HEV_SIZE="$(
+            wc -c < "$HEV_FILE" |
+            tr -d ' '
+        )"
+
+        echo "[OK] $abi / HEV"
+        echo "     $HEV_SIZE bytes"
     else
-        echo "Missing: $HEV_FILE" >&2
+        echo "[FAIL] $abi / HEV missing:"
+        echo "       $HEV_FILE"
         FAILED=1
     fi
 
+    # --------------------------------------------------------------------------
+    # MarbleNG JNI
+    # --------------------------------------------------------------------------
+
     if [[ -s "$BRIDGE_FILE" ]]; then
-        ok "$abi / MarbleNG JNI"
+        BRIDGE_SIZE="$(
+            wc -c < "$BRIDGE_FILE" |
+            tr -d ' '
+        )"
+
+        echo "[OK] $abi / MarbleNG JNI"
+        echo "     $BRIDGE_SIZE bytes"
     else
-        echo "Missing: $BRIDGE_FILE" >&2
+        echo "[FAIL] $abi / MarbleNG JNI missing:"
+        echo "       $BRIDGE_FILE"
         FAILED=1
     fi
 done
 
-[[ -s "$XRAY_ASSETS/geoip.dat" ]] || FAILED=1
-[[ -s "$XRAY_ASSETS/geosite.dat" ]] || FAILED=1
-[[ -s "$ASSETS_ROOT/core-lock.json" ]] || FAILED=1
 
-if (( FAILED != 0 )); then
-    die "Native build verification failed."
+# ==============================================================================
+# Asset verification
+# ==============================================================================
+
+echo
+echo "------------------------------------------------------------"
+echo "Checking APK assets"
+echo "------------------------------------------------------------"
+
+if [[ -s "$XRAY_ASSETS/geoip.dat" ]]; then
+    ok "geoip.dat"
+else
+    echo "[FAIL] geoip.dat missing"
+    FAILED=1
 fi
 
-# ------------------------------------------------------------------------------
-# Build information
-# ------------------------------------------------------------------------------
+if [[ -s "$XRAY_ASSETS/geosite.dat" ]]; then
+    ok "geosite.dat"
+else
+    echo "[FAIL] geosite.dat missing"
+    FAILED=1
+fi
 
-echo
-echo "================================================================"
-echo " MarbleNG native preparation completed successfully"
-echo "================================================================"
-echo
-echo "Xray tag:"
-echo "  $XRAY_TAG"
-echo
-echo "Xray Go requirement:"
-echo "  $XRAY_GO_REQUIRED"
-echo
-echo "Effective Go:"
-(
-    cd "$XRAY_SRC"
-    go version
-)
-echo
-echo "HEV tag:"
-echo "  $HEV_TAG"
-echo
-echo "Android NDK:"
-echo "  $NDK"
-echo
-echo "Architectures:"
-echo "  - arm64-v8a"
-echo "  - armeabi-v7a"
-echo "  - x86_64"
-echo "  - x86"
+if [[ -s "$ASSETS_ROOT/core-lock.json" ]]; then
+    ok "core-lock.json"
+else
+    echo "[FAIL] core-lock.json missing"
+    FAILED=1
+fi
+
+
+# ==============================================================================
+# Stop if verification failed
+# ==============================================================================
+
+if (( FAILED != 0 )); then
+    echo
+    die "Native build verification failed"
+fi
+
+
+# ==============================================================================
+# Verify copied Xray binaries are still identical to staging
+# ==============================================================================
+
+log "Validating final Xray checksums"
+
+for abi in \
+    arm64-v8a \
+    armeabi-v7a \
+    x86_64 \
+    x86
+do
+    staged="$XRAY_STAGE/$abi/libxray.so"
+    final="$JNILIBS/$abi/libxray.so"
+
+    staged_hash="$(
+        sha256sum "$staged" |
+        awk '{print $1}'
+    )"
+
+    final_hash="$(
+        sha256sum "$final" |
+        awk '{print $1}'
+    )"
+
+    if [[ "$staged_hash" != "$final_hash" ]]; then
+        die "Final Xray checksum mismatch for $abi"
+    fi
+
+    ok "$abi Xray checksum verified"
+done
+
+
+# ==============================================================================
+# Print final checksums
+# ==============================================================================
+
+log "Native core SHA-256 manifest"
+
 echo
 
 for abi in \
@@ -677,23 +1046,88 @@ for abi in \
     x86_64 \
     x86
 do
-    echo "$abi:"
-    echo "  Xray:"
+    echo "============================================================"
+    echo "$abi"
+    echo "============================================================"
+
+    echo
+    echo "Xray:"
     sha256sum "$JNILIBS/$abi/libxray.so"
 
-    echo "  HEV:"
+    echo
+    echo "HEV:"
     sha256sum "$JNILIBS/$abi/libhev-socks5-tunnel.so"
 
-    echo "  JNI:"
+    echo
+    echo "MarbleNG JNI:"
     sha256sum "$JNILIBS/$abi/libmarbleng.so"
 
     echo
 done
 
-echo "Assets:"
+
+# ==============================================================================
+# Asset checksums
+# ==============================================================================
+
+echo "============================================================"
+echo "Assets"
+echo "============================================================"
+
 sha256sum \
     "$XRAY_ASSETS/geoip.dat" \
-    "$XRAY_ASSETS/geosite.dat"
+    "$XRAY_ASSETS/geosite.dat" \
+    "$ASSETS_ROOT/core-lock.json"
+
+
+# ==============================================================================
+# Final information
+# ==============================================================================
+
+echo
+echo "================================================================"
+echo " MarbleNG native preparation completed successfully"
+echo "================================================================"
+echo
+
+echo "Xray"
+echo "  Tag             : $XRAY_TAG"
+echo "  Go requirement  : $XRAY_GO_REQUIRED"
+
+echo -n "  Effective Go    : "
+(
+    cd "$XRAY_SRC"
+    go version
+)
+
+echo
+echo "HEV"
+echo "  Tag             : $HEV_TAG"
+
+echo
+echo "Android"
+echo "  NDK             : $NDK"
+echo "  API             : $ANDROID_NATIVE_API"
+
+echo
+echo "Native ABIs"
+echo "  - arm64-v8a"
+echo "  - armeabi-v7a"
+echo "  - x86_64"
+echo "  - x86"
+
+echo
+echo "Output directory:"
+echo "  $JNILIBS"
+
+echo
+echo "Assets directory:"
+echo "  $ASSETS_ROOT"
 
 echo
 ok "Native cores ready."
+
+# Disable failure diagnostics because everything succeeded.
+trap - EXIT
+
+exit 0
