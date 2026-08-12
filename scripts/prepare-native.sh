@@ -192,116 +192,244 @@ ok "Xray dependencies prepared"
 # 2/4 - Xray Android binaries
 # ==============================================================================
 
-log "[2/4] Building Xray Android binaries"
+log "[2/4] Building Xray Android binaries using official Android build method"
+
+# ------------------------------------------------------------------------------
+# Locate Android NDK LLVM toolchain
+# ------------------------------------------------------------------------------
+
+NDK_TOOLCHAIN_ROOT="$NDK/toolchains/llvm/prebuilt"
+
+[[ -d "$NDK_TOOLCHAIN_ROOT" ]] || \
+    die "Android NDK LLVM toolchain directory not found: $NDK_TOOLCHAIN_ROOT"
+
+NDK_HOST_DIR="$(
+    find "$NDK_TOOLCHAIN_ROOT" \
+        -mindepth 1 \
+        -maxdepth 1 \
+        -type d \
+        | head -n 1
+)"
+
+[[ -n "$NDK_HOST_DIR" && -d "$NDK_HOST_DIR" ]] || \
+    die "Could not locate Android NDK host toolchain."
+
+NDK_BIN="$NDK_HOST_DIR/bin"
+
+[[ -d "$NDK_BIN" ]] || \
+    die "Android NDK compiler directory not found: $NDK_BIN"
+
+echo
+echo "Android NDK LLVM:"
+echo "  $NDK_BIN"
+echo
+
+# Android API 24 matches the current official Xray Android release build.
+ANDROID_NATIVE_API=24
+
+# ------------------------------------------------------------------------------
+# Xray Android builder
+#
+# IMPORTANT:
+#
+# Current Xray Android builds require the same important linker behavior used by
+# Xray's official GitHub workflow:
+#
+#   CGO_ENABLED=1
+#   Android NDK clang
+#   -gcflags="all=-l=4"
+#   -checklinkname=0
+#
+# Do NOT remove -checklinkname=0.
+# ------------------------------------------------------------------------------
 
 build_xray() {
     local abi="$1"
     local goarch="$2"
-    local goarm="${3:-}"
+    local cc_name="$3"
+    local goarm="${4:-}"
 
     local out_dir="$JNILIBS/$abi"
     local output="$out_dir/libxray.so"
+    local cc="$NDK_BIN/$cc_name"
 
     mkdir -p "$out_dir"
 
+    [[ -x "$cc" ]] || {
+        warn "Android compiler not available for $abi:"
+        warn "  $cc"
+        return 1
+    }
+
+    local commit_id
+
+    commit_id="$(
+        git -C "$XRAY_SRC" \
+            describe \
+            --always \
+            --dirty \
+            2>/dev/null ||
+        git -C "$XRAY_SRC" \
+            rev-parse \
+            --short=7 HEAD
+    )"
+
     echo
-    echo "============================================================"
-    echo "Building Xray"
-    echo "ABI     : $abi"
-    echo "GOARCH  : $goarch"
+    echo "================================================================"
+    echo " Building Xray for Android"
+    echo "================================================================"
+    echo " ABI          : $abi"
+    echo " GOOS         : android"
+    echo " GOARCH       : $goarch"
 
     if [[ -n "$goarm" ]]; then
-        echo "GOARM   : $goarm"
+        echo " GOARM        : $goarm"
     fi
 
-    echo "============================================================"
+    echo " API          : $ANDROID_NATIVE_API"
+    echo " CGO          : enabled"
+    echo " Compiler     : $cc"
+    echo " Xray commit  : $commit_id"
+    echo " Go           : $(cd "$XRAY_SRC" && go version)"
+    echo " Output       : $output"
+    echo "================================================================"
+    echo
 
     (
         cd "$XRAY_SRC"
 
         if [[ -n "$goarm" ]]; then
+
             env \
                 GOTOOLCHAIN=auto \
-                CGO_ENABLED=0 \
                 GOOS=android \
                 GOARCH="$goarch" \
                 GOARM="$goarm" \
+                CGO_ENABLED=1 \
+                CC="$cc" \
                 go build \
-                    -buildmode=pie \
+                    -o "$output" \
                     -trimpath \
                     -buildvcs=false \
-                    -ldflags="-s -w -buildid=" \
-                    -o "$output" \
+                    -gcflags="all=-l=4" \
+                    -ldflags="-X github.com/xtls/xray-core/core.build=${commit_id} -s -w -buildid= -checklinkname=0" \
+                    -v \
                     ./main
+
         else
+
             env \
                 GOTOOLCHAIN=auto \
-                CGO_ENABLED=0 \
                 GOOS=android \
                 GOARCH="$goarch" \
+                CGO_ENABLED=1 \
+                CC="$cc" \
                 go build \
-                    -buildmode=pie \
+                    -o "$output" \
                     -trimpath \
                     -buildvcs=false \
-                    -ldflags="-s -w -buildid=" \
-                    -o "$output" \
+                    -gcflags="all=-l=4" \
+                    -ldflags="-X github.com/xtls/xray-core/core.build=${commit_id} -s -w -buildid= -checklinkname=0" \
+                    -v \
                     ./main
+
         fi
     )
 
     [[ -s "$output" ]] || \
-        die "Xray build failed for $abi"
+        die "Xray Android build produced no binary for $abi"
 
     chmod 755 "$output"
 
-    ok "Xray built: $abi"
+    local size
+    size="$(wc -c < "$output" | tr -d ' ')"
+
+    ok "Xray Android $abi built successfully — $size bytes"
 }
 
+# ------------------------------------------------------------------------------
 # Android ARM64
+#
+# This is an officially built Xray Android target.
+# ------------------------------------------------------------------------------
+
 build_xray \
     "arm64-v8a" \
-    "arm64"
+    "arm64" \
+    "aarch64-linux-android${ANDROID_NATIVE_API}-clang"
 
-# Android ARMv7
+# ------------------------------------------------------------------------------
+# Android ARMv7 / 32-bit
+#
+# Kept for MarbleNG compatibility.
+# ------------------------------------------------------------------------------
+
 build_xray \
     "armeabi-v7a" \
     "arm" \
+    "armv7a-linux-androideabi${ANDROID_NATIVE_API}-clang" \
     "7"
 
+# ------------------------------------------------------------------------------
 # Android x86_64
+#
+# Go calls this architecture amd64.
+# This is also an officially built Xray Android target.
+# ------------------------------------------------------------------------------
+
 build_xray \
     "x86_64" \
-    "amd64"
+    "amd64" \
+    "x86_64-linux-android${ANDROID_NATIVE_API}-clang"
 
-# Android x86
+# ------------------------------------------------------------------------------
+# Android x86 / 32-bit
+#
+# Kept for MarbleNG compatibility.
+# ------------------------------------------------------------------------------
+
 build_xray \
     "x86" \
-    "386"
+    "386" \
+    "i686-linux-android${ANDROID_NATIVE_API}-clang"
 
 # ------------------------------------------------------------------------------
-# Verify Xray binaries
+# Verify Xray outputs
 # ------------------------------------------------------------------------------
 
-log "Verifying Xray ABI outputs"
+log "Verifying Xray Android binaries"
 
-for abi in \
-    arm64-v8a \
-    armeabi-v7a \
-    x86_64 \
-    x86
-do
-    file="$JNILIBS/$abi/libxray.so"
+XRAY_ABIS=(
+    "arm64-v8a"
+    "armeabi-v7a"
+    "x86_64"
+    "x86"
+)
 
-    [[ -s "$file" ]] || \
-        die "Missing Xray binary for ABI: $abi"
+for abi in "${XRAY_ABIS[@]}"; do
 
-    size="$(wc -c < "$file" | tr -d ' ')"
+    binary="$JNILIBS/$abi/libxray.so"
 
-    echo "$abi -> $size bytes"
+    [[ -s "$binary" ]] || \
+        die "Missing Xray binary after build: $binary"
+
+    size="$(
+        wc -c < "$binary" |
+        tr -d ' '
+    )"
+
+    hash="$(
+        sha256sum "$binary" |
+        awk '{print $1}'
+    )"
+
+    echo
+    echo "$abi"
+    echo "  size   : $size"
+    echo "  sha256 : $hash"
 done
 
-ok "All Xray ABI builds completed"
-
+ok "All requested Xray Android binaries generated."
 # ==============================================================================
 # 3/4 - HEV SOCKS5 TUN
 # ==============================================================================
