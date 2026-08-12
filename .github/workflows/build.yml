@@ -1,101 +1,494 @@
 name: Build signed Android APKs
+
 on:
   push:
-    branches: [ main ]
+    branches:
+      - main
   workflow_dispatch:
+
 permissions:
   contents: write
+
 concurrency:
   group: marbleng-release-${{ github.ref }}
   cancel-in-progress: true
 
-# --- جلوگیری از ارتقاء خودکار نسخه Go ---
 env:
-  GOTOOLCHAIN: local
-# ----------------------------------------
+  # Xray's own go.mod decides the actual Go toolchain.
+  GOTOOLCHAIN: auto
 
 jobs:
   build:
+    name: Build signed MarbleNG APKs
     runs-on: ubuntu-latest
     timeout-minutes: 60
+
     steps:
-      - uses: actions/checkout@v4
-        with: { fetch-depth: 0 }
-      - uses: actions/setup-java@v5
-        with: { distribution: temurin, java-version: '17' }
-      - uses: android-actions/setup-android@v3
-      - name: Install Android SDK/NDK
+      # ========================================================================
+      # Checkout
+      # ========================================================================
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # ========================================================================
+      # Java
+      # ========================================================================
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      # ========================================================================
+      # Android SDK
+      # ========================================================================
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK and NDK
         shell: bash
         run: |
+          set -euo pipefail
+
           yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager 'platforms;android-36' 'build-tools;36.0.0' 'ndk;28.2.13676358'
-          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/28.2.13676358" >> "$GITHUB_ENV"
-      - name: Clone pinned Xray source for Go version
+
+          sdkmanager \
+            'platforms;android-36' \
+            'build-tools;36.0.0' \
+            'ndk;28.2.13676358'
+
+          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/28.2.13676358" \
+            >> "$GITHUB_ENV"
+
+          echo "ANDROID_NDK_ROOT=$ANDROID_SDK_ROOT/ndk/28.2.13676358" \
+            >> "$GITHUB_ENV"
+
+      # ========================================================================
+      # Determine Go version directly from pinned Xray
+      # ========================================================================
+
+      - name: Clone pinned Xray metadata
+        shell: bash
         run: |
+          set -euo pipefail
+
+          rm -rf .bootstrap
           mkdir -p .bootstrap
-          git clone --depth 1 --branch "$(jq -r .xray.tag core-lock.json)" https://github.com/XTLS/Xray-core.git .bootstrap/xray
-          
-      - uses: actions/setup-go@v5
+
+          XRAY_TAG="$(jq -r '.xray.tag' core-lock.json)"
+
+          test -n "$XRAY_TAG"
+          test "$XRAY_TAG" != "null"
+
+          echo "Pinned Xray: $XRAY_TAG"
+
+          git clone \
+            --quiet \
+            --depth 1 \
+            --branch "$XRAY_TAG" \
+            https://github.com/XTLS/Xray-core.git \
+            .bootstrap/xray
+
+          test -s .bootstrap/xray/go.mod
+
+          echo "Xray Go requirement:"
+          grep '^go ' .bootstrap/xray/go.mod
+
+      - name: Set up Xray Go toolchain
+        uses: actions/setup-go@v5
         with:
-          go-version: '1.22.x'
+          go-version-file: .bootstrap/xray/go.mod
           cache: true
-          
+
+      - name: Verify Go environment
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "Bootstrap Go:"
+          go version
+
+          echo
+          echo "GOTOOLCHAIN:"
+          echo "$GOTOOLCHAIN"
+
+          echo
+          echo "Pinned Xray go.mod:"
+          grep '^go ' .bootstrap/xray/go.mod
+
+      # ========================================================================
+      # Native Xray + HEV + JNI
+      # ========================================================================
+
       - name: Prepare all native ABIs
-        run: ./scripts/prepare-native.sh
-        
-      - name: Install Gradle 9.5.1
+        shell: bash
+        env:
+          GOTOOLCHAIN: auto
+        run: |
+          set -euo pipefail
+
+          chmod +x scripts/prepare-native.sh
+          ./scripts/prepare-native.sh
+
+      # ========================================================================
+      # Gradle
+      # ========================================================================
+
+      - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
-        with: { gradle-version: '9.5.1' }
-        
-      - name: Restore stable release signer
+        with:
+          gradle-version: '9.5.1'
+
+      # ========================================================================
+      # Restore + validate signing identity
+      #
+      # Important:
+      # Old MarbleNG injectors generated a PKCS12 keystore while supplying
+      # different store/key passwords. Modern keytool may ignore the separate
+      # key password for PKCS12 and protect the private key using store password.
+      #
+      # Therefore:
+      #   1. First try ANDROID_KEY_PASSWORD.
+      #   2. If it cannot decrypt the key, try ANDROID_KEYSTORE_PASSWORD.
+      #   3. Never generate a new key here.
+      #
+      # This preserves the SAME signing identity.
+      # ========================================================================
+
+      - name: Restore and validate stable release signer
+        shell: bash
         env:
           KS_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
           KS_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           KS_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           KEY_PASS: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
-          test -n "$KS_B64" && test -n "$KS_PASS" && test -n "$KS_ALIAS" && test -n "$KEY_PASS"
-          printf '%s' "$KS_B64" | base64 -d > release.jks
-          cat > signing.properties <<EOF
-          storeFile=release.jks
-          storePassword=$KS_PASS
-          keyAlias=$KS_ALIAS
-          keyPassword=$KEY_PASS
-          EOF
-          
-      - name: Automatic version
+          set -euo pipefail
+
+          fail() {
+            echo "::error::$*"
+            exit 1
+          }
+
+          # --------------------------------------------------------------------
+          # Ensure every required secret exists.
+          # --------------------------------------------------------------------
+
+          test -n "${KS_B64:-}" || fail "ANDROID_KEYSTORE_B64 is missing."
+          test -n "${KS_PASS:-}" || fail "ANDROID_KEYSTORE_PASSWORD is missing."
+          test -n "${KS_ALIAS:-}" || fail "ANDROID_KEY_ALIAS is missing."
+          test -n "${KEY_PASS:-}" || fail "ANDROID_KEY_PASSWORD is missing."
+
+          # --------------------------------------------------------------------
+          # Restore keystore exactly as stored.
+          # --------------------------------------------------------------------
+
+          rm -f release.jks signing.properties
+
+          printf '%s' "$KS_B64" |
+            base64 --decode > release.jks
+
+          chmod 600 release.jks
+
+          test -s release.jks ||
+            fail "Decoded release keystore is empty."
+
+          # --------------------------------------------------------------------
+          # Validate store password and alias before spending minutes building.
+          # --------------------------------------------------------------------
+
+          if ! keytool \
+              -list \
+              -keystore release.jks \
+              -storepass "$KS_PASS" \
+              -alias "$KS_ALIAS" \
+              >/dev/null 2>&1
+          then
+            fail "Keystore/store password/alias validation failed."
+          fi
+
+          echo "[OK] Keystore container and alias are valid."
+
+          # --------------------------------------------------------------------
+          # Java verifier.
+          #
+          # Unlike keytool's PKCS12 compatibility behavior, KeyStore.getKey()
+          # verifies the actual password Gradle will use for the private key.
+          # --------------------------------------------------------------------
+
+          cat > "$RUNNER_TEMP/VerifyMarbleNGKey.java" <<'JAVA'
+          import java.io.File;
+          import java.security.Key;
+          import java.security.KeyStore;
+
+          public final class VerifyMarbleNGKey {
+              public static void main(String[] args) throws Exception {
+                  if (args.length != 4) {
+                      throw new IllegalArgumentException(
+                          "Expected: <keystore> <storePass> <alias> <keyPass>"
+                      );
+                  }
+
+                  File file = new File(args[0]);
+
+                  KeyStore store = KeyStore.getInstance(
+                      file,
+                      args[1].toCharArray()
+                  );
+
+                  if (!store.containsAlias(args[2])) {
+                      throw new IllegalStateException(
+                          "Signing alias does not exist"
+                      );
+                  }
+
+                  Key key = store.getKey(
+                      args[2],
+                      args[3].toCharArray()
+                  );
+
+                  if (key == null) {
+                      throw new IllegalStateException(
+                          "Private signing key could not be loaded"
+                      );
+                  }
+              }
+          }
+          JAVA
+
+          verify_key_password() {
+            java \
+              "$RUNNER_TEMP/VerifyMarbleNGKey.java" \
+              "$PWD/release.jks" \
+              "$KS_PASS" \
+              "$KS_ALIAS" \
+              "$1" \
+              >/dev/null 2>&1
+          }
+
+          EFFECTIVE_KEY_PASS=""
+
+          # --------------------------------------------------------------------
+          # Normal/new signing configuration.
+          # --------------------------------------------------------------------
+
+          if verify_key_password "$KEY_PASS"; then
+
+            EFFECTIVE_KEY_PASS="$KEY_PASS"
+
+            echo "[OK] Private key password validated."
+
+          # --------------------------------------------------------------------
+          # Compatibility recovery for the OLD injector.
+          #
+          # This is expected for existing MarbleNG PKCS12 stores created with
+          # two generated passwords where keytool ignored the second password.
+          #
+          # No key is regenerated.
+          # No certificate changes.
+          # APK signing identity stays identical.
+          # --------------------------------------------------------------------
+
+          elif verify_key_password "$KS_PASS"; then
+
+            EFFECTIVE_KEY_PASS="$KS_PASS"
+
+            echo "::warning::Legacy MarbleNG PKCS12 password mismatch detected."
+            echo "::warning::Using the store password as the effective private-key password."
+            echo "[OK] Existing signing identity recovered without key rotation."
+
+          else
+
+            fail "Private signing key cannot be decrypted with either configured password. Do NOT regenerate the keystore if preserving the app signature matters."
+
+          fi
+
+          # --------------------------------------------------------------------
+          # Create Gradle signing file.
+          #
+          # Keep secret contents out of logs.
+          # --------------------------------------------------------------------
+
+          {
+            printf 'storeFile=release.jks\n'
+            printf 'storePassword=%s\n' "$KS_PASS"
+            printf 'keyAlias=%s\n' "$KS_ALIAS"
+            printf 'keyPassword=%s\n' "$EFFECTIVE_KEY_PASS"
+          } > signing.properties
+
+          chmod 600 signing.properties
+
+          # --------------------------------------------------------------------
+          # Final verification using values just written for Gradle.
+          # --------------------------------------------------------------------
+
+          if ! verify_key_password "$EFFECTIVE_KEY_PASS"; then
+            fail "Final signing verification unexpectedly failed."
+          fi
+
+          echo "[OK] Release signing identity is ready."
+
+          # Certificate details are safe; passwords/private key are not printed.
+          echo
+          echo "Signing certificate:"
+          keytool \
+            -list \
+            -v \
+            -keystore release.jks \
+            -storepass "$KS_PASS" \
+            -alias "$KS_ALIAS" |
+            grep -E 'Alias name:|Owner:|Issuer:|SHA256:' |
+            head -n 8 || true
+
+      # ========================================================================
+      # Version
+      # ========================================================================
+
+      - name: Generate automatic version
+        shell: bash
         run: |
-          V="1.0.$(date -u +%Y%m%d).${GITHUB_RUN_NUMBER}"
-          C="$(date -u +%s)"
-          echo "VERSION_NAME=$V" >> "$GITHUB_ENV"
-          echo "VERSION_CODE=$C" >> "$GITHUB_ENV"
-          
-      - name: Unit/build checks + signed release
-        run: gradle --no-daemon clean assembleRelease -PVERSION_NAME="$VERSION_NAME" -PVERSION_CODE="$VERSION_CODE"
-        
-      - name: Collect and fingerprint APKs
+          set -euo pipefail
+
+          VERSION_NAME="1.0.$(date -u +%Y%m%d).${GITHUB_RUN_NUMBER}"
+          VERSION_CODE="$(date -u +%s)"
+
+          echo "VERSION_NAME=$VERSION_NAME" >> "$GITHUB_ENV"
+          echo "VERSION_CODE=$VERSION_CODE" >> "$GITHUB_ENV"
+
+          echo "Version name: $VERSION_NAME"
+          echo "Version code: $VERSION_CODE"
+
+      # ========================================================================
+      # Android release
+      # ========================================================================
+
+      - name: Build signed release APKs
+        shell: bash
         run: |
+          set -euo pipefail
+
+          gradle \
+            --no-daemon \
+            clean \
+            assembleRelease \
+            -PVERSION_NAME="$VERSION_NAME" \
+            -PVERSION_CODE="$VERSION_CODE"
+
+      # ========================================================================
+      # Collect APKs
+      # ========================================================================
+
+      - name: Collect and verify APKs
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          rm -rf dist
           mkdir -p dist
-          find app/build/outputs/apk/release -type f -name '*.apk' -print0 | while IFS= read -r -d '' f; do
-            n="$(basename "$f")"; cp "$f" "dist/MarbleNG-${VERSION_NAME}-${n#app-}"
-          done
-          (cd dist && sha256sum *.apk > SHA256SUMS.txt)
+
+          count=0
+
+          while IFS= read -r -d '' apk; do
+
+            original="$(basename "$apk")"
+
+            output="dist/MarbleNG-${VERSION_NAME}-${original#app-}"
+
+            cp -f "$apk" "$output"
+
+            count=$((count + 1))
+
+          done < <(
+            find \
+              app/build/outputs/apk/release \
+              -type f \
+              -name '*.apk' \
+              -print0
+          )
+
+          if (( count == 0 )); then
+            echo "::error::No release APK was produced."
+            exit 1
+          fi
+
+          echo "Collected $count APK(s)."
+
+          (
+            cd dist
+            sha256sum *.apk > SHA256SUMS.txt
+          )
+
           APKSIGNER="$ANDROID_SDK_ROOT/build-tools/36.0.0/apksigner"
+
+          test -x "$APKSIGNER"
+
           : > dist/SIGNING-CERTS.txt
-          for apk in dist/*.apk; do echo "===== $(basename "$apk") =====" >> dist/SIGNING-CERTS.txt; "$APKSIGNER" verify --verbose --print-certs "$apk" >> dist/SIGNING-CERTS.txt; done
+
+          for apk in dist/*.apk; do
+
+            echo "Verifying $(basename "$apk")"
+
+            "$APKSIGNER" \
+              verify \
+              --verbose \
+              --print-certs \
+              "$apk" \
+              >> dist/SIGNING-CERTS.txt
+
+            echo \
+              "===== $(basename "$apk") =====" \
+              >> dist/SIGNING-CERTS.txt
+
+          done
+
           ls -lh dist
-          
-      - uses: actions/upload-artifact@v4
+
+      # ========================================================================
+      # Artifact
+      # ========================================================================
+
+      - name: Upload APK artifacts
+        uses: actions/upload-artifact@v4
         with:
           name: MarbleNG-${{ env.VERSION_NAME }}-all-architectures
           path: dist/*
           if-no-files-found: error
-          
+
+      # ========================================================================
+      # GitHub Release
+      # ========================================================================
+
       - name: Publish GitHub Release
-        env: { GH_TOKEN: '${{ github.token }}' }
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
+          set -euo pipefail
+
           tag="v$VERSION_NAME"
-          gh release view "$tag" >/dev/null 2>&1 && gh release delete "$tag" -y || true
-          git tag -f "$tag" "$GITHUB_SHA"; git push -f origin "$tag"
-          gh release create "$tag" dist/* --title "MarbleNG $VERSION_NAME" --notes "Signed multi-ABI build. Xray $(jq -r .xray.tag core-lock.json), HEV $(jq -r .hev.tag core-lock.json). Same release signing identity is reused via repository secrets."
-          
+
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release delete "$tag" -y
+          fi
+
+          git tag -f "$tag" "$GITHUB_SHA"
+          git push -f origin "$tag"
+
+          XRAY_VERSION="$(jq -r '.xray.tag' core-lock.json)"
+          HEV_VERSION="$(jq -r '.hev.tag' core-lock.json)"
+
+          gh release create \
+            "$tag" \
+            dist/* \
+            --title "MarbleNG $VERSION_NAME" \
+            --notes "Signed multi-ABI MarbleNG build.
+
+          Xray: $XRAY_VERSION
+          HEV SOCKS5 Tunnel: $HEV_VERSION
+
+          APKs are signed with the persistent MarbleNG Android signing identity stored in repository secrets."
