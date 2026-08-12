@@ -14,13 +14,13 @@ val versionNameFromCi = providers.gradleProperty("VERSION_NAME").orNull ?: "1.0.
 
 android {
     namespace = "com.marbleng.app"
-    compileSdk = 37
+    compileSdk = 36
     ndkVersion = "28.2.13676358"
 
     defaultConfig {
         applicationId = "com.marbleng.app"
         minSdk = 26
-        targetSdk = 37
+        targetSdk = 36
         versionCode = versionCodeFromCi
         versionName = versionNameFromCi
         vectorDrawables.useSupportLibrary = true
