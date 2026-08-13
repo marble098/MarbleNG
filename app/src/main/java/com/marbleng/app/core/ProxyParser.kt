@@ -39,7 +39,7 @@ object ProxyParser {
     }
     private fun q(u:Uri,k:String,d:String="")=u.getQueryParameter(k)?:d
     private fun stream(u:Uri,host:String):JSONObject{
-        val type=q(u,"type","tcp").lowercase(); val method=mapOf("tcp" to "raw","ws" to "websocket","splithttp" to "xhttp")[type]?:type
+        val type=q(u,"type","tcp").lowercase(); val method=mapOf("tcp" to "raw","ws" to "websocket","splithttp" to "xhttp","kcp" to "mkcp")[type]?:type
         val st=JSONObject(); if(type in listOf("http","h2")){ st.put("network","http"); st.put("security","none");
             st.put("httpSettings",JSONObject().put("path",q(u,"path","/")).apply{q(u,"host").takeIf{it.isNotBlank()}?.let{put("host",JSONArray().put(it))}})
         } else { st.put("method",method); st.put("security","none"); val path=q(u,"path","/"); val h=q(u,"host")
@@ -106,10 +106,16 @@ object ProxyParser {
         return prof(raw,u.fragment?:"Hysteria2 $host","hysteria2",host,port,"hysteria","tls",base(out),sid,sname)
     }
     private fun parseBasic(raw:String,sid:String,sname:String):ProxyProfile{
-        val u=Uri.parse(raw); val host=u.host?:error("host"); val port=u.port.takeIf{it>0}?:if(u.scheme=="https")443 else 1080; val scheme=u.scheme!!.lowercase(); val user=dec(u.userInfo).substringBefore(':'); val pass=dec(u.userInfo).substringAfter(':',"")
-        val protocol=if(scheme.startsWith("socks"))"socks" else "http"; val settings=JSONObject().put("address",host).put("port",port)
-        if(user.isNotBlank()) settings.put("users",JSONArray().put(JSONObject().put("user",user).put("pass",pass)))
+        val u=Uri.parse(raw); val host=u.host?:error("host"); val scheme=u.scheme!!.lowercase()
+        val port=u.port.takeIf{it>0}?:when(scheme){"https"->443;"http"->80;else->1080}
+        val user=dec(u.userInfo).substringBefore(':'); val pass=dec(u.userInfo).substringAfter(':',"")
+        val protocol=if(scheme.startsWith("socks"))"socks" else "http"
+        val settings=JSONObject().put("address",host).put("port",port)
+        if(user.isNotBlank()){settings.put("user",user);settings.put("pass",pass)}
         val out=JSONObject().put("tag","proxy").put("protocol",protocol).put("settings",settings)
+        if(scheme=="https"){
+            out.put("streamSettings",JSONObject().put("method","raw").put("security","tls").put("tlsSettings",JSONObject().put("serverName",host)))
+        }
         return prof(raw,"${protocol.uppercase()} $host",scheme,host,port,"native",if(scheme=="https")"tls" else "none",base(out),sid,sname)
     }
     private fun prof(raw:String,name:String,scheme:String,host:String,port:Int,transport:String,security:String,cfg:JSONObject,sid:String,sname:String)=

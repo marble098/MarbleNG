@@ -7,8 +7,10 @@ import com.marbleng.app.model.RoutingMode
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.InetSocketAddress
+import java.net.ServerSocket
 import java.net.Socket
 import java.net.URL
+import java.util.concurrent.TimeUnit
 
 /** Status of the two Xray geo data files used by managed routing. */
 data class RoutingAssetStatus(
@@ -22,6 +24,10 @@ data class RoutingAssetStatus(
 
 class XrayManager(private val context: Context) {
     @Volatile private var process: Process? = null
+
+    @Volatile
+    var lastStartError: String = ""
+        private set
 
     val isAlive: Boolean get() = process?.isAlive == true
     val logFile: File get() = File(context.filesDir, "logs/xray.log")
@@ -110,20 +116,24 @@ class XrayManager(private val context: Context) {
         val declared = connection.contentLengthLong
         require(declared <= 128L * 1024L * 1024L || declared < 0) { "${destination.name} is too large" }
 
-        connection.inputStream.use { input ->
-            temp.outputStream().use { output ->
-                val buffer = ByteArray(32 * 1024)
-                var total = 0L
-                while (true) {
-                    val read = input.read(buffer)
-                    if (read <= 0) break
-                    total += read
-                    require(total <= 128L * 1024L * 1024L) { "${destination.name} exceeds 128 MiB" }
-                    output.write(buffer, 0, read)
+        try {
+            connection.inputStream.use { input ->
+                temp.outputStream().use { output ->
+                    val buffer = ByteArray(32 * 1024)
+                    var total = 0L
+                    while (true) {
+                        val read = input.read(buffer)
+                        if (read <= 0) break
+                        total += read
+                        require(total <= 128L * 1024L * 1024L) { "${destination.name} exceeds 128 MiB" }
+                        output.write(buffer, 0, read)
+                    }
                 }
             }
+        } finally {
+            connection.disconnect()
         }
-        connection.disconnect()
+
         require(temp.length() > 1024L) { "${destination.name} download is empty" }
         replaceFile(temp, destination)
     }
@@ -167,45 +177,73 @@ class XrayManager(private val context: Context) {
 
     @Synchronized
     fun start(profile: ProxyProfile, port: Int, settings: AppSettings = AppSettings()): Boolean {
+        lastStartError = ""
         stop()
-        if (!bin.exists()) return false
+
+        if (!bin.isFile) return fail("Xray native binary is missing")
+        if (port !in 1..65535) return fail("Invalid local SOCKS port: $port")
+
         logFile.parentFile?.mkdirs()
+        rotateLogIfNeeded()
         val config = runtimeConfig
 
         return runCatching {
+            if (!portAvailable(port)) {
+                return@runCatching fail("Local port $port is already in use")
+            }
+
             val needGeoIp = requiresGeoIp(settings)
             val needGeoSite = requiresGeoSite(settings)
-            val shouldPrepareAssets = needGeoIp || needGeoSite || settings.geoIpUrl.isNotBlank() || settings.geoSiteUrl.isNotBlank()
-            val assetStatus = if (shouldPrepareAssets) prepareRoutingAssets(settings, force = false) else routingAssetStatus()
+            val shouldPrepareAssets =
+                needGeoIp || needGeoSite || settings.geoIpUrl.isNotBlank() || settings.geoSiteUrl.isNotBlank()
+            val assetStatus =
+                if (shouldPrepareAssets) prepareRoutingAssets(settings, force = false) else routingAssetStatus()
+
             if (needGeoIp && !assetStatus.geoIpReady) {
                 error("geoip.dat is required by the selected routing policy. Add a download URL in Settings → Routing.")
             }
             if (needGeoSite && !assetStatus.geoSiteReady) {
                 error("geosite.dat is required by the selected routing policy. Add a download URL in Settings → Routing.")
             }
+
             config.writeText(XrayConfigHardener.harden(profile.configJson, port, settings))
 
             val testProcess = createProcessBuilder("run", "-test", "-c", config.absolutePath)
                 .redirectOutput(ProcessBuilder.Redirect.appendTo(logFile))
                 .start()
-            if (testProcess.waitFor() != 0) return@runCatching false
+
+            if (!testProcess.waitFor(10, TimeUnit.SECONDS)) {
+                stopProcess(testProcess)
+                return@runCatching fail("Xray config validation timed out")
+            }
+            if (testProcess.exitValue() != 0) {
+                return@runCatching fail(
+                    "Xray rejected the generated config (exit ${testProcess.exitValue()}): ${lastLogHint()}"
+                )
+            }
 
             val startedProcess = createProcessBuilder("run", "-c", config.absolutePath)
                 .redirectOutput(ProcessBuilder.Redirect.appendTo(logFile))
                 .start()
             process = startedProcess
 
-            if (!waitPort(port, 5_000L)) {
+            if (!waitPort(port, 7_000L, startedProcess)) {
+                val hint = if (startedProcess.isAlive) {
+                    "SOCKS listener did not open"
+                } else {
+                    "Xray exited with code ${runCatching { startedProcess.exitValue() }.getOrDefault(-1)}"
+                }
                 stopProcess(startedProcess)
                 if (process === startedProcess) process = null
-                false
+                fail("$hint: ${lastLogHint()}")
             } else {
+                lastStartError = ""
                 true
             }
-        }.getOrElse {
+        }.getOrElse { error ->
             process?.let(::stopProcess)
             process = null
-            false
+            fail("${error::class.java.simpleName}: ${error.message ?: "Xray startup failed"}")
         }
     }
 
@@ -241,7 +279,8 @@ class XrayManager(private val context: Context) {
 
     /** Temporary benchmark instances always use proxy-all routing to avoid route policy skewing node tests. */
     fun temporary(profile: ProxyProfile, port: Int, block: (Int) -> Unit): Boolean {
-        if (!bin.exists()) return false
+        if (!bin.isFile || port !in 1..65535 || !portAvailable(port)) return false
+
         val config = File(context.cacheDir, "bench-$port.json")
         val benchmarkLog = File(context.cacheDir, "xray-bench-$port.log")
 
@@ -251,13 +290,20 @@ class XrayManager(private val context: Context) {
             val testProcess = createProcessBuilder("run", "-test", "-c", config.absolutePath)
                 .redirectOutput(ProcessBuilder.Redirect.appendTo(benchmarkLog))
                 .start()
-            if (testProcess.waitFor() != 0) return@runCatching false
+
+            if (!testProcess.waitFor(10, TimeUnit.SECONDS)) {
+                stopProcess(testProcess)
+                return@runCatching false
+            }
+            if (testProcess.exitValue() != 0) return@runCatching false
 
             val temporaryProcess = createProcessBuilder("run", "-c", config.absolutePath)
                 .redirectOutput(ProcessBuilder.Redirect.appendTo(benchmarkLog))
                 .start()
             try {
-                if (!waitPort(port, 5_000L)) false else {
+                if (!waitPort(port, 7_000L, temporaryProcess)) {
+                    false
+                } else {
                     block(port)
                     true
                 }
@@ -271,16 +317,18 @@ class XrayManager(private val context: Context) {
         }
     }
 
-    private fun waitPort(port: Int, timeoutMs: Long): Boolean {
+    private fun waitPort(port: Int, timeoutMs: Long, target: Process? = null): Boolean {
         val deadline = System.currentTimeMillis() + timeoutMs
         while (System.currentTimeMillis() < deadline) {
             val connected = runCatching {
-                Socket().use { socket -> socket.connect(InetSocketAddress("127.0.0.1", port), 200) }
+                Socket().use { socket ->
+                    socket.connect(InetSocketAddress("127.0.0.1", port), 200)
+                }
             }.isSuccess
             if (connected) return true
 
-            val current = process
-            if (current != null && !current.isAlive) return false
+            if (target != null && !target.isAlive) return false
+
             try {
                 Thread.sleep(100L)
             } catch (_: InterruptedException) {
@@ -288,6 +336,38 @@ class XrayManager(private val context: Context) {
                 return false
             }
         }
+        return false
+    }
+
+    private fun portAvailable(port: Int): Boolean = runCatching {
+        ServerSocket().use { socket ->
+            socket.reuseAddress = true
+            socket.bind(InetSocketAddress("127.0.0.1", port))
+        }
+        true
+    }.getOrDefault(false)
+
+    private fun rotateLogIfNeeded() {
+        if (logFile.isFile && logFile.length() > 2L * 1024L * 1024L) {
+            val previous = File(logFile.parentFile, "${logFile.name}.1")
+            runCatching { previous.delete() }
+            if (!logFile.renameTo(previous)) {
+                runCatching { logFile.writeText("") }
+            }
+        }
+    }
+
+    private fun lastLogHint(): String {
+        if (!logFile.isFile) return "no Xray log"
+        return runCatching {
+            logFile.useLines { lines ->
+                lines.filter { it.isNotBlank() }.toList().takeLast(4).joinToString(" | ")
+            }.take(900)
+        }.getOrDefault("Xray log unavailable").ifBlank { "no Xray error detail" }
+    }
+
+    private fun fail(reason: String): Boolean {
+        lastStartError = reason.take(1_200)
         return false
     }
 }

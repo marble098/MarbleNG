@@ -18,7 +18,7 @@ import java.util.concurrent.Executors
 class AppRepository(private val context: Context, val xray: XrayManager) {
     private val store = AppStore(context)
     private val secrets = SecretStore(context)
-    private val io = Executors.newCachedThreadPool()
+    private val io = Executors.newFixedThreadPool(3)
 
     val profiles = mutableStateListOf<ProxyProfile>().apply { addAll(store.loadProfiles()) }
     val subscriptions = mutableStateListOf<Subscription>().apply { addAll(store.loadSubscriptions()) }
@@ -155,7 +155,7 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
             .setAction(MarbleVpnService.ACTION_START)
             .putExtra(MarbleVpnService.EXTRA_PROFILE, p.id)
             .putExtra(MarbleVpnService.EXTRA_MODE, MarbleVpnService.MODE_TUN)
-        if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(intent) else context.startService(intent)
+        launchConnectionService(intent, p.name)
     }
 
     fun startLocalProxy(p: ProxyProfile) {
@@ -164,11 +164,25 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
             .setAction(MarbleVpnService.ACTION_START)
             .putExtra(MarbleVpnService.EXTRA_PROFILE, p.id)
             .putExtra(MarbleVpnService.EXTRA_MODE, MarbleVpnService.MODE_PROXY)
-        if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(intent) else context.startService(intent)
+        launchConnectionService(intent, p.name)
+    }
+
+    private fun launchConnectionService(intent: Intent, profileName: String) {
+        runCatching {
+            if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(intent) else context.startService(intent)
+        }.onFailure { error ->
+            val detail = "Could not start connection service for $profileName: ${error::class.java.simpleName}: ${error.message ?: "unknown error"}"
+            setRuntimeState("BLOCKED", detail)
+            message = detail
+        }
     }
 
     fun stopVpn() {
-        context.startService(Intent(context, MarbleVpnService::class.java).setAction(MarbleVpnService.ACTION_STOP))
+        runCatching {
+            context.startService(Intent(context, MarbleVpnService::class.java).setAction(MarbleVpnService.ACTION_STOP))
+        }.onFailure { error ->
+            message = "Could not stop connection service: ${error::class.java.simpleName}: ${error.message ?: "unknown error"}"
+        }
     }
 
     fun smart(onBest: (ProxyProfile) -> Unit) {
@@ -212,7 +226,12 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
                 saved.add(normalized)
                 saveChannels(saved)
             }
-            val out = TelegramRadar.fetch(channel, if (state == "CONNECTED") activeProxyPort() else null, settings.telegramMaxConfigs)
+            val radarProxyPort = when {
+                state == "DISCONNECTED" -> null
+                xray.isAlive -> activeProxyPort()
+                else -> error("Telegram fetch blocked while the tunnel is not healthy")
+            }
+            val out = TelegramRadar.fetch(channel, radarProxyPort, settings.telegramMaxConfigs)
             val candidates = ProxyParser.parseInput(out.joinToString("\n"), "telegram", "Telegram Radar")
             if (candidates.isEmpty()) {
                 radarConfigs = emptyList()
@@ -253,6 +272,10 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     fun cloudflareKey() = secrets.get("cfAccessKey")
 
     fun deployWorker(token: String, account: String, script: String, key: String) {
+        if (state != "DISCONNECTED") {
+            message = "Disconnect before Cloudflare deployment • direct management traffic is blocked while a tunnel is active"
+            return
+        }
         task("Deploying Cloudflare Worker") {
             val r = CloudflareWorker.deploy(token, account, script, key)
             if (r.ok) {
@@ -274,6 +297,10 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     fun routingAssetStatus(): RoutingAssetStatus = xray.routingAssetStatus()
 
     fun prepareRoutingAssets(force: Boolean = false) {
+        if (state != "DISCONNECTED" && (settings.geoIpUrl.isNotBlank() || settings.geoSiteUrl.isNotBlank())) {
+            message = "Disconnect before downloading routing assets • direct management downloads are blocked while a tunnel is active"
+            return
+        }
         task(if (force) "Updating routing assets" else "Preparing routing assets") {
             val status = xray.prepareRoutingAssets(settings, force)
             val parts = mutableListOf<String>()
@@ -362,11 +389,24 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     }
 
     private fun http(url: String): String {
+        if (state != "DISCONNECTED") {
+            check(xray.isAlive) {
+                "Direct management request blocked while the tunnel is not healthy"
+            }
+            return SocksHttpClient.getTextUrl(activeProxyPort(), url)
+        }
+
         val c = URL(url).openConnection() as HttpURLConnection
         c.connectTimeout = 12_000
         c.readTimeout = 30_000
         c.setRequestProperty("User-Agent", "MarbleNG/1")
-        return c.inputStream.bufferedReader().readText()
+        return try {
+            val code = c.responseCode
+            require(code in 200..299) { "HTTP $code" }
+            c.inputStream.bufferedReader().use { it.readText() }
+        } finally {
+            c.disconnect()
+        }
     }
 
     private fun sha(s: String) = MessageDigest.getInstance("SHA-256")
