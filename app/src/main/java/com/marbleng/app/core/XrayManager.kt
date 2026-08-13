@@ -73,10 +73,10 @@ class XrayManager(private val context: Context) {
         val ipSource = runCatching { sourceMarker("geoip.dat").readText() }.getOrDefault("")
         val siteSource = runCatching { sourceMarker("geosite.dat").readText() }.getOrDefault("")
         return RoutingAssetStatus(
-            geoIpReady = ip.isFile && ip.length() > 0,
+            geoIpReady = ip.isFile && ip.length() > 1024L,
             geoIpBytes = ip.takeIf { it.isFile }?.length() ?: 0L,
             geoIpRemote = ipSource.startsWith("http://") || ipSource.startsWith("https://"),
-            geoSiteReady = site.isFile && site.length() > 0,
+            geoSiteReady = site.isFile && site.length() > 1024L,
             geoSiteBytes = site.takeIf { it.isFile }?.length() ?: 0L,
             geoSiteRemote = siteSource.startsWith("http://") || siteSource.startsWith("https://")
         )
@@ -194,6 +194,68 @@ class XrayManager(private val context: Context) {
         return ProcessBuilder(command).apply {
             redirectErrorStream(true)
             environment()["XRAY_LOCATION_ASSET"] = assetsDir.absolutePath
+        }
+    }
+
+    /**
+     * Verifies the selected routing policy with the exact Xray binary shipped in the APK.
+     * XRAY_LOCATION_ASSET is inherited from createProcessBuilder(), so geoip/geosite tags are
+     * resolved against MarbleNG's managed data files rather than just checking file existence.
+     */
+    @Synchronized
+    fun verifyRoutingPolicy(
+        profile: ProxyProfile,
+        settings: AppSettings = AppSettings(),
+        chainProfile: ProxyProfile? = null
+    ): String {
+        require(bin.isFile) { "Xray native binary is missing" }
+
+        val needGeoIp = requiresGeoIp(settings)
+        val needGeoSite = requiresGeoSite(settings)
+        val shouldPrepareAssets =
+            needGeoIp || needGeoSite || settings.geoIpUrl.isNotBlank() || settings.geoSiteUrl.isNotBlank()
+        val status = if (shouldPrepareAssets) prepareRoutingAssets(settings, force = false) else routingAssetStatus()
+
+        if (needGeoIp) require(status.geoIpReady) {
+            "geoip.dat is required by this policy but is missing/invalid"
+        }
+        if (needGeoSite) require(status.geoSiteReady) {
+            "geosite.dat is required by this policy but is missing/invalid"
+        }
+
+        val sourceConfig = chainProfile
+            ?.takeIf { it.id != profile.id }
+            ?.let { XrayConfigHardener.composeChain(profile.configJson, it.configJson) }
+            ?: profile.configJson
+
+        val config = File(context.cacheDir, "routing-policy-verify.json")
+        val verifyLog = File(context.cacheDir, "routing-policy-verify.log")
+        verifyLog.delete()
+
+        return try {
+            config.writeText(XrayConfigHardener.harden(sourceConfig, 19091, settings))
+            val testProcess = createProcessBuilder("run", "-test", "-c", config.absolutePath)
+                .redirectOutput(ProcessBuilder.Redirect.appendTo(verifyLog))
+                .start()
+
+            if (!testProcess.waitFor(12, TimeUnit.SECONDS)) {
+                stopProcess(testProcess)
+                error("Xray routing verification timed out")
+            }
+            if (testProcess.exitValue() != 0) {
+                val hint = runCatching {
+                    verifyLog.useLines { lines ->
+                        lines.filter { it.isNotBlank() }.toList().takeLast(6).joinToString(" | ")
+                    }.take(1200)
+                }.getOrDefault("routing verifier log unavailable")
+                error("Xray rejected the routing/geo policy: $hint")
+            }
+
+            val ipState = if (status.geoIpReady) "READY ${status.geoIpBytes / 1024} KiB" else "NOT REQUIRED"
+            val siteState = if (status.geoSiteReady) "READY ${status.geoSiteBytes / 1024} KiB" else "NOT REQUIRED"
+            "Routing verified by Xray • GeoIP $ipState • GeoSite $siteState"
+        } finally {
+            runCatching { config.delete() }
         }
     }
 

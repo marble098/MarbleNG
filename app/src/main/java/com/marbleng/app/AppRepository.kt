@@ -446,6 +446,24 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         }
     }
 
+    fun verifyRoutingPolicy() {
+        val candidate = lastProfile() ?: profiles.firstOrNull()
+        if (candidate == null) {
+            message = "Import at least one profile before verifying routing"
+            return
+        }
+        if (state != "DISCONNECTED" && (settings.geoIpUrl.isNotBlank() || settings.geoSiteUrl.isNotBlank())) {
+            message = "Disconnect before routing verification when remote geo data URLs are configured"
+            return
+        }
+        task("Verifying routing policy with Xray") {
+            val chain = if (settings.chainEnabled) {
+                profile(settings.chainSecondProfileId)?.takeUnless { it.id == candidate.id }
+            } else null
+            message = xray.verifyRoutingPolicy(candidate, settings, chain)
+        }
+    }
+
     fun deleteRoutingAssets() {
         task("Removing routing assets") {
             xray.deleteRoutingAssets()

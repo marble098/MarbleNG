@@ -4,6 +4,11 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
@@ -537,21 +542,21 @@ private fun CyberDeck(
                         title = "KernelSU",
                         state = if (kernelBypassActive) "DETECTED" else "OPTIONAL",
                         color = if (kernelBypassActive) Aether.Emerald else Aether.InkFaint,
-                        detail = "Capability only • no root datapath is claimed",
+                        detail = if (kernelBypassActive) "Root detected" else "Not required",
                         modifier = Modifier.weight(1f)
                     )
                     TacticalIndicatorTile(
                         title = "eBPF",
                         state = if (ebpfActive) "CAPABLE" else "UNAVAILABLE",
                         color = if (ebpfActive) Aether.Cyan else Aether.InkFaint,
-                        detail = "Kernel capability • userspace TUN remains active",
+                        detail = if (ebpfActive) "Kernel support" else "Userspace TUN",
                         modifier = Modifier.weight(1f)
                     )
                     TacticalIndicatorTile(
                         title = "Multi-WAN",
                         state = if (multiWanAvailable) "DUAL READY" else "SINGLE",
                         color = if (multiWanAvailable) Aether.Amethyst else Aether.InkFaint,
-                        detail = "Availability only • no fake bandwidth bonding",
+                        detail = if (multiWanAvailable) "Dual links available" else "Single upstream",
                         modifier = Modifier.weight(1f)
                     )
                 }
@@ -619,28 +624,29 @@ private fun CyberDeck(
         }
 
         item {
-            SectionLabel("Quick field", "Frequently used actions stay one gesture away")
-            Row(
-                modifier = Modifier.horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(9.dp)
-            ) {
-                HoloActionPill("◎", "Smart test", "Rank routes", Aether.Cyan) {
-                    repo.smart(onConnect)
+            SectionLabel("Quick field", "Four primary actions • no horizontal clipping")
+            Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                    HoloActionPill(
+                        "◎", "Smart test", "Rank routes", Aether.Cyan, Modifier.weight(1f)
+                    ) { repo.smart(onConnect) }
+                    HoloActionPill(
+                        "▦", "Library", "${repo.profiles.size} nodes", Aether.Amethyst, Modifier.weight(1f)
+                    ) { onLibrary() }
                 }
-                HoloActionPill("▦", "Library", "${repo.profiles.size} nodes", Aether.Amethyst) {
-                    onLibrary()
-                }
-                HoloActionPill("◇", "Privacy", "Audit path", Aether.Emerald) {
-                    repo.audit()
-                }
-                HoloActionPill("⚙", "Route lab", "Advanced", Aether.Amber) {
-                    onSettings()
+                Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                    HoloActionPill(
+                        "◇", "Privacy", "Audit path", Aether.Emerald, Modifier.weight(1f)
+                    ) { repo.audit() }
+                    HoloActionPill(
+                        "⚙", "Routing", "Geo + policy", Aether.Amber, Modifier.weight(1f)
+                    ) { onSettings() }
                 }
             }
         }
 
         item {
-            SectionLabel("Spatial route", "Client → TUN/eBPF → Mux/Fragment → Entry → Geo-IP")
+            SectionLabel("Spatial route", "Client → TUN/HEV → Xray policy → Entry → Internet")
             HoloGlass(
                 modifier = Modifier.fillMaxWidth(),
                 glow = Aether.Amethyst,
@@ -1017,11 +1023,12 @@ private fun HoloActionPill(
     title: String,
     subtitle: String,
     color: Color,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
     Row(
-        modifier = Modifier
-            .widthIn(min = 145.dp)
+        modifier = modifier
+            .heightIn(min = 64.dp)
             .clip(RoundedCornerShape(22.dp))
             .background(
                 Brush.horizontalGradient(
@@ -1048,9 +1055,21 @@ private fun HoloActionPill(
         }
 
         Spacer(Modifier.width(9.dp))
-        Column {
-            Text(title, color = Aether.Ink, style = MaterialTheme.typography.labelLarge)
-            Text(subtitle, color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
+        Column(Modifier.weight(1f)) {
+            Text(
+                title,
+                color = Aether.Ink,
+                style = MaterialTheme.typography.labelLarge,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                subtitle,
+                color = Aether.InkFaint,
+                style = MaterialTheme.typography.labelSmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
         }
     }
 }
@@ -1631,6 +1650,12 @@ private fun SpatialServerCard(
     val success = result?.success ?: 0
     val health = healthColor(latency, success)
     var menuOpen by remember { mutableStateOf(false) }
+    val fallbackCount = repo.profiles.count { candidate ->
+        candidate.id != profile.id &&
+            candidate.subscriptionId == profile.subscriptionId &&
+            profile.subscriptionId.isNotBlank() &&
+            profile.subscriptionId != "manual"
+    }
 
     HoloGlass(
         modifier = Modifier.padding(horizontal = 14.dp).fillMaxWidth(),
@@ -1656,25 +1681,6 @@ private fun SpatialServerCard(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                Spacer(Modifier.height(4.dp))
-                Row(
-                    modifier = Modifier.horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(5.dp)
-                ) {
-                    MicroBadge(profile.scheme.uppercase(), Aether.Amethyst)
-                    if (profile.transport.isNotBlank()) {
-                        MicroBadge(profile.transport.uppercase(), Aether.Cyan)
-                    }
-                    if (profile.security.isNotBlank() && !profile.security.equals("none", true)) {
-                        MicroBadge(profile.security.uppercase(), Aether.Emerald)
-                    }
-                    if (profile.host.contains(":")) {
-                        MicroBadge("IPV6", Aether.Cyan)
-                    }
-                    if (profile.security.contains("tls", true) || profile.security.contains("reality", true)) {
-                        MicroBadge("PQTLS", Aether.AmethystBright)
-                    }
-                }
             }
 
             Column(horizontalAlignment = Alignment.End) {
@@ -1754,6 +1760,28 @@ private fun SpatialServerCard(
             }
         }
 
+        Row(
+            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            MicroBadge(profile.scheme.uppercase(), Aether.Amethyst)
+            if (profile.transport.isNotBlank()) {
+                MicroBadge(profile.transport.uppercase(), Aether.Cyan)
+            }
+            if (profile.security.isNotBlank() && !profile.security.equals("none", true)) {
+                MicroBadge(profile.security.uppercase(), Aether.Emerald)
+            }
+            if (profile.host.contains(":")) {
+                MicroBadge("IPV6", Aether.Cyan)
+            }
+            if (active) {
+                MicroBadge("ACTIVE", Aether.Emerald)
+            }
+            if (repo.settings.smartFallbackEnabled && fallbackCount > 0) {
+                MicroBadge("FALLBACK $fallbackCount", Aether.AmethystBright)
+            }
+        }
+
         if (result != null && result.success > 0) {
             Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                 MicroStat("SUCCESS", "${result.success}%", Modifier.weight(1f))
@@ -1762,13 +1790,6 @@ private fun SpatialServerCard(
             }
         }
 
-        if (profile.subscriptionId.isNotBlank()) {
-            FallbackClusterStrip(
-                title = "Dynamic fallback",
-                detail = "Bound to managed source • backup chain ready",
-                modifier = Modifier.fillMaxWidth()
-            )
-        }
     }
 }
 
@@ -1835,19 +1856,33 @@ private fun MicroBadge(text: String, color: Color) {
 
 @Composable
 private fun MicroStat(label: String, value: String, modifier: Modifier = Modifier) {
-    Row(
+    Column(
         modifier = modifier
+            .heightIn(min = 48.dp)
             .clip(RoundedCornerShape(12.dp))
             .background(Aether.Void.copy(alpha = .46f))
-            .padding(horizontal = 8.dp, vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically
+            .padding(horizontal = 8.dp, vertical = 7.dp),
+        verticalArrangement = Arrangement.Center
     ) {
-        Text(label, color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
-        Spacer(Modifier.weight(1f))
+        Text(
+            label,
+            color = Aether.InkFaint,
+            style = MaterialTheme.typography.labelSmall,
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Ellipsis
+        )
+        Spacer(Modifier.height(2.dp))
         Text(
             value,
             color = Aether.InkMuted,
-            style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace)
+            style = MaterialTheme.typography.labelMedium.copy(
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.SemiBold
+            ),
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Ellipsis
         )
     }
 }
@@ -2668,14 +2703,9 @@ private fun SpatialAccordion(
     content: @Composable ColumnScope.() -> Unit
 ) {
     var open by remember { mutableStateOf(initiallyOpen) }
-    val transition = rememberInfiniteTransition(label = "accordion-$title")
-    val glow by transition.animateFloat(
-        initialValue = .12f,
-        targetValue = .24f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(2200, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
+    val glow by animateFloatAsState(
+        targetValue = if (open) .24f else .10f,
+        animationSpec = tween(135, easing = FastOutSlowInEasing),
         label = "accordion-glow"
     )
 
@@ -2683,7 +2713,7 @@ private fun SpatialAccordion(
         modifier = Modifier
             .fillMaxWidth()
             .animateContentSize(
-                animationSpec = tween(360, easing = FastOutSlowInEasing)
+                animationSpec = tween(165, easing = FastOutSlowInEasing)
             )
             .clip(RoundedCornerShape(24.dp))
             .background(
@@ -2732,7 +2762,17 @@ private fun SpatialAccordion(
             HoloBadge(badge, color, compact = true)
         }
 
-        AnimatedVisibility(visible = open) {
+        AnimatedVisibility(
+            visible = open,
+            enter = expandVertically(
+                animationSpec = tween(150, easing = FastOutSlowInEasing),
+                expandFrom = Alignment.Top
+            ) + fadeIn(animationSpec = tween(85)),
+            exit = shrinkVertically(
+                animationSpec = tween(120, easing = FastOutSlowInEasing),
+                shrinkTowards = Alignment.Top
+            ) + fadeOut(animationSpec = tween(70))
+        ) {
             Column(verticalArrangement = Arrangement.spacedBy(11.dp)) {
                 HorizontalDivider(color = Aether.GlassBorderSoft.copy(alpha = .72f))
                 content()
@@ -3262,7 +3302,58 @@ private fun DnsPreset(
 }
 
 @Composable
+private fun RoutingAssetCard(
+    title: String,
+    ready: Boolean,
+    bytes: Long,
+    remote: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val color = if (ready) Aether.Emerald else Aether.Amber
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(17.dp))
+            .background(Aether.Void.copy(alpha = .48f))
+            .border(1.dp, color.copy(alpha = .24f), RoundedCornerShape(17.dp))
+            .padding(horizontal = 11.dp, vertical = 10.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(7.dp).clip(CircleShape).background(color))
+            Spacer(Modifier.width(7.dp))
+            Text(title, color = Aether.Ink, style = MaterialTheme.typography.labelLarge)
+            Spacer(Modifier.weight(1f))
+            Text(if (ready) "READY" else "MISSING", color = color, style = MaterialTheme.typography.labelSmall)
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(
+            if (ready) "${formatBytes(bytes)} • ${if (remote) "REMOTE" else "BUNDLED"}" else "Prepare a valid Xray data file",
+            color = Aether.InkFaint,
+            style = MaterialTheme.typography.labelSmall,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+@Composable
 private fun RoutingSettings(repo: AppRepository) {
+    val s = repo.settings
+    val assets = repo.routingAssetStatus()
+    val geoIpTokens = s.routeGeoIpTags
+        .split(',', '\n', '\r', ';')
+        .map { it.trim() }
+        .filter { it.isNotBlank() }
+    val needsGeoIp = s.routingMode in setOf(RoutingMode.GEO_DIRECT, RoutingMode.CUSTOM) &&
+        geoIpTokens.any { !it.equals("private", true) && !it.equals("geoip:private", true) }
+    val needsGeoSite = (s.routingMode in setOf(RoutingMode.GEO_DIRECT, RoutingMode.CUSTOM) && s.routeGeoSiteTags.isNotBlank()) ||
+        (s.routeBlockAds && s.routeAdsTag.isNotBlank()) ||
+        listOf(s.routeDirectDomains, s.routeProxyDomains, s.routeBlockDomains).any { it.contains("geosite:", true) }
+    val missingGeoAssets = listOfNotNull(
+        "geoip.dat".takeIf { needsGeoIp && !assets.geoIpReady },
+        "geosite.dat".takeIf { needsGeoSite && !assets.geoSiteReady }
+    ).joinToString(" + ")
+
+    Text("ROUTING MODE", color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
     Row(
         modifier = Modifier.horizontalScroll(rememberScrollState()),
         horizontalArrangement = Arrangement.spacedBy(7.dp)
@@ -3270,62 +3361,149 @@ private fun RoutingSettings(repo: AppRepository) {
         RoutingMode.entries.forEach { mode ->
             CyberChoiceChip(
                 text = mode.name.replace('_', ' '),
-                selected = repo.settings.routingMode == mode,
+                selected = s.routingMode == mode,
                 color = Aether.Emerald
-            ) {
-                repo.updateSettings(repo.settings.copy(routingMode = mode))
-            }
+            ) { repo.updateSettings(s.copy(routingMode = mode)) }
         }
     }
 
-    SettingSwitch(
-        title = "Bypass private networks",
-        subtitle = "Keep LAN/RFC1918 traffic direct where policy allows",
-        checked = repo.settings.routeBypassPrivate
-    ) {
-        repo.updateSettings(repo.settings.copy(routeBypassPrivate = it))
+    Text("GEO DATA PLANE", color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        RoutingAssetCard(
+            title = "GeoIP",
+            ready = assets.geoIpReady,
+            bytes = assets.geoIpBytes,
+            remote = assets.geoIpRemote,
+            modifier = Modifier.weight(1f)
+        )
+        RoutingAssetCard(
+            title = "GeoSite",
+            ready = assets.geoSiteReady,
+            bytes = assets.geoSiteBytes,
+            remote = assets.geoSiteRemote,
+            modifier = Modifier.weight(1f)
+        )
     }
 
-    SettingSwitch(
-        title = "Aggressive ad blocking",
-        subtitle = "Use the configured geosite ad category",
-        checked = repo.settings.routeBlockAds
-    ) {
-        repo.updateSettings(repo.settings.copy(routeBlockAds = it))
+    if ((needsGeoIp && !assets.geoIpReady) || (needsGeoSite && !assets.geoSiteReady)) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(15.dp))
+                .background(Aether.Amber.copy(alpha = .07f))
+                .border(1.dp, Aether.Amber.copy(alpha = .24f), RoundedCornerShape(15.dp))
+                .padding(10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("!", color = Aether.Amber, style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.width(8.dp))
+            Text(
+                "Selected routing policy requires $missingGeoAssets",
+                color = Aether.InkMuted,
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
     }
 
-    TinyField("geoip.dat HTTPS URL", repo.settings.geoIpUrl, Modifier.fillMaxWidth()) {
-        repo.updateSettings(repo.settings.copy(geoIpUrl = it))
+    TinyField("geoip.dat HTTPS URL", s.geoIpUrl, Modifier.fillMaxWidth()) {
+        repo.updateSettings(s.copy(geoIpUrl = it))
     }
-    TinyField("geosite.dat HTTPS URL", repo.settings.geoSiteUrl, Modifier.fillMaxWidth()) {
+    TinyField("geosite.dat HTTPS URL", s.geoSiteUrl, Modifier.fillMaxWidth()) {
         repo.updateSettings(repo.settings.copy(geoSiteUrl = it))
     }
 
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         CyberButton(
-            label = "PREPARE ASSETS",
+            label = "PREPARE",
             color = Aether.Emerald,
-            modifier = Modifier.weight(1f)
-        ) {
-            repo.prepareRoutingAssets(false)
-        }
+            modifier = Modifier.weight(1f),
+            enabled = !repo.busy
+        ) { repo.prepareRoutingAssets(false) }
         CyberButton(
-            label = "REMOVE",
+            label = "UPDATE",
+            color = Aether.Cyan,
+            modifier = Modifier.weight(1f),
+            enabled = !repo.busy
+        ) { repo.prepareRoutingAssets(true) }
+    }
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        CyberButton(
+            label = "VERIFY POLICY",
+            color = Aether.Amethyst,
+            modifier = Modifier.weight(1f),
+            enabled = repo.profiles.isNotEmpty() && !repo.busy
+        ) { repo.verifyRoutingPolicy() }
+        CyberButton(
+            label = "REMOVE DATA",
             color = Aether.Danger,
-            modifier = Modifier.weight(1f)
-        ) {
-            repo.deleteRoutingAssets()
+            modifier = Modifier.weight(1f),
+            enabled = !repo.busy && (assets.geoIpReady || assets.geoSiteReady)
+        ) { repo.deleteRoutingAssets() }
+    }
+
+    Text(
+        "VERIFY POLICY builds the exact hardened Xray routing config and runs xray run -test with XRAY_LOCATION_ASSET pointed at these files.",
+        color = Aether.InkFaint,
+        style = MaterialTheme.typography.bodySmall
+    )
+
+    if (s.routingMode == RoutingMode.GEO_DIRECT || s.routingMode == RoutingMode.CUSTOM) {
+        Text("GEO DIRECT RULES", color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
+        TinyField("GeoIP direct tags • e.g. ir, private", s.routeGeoIpTags, Modifier.fillMaxWidth()) {
+            repo.updateSettings(repo.settings.copy(routeGeoIpTags = it))
+        }
+        TinyField("GeoSite direct tags • e.g. category-ir", s.routeGeoSiteTags, Modifier.fillMaxWidth()) {
+            repo.updateSettings(repo.settings.copy(routeGeoSiteTags = it))
         }
     }
 
-    TinyField("Direct domains", repo.settings.routeDirectDomains, Modifier.fillMaxWidth()) {
+    Text("DOMAIN STRATEGY", color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
+    Row(
+        modifier = Modifier.horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(7.dp)
+    ) {
+        listOf("AsIs", "IPIfNonMatch", "IPOnDemand").forEach { strategy ->
+            CyberChoiceChip(
+                text = strategy,
+                selected = s.routeDomainStrategy == strategy,
+                color = Aether.Cyan
+            ) { repo.updateSettings(repo.settings.copy(routeDomainStrategy = strategy)) }
+        }
+    }
+
+    SettingSwitch(
+        title = "Bypass private networks",
+        subtitle = "Literal RFC1918/link-local rules • no geoip.dat dependency",
+        checked = s.routeBypassPrivate
+    ) { repo.updateSettings(repo.settings.copy(routeBypassPrivate = it)) }
+
+    SettingSwitch(
+        title = "Aggressive ad blocking",
+        subtitle = "Block a geosite category before direct/proxy rules",
+        checked = s.routeBlockAds
+    ) { repo.updateSettings(repo.settings.copy(routeBlockAds = it)) }
+
+    if (s.routeBlockAds) {
+        TinyField("Ad geosite category", s.routeAdsTag, Modifier.fillMaxWidth()) {
+            repo.updateSettings(repo.settings.copy(routeAdsTag = it))
+        }
+    }
+
+    Text("EXPLICIT RULES", color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
+    TinyField("Direct domains / geosite tags", s.routeDirectDomains, Modifier.fillMaxWidth()) {
         repo.updateSettings(repo.settings.copy(routeDirectDomains = it))
     }
-    TinyField("Proxy exceptions", repo.settings.routeProxyDomains, Modifier.fillMaxWidth()) {
+    TinyField("Proxy domains / exceptions", s.routeProxyDomains, Modifier.fillMaxWidth()) {
         repo.updateSettings(repo.settings.copy(routeProxyDomains = it))
     }
-    TinyField("Block domains", repo.settings.routeBlockDomains, Modifier.fillMaxWidth()) {
+    TinyField("Block domains / geosite tags", s.routeBlockDomains, Modifier.fillMaxWidth()) {
         repo.updateSettings(repo.settings.copy(routeBlockDomains = it))
+    }
+    TinyField("Direct IP / CIDR / geoip tags", s.routeDirectIps, Modifier.fillMaxWidth()) {
+        repo.updateSettings(repo.settings.copy(routeDirectIps = it))
+    }
+    TinyField("Block IP / CIDR / geoip tags", s.routeBlockIps, Modifier.fillMaxWidth()) {
+        repo.updateSettings(repo.settings.copy(routeBlockIps = it))
     }
 }
 
@@ -3714,7 +3892,13 @@ private fun TacticalIndicatorTile(title: String, state: String, color: Color, de
     ) {
         Text(title, color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
         Text(state, color = color, style = MaterialTheme.typography.labelLarge.copy(fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold))
-        Text(detail, color = Aether.InkMuted, style = MaterialTheme.typography.labelSmall, maxLines = 2)
+        Text(
+            detail,
+            color = Aether.InkMuted,
+            style = MaterialTheme.typography.labelSmall,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }
 
@@ -3795,10 +3979,10 @@ private fun DpiResilienceStrip(successfulPackets: Int, packetLossPct: Int, modif
 private fun TopologyLifecycleStrip(fragmentEnabled: Boolean, muxEnabled: Boolean, geo: String, modifier: Modifier = Modifier) {
     Row(modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         HoloBadge("CLIENT APPS", Aether.Cyan, compact = true)
-        HoloBadge("TUN/eBPF", Aether.Emerald, compact = true)
+        HoloBadge("TUN/HEV", Aether.Emerald, compact = true)
         HoloBadge(if (fragmentEnabled) "FRAGMENT ON" else "FRAGMENT OFF", Aether.Amber, compact = true)
         HoloBadge(if (muxEnabled) "MUX ON" else "MUX OFF", Aether.Amethyst, compact = true)
-        HoloBadge("GEO ${geo.take(12).uppercase()}", Aether.Cyan, compact = true)
+        HoloBadge("XRAY POLICY", Aether.Cyan, compact = true)
     }
 }
 
@@ -3816,9 +4000,15 @@ private fun FallbackClusterStrip(title: String, detail: String, modifier: Modifi
         Spacer(Modifier.width(7.dp))
         Column(Modifier.weight(1f)) {
             Text(title, color = Aether.Ink, style = MaterialTheme.typography.labelMedium)
-            Text(detail, color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
+            Text(
+                detail,
+                color = Aether.InkFaint,
+                style = MaterialTheme.typography.labelSmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
         }
-        HoloBadge("BOUND", Aether.Amethyst, compact = true)
+        HoloBadge("READY", Aether.Amethyst, compact = true)
     }
 }
 
@@ -3981,3 +4171,4 @@ private fun countryGlyph(host: String): String {
         else -> "◈"
     }
 }
+
