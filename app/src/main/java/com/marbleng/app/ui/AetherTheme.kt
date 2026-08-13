@@ -1,35 +1,117 @@
 package com.marbleng.app.ui
 
+import android.app.Activity
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
+import androidx.core.view.WindowCompat
 
+/** MarbleNG ships exactly two themes: a neon Dark mode and a crisp Light mode, both energetic. */
+enum class AppTheme { DARK, LIGHT }
+
+fun parseAppTheme(id: String): AppTheme = if (id.equals("light", ignoreCase = true)) AppTheme.LIGHT else AppTheme.DARK
+
+private data class AetherPalette(
+    val void: Color,
+    val voidElevated: Color,
+    val glass: Color,
+    val glassStrong: Color,
+    val glassBorder: Color,
+    val glassBorderSoft: Color,
+    val amethyst: Color,
+    val amethystBright: Color,
+    val cyan: Color,
+    val cyanBright: Color,
+    val slate: Color,
+    val slateBright: Color,
+    val danger: Color,
+    val dangerBright: Color,
+    val emerald: Color,
+    val amber: Color,
+    val ink: Color,
+    val inkMuted: Color,
+    val inkFaint: Color
+)
+
+private val DarkPalette = AetherPalette(
+    void = Color(0xFF050608),
+    voidElevated = Color(0xFF0B0D12),
+    glass = Color(0xFF11141B),
+    glassStrong = Color(0xFF171B24),
+    glassBorder = Color(0xFF292E3A),
+    glassBorderSoft = Color(0xFF1E232D),
+    amethyst = Color(0xFF9D7CFF),
+    amethystBright = Color(0xFFB9A3FF),
+    cyan = Color(0xFF31E7FF),
+    cyanBright = Color(0xFF7BF3FF),
+    slate = Color(0xFF3B4150),
+    slateBright = Color(0xFF667085),
+    danger = Color(0xFFFF617D),
+    dangerBright = Color(0xFFFF8FA6),
+    emerald = Color(0xFF4DFFB8),
+    amber = Color(0xFFFFC857),
+    ink = Color(0xFFF5F7FC),
+    inkMuted = Color(0xFFA7ADBC),
+    inkFaint = Color(0xFF687083)
+)
+
+private val LightPalette = AetherPalette(
+    void = Color(0xFFF6F7FB),
+    voidElevated = Color(0xFFFFFFFF),
+    glass = Color(0xFFFFFFFF),
+    glassStrong = Color(0xFFEEF0F8),
+    glassBorder = Color(0xFFD7DAE8),
+    glassBorderSoft = Color(0xFFE6E8F2),
+    amethyst = Color(0xFF7C3AED),
+    amethystBright = Color(0xFF6425D0),
+    cyan = Color(0xFF0891B2),
+    cyanBright = Color(0xFF0E7490),
+    slate = Color(0xFFCBD1DC),
+    slateBright = Color(0xFF8991A3),
+    danger = Color(0xFFE11D48),
+    dangerBright = Color(0xFFBE123C),
+    emerald = Color(0xFF059669),
+    amber = Color(0xFFD97706),
+    ink = Color(0xFF14161F),
+    inkMuted = Color(0xFF4B5163),
+    inkFaint = Color(0xFF767C8C)
+)
+
+private val LocalAetherPalette = staticCompositionLocalOf { DarkPalette }
+
+/** Semantic color constants used across the app; resolve against whichever theme is active. */
 object Aether {
-    val Void = Color(0xFF050608)
-    val VoidElevated = Color(0xFF0B0D12)
-    val Glass = Color(0xFF11141B)
-    val GlassStrong = Color(0xFF171B24)
-    val GlassBorder = Color(0xFF292E3A)
-    val GlassBorderSoft = Color(0xFF1E232D)
-    val Amethyst = Color(0xFF9D7CFF)
-    val AmethystBright = Color(0xFFB9A3FF)
-    val Cyan = Color(0xFF31E7FF)
-    val CyanBright = Color(0xFF7BF3FF)
-    val Slate = Color(0xFF3B4150)
-    val SlateBright = Color(0xFF667085)
-    val Danger = Color(0xFFFF617D)
-    val DangerBright = Color(0xFFFF8FA6)
-    val Emerald = Color(0xFF4DFFB8)
-    val Amber = Color(0xFFFFC857)
-    val Ink = Color(0xFFF5F7FC)
-    val InkMuted = Color(0xFFA7ADBC)
-    val InkFaint = Color(0xFF687083)
+    val Void: Color @Composable get() = LocalAetherPalette.current.void
+    val VoidElevated: Color @Composable get() = LocalAetherPalette.current.voidElevated
+    val Glass: Color @Composable get() = LocalAetherPalette.current.glass
+    val GlassStrong: Color @Composable get() = LocalAetherPalette.current.glassStrong
+    val GlassBorder: Color @Composable get() = LocalAetherPalette.current.glassBorder
+    val GlassBorderSoft: Color @Composable get() = LocalAetherPalette.current.glassBorderSoft
+    val Amethyst: Color @Composable get() = LocalAetherPalette.current.amethyst
+    val AmethystBright: Color @Composable get() = LocalAetherPalette.current.amethystBright
+    val Cyan: Color @Composable get() = LocalAetherPalette.current.cyan
+    val CyanBright: Color @Composable get() = LocalAetherPalette.current.cyanBright
+    val Slate: Color @Composable get() = LocalAetherPalette.current.slate
+    val SlateBright: Color @Composable get() = LocalAetherPalette.current.slateBright
+    val Danger: Color @Composable get() = LocalAetherPalette.current.danger
+    val DangerBright: Color @Composable get() = LocalAetherPalette.current.dangerBright
+    val Emerald: Color @Composable get() = LocalAetherPalette.current.emerald
+    val Amber: Color @Composable get() = LocalAetherPalette.current.amber
+    val Ink: Color @Composable get() = LocalAetherPalette.current.ink
+    val InkMuted: Color @Composable get() = LocalAetherPalette.current.inkMuted
+    val InkFaint: Color @Composable get() = LocalAetherPalette.current.inkFaint
 }
 
 private val AetherFontFamily = FontFamily.Default
@@ -86,40 +168,66 @@ val AetherTypography = Typography(
     )
 )
 
-private data class AccentPair(val primary: Color, val secondary: Color)
-
-private fun accent(themeId: String): AccentPair = when (themeId.lowercase()) {
-    "ocean" -> AccentPair(Color(0xFF5B8CFF), Color(0xFF44D7D1))
-    "sunset" -> AccentPair(Color(0xFFFF7A8A), Color(0xFFFFB36B))
-    "matrix" -> AccentPair(Color(0xFF58E38C), Color(0xFF66F2D5))
-    "mono" -> AccentPair(Color(0xFFD5D9E2), Color(0xFF9BA8B9))
-    else -> AccentPair(Aether.Amethyst, Aether.Cyan)
-}
-
 @Composable
-fun AetherFlowTheme(themeId: String = "aurora", content: @Composable () -> Unit) {
-    val a = accent(themeId)
-    MaterialTheme(
-        colorScheme = darkColorScheme(
-            primary = a.primary,
+fun AetherFlowTheme(themeId: String = "dark", content: @Composable () -> Unit) {
+    val palette = if (parseAppTheme(themeId) == AppTheme.LIGHT) LightPalette else DarkPalette
+    val isLight = palette === LightPalette
+
+    val scheme = if (isLight) {
+        lightColorScheme(
+            primary = palette.amethyst,
+            onPrimary = Color(0xFFFFFFFF),
+            primaryContainer = palette.amethyst.copy(alpha = 0.12f),
+            onPrimaryContainer = palette.ink,
+            secondary = palette.cyan,
+            onSecondary = Color(0xFFFFFFFF),
+            secondaryContainer = palette.cyan.copy(alpha = 0.12f),
+            onSecondaryContainer = palette.ink,
+            tertiary = palette.amethystBright,
+            background = palette.void,
+            onBackground = palette.ink,
+            surface = palette.voidElevated,
+            onSurface = palette.ink,
+            surfaceVariant = palette.glassStrong,
+            onSurfaceVariant = palette.inkMuted,
+            error = palette.danger,
+            outline = palette.glassBorder
+        )
+    } else {
+        darkColorScheme(
+            primary = palette.amethyst,
             onPrimary = Color(0xFF06070A),
-            primaryContainer = a.primary.copy(alpha = 0.16f),
-            onPrimaryContainer = Aether.Ink,
-            secondary = a.secondary,
+            primaryContainer = palette.amethyst.copy(alpha = 0.16f),
+            onPrimaryContainer = palette.ink,
+            secondary = palette.cyan,
             onSecondary = Color(0xFF06070A),
-            secondaryContainer = a.secondary.copy(alpha = 0.14f),
-            onSecondaryContainer = Aether.Ink,
-            tertiary = Aether.AmethystBright,
-            background = Aether.Void,
-            onBackground = Aether.Ink,
-            surface = Aether.VoidElevated,
-            onSurface = Aether.Ink,
-            surfaceVariant = Aether.GlassStrong,
-            onSurfaceVariant = Aether.InkMuted,
-            error = Aether.Danger,
-            outline = Aether.GlassBorder
-        ),
-        typography = AetherTypography,
-        content = content
-    )
+            secondaryContainer = palette.cyan.copy(alpha = 0.14f),
+            onSecondaryContainer = palette.ink,
+            tertiary = palette.amethystBright,
+            background = palette.void,
+            onBackground = palette.ink,
+            surface = palette.voidElevated,
+            onSurface = palette.ink,
+            surfaceVariant = palette.glassStrong,
+            onSurfaceVariant = palette.inkMuted,
+            error = palette.danger,
+            outline = palette.glassBorder
+        )
+    }
+
+    val view = LocalView.current
+    if (!view.isInEditMode) {
+        val window = (view.context as Activity).window
+        SideEffect {
+            val insets = WindowCompat.getInsetsController(window, view)
+            insets.isAppearanceLightStatusBars = isLight
+            insets.isAppearanceLightNavigationBars = isLight
+            window.statusBarColor = palette.void.toArgb()
+            window.navigationBarColor = palette.void.toArgb()
+        }
+    }
+
+    CompositionLocalProvider(LocalAetherPalette provides palette) {
+        MaterialTheme(colorScheme = scheme, typography = AetherTypography, content = content)
+    }
 }

@@ -114,6 +114,7 @@ The orb's **ping / down / up** are real, not placeholders:
 Every screen (Library, Lab, Radar, Settings) now shares the same Aether Flow
 language via upgraded primitives in `MarbleApp.kt`: `Header`, `SectionLabel`,
 `GlassCard` (true frosted glass + hairline border), and `ActionGrid`/
-`AetherPill`. Remaining cryptic tags were decoded in place — theme chips
-`AUR/OCE/SUN` → `Aurora/Ocean/Sunset`, and benchmark modes `REL/BAL/FAS` →
+`AetherPill`. Remaining cryptic tags were decoded in place — the app ships
+exactly two themes, `Dark` and `Light` (both energetic-accent MD3 schemes,
+see `AetherFlowTheme`), and benchmark modes `REL/BAL/FAS` →
 `Reliability / Balanced / Maximum Speed` via `benchModeLabel()`.

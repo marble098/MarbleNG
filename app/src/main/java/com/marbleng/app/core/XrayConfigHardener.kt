@@ -8,6 +8,17 @@ import org.json.JSONObject
 object XrayConfigHardener {
     private val infra = setOf("freedom", "blackhole", "dns", "loopback")
 
+    /**
+     * RFC1918/RFC6598/RFC3927/link-local/loopback/multicast ranges. Kept as literal CIDRs so
+     * "private bypass" never depends on geoip.dat: Xray matches these without any geo database.
+     */
+    private val PRIVATE_CIDRS = listOf(
+        "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10",
+        "127.0.0.0/8", "169.254.0.0/16", "192.0.0.0/24", "192.88.99.0/24",
+        "198.18.0.0/15", "198.51.100.0/24", "203.0.113.0/24", "224.0.0.0/4", "240.0.0.0/4",
+        "::1/128", "fc00::/7", "fe80::/10"
+    )
+
     fun harden(source: String, socksPort: Int, settings: AppSettings = AppSettings()): String {
         val src = JSONObject(source)
         val old = src.optJSONArray("outbounds") ?: JSONArray()
@@ -168,12 +179,16 @@ object XrayConfigHardener {
             val directIps = linkedSetOf<String>()
 
             if (settings.routeBypassPrivate && settings.routingMode != RoutingMode.PROXY_ALL) {
-                directIps += "geoip:private"
+                directIps += PRIVATE_CIDRS
             }
 
             if (settings.routingMode == RoutingMode.GEO_DIRECT || settings.routingMode == RoutingMode.CUSTOM) {
                 splitTokens(settings.routeGeoIpTags).forEach { tag ->
-                    directIps += if (tag.startsWith("geoip:")) tag else "geoip:$tag"
+                    when {
+                        tag.equals("private", true) || tag.equals("geoip:private", true) -> directIps += PRIVATE_CIDRS
+                        tag.startsWith("geoip:") -> directIps += tag
+                        else -> directIps += "geoip:$tag"
+                    }
                 }
                 splitTokens(settings.routeGeoSiteTags).forEach { tag ->
                     directDomains += if (tag.startsWith("geosite:")) tag else "geosite:$tag"
@@ -301,7 +316,9 @@ object XrayConfigHardener {
         }
     }
 
-    private fun splitIps(raw: String): List<String> = splitTokens(raw)
+    private fun splitIps(raw: String): List<String> = splitTokens(raw).flatMap { token ->
+        if (token.equals("geoip:private", true)) PRIVATE_CIDRS else listOf(token)
+    }
 
     private fun verify(o: JSONObject, port: Int, selectedTag: String, needsDirect: Boolean) {
         val ins = o.getJSONArray("inbounds")

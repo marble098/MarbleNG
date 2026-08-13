@@ -59,7 +59,7 @@ class AppStore(context: Context) {
         routeBlockAds = prefs.getBoolean("routeBlockAds", false),
         routeAdsTag = prefs.getString("routeAdsTag", "category-ads-all") ?: "category-ads-all",
         routeDomainStrategy = prefs.getString("routeDomainStrategy", "AsIs") ?: "AsIs",
-        theme = prefs.getString("theme", "aurora") ?: "aurora",
+        theme = prefs.getString("theme", "dark") ?: "dark",
         density = prefs.getString("density", "comfortable") ?: "comfortable",
         border = prefs.getString("border", "rounded") ?: "rounded",
         icons = prefs.getBoolean("icons", true)

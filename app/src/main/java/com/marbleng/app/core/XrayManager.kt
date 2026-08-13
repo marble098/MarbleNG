@@ -149,11 +149,23 @@ class XrayManager(private val context: Context) {
 
     private fun sourceMarker(name: String) = File(assetsDir, "$name.source")
 
+    /**
+     * "private" geoip tags/bypass never need geoip.dat: XrayConfigHardener expands them to literal
+     * RFC1918/link-local/loopback CIDRs. Only non-private geoip tags (country codes, etc.) require
+     * a real downloaded database.
+     */
     private fun requiresGeoIp(settings: AppSettings): Boolean {
-        if (settings.routingMode == RoutingMode.BYPASS_PRIVATE && settings.routeBypassPrivate) return true
-        if (settings.routingMode in setOf(RoutingMode.GEO_DIRECT, RoutingMode.CUSTOM) && settings.routeGeoIpTags.isNotBlank()) return true
+        if (settings.routingMode in setOf(RoutingMode.GEO_DIRECT, RoutingMode.CUSTOM)) {
+            val nonPrivateTags = settings.routeGeoIpTags.split(',', '\n', '\r', ';')
+                .map { it.trim() }
+                .filter { it.isNotBlank() && !it.equals("private", ignoreCase = true) && !it.equals("geoip:private", ignoreCase = true) }
+            if (nonPrivateTags.isNotEmpty()) return true
+        }
         return listOf(settings.routeDirectIps, settings.routeBlockIps).any { raw ->
-            raw.split(',', '\n', '\r', ';').any { it.trim().startsWith("geoip:", ignoreCase = true) }
+            raw.split(',', '\n', '\r', ';').any {
+                val tag = it.trim()
+                tag.startsWith("geoip:", ignoreCase = true) && !tag.equals("geoip:private", ignoreCase = true)
+            }
         }
     }
 

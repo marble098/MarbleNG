@@ -110,7 +110,7 @@ private fun dialogText(d: String, r: AppRepository) = when (d) {
 @Composable
 private fun ModernBottomBar(selected: Tab, onSelect: (Tab) -> Unit) {
     Surface(
-        color = Color(0xFF0D0F14),
+        color = Aether.VoidElevated,
         tonalElevation = 0.dp,
         shadowElevation = 12.dp,
         border = BorderStroke(1.dp, Aether.GlassBorderSoft)
@@ -219,19 +219,57 @@ private fun EmptyState(title: String, body: String) {
 // LIBRARY
 // ---------------------------------------------------------------------------------------------
 
+private data class RenameTarget(val kind: String, val id: String, val current: String)
+
 @Composable
 private fun Library(repo: AppRepository, onConnect: (ProxyProfile) -> Unit, onImportFile: () -> Unit) {
     var url by remember { mutableStateOf("") }
     var name by remember { mutableStateOf("") }
     var raw by remember { mutableStateOf("") }
     var search by remember { mutableStateOf("") }
+    var addOpen by remember { mutableStateOf(false) }
     var pasteOpen by remember { mutableStateOf(false) }
+    var filterId by remember { mutableStateOf("all") }
+    var renameTarget by remember { mutableStateOf<RenameTarget?>(null) }
+    var renameText by remember { mutableStateOf("") }
+    var moveMenuFor by remember { mutableStateOf<String?>(null) }
 
-    val visibleProfiles = remember(repo.profiles.size, search, repo.benchmarks) {
-        if (search.isBlank()) repo.profiles.toList() else repo.profiles.filter {
-            it.name.contains(search, true) || it.subscriptionName.contains(search, true) ||
-                it.scheme.contains(search, true) || it.host.contains(search, true)
-        }
+    // Recomputed directly (no size-keyed remember) since rename/move mutate elements in place
+    // without changing list size, and a size-only key would then serve stale derived data.
+    val allProfiles = repo.profiles
+    val counts = allProfiles.groupingBy { it.subscriptionId }.eachCount()
+    val sourceFilters = listOf("all" to "All", "manual" to "Manual") + repo.subscriptions.map { it.id to it.name }
+
+    val filteredBySource = if (filterId == "all") allProfiles.toList() else allProfiles.filter { it.subscriptionId == filterId }
+    val visibleProfiles = if (search.isBlank()) filteredBySource else filteredBySource.filter {
+        it.name.contains(search, true) || it.subscriptionName.contains(search, true) ||
+            it.scheme.contains(search, true) || it.host.contains(search, true)
+    }
+
+    renameTarget?.let { target ->
+        AlertDialog(
+            onDismissRequest = { renameTarget = null },
+            title = { Text(if (target.kind == "sub") "Rename subscription" else "Rename node") },
+            text = {
+                OutlinedTextField(
+                    value = renameText,
+                    onValueChange = { renameText = it },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        if (target.kind == "sub") repo.renameSubscription(target.id, renameText)
+                        else repo.renameProfile(target.id, renameText)
+                        renameTarget = null
+                    },
+                    enabled = renameText.isNotBlank()
+                ) { Text("Save") }
+            },
+            dismissButton = { TextButton(onClick = { renameTarget = null }) { Text("Cancel") } }
+        )
     }
 
     LazyColumn(
@@ -249,56 +287,64 @@ private fun Library(repo: AppRepository, onConnect: (ProxyProfile) -> Unit, onIm
 
         item {
             Panel(Modifier.padding(horizontal = 14.dp).fillMaxWidth()) {
-                Text("Add subscription", style = MaterialTheme.typography.titleMedium, color = Aether.Ink)
-                OutlinedTextField(
-                    value = url,
-                    onValueChange = { url = it },
-                    label = { Text("Subscription URL") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it },
-                    label = { Text("Name (optional)") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(
-                        onClick = { repo.addSubscription(name, url); url = ""; name = "" },
-                        enabled = url.startsWith("http") && !repo.busy,
-                        modifier = Modifier.weight(1f)
-                    ) { Text("Add") }
-                    OutlinedButton(
-                        onClick = repo::refreshAll,
-                        enabled = repo.subscriptions.isNotEmpty() && !repo.busy,
-                        modifier = Modifier.weight(1f)
-                    ) { Text("Refresh all") }
-                    OutlinedButton(onClick = onImportFile) { Text("File") }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Add source", style = MaterialTheme.typography.titleMedium, color = Aether.Ink)
+                        Text("Subscription link, file, or pasted configs", style = MaterialTheme.typography.bodySmall, color = Aether.InkFaint)
+                    }
+                    TextButton(onClick = { addOpen = !addOpen }) { Text(if (addOpen) "Hide" else "Add") }
                 }
-                TextButton(onClick = { pasteOpen = !pasteOpen }) {
-                    Text(if (pasteOpen) "Hide pasted import" else "Import URI list / base64 / Xray JSON")
-                }
-                if (pasteOpen) {
+                if (addOpen) {
                     OutlinedTextField(
-                        value = raw,
-                        onValueChange = { raw = it },
-                        label = { Text("Paste configs") },
-                        minLines = 3,
-                        maxLines = 7,
+                        value = url,
+                        onValueChange = { url = it },
+                        label = { Text("Subscription URL") },
+                        singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
-                    Button(
-                        onClick = { repo.importText(raw); raw = ""; pasteOpen = false },
-                        enabled = raw.isNotBlank() && !repo.busy
-                    ) { Text("Import pasted data") }
+                    OutlinedTextField(
+                        value = name,
+                        onValueChange = { name = it },
+                        label = { Text("Name (optional)") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(
+                            onClick = { repo.addSubscription(name, url); url = ""; name = "" },
+                            enabled = url.startsWith("http") && !repo.busy,
+                            modifier = Modifier.weight(1f)
+                        ) { Text("Add") }
+                        OutlinedButton(
+                            onClick = repo::refreshAll,
+                            enabled = repo.subscriptions.isNotEmpty() && !repo.busy,
+                            modifier = Modifier.weight(1f)
+                        ) { Text("Refresh all") }
+                        OutlinedButton(onClick = onImportFile) { Text("File") }
+                    }
+                    TextButton(onClick = { pasteOpen = !pasteOpen }) {
+                        Text(if (pasteOpen) "Hide pasted import" else "Import URI list / base64 / Xray JSON")
+                    }
+                    if (pasteOpen) {
+                        OutlinedTextField(
+                            value = raw,
+                            onValueChange = { raw = it },
+                            label = { Text("Paste configs") },
+                            minLines = 3,
+                            maxLines = 7,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Button(
+                            onClick = { repo.importText(raw); raw = ""; pasteOpen = false },
+                            enabled = raw.isNotBlank() && !repo.busy
+                        ) { Text("Import pasted data") }
+                    }
                 }
             }
         }
 
         if (repo.subscriptions.isNotEmpty()) {
-            item { SectionHeader("Subscriptions", "Refresh or remove a source without touching the rest") }
+            item { SectionHeader("Subscriptions", "Rename, refresh or remove a source without touching the rest") }
             items(repo.subscriptions, key = { it.id }) { sub ->
                 Panel(Modifier.padding(horizontal = 14.dp).fillMaxWidth(), PaddingValues(12.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -306,14 +352,32 @@ private fun Library(repo: AppRepository, onConnect: (ProxyProfile) -> Unit, onIm
                             Text(sub.name, fontWeight = FontWeight.SemiBold, color = Aether.Ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             Text(sub.url, style = MaterialTheme.typography.bodySmall, color = Aether.InkFaint, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
+                        SmallBadge("${counts[sub.id] ?: 0}")
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         TextButton(onClick = { repo.refresh(sub.id) }, enabled = !repo.busy) { Text("Refresh") }
+                        TextButton(onClick = { renameText = sub.name; renameTarget = RenameTarget("sub", sub.id, sub.name) }) { Text("Rename") }
                         TextButton(onClick = { repo.removeSubscription(sub.id) }) { Text("Remove") }
                     }
                 }
             }
         }
 
-        item { SectionHeader("Node browser", "Search, test and connect without oversized cards") }
+        item { SectionHeader("Node browser", "Filter by source, search, test and manage nodes") }
+        item {
+            Row(
+                Modifier.padding(horizontal = 14.dp).horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(7.dp)
+            ) {
+                sourceFilters.forEach { (id, label) ->
+                    FilterChip(
+                        selected = filterId == id,
+                        onClick = { filterId = id },
+                        label = { Text("$label (${if (id == "all") allProfiles.size else counts[id] ?: 0})") }
+                    )
+                }
+            }
+        }
         item {
             OutlinedTextField(
                 value = search,
@@ -325,7 +389,7 @@ private fun Library(repo: AppRepository, onConnect: (ProxyProfile) -> Unit, onIm
         }
 
         if (visibleProfiles.isEmpty()) {
-            item { EmptyState("No matching nodes", "Add a subscription, import configs, or clear the search field.") }
+            item { EmptyState("No matching nodes", "Add a subscription, import configs, or clear the search/filter.") }
         }
 
         items(visibleProfiles, key = { it.id }) { profile ->
@@ -352,19 +416,30 @@ private fun Library(repo: AppRepository, onConnect: (ProxyProfile) -> Unit, onIm
                         contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
                     ) { Text("Connect") }
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    TextButton(onClick = { repo.fullTest(profile) }, enabled = !repo.busy) { Text("Full test") }
-                    TextButton(onClick = { repo.removeProfile(profile.id) }) { Text("Delete") }
-                    if (profile.host.isNotBlank()) {
-                        Text(
-                            "${profile.host}:${profile.port}",
-                            modifier = Modifier.align(Alignment.CenterVertically),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = Aether.InkFaint,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                    TextButton(onClick = { repo.fullTest(profile) }, enabled = !repo.busy) { Text("Test") }
+                    TextButton(onClick = { renameText = profile.name; renameTarget = RenameTarget("profile", profile.id, profile.name) }) { Text("Rename") }
+                    Box {
+                        TextButton(onClick = { moveMenuFor = profile.id }) { Text("Move") }
+                        DropdownMenu(expanded = moveMenuFor == profile.id, onDismissRequest = { moveMenuFor = null }) {
+                            repo.moveTargets().filter { it.first != profile.subscriptionId }.forEach { (id, label) ->
+                                DropdownMenuItem(
+                                    text = { Text(label) },
+                                    onClick = { repo.moveProfile(profile.id, id); moveMenuFor = null }
+                                )
+                            }
+                        }
                     }
+                    TextButton(onClick = { repo.removeProfile(profile.id) }) { Text("Delete") }
+                }
+                if (profile.host.isNotBlank()) {
+                    Text(
+                        "${profile.host}:${profile.port}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Aether.InkFaint,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
             }
         }
@@ -894,16 +969,10 @@ private fun Settings(repo: AppRepository, onDialog: (String) -> Unit) {
         item { SectionHeader("Appearance") }
         item {
             Panel(Modifier.padding(horizontal = 14.dp).fillMaxWidth()) {
-                Text("Accent", style = MaterialTheme.typography.titleMedium, color = Aether.Ink)
-                Text("Unlike the old picker, these palettes now change the live Material color scheme.", style = MaterialTheme.typography.bodySmall, color = Aether.InkFaint)
-                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                    listOf(
-                        "aurora" to "Aurora",
-                        "ocean" to "Ocean",
-                        "sunset" to "Sunset",
-                        "matrix" to "Matrix",
-                        "mono" to "Mono"
-                    ).forEach { (id, label) ->
+                Text("Theme", style = MaterialTheme.typography.titleMedium, color = Aether.Ink)
+                Text("Dark and Light, both tuned with energetic accent colors.", style = MaterialTheme.typography.bodySmall, color = Aether.InkFaint)
+                Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                    listOf("dark" to "Dark", "light" to "Light").forEach { (id, label) ->
                         FilterChip(
                             selected = s.theme == id,
                             onClick = { repo.updateSettings(s.copy(theme = id)) },

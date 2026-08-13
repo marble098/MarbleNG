@@ -138,6 +138,42 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         store.saveProfiles(profiles)
     }
 
+    fun renameProfile(id: String, name: String) {
+        val trimmed = name.trim()
+        if (trimmed.isBlank()) return
+        val idx = profiles.indexOfFirst { it.id == id }
+        if (idx < 0) return
+        profiles[idx] = profiles[idx].copy(name = trimmed)
+        store.saveProfiles(profiles)
+    }
+
+    fun renameSubscription(id: String, name: String) {
+        val trimmed = name.trim()
+        if (trimmed.isBlank()) return
+        val idx = subscriptions.indexOfFirst { it.id == id }
+        if (idx < 0) return
+        subscriptions[idx] = subscriptions[idx].copy(name = trimmed)
+        store.saveSubscriptions(subscriptions)
+        for (i in profiles.indices) {
+            if (profiles[i].subscriptionId == id) profiles[i] = profiles[i].copy(subscriptionName = trimmed)
+        }
+        store.saveProfiles(profiles)
+    }
+
+    /** Reassigns a profile to another subscription bucket (or "manual") so nodes can move between library sources. */
+    fun moveProfile(id: String, targetSubscriptionId: String) {
+        val idx = profiles.indexOfFirst { it.id == id }
+        if (idx < 0) return
+        val targetName = if (targetSubscriptionId == "manual") "Manual" else {
+            subscriptions.firstOrNull { it.id == targetSubscriptionId }?.name ?: return
+        }
+        profiles[idx] = profiles[idx].copy(subscriptionId = targetSubscriptionId, subscriptionName = targetName)
+        store.saveProfiles(profiles)
+    }
+
+    fun moveTargets(): List<Pair<String, String>> =
+        listOf("manual" to "Manual") + subscriptions.map { it.id to it.name }
+
     fun lastProfile() = profile(store.lastProfileId())
     fun auto(onConnect: (ProxyProfile) -> Unit) { lastProfile()?.let(onConnect) ?: smart(onConnect) }
 
@@ -304,8 +340,8 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         task(if (force) "Updating routing assets" else "Preparing routing assets") {
             val status = xray.prepareRoutingAssets(settings, force)
             val parts = mutableListOf<String>()
-            parts += if (status.geoIpReady) "geoip ${formatBytes(status.geoIpBytes)}" else "geoip missing"
-            parts += if (status.geoSiteReady) "geosite ${formatBytes(status.geoSiteBytes)}" else "geosite missing"
+            parts += if (status.geoIpReady) "geoip ${formatBytes(status.geoIpBytes)}" else "geoip missing (add a geoip.dat URL above)"
+            parts += if (status.geoSiteReady) "geosite ${formatBytes(status.geoSiteBytes)}" else "geosite missing (add a geosite.dat URL above)"
             message = "Routing assets • ${parts.joinToString(" • ")}"
         }
     }
