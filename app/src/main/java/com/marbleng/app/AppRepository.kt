@@ -240,17 +240,22 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         }
     }
 
+    /** Real-tunnel tests every profile in the library, ignoring the BenchMode candidate cap. */
+    fun testAll() {
+        if (profiles.isEmpty()) return
+        task("Testing all configs") {
+            val all = profiles.toList()
+            val testSettings = settings.copy(benchMode = BenchMode.CUSTOM, benchCandidates = all.size)
+            benchmarks = BenchmarkEngine(xray).run(all, testSettings) { a, b, n -> message = "Tunnel test $a/$b • $n" }
+            val passed = benchmarks.count { it.success > 0 }
+            message = "Tested ${benchmarks.size} configs • $passed reachable"
+        }
+    }
+
     fun audit() {
         task("Privacy audit") {
             privacy = PrivacyAuditor.audit(activeProxyPort())
             message = privacy?.note.orEmpty()
-        }
-    }
-
-    fun googleAi() {
-        task("Google AI check") {
-            val r = SocksHttpClient.get(activeProxyPort(), "gemini.google.com", "/", 10_000, 64_000)
-            message = "Gemini reachability HTTP ${r.status} • ${"%.0f".format(r.elapsedMs)} ms"
         }
     }
 

@@ -94,8 +94,5 @@ data class AppSettings(
     val routeBlockAds: Boolean = false,
     val routeAdsTag: String = "category-ads-all",
     val routeDomainStrategy: String = "AsIs",
-    val theme: String = "dark",
-    val density: String = "comfortable",
-    val border: String = "rounded",
-    val icons: Boolean = true
+    val theme: String = "dark"
 )

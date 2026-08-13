@@ -59,10 +59,7 @@ class AppStore(context: Context) {
         routeBlockAds = prefs.getBoolean("routeBlockAds", false),
         routeAdsTag = prefs.getString("routeAdsTag", "category-ads-all") ?: "category-ads-all",
         routeDomainStrategy = prefs.getString("routeDomainStrategy", "AsIs") ?: "AsIs",
-        theme = prefs.getString("theme", "dark") ?: "dark",
-        density = prefs.getString("density", "comfortable") ?: "comfortable",
-        border = prefs.getString("border", "rounded") ?: "rounded",
-        icons = prefs.getBoolean("icons", true)
+        theme = prefs.getString("theme", "dark") ?: "dark"
     )
 
     fun saveSettings(s: AppSettings) = prefs.edit()
@@ -99,9 +96,6 @@ class AppStore(context: Context) {
         .putString("routeAdsTag", s.routeAdsTag)
         .putString("routeDomainStrategy", s.routeDomainStrategy)
         .putString("theme", s.theme)
-        .putString("density", s.density)
-        .putString("border", s.border)
-        .putBoolean("icons", s.icons)
         .apply()
 
     private inline fun <reified T : Enum<T>> enumValue(key: String, fallback: T): T =

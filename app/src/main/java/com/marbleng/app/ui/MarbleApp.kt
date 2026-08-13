@@ -16,6 +16,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -51,7 +52,17 @@ fun MarbleApp(repo: AppRepository, onConnect: (ProxyProfile) -> Unit, onImportFi
 
         Scaffold(
             containerColor = Aether.Void,
-            bottomBar = { ModernBottomBar(tab, onSelect = { tab = it }) },
+            bottomBar = {
+                ModernBottomBar(
+                    selected = tab,
+                    onSelect = { tab = it },
+                    isLight = repo.settings.theme.equals("light", ignoreCase = true),
+                    onToggleTheme = {
+                        val next = if (repo.settings.theme.equals("light", ignoreCase = true)) "dark" else "light"
+                        repo.updateSettings(repo.settings.copy(theme = next))
+                    }
+                )
+            },
             snackbarHost = { SnackbarHost(snackbar) }
         ) { pad ->
             Box(
@@ -108,7 +119,7 @@ private fun dialogText(d: String, r: AppRepository) = when (d) {
 }
 
 @Composable
-private fun ModernBottomBar(selected: Tab, onSelect: (Tab) -> Unit) {
+private fun ModernBottomBar(selected: Tab, onSelect: (Tab) -> Unit, isLight: Boolean, onToggleTheme: () -> Unit) {
     Surface(
         color = Aether.VoidElevated,
         tonalElevation = 0.dp,
@@ -121,7 +132,8 @@ private fun ModernBottomBar(selected: Tab, onSelect: (Tab) -> Unit) {
                 .navigationBarsPadding()
                 .height(64.dp)
                 .padding(horizontal = 8.dp, vertical = 5.dp),
-            horizontalArrangement = Arrangement.SpaceBetween
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
             Tab.entries.forEach { tab ->
                 val active = selected == tab
@@ -147,6 +159,22 @@ private fun ModernBottomBar(selected: Tab, onSelect: (Tab) -> Unit) {
                         color = if (active) Aether.Ink else Aether.InkMuted
                     )
                 }
+            }
+
+            Box(
+                modifier = Modifier
+                    .padding(start = 2.dp)
+                    .size(width = 40.dp, height = 54.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.13f))
+                    .clickable(onClickLabel = "Switch theme", onClick = onToggleTheme),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    if (isLight) "☀" else "☾",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.secondary
+                )
             }
         }
     }
@@ -219,6 +247,39 @@ private fun EmptyState(title: String, body: String) {
 // LIBRARY
 // ---------------------------------------------------------------------------------------------
 
+@Composable
+private fun TestAllButton(count: Int, busy: Boolean, onClick: () -> Unit) {
+    val enabled = !busy && count > 0
+    val onGradient = MaterialTheme.colorScheme.onPrimary
+    Row(
+        modifier = Modifier
+            .padding(horizontal = 14.dp)
+            .fillMaxWidth()
+            .alpha(if (enabled) 1f else 0.55f)
+            .clip(RoundedCornerShape(18.dp))
+            .background(Brush.horizontalGradient(listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.secondary)))
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 18.dp, vertical = 16.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text("⚡", style = MaterialTheme.typography.headlineMedium, color = onGradient)
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text("Test All · Real Tunnel", style = MaterialTheme.typography.titleMedium, color = onGradient, fontWeight = FontWeight.Bold)
+            Text(
+                if (count == 0) "No configs yet" else "$count configs · super-fast parallel benchmark",
+                style = MaterialTheme.typography.bodySmall,
+                color = onGradient.copy(alpha = 0.85f)
+            )
+        }
+        if (busy) {
+            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = onGradient)
+        } else {
+            Text("GO", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = onGradient)
+        }
+    }
+}
+
 private data class RenameTarget(val kind: String, val id: String, val current: String)
 
 @Composable
@@ -284,6 +345,8 @@ private fun Library(repo: AppRepository, onConnect: (ProxyProfile) -> Unit, onIm
                 trailing = { SmallBadge("${repo.profiles.size} nodes") }
             )
         }
+
+        item { TestAllButton(repo.profiles.size, repo.busy, repo::testAll) }
 
         item {
             Panel(Modifier.padding(horizontal = 14.dp).fillMaxWidth()) {

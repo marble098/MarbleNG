@@ -29,6 +29,16 @@ class XrayManager(private val context: Context) {
     var lastStartError: String = ""
         private set
 
+    /**
+     * Configs already proven valid by `xray run -test` this session skip that dry-run on the next
+     * connect — the hardened output is a pure function of (profile, port, settings), so a repeat
+     * hash can only re-validate identically. This shaves a full process spawn off reconnects to
+     * the same node (auto-reconnect, "use best result", retry-after-drop) without weakening the
+     * check for anything actually new.
+     */
+    private val validatedConfigHashes = LinkedHashSet<String>()
+    private val validatedCacheLimit = 16
+
     val isAlive: Boolean get() = process?.isAlive == true
     val logFile: File get() = File(context.filesDir, "logs/xray.log")
     private val bin: File get() = File(context.applicationInfo.nativeLibraryDir, "libxray.so")
@@ -218,20 +228,28 @@ class XrayManager(private val context: Context) {
                 error("geosite.dat is required by the selected routing policy. Add a download URL in Settings → Routing.")
             }
 
-            config.writeText(XrayConfigHardener.harden(profile.configJson, port, settings))
+            val configText = XrayConfigHardener.harden(profile.configJson, port, settings)
+            config.writeText(configText)
+            val configHash = sha256(configText)
 
-            val testProcess = createProcessBuilder("run", "-test", "-c", config.absolutePath)
-                .redirectOutput(ProcessBuilder.Redirect.appendTo(logFile))
-                .start()
+            if (configHash !in validatedConfigHashes) {
+                val testProcess = createProcessBuilder("run", "-test", "-c", config.absolutePath)
+                    .redirectOutput(ProcessBuilder.Redirect.appendTo(logFile))
+                    .start()
 
-            if (!testProcess.waitFor(10, TimeUnit.SECONDS)) {
-                stopProcess(testProcess)
-                return@runCatching fail("Xray config validation timed out")
-            }
-            if (testProcess.exitValue() != 0) {
-                return@runCatching fail(
-                    "Xray rejected the generated config (exit ${testProcess.exitValue()}): ${lastLogHint()}"
-                )
+                if (!testProcess.waitFor(10, TimeUnit.SECONDS)) {
+                    stopProcess(testProcess)
+                    return@runCatching fail("Xray config validation timed out")
+                }
+                if (testProcess.exitValue() != 0) {
+                    return@runCatching fail(
+                        "Xray rejected the generated config (exit ${testProcess.exitValue()}): ${lastLogHint()}"
+                    )
+                }
+                validatedConfigHashes += configHash
+                while (validatedConfigHashes.size > validatedCacheLimit) {
+                    validatedConfigHashes.remove(validatedConfigHashes.first())
+                }
             }
 
             val startedProcess = createProcessBuilder("run", "-c", config.absolutePath)
@@ -358,6 +376,9 @@ class XrayManager(private val context: Context) {
         }
         true
     }.getOrDefault(false)
+
+    private fun sha256(text: String): String = java.security.MessageDigest.getInstance("SHA-256")
+        .digest(text.toByteArray()).joinToString("") { "%02x".format(it) }
 
     private fun rotateLogIfNeeded() {
         if (logFile.isFile && logFile.length() > 2L * 1024L * 1024L) {
