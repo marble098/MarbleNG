@@ -180,6 +180,26 @@ object XrayConfigHardener {
         if (needsDirect) {
             out.put(JSONObject().put("tag", "direct").put("protocol", "freedom"))
         }
+
+        // Traditional Android DNS packets are intercepted before they can emerge as plaintext
+        // port-53 traffic from the proxy exit. A/AAAA are imported into Xray's built-in DNS module;
+        // other record types receive an empty NOERROR response so they cannot bypass encrypted DNS.
+        if (settings.dnsHijackEnabled) {
+            out.put(
+                JSONObject()
+                    .put("tag", "dns-out")
+                    .put("protocol", "dns")
+                    .put(
+                        "settings",
+                        JSONObject().put(
+                            "rules",
+                            JSONArray()
+                                .put(JSONObject().put("action", "hijack").put("qType", "1,28"))
+                                .put(JSONObject().put("action", "return").put("rCode", 0))
+                        )
+                    )
+            )
+        }
         out.put(JSONObject().put("tag", "block").put("protocol", "blackhole"))
 
         val inbound = JSONObject()
@@ -256,6 +276,18 @@ object XrayConfigHardener {
         )
 
         val rules = JSONArray()
+
+        // DNS interception has highest priority: any app attempting classic UDP/TCP :53 is handed
+        // to dns-out, which hijacks A/AAAA into the encrypted built-in DNS path above.
+        if (settings.dnsHijackEnabled) {
+            rules.put(
+                JSONObject()
+                    .put("type", "field")
+                    .put("inboundTag", JSONArray().put("socks-in"))
+                    .put("port", "53")
+                    .put("outboundTag", "dns-out")
+            )
+        }
 
         // Xray's ordinary built-in DNS requests always stay inside the selected proxy path.
         rules.put(

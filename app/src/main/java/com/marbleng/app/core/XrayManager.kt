@@ -312,33 +312,64 @@ class XrayManager(private val context: Context) {
         }
     }
 
-    /** Temporary benchmark instances always use proxy-all routing to avoid route policy skewing node tests. */
-    fun temporary(profile: ProxyProfile, port: Int, block: (Int) -> Unit): Boolean {
+    /**
+     * Temporary benchmark instance. Validation is cached by canonical profile + effective settings,
+     * not by the ephemeral local port, so repeated real-tunnel tests skip redundant xray -test spawns.
+     */
+    fun temporary(
+        profile: ProxyProfile,
+        port: Int,
+        settings: AppSettings = AppSettings(),
+        block: (Int) -> Unit
+    ): Boolean {
         if (!bin.isFile || port !in 1..65535 || !portAvailable(port)) return false
 
         val config = File(context.cacheDir, "bench-$port.json")
         val benchmarkLog = File(context.cacheDir, "xray-bench-$port.log")
 
         return runCatching {
-            config.writeText(XrayConfigHardener.harden(profile.configJson, port, AppSettings()))
+            val benchmarkSettings = settings.copy(
+                routingMode = RoutingMode.PROXY_ALL,
+                routeGeoIpTags = "",
+                routeGeoSiteTags = "",
+                routeDirectDomains = "",
+                routeProxyDomains = "",
+                routeBlockDomains = "",
+                routeDirectIps = "",
+                routeBlockIps = "",
+                routeBypassPrivate = false,
+                routeBlockAds = false
+            )
+            val configText = XrayConfigHardener.harden(profile.configJson, port, benchmarkSettings)
+            config.writeText(configText)
+            val validationKey = "bench:" + sha256(profile.configJson + "|" + benchmarkSettings.toString())
+            val needsValidation = synchronized(validatedConfigHashes) { validationKey !in validatedConfigHashes }
 
-            val testProcess = createProcessBuilder("run", "-test", "-c", config.absolutePath)
-                .redirectOutput(ProcessBuilder.Redirect.appendTo(benchmarkLog))
-                .start()
+            if (needsValidation) {
+                val testProcess = createProcessBuilder("run", "-test", "-c", config.absolutePath)
+                    .redirectOutput(ProcessBuilder.Redirect.appendTo(benchmarkLog))
+                    .start()
 
-            if (!testProcess.waitFor(10, TimeUnit.SECONDS)) {
-                stopProcess(testProcess)
-                return@runCatching false
+                if (!testProcess.waitFor(10, TimeUnit.SECONDS)) {
+                    stopProcess(testProcess)
+                    return@runCatching false
+                }
+                if (testProcess.exitValue() != 0) return@runCatching false
+
+                synchronized(validatedConfigHashes) {
+                    validatedConfigHashes += validationKey
+                    while (validatedConfigHashes.size > validatedCacheLimit) {
+                        validatedConfigHashes.remove(validatedConfigHashes.first())
+                    }
+                }
             }
-            if (testProcess.exitValue() != 0) return@runCatching false
 
             val temporaryProcess = createProcessBuilder("run", "-c", config.absolutePath)
                 .redirectOutput(ProcessBuilder.Redirect.appendTo(benchmarkLog))
                 .start()
             try {
-                if (!waitPort(port, 7_000L, temporaryProcess)) {
-                    false
-                } else {
+                if (!waitPort(port, 7_000L, temporaryProcess)) false
+                else {
                     block(port)
                     true
                 }

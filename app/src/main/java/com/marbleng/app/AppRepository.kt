@@ -19,12 +19,16 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     private val store = AppStore(context)
     private val secrets = SecretStore(context)
     private val io = Executors.newFixedThreadPool(3)
+    val intelligence = MarbleIntelligence(context)
 
     val profiles = mutableStateListOf<ProxyProfile>().apply { addAll(store.loadProfiles()) }
     val subscriptions = mutableStateListOf<Subscription>().apply { addAll(store.loadSubscriptions()) }
     val history = mutableStateListOf<ConnectionRecord>().apply { addAll(store.loadHistory()) }
 
     var settings by mutableStateOf(store.settings()); private set
+    var networkSnapshot by mutableStateOf(intelligence.currentSnapshot()); private set
+    var intelligenceStatus by mutableStateOf(intelligence.status(settings)); private set
+    var sentinel by mutableStateOf(PrivacySentinelState()); private set
     var state by mutableStateOf("DISCONNECTED"); private set
     var stateDetail by mutableStateOf(""); private set
     var busy by mutableStateOf(false); private set
@@ -41,6 +45,14 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     var liveUpBps by mutableStateOf(0L); private set
 
     init {
+        intelligence.startMonitoring()
+        intelligence.addNetworkListener { next ->
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                networkSnapshot = next
+                refreshIntelligenceStatus()
+            }
+        }
+        refreshIntelligenceStatus()
         if (settings.subscriptionAutoRefresh && subscriptions.isNotEmpty()) {
             val maxAgeMs = settings.subscriptionRefreshHours.coerceIn(1, 168) * 3_600_000L
             val stale = subscriptions.any {
@@ -78,6 +90,21 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     fun updateSettings(v: AppSettings) {
         settings = v
         store.saveSettings(v)
+        refreshIntelligenceStatus()
+    }
+
+    fun effectiveSettingsFor(profile: ProxyProfile): AppSettings =
+        if (settings.intelligenceEnabled) intelligence.effectiveSettings(profile, settings) else settings
+
+    fun recoveryCandidates(failedIds: Set<String>): List<ProxyProfile> =
+        intelligence.recoveryCandidates(profiles.toList(), failedIds, settings)
+
+    fun refreshIntelligenceStatus() {
+        intelligenceStatus = intelligence.status(settings)
+    }
+
+    fun updateSentinel(value: PrivacySentinelState) {
+        sentinel = value
     }
 
     fun setConnectionMode(mode: ConnectionMode) {
@@ -220,7 +247,12 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         listOf("manual" to "Manual") + subscriptions.map { it.id to it.name }
 
     fun lastProfile() = profile(store.lastProfileId())
-    fun auto(onConnect: (ProxyProfile) -> Unit) { lastProfile()?.let(onConnect) ?: smart(onConnect) }
+    fun auto(onConnect: (ProxyProfile) -> Unit) {
+        val last = lastProfile()
+        val predicted = last?.let { intelligence.predictedScore(it, settings) } ?: 0.0
+        if (last != null && (!settings.intelligenceEnabled || predicted >= 72.0)) onConnect(last)
+        else smart(onConnect)
+    }
 
     fun markConnected(p: ProxyProfile) {
         state = "CONNECTED"
@@ -267,8 +299,18 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     }
 
     fun smart(onBest: (ProxyProfile) -> Unit) {
-        task("Benchmarking") {
-            val results = BenchmarkEngine(xray).run(profiles.toList(), settings) { a, b, n -> message = "Testing $a/$b • $n" }
+        task("Marble Intelligence • selecting route") {
+            val engine = BenchmarkEngine(xray, intelligence)
+            if (settings.intelligenceEnabled && settings.raceConnectEnabled && profiles.size > 1) {
+                val raced = engine.race(profiles.toList(), settings) { n -> message = "Connection race • $n" }
+                if (raced != null) {
+                    benchmarks = listOf(raced.second.copy(score = maxOf(80.0, raced.second.score)))
+                    message = "Race winner: ${raced.first.name}"
+                    android.os.Handler(android.os.Looper.getMainLooper()).post { onBest(raced.first) }
+                    return@task
+                }
+            }
+            val results = engine.run(profiles.toList(), settings) { a, b, n -> message = "Tunnel intelligence $a/$b • $n" }
             benchmarks = results
             val best = results.firstOrNull { it.success > 0 }?.let { profile(it.profileId) }
             message = if (best == null) "No working candidate" else "Best: ${best.name}"
@@ -278,7 +320,7 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
 
     fun fullTest(p: ProxyProfile) {
         task("Full test ${p.name}") {
-            benchmarks = BenchmarkEngine(xray).run(listOf(p), settings.copy(benchCandidates = 1))
+            benchmarks = BenchmarkEngine(xray, intelligence).run(listOf(p), settings.copy(benchCandidates = 1))
             message = benchmarks.firstOrNull()?.let {
                 "${it.success}% • ${"%.0f".format(it.latencyMs)} ms • ${"%.1f".format(it.score)}"
             } ?: "Test failed"
@@ -291,7 +333,7 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         task("Testing all configs") {
             val all = profiles.toList()
             val testSettings = settings.copy(benchMode = BenchMode.CUSTOM, benchCandidates = all.size)
-            benchmarks = BenchmarkEngine(xray).run(all, testSettings) { a, b, n -> message = "Tunnel test $a/$b • $n" }
+            benchmarks = BenchmarkEngine(xray, intelligence).run(all, testSettings) { a, b, n -> message = "Tunnel test $a/$b • $n" }
             val passed = benchmarks.count { it.success > 0 }
             message = "Tested ${benchmarks.size} configs • $passed reachable"
         }
@@ -300,6 +342,14 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     fun audit() {
         task("Privacy audit") {
             privacy = PrivacyAuditor.audit(activeProxyPort())
+            val report = privacy
+            if (report != null) {
+                sentinel = sentinel.copy(
+                    exitIp = report.proxyIp,
+                    dnsObservation = report.dnsServers,
+                    updatedAt = System.currentTimeMillis()
+                )
+            }
             message = privacy?.note.orEmpty()
         }
     }
@@ -330,7 +380,7 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
                 benchCandidates = minOf(settings.telegramMaxConfigs, candidates.size),
                 benchSamples = settings.telegramTcpSamples.coerceIn(1, 6)
             )
-            val results = BenchmarkEngine(xray).run(candidates, testSettings, settings.telegramTcpGate) { a, b, n ->
+            val results = BenchmarkEngine(xray, intelligence).run(candidates, testSettings, settings.telegramTcpGate) { a, b, n ->
                 message = "Radar tunnel test $a/$b • $n"
             }
             radarResults = results
@@ -414,7 +464,8 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         Connection modes: Full Android TUN or localhost SOCKS5 on 127.0.0.1:${settings.localProxyPort}.
         Routing: proxy-all, private bypass, geo direct and custom domain/IP rules with managed geoip.dat + geosite.dat.
         Split tunneling: all apps, only selected apps, or bypass selected apps in Full TUN mode.
-        Advanced Xray: custom DoH, optional Freedom.fragment, Mux/XUDP and two-hop chained outbounds.
+        Advanced Xray: encrypted DNS hijack, adaptive DoH ordering, optional Freedom.fragment, Mux/XUDP and two-hop chained outbounds.
+        Marble Intelligence: persistent network-scoped health history, connection race, bounded failover, adaptive MTU/dual-stack/thermal policies and UDP probing.
         ABIs: arm64-v8a, armeabi-v7a, x86_64, x86.
     """.trimIndent()
 
@@ -429,6 +480,9 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         checks += if (assets.geoIpReady) "✔ geoip.dat ${formatBytes(assets.geoIpBytes)}" else "⚠ geoip.dat not prepared"
         checks += if (assets.geoSiteReady) "✔ geosite.dat ${formatBytes(assets.geoSiteBytes)}" else "⚠ geosite.dat not prepared"
         checks += "✔ Unmatched traffic falls back to proxy"
+        checks += if (settings.dnsHijackEnabled) "✔ Traditional DNS :53 is hijacked into Xray DNS" else "⚠ DNS hijack disabled"
+        checks += "✔ Intelligence network ${networkSnapshot.label}"
+        checks += "✔ Thermal budget ${intelligenceStatus.thermalBudgetPercent}% • effective MTU ${intelligenceStatus.effectiveMtu.takeIf { it > 0 } ?: settings.mtuMax}"
         return checks.joinToString("\n")
     }
 

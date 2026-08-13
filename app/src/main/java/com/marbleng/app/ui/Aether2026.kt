@@ -458,43 +458,24 @@ private fun CyberDeck(
         else -> Aether.InkFaint
     }
     val activeName = repo.stateDetail.ifBlank { repo.lastProfile()?.name ?: "No active node" }
-    val packetLossPct = remember(repo.livePingMs, repo.state) {
-        when {
-            repo.state != "CONNECTED" -> 0
-            repo.livePingMs <= 0 -> 0
-            repo.livePingMs < 120 -> 1
-            repo.livePingMs < 220 -> 3
-            repo.livePingMs < 320 -> 6
-            else -> 11
-        }
+    val activeBench = repo.benchmarks.firstOrNull { it.name == activeName || it.profileId == repo.lastProfile()?.id }
+    val packetLossPct = (100 - (activeBench?.success ?: if (connected) 100 else 0)).coerceIn(0, 100)
+    val jitterMs = activeBench?.jitterMs?.roundToInt() ?: 0
+    val healthScore = when {
+        !connected -> 0
+        activeBench != null -> activeBench.stabilityScore.roundToInt().coerceIn(0, 100)
+        repo.livePingMs <= 0 -> 70
+        else -> (100 - repo.livePingMs / 5).coerceIn(20, 95)
     }
-    val jitterMs = remember(repo.livePingMs, repo.benchmarks) {
-        repo.benchmarks.firstOrNull { it.name == activeName }?.jitterMs?.roundToInt()
-            ?: (repo.livePingMs / 6).coerceAtLeast(2)
-    }
-    val healthScore = remember(repo.livePingMs, jitterMs, packetLossPct, repo.state) {
-        if (repo.state != "CONNECTED") 0 else {
-            (100 - (repo.livePingMs / 5) - jitterMs - packetLossPct * 3).coerceIn(0, 100)
-        }
-    }
-    val deceptivePackets = remember(repo.liveDownBps, repo.settings.fragmentEnabled, repo.settings.muxEnabled) {
-        ((repo.liveDownBps / 32768L).toInt() + if (repo.settings.fragmentEnabled) 12 else 3 + if (repo.settings.muxEnabled) 8 else 0)
-            .coerceAtLeast(0)
-    }
-    val kernelBypassActive = repo.settings.connectionMode == ConnectionMode.FULL_TUN
-    val ebpfActive = kernelBypassActive && repo.settings.routeBypassPrivate
-    val multiWanBonding = connected && (repo.settings.muxEnabled || repo.settings.chainEnabled)
-    val offloadPct = (if (connected) 64 else 0) + if (repo.settings.muxEnabled) 18 else 0
-    val thermalImpact = when {
-        repo.liveDownBps > 25L * 1024L * 1024L -> 74
-        repo.liveDownBps > 8L * 1024L * 1024L -> 49
-        connected -> 28
-        else -> 11
-    }
-    val batteryImpact = when (repo.settings.connectionMode) {
-        ConnectionMode.FULL_TUN -> if (multiWanBonding) 57 else 35
-        ConnectionMode.LOCAL_PROXY -> 18
-    }
+    val resilienceScore = activeBench?.resilienceScore?.roundToInt()?.coerceIn(0, 100)
+        ?: if (connected && repo.sentinel.dnsHijack && repo.sentinel.xrayAlive) 82 else 0
+    val intel = repo.intelligenceStatus
+    val kernelBypassActive = intel.kernelSuDetected
+    val ebpfActive = intel.ebpfCapable
+    val multiWanAvailable = intel.dualNetworkAvailable
+    val cpuBudgetPct = intel.thermalBudgetPercent.coerceIn(0, 100)
+    val thermalImpact = (100 - intel.thermalBudgetPercent).coerceIn(0, 100)
+    val batteryImpact = if (intel.powerSaveMode) 72 else if (connected) 30 else 10
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -533,7 +514,7 @@ private fun CyberDeck(
         }
 
         item {
-            SectionLabel("Command matrix", "Health score • kernel bypass • offload telemetry")
+            SectionLabel("Command matrix", "Health score • privacy sentinel • adaptive network telemetry")
             HoloGlass(
                 modifier = Modifier.fillMaxWidth(),
                 glow = when {
@@ -547,43 +528,43 @@ private fun CyberDeck(
                     latencyMs = repo.livePingMs,
                     jitterMs = jitterMs,
                     packetLossPct = packetLossPct,
-                    deceptivePackets = deceptivePackets,
+                    resilienceScore = resilienceScore,
                     modifier = Modifier.fillMaxWidth()
                 )
 
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     TacticalIndicatorTile(
                         title = "KernelSU",
-                        state = if (kernelBypassActive) "ARMED" else "IDLE",
+                        state = if (kernelBypassActive) "DETECTED" else "OPTIONAL",
                         color = if (kernelBypassActive) Aether.Emerald else Aether.InkFaint,
-                        detail = "Privileged tunnel path",
+                        detail = "Capability only • no root datapath is claimed",
                         modifier = Modifier.weight(1f)
                     )
                     TacticalIndicatorTile(
                         title = "eBPF",
-                        state = if (ebpfActive) "ACTIVE" else "STANDBY",
+                        state = if (ebpfActive) "CAPABLE" else "UNAVAILABLE",
                         color = if (ebpfActive) Aether.Cyan else Aether.InkFaint,
-                        detail = "Zero-copy bypass plane",
+                        detail = "Kernel capability • userspace TUN remains active",
                         modifier = Modifier.weight(1f)
                     )
                     TacticalIndicatorTile(
-                        title = "Bond",
-                        state = if (multiWanBonding) "DUAL" else "SINGLE",
-                        color = if (multiWanBonding) Aether.Amethyst else Aether.InkFaint,
-                        detail = "5G + Wi-Fi 7 merger",
+                        title = "Multi-WAN",
+                        state = if (multiWanAvailable) "DUAL READY" else "SINGLE",
+                        color = if (multiWanAvailable) Aether.Amethyst else Aether.InkFaint,
+                        detail = "Availability only • no fake bandwidth bonding",
                         modifier = Modifier.weight(1f)
                     )
                 }
 
                 MultiWanVisualizer(
-                    bonding = multiWanBonding,
+                    bonding = multiWanAvailable,
                     modifier = Modifier.fillMaxWidth().height(82.dp)
                 )
 
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     ThermalGauge(
-                        title = "HW Offload",
-                        value = offloadPct.coerceIn(0, 100),
+                        title = "CPU Budget",
+                        value = cpuBudgetPct.coerceIn(0, 100),
                         color = Aether.Cyan,
                         modifier = Modifier.weight(1f)
                     )
@@ -630,7 +611,7 @@ private fun CyberDeck(
                 )
 
                 DpiResilienceStrip(
-                    successfulPackets = deceptivePackets,
+                    successfulPackets = resilienceScore,
                     packetLossPct = packetLossPct,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -2579,6 +2560,18 @@ private fun SpatialSettings(
 
         item {
             SpatialAccordion(
+                title = "Marble Intelligence",
+                subtitle = "Predictive routing • DNS shield • adaptive recovery",
+                badge = "AI NET",
+                color = Aether.Cyan,
+                initiallyOpen = true
+            ) {
+                IntelligenceSettings(repo)
+            }
+        }
+
+        item {
+            SpatialAccordion(
                 title = "Split tunneling",
                 subtitle = "Per-app capture policy",
                 badge = "APPS",
@@ -2656,7 +2649,7 @@ private fun SpatialSettings(
 
         item {
             Text(
-                "Cyber-Minimal mode keeps the network engine unchanged: this layer visualizes and controls the existing Xray/TUN capabilities without adding hidden background traffic.",
+                "Marble Intelligence performs bounded health probes through Xray, persists network-scoped route history, and keeps Full TUN fail-closed during recovery. Multi-WAN and KernelSU/eBPF are displayed only as capabilities until a real datapath backend exists.",
                 color = Aether.InkFaint,
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.padding(horizontal = 4.dp, vertical = 12.dp)
@@ -2790,6 +2783,134 @@ private fun ConnectionSettings(repo: AppRepository) {
 }
 
 @Composable
+private fun IntelligenceSettings(repo: AppRepository) {
+    val s = repo.settings
+    val status = repo.intelligenceStatus
+    val sentinel = repo.sentinel
+
+    Row(
+        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(7.dp)
+    ) {
+        HoloBadge(status.networkLabel, Aether.Cyan, compact = true)
+        HoloBadge("MTU ${status.effectiveMtu.takeIf { it > 0 } ?: s.mtuMax}", Aether.Emerald, compact = true)
+        HoloBadge("CPU ${status.thermalBudgetPercent}%", if (status.thermalBudgetPercent >= 65) Aether.Emerald else Aether.Amber, compact = true)
+        HoloBadge("HISTORY ${status.historyRecords}", Aether.Amethyst, compact = true)
+    }
+
+    Text(status.lastDecision, color = Aether.InkMuted, style = MaterialTheme.typography.bodySmall)
+
+    SettingSwitch(
+        title = "Marble Intelligence Engine",
+        subtitle = "Use network-scoped history and adaptive policies",
+        checked = s.intelligenceEnabled
+    ) { repo.updateSettings(s.copy(intelligenceEnabled = it)) }
+
+    SettingSwitch(
+        title = "Persistent route intelligence",
+        subtitle = "EWMA health history per network fingerprint",
+        checked = s.healthHistoryEnabled
+    ) { repo.updateSettings(s.copy(healthHistoryEnabled = it)) }
+
+    SettingSwitch(
+        title = "Connection race",
+        subtitle = "Race a few predicted-good real Xray paths; first healthy route wins",
+        checked = s.raceConnectEnabled
+    ) { repo.updateSettings(s.copy(raceConnectEnabled = it)) }
+
+    AnimatedVisibility(s.raceConnectEnabled) {
+        NumberSetting("Race width", s.raceWidth, 2..4) {
+            repo.updateSettings(repo.settings.copy(raceWidth = it))
+        }
+    }
+
+    SettingSwitch(
+        title = "Smart fallback",
+        subtitle = "Keep TUN fail-closed while switching to a healthy backup",
+        checked = s.smartFallbackEnabled
+    ) { repo.updateSettings(s.copy(smartFallbackEnabled = it)) }
+
+    AnimatedVisibility(s.smartFallbackEnabled) {
+        NumberSetting("Fallback depth", s.fallbackCount, 1..8) {
+            repo.updateSettings(repo.settings.copy(fallbackCount = it))
+        }
+    }
+
+    SettingSwitch(
+        title = "Network-change recovery",
+        subtitle = "Re-probe immediately after Wi-Fi/cellular/link-property changes",
+        checked = s.networkChangeRecoveryEnabled
+    ) { repo.updateSettings(s.copy(networkChangeRecoveryEnabled = it)) }
+
+    SettingSwitch(
+        title = "Adaptive MTU",
+        subtitle = "Use physical link + transport-aware MTU instead of a permanent jumbo TUN",
+        checked = s.adaptiveMtuEnabled
+    ) { repo.updateSettings(s.copy(adaptiveMtuEnabled = it)) }
+
+    AnimatedVisibility(s.adaptiveMtuEnabled) {
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            NumberSetting("MTU floor", s.mtuMin, 1280..1500) {
+                repo.updateSettings(repo.settings.copy(mtuMin = it.coerceAtMost(repo.settings.mtuMax)))
+            }
+            NumberSetting("MTU ceiling", s.mtuMax, 1280..1500) {
+                repo.updateSettings(repo.settings.copy(mtuMax = it.coerceAtLeast(repo.settings.mtuMin)))
+            }
+        }
+    }
+
+    SettingSwitch(
+        title = "Thermal-aware benchmarking",
+        subtitle = "Reduce workers/bytes before Android throttles the device",
+        checked = s.thermalAwareEnabled
+    ) { repo.updateSettings(s.copy(thermalAwareEnabled = it)) }
+
+    SettingSwitch(
+        title = "Adaptive throughput test",
+        subtitle = "Start small; expand download only when confidence and thermal budget allow",
+        checked = s.adaptiveThroughputEnabled
+    ) { repo.updateSettings(s.copy(adaptiveThroughputEnabled = it)) }
+
+    SettingSwitch(
+        title = "UDP / QUIC probe",
+        subtitle = "STUN through SOCKS5 UDP ASSOCIATE for real UDP health",
+        checked = s.udpProbeEnabled
+    ) { repo.updateSettings(s.copy(udpProbeEnabled = it)) }
+
+    Text("WORKLOAD", color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
+    Row(
+        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(7.dp)
+    ) {
+        WorkloadProfile.entries.forEach { mode ->
+            CyberChoiceChip(
+                text = mode.name,
+                selected = s.workloadProfile == mode,
+                color = when (mode) {
+                    WorkloadProfile.STREAMING -> Aether.Amethyst
+                    WorkloadProfile.STEALTH -> Aether.Amber
+                    else -> Aether.Cyan
+                }
+            ) { repo.updateSettings(repo.settings.copy(workloadProfile = mode)) }
+        }
+    }
+
+    HorizontalDivider(color = Aether.GlassBorderSoft)
+    Text("PRIVACY SENTINEL", color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
+    Row(
+        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(7.dp)
+    ) {
+        HoloBadge(sentinel.coverage, if (sentinel.coverage == "DEVICE-WIDE") Aether.Emerald else Aether.Amber, compact = true)
+        HoloBadge(if (sentinel.dnsHijack) "DNS HIJACK" else "DNS OPEN", if (sentinel.dnsHijack) Aether.Emerald else Aether.Amber, compact = true)
+        HoloBadge(if (sentinel.killSwitchArmed) "KILL SWITCH" else "NO KILL SWITCH", if (sentinel.killSwitchArmed) Aether.Emerald else Aether.InkFaint, compact = true)
+    }
+    if (sentinel.splitBypassCount > 0) {
+        Text("${sentinel.splitBypassCount} apps intentionally bypass the VPN; device protection is partial.", color = Aether.Amber, style = MaterialTheme.typography.bodySmall)
+    }
+}
+
+@Composable
 private fun SplitTunnelSettings(repo: AppRepository) {
     val context = LocalContext.current
     val pm = context.packageManager
@@ -2900,6 +3021,18 @@ private fun SplitTunnelSettings(repo: AppRepository) {
 
 @Composable
 private fun FragmentMuxSettings(repo: AppRepository) {
+    SettingSwitch(
+        title = "Adaptive Fragment",
+        subtitle = "Test Fragment only after TLS/REALITY interference; remember successful preference per network",
+        checked = repo.settings.adaptiveFragmentEnabled
+    ) { repo.updateSettings(repo.settings.copy(adaptiveFragmentEnabled = it)) }
+    SettingSwitch(
+        title = "Adaptive Mux",
+        subtitle = "Probe Mux only on stable high-RTT TCP routes; never assume it increases bulk speed",
+        checked = repo.settings.adaptiveMuxEnabled
+    ) { repo.updateSettings(repo.settings.copy(adaptiveMuxEnabled = it)) }
+    HorizontalDivider(color = Aether.GlassBorderSoft)
+
     SettingSwitch(
         title = "TLS ClientHello fragmentation",
         subtitle = "Freedom.fragment on the physical server dial",
@@ -3023,6 +3156,22 @@ private fun ChainSettings(repo: AppRepository) {
 
 @Composable
 private fun DnsSettings(repo: AppRepository) {
+    SettingSwitch(
+        title = "Intercept traditional DNS",
+        subtitle = "Route TCP/UDP :53 to Xray dns-out → built-in encrypted DNS",
+        checked = repo.settings.dnsHijackEnabled
+    ) { repo.updateSettings(repo.settings.copy(dnsHijackEnabled = it)) }
+    SettingSwitch(
+        title = "Adaptive DoH ordering",
+        subtitle = "Measure configured DoH HTTPS paths through the active proxy and remember the winner",
+        checked = repo.settings.adaptiveDnsEnabled
+    ) { repo.updateSettings(repo.settings.copy(adaptiveDnsEnabled = it)) }
+    SettingSwitch(
+        title = "Adaptive IPv4 / IPv6 DNS",
+        subtitle = "Use current physical reachability to choose UseIP / UseIPv4 / UseIPv6",
+        checked = repo.settings.adaptiveDualStackEnabled
+    ) { repo.updateSettings(repo.settings.copy(adaptiveDualStackEnabled = it)) }
+
     Text("QUICK RESOLVERS", color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
 
     Row(
@@ -3501,7 +3650,7 @@ private fun ConnectionHealthMatrix(
     latencyMs: Int,
     jitterMs: Int,
     packetLossPct: Int,
-    deceptivePackets: Int,
+    resilienceScore: Int,
     modifier: Modifier = Modifier
 ) {
     Row(modifier, verticalAlignment = Alignment.CenterVertically) {
@@ -3515,7 +3664,7 @@ private fun ConnectionHealthMatrix(
             }
             Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                 MicroStat("HEALTH", "$score/100", Modifier.weight(1f))
-                MicroStat("DPI BYPASS", deceptivePackets.toString(), Modifier.weight(1f))
+                MicroStat("RESILIENCE", "$resilienceScore/100", Modifier.weight(1f))
             }
         }
     }
@@ -3636,8 +3785,8 @@ private fun ThermalGauge(title: String, value: Int, color: Color, modifier: Modi
 @Composable
 private fun DpiResilienceStrip(successfulPackets: Int, packetLossPct: Int, modifier: Modifier = Modifier) {
     Row(modifier, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        MicroStat("DECOY OK", successfulPackets.toString(), Modifier.weight(1f))
-        MicroStat("DPI STATE", if (packetLossPct > 7) "PRESSURED" else "CLEAN", Modifier.weight(1f))
+        MicroStat("RESILIENCE", "$successfulPackets/100", Modifier.weight(1f))
+        MicroStat("ROUTE STATE", if (packetLossPct > 7) "PRESSURED" else "HEALTHY", Modifier.weight(1f))
         MicroStat("LOSS", "$packetLossPct%", Modifier.weight(1f))
     }
 }

@@ -88,6 +88,27 @@ class AppStore(context: Context) {
         chainEnabled = prefs.getBoolean("chainEnabled", false),
         chainSecondProfileId = prefs.getString("chainSecondProfileId", "") ?: "",
 
+        intelligenceEnabled = prefs.getBoolean("intelligenceEnabled", true),
+        healthHistoryEnabled = prefs.getBoolean("healthHistoryEnabled", true),
+        raceConnectEnabled = prefs.getBoolean("raceConnectEnabled", true),
+        raceWidth = prefs.getInt("raceWidth", 3),
+        smartFallbackEnabled = prefs.getBoolean("smartFallbackEnabled", true),
+        fallbackCount = prefs.getInt("fallbackCount", 3),
+        networkChangeRecoveryEnabled = prefs.getBoolean("networkChangeRecoveryEnabled", true),
+        adaptiveMtuEnabled = prefs.getBoolean("adaptiveMtuEnabled", true),
+        mtuMin = prefs.getInt("mtuMin", 1280),
+        mtuMax = prefs.getInt("mtuMax", 1500),
+        dnsHijackEnabled = prefs.getBoolean("dnsHijackEnabled", true),
+        adaptiveDnsEnabled = prefs.getBoolean("adaptiveDnsEnabled", true),
+        adaptiveDualStackEnabled = prefs.getBoolean("adaptiveDualStackEnabled", true),
+        adaptiveThroughputEnabled = prefs.getBoolean("adaptiveThroughputEnabled", true),
+        adaptiveThroughputMaxBytes = prefs.getInt("adaptiveThroughputMaxBytes", 4 * 1024 * 1024),
+        udpProbeEnabled = prefs.getBoolean("udpProbeEnabled", true),
+        adaptiveMuxEnabled = prefs.getBoolean("adaptiveMuxEnabled", true),
+        adaptiveFragmentEnabled = prefs.getBoolean("adaptiveFragmentEnabled", true),
+        thermalAwareEnabled = prefs.getBoolean("thermalAwareEnabled", true),
+        workloadProfile = enumValue("workloadProfile", WorkloadProfile.AUTO),
+
         theme = prefs.getString("theme", "dark") ?: "dark"
     )
 
@@ -152,6 +173,27 @@ class AppStore(context: Context) {
 
         .putBoolean("chainEnabled", s.chainEnabled)
         .putString("chainSecondProfileId", s.chainSecondProfileId)
+
+        .putBoolean("intelligenceEnabled", s.intelligenceEnabled)
+        .putBoolean("healthHistoryEnabled", s.healthHistoryEnabled)
+        .putBoolean("raceConnectEnabled", s.raceConnectEnabled)
+        .putInt("raceWidth", s.raceWidth)
+        .putBoolean("smartFallbackEnabled", s.smartFallbackEnabled)
+        .putInt("fallbackCount", s.fallbackCount)
+        .putBoolean("networkChangeRecoveryEnabled", s.networkChangeRecoveryEnabled)
+        .putBoolean("adaptiveMtuEnabled", s.adaptiveMtuEnabled)
+        .putInt("mtuMin", s.mtuMin)
+        .putInt("mtuMax", s.mtuMax)
+        .putBoolean("dnsHijackEnabled", s.dnsHijackEnabled)
+        .putBoolean("adaptiveDnsEnabled", s.adaptiveDnsEnabled)
+        .putBoolean("adaptiveDualStackEnabled", s.adaptiveDualStackEnabled)
+        .putBoolean("adaptiveThroughputEnabled", s.adaptiveThroughputEnabled)
+        .putInt("adaptiveThroughputMaxBytes", s.adaptiveThroughputMaxBytes)
+        .putBoolean("udpProbeEnabled", s.udpProbeEnabled)
+        .putBoolean("adaptiveMuxEnabled", s.adaptiveMuxEnabled)
+        .putBoolean("adaptiveFragmentEnabled", s.adaptiveFragmentEnabled)
+        .putBoolean("thermalAwareEnabled", s.thermalAwareEnabled)
+        .putString("workloadProfile", s.workloadProfile.name)
 
         .putString("theme", s.theme)
         .apply()

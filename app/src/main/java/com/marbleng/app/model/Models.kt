@@ -62,7 +62,14 @@ data class BenchmarkResult(
     val latencyMs: Double,
     val jitterMs: Double,
     val bytesPerSecond: Double,
-    val score: Double
+    val score: Double,
+    val udpSuccess: Int = 0,
+    val interactiveScore: Double = 0.0,
+    val streamingScore: Double = 0.0,
+    val stabilityScore: Double = 0.0,
+    val resilienceScore: Double = 0.0,
+    val usedFragment: Boolean = false,
+    val usedMux: Boolean = false
 )
 
 data class ConnectionRecord(val profileId: String, val name: String, val at: Long, val reason: String)
@@ -71,6 +78,7 @@ enum class BenchMode { RELIABLE, BALANCED, FAST, TURBO, CUSTOM }
 enum class ConnectionMode { FULL_TUN, LOCAL_PROXY }
 enum class RoutingMode { PROXY_ALL, BYPASS_PRIVATE, GEO_DIRECT, CUSTOM }
 enum class SplitTunnelMode { ALL_APPS, ONLY_SELECTED, BYPASS_SELECTED }
+enum class WorkloadProfile { AUTO, INTERACTIVE, STREAMING, STABILITY, STEALTH }
 
 data class AppSettings(
     val socksPort: Int = 10808,
@@ -133,6 +141,28 @@ data class AppSettings(
 
     val chainEnabled: Boolean = false,
     val chainSecondProfileId: String = "",
+
+    // Marble Intelligence Engine
+    val intelligenceEnabled: Boolean = true,
+    val healthHistoryEnabled: Boolean = true,
+    val raceConnectEnabled: Boolean = true,
+    val raceWidth: Int = 3,
+    val smartFallbackEnabled: Boolean = true,
+    val fallbackCount: Int = 3,
+    val networkChangeRecoveryEnabled: Boolean = true,
+    val adaptiveMtuEnabled: Boolean = true,
+    val mtuMin: Int = 1280,
+    val mtuMax: Int = 1500,
+    val dnsHijackEnabled: Boolean = true,
+    val adaptiveDnsEnabled: Boolean = true,
+    val adaptiveDualStackEnabled: Boolean = true,
+    val adaptiveThroughputEnabled: Boolean = true,
+    val adaptiveThroughputMaxBytes: Int = 4 * 1024 * 1024,
+    val udpProbeEnabled: Boolean = true,
+    val adaptiveMuxEnabled: Boolean = true,
+    val adaptiveFragmentEnabled: Boolean = true,
+    val thermalAwareEnabled: Boolean = true,
+    val workloadProfile: WorkloadProfile = WorkloadProfile.AUTO,
 
     val theme: String = "dark"
 )
