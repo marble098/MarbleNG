@@ -40,6 +40,18 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     var liveDownBps by mutableStateOf(0L); private set
     var liveUpBps by mutableStateOf(0L); private set
 
+    init {
+        if (settings.subscriptionAutoRefresh && subscriptions.isNotEmpty()) {
+            val maxAgeMs = settings.subscriptionRefreshHours.coerceIn(1, 168) * 3_600_000L
+            val stale = subscriptions.any {
+                it.updatedAt <= 0L || System.currentTimeMillis() - it.updatedAt >= maxAgeMs
+            }
+            if (stale) {
+                android.os.Handler(android.os.Looper.getMainLooper()).post { refreshAll() }
+            }
+        }
+    }
+
     fun updateTelemetry(downBps: Long, upBps: Long) {
         liveDownBps = downBps.coerceAtLeast(0)
         liveUpBps = upBps.coerceAtLeast(0)
@@ -94,10 +106,26 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     fun refresh(id: String) {
         val sub = subscriptions.firstOrNull { it.id == id } ?: return
         task("Refreshing ${sub.name}") {
-            val text = http(sub.url)
-            val parsed = ProxyParser.parseInput(text, sub.id, sub.name)
+            val payload = httpSubscription(sub.url)
+            val parsed = ProxyParser.parseInput(payload.text, sub.id, sub.name)
+
             profiles.removeAll { it.subscriptionId == sub.id }
             profiles.addAll(parsed)
+
+            val meta = parseSubscriptionUserInfo(payload.userInfo)
+            val index = subscriptions.indexOfFirst { it.id == sub.id }
+            if (index >= 0) {
+                val current = subscriptions[index]
+                subscriptions[index] = current.copy(
+                    updatedAt = System.currentTimeMillis(),
+                    uploadBytes = meta?.upload ?: current.uploadBytes,
+                    downloadBytes = meta?.download ?: current.downloadBytes,
+                    totalBytes = meta?.total ?: current.totalBytes,
+                    expireAt = meta?.expireAt ?: current.expireAt
+                )
+            }
+
+            store.saveSubscriptions(subscriptions)
             store.saveProfiles(profiles)
             message = "${parsed.size} profiles imported"
         }
@@ -105,13 +133,30 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
 
     fun refreshAll() {
         task("Refreshing subscriptions") {
-            subscriptions.forEach { sub ->
+            subscriptions.toList().forEach { sub ->
                 runCatching {
-                    val parsed = ProxyParser.parseInput(http(sub.url), sub.id, sub.name)
+                    val payload = httpSubscription(sub.url)
+                    val parsed = ProxyParser.parseInput(payload.text, sub.id, sub.name)
+
                     profiles.removeAll { it.subscriptionId == sub.id }
                     profiles.addAll(parsed)
+
+                    val meta = parseSubscriptionUserInfo(payload.userInfo)
+                    val index = subscriptions.indexOfFirst { it.id == sub.id }
+                    if (index >= 0) {
+                        val current = subscriptions[index]
+                        subscriptions[index] = current.copy(
+                            updatedAt = System.currentTimeMillis(),
+                            uploadBytes = meta?.upload ?: current.uploadBytes,
+                            downloadBytes = meta?.download ?: current.downloadBytes,
+                            totalBytes = meta?.total ?: current.totalBytes,
+                            expireAt = meta?.expireAt ?: current.expireAt
+                        )
+                    }
                 }
             }
+
+            store.saveSubscriptions(subscriptions)
             store.saveProfiles(profiles)
             message = "Subscriptions refreshed"
         }
@@ -368,6 +413,8 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         Transports: raw/TCP, WebSocket, XHTTP/SplitHTTP, HTTPUpgrade, gRPC, HTTP/H2 and mKCP where supported by Xray.
         Connection modes: Full Android TUN or localhost SOCKS5 on 127.0.0.1:${settings.localProxyPort}.
         Routing: proxy-all, private bypass, geo direct and custom domain/IP rules with managed geoip.dat + geosite.dat.
+        Split tunneling: all apps, only selected apps, or bypass selected apps in Full TUN mode.
+        Advanced Xray: custom DoH, optional Freedom.fragment, Mux/XUDP and two-hop chained outbounds.
         ABIs: arm64-v8a, armeabi-v7a, x86_64, x86.
     """.trimIndent()
 
@@ -429,25 +476,74 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         }
     }
 
-    private fun http(url: String): String {
+    private data class SubscriptionPayload(
+        val text: String,
+        val userInfo: String = ""
+    )
+
+    private data class SubscriptionMeta(
+        val upload: Long = 0,
+        val download: Long = 0,
+        val total: Long = 0,
+        val expireAt: Long = 0
+    )
+
+    private fun httpSubscription(url: String): SubscriptionPayload {
         if (state != "DISCONNECTED") {
             check(xray.isAlive) {
                 "Direct management request blocked while the tunnel is not healthy"
             }
-            return SocksHttpClient.getTextUrl(activeProxyPort(), url)
+
+            // The current SOCKS helper returns the body only. Keep previously learned provider
+            // quota/expiry metadata rather than erasing it when a refresh runs through the tunnel.
+            return SubscriptionPayload(SocksHttpClient.getTextUrl(activeProxyPort(), url))
         }
 
-        val c = URL(url).openConnection() as HttpURLConnection
-        c.connectTimeout = 12_000
-        c.readTimeout = 30_000
-        c.setRequestProperty("User-Agent", "MarbleNG/1")
+        val connection = URL(url).openConnection() as HttpURLConnection
+        connection.connectTimeout = 12_000
+        connection.readTimeout = 30_000
+        connection.instanceFollowRedirects = true
+        connection.setRequestProperty("User-Agent", "MarbleNG/2 AetherFlow")
+
         return try {
-            val code = c.responseCode
+            val code = connection.responseCode
             require(code in 200..299) { "HTTP $code" }
-            c.inputStream.bufferedReader().use { it.readText() }
+
+            val userInfo = connection.getHeaderField("subscription-userinfo")
+                ?: connection.getHeaderField("Subscription-Userinfo")
+                ?: ""
+
+            SubscriptionPayload(
+                text = connection.inputStream.bufferedReader().use { it.readText() },
+                userInfo = userInfo
+            )
         } finally {
-            c.disconnect()
+            connection.disconnect()
         }
+    }
+
+    private fun http(url: String): String = httpSubscription(url).text
+
+    private fun parseSubscriptionUserInfo(raw: String): SubscriptionMeta? {
+        if (raw.isBlank()) return null
+
+        val values = raw.split(';')
+            .mapNotNull { token ->
+                val key = token.substringBefore('=', "").trim().lowercase()
+                val value = token.substringAfter('=', "").trim().toLongOrNull()
+                if (key.isBlank() || value == null) null else key to value
+            }
+            .toMap()
+
+        if (values.isEmpty()) return null
+
+        val expireSeconds = values["expire"] ?: 0L
+        return SubscriptionMeta(
+            upload = values["upload"] ?: 0L,
+            download = values["download"] ?: 0L,
+            total = values["total"] ?: 0L,
+            expireAt = if (expireSeconds > 0) expireSeconds * 1000L else 0L
+        )
     }
 
     private fun sha(s: String) = MessageDigest.getInstance("SHA-256")

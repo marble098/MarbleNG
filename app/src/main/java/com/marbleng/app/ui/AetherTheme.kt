@@ -46,8 +46,8 @@ private data class AetherPalette(
 )
 
 private val DarkPalette = AetherPalette(
-    void = Color(0xFF050608),
-    voidElevated = Color(0xFF0B0D12),
+    void = Color(0xFF000000),
+    voidElevated = Color(0xFF06070A),
     glass = Color(0xFF11141B),
     glassStrong = Color(0xFF171B24),
     glassBorder = Color(0xFF292E3A),

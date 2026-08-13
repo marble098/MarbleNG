@@ -198,7 +198,7 @@ class XrayManager(private val context: Context) {
     }
 
     @Synchronized
-    fun start(profile: ProxyProfile, port: Int, settings: AppSettings = AppSettings()): Boolean {
+    fun start(profile: ProxyProfile, port: Int, settings: AppSettings = AppSettings(), chainProfile: ProxyProfile? = null): Boolean {
         lastStartError = ""
         stop()
 
@@ -228,7 +228,12 @@ class XrayManager(private val context: Context) {
                 error("geosite.dat is required by the selected routing policy. Add a download URL in Settings → Routing.")
             }
 
-            val configText = XrayConfigHardener.harden(profile.configJson, port, settings)
+            val sourceConfig = chainProfile
+                ?.takeIf { it.id != profile.id }
+                ?.let { XrayConfigHardener.composeChain(profile.configJson, it.configJson) }
+                ?: profile.configJson
+
+            val configText = XrayConfigHardener.harden(sourceConfig, port, settings)
             config.writeText(configText)
             val configHash = sha256(configText)
 

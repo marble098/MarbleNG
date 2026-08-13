@@ -155,7 +155,14 @@ class MarbleVpnService : VpnService() {
             if (!isCurrent(session)) return@execute
 
             diag.event("XRAY", "start-begin", "session" to session, "port" to port, "mode" to normalizedMode)
-            if (!xray.start(profile, port, settings)) {
+            val chainProfile = if (settings.chainEnabled) {
+                app.repo.profile(settings.chainSecondProfileId)
+                    ?.takeUnless { it.id == profile.id }
+            } else {
+                null
+            }
+
+            if (!xray.start(profile, port, settings, chainProfile)) {
                 handleFailure(
                     session,
                     xray.lastStartError.ifBlank { "Xray rejected profile or routing policy" }
@@ -182,14 +189,34 @@ class MarbleVpnService : VpnService() {
     }
 
     private fun establishTun(profile: ProxyProfile, session: String): Boolean {
+        val app = application as MarbleApplication
+        val settings = app.repo.settings
+
         val builder = Builder()
             .setSession("MarbleNG • ${profile.name}")
             .setMtu(8500)
             .setBlocking(false)
             .addAddress("198.18.0.1", 32)
             .addRoute("0.0.0.0", 0)
-            .addDnsServer("1.1.1.1")
-            .addDnsServer("8.8.8.8")
+
+        var dnsCount = 0
+        listOf(settings.dnsPrimaryIp, settings.dnsSecondaryIp)
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .distinct()
+            .forEach { dns ->
+                runCatching {
+                    builder.addDnsServer(dns)
+                    dnsCount++
+                }.onFailure {
+                    diag.error("TUN", "dns-builder-failed", it, "dns" to dns, "session" to session)
+                }
+            }
+
+        if (dnsCount == 0) {
+            diag.event("TUN", "dns-policy-empty", "session" to session)
+            return false
+        }
 
         runCatching {
             builder.addAddress("fc00::1", 128)
@@ -200,24 +227,70 @@ class MarbleVpnService : VpnService() {
             diag.error("TUN", "ipv6-builder-failed", it, "session" to session)
         }
 
-        /*
-         * Required with a standalone Xray executable: the Xray process has the app UID and must
-         * reach the physical network rather than being captured by its own TUN.
-         */
-        val selfDisallowed = runCatching { builder.addDisallowedApplication(packageName) }
-            .onSuccess {
-                diag.event("TUN", "self-disallowed-for-core-loop-prevention", "session" to session)
-            }
-            .onFailure {
-                diag.error("TUN", "self-disallow-failed", it, "session" to session)
-            }
-            .isSuccess
-        if (!selfDisallowed) return false
+        val packages = settings.splitTunnelPackages
+            .split(',', '\n', '\r', ';')
+            .map { it.trim() }
+            .filter { it.isNotBlank() && it != packageName }
+            .distinct()
 
-        val established = runCatching { builder.establish() }
-            .onFailure { diag.error("TUN", "establish-exception", it, "session" to session) }
-            .getOrNull()
-            ?: return false
+        if (
+            settings.splitTunnelMode == com.marbleng.app.model.SplitTunnelMode.ONLY_SELECTED &&
+            packages.isEmpty()
+        ) {
+            diag.event("TUN", "split-only-selected-empty", "session" to session)
+            return false
+        }
+
+        var policyOk = true
+
+        when (settings.splitTunnelMode) {
+            com.marbleng.app.model.SplitTunnelMode.ONLY_SELECTED -> {
+                packages.forEach { pkg ->
+                    val ok = runCatching {
+                        builder.addAllowedApplication(pkg)
+                    }.onFailure {
+                        diag.error("TUN", "split-allow-failed", it, "package" to pkg, "session" to session)
+                    }.isSuccess
+                    policyOk = policyOk && ok
+                }
+
+                // MarbleNG itself is deliberately omitted from the allow-list. The standalone
+                // Xray child shares this UID, so it must reach the physical network and not loop.
+            }
+
+            com.marbleng.app.model.SplitTunnelMode.BYPASS_SELECTED -> {
+                policyOk = runCatching {
+                    builder.addDisallowedApplication(packageName)
+                }.onFailure {
+                    diag.error("TUN", "self-disallow-failed", it, "session" to session)
+                }.isSuccess
+
+                packages.forEach { pkg ->
+                    runCatching {
+                        builder.addDisallowedApplication(pkg)
+                    }.onFailure {
+                        // Stale/uninstalled package selections should not make the entire VPN fail.
+                        diag.error("TUN", "split-bypass-stale", it, "package" to pkg, "session" to session)
+                    }
+                }
+            }
+
+            com.marbleng.app.model.SplitTunnelMode.ALL_APPS -> {
+                policyOk = runCatching {
+                    builder.addDisallowedApplication(packageName)
+                }.onFailure {
+                    diag.error("TUN", "self-disallow-failed", it, "session" to session)
+                }.isSuccess
+            }
+        }
+
+        if (!policyOk) return false
+
+        val established = runCatching {
+            builder.establish()
+        }.onFailure {
+            diag.error("TUN", "establish-exception", it, "session" to session)
+        }.getOrNull() ?: return false
 
         if (!isCurrent(session)) {
             runCatching { established.close() }
@@ -225,7 +298,18 @@ class MarbleVpnService : VpnService() {
         }
 
         tun = established
-        diag.event("TUN", "established", "session" to session, "vpnFd" to established.fd, "mtu" to 8500)
+
+        diag.event(
+            "TUN",
+            "established",
+            "session" to session,
+            "vpnFd" to established.fd,
+            "mtu" to 8500,
+            "splitMode" to settings.splitTunnelMode.name,
+            "splitPackages" to packages.size,
+            "dnsCount" to dnsCount
+        )
+
         return true
     }
 

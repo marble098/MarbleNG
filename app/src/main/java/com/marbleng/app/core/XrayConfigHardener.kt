@@ -19,6 +19,42 @@ object XrayConfigHardener {
         "::1/128", "fc00::/7", "fe80::/10"
     )
 
+
+    /**
+     * Compose client -> entry -> exit -> Internet.
+     *
+     * transportLayer=true preserves the exit outbound's REALITY/XHTTP/gRPC/etc streamSettings
+     * while Xray dials that transport through the entry outbound.
+     */
+    fun composeChain(entrySource: String, exitSource: String): String {
+        fun firstProxy(root: JSONObject): JSONObject {
+            val outbounds = root.optJSONArray("outbounds") ?: error("Xray JSON has no outbounds")
+            for (i in 0 until outbounds.length()) {
+                val outbound = outbounds.optJSONObject(i) ?: continue
+                if (outbound.optString("protocol") !in infra) {
+                    return JSONObject(outbound.toString())
+                }
+            }
+            error("Xray JSON has no proxy outbound")
+        }
+
+        val entry = firstProxy(JSONObject(entrySource))
+            .put("tag", "chain-entry")
+
+        val exitRoot = JSONObject(exitSource)
+        val exit = firstProxy(exitRoot)
+            .put("tag", "proxy")
+            .put(
+                "proxySettings",
+                JSONObject()
+                    .put("tag", "chain-entry")
+                    .put("transportLayer", true)
+            )
+
+        exitRoot.put("outbounds", JSONArray().put(exit).put(entry))
+        return exitRoot.toString()
+    }
+
     fun harden(source: String, socksPort: Int, settings: AppSettings = AppSettings()): String {
         val src = JSONObject(source)
         val old = src.optJSONArray("outbounds") ?: JSONArray()
@@ -49,6 +85,59 @@ object XrayConfigHardener {
                 ?.let(::add)
         }
         add(firstTag)
+
+        // Mux is opt-in. The official Xray docs describe it as connection reuse / latency
+        // reduction, not as a bulk-throughput accelerator.
+        byTag[firstTag]?.put(
+            "mux",
+            JSONObject()
+                .put("enabled", settings.muxEnabled)
+                .put("concurrency", settings.muxConcurrency.coerceIn(1, 128))
+                .put("xudpConcurrency", settings.muxXudpConcurrency.coerceIn(1, 1024))
+                .put(
+                    "xudpProxyUDP443",
+                    settings.muxUdp443.takeIf { it in setOf("reject", "allow", "skip") } ?: "skip"
+                )
+        )
+
+        // Fragment is attached as a Freedom dialer only to a physical proxy hop.
+        // For a two-hop chain, the exit already has proxySettings -> entry, so Fragment lands
+        // on the entry hop and never destroys the exit transport layer.
+        val fragmentOutbound = if (settings.fragmentEnabled) {
+            JSONObject()
+                .put("tag", "fragment-direct")
+                .put("protocol", "freedom")
+                .put(
+                    "settings",
+                    JSONObject().put(
+                        "fragment",
+                        JSONObject()
+                            .put("packets", settings.fragmentPackets.ifBlank { "tlshello" })
+                            .put("length", settings.fragmentLength.ifBlank { "100-200" })
+                            .put("interval", settings.fragmentInterval.ifBlank { "10-20" })
+                    )
+                )
+        } else {
+            null
+        }
+
+        if (fragmentOutbound != null) {
+            keep.forEach { tag ->
+                val outbound = byTag[tag] ?: return@forEach
+                val alreadyChained = outbound.optJSONObject("proxySettings")
+                    ?.optString("tag")
+                    ?.isNotBlank() == true
+
+                val stream = outbound.optJSONObject("streamSettings")
+                    ?: JSONObject().also { outbound.put("streamSettings", it) }
+                val sockopt = stream.optJSONObject("sockopt")
+                    ?: JSONObject().also { stream.put("sockopt", it) }
+
+                if (!alreadyChained && sockopt.optString("dialerProxy").isBlank()) {
+                    sockopt.put("dialerProxy", "fragment-direct")
+                }
+            }
+        }
 
         val needsDirect = settings.routingMode != RoutingMode.PROXY_ALL ||
             settings.routeDirectDomains.isNotBlank() ||
@@ -86,6 +175,8 @@ object XrayConfigHardener {
             }
         }
 
+        if (fragmentOutbound != null) out.put(fragmentOutbound)
+
         if (needsDirect) {
             out.put(JSONObject().put("tag", "direct").put("protocol", "freedom"))
         }
@@ -108,46 +199,56 @@ object XrayConfigHardener {
         src.put("inbounds", JSONArray().put(inbound))
         src.put("outbounds", out)
 
+        val queryStrategy = settings.dnsQueryStrategy.takeIf {
+            it in setOf("UseIP", "UseIPv4", "UseIPv6", "UseSystem")
+        } ?: "UseIP"
+
+        val bootstrapIps = listOf(settings.dnsPrimaryIp, settings.dnsSecondaryIp)
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .distinct()
+
+        val remoteDoh = listOf(settings.dnsPrimaryDoH, settings.dnsSecondaryDoH)
+            .map { it.trim() }
+            .filter { it.startsWith("https://") }
+            .distinct()
+            .ifEmpty {
+                listOf(
+                    "https://1.1.1.1/dns-query",
+                    "https://8.8.8.8/dns-query"
+                )
+            }
+
         val dnsServers = JSONArray()
+
         if (bootstrapDomains.isNotEmpty()) {
-            val domains = JSONArray(bootstrapDomains.map { "full:$it" })
-            dnsServers.put(
-                JSONObject()
-                    .put("address", "https+local://1.1.1.1/dns-query")
-                    .put("domains", domains)
-                    .put("skipFallback", true)
-                    .put("queryStrategy", "UseIP")
-                    .put("timeoutMs", 2500)
-            )
-            dnsServers.put(
-                JSONObject()
-                    .put("address", "https+local://8.8.8.8/dns-query")
-                    .put("domains", JSONArray(bootstrapDomains.map { "full:$it" }))
-                    .put("skipFallback", true)
-                    .put("queryStrategy", "UseIP")
-                    .put("timeoutMs", 2500)
-            )
+            bootstrapIps.forEach { ip ->
+                dnsServers.put(
+                    JSONObject()
+                        .put("address", "https+local://$ip/dns-query")
+                        .put("domains", JSONArray(bootstrapDomains.map { "full:$it" }))
+                        .put("skipFallback", true)
+                        .put("queryStrategy", queryStrategy)
+                        .put("timeoutMs", 2500)
+                )
+            }
         }
 
         // Non-local DoH enters routing with xgc-dns and is forced through the selected proxy.
-        dnsServers.put(
-            JSONObject()
-                .put("address", "https://1.1.1.1/dns-query")
-                .put("queryStrategy", "UseIP")
-                .put("timeoutMs", 4000)
-        )
-        dnsServers.put(
-            JSONObject()
-                .put("address", "https://8.8.8.8/dns-query")
-                .put("queryStrategy", "UseIP")
-                .put("timeoutMs", 4000)
-        )
+        remoteDoh.forEach { address ->
+            dnsServers.put(
+                JSONObject()
+                    .put("address", address)
+                    .put("queryStrategy", queryStrategy)
+                    .put("timeoutMs", 4000)
+            )
+        }
 
         src.put(
             "dns",
             JSONObject()
                 .put("servers", dnsServers)
-                .put("queryStrategy", "UseIP")
+                .put("queryStrategy", queryStrategy)
                 .put("useSystemHosts", false)
                 .put("disableFallbackIfMatch", bootstrapDomains.isNotEmpty())
                 .put("enableParallelQuery", true)

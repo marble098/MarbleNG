@@ -31,6 +31,7 @@ class AppStore(context: Context) {
         localProxyPort = prefs.getInt("localProxyPort", 10101),
         connectionMode = enumValue("connectionMode", ConnectionMode.FULL_TUN),
         autoCoreUpdate = prefs.getBoolean("autoCoreUpdate", true),
+
         benchMode = enumValue("benchMode", BenchMode.BALANCED),
         benchCandidates = prefs.getInt("benchCandidates", 20),
         benchSamples = prefs.getInt("benchSamples", 4),
@@ -38,13 +39,18 @@ class AppStore(context: Context) {
         benchBytes = prefs.getInt("benchBytes", 262144),
         tcpPrecheckTimeoutMs = prefs.getInt("tcpPrecheckTimeoutMs", 1800),
         tcpWorkers = prefs.getInt("tcpWorkers", 20),
+
         rememberLast = prefs.getBoolean("rememberLast", true),
+        subscriptionAutoRefresh = prefs.getBoolean("subscriptionAutoRefresh", true),
+        subscriptionRefreshHours = prefs.getInt("subscriptionRefreshHours", 12),
+
         telegramPosts = prefs.getInt("telegramPosts", 20),
         telegramMaxConfigs = prefs.getInt("telegramMaxConfigs", 80),
         telegramTcpGate = prefs.getBoolean("telegramTcpGate", true),
         telegramTcpSamples = prefs.getInt("telegramTcpSamples", 3),
         telegramAutoSub = prefs.getBoolean("telegramAutoSub", true),
         telegramPassMinSuccess = prefs.getInt("telegramPassMinSuccess", 75),
+
         routingMode = enumValue("routingMode", RoutingMode.PROXY_ALL),
         geoIpUrl = prefs.getString("geoIpUrl", "") ?: "",
         geoSiteUrl = prefs.getString("geoSiteUrl", "") ?: "",
@@ -59,6 +65,29 @@ class AppStore(context: Context) {
         routeBlockAds = prefs.getBoolean("routeBlockAds", false),
         routeAdsTag = prefs.getString("routeAdsTag", "category-ads-all") ?: "category-ads-all",
         routeDomainStrategy = prefs.getString("routeDomainStrategy", "AsIs") ?: "AsIs",
+
+        splitTunnelMode = enumValue("splitTunnelMode", SplitTunnelMode.ALL_APPS),
+        splitTunnelPackages = prefs.getString("splitTunnelPackages", "") ?: "",
+
+        dnsPrimaryIp = prefs.getString("dnsPrimaryIp", "1.1.1.1") ?: "1.1.1.1",
+        dnsSecondaryIp = prefs.getString("dnsSecondaryIp", "8.8.8.8") ?: "8.8.8.8",
+        dnsPrimaryDoH = prefs.getString("dnsPrimaryDoH", "https://1.1.1.1/dns-query") ?: "https://1.1.1.1/dns-query",
+        dnsSecondaryDoH = prefs.getString("dnsSecondaryDoH", "https://8.8.8.8/dns-query") ?: "https://8.8.8.8/dns-query",
+        dnsQueryStrategy = prefs.getString("dnsQueryStrategy", "UseIP") ?: "UseIP",
+
+        fragmentEnabled = prefs.getBoolean("fragmentEnabled", false),
+        fragmentPackets = prefs.getString("fragmentPackets", "tlshello") ?: "tlshello",
+        fragmentLength = prefs.getString("fragmentLength", "100-200") ?: "100-200",
+        fragmentInterval = prefs.getString("fragmentInterval", "10-20") ?: "10-20",
+
+        muxEnabled = prefs.getBoolean("muxEnabled", false),
+        muxConcurrency = prefs.getInt("muxConcurrency", 8),
+        muxXudpConcurrency = prefs.getInt("muxXudpConcurrency", 16),
+        muxUdp443 = prefs.getString("muxUdp443", "skip") ?: "skip",
+
+        chainEnabled = prefs.getBoolean("chainEnabled", false),
+        chainSecondProfileId = prefs.getString("chainSecondProfileId", "") ?: "",
+
         theme = prefs.getString("theme", "dark") ?: "dark"
     )
 
@@ -67,6 +96,7 @@ class AppStore(context: Context) {
         .putInt("localProxyPort", s.localProxyPort)
         .putString("connectionMode", s.connectionMode.name)
         .putBoolean("autoCoreUpdate", s.autoCoreUpdate)
+
         .putString("benchMode", s.benchMode.name)
         .putInt("benchCandidates", s.benchCandidates)
         .putInt("benchSamples", s.benchSamples)
@@ -74,13 +104,18 @@ class AppStore(context: Context) {
         .putInt("benchBytes", s.benchBytes)
         .putInt("tcpPrecheckTimeoutMs", s.tcpPrecheckTimeoutMs)
         .putInt("tcpWorkers", s.tcpWorkers)
+
         .putBoolean("rememberLast", s.rememberLast)
+        .putBoolean("subscriptionAutoRefresh", s.subscriptionAutoRefresh)
+        .putInt("subscriptionRefreshHours", s.subscriptionRefreshHours)
+
         .putInt("telegramPosts", s.telegramPosts)
         .putInt("telegramMaxConfigs", s.telegramMaxConfigs)
         .putBoolean("telegramTcpGate", s.telegramTcpGate)
         .putInt("telegramTcpSamples", s.telegramTcpSamples)
         .putBoolean("telegramAutoSub", s.telegramAutoSub)
         .putInt("telegramPassMinSuccess", s.telegramPassMinSuccess)
+
         .putString("routingMode", s.routingMode.name)
         .putString("geoIpUrl", s.geoIpUrl)
         .putString("geoSiteUrl", s.geoSiteUrl)
@@ -95,6 +130,29 @@ class AppStore(context: Context) {
         .putBoolean("routeBlockAds", s.routeBlockAds)
         .putString("routeAdsTag", s.routeAdsTag)
         .putString("routeDomainStrategy", s.routeDomainStrategy)
+
+        .putString("splitTunnelMode", s.splitTunnelMode.name)
+        .putString("splitTunnelPackages", s.splitTunnelPackages)
+
+        .putString("dnsPrimaryIp", s.dnsPrimaryIp)
+        .putString("dnsSecondaryIp", s.dnsSecondaryIp)
+        .putString("dnsPrimaryDoH", s.dnsPrimaryDoH)
+        .putString("dnsSecondaryDoH", s.dnsSecondaryDoH)
+        .putString("dnsQueryStrategy", s.dnsQueryStrategy)
+
+        .putBoolean("fragmentEnabled", s.fragmentEnabled)
+        .putString("fragmentPackets", s.fragmentPackets)
+        .putString("fragmentLength", s.fragmentLength)
+        .putString("fragmentInterval", s.fragmentInterval)
+
+        .putBoolean("muxEnabled", s.muxEnabled)
+        .putInt("muxConcurrency", s.muxConcurrency)
+        .putInt("muxXudpConcurrency", s.muxXudpConcurrency)
+        .putString("muxUdp443", s.muxUdp443)
+
+        .putBoolean("chainEnabled", s.chainEnabled)
+        .putString("chainSecondProfileId", s.chainSecondProfileId)
+
         .putString("theme", s.theme)
         .apply()
 
