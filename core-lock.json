@@ -6,8 +6,8 @@
   },
   "hev": {
     "repo": "heiher/hev-socks5-tunnel",
-    "tag": "2.17.0",
+    "tag": "2.17.1",
     "channel": "latest-release"
   },
-  "updated": "2026-08-12"
+  "updated": "2026-08-13"
 }
