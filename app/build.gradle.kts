@@ -269,6 +269,10 @@ dependencies {
     )
 
     implementation(
+        "androidx.compose.animation:animation"
+    )
+
+    implementation(
         "androidx.compose.material3:material3"
     )
 

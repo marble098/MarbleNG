@@ -48,23 +48,23 @@ private data class AetherPalette(
 private val DarkPalette = AetherPalette(
     void = Color(0xFF000000),
     voidElevated = Color(0xFF06070A),
-    glass = Color(0xFF11141B),
-    glassStrong = Color(0xFF171B24),
-    glassBorder = Color(0xFF292E3A),
-    glassBorderSoft = Color(0xFF1E232D),
-    amethyst = Color(0xFF9D7CFF),
-    amethystBright = Color(0xFFB9A3FF),
-    cyan = Color(0xFF31E7FF),
-    cyanBright = Color(0xFF7BF3FF),
+    glass = Color(0xCC0A0D13),
+    glassStrong = Color(0xE6101520),
+    glassBorder = Color(0xFF253344),
+    glassBorderSoft = Color(0xFF151D28),
+    amethyst = Color(0xFFB15CFF),
+    amethystBright = Color(0xFFD09BFF),
+    cyan = Color(0xFF20F6FF),
+    cyanBright = Color(0xFF9BFBFF),
     slate = Color(0xFF3B4150),
     slateBright = Color(0xFF667085),
     danger = Color(0xFFFF617D),
     dangerBright = Color(0xFFFF8FA6),
-    emerald = Color(0xFF4DFFB8),
-    amber = Color(0xFFFFC857),
-    ink = Color(0xFFF5F7FC),
-    inkMuted = Color(0xFFA7ADBC),
-    inkFaint = Color(0xFF687083)
+    emerald = Color(0xFF45FFB1),
+    amber = Color(0xFFFFD35A),
+    ink = Color(0xFFF7FAFF),
+    inkMuted = Color(0xFFABB7C8),
+    inkFaint = Color(0xFF657184)
 )
 
 private val LightPalette = AetherPalette(
