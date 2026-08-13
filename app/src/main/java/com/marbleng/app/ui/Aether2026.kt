@@ -609,6 +609,9 @@ private fun ConnectionCore(
         label = "core-pulse-value"
     )
     val coreColor = if (connected) Aether.Emerald else Aether.Cyan
+    // Resolve semantic Compose colors before entering Canvas/DrawScope.
+    // Aether properties are @Composable getters and must not be invoked from DrawScope.
+    val coreSecondaryColor = Aether.Amethyst
 
     HoloGlass(
         modifier = Modifier.fillMaxWidth(),
@@ -633,7 +636,7 @@ private fun ConnectionCore(
                         brush = Brush.radialGradient(
                             listOf(
                                 coreColor.copy(alpha = .34f),
-                                Aether.Amethyst.copy(alpha = .13f),
+                                coreSecondaryColor.copy(alpha = .13f),
                                 Color.Transparent
                             )
                         ),
