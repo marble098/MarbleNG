@@ -412,7 +412,12 @@ class MarbleVpnService : VpnService() {
         val app = application as MarbleApplication
         app.repo.markConnected(profile)
         app.repo.intelligence.recordConnect(profile.id, true, elapsedConnectMs(), settings)
-        notifyNow("Protected • ${profile.name}", true)
+        val iran = app.repo.iranMode
+        notifyNow(
+            if (iran.active) "Protected • ${profile.name} • Iran Mode ${iran.ispShortName}".trimEnd()
+            else "Protected • ${profile.name}",
+            true
+        )
         notifier.alert(
             if (recovering) SmartNotificationKind.RECOVERY else SmartNotificationKind.CONNECTION,
             if (recovering) "recovered:$session:${profile.id}" else "connected:$session:${profile.id}",

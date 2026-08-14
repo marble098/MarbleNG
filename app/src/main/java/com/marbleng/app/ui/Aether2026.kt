@@ -57,6 +57,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.marbleng.app.AppRepository
+import com.marbleng.app.core.CensorTechnique
+import com.marbleng.app.core.FilterSeverity
+import com.marbleng.app.core.IranIspKind
+import com.marbleng.app.core.IranModeState
 import com.marbleng.app.model.*
 import kotlinx.coroutines.delay
 import java.text.DateFormat
@@ -575,6 +579,8 @@ private fun CyberDeck(
                 }
             )
         }
+
+        item { IranModePanel(repo) }
 
         item {
             SectionLabel("Command matrix", "Health score • privacy sentinel • adaptive network telemetry")
@@ -2893,7 +2899,7 @@ private fun SpatialSettings(
     LaunchedEffect(focusSection) {
         if (focusSection == "Routing") {
             delay(45)
-            listState.animateScrollToItem(8)
+            listState.animateScrollToItem(9)
         }
     }
 
@@ -2922,6 +2928,18 @@ private fun SpatialSettings(
                 initiallyOpen = focusSection == null
             ) {
                 ConnectionSettings(repo)
+            }
+        }
+
+        item {
+            SpatialAccordion(
+                title = "Iran Mode",
+                subtitle = "Iranian ISP detection • anti-filtering countermeasures",
+                badge = "IR",
+                color = Aether.Emerald,
+                initiallyOpen = focusSection == null && repo.iranMode.active
+            ) {
+                IranModeSettings(repo)
             }
         }
 
@@ -4702,3 +4720,362 @@ private fun countryGlyph(host: String): String {
     }
 }
 
+
+// =================================================================================================
+// IRAN MODE
+// =================================================================================================
+
+@Composable
+private fun IranModePanel(repo: AppRepository) {
+    val state = repo.iranMode
+    var detailsOpen by remember { mutableStateOf(false) }
+    val accent = if (state.active) Aether.Emerald else Aether.InkFaint
+
+    SectionLabel(
+        "Iran Mode",
+        if (state.active) "Anti-filtering engine engaged for the detected Iranian ISP"
+        else "Automatic Iranian ISP detection"
+    )
+
+    HoloGlass(modifier = Modifier.fillMaxWidth(), glow = accent) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .background(accent.copy(alpha = .10f))
+                    .border(1.dp, accent.copy(alpha = .34f), CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(if (state.active) "⚑" else "◌", color = accent, style = MaterialTheme.typography.titleMedium)
+            }
+            Spacer(Modifier.width(11.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    if (state.active) "IRAN MODE ACTIVE" else "IRAN MODE STANDBY",
+                    color = accent,
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    if (state.active) "حالت ایران فعال شد" else "در حالت آماده‌باش",
+                    color = Aether.InkMuted,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+            HoloBadge(
+                when {
+                    state.scanning -> "SCANNING"
+                    state.active -> "ON"
+                    repo.settings.iranModePolicy == IranModePolicy.OFF -> "OFF"
+                    else -> "IDLE"
+                },
+                accent,
+                compact = true
+            )
+        }
+
+        if (state.active) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(Aether.Void.copy(alpha = .34f))
+                    .padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(3.dp)
+            ) {
+                Text("DETECTED ISP", color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
+                Text(
+                    state.ispLine,
+                    color = Aether.Ink,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                if (state.ispPersianName.isNotBlank()) {
+                    Text(state.ispPersianName, color = Aether.InkMuted, style = MaterialTheme.typography.bodyMedium)
+                }
+                if (state.ispName.isNotBlank() && state.ispName != state.ispShortName) {
+                    Text(
+                        state.ispName,
+                        color = Aether.InkFaint,
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                Row(
+                    modifier = Modifier.padding(top = 5.dp).horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    HoloBadge(iranKindLabel(state), Aether.Cyan, compact = true)
+                    HoloBadge(
+                        "${iranSeverityLabel(state.severity)} FILTERING",
+                        iranSeverityColor(state.severity),
+                        compact = true
+                    )
+                    if (state.carrierName.isNotBlank()) {
+                        HoloBadge(state.carrierName.uppercase(), Aether.Amethyst, compact = true)
+                    }
+                    if (state.publicIp.isNotBlank()) {
+                        HoloBadge(state.publicIp, Aether.InkMuted, compact = true)
+                    }
+                }
+            }
+
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "DETECTION CONFIDENCE",
+                        color = Aether.InkFaint,
+                        style = MaterialTheme.typography.labelSmall,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Text(
+                        "${state.confidence}%",
+                        color = accent,
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                LinearProgressIndicator(
+                    progress = { state.confidence / 100f },
+                    modifier = Modifier.fillMaxWidth().height(6.dp).clip(CircleShape),
+                    color = accent,
+                    trackColor = Aether.Glass
+                )
+            }
+
+            if (state.techniques.isNotEmpty()) {
+                Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                    Text(
+                        "FILTERING OBSERVED ON THIS LINK",
+                        color = Aether.InkFaint,
+                        style = MaterialTheme.typography.labelSmall
+                    )
+                    Row(
+                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        state.techniques.forEach { technique ->
+                            HoloBadge(technique.label.uppercase(), iranTechniqueColor(technique), compact = true)
+                        }
+                    }
+                }
+            }
+        } else {
+            Text(
+                state.summary,
+                color = Aether.InkMuted,
+                style = MaterialTheme.typography.bodySmall
+            )
+            Text(
+                "MarbleNG watches the carrier code, uplink ASN, block-page DNS injection and Iran-only " +
+                    "resolvers. When an Iranian ISP appears, the anti-filtering engine turns itself on.",
+                color = Aether.InkFaint,
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
+
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            CyberButton(
+                label = if (state.scanning) "Scanning…" else "Re-scan network",
+                color = Aether.Cyan,
+                modifier = Modifier.weight(1f),
+                enabled = !state.scanning
+            ) { repo.scanIranMode(force = true, deep = true) }
+            CyberButton(
+                label = if (detailsOpen) "Hide detail" else "Engine detail",
+                color = Aether.Amethyst,
+                modifier = Modifier.weight(1f)
+            ) { detailsOpen = !detailsOpen }
+        }
+
+        AnimatedVisibility(
+            visible = detailsOpen,
+            enter = fadeIn() + expandVertically(),
+            exit = fadeOut() + shrinkVertically()
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                if (state.countermeasures.isNotEmpty()) {
+                    Text(
+                        "ACTIVE COUNTERMEASURES",
+                        color = Aether.InkFaint,
+                        style = MaterialTheme.typography.labelSmall
+                    )
+                    state.countermeasures.forEach { line ->
+                        Row(modifier = Modifier.fillMaxWidth()) {
+                            Text("▹ ", color = Aether.Emerald, style = MaterialTheme.typography.bodySmall)
+                            Text(line, color = Aether.InkMuted, style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                }
+
+                if (state.signals.isNotEmpty()) {
+                    Text(
+                        "DETECTION SIGNALS",
+                        color = Aether.InkFaint,
+                        style = MaterialTheme.typography.labelSmall
+                    )
+                    state.signals.forEach { signal ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    signal.label,
+                                    color = Aether.Ink,
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                                if (signal.detail.isNotBlank()) {
+                                    Text(
+                                        signal.detail,
+                                        color = Aether.InkFaint,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                            Text(
+                                if (signal.weight >= 0) "+${signal.weight}" else "${signal.weight}",
+                                color = if (signal.weight >= 0) Aether.Emerald else Aether.Danger,
+                                style = MaterialTheme.typography.labelSmall
+                            )
+                        }
+                    }
+                }
+
+                if (state.lastScanAt > 0L) {
+                    Text(
+                        "Last sweep ${relativeTime(state.lastScanAt)} • network ${state.networkKey}",
+                        color = Aether.InkFaint,
+                        style = MaterialTheme.typography.labelSmall
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun IranModeSettings(repo: AppRepository) {
+    val settings = repo.settings
+    val state = repo.iranMode
+
+    Text(
+        "Iran Mode detects Iranian ISPs from the carrier code, uplink ASN/geolocation, national " +
+            "block-page DNS injection and Iran-only resolvers, then applies countermeasures matched " +
+            "to the filtering that is actually observed on the link.",
+        color = Aether.InkFaint,
+        style = MaterialTheme.typography.bodySmall
+    )
+
+    Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+        CyberSegment(
+            label = "Auto",
+            detail = "Detect ISP",
+            selected = settings.iranModePolicy == IranModePolicy.AUTO,
+            color = Aether.Emerald,
+            modifier = Modifier.weight(1f)
+        ) { repo.setIranModePolicy(IranModePolicy.AUTO) }
+        CyberSegment(
+            label = "Always",
+            detail = "Force on",
+            selected = settings.iranModePolicy == IranModePolicy.ALWAYS_ON,
+            color = Aether.Amber,
+            modifier = Modifier.weight(1f)
+        ) { repo.setIranModePolicy(IranModePolicy.ALWAYS_ON) }
+        CyberSegment(
+            label = "Off",
+            detail = "Disable",
+            selected = settings.iranModePolicy == IranModePolicy.OFF,
+            color = Aether.InkMuted,
+            modifier = Modifier.weight(1f)
+        ) { repo.setIranModePolicy(IranModePolicy.OFF) }
+    }
+
+    SettingSwitch(
+        "Apply countermeasures",
+        "Fragmentation profile, resolver order, MTU ceiling and failover posture",
+        settings.iranModeCountermeasures
+    ) { repo.updateSettings(settings.copy(iranModeCountermeasures = it)) }
+
+    SettingSwitch(
+        "Domestic traffic direct",
+        "Route geoip:ir directly so Iranian services stay fast and tunnel volume stays low",
+        settings.iranDomesticDirect
+    ) { repo.updateSettings(settings.copy(iranDomesticDirect = it)) }
+
+    SettingSwitch(
+        "Fingerprint the filtering",
+        "Probe for DNS injection, SNI resets, port allowlists and UDP blocking",
+        settings.iranDeepProbeEnabled
+    ) { repo.updateSettings(settings.copy(iranDeepProbeEnabled = it)) }
+
+    SettingSwitch(
+        "Notify when Iran Mode engages",
+        "Post an alert naming the detected ISP",
+        settings.iranModeNotify
+    ) { repo.updateSettings(settings.copy(iranModeNotify = it)) }
+
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        HoloBadge(
+            if (state.active) "ENGINE ON" else "ENGINE IDLE",
+            if (state.active) Aether.Emerald else Aether.InkFaint,
+            compact = true
+        )
+        if (state.active) {
+            HoloBadge(state.ispLine, Aether.Cyan, compact = true)
+        }
+    }
+
+    Text(
+        state.summary,
+        color = Aether.InkMuted,
+        style = MaterialTheme.typography.bodySmall
+    )
+
+    CyberButton(
+        label = "Re-scan now",
+        color = Aether.Cyan,
+        modifier = Modifier.fillMaxWidth(),
+        enabled = !state.scanning
+    ) { repo.scanIranMode(force = true, deep = true) }
+}
+
+private fun iranKindLabel(state: IranModeState): String = when (state.isp?.kind) {
+    IranIspKind.MOBILE -> "MOBILE CARRIER"
+    IranIspKind.FIXED -> "FIXED LINE"
+    IranIspKind.INFRASTRUCTURE -> "NATIONAL BACKBONE"
+    IranIspKind.HOSTING -> "DOMESTIC HOSTING"
+    null -> "UNCLASSIFIED"
+}
+
+private fun iranSeverityLabel(severity: FilterSeverity): String = when (severity) {
+    FilterSeverity.LIGHT -> "LIGHT"
+    FilterSeverity.MODERATE -> "MODERATE"
+    FilterSeverity.HEAVY -> "HEAVY"
+    FilterSeverity.EXTREME -> "EXTREME"
+}
+
+@Composable
+private fun iranSeverityColor(severity: FilterSeverity): Color = when (severity) {
+    FilterSeverity.LIGHT -> Aether.Emerald
+    FilterSeverity.MODERATE -> Aether.Cyan
+    FilterSeverity.HEAVY -> Aether.Amber
+    FilterSeverity.EXTREME -> Aether.Danger
+}
+
+@Composable
+private fun iranTechniqueColor(technique: CensorTechnique): Color = when (technique) {
+    CensorTechnique.NATIONAL_INTRANET -> Aether.Danger
+    CensorTechnique.PROTOCOL_ALLOWLIST -> Aether.Danger
+    CensorTechnique.DNS_POISONING -> Aether.Amber
+    CensorTechnique.SNI_FILTERING -> Aether.Amber
+    CensorTechnique.TCP_RESET -> Aether.Amber
+    CensorTechnique.UDP_BLOCKED -> Aether.Amethyst
+    CensorTechnique.THROTTLING -> Aether.Cyan
+}

@@ -101,6 +101,12 @@ class AppStore(context: Context) {
         chainEnabled = prefs.getBoolean("chainEnabled", false),
         chainSecondProfileId = prefs.getString("chainSecondProfileId", "") ?: "",
 
+        iranModePolicy = enumValue("iranModePolicy", IranModePolicy.AUTO),
+        iranModeCountermeasures = prefs.getBoolean("iranModeCountermeasures", true),
+        iranDomesticDirect = prefs.getBoolean("iranDomesticDirect", true),
+        iranDeepProbeEnabled = prefs.getBoolean("iranDeepProbeEnabled", true),
+        iranModeNotify = prefs.getBoolean("iranModeNotify", true),
+
         intelligenceEnabled = prefs.getBoolean("intelligenceEnabled", true),
         configCompatibilityMode = prefs.getBoolean("configCompatibilityMode", true),
         verifiedPerformanceTuning = prefs.getBoolean("verifiedPerformanceTuning", true),
@@ -209,6 +215,12 @@ class AppStore(context: Context) {
 
         .putBoolean("chainEnabled", s.chainEnabled)
         .putString("chainSecondProfileId", s.chainSecondProfileId)
+
+        .putString("iranModePolicy", s.iranModePolicy.name)
+        .putBoolean("iranModeCountermeasures", s.iranModeCountermeasures)
+        .putBoolean("iranDomesticDirect", s.iranDomesticDirect)
+        .putBoolean("iranDeepProbeEnabled", s.iranDeepProbeEnabled)
+        .putBoolean("iranModeNotify", s.iranModeNotify)
 
         .putBoolean("intelligenceEnabled", s.intelligenceEnabled)
         .putBoolean("configCompatibilityMode", s.configCompatibilityMode)
