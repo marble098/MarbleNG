@@ -443,6 +443,8 @@ class MarbleIntelligence(private val context: Context) {
         ConcurrentHashMap<Network, Set<String>>()
 
     @Volatile private var started = false
+    @Volatile private var iranState = IranModeState()
+    @Volatile private var iranGeoIpReady = false
     @Volatile private var activeNetwork: Network? = null
     @Volatile private var snapshot = NetworkSnapshot()
     @Volatile private var effectiveMtu = 0
@@ -795,7 +797,7 @@ class MarbleIntelligence(private val context: Context) {
 
         val dnsOrdered = preferredDnsOrder(base)
 
-        return base.copy(
+        val tuned = base.copy(
             dnsQueryStrategy = queryStrategy,
             dnsPrimaryDoH = dnsOrdered.first,
             dnsSecondaryDoH = dnsOrdered.second,
@@ -804,6 +806,9 @@ class MarbleIntelligence(private val context: Context) {
             muxEnabled =
                 base.muxEnabled || autoMux
         )
+
+        // Iran Mode is applied last so its countermeasures win over generic adaptive tuning.
+        return IranShield.apply(tuned, profile, iranState, iranGeoIpReady)
     }
 
     fun hasHistory(
@@ -983,6 +988,28 @@ class MarbleIntelligence(private val context: Context) {
         ).coerceIn(0.0, 100.0)
     }
 
+    /**
+     * Latest Iran Mode observation. It biases candidate ordering toward filter-resistant paths and
+     * is folded into every effective-settings computation, so benchmarks, races, the autopilot and
+     * the live tunnel all run under the same countermeasure policy.
+     */
+    fun setIranModeState(state: IranModeState, geoIpReady: Boolean) {
+        iranState = state
+        iranGeoIpReady = geoIpReady
+    }
+
+    fun iranModeState(): IranModeState = iranState
+
+    /**
+     * Health prediction plus the active environment bias. While Iran Mode is on, a node's transport
+     * shape matters as much as its measured history: a fast node on a filtered transport is not a
+     * usable node.
+     */
+    fun rankingScore(
+        profile: ProxyProfile,
+        settings: AppSettings
+    ): Double = predictedScore(profile, settings) + IranShield.profileBias(profile, iranState)
+
     fun orderCandidates(
         profiles: List<ProxyProfile>,
         settings: AppSettings
@@ -996,7 +1023,7 @@ class MarbleIntelligence(private val context: Context) {
 
         return profiles.sortedWith(
             compareByDescending<ProxyProfile> {
-                predictedScore(
+                rankingScore(
                     it,
                     settings
                 )

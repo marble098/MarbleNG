@@ -19,8 +19,15 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     private val store = AppStore(context)
     private val secrets = SecretStore(context)
     private val io = Executors.newFixedThreadPool(3)
+
+    // Iran Mode scanning runs on its own thread so a detection sweep can never block or be blocked
+    // by a user-visible task such as a subscription refresh.
+    private val iranScanner = Executors.newSingleThreadExecutor()
+    private val iranScanInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
+
     val intelligence = MarbleIntelligence(context)
     private val notifier = SmartNotifier(context)
+    private val iranDetector = IranModeDetector(context, intelligence)
 
     val profiles = mutableStateListOf<ProxyProfile>().apply { addAll(store.loadProfiles()) }
     val subscriptions = mutableStateListOf<Subscription>().apply { addAll(store.loadSubscriptions()) }
@@ -30,6 +37,7 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     var networkSnapshot by mutableStateOf(intelligence.currentSnapshot()); private set
     var intelligenceStatus by mutableStateOf(intelligence.status(settings)); private set
     var sentinel by mutableStateOf(PrivacySentinelState()); private set
+    var iranMode by mutableStateOf(IranModeState()); private set
     var state by mutableStateOf("DISCONNECTED"); private set
     var stateDetail by mutableStateOf(""); private set
     var busy by mutableStateOf(false); private set
@@ -54,8 +62,11 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
                 networkSnapshot = next
                 refreshIntelligenceStatus()
             }
+            // The physical underlay changed, so the ISP almost certainly changed with it.
+            scanIranMode(force = true, deep = false)
         }
         refreshIntelligenceStatus()
+        scanIranMode(force = true, deep = true)
         if (settings.subscriptionAutoRefresh && subscriptions.isNotEmpty()) {
             val maxAgeMs = settings.subscriptionRefreshHours.coerceIn(1, 168) * 3_600_000L
             val stale = subscriptions.any {
@@ -104,8 +115,119 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         refreshIntelligenceStatus()
     }
 
+    /**
+     * Effective settings for one profile. Marble Intelligence already folds Iran Mode into its own
+     * output, so the shield is only applied here when the intelligence engine is switched off.
+     */
     fun effectiveSettingsFor(profile: ProxyProfile): AppSettings =
-        if (settings.intelligenceEnabled) intelligence.effectiveSettings(profile, settings) else settings
+        if (settings.intelligenceEnabled) {
+            intelligence.effectiveSettings(profile, settings)
+        } else {
+            IranShield.apply(settings, profile, iranMode, geoIpReady())
+        }
+
+    private fun geoIpReady(): Boolean =
+        runCatching { xray.routingAssetStatus().geoIpReady }.getOrDefault(false)
+
+    // ------------------------------------------------------------------
+    // Iran Mode
+    // ------------------------------------------------------------------
+
+    /**
+     * Runs an Iran Mode detection sweep on the physical underlay.
+     *
+     * @param force ignores the re-scan interval (used on network change and manual re-scan).
+     * @param deep also fingerprints the filtering techniques currently applied to the link.
+     */
+    fun scanIranMode(force: Boolean = false, deep: Boolean = false) {
+        val policy = settings.iranModePolicy
+        val previous = iranMode
+        val now = System.currentTimeMillis()
+        val networkChanged = previous.networkKey != intelligence.currentSnapshot().key()
+        val stale = now - previous.lastScanAt >= IRAN_RESCAN_INTERVAL_MS
+
+        if (!force && !networkChanged && !stale) return
+        if (!iranScanInFlight.compareAndSet(false, true)) return
+
+        val deepProbe = (deep || previous.techniques.isEmpty() || networkChanged) &&
+            settings.iranDeepProbeEnabled
+
+        postToMain { iranMode = previous.copy(scanning = true) }
+
+        iranScanner.execute {
+            val detected = runCatching {
+                iranDetector.detect(
+                    policy = policy,
+                    tunnelActive = state != "DISCONNECTED",
+                    deepProbe = deepProbe,
+                    previous = previous
+                )
+            }.getOrElse {
+                previous.copy(
+                    scanning = false,
+                    lastScanAt = now,
+                    summary = "Iran Mode scan failed • ${it::class.java.simpleName}"
+                )
+            }
+
+            // The countermeasure list is produced by the engine; trim it to what the user's switches
+            // actually allow so the panel never claims something that is turned off.
+            val next = when {
+                !detected.active -> detected
+                !settings.iranModeCountermeasures -> detected.copy(
+                    countermeasures = listOf("Detection only • countermeasures are switched off in settings")
+                )
+                !settings.iranDomesticDirect -> detected.copy(
+                    countermeasures = detected.countermeasures.filterNot { it.startsWith("Domestic") }
+                )
+                else -> detected
+            }
+
+            iranScanInFlight.set(false)
+            intelligence.setIranModeState(next, geoIpReady())
+            postToMain {
+                iranMode = next
+                announceIranMode(previous, next)
+            }
+        }
+    }
+
+    fun setIranModePolicy(policy: IranModePolicy) {
+        if (settings.iranModePolicy == policy) return
+        updateSettings(settings.copy(iranModePolicy = policy))
+        message = when (policy) {
+            IranModePolicy.AUTO -> "Iran Mode set to automatic ISP detection"
+            IranModePolicy.ALWAYS_ON -> "Iran Mode forced on for every network"
+            IranModePolicy.OFF -> "Iran Mode disabled"
+        }
+        scanIranMode(force = true, deep = policy != IranModePolicy.OFF)
+    }
+
+    private fun announceIranMode(previous: IranModeState, next: IranModeState) {
+        if (!next.active) {
+            if (previous.active) message = "Iran Mode off • ${next.summary}"
+            return
+        }
+
+        val ispLine = next.ispLine
+        if (!previous.active || previous.ispLine != ispLine) {
+            message = "IRAN MODE ON • $ispLine • ${next.confidence}% confidence"
+            if (settings.iranModeNotify) {
+                notifier.alert(
+                    SmartNotificationKind.NETWORK,
+                    "iran-mode:${next.networkKey}:$ispLine",
+                    "Iran Mode activated",
+                    "Detected $ispLine. Anti-filtering countermeasures are active.",
+                    settings.copy(notifyNetworkChanges = settings.iranModeNotify),
+                    minIntervalOverrideMs = 60_000L
+                )
+            }
+        }
+    }
+
+    private fun postToMain(block: () -> Unit) {
+        android.os.Handler(android.os.Looper.getMainLooper()).post(block)
+    }
 
     fun recoveryCandidates(failedIds: Set<String>): List<ProxyProfile> =
         intelligence.recoveryCandidates(profiles.toList(), failedIds, settings)
@@ -457,6 +579,7 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     }
 
     fun startVpn(p: ProxyProfile) {
+        scanIranMode()
         setRuntimeState("CONNECTING", p.name)
         val intent = Intent(context, MarbleVpnService::class.java)
             .setAction(MarbleVpnService.ACTION_START)
@@ -466,6 +589,7 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     }
 
     fun startLocalProxy(p: ProxyProfile) {
+        scanIranMode()
         setRuntimeState("CONNECTING", p.name)
         val intent = Intent(context, MarbleVpnService::class.java)
             .setAction(MarbleVpnService.ACTION_START)
@@ -703,6 +827,7 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         Split tunneling: all apps, only selected apps, or bypass selected apps in Full TUN mode.
         Advanced Xray: encrypted DNS hijack, adaptive DoH ordering, optional Freedom.fragment, Mux/XUDP and two-hop chained outbounds.
         Marble Intelligence: persistent network-scoped health history, connection race, bounded failover, adaptive MTU/dual-stack/thermal policies and UDP probing.
+        Iran Mode: automatic Iranian ISP detection (carrier MCC/MNC, ASN/geolocation, block-page DNS injection, domestic-only resolvers) plus live filtering fingerprinting and per-ISP anti-DPI countermeasures.
         ABIs: arm64-v8a, armeabi-v7a, x86_64, x86.
     """.trimIndent()
 
@@ -719,6 +844,14 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         checks += "✔ Unmatched traffic falls back to proxy"
         checks += if (settings.dnsHijackEnabled) "✔ Traditional DNS :53 is hijacked into Xray DNS" else "⚠ DNS hijack disabled"
         checks += "✔ Intelligence network ${networkSnapshot.label}"
+        checks += when {
+            iranMode.active -> "✔ Iran Mode ACTIVE • ${iranMode.ispLine} • ${iranMode.confidence}% confidence"
+            settings.iranModePolicy == IranModePolicy.OFF -> "⚠ Iran Mode disabled in settings"
+            else -> "✔ Iran Mode standby • ${iranMode.summary}"
+        }
+        if (iranMode.active && iranMode.techniques.isNotEmpty()) {
+            checks += "✔ Filtering observed • ${iranMode.techniques.joinToString(", ") { it.label }}"
+        }
         checks += "✔ Thermal budget ${intelligenceStatus.thermalBudgetPercent}% • effective MTU ${intelligenceStatus.effectiveMtu.takeIf { it > 0 } ?: settings.mtuMax}"
         checks += if (notifier.optionalPermissionGranted()) "✔ Optional notification permission" else "⚠ Optional notification permission not granted"
         return checks.joinToString("\n")
@@ -860,5 +993,10 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         bytes >= 1024L * 1024L -> "%.1f MiB".format(bytes / (1024.0 * 1024.0))
         bytes >= 1024L -> "%.1f KiB".format(bytes / 1024.0)
         else -> "$bytes B"
+    }
+
+    private companion object {
+        /** Detection is cheap but not free; unchanged networks are re-checked every 10 minutes. */
+        const val IRAN_RESCAN_INTERVAL_MS = 10L * 60L * 1000L
     }
 }

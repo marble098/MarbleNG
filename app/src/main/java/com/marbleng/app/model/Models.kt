@@ -81,6 +81,9 @@ enum class SplitTunnelMode { ALL_APPS, ONLY_SELECTED, BYPASS_SELECTED }
 enum class WorkloadProfile { AUTO, INTERACTIVE, STREAMING, STABILITY, STEALTH }
 enum class NodeSortMode { PING, SCORE, NAME, PROTOCOL, SOURCE }
 
+/** How Iran Mode decides whether the anti-filtering engine should run. */
+enum class IranModePolicy { AUTO, ALWAYS_ON, OFF }
+
 data class AppSettings(
     val socksPort: Int = 10808,
     val localProxyPort: Int = 10101,
@@ -157,6 +160,14 @@ data class AppSettings(
 
     val chainEnabled: Boolean = false,
     val chainSecondProfileId: String = "",
+
+    // Iran Mode. Detection is automatic; countermeasures and domestic-direct routing can be
+    // switched off independently for users who want detection reporting only.
+    val iranModePolicy: IranModePolicy = IranModePolicy.AUTO,
+    val iranModeCountermeasures: Boolean = true,
+    val iranDomesticDirect: Boolean = true,
+    val iranDeepProbeEnabled: Boolean = true,
+    val iranModeNotify: Boolean = true,
 
     // Marble Intelligence Engine
     val intelligenceEnabled: Boolean = true,

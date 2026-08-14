@@ -9,6 +9,15 @@ Native Android port of the Xray Genius Termux v1.3.0 client. The Android version
 - `scripts/update-core-lock.sh` discovers newer upstream pre-release/release tags.
 - GitHub Actions creates signed universal and per-ABI APKs.
 
+## Iran Mode
+
+MarbleNG detects Iranian ISPs automatically — from the carrier MCC/MNC, the uplink ASN and
+geolocation, national block-page DNS injection and Iran-only resolvers — then names the operator in
+the UI and engages an anti-filtering engine tuned to that operator and to the filtering actually
+observed on the link (DNS poisoning, SNI resets, port allowlists, UDP blocking, national-intranet
+state). See [docs/IRAN_MODE.md](docs/IRAN_MODE.md) for the detection model, the recognised ISPs and
+every countermeasure.
+
 ## Local build
 
 Install Android SDK 37, NDK 28.2.13676358, JDK 17, Go and Git, then:
