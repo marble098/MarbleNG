@@ -160,11 +160,14 @@ data class AppSettings(
 
     // Marble Intelligence Engine
     val intelligenceEnabled: Boolean = true,
+    val configCompatibilityMode: Boolean = true,
+    val verifiedPerformanceTuning: Boolean = true,
     val healthHistoryEnabled: Boolean = true,
     val raceConnectEnabled: Boolean = true,
     val raceWidth: Int = 3,
     val smartFallbackEnabled: Boolean = true,
     val fallbackCount: Int = 3,
+    val autoReconnectAfterKillSwitch: Boolean = true,
     val networkChangeRecoveryEnabled: Boolean = true,
     val adaptiveMtuEnabled: Boolean = true,
     val mtuMin: Int = 1280,

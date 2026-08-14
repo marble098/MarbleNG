@@ -236,7 +236,15 @@ private class HealthDb(context: Context) : SQLiteOpenHelper(context, "marble-int
                     else -> 0
                 }
             )
-            put("preferred_mux", if (result.usedMux) 1 else if (old?.preferredMux == true) 1 else 0)
+            put(
+                "preferred_mux",
+                when {
+                    result.usedMux -> 1
+                    result.success >= 75 -> 0
+                    old?.preferredMux == true -> 1
+                    else -> 0
+                }
+            )
             put("last_success_at", if (result.success > 0) now else old?.lastSuccessAt ?: 0L)
             put("last_seen_at", now)
         }

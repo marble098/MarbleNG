@@ -7,6 +7,10 @@ import org.json.JSONObject
 
 object XrayConfigHardener {
     private val infra = setOf("freedom", "blackhole", "dns", "loopback")
+    private val compatibilityDependencyProtocols = setOf(
+        "freedom", "http", "shadowsocks", "socks", "trojan", "vless", "vmess", "hysteria", "wireguard"
+    )
+    private val muxProtocols = setOf("shadowsocks", "trojan", "vless", "vmess")
 
     /**
      * RFC1918/RFC6598/RFC3927/link-local/loopback/multicast ranges. Kept as literal CIDRs so
@@ -77,28 +81,37 @@ object XrayConfigHardener {
         val keep = linkedSetOf<String>()
         fun add(tag: String) {
             val outbound = byTag[tag] ?: return
-            if (outbound.optString("protocol") in infra) return
+            val protocol = outbound.optString("protocol").lowercase()
+            if (tag != firstTag) {
+                if (!settings.configCompatibilityMode && protocol in infra) return
+                if (settings.configCompatibilityMode && protocol !in compatibilityDependencyProtocols) return
+            }
             if (!keep.add(tag)) return
-            outbound.optJSONObject("proxySettings")
-                ?.optString("tag")
-                ?.takeIf { it.isNotBlank() }
-                ?.let(::add)
+            outbound.optJSONObject("proxySettings")?.optString("tag")
+                ?.takeIf { it.isNotBlank() }?.let(::add)
+            if (settings.configCompatibilityMode) {
+                outbound.optJSONObject("streamSettings")?.optJSONObject("sockopt")
+                    ?.optString("dialerProxy")?.takeIf { it.isNotBlank() }?.let(::add)
+            }
         }
         add(firstTag)
 
         // Mux is opt-in. The official Xray docs describe it as connection reuse / latency
         // reduction, not as a bulk-throughput accelerator.
-        byTag[firstTag]?.put(
-            "mux",
-            JSONObject()
-                .put("enabled", settings.muxEnabled)
-                .put("concurrency", settings.muxConcurrency.coerceIn(1, 128))
-                .put("xudpConcurrency", settings.muxXudpConcurrency.coerceIn(1, 1024))
-                .put(
-                    "xudpProxyUDP443",
-                    settings.muxUdp443.takeIf { it in setOf("reject", "allow", "skip") } ?: "skip"
+        byTag[firstTag]?.let { selected ->
+            if (selected.optString("protocol").lowercase() in muxProtocols) {
+                selected.put(
+                    "mux",
+                    JSONObject()
+                        .put("enabled", settings.muxEnabled)
+                        .put("concurrency", settings.muxConcurrency.coerceIn(1, 128))
+                        .put("xudpConcurrency", settings.muxXudpConcurrency.coerceIn(1, 1024))
+                        .put("xudpProxyUDP443", settings.muxUdp443.takeIf { it in setOf("reject", "allow", "skip") } ?: "skip")
                 )
-        )
+            } else if (settings.configCompatibilityMode) {
+                selected.remove("mux")
+            }
+        }
 
         // Fragment is attached as a Freedom dialer only to a physical proxy hop.
         // For a two-hop chain, the exit already has proxySettings -> entry, so Fragment lands
@@ -124,6 +137,9 @@ object XrayConfigHardener {
         if (fragmentOutbound != null) {
             keep.forEach { tag ->
                 val outbound = byTag[tag] ?: return@forEach
+                val protocol = outbound.optString("protocol").lowercase()
+                val method = outbound.optJSONObject("streamSettings")?.optString("method")?.lowercase().orEmpty()
+                if (!fragmentEligible(protocol, method)) return@forEach
                 val alreadyChained = outbound.optJSONObject("proxySettings")
                     ?.optString("tag")
                     ?.isNotBlank() == true
@@ -163,65 +179,31 @@ object XrayConfigHardener {
                 outbound.remove("sendThrough")
 
                 if (endpointDomains(outbound).isNotEmpty()) {
-                    val stream = outbound.optJSONObject("streamSettings")
-                        ?: JSONObject().also { outbound.put("streamSettings", it) }
-                    val sockopt = stream.optJSONObject("sockopt")
-                        ?: JSONObject().also { stream.put("sockopt", it) }
-                    val endpointStrategy =
-                        forceDomainStrategy(
-                            sockopt.optString(
-                                "domainStrategy"
-                            ),
-                            settings.dnsQueryStrategy
+                    val protocol = outbound.optString("protocol").lowercase()
+                    if (protocol == "wireguard") {
+                        val settingsObject = outbound.optJSONObject("settings")
+                            ?: JSONObject().also { outbound.put("settings", it) }
+                        settingsObject.put(
+                            "domainStrategy",
+                            forceDomainStrategy(settingsObject.optString("domainStrategy"), settings.dnsQueryStrategy)
                         )
-
-                    sockopt.put(
-                        "domainStrategy",
-                        endpointStrategy
-                    )
-
-                    val chained =
-                        outbound
-                            .optJSONObject(
-                                "proxySettings"
-                            )
-                            ?.optString(
-                                "tag"
-                            )
-                            ?.isNotBlank() ==
-                            true
-
-                    if (
-                        settings.adaptiveDualStackEnabled &&
-                        endpointStrategy ==
-                        "ForceIP" &&
-                        !chained &&
-                        sockopt
-                            .optString(
-                                "dialerProxy"
-                            )
-                            .isBlank()
-                    ) {
-                        sockopt.put(
-                            "happyEyeballs",
-                            JSONObject()
-                                .put(
-                                    "tryDelayMs",
-                                    250
-                                )
-                                .put(
-                                    "prioritizeIPv6",
-                                    false
-                                )
-                                .put(
-                                    "interleave",
-                                    1
-                                )
-                                .put(
-                                    "maxConcurrentTry",
-                                    3
-                                )
-                        )
+                    } else {
+                        val stream = outbound.optJSONObject("streamSettings")
+                            ?: JSONObject().also { outbound.put("streamSettings", it) }
+                        val sockopt = stream.optJSONObject("sockopt")
+                            ?: JSONObject().also { stream.put("sockopt", it) }
+                        val endpointStrategy = forceDomainStrategy(sockopt.optString("domainStrategy"), settings.dnsQueryStrategy)
+                        sockopt.put("domainStrategy", endpointStrategy)
+                        val chained = outbound.optJSONObject("proxySettings")?.optString("tag")?.isNotBlank() == true
+                        val method = stream.optString("method").lowercase()
+                        val tcpTransport = method !in setOf("hysteria", "mkcp")
+                        if (settings.adaptiveDualStackEnabled && endpointStrategy == "ForceIP" && tcpTransport &&
+                            !chained && sockopt.optString("dialerProxy").isBlank()) {
+                            sockopt.put("happyEyeballs", JSONObject().put("tryDelayMs", 250)
+                                .put("prioritizeIPv6", false).put("interleave", 1).put("maxConcurrentTry", 3))
+                        } else {
+                            sockopt.remove("happyEyeballs")
+                        }
                     }
                 }
 
@@ -430,7 +412,7 @@ object XrayConfigHardener {
                     while (keys.hasNext()) {
                         val key = keys.next()
                         val child = value.opt(key)
-                        if (key.equals("address", ignoreCase = true) && child is String) {
+                        if ((key.equals("address", ignoreCase = true) || key.equals("endpoint", ignoreCase = true)) && child is String) {
                             normalizeDomain(child)?.let(found::add)
                         } else {
                             walk(child)
@@ -448,13 +430,28 @@ object XrayConfigHardener {
     }
 
     private fun normalizeDomain(raw: String): String? {
-        val host = raw.trim().removePrefix("[").removeSuffix("]").trimEnd('.')
-        if (host.isBlank() || host.equals("localhost", ignoreCase = true)) return null
-        if (host.contains(':')) return null // IPv6 literals or host:port are not DNS names.
-        if (Regex("""^\d{1,3}(?:\.\d{1,3}){3}$""").matches(host)) return null
+        var host = raw.trim().trimEnd('.')
+        if (host.isBlank() || host.contains('/')) return null
+        if (host.startsWith("[")) {
+            val close = host.indexOf(']')
+            if (close <= 1) return null
+            host = host.substring(1, close)
+        } else {
+            val colon = host.lastIndexOf(':')
+            if (colon > 0 && host.indexOf(':') == colon && host.substring(colon + 1).toIntOrNull() != null) {
+                host = host.substring(0, colon)
+            }
+        }
+        host = host.trim().trimEnd('.')
+        if (host.isBlank() || host.equals("localhost", true) || host.contains(':')) return null
+        if (Regex("^\\d{1,3}(?:\\.\\d{1,3}){3}$").matches(host)) return null
         if (!host.any { it.isLetter() }) return null
         return host.lowercase()
     }
+
+    private fun fragmentEligible(protocol: String, method: String): Boolean =
+        protocol in setOf("http", "shadowsocks", "socks", "trojan", "vless", "vmess") &&
+            method !in setOf("hysteria", "mkcp")
 
     private fun forceDomainStrategy(
         current: String,

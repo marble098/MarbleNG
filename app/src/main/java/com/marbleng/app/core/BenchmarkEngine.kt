@@ -78,148 +78,53 @@ class BenchmarkEngine(
         onProgress: (String) -> Unit = {}
     ): Pair<ProxyProfile, BenchmarkResult>? {
         if (profiles.isEmpty()) return null
-
-        val width =
-            settings.raceWidth
-                .coerceIn(2, 4)
-                .coerceAtMost(profiles.size)
-
-        val raceSettings =
-            tuned(settings).copy(
-                benchCandidates = width,
-                benchSamples = 1,
-                benchTimeoutSec =
-                    min(
-                        settings.benchTimeoutSec,
-                        5
-                    ),
-                benchBytes =
-                    min(
-                        settings.benchBytes,
-                        64 * 1024
-                    )
-            )
-
-        // Keep learned adaptive preferences. quickCandidate does not perform expensive new
-        // Fragment/Mux exploration; it only honors preferences already learned for this network.
-        val candidates =
-            selectCandidates(
-                profiles,
-                raceSettings,
-                usePrecheck = true
-            ).take(width)
-
-        if (candidates.isEmpty()) {
-            return null
-        }
-
-        val pool =
-            Executors.newFixedThreadPool(
-                candidates.size
-            )
-
-        val completion =
-            ExecutorCompletionService<
-                Pair<
-                    ProxyProfile,
-                    BenchmarkResult
-                >
-            >(pool)
-
-        val futures =
-            candidates.mapIndexed {
-                idx,
-                profile ->
-                completion.submit {
-                    onProgress(
-                        profile.name
-                    )
-                    profile to
-                        quickCandidate(
-                            profile,
-                            RACE_BASE_PORT +
-                                idx * 3,
-                            raceSettings
-                        )
-                }
+        val width = settings.raceWidth.coerceIn(2, 4).coerceAtMost(profiles.size)
+        val raceSettings = tuned(settings).copy(
+            benchCandidates = width,
+            benchSamples = 1,
+            benchTimeoutSec = min(settings.benchTimeoutSec, 5),
+            benchBytes = min(settings.benchBytes, 64 * 1024)
+        )
+        val candidates = selectCandidates(profiles, raceSettings, true).take(width)
+        if (candidates.isEmpty()) return null
+        val pool = Executors.newFixedThreadPool(candidates.size)
+        val completion = ExecutorCompletionService<Pair<ProxyProfile, BenchmarkResult>>(pool)
+        val futures = candidates.mapIndexed { idx, profile ->
+            completion.submit {
+                onProgress(profile.name)
+                profile to quickCandidate(profile, RACE_BASE_PORT + idx * 3, raceSettings)
             }
-
-        var winner:
-            Pair<
-                ProxyProfile,
-                BenchmarkResult
-            >? = null
-
-        var remaining =
-            candidates.size
-
-        val deadline =
-            System.nanoTime() +
-                TimeUnit.SECONDS.toNanos(
-                    (
-                        raceSettings
-                            .benchTimeoutSec +
-                            5
-                    ).toLong()
-                )
-
+        }
+        val successes = mutableListOf<Pair<ProxyProfile, BenchmarkResult>>()
+        var remaining = candidates.size
+        val globalDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos((raceSettings.benchTimeoutSec + 5).toLong())
+        var successDeadline = Long.MAX_VALUE
         try {
             while (remaining > 0) {
-                val left =
-                    deadline -
-                        System.nanoTime()
-
-                if (left <= 0L) {
-                    break
-                }
-
-                val future =
-                    completion.poll(
-                        left,
-                        TimeUnit.NANOSECONDS
-                    ) ?: break
-
+                val deadline = min(globalDeadline, successDeadline)
+                val left = deadline - System.nanoTime()
+                if (left <= 0L) break
+                val future = completion.poll(left, TimeUnit.NANOSECONDS) ?: break
                 remaining--
-
-                val result =
-                    runCatching {
-                        future.get()
-                    }.getOrNull()
-                        ?: continue
-
-                intelligence
-                    ?.recordBenchmark(
-                        result.first,
-                        result.second,
-                        raceSettings
-                    )
-
-                if (
-                    result.second.success >
-                    0
-                ) {
-                    winner =
-                        result
-                    break
+                val result = runCatching { future.get() }.getOrNull() ?: continue
+                intelligence?.recordBenchmark(result.first, result.second, raceSettings)
+                if (result.second.success > 0) {
+                    successes += result
+                    if (successDeadline == Long.MAX_VALUE) {
+                        successDeadline = min(globalDeadline, System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(220L))
+                    }
                 }
             }
         } finally {
-            futures.forEach {
-                if (!it.isDone) {
-                    it.cancel(true)
-                }
-            }
+            futures.forEach { if (!it.isDone) it.cancel(true) }
             pool.shutdownNow()
         }
-
-        winner?.let {
-            (profile, result) ->
-            intelligence?.setDecision(
-                "Race winner ${profile.name} • " +
-                    "${result.latencyMs.toInt()} ms"
-            )
+        val winner = successes.minByOrNull { (profile, result) ->
+            result.latencyMs - (intelligence?.predictedScore(profile, raceSettings) ?: 50.0) * 0.45
         }
-
+        winner?.let { (profile, result) ->
+            intelligence?.setDecision("Verified race winner ${profile.name} • ${result.latencyMs.toInt()} ms")
+        }
         return winner
     }
 
@@ -584,59 +489,59 @@ class BenchmarkEngine(
 
     private fun testCandidate(p: ProxyProfile, port: Int, s: AppSettings): BenchmarkResult {
         val effective = intelligence?.effectiveSettings(p, s) ?: s
-        var usedFragment = effective.fragmentEnabled && !s.fragmentEnabled
-        var usedMux = effective.muxEnabled && !s.muxEnabled
-        var measurement = measure(p, port, effective, includeThroughput = true)
+        if (!s.verifiedPerformanceTuning) {
+            val direct = measure(p, port, effective, true)
+            return benchmarkResult(p, direct, effective.fragmentEnabled && !s.fragmentEnabled, effective.muxEnabled && !s.muxEnabled)
+        }
+        val baselineSettings = effective.copy(fragmentEnabled = s.fragmentEnabled, muxEnabled = s.muxEnabled)
+        var chosenSettings = baselineSettings
+        var chosen = measure(p, port, baselineSettings, true)
+        var usedFragment = false
+        var usedMux = false
 
-        // If a TLS/REALITY path is being interfered with, test the smallest configured fragment
-        // intervention before declaring it dead. Successful preference is persisted per network.
-        if (
-            measurement.success == 0 &&
-            s.adaptiveFragmentEnabled &&
-            !effective.fragmentEnabled &&
-            canFragment(p)
-        ) {
-            val fragmentSettings = effective.copy(fragmentEnabled = true, muxEnabled = false)
-            val fragmented = measure(p, port + 1, fragmentSettings, includeThroughput = true)
-            if (fragmented.success > measurement.success) {
-                measurement = fragmented
-                usedFragment = true
-                usedMux = false
+        val learnedFragment = effective.fragmentEnabled && !s.fragmentEnabled
+        if (s.adaptiveFragmentEnabled && !s.fragmentEnabled && canFragment(p) && (chosen.success == 0 || learnedFragment)) {
+            val candidateSettings = baselineSettings.copy(fragmentEnabled = true, muxEnabled = false)
+            val candidate = measure(p, port + 1, candidateSettings, true)
+            if (materiallyBetter(candidate, chosen)) {
+                chosen = candidate; chosenSettings = candidateSettings; usedFragment = true; usedMux = false
             }
         }
 
-        // Mux is never assumed to be a speed accelerator. Only probe it on stable, high-RTT TCP
-        // nodes, and remember it when one real route request improves materially.
-        if (
-            measurement.success > 0 &&
-            s.adaptiveMuxEnabled &&
-            !effective.muxEnabled &&
-            canMux(p) &&
-            measurement.latency >= 140.0 &&
-            (intelligence?.thermalBudget(s) ?: 1.0) >= 0.60
-        ) {
-            val muxProbe = quickMeasure(p, port + 2, effective.copy(muxEnabled = true))
-            if (muxProbe.success > 0 && muxProbe.latency < measurement.latency * 0.86) {
-                usedMux = true
-            }
+        val learnedMux = effective.muxEnabled && !s.muxEnabled
+        if (s.adaptiveMuxEnabled && !s.muxEnabled && canMux(p) && chosen.success > 0 &&
+            (learnedMux || chosen.latency >= 120.0) && (intelligence?.thermalBudget(s) ?: 1.0) >= 0.60) {
+            val probeSettings = chosenSettings.copy(
+                muxEnabled = true,
+                benchSamples = min(2, s.benchSamples.coerceAtLeast(1)),
+                benchBytes = min(256 * 1024, s.benchBytes.coerceAtLeast(64 * 1024)),
+                adaptiveThroughputEnabled = false,
+                udpProbeEnabled = false
+            )
+            val candidate = measure(p, port + 2, probeSettings, true)
+            if (materiallyBetter(candidate, chosen)) { chosen = candidate; usedMux = true }
         }
+        return benchmarkResult(p, chosen, usedFragment, usedMux)
+    }
 
-        return BenchmarkResult(
-            profileId = p.id,
-            name = p.name,
-            success = measurement.success,
-            latencyMs = measurement.latency,
-            jitterMs = measurement.jitter,
-            bytesPerSecond = measurement.speed,
-            score = 0.0,
-            udpSuccess = measurement.udpSuccess,
-            interactiveScore = 0.0,
-            streamingScore = 0.0,
-            stabilityScore = 0.0,
-            resilienceScore = 0.0,
-            usedFragment = usedFragment,
-            usedMux = usedMux
-        )
+    private fun benchmarkResult(profile: ProxyProfile, m: Measurement, usedFragment: Boolean, usedMux: Boolean) = BenchmarkResult(
+        profile.id, profile.name, m.success, m.latency, m.jitter, m.speed, 0.0,
+        udpSuccess = m.udpSuccess, interactiveScore = 0.0, streamingScore = 0.0,
+        stabilityScore = 0.0, resilienceScore = 0.0, usedFragment = usedFragment, usedMux = usedMux
+    )
+
+    private fun materiallyBetter(candidate: Measurement, baseline: Measurement): Boolean {
+        if (candidate.success <= 0) return false
+        if (baseline.success <= 0) return true
+        if (candidate.success + 20 < baseline.success) return false
+        val latencyGain = (baseline.latency - candidate.latency) / max(1.0, baseline.latency)
+        val speedGain = if (baseline.speed > 32.0 * 1024.0) {
+            (candidate.speed - baseline.speed) / baseline.speed
+        } else if (candidate.speed > baseline.speed + 128.0 * 1024.0) 1.0 else 0.0
+        val jitterOkay = baseline.jitter >= 9000.0 || candidate.jitter <= max(12.0, baseline.jitter * 1.25)
+        return (latencyGain >= 0.12 && candidate.speed >= baseline.speed * 0.82 && jitterOkay) ||
+            (speedGain >= 0.22 && candidate.latency <= baseline.latency * 1.12 && jitterOkay) ||
+            candidate.success >= baseline.success + 25
     }
 
     private fun measure(
@@ -998,10 +903,11 @@ class BenchmarkEngine(
     }
 
     private fun isUdpNative(p: ProxyProfile): Boolean =
-        p.scheme.equals("hysteria2", true) || p.transport.contains("hysteria", true)
+        p.scheme.equals("hysteria2", true) || p.scheme.equals("wireguard", true) ||
+            p.transport.contains("hysteria", true) || p.transport.equals("mkcp", true) || p.transport.equals("kcp", true)
 
     private fun canFragment(p: ProxyProfile): Boolean =
-        p.security.contains("tls", true) || p.security.contains("reality", true)
+        !isUdpNative(p) && (p.security.contains("tls", true) || p.security.contains("reality", true))
 
     private fun canMux(p: ProxyProfile): Boolean =
         p.scheme.lowercase() in setOf("vless", "vmess", "trojan", "ss") && !isUdpNative(p)

@@ -102,11 +102,14 @@ class AppStore(context: Context) {
         chainSecondProfileId = prefs.getString("chainSecondProfileId", "") ?: "",
 
         intelligenceEnabled = prefs.getBoolean("intelligenceEnabled", true),
+        configCompatibilityMode = prefs.getBoolean("configCompatibilityMode", true),
+        verifiedPerformanceTuning = prefs.getBoolean("verifiedPerformanceTuning", true),
         healthHistoryEnabled = prefs.getBoolean("healthHistoryEnabled", true),
         raceConnectEnabled = prefs.getBoolean("raceConnectEnabled", true),
         raceWidth = prefs.getInt("raceWidth", 3),
         smartFallbackEnabled = prefs.getBoolean("smartFallbackEnabled", true),
         fallbackCount = prefs.getInt("fallbackCount", 3),
+        autoReconnectAfterKillSwitch = prefs.getBoolean("autoReconnectAfterKillSwitch", true),
         networkChangeRecoveryEnabled = prefs.getBoolean("networkChangeRecoveryEnabled", true),
         adaptiveMtuEnabled = prefs.getBoolean("adaptiveMtuEnabled", true),
         mtuMin = prefs.getInt("mtuMin", 1280),
@@ -201,11 +204,14 @@ class AppStore(context: Context) {
         .putString("chainSecondProfileId", s.chainSecondProfileId)
 
         .putBoolean("intelligenceEnabled", s.intelligenceEnabled)
+        .putBoolean("configCompatibilityMode", s.configCompatibilityMode)
+        .putBoolean("verifiedPerformanceTuning", s.verifiedPerformanceTuning)
         .putBoolean("healthHistoryEnabled", s.healthHistoryEnabled)
         .putBoolean("raceConnectEnabled", s.raceConnectEnabled)
         .putInt("raceWidth", s.raceWidth)
         .putBoolean("smartFallbackEnabled", s.smartFallbackEnabled)
         .putInt("fallbackCount", s.fallbackCount)
+        .putBoolean("autoReconnectAfterKillSwitch", s.autoReconnectAfterKillSwitch)
         .putBoolean("networkChangeRecoveryEnabled", s.networkChangeRecoveryEnabled)
         .putBoolean("adaptiveMtuEnabled", s.adaptiveMtuEnabled)
         .putInt("mtuMin", s.mtuMin)

@@ -3191,6 +3191,18 @@ private fun IntelligenceSettings(repo: AppRepository) {
     ) { repo.updateSettings(s.copy(intelligenceEnabled = it)) }
 
     SettingSwitch(
+        title = "Maximum config compatibility",
+        subtitle = "Preserve Xray outbound dependencies and let Xray run -test verify the final config",
+        checked = s.configCompatibilityMode
+    ) { repo.updateSettings(repo.settings.copy(configCompatibilityMode = it)) }
+
+    SettingSwitch(
+        title = "Verified performance auto-tune",
+        subtitle = "A/B test adaptive Fragment/Mux and keep only material latency, speed or reliability gains",
+        checked = s.verifiedPerformanceTuning
+    ) { repo.updateSettings(repo.settings.copy(verifiedPerformanceTuning = it)) }
+
+    SettingSwitch(
         title = "Persistent route intelligence",
         subtitle = "EWMA health history per network fingerprint",
         checked = s.healthHistoryEnabled
@@ -3215,8 +3227,15 @@ private fun IntelligenceSettings(repo: AppRepository) {
     ) { repo.updateSettings(s.copy(smartFallbackEnabled = it)) }
 
     AnimatedVisibility(s.smartFallbackEnabled) {
-        NumberSetting("Fallback depth", s.fallbackCount, 1..8) {
-            repo.updateSettings(repo.settings.copy(fallbackCount = it))
+        Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+            NumberSetting("Fallback depth", s.fallbackCount, 1..8) {
+                repo.updateSettings(repo.settings.copy(fallbackCount = it))
+            }
+            SettingSwitch(
+                title = "Auto-connect after kill switch",
+                subtitle = "If off, Full TUN stays blocked until you tap Connect again",
+                checked = s.autoReconnectAfterKillSwitch
+            ) { repo.updateSettings(repo.settings.copy(autoReconnectAfterKillSwitch = it)) }
         }
     }
 

@@ -841,6 +841,21 @@ class MarbleVpnService : VpnService() {
             )
         }
 
+        if (holdTun && !settings.autoReconnectAfterKillSwitch) {
+            recoveryScheduled.set(false)
+            repo.setRuntimeState("BLOCKED", "Kill switch active • manual reconnect required")
+            promoteForeground("BLOCKED • Tap Connect to retry", ongoing = true)
+            notifier.alert(
+                SmartNotificationKind.PRIVACY,
+                "manual-hold:${activeSession}:$failedId",
+                "Kill switch is holding traffic",
+                "Automatic reconnect is disabled • tap Connect when you want MarbleNG to retry",
+                settings,
+                minIntervalOverrideMs = 60_000L
+            )
+            return
+        }
+
         if (
             settings.smartFallbackEnabled &&
             recoveryScheduled
