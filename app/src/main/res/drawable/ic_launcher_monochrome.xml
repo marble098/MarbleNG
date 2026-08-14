@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- MarbleNG v7 • Android themed-icon mark -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Gem outline: alpha-only geometry lets Android apply the user's theme color. -->
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M54,17 L88,36 L88,72 L54,91 L20,72 L20,36 Z"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="5" />
+
+    <!-- M monogram -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M33,70 L33,39 L43.5,39 L54,55.5 L64.5,39 L75,39 L75,70 L65.5,70 L65.5,54.5 L57.2,67.5 L50.8,67.5 L42.5,54.5 L42.5,70 Z" />
+
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M80,26 L82,30 L86,32 L82,34 L80,38 L78,34 L74,32 L78,30 Z" />
+</vector>

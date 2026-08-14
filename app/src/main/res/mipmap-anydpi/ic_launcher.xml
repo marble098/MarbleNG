@@ -1,20 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!--
-  MarbleNG v7 • Marble Prism M
-  Geometry is intentionally kept inside the adaptive-icon safe zone.
--->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
 
-    <!-- soft glass halo -->
     <path
-        android:fillColor="#22FFFFFF"
-        android:pathData="M54,13 L92,34 L92,74 L54,95 L16,74 L16,34 Z" />
+        android:fillColor="#17103E"
+        android:pathData="M0,0 L108,0 L108,108 L0,108 Z" />
 
-    <!-- crystal facets -->
     <path
         android:fillColor="#7C3AED"
         android:pathData="M54,17 L88,36 L54,54 L20,36 Z" />
@@ -39,20 +33,7 @@
         android:fillColor="#FF6B7A"
         android:pathData="M54,54 L88,72 L54,91 Z" />
 
-    <!-- subtle glass edge -->
-    <path
-        android:fillColor="#00000000"
-        android:pathData="M54,17 L88,36 L88,72 L54,91 L20,72 L20,36 Z"
-        android:strokeColor="#55FFFFFF"
-        android:strokeWidth="1.6" />
-
-    <!-- Marble M -->
     <path
         android:fillColor="#FFFFFFFF"
         android:pathData="M33,70 L33,39 L43.5,39 L54,55.5 L64.5,39 L75,39 L75,70 L65.5,70 L65.5,54.5 L57.2,67.5 L50.8,67.5 L42.5,54.5 L42.5,70 Z" />
-
-    <!-- precision sparkle -->
-    <path
-        android:fillColor="#FFFFFFFF"
-        android:pathData="M80,26 L82,30 L86,32 L82,34 L80,38 L78,34 L74,32 L78,30 Z" />
 </vector>
