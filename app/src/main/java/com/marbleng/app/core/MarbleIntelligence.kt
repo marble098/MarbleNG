@@ -994,8 +994,19 @@ class MarbleIntelligence(private val context: Context) {
      * the live tunnel all run under the same countermeasure policy.
      */
     fun setIranModeState(state: IranModeState, geoIpReady: Boolean) {
+        val previous = iranState
         iranState = state
         iranGeoIpReady = geoIpReady
+
+        when {
+            state.active && (!previous.active || previous.ispLine != state.ispLine) ->
+                setDecision(
+                    "Iran underlay integrated • ${state.ispLine} • ${state.confidence}% confidence • " +
+                        "tier ${IranShield.tier(state)}"
+                )
+            previous.active && !state.active ->
+                setDecision("Iran Mode returned to standby • physical underlay remains under Marble monitoring")
+        }
     }
 
     fun iranModeState(): IranModeState = iranState

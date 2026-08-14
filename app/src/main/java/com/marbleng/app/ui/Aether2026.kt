@@ -2565,7 +2565,12 @@ private fun CompactBenchmarkRow(
 
 @Composable
 private fun DiscoveryRadar(repo: AppRepository) {
-    var channel by remember { mutableStateOf(repo.channels().firstOrNull().orEmpty()) }
+    // MarbleNG v6.1.0 underlay radar: this screen must remain useful with no VPN/proxy running.
+    val network = repo.networkSnapshot
+    val intel = repo.intelligenceStatus
+    val iran = repo.iranMode
+    val connected = repo.state == "CONNECTED"
+    val linkColor = if (network.validated) Aether.Emerald else Aether.Amber
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -2574,116 +2579,172 @@ private fun DiscoveryRadar(repo: AppRepository) {
     ) {
         item {
             SpatialHeader(
-                eyebrow = "Signal Discovery",
+                eyebrow = "Physical Network Intelligence",
                 title = "Radar",
-                subtitle = "Telegram source intelligence",
-                status = "${repo.radarConfigs.size} PASSED",
-                statusColor = Aether.Emerald
+                subtitle = "Underlay diagnostics that work without a VPN or proxy",
+                status = if (network.validated) "LINK READY" else "CHECK LINK",
+                statusColor = linkColor
             )
         }
 
         item {
             HoloGlass(
                 modifier = Modifier.fillMaxWidth(),
-                glow = Aether.Cyan,
+                glow = linkColor,
                 glowStrength = .30f,
-                contentPadding = PaddingValues(10.dp)
+                contentPadding = PaddingValues(15.dp)
             ) {
-                CircularScanner(
-                    resultCount = repo.radarResults.size,
-                    passedCount = repo.radarConfigs.size,
-                    active = repo.busy,
-                    modifier = Modifier.fillMaxWidth().height(300.dp)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("PHYSICAL UNDERLAY", color = linkColor, style = MaterialTheme.typography.labelSmall)
+                        Text(network.label, color = Aether.Ink, style = MaterialTheme.typography.titleLarge)
+                    }
+                    HoloBadge(
+                        if (network.validated) "VALIDATED" else "UNVALIDATED",
+                        linkColor,
+                        compact = true
+                    )
+                }
+
+                Text(
+                    buildString {
+                        append(if (network.metered) "Metered" else "Unmetered")
+                        append(" • ")
+                        append(if (network.hasIpv4) "IPv4" else "No IPv4")
+                        append(" • ")
+                        append(if (network.hasIpv6) "IPv6" else "No IPv6")
+                    },
+                    color = Aether.InkMuted,
+                    style = MaterialTheme.typography.bodyMedium
                 )
 
-                OutlinedTextField(
-                    value = channel,
-                    onValueChange = { channel = it },
-                    label = { Text("Telegram channel / public URL") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(19.dp)
+                Text(
+                    "Downlink ${network.downstreamKbps.coerceAtLeast(0)} kbps • " +
+                        "Uplink ${network.upstreamKbps.coerceAtLeast(0)} kbps • " +
+                        "MTU ${network.mtu.takeIf { it > 0 } ?: 0}",
+                    color = Aether.InkFaint,
+                    style = MaterialTheme.typography.bodySmall
                 )
 
                 CyberButton(
-                    label = if (repo.busy) "SCANNING FIELD…" else "INITIATE DISCOVERY",
+                    label = if (iran.scanning) "SCANNING UNDERLAY…" else "RESCAN PHYSICAL LINK",
                     color = Aether.Cyan,
                     modifier = Modifier.fillMaxWidth(),
-                    enabled = channel.isNotBlank() && !repo.busy
+                    enabled = !iran.scanning
                 ) {
-                    repo.telegram(channel)
+                    repo.scanIranMode(force = true, deep = true)
                 }
             }
         }
 
         item {
+            SectionLabel("Marble engine", "One decision context shared by detection, ranking, racing and recovery")
             HoloGlass(
                 modifier = Modifier.fillMaxWidth(),
-                glow = Aether.Amethyst,
+                glow = Aether.Cyan,
                 contentPadding = PaddingValues(14.dp)
             ) {
-                Text("SMART GATE", color = Aether.AmethystBright, style = MaterialTheme.typography.labelSmall)
-
-                SettingSwitch(
-                    title = "TCP pre-gate",
-                    subtitle = "Discard dead candidates before the tunnel benchmark",
-                    checked = repo.settings.telegramTcpGate
-                ) {
-                    repo.updateSettings(repo.settings.copy(telegramTcpGate = it))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("MARBLE INTELLIGENCE", color = Aether.Cyan, style = MaterialTheme.typography.labelSmall)
+                        Text(
+                            if (repo.settings.intelligenceEnabled) "Adaptive engine enabled" else "Adaptive engine disabled",
+                            color = Aether.Ink,
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                    }
+                    HoloBadge(
+                        if (repo.settings.intelligenceEnabled) "ENGINE ON" else "ENGINE OFF",
+                        if (repo.settings.intelligenceEnabled) Aether.Emerald else Aether.InkFaint,
+                        compact = true
+                    )
                 }
 
-                SettingSwitch(
-                    title = "Auto-import passed",
-                    subtitle = "Passed signals become a managed source",
-                    checked = repo.settings.telegramAutoSub
-                ) {
-                    repo.updateSettings(repo.settings.copy(telegramAutoSub = it))
-                }
-
-                NumberSetting(
-                    title = "Minimum success",
-                    value = repo.settings.telegramPassMinSuccess,
-                    range = 10..100,
-                    suffix = "%"
-                ) {
-                    repo.updateSettings(repo.settings.copy(telegramPassMinSuccess = it))
-                }
-
-                NumberSetting(
-                    title = "Maximum configs",
-                    value = repo.settings.telegramMaxConfigs,
-                    range = 10..300
-                ) {
-                    repo.updateSettings(repo.settings.copy(telegramMaxConfigs = it))
-                }
-            }
-        }
-
-        item {
-            SectionLabel("Smart gate", "TCP pre-gates and tunnel benchmarks")
-            HoloGlass(
-                modifier = Modifier.fillMaxWidth(),
-                glow = Aether.Emerald,
-                contentPadding = PaddingValues(12.dp)
-            ) {
-                SmartGateAssemblyLine(
-                    stages = listOf(
-                        GateStage("INPUT", "Channel / URL feed", true),
-                        GateStage("TCP GATE", if (repo.settings.telegramTcpGate) "Port reachability" else "Bypassed", true),
-                        GateStage("TUN BENCH", "Tunnel RTT + success", repo.radarResults.isNotEmpty()),
-                        GateStage("IMPORT", "Promote healthy nodes", repo.radarConfigs.isNotEmpty())
-                    ),
-                    modifier = Modifier.fillMaxWidth()
+                Text(
+                    "Effective MTU ${intel.effectiveMtu.takeIf { it > 0 } ?: network.mtu} • " +
+                        "Thermal budget ${intel.thermalBudgetPercent}% • " +
+                        "History ${intel.historyRecords}",
+                    color = Aether.InkMuted,
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Text(
+                    "Dual-network ${if (intel.dualNetworkAvailable) "available" else "unavailable"} • " +
+                        "KernelSU ${if (intel.kernelSuDetected) "detected" else "not detected"} • " +
+                        "eBPF ${if (intel.ebpfCapable) "capable" else "standard path"}",
+                    color = Aether.InkFaint,
+                    style = MaterialTheme.typography.bodySmall
+                )
+                Text(
+                    intel.lastDecision.ifBlank { "Waiting for the next network decision" },
+                    color = Aether.InkMuted,
+                    style = MaterialTheme.typography.bodySmall
                 )
             }
         }
 
-        if (repo.radarResults.isNotEmpty()) {
+        if (iran.active) {
             item {
-                SectionLabel("Discovered field", "Signals ranked after the smart gate")
+                SectionLabel("Iran network intelligence", "Shown because Iran Mode is currently active")
+                HoloGlass(
+                    modifier = Modifier.fillMaxWidth(),
+                    glow = Aether.Emerald,
+                    glowStrength = .30f,
+                    contentPadding = PaddingValues(14.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("IRAN MODE ACTIVE", color = Aether.Emerald, style = MaterialTheme.typography.labelSmall)
+                            Text(iran.ispLine, color = Aether.Ink, style = MaterialTheme.typography.titleMedium)
+                        }
+                        HoloBadge("${iran.confidence}%", Aether.Emerald, compact = true)
+                    }
+                    Text(iran.summary, color = Aether.InkMuted, style = MaterialTheme.typography.bodySmall)
+                    if (iran.techniques.isNotEmpty()) {
+                        Text(
+                            iran.techniques.joinToString(" • ") { it.label },
+                            color = Aether.InkFaint,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
             }
+        }
 
-            items(repo.radarResults.take(24), key = { "radar-${it.profileId}" }) { result ->
+        item {
+            SectionLabel("Tunnel independence", "Radar reads the physical link first; tunnel health is secondary")
+            HoloGlass(
+                modifier = Modifier.fillMaxWidth(),
+                glow = if (connected) Aether.Emerald else Aether.Amethyst,
+                contentPadding = PaddingValues(14.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Runtime", color = Aether.InkMuted, modifier = Modifier.weight(1f))
+                    HoloBadge(repo.state, if (connected) Aether.Emerald else Aether.Amethyst, compact = true)
+                }
+                if (connected) {
+                    Text(
+                        "Tunnel routes ${if (repo.sentinel.tunnelRoutes) "captured" else "checking"} • " +
+                            "DNS ${if (repo.sentinel.dnsHijack) "protected" else "checking"} • " +
+                            "Xray ${if (repo.sentinel.xrayAlive) "alive" else "checking"}",
+                        color = Aether.InkMuted,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                } else {
+                    Text(
+                        "No tunnel is required here. Physical-link validation, ISP detection, MTU, transport and engine state remain available.",
+                        color = Aether.InkMuted,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            }
+        }
+
+        if (repo.benchmarks.isNotEmpty()) {
+            item { SectionLabel("Recent route memory", "Last known benchmark evidence; not a requirement for Radar") }
+            items(
+                repo.benchmarks.sortedByDescending { it.score }.take(6),
+                key = { "radar-memory-${it.profileId}" }
+            ) { result ->
                 val color = healthColor(result.latencyMs.toInt(), result.success)
                 HoloGlass(
                     modifier = Modifier.fillMaxWidth(),
@@ -2691,13 +2752,6 @@ private fun DiscoveryRadar(repo: AppRepository) {
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 9.dp)
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        HealthOrb(
-                            label = "•",
-                            color = color,
-                            active = result.success >= repo.settings.telegramPassMinSuccess,
-                            modifier = Modifier.size(38.dp)
-                        )
-                        Spacer(Modifier.width(9.dp))
                         Column(Modifier.weight(1f)) {
                             Text(
                                 result.name,
@@ -2707,25 +2761,28 @@ private fun DiscoveryRadar(repo: AppRepository) {
                                 overflow = TextOverflow.Ellipsis
                             )
                             Text(
-                                "${result.latencyMs.toInt()} ms • jitter ${result.jitterMs.toInt()} • score ${"%.0f".format(result.score)}",
+                                "${result.latencyMs.toInt()} ms • jitter ${result.jitterMs.toInt()} ms • success ${result.success}%",
                                 color = Aether.InkFaint,
                                 style = MaterialTheme.typography.labelSmall
                             )
                         }
-                        HoloBadge("${result.success}%", color, compact = true)
+                        HoloBadge("${"%.0f".format(result.score)}", color, compact = true)
                     }
                 }
             }
-        }
-
-        if (repo.radarConfigs.isNotEmpty()) {
+        } else {
             item {
-                CyberButton(
-                    label = "IMPORT ${repo.radarConfigs.size} PASSED SIGNALS",
-                    color = Aether.Emerald,
-                    modifier = Modifier.fillMaxWidth()
+                HoloGlass(
+                    modifier = Modifier.fillMaxWidth(),
+                    glow = Aether.Amethyst,
+                    contentPadding = PaddingValues(14.dp)
                 ) {
-                    repo.importRadar()
+                    Text("ROUTE MEMORY EMPTY", color = Aether.AmethystBright, style = MaterialTheme.typography.labelSmall)
+                    Text(
+                        "No tunnel benchmark history exists yet. Radar itself is already operational on the physical network.",
+                        color = Aether.InkMuted,
+                        style = MaterialTheme.typography.bodySmall
+                    )
                 }
             }
         }
@@ -4728,63 +4785,19 @@ private fun countryGlyph(host: String): String {
 @Composable
 private fun IranModePanel(repo: AppRepository) {
     val state = repo.iranMode
-    var detailsOpen by remember { mutableStateOf(false) }
-    val accent = if (state.active) Aether.Emerald else Aether.InkFaint
+    // Main-screen rule: the Iran Mode card exists only while the engine is actually active.
+    if (!state.active) return
 
-    SectionLabel(
-        "Iran Mode",
-        if (state.active) "Anti-filtering engine engaged for the detected Iranian ISP"
-        else "Automatic Iranian ISP detection"
-    )
-
-    HoloGlass(modifier = Modifier.fillMaxWidth(), glow = accent) {
+    SectionLabel("Iran Mode", "Active physical-network protection")
+    HoloGlass(
+        modifier = Modifier.fillMaxWidth(),
+        glow = Aether.Emerald,
+        glowStrength = .34f,
+        contentPadding = PaddingValues(14.dp)
+    ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                modifier = Modifier
-                    .size(44.dp)
-                    .clip(CircleShape)
-                    .background(accent.copy(alpha = .10f))
-                    .border(1.dp, accent.copy(alpha = .34f), CircleShape),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(if (state.active) "⚑" else "◌", color = accent, style = MaterialTheme.typography.titleMedium)
-            }
-            Spacer(Modifier.width(11.dp))
             Column(Modifier.weight(1f)) {
-                Text(
-                    if (state.active) "IRAN MODE ACTIVE" else "IRAN MODE STANDBY",
-                    color = accent,
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    if (state.active) "حالت ایران فعال شد" else "در حالت آماده‌باش",
-                    color = Aether.InkMuted,
-                    style = MaterialTheme.typography.bodySmall
-                )
-            }
-            HoloBadge(
-                when {
-                    state.scanning -> "SCANNING"
-                    state.active -> "ON"
-                    repo.settings.iranModePolicy == IranModePolicy.OFF -> "OFF"
-                    else -> "IDLE"
-                },
-                accent,
-                compact = true
-            )
-        }
-
-        if (state.active) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(18.dp))
-                    .background(Aether.Void.copy(alpha = .34f))
-                    .padding(12.dp),
-                verticalArrangement = Arrangement.spacedBy(3.dp)
-            ) {
-                Text("DETECTED ISP", color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
+                Text("IRAN MODE ON", color = Aether.Emerald, style = MaterialTheme.typography.labelSmall)
                 Text(
                     state.ispLine,
                     color = Aether.Ink,
@@ -4793,169 +4806,16 @@ private fun IranModePanel(repo: AppRepository) {
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
-                if (state.ispPersianName.isNotBlank()) {
-                    Text(state.ispPersianName, color = Aether.InkMuted, style = MaterialTheme.typography.bodyMedium)
-                }
-                if (state.ispName.isNotBlank() && state.ispName != state.ispShortName) {
-                    Text(
-                        state.ispName,
-                        color = Aether.InkFaint,
-                        style = MaterialTheme.typography.bodySmall,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-                Row(
-                    modifier = Modifier.padding(top = 5.dp).horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    HoloBadge(iranKindLabel(state), Aether.Cyan, compact = true)
-                    HoloBadge(
-                        "${iranSeverityLabel(state.severity)} FILTERING",
-                        iranSeverityColor(state.severity),
-                        compact = true
-                    )
-                    if (state.carrierName.isNotBlank()) {
-                        HoloBadge(state.carrierName.uppercase(), Aether.Amethyst, compact = true)
-                    }
-                    if (state.publicIp.isNotBlank()) {
-                        HoloBadge(state.publicIp, Aether.InkMuted, compact = true)
-                    }
-                }
             }
-
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        "DETECTION CONFIDENCE",
-                        color = Aether.InkFaint,
-                        style = MaterialTheme.typography.labelSmall,
-                        modifier = Modifier.weight(1f)
-                    )
-                    Text(
-                        "${state.confidence}%",
-                        color = accent,
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-                LinearProgressIndicator(
-                    progress = { state.confidence / 100f },
-                    modifier = Modifier.fillMaxWidth().height(6.dp).clip(CircleShape),
-                    color = accent,
-                    trackColor = Aether.Glass
-                )
-            }
-
-            if (state.techniques.isNotEmpty()) {
-                Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                    Text(
-                        "FILTERING OBSERVED ON THIS LINK",
-                        color = Aether.InkFaint,
-                        style = MaterialTheme.typography.labelSmall
-                    )
-                    Row(
-                        modifier = Modifier.horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        state.techniques.forEach { technique ->
-                            HoloBadge(technique.label.uppercase(), iranTechniqueColor(technique), compact = true)
-                        }
-                    }
-                }
-            }
-        } else {
+            HoloBadge("${state.confidence}%", Aether.Emerald, compact = true)
+        }
+        Text(state.summary, color = Aether.InkMuted, style = MaterialTheme.typography.bodySmall)
+        if (state.techniques.isNotEmpty()) {
             Text(
-                state.summary,
-                color = Aether.InkMuted,
-                style = MaterialTheme.typography.bodySmall
-            )
-            Text(
-                "MarbleNG watches the carrier code, uplink ASN, block-page DNS injection and Iran-only " +
-                    "resolvers. When an Iranian ISP appears, the anti-filtering engine turns itself on.",
+                state.techniques.joinToString(" • ") { it.label },
                 color = Aether.InkFaint,
                 style = MaterialTheme.typography.bodySmall
             )
-        }
-
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            CyberButton(
-                label = if (state.scanning) "Scanning…" else "Re-scan network",
-                color = Aether.Cyan,
-                modifier = Modifier.weight(1f),
-                enabled = !state.scanning
-            ) { repo.scanIranMode(force = true, deep = true) }
-            CyberButton(
-                label = if (detailsOpen) "Hide detail" else "Engine detail",
-                color = Aether.Amethyst,
-                modifier = Modifier.weight(1f)
-            ) { detailsOpen = !detailsOpen }
-        }
-
-        AnimatedVisibility(
-            visible = detailsOpen,
-            enter = fadeIn() + expandVertically(),
-            exit = fadeOut() + shrinkVertically()
-        ) {
-            Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
-                if (state.countermeasures.isNotEmpty()) {
-                    Text(
-                        "ACTIVE COUNTERMEASURES",
-                        color = Aether.InkFaint,
-                        style = MaterialTheme.typography.labelSmall
-                    )
-                    state.countermeasures.forEach { line ->
-                        Row(modifier = Modifier.fillMaxWidth()) {
-                            Text("▹ ", color = Aether.Emerald, style = MaterialTheme.typography.bodySmall)
-                            Text(line, color = Aether.InkMuted, style = MaterialTheme.typography.bodySmall)
-                        }
-                    }
-                }
-
-                if (state.signals.isNotEmpty()) {
-                    Text(
-                        "DETECTION SIGNALS",
-                        color = Aether.InkFaint,
-                        style = MaterialTheme.typography.labelSmall
-                    )
-                    state.signals.forEach { signal ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(Modifier.weight(1f)) {
-                                Text(
-                                    signal.label,
-                                    color = Aether.Ink,
-                                    style = MaterialTheme.typography.bodySmall
-                                )
-                                if (signal.detail.isNotBlank()) {
-                                    Text(
-                                        signal.detail,
-                                        color = Aether.InkFaint,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        maxLines = 2,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
-                            }
-                            Text(
-                                if (signal.weight >= 0) "+${signal.weight}" else "${signal.weight}",
-                                color = if (signal.weight >= 0) Aether.Emerald else Aether.Danger,
-                                style = MaterialTheme.typography.labelSmall
-                            )
-                        }
-                    }
-                }
-
-                if (state.lastScanAt > 0L) {
-                    Text(
-                        "Last sweep ${relativeTime(state.lastScanAt)} • network ${state.networkKey}",
-                        color = Aether.InkFaint,
-                        style = MaterialTheme.typography.labelSmall
-                    )
-                }
-            }
         }
     }
 }

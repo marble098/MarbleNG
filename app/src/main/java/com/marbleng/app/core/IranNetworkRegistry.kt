@@ -68,7 +68,7 @@ object IranNetworkRegistry {
     private val UNKNOWN = IranIsp(
         asn = 0,
         name = "Iranian network",
-        persianName = "شبکه ایران",
+        persianName = "Iranian network",
         shortName = "Iranian ISP",
         kind = IranIspKind.FIXED,
         severity = FilterSeverity.HEAVY,
@@ -81,81 +81,81 @@ object IranNetworkRegistry {
      */
     val ASN_TABLE: Map<Int, IranIsp> = listOf(
         IranIsp(
-            197207, "Mobile Communication Company of Iran (MCI)", "همراه اول", "MCI / Hamrah-e Aval",
+            197207, "Mobile Communication Company of Iran (MCI)", "MCI / Hamrah-e Aval", "MCI / Hamrah-e Aval",
             IranIspKind.MOBILE, FilterSeverity.EXTREME,
             "Largest mobile operator. Runs the strictest DPI: SNI inspection, REALITY IP graylisting and protocol allowlisting."
         ),
         IranIsp(
-            44244, "Iran Cell Service and Communication Company (MTN Irancell)", "ایرانسل", "Irancell",
+            44244, "Iran Cell Service and Communication Company (MTN Irancell)", "MTN Irancell", "Irancell",
             IranIspKind.MOBILE, FilterSeverity.EXTREME,
             "Aggressive volume-based endpoint blocking; high-traffic proxy IPs are commonly burned within days."
         ),
         IranIsp(
-            57218, "Rightel Communication Service Company", "رایتل", "Rightel",
+            57218, "Rightel Communication Service Company", "Rightel", "Rightel",
             IranIspKind.MOBILE, FilterSeverity.HEAVY,
             "Third mobile operator; follows the national policy with occasional lag."
         ),
         IranIsp(
-            58224, "Iran Telecommunication Company (TCI)", "مخابرات ایران", "TCI / Mokhaberat",
+            58224, "Iran Telecommunication Company (TCI)", "Telecommunication Company of Iran", "TCI / Mokhaberat",
             IranIspKind.FIXED, FilterSeverity.HEAVY,
             "National fixed-line incumbent; inconsistent enforcement across regional POPs."
         ),
         IranIsp(
-            48159, "Telecommunication Infrastructure Company (TIC)", "شرکت ارتباطات زیرساخت", "TIC",
+            48159, "Telecommunication Infrastructure Company (TIC)", "Telecommunication Infrastructure Company", "TIC",
             IranIspKind.INFRASTRUCTURE, FilterSeverity.EXTREME,
             "Operates the national gateway where centralised filtering is applied."
         ),
         IranIsp(
-            49666, "Telecommunication Infrastructure Company (TIC)", "شرکت ارتباطات زیرساخت", "TIC",
+            49666, "Telecommunication Infrastructure Company (TIC)", "Telecommunication Infrastructure Company", "TIC",
             IranIspKind.INFRASTRUCTURE, FilterSeverity.EXTREME,
             "Secondary national gateway ASN."
         ),
         IranIsp(
-            12880, "Iran Information Technology Company (DCI/ITC)", "شرکت ارتباطات داده‌ها", "DCI / ITC",
+            12880, "Iran Information Technology Company (DCI/ITC)", "Iran Information Technology Company", "DCI / ITC",
             IranIspKind.INFRASTRUCTURE, FilterSeverity.HEAVY,
             "Historic data-communications backbone carrying many downstream ISPs."
         ),
         IranIsp(
-            31549, "Aria Shatel", "شاتل", "Shatel",
+            31549, "Aria Shatel", "Shatel", "Shatel",
             IranIspKind.FIXED, FilterSeverity.HEAVY,
             "Large private ISP; measurements show it tracking MCI's blocking decisions closely."
         ),
         IranIsp(
-            16322, "Pars Online", "پارس آنلاین", "ParsOnline",
+            16322, "Pars Online", "ParsOnline", "ParsOnline",
             IranIspKind.FIXED, FilterSeverity.MODERATE,
             "Private fixed-line ISP with historically looser TLS enforcement."
         ),
         IranIsp(
-            43754, "Asiatech Data Transfer", "آسیاتک", "Asiatech",
+            43754, "Asiatech Data Transfer", "Asiatech", "Asiatech",
             IranIspKind.FIXED, FilterSeverity.MODERATE
         ),
         IranIsp(
-            49100, "Pishgaman Toseeh Ertebatat", "پیشگامان توسعه ارتباطات", "Pishgaman",
+            49100, "Pishgaman Toseeh Ertebatat", "Pishgaman", "Pishgaman",
             IranIspKind.FIXED, FilterSeverity.MODERATE
         ),
         IranIsp(
-            50810, "Mobin Net Communication", "مبین نت", "MobinNet",
+            50810, "Mobin Net Communication", "MobinNet", "MobinNet",
             IranIspKind.FIXED, FilterSeverity.MODERATE,
             "Fixed wireless (TD-LTE) operator."
         ),
         IranIsp(
-            42337, "Respina Networks & Beyond", "رسپینا", "Respina",
+            42337, "Respina Networks & Beyond", "Respina", "Respina",
             IranIspKind.FIXED, FilterSeverity.MODERATE
         ),
         IranIsp(
-            25184, "Afranet", "افرانت", "Afranet",
+            25184, "Afranet", "Afranet", "Afranet",
             IranIspKind.HOSTING, FilterSeverity.MODERATE
         ),
         IranIsp(
-            39501, "Parvaresh Dadeha", "پرورش داده‌ها", "Parvaresh Dadeha",
+            39501, "Parvaresh Dadeha", "Parvaresh Dadeha", "Parvaresh Dadeha",
             IranIspKind.FIXED, FilterSeverity.MODERATE
         ),
         IranIsp(
-            41881, "Fanava Group", "گروه فناوا", "Fanava",
+            41881, "Fanava Group", "Fanava Group", "Fanava",
             IranIspKind.FIXED, FilterSeverity.MODERATE
         ),
         IranIsp(
-            202468, "Noyan Abr Arvan (ArvanCloud)", "ابر آروان", "ArvanCloud",
+            202468, "Noyan Abr Arvan (ArvanCloud)", "ArvanCloud", "ArvanCloud",
             IranIspKind.HOSTING, FilterSeverity.HEAVY,
             "Domestic CDN/cloud inside the national network."
         )

@@ -143,8 +143,14 @@ class IranModeDetector(
         val networkOperator = runCatching { telephony?.networkOperator.orEmpty() }.getOrDefault("")
         val simOperator = runCatching { telephony?.simOperator.orEmpty() }.getOrDefault("")
         val carrierName = runCatching { telephony?.networkOperatorName.orEmpty() }.getOrDefault("")
+        val networkCountry = runCatching { telephony?.networkCountryIso.orEmpty() }.getOrDefault("")
+        val physicalTransport = intelligence.currentSnapshot().transport.lowercase()
+        val cellularUnderlay = physicalTransport.contains("cell") || physicalTransport.contains("mobile")
+        val carrierIsp = IranNetworkRegistry.byOrganisation(carrierName)
 
-        if (IranNetworkRegistry.isIranianOperatorCode(networkOperator)) {
+        // MarbleNG v6.1.0: active-underlay carrier evidence. A SIM must never make Wi-Fi
+        // look Iranian by itself; registered-network evidence is hard only on a cellular underlay.
+        if (cellularUnderlay && IranNetworkRegistry.isIranianOperatorCode(networkOperator)) {
             score += 60
             hardEvidence = true
             isp = IranNetworkRegistry.byOperatorCode(networkOperator)
@@ -161,6 +167,30 @@ class IranModeDetector(
             score += 20
             isp = IranNetworkRegistry.byOperatorCode(simOperator)
             signals += IranSignal("sim", "Iranian SIM card present", 20, "SIM MCC/MNC $simOperator")
+        }
+
+        if (cellularUnderlay && networkCountry.equals("ir", true) &&
+            !IranNetworkRegistry.isIranianOperatorCode(networkOperator)
+        ) {
+            score += 52
+            hardEvidence = true
+            if (isp == null) isp = carrierIsp ?: IranNetworkRegistry.byOperatorCode(simOperator)
+            signals += IranSignal(
+                "network-country",
+                "Cellular underlay reports Iran as the registered network country",
+                52,
+                carrierName.ifBlank { "ISO IR" }
+            )
+        }
+        if (cellularUnderlay && isp == null && carrierIsp != null) {
+            score += 25
+            isp = carrierIsp
+            signals += IranSignal(
+                "carrier-name",
+                "Registered carrier matches a known Iranian operator",
+                25,
+                carrierName
+            )
         }
 
         // ---- Signal 2: authoritative country/ASN of the physical uplink ----
@@ -334,18 +364,50 @@ class IranModeDetector(
     )
 
     private fun lookupPublicNetwork(network: Network?): Lookup {
+        // MarbleNG v6.1.0: do not trust the first geolocation service that answers.
+        // Collect independent observations, return early on two-country consensus, and reject
+        // contradictory multi-provider results instead of letting one endpoint disable Iran Mode.
+        val samples = mutableListOf<Lookup>()
         for (endpoint in lookupEndpoints) {
             val result = runCatching { fetchLookup(network, endpoint) }.getOrNull()
-            if (result != null && result.ok && result.country.isNotBlank()) return result
+            if (result == null || !result.ok || result.country.isBlank()) continue
+            samples += result.copy(country = result.country.uppercase())
+
+            val countryVotes = samples.groupingBy { it.country.uppercase() }.eachCount()
+            val winner = countryVotes.maxByOrNull { it.value }
+            if (winner != null && winner.value >= 2) {
+                return mergeLookups(samples.filter { it.country.equals(winner.key, true) })
+            }
         }
-        return Lookup(ok = false)
+
+        if (samples.isEmpty()) return Lookup(ok = false)
+        val distinctCountries = samples.map { it.country.uppercase() }.distinct()
+        if (distinctCountries.size > 1) return Lookup(ok = false)
+        return mergeLookups(samples)
+    }
+
+    private fun mergeLookups(samples: List<Lookup>): Lookup {
+        if (samples.isEmpty()) return Lookup(ok = false)
+        val countryVotes = samples.groupingBy { it.country.uppercase() }.eachCount()
+        val country = countryVotes.maxByOrNull { it.value }?.key.orEmpty()
+        val matching = samples.filter { it.country.equals(country, true) }
+        val asn = matching.firstOrNull { it.asn > 0 }?.asn ?: 0
+        val organisation = matching.firstOrNull { it.organisation.isNotBlank() }?.organisation.orEmpty()
+        val ip = matching.firstOrNull { it.ip.isNotBlank() }?.ip.orEmpty()
+        return Lookup(
+            ok = country.isNotBlank(),
+            country = country,
+            asn = asn,
+            organisation = organisation,
+            ip = ip
+        )
     }
 
     private fun fetchLookup(network: Network?, endpoint: String): Lookup {
         val url = URL(endpoint)
         val connection = (network?.openConnection(url) ?: url.openConnection()) as HttpURLConnection
-        connection.connectTimeout = 5_000
-        connection.readTimeout = 5_000
+        connection.connectTimeout = 3_500
+        connection.readTimeout = 3_500
         connection.instanceFollowRedirects = true
         connection.setRequestProperty("User-Agent", "MarbleNG/IranMode")
         connection.setRequestProperty("Accept", "application/json, text/plain")

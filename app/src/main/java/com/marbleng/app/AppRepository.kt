@@ -187,6 +187,9 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
             intelligence.setIranModeState(next, geoIpReady())
             postToMain {
                 iranMode = next
+                // Keep the UI status and every downstream engine decision synchronized with the
+                // same Iran-underlay observation; do not wait for another connectivity callback.
+                refreshIntelligenceStatus()
                 announceIranMode(previous, next)
             }
         }
