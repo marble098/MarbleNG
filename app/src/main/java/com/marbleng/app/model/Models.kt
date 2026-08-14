@@ -79,6 +79,7 @@ enum class ConnectionMode { FULL_TUN, LOCAL_PROXY }
 enum class RoutingMode { PROXY_ALL, BYPASS_PRIVATE, GEO_DIRECT, CUSTOM }
 enum class SplitTunnelMode { ALL_APPS, ONLY_SELECTED, BYPASS_SELECTED }
 enum class WorkloadProfile { AUTO, INTERACTIVE, STREAMING, STABILITY, STEALTH }
+enum class NodeSortMode { PING, SCORE, NAME, PROTOCOL, SOURCE }
 
 data class AppSettings(
     val socksPort: Int = 10808,
@@ -94,9 +95,24 @@ data class AppSettings(
     val tcpPrecheckTimeoutMs: Int = 1800,
     val tcpWorkers: Int = 20,
 
+    // Library order. Ping is intentionally the default; untested nodes stay last.
+    val nodeSortMode: NodeSortMode = NodeSortMode.PING,
+    val nodeSortReverse: Boolean = false,
+
     val rememberLast: Boolean = true,
     val subscriptionAutoRefresh: Boolean = true,
     val subscriptionRefreshHours: Int = 12,
+
+    // Optional smart alerts. Foreground-service status is managed separately while connected.
+    val smartNotificationsEnabled: Boolean = true,
+    val notifyConnectionEvents: Boolean = false,
+    val notifyRecoveryEvents: Boolean = true,
+    val notifyPrivacyWarnings: Boolean = true,
+    val notifyNetworkChanges: Boolean = false,
+    val notifySubscriptionEvents: Boolean = true,
+    val notifyCoreUpdates: Boolean = true,
+    val notificationLiveStats: Boolean = true,
+    val notificationCooldownSec: Int = 20,
 
     val telegramPosts: Int = 20,
     val telegramMaxConfigs: Int = 80,

@@ -1,7 +1,12 @@
 package com.marbleng.app.ui
 
+import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.os.Build
+import android.provider.Settings
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.expandVertically
@@ -1294,7 +1299,8 @@ private fun CyberLibrary(
     var renameTarget by remember { mutableStateOf<ProxyProfile?>(null) }
     var renameText by remember { mutableStateOf("") }
 
-    val visible = repo.profiles.filter {
+    val benchmarkById = repo.benchmarks.associateBy { it.profileId }
+    val filtered = repo.profiles.filter {
         search.isBlank() ||
             it.name.contains(search, true) ||
             it.scheme.contains(search, true) ||
@@ -1302,6 +1308,34 @@ private fun CyberLibrary(
             it.transport.contains(search, true) ||
             it.security.contains(search, true)
     }
+    val naturalOrder = when (repo.settings.nodeSortMode) {
+        NodeSortMode.PING -> filtered.sortedWith(
+            compareBy<ProxyProfile> { profile ->
+                benchmarkById[profile.id]
+                    ?.takeIf { it.success > 0 }
+                    ?.latencyMs
+                    ?: Double.MAX_VALUE
+            }.thenBy { it.name.lowercase() }
+        )
+        NodeSortMode.SCORE -> filtered.sortedWith(
+            compareByDescending<ProxyProfile> { profile ->
+                benchmarkById[profile.id]
+                    ?.takeIf { it.success > 0 }
+                    ?.score
+                    ?: -1.0
+            }.thenBy { it.name.lowercase() }
+        )
+        NodeSortMode.NAME -> filtered.sortedBy { it.name.lowercase() }
+        NodeSortMode.PROTOCOL -> filtered.sortedWith(
+            compareBy<ProxyProfile> { it.scheme.lowercase() }
+                .thenBy { it.name.lowercase() }
+        )
+        NodeSortMode.SOURCE -> filtered.sortedWith(
+            compareBy<ProxyProfile> { it.subscriptionName.lowercase() }
+                .thenBy { it.name.lowercase() }
+        )
+    }
+    val visible = if (repo.settings.nodeSortReverse) naturalOrder.asReversed() else naturalOrder
 
     renameTarget?.let { target ->
         AlertDialog(
@@ -1473,6 +1507,55 @@ private fun CyberLibrary(
                     modifier = Modifier.weight(1f),
                     enabled = repo.profiles.isNotEmpty() && !repo.busy
                 ) { repo.testAll() }
+            }
+        }
+
+        item {
+            Column(
+                modifier = Modifier.padding(horizontal = 14.dp),
+                verticalArrangement = Arrangement.spacedBy(7.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column {
+                        Text("SORT NODES", color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
+                        Text(
+                            "Ping is the default • untested routes stay last",
+                            color = Aether.InkFaint.copy(alpha = .82f),
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                    HoloBadge(
+                        if (repo.settings.nodeSortReverse) "REVERSED" else "NATURAL",
+                        if (repo.settings.nodeSortReverse) Aether.Amber else Aether.Cyan,
+                        compact = true
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(7.dp)
+                ) {
+                    NodeSortMode.entries.forEach { mode ->
+                        CyberChoiceChip(
+                            text = mode.name,
+                            selected = repo.settings.nodeSortMode == mode,
+                            color = if (mode == NodeSortMode.PING) Aether.Cyan else Aether.Amethyst
+                        ) {
+                            repo.updateSettings(repo.settings.copy(nodeSortMode = mode, nodeSortReverse = false))
+                        }
+                    }
+                    CyberChoiceChip(
+                        text = if (repo.settings.nodeSortReverse) "ORDER ↥" else "ORDER ↧",
+                        selected = repo.settings.nodeSortReverse,
+                        color = Aether.Amber
+                    ) {
+                        repo.updateSettings(repo.settings.copy(nodeSortReverse = !repo.settings.nodeSortReverse))
+                    }
+                }
             }
         }
 
@@ -2607,6 +2690,17 @@ private fun SpatialSettings(
 
         item {
             SpatialAccordion(
+                title = "Notifications",
+                subtitle = "Smart alerts • recovery • privacy • sync",
+                badge = "ALERTS",
+                color = Aether.Amber
+            ) {
+                NotificationSettings(repo)
+            }
+        }
+
+        item {
+            SpatialAccordion(
                 title = "Split tunneling",
                 subtitle = "Per-app capture policy",
                 badge = "APPS",
@@ -2947,6 +3041,142 @@ private fun IntelligenceSettings(repo: AppRepository) {
     }
     if (sentinel.splitBypassCount > 0) {
         Text("${sentinel.splitBypassCount} apps intentionally bypass the VPN; device protection is partial.", color = Aether.Amber, style = MaterialTheme.typography.bodySmall)
+    }
+}
+
+@Composable
+private fun NotificationSettings(repo: AppRepository) {
+    val context = LocalContext.current
+    val s = repo.settings
+    var permissionGranted by remember {
+        mutableStateOf(
+            Build.VERSION.SDK_INT < 33 ||
+                context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+        )
+    }
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        permissionGranted = granted
+        if (granted) repo.testSmartNotification()
+    }
+
+    Row(
+        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(7.dp)
+    ) {
+        HoloBadge(
+            if (permissionGranted) "PERMISSION READY" else "PERMISSION NEEDED",
+            if (permissionGranted) Aether.Emerald else Aether.Amber,
+            compact = true
+        )
+        HoloBadge(
+            if (s.smartNotificationsEnabled) "SMART ALERTS ON" else "SMART ALERTS OFF",
+            if (s.smartNotificationsEnabled) Aether.Cyan else Aether.InkFaint,
+            compact = true
+        )
+        HoloBadge(
+            if (s.notificationLiveStats) "LIVE STATUS" else "STATIC STATUS",
+            if (s.notificationLiveStats) Aether.Amethyst else Aether.InkFaint,
+            compact = true
+        )
+    }
+
+    Text(
+        "Android requires a foreground-service status while the VPN/proxy is running. The controls below manage optional alerts and how much live telemetry is shown.",
+        color = Aether.InkFaint,
+        style = MaterialTheme.typography.bodySmall
+    )
+
+    if (Build.VERSION.SDK_INT >= 33 && !permissionGranted) {
+        CyberButton(
+            label = "GRANT NOTIFICATION ACCESS",
+            color = Aether.Amber,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+
+    Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+        CyberButton(
+            label = "TEST ALERT",
+            color = Aether.Cyan,
+            modifier = Modifier.weight(1f),
+            enabled = permissionGranted && s.smartNotificationsEnabled
+        ) { repo.testSmartNotification() }
+        CyberButton(
+            label = "ANDROID CHANNELS",
+            color = Aether.Amethyst,
+            modifier = Modifier.weight(1f)
+        ) {
+            runCatching {
+                context.startActivity(
+                    Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                        .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                )
+            }
+        }
+    }
+
+    CyberButton(
+        label = "CLEAR OPTIONAL ALERTS",
+        color = Aether.InkMuted,
+        modifier = Modifier.fillMaxWidth()
+    ) { repo.clearSmartNotifications() }
+
+    SettingSwitch(
+        title = "Live connection telemetry",
+        subtitle = "Refresh the persistent status with ping and up/down rates every few seconds",
+        checked = s.notificationLiveStats
+    ) { repo.updateSettings(s.copy(notificationLiveStats = it)) }
+
+    SettingSwitch(
+        title = "Optional smart alerts",
+        subtitle = "Master switch for event notifications; the required foreground status remains available",
+        checked = s.smartNotificationsEnabled
+    ) { repo.updateSettings(s.copy(smartNotificationsEnabled = it)) }
+
+    AnimatedVisibility(s.smartNotificationsEnabled) {
+        Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+            SettingSwitch(
+                title = "Connection events",
+                subtitle = "Connected route changes; disabled by default to avoid noise",
+                checked = s.notifyConnectionEvents
+            ) { repo.updateSettings(repo.settings.copy(notifyConnectionEvents = it)) }
+            SettingSwitch(
+                title = "Recovery & failover",
+                subtitle = "Smart fallback start and successful route recovery",
+                checked = s.notifyRecoveryEvents
+            ) { repo.updateSettings(repo.settings.copy(notifyRecoveryEvents = it)) }
+            SettingSwitch(
+                title = "Privacy warnings",
+                subtitle = "Kill-switch holds and fail-closed route blocks",
+                checked = s.notifyPrivacyWarnings
+            ) { repo.updateSettings(repo.settings.copy(notifyPrivacyWarnings = it)) }
+            SettingSwitch(
+                title = "Network changes",
+                subtitle = "Wi-Fi/cellular underlay changes while connected",
+                checked = s.notifyNetworkChanges
+            ) { repo.updateSettings(repo.settings.copy(notifyNetworkChanges = it)) }
+            SettingSwitch(
+                title = "Subscription updates",
+                subtitle = "Refresh results and source failures",
+                checked = s.notifySubscriptionEvents
+            ) { repo.updateSettings(repo.settings.copy(notifySubscriptionEvents = it)) }
+            SettingSwitch(
+                title = "Core updates",
+                subtitle = "Notify when a newer Xray or HEV core is detected",
+                checked = s.notifyCoreUpdates
+            ) { repo.updateSettings(repo.settings.copy(notifyCoreUpdates = it)) }
+            NumberSetting(
+                title = "Alert cooldown (seconds)",
+                value = s.notificationCooldownSec,
+                range = 5..300
+            ) {
+                repo.updateSettings(repo.settings.copy(notificationCooldownSec = it))
+            }
+        }
     }
 }
 

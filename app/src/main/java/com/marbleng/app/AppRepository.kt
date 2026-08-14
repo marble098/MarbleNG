@@ -20,6 +20,7 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     private val secrets = SecretStore(context)
     private val io = Executors.newFixedThreadPool(3)
     val intelligence = MarbleIntelligence(context)
+    private val notifier = SmartNotifier(context)
 
     val profiles = mutableStateListOf<ProxyProfile>().apply { addAll(store.loadProfiles()) }
     val subscriptions = mutableStateListOf<Subscription>().apply { addAll(store.loadSubscriptions()) }
@@ -45,6 +46,7 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     var liveUpBps by mutableStateOf(0L); private set
 
     init {
+        notifier.ensureChannels()
         intelligence.startMonitoring()
         intelligence.addNetworkListener { next ->
             android.os.Handler(android.os.Looper.getMainLooper()).post {
@@ -90,6 +92,8 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     fun updateSettings(v: AppSettings) {
         settings = v
         store.saveSettings(v)
+        notifier.ensureChannels()
+        if (!v.smartNotificationsEnabled) notifier.cancelOptional()
         refreshIntelligenceStatus()
     }
 
@@ -105,6 +109,24 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
 
     fun updateSentinel(value: PrivacySentinelState) {
         sentinel = value
+    }
+
+    fun testSmartNotification() {
+        notifier.ensureChannels()
+        val posted = notifier.alert(
+            SmartNotificationKind.TEST,
+            "manual-test",
+            "MarbleNG smart alerts",
+            "Notifications are ready • recovery, privacy and subscription events can be surfaced here.",
+            settings,
+            minIntervalOverrideMs = 0L
+        )
+        message = if (posted) "Smart test alert sent" else "Notification permission or smart alerts are disabled"
+    }
+
+    fun clearSmartNotifications() {
+        notifier.cancelOptional()
+        message = "Optional MarbleNG alerts cleared"
     }
 
     fun setConnectionMode(mode: ConnectionMode) {
@@ -135,6 +157,9 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         task("Refreshing ${sub.name}") {
             val payload = httpSubscription(sub.url)
             val parsed = ProxyParser.parseInput(payload.text, sub.id, sub.name)
+            require(parsed.isNotEmpty()) {
+                "No supported profiles returned; previous nodes were kept"
+            }
 
             profiles.removeAll { it.subscriptionId == sub.id }
             profiles.addAll(parsed)
@@ -154,16 +179,30 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
 
             store.saveSubscriptions(subscriptions)
             store.saveProfiles(profiles)
-            message = "${parsed.size} profiles imported"
+            notifier.alert(
+                SmartNotificationKind.SUBSCRIPTION,
+                "subscription:${sub.id}",
+                "Subscription refreshed",
+                "${sub.name} • ${parsed.size} nodes",
+                settings
+            )
+            message = "${parsed.size} profiles refreshed"
         }
     }
 
     fun refreshAll() {
         task("Refreshing subscriptions") {
+            var refreshed = 0
+            var nodeCount = 0
+            val failed = mutableListOf<String>()
+
             subscriptions.toList().forEach { sub ->
-                runCatching {
+                val result = runCatching {
                     val payload = httpSubscription(sub.url)
                     val parsed = ProxyParser.parseInput(payload.text, sub.id, sub.name)
+                    require(parsed.isNotEmpty()) {
+                        "No supported profiles returned; previous nodes were kept"
+                    }
 
                     profiles.removeAll { it.subscriptionId == sub.id }
                     profiles.addAll(parsed)
@@ -180,12 +219,33 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
                             expireAt = meta?.expireAt ?: current.expireAt
                         )
                     }
+                    parsed.size
+                }
+
+                result.onSuccess { count ->
+                    refreshed++
+                    nodeCount += count
+                }.onFailure { error ->
+                    failed += "${sub.name}: ${error.message ?: error::class.java.simpleName}"
                 }
             }
 
             store.saveSubscriptions(subscriptions)
             store.saveProfiles(profiles)
-            message = "Subscriptions refreshed"
+            val summary = when {
+                failed.isEmpty() -> "$refreshed sources refreshed • $nodeCount nodes"
+                refreshed == 0 -> "Refresh failed • ${failed.take(2).joinToString(" • ")}"
+                else -> "$refreshed refreshed • ${failed.size} failed • ${failed.take(2).joinToString(" • ")}"
+            }
+            message = summary
+            notifier.alert(
+                SmartNotificationKind.SUBSCRIPTION,
+                "refresh-all",
+                if (failed.isEmpty()) "Subscriptions refreshed" else "Subscription refresh issues",
+                summary,
+                settings,
+                minIntervalOverrideMs = 30_000L
+            )
         }
     }
 
@@ -501,6 +561,7 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         checks += if (settings.dnsHijackEnabled) "✔ Traditional DNS :53 is hijacked into Xray DNS" else "⚠ DNS hijack disabled"
         checks += "✔ Intelligence network ${networkSnapshot.label}"
         checks += "✔ Thermal budget ${intelligenceStatus.thermalBudgetPercent}% • effective MTU ${intelligenceStatus.effectiveMtu.takeIf { it > 0 } ?: settings.mtuMax}"
+        checks += if (notifier.optionalPermissionGranted()) "✔ Optional notification permission" else "⚠ Optional notification permission not granted"
         return checks.joinToString("\n")
     }
 
@@ -525,10 +586,21 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
             }
             val h = org.json.JSONObject(http("https://api.github.com/repos/heiher/hev-socks5-tunnel/releases/latest"))
                 .optString("tag_name", hv)
-            message = if (latestX == xr && h == hv) {
+            val updateAvailable = latestX != xr || h != hv
+            message = if (!updateAvailable) {
                 "Cores are current ($xr / $hv)"
             } else {
                 "Update available: Xray $latestX • HEV $h. GitHub core-update workflow will rebuild a signed APK."
+            }
+            if (updateAvailable) {
+                notifier.alert(
+                    SmartNotificationKind.CORE,
+                    "core:$latestX:$h",
+                    "Core update available",
+                    "Xray $latestX • HEV $h",
+                    settings,
+                    minIntervalOverrideMs = 6L * 60L * 60L * 1000L
+                )
             }
         }
     }

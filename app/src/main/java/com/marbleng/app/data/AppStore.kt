@@ -40,9 +40,22 @@ class AppStore(context: Context) {
         tcpPrecheckTimeoutMs = prefs.getInt("tcpPrecheckTimeoutMs", 1800),
         tcpWorkers = prefs.getInt("tcpWorkers", 20),
 
+        nodeSortMode = enumValue("nodeSortMode", NodeSortMode.PING),
+        nodeSortReverse = prefs.getBoolean("nodeSortReverse", false),
+
         rememberLast = prefs.getBoolean("rememberLast", true),
         subscriptionAutoRefresh = prefs.getBoolean("subscriptionAutoRefresh", true),
         subscriptionRefreshHours = prefs.getInt("subscriptionRefreshHours", 12),
+
+        smartNotificationsEnabled = prefs.getBoolean("smartNotificationsEnabled", true),
+        notifyConnectionEvents = prefs.getBoolean("notifyConnectionEvents", false),
+        notifyRecoveryEvents = prefs.getBoolean("notifyRecoveryEvents", true),
+        notifyPrivacyWarnings = prefs.getBoolean("notifyPrivacyWarnings", true),
+        notifyNetworkChanges = prefs.getBoolean("notifyNetworkChanges", false),
+        notifySubscriptionEvents = prefs.getBoolean("notifySubscriptionEvents", true),
+        notifyCoreUpdates = prefs.getBoolean("notifyCoreUpdates", true),
+        notificationLiveStats = prefs.getBoolean("notificationLiveStats", true),
+        notificationCooldownSec = prefs.getInt("notificationCooldownSec", 20).coerceIn(5, 300),
 
         telegramPosts = prefs.getInt("telegramPosts", 20),
         telegramMaxConfigs = prefs.getInt("telegramMaxConfigs", 80),
@@ -126,9 +139,22 @@ class AppStore(context: Context) {
         .putInt("tcpPrecheckTimeoutMs", s.tcpPrecheckTimeoutMs)
         .putInt("tcpWorkers", s.tcpWorkers)
 
+        .putString("nodeSortMode", s.nodeSortMode.name)
+        .putBoolean("nodeSortReverse", s.nodeSortReverse)
+
         .putBoolean("rememberLast", s.rememberLast)
         .putBoolean("subscriptionAutoRefresh", s.subscriptionAutoRefresh)
         .putInt("subscriptionRefreshHours", s.subscriptionRefreshHours)
+
+        .putBoolean("smartNotificationsEnabled", s.smartNotificationsEnabled)
+        .putBoolean("notifyConnectionEvents", s.notifyConnectionEvents)
+        .putBoolean("notifyRecoveryEvents", s.notifyRecoveryEvents)
+        .putBoolean("notifyPrivacyWarnings", s.notifyPrivacyWarnings)
+        .putBoolean("notifyNetworkChanges", s.notifyNetworkChanges)
+        .putBoolean("notifySubscriptionEvents", s.notifySubscriptionEvents)
+        .putBoolean("notifyCoreUpdates", s.notifyCoreUpdates)
+        .putBoolean("notificationLiveStats", s.notificationLiveStats)
+        .putInt("notificationCooldownSec", s.notificationCooldownSec.coerceIn(5, 300))
 
         .putInt("telegramPosts", s.telegramPosts)
         .putInt("telegramMaxConfigs", s.telegramMaxConfigs)

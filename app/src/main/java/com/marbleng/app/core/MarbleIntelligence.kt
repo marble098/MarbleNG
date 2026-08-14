@@ -598,7 +598,6 @@ class MarbleIntelligence(private val context: Context) {
         killSwitchArmed: Boolean,
         previous: PrivacySentinelState = PrivacySentinelState()
     ): PrivacySentinelState {
-        val n = currentSnapshot()
         val selected = settings.splitTunnelPackages
             .split(',', '\n', '\r', ';')
             .map(String::trim)
@@ -617,10 +616,10 @@ class MarbleIntelligence(private val context: Context) {
             },
             tunnelRoutes = fullTun && tunUp,
             ipv4Captured = fullTun && tunUp,
-            ipv6Captured = fullTun && tunUp && n.hasIpv6,
+            ipv6Captured = fullTun && tunUp,
             dnsHijack = fullTun && settings.dnsHijackEnabled,
             encryptedDns = settings.dnsPrimaryDoH.startsWith("https://") && settings.dnsSecondaryDoH.startsWith("https://"),
-            systemDnsFallbackBlocked = settings.dnsHijackEnabled && settings.dnsPrimaryDoH.startsWith("https://"),
+            systemDnsFallbackBlocked = fullTun && settings.dnsHijackEnabled && settings.dnsPrimaryDoH.startsWith("https://"),
             killSwitchArmed = fullTun && killSwitchArmed,
             splitBypassCount = bypassCount,
             xrayAlive = xrayUp,

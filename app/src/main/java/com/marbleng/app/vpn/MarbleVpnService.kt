@@ -1,19 +1,17 @@
 package com.marbleng.app.vpn
 
-import android.app.Notification
-import android.app.NotificationChannel
-import android.app.NotificationManager
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
-import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import com.marbleng.app.MarbleApplication
 import com.marbleng.app.core.NetworkSnapshot
 import com.marbleng.app.core.RuntimeDiagnostics
 import com.marbleng.app.core.SocksHttpClient
+import com.marbleng.app.core.SmartNotificationKind
+import com.marbleng.app.core.SmartNotifier
 import com.marbleng.app.core.XrayManager
 import com.marbleng.app.model.AppSettings
 import com.marbleng.app.model.ProxyProfile
@@ -56,6 +54,7 @@ class MarbleVpnService : VpnService() {
 
     private lateinit var xray: XrayManager
     private lateinit var diag: RuntimeDiagnostics
+    private lateinit var notifier: SmartNotifier
     private var networkListener: Closeable? = null
 
     @Volatile private var activeSession = ""
@@ -76,7 +75,8 @@ class MarbleVpnService : VpnService() {
         val app = application as MarbleApplication
         xray = app.xray
         diag = RuntimeDiagnostics(this)
-        createChannel()
+        notifier = SmartNotifier(this)
+        notifier.ensureChannels()
         app.repo.intelligence.startMonitoring()
         networkListener = app.repo.intelligence.addNetworkListener(::onUnderlyingNetworkChanged)
         diag.event("VPN", "service-created", "system" to diag.systemSnapshot())
@@ -212,11 +212,18 @@ class MarbleVpnService : VpnService() {
             app.repo.markConnected(profile)
             app.repo.intelligence.recordConnect(profile.id, true, elapsedConnectMs(), settings)
             notifyNow("SOCKS5 • 127.0.0.1:$port • ${profile.name}", true)
+            notifier.alert(
+                SmartNotificationKind.CONNECTION,
+                "proxy-ready:$session:${profile.id}",
+                "Local proxy ready",
+                "127.0.0.1:$port • ${profile.name}",
+                settings
+            )
             updateSentinel(killSwitch = false)
             startProxyMonitor(session, port)
             return
         }
-        runTun(profile, session, port, settings)
+        runTun(profile, session, port, settings, recovering)
     }
 
     private fun establishTun(profile: ProxyProfile, session: String, settings: AppSettings): Boolean {
@@ -327,7 +334,13 @@ class MarbleVpnService : VpnService() {
         return true
     }
 
-    private fun runTun(profile: ProxyProfile, session: String, socksPort: Int, settings: AppSettings) {
+    private fun runTun(
+        profile: ProxyProfile,
+        session: String,
+        socksPort: Int,
+        settings: AppSettings,
+        recovering: Boolean
+    ) {
         val currentTun = tun ?: run {
             handleFailure(session, "TUN disappeared before HEV startup")
             return
@@ -385,6 +398,13 @@ class MarbleVpnService : VpnService() {
         app.repo.markConnected(profile)
         app.repo.intelligence.recordConnect(profile.id, true, elapsedConnectMs(), settings)
         notifyNow("Protected • ${profile.name}", true)
+        notifier.alert(
+            if (recovering) SmartNotificationKind.RECOVERY else SmartNotificationKind.CONNECTION,
+            if (recovering) "recovered:$session:${profile.id}" else "connected:$session:${profile.id}",
+            if (recovering) "Route recovered" else "VPN protected",
+            if (recovering) "Traffic moved safely to ${profile.name}" else profile.name,
+            settings
+        )
         recoveryScheduled.set(false)
         consecutiveProbeFailures = 0
         hevActive = true
@@ -451,6 +471,15 @@ class MarbleVpnService : VpnService() {
                 }
                 if (tick == 1 || tick % ROUTE_PROBE_INTERVAL_TICKS == 0 || routeProbeRequested.getAndSet(false)) {
                     sampleRouteLatency(session, port)
+                }
+                if (tick % 5 == 0 && (activeSettings ?: repo.settings).notificationLiveStats) {
+                    val name = repo.profile(activeProfileId)?.name ?: "Active route"
+                    val ping = repo.livePingMs.takeIf { it > 0 }?.let { "${it} ms" } ?: "— ms"
+                    notifyNow(
+                        "Protected • $name",
+                        true,
+                        "$ping • ↓ ${SmartNotifier.formatRate(repo.liveDownBps)} • ↑ ${SmartNotifier.formatRate(repo.liveUpBps)}"
+                    )
                 }
                 if (tick % 10 == 0) {
                     repo.refreshIntelligenceStatus()
@@ -524,8 +553,17 @@ class MarbleVpnService : VpnService() {
             }
         }
         if (running.get() && (activeSettings ?: app.repo.settings).networkChangeRecoveryEnabled) {
+            val settings = activeSettings ?: app.repo.settings
             routeProbeRequested.set(true)
             diag.event("NETWORK", "underlay-change", "session" to activeSession, "network" to snapshot.label)
+            notifier.alert(
+                SmartNotificationKind.NETWORK,
+                "underlay:${snapshot.key()}",
+                "Network changed",
+                "${snapshot.label} • validating the active Xray route",
+                settings,
+                minIntervalOverrideMs = 60_000L
+            )
         }
     }
 
@@ -569,6 +607,14 @@ class MarbleVpnService : VpnService() {
             running.set(true)
             repo.setRuntimeState("BLOCKED", "Kill switch active • $reason")
             promoteForeground("BLOCKED • Kill switch holding traffic", ongoing = true)
+            notifier.alert(
+                SmartNotificationKind.PRIVACY,
+                "blocked:${activeSession}:${failedId}",
+                "Traffic blocked safely",
+                "Kill switch is holding traffic • $reason",
+                settings,
+                minIntervalOverrideMs = 60_000L
+            )
 
             if (settings.smartFallbackEnabled && recoveryScheduled.compareAndSet(false, true)) {
                 synchronized(recoveryTried) { recoveryTried += failedId }
@@ -578,6 +624,13 @@ class MarbleVpnService : VpnService() {
                     synchronized(recoveryTried) { recoveryTried += next.id }
                     repo.setRuntimeState("CONNECTING", "Failover → ${next.name}")
                     promoteForeground("Recovering • ${next.name}", ongoing = true)
+                    notifier.alert(
+                        SmartNotificationKind.RECOVERY,
+                        "failover:${activeSession}:${next.id}",
+                        "Smart fallback",
+                        "Switching to ${next.name} while Full TUN stays fail-closed",
+                        settings
+                    )
                     diag.event("VPN", "fallback-selected", "from" to failedId.take(12), "to" to next.id.take(12))
                     connectionWorker.execute {
                         recoveryScheduled.set(false)
@@ -716,32 +769,16 @@ class MarbleVpnService : VpnService() {
     }
 
     private fun promoteForeground(text: String, ongoing: Boolean): Boolean {
-        val notification = note(text, ongoing)
+        val notification = notifier.connectionNotification("MarbleNG", text, ongoing)
         val type = if (Build.VERSION.SDK_INT >= 34) ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE else 0
         return runCatching { ServiceCompat.startForeground(this, NOTIFY, notification, type) }
             .onFailure { diag.error("VPN", "foreground-start-failed", it, "sdk" to Build.VERSION.SDK_INT) }
             .isSuccess
     }
 
-    private fun createChannel() {
-        if (Build.VERSION.SDK_INT >= 26) {
-            getSystemService(NotificationManager::class.java).createNotificationChannel(
-                NotificationChannel(CHANNEL, "MarbleNG connection", NotificationManager.IMPORTANCE_LOW)
-            )
-        }
-    }
-
-    private fun note(text: String, ongoing: Boolean): Notification =
-        NotificationCompat.Builder(this, CHANNEL)
-            .setSmallIcon(android.R.drawable.stat_sys_warning)
-            .setContentTitle("MarbleNG")
-            .setContentText(text)
-            .setOngoing(ongoing)
-            .setOnlyAlertOnce(true)
-            .build()
-
-    private fun notifyNow(text: String, ongoing: Boolean) {
-        getSystemService(NotificationManager::class.java).notify(NOTIFY, note(text, ongoing))
+    private fun notifyNow(text: String, ongoing: Boolean, detail: String? = null) {
+        val body = if (detail.isNullOrBlank()) text else "$text • $detail"
+        notifier.updateConnection(NOTIFY, "MarbleNG", body, ongoing)
     }
 
     private fun safeMessage(t: Throwable): String =
