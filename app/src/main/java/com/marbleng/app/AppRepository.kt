@@ -145,10 +145,28 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     }
 
     fun addSubscription(name: String, url: String) {
-        val id = sha(url).take(12)
-        subscriptions.removeAll { it.id == id }
-        subscriptions += Subscription(id, name.ifBlank { "Subscription" }, url, System.currentTimeMillis())
+        val cleanUrl = url.trim()
+        if (!(cleanUrl.startsWith("https://", true) || cleanUrl.startsWith("http://", true))) {
+            message = "Subscription URL must start with http:// or https://"
+            return
+        }
+        val duplicate = subscriptions.firstOrNull { it.url.trim().equals(cleanUrl, true) }
+        if (duplicate != null) {
+            message = "Subscription already exists • ${duplicate.name}"
+            return
+        }
+        val baseId = sha(cleanUrl).take(12)
+        var id = baseId
+        var suffix = 1
+        while (subscriptions.any { it.id == id }) id = "${baseId.take(9)}-${suffix++}"
+        subscriptions += Subscription(
+            id = id,
+            name = name.trim().ifBlank { "Subscription ${subscriptions.size + 1}" },
+            url = cleanUrl,
+            updatedAt = 0L
+        )
         store.saveSubscriptions(subscriptions)
+        message = "Subscription added • refreshing source"
         refresh(id)
     }
 
@@ -258,15 +276,61 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         }
     }
 
-    fun removeSubscription(id: String) {
-        subscriptions.removeAll { it.id == id }
-        profiles.removeAll { it.subscriptionId == id }
+    fun updateSubscription(id: String, name: String, url: String): Boolean {
+        if (busy) {
+            message = "Wait for the current background task before editing a subscription"
+            return false
+        }
+        val index = subscriptions.indexOfFirst { it.id == id }
+        if (index < 0) {
+            message = "Subscription no longer exists"
+            return false
+        }
+        val cleanUrl = url.trim()
+        val cleanName = name.trim().ifBlank { subscriptions[index].name }
+        if (!(cleanUrl.startsWith("https://", true) || cleanUrl.startsWith("http://", true))) {
+            message = "Subscription URL must start with http:// or https://"
+            return false
+        }
+        if (subscriptions.any { it.id != id && it.url.trim().equals(cleanUrl, true) }) {
+            message = "Another subscription already uses this URL"
+            return false
+        }
+        subscriptions[index] = subscriptions[index].copy(name = cleanName, url = cleanUrl)
+        for (i in profiles.indices) {
+            if (profiles[i].subscriptionId == id) profiles[i] = profiles[i].copy(subscriptionName = cleanName)
+        }
         store.saveSubscriptions(subscriptions)
         store.saveProfiles(profiles)
+        message = "Subscription updated • $cleanName"
+        return true
+    }
+
+    fun removeSubscription(id: String) {
+        if (busy) {
+            message = "Wait for the current background task before deleting a subscription"
+            return
+        }
+        val sub = subscriptions.firstOrNull { it.id == id } ?: run {
+            message = "Subscription no longer exists"
+            return
+        }
+        val doomedIds = profiles.filter { it.subscriptionId == id }.map { it.id }.toSet()
+        val activeBelongs = state in setOf("CONNECTED", "CONNECTING", "BLOCKED") &&
+            profiles.any { it.subscriptionId == id && it.name == stateDetail }
+        if (activeBelongs) stopVpn()
+        if (lastProfile()?.id?.let { it in doomedIds } == true) store.setLastProfileId("")
+        subscriptions.removeAll { it.id == id }
+        profiles.removeAll { it.subscriptionId == id }
+        benchmarks = benchmarks.filterNot { it.profileId in doomedIds }
+        store.saveSubscriptions(subscriptions)
+        store.saveProfiles(profiles)
+        message = "Removed ${sub.name} • ${doomedIds.size} nodes deleted"
     }
 
     fun removeProfile(id: String) {
         profiles.removeAll { it.id == id }
+        benchmarks = benchmarks.filterNot { it.profileId == id }
         store.saveProfiles(profiles)
     }
 
@@ -280,17 +344,11 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     }
 
     fun renameSubscription(id: String, name: String) {
-        val trimmed = name.trim()
-        if (trimmed.isBlank()) return
-        val idx = subscriptions.indexOfFirst { it.id == id }
-        if (idx < 0) return
-        subscriptions[idx] = subscriptions[idx].copy(name = trimmed)
-        store.saveSubscriptions(subscriptions)
-        for (i in profiles.indices) {
-            if (profiles[i].subscriptionId == id) profiles[i] = profiles[i].copy(subscriptionName = trimmed)
-        }
-        store.saveProfiles(profiles)
+        val current = subscriptions.firstOrNull { it.id == id } ?: return
+        updateSubscription(id, name, current.url)
     }
+
+    fun subscriptionNodeCount(id: String): Int = profiles.count { it.subscriptionId == id }
 
     /** Reassigns a profile to another subscription bucket (or "manual") so nodes can move between library sources. */
     fun moveProfile(id: String, targetSubscriptionId: String) {
@@ -308,10 +366,21 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
 
     fun lastProfile() = profile(store.lastProfileId())
     fun auto(onConnect: (ProxyProfile) -> Unit) {
+        if (profiles.isEmpty()) {
+            message = "Add a subscription or import a node first"
+            return
+        }
         val last = lastProfile()
         val predicted = last?.let { intelligence.predictedScore(it, settings) } ?: 0.0
-        if (last != null && (!settings.intelligenceEnabled || predicted >= 72.0)) onConnect(last)
-        else smart(onConnect)
+        val historyReady = intelligenceStatus.historyRecords > 0
+        if (last != null && (!settings.intelligenceEnabled || !historyReady || predicted >= 72.0)) {
+            message = if (historyReady) "Connecting remembered route • ${last.name}"
+            else "Connecting last route immediately • intelligence is still learning"
+            onConnect(last)
+        } else {
+            message = "Selecting a healthy route • real Xray path test"
+            smart(onConnect)
+        }
     }
 
     fun markConnected(p: ProxyProfile) {
@@ -378,6 +447,22 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         }
     }
 
+    fun smartRank() {
+        if (profiles.isEmpty()) {
+            message = "Nothing to rank • add a subscription or import nodes first"
+            return
+        }
+        task("Smart rank • testing real Xray routes") {
+            val results = BenchmarkEngine(xray, intelligence).run(profiles.toList(), settings) { done, total, name ->
+                message = "Smart rank $done/$total • $name"
+            }
+            benchmarks = results
+            val best = results.firstOrNull { it.success > 0 }
+            message = if (best == null) "Smart rank finished • no healthy route found"
+            else "Best route • ${best.name} • ${best.latencyMs.toInt()} ms • score ${best.score.toInt()}"
+        }
+    }
+
     fun fullTest(p: ProxyProfile) {
         task("Full test ${p.name}") {
             benchmarks = BenchmarkEngine(xray, intelligence).run(listOf(p), settings.copy(benchCandidates = 1))
@@ -389,7 +474,10 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
 
     /** Real-tunnel tests every profile in the library, ignoring the BenchMode candidate cap. */
     fun testAll() {
-        if (profiles.isEmpty()) return
+        if (profiles.isEmpty()) {
+            message = "Nothing to test • add nodes first"
+            return
+        }
         task("Testing all configs") {
             val all = profiles.toList()
             val testSettings = settings.copy(benchMode = BenchMode.CUSTOM, benchCandidates = all.size)
@@ -400,7 +488,13 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     }
 
     fun audit() {
-        task("Privacy audit") {
+        if (state != "CONNECTED" || !xray.isAlive) {
+            privacy = null
+            message = "Privacy audit needs an active healthy Xray connection"
+            return
+        }
+        privacy = null
+        task("Privacy audit • testing egress and DNS through Xray") {
             privacy = PrivacyAuditor.audit(activeProxyPort())
             val report = privacy
             if (report != null) {
@@ -410,7 +504,7 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
                     updatedAt = System.currentTimeMillis()
                 )
             }
-            message = privacy?.note.orEmpty()
+            message = privacy?.note.orEmpty().ifBlank { "Privacy audit finished" }
         }
     }
 
@@ -606,7 +700,10 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     }
 
     private fun task(label: String, block: () -> Unit) {
-        if (busy) return
+        if (busy) {
+            message = "MarbleNG is busy • finish the current task before starting another"
+            return
+        }
         busy = true
         message = label
         io.execute {

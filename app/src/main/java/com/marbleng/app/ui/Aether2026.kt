@@ -29,6 +29,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -102,6 +103,7 @@ fun Aether2026App(
 ) {
     var tab by remember { mutableStateOf(SpatialTab.DECK) }
     var dialog by remember { mutableStateOf<String?>(null) }
+    var settingsFocus by remember { mutableStateOf<String?>(null) }
     val snackbar = remember { SnackbarHostState() }
 
     LaunchedEffect(repo.message, repo.busy) {
@@ -117,7 +119,10 @@ fun Aether2026App(
         bottomBar = {
             FloatingSpatialDock(
                 selected = tab,
-                onSelect = { tab = it },
+                onSelect = { next ->
+                    settingsFocus = null
+                    tab = next
+                },
                 isLight = repo.settings.theme.equals("light", true),
                 onTheme = {
                     repo.updateSettings(
@@ -142,12 +147,23 @@ fun Aether2026App(
                     repo = repo,
                     onConnect = onConnect,
                     onLibrary = { tab = SpatialTab.LIBRARY },
-                    onSettings = { tab = SpatialTab.SETTINGS }
+                    onPrivacy = {
+                        repo.audit()
+                        dialog = "Privacy"
+                    },
+                    onRouting = {
+                        settingsFocus = "Routing"
+                        tab = SpatialTab.SETTINGS
+                    }
                 )
                 SpatialTab.LIBRARY -> CyberLibrary(repo, onConnect, onImportFile)
                 SpatialTab.LAB -> BenchmarkStudio(repo, onConnect)
                 SpatialTab.RADAR -> DiscoveryRadar(repo)
-                SpatialTab.SETTINGS -> SpatialSettings(repo, onDialog = { dialog = it })
+                SpatialTab.SETTINGS -> SpatialSettings(
+                    repo,
+                    onDialog = { dialog = it },
+                    focusSection = settingsFocus
+                )
             }
 
             if (repo.busy) {
@@ -175,6 +191,29 @@ fun Aether2026App(
                     Text(
                         when (what) {
                             "Logs" -> repo.readLogs()
+                            "Privacy" -> {
+                                val report = repo.privacy
+                                when {
+                                    repo.state != "CONNECTED" ->
+                                        "Connect first. Privacy audit uses the active Xray path."
+                                    repo.busy && report == null ->
+                                        "Running privacy audit through the active Xray route…"
+                                    report == null ->
+                                        "No privacy report yet. Tap Privacy after the tunnel is healthy."
+                                    else -> buildString {
+                                        append("EXIT IP\n")
+                                        append(report.proxyIp.ifBlank { "unverified" })
+                                        append("\n\nLOCATION\n")
+                                        append(report.cloudflareLocation.ifBlank { "unknown" })
+                                        append("\n\nDNS OBSERVATION\n")
+                                        append(report.dnsServers.ifBlank { "inconclusive" })
+                                        append("\n\nSENTINEL\n")
+                                        append(if (repo.sentinel.healthy) "HEALTHY" else repo.sentinel.coverage)
+                                        append("\n\n")
+                                        append(report.note)
+                                    }
+                                }
+                            }
                             "Capabilities" -> repo.capabilities()
                             "System Doctor" -> repo.doctor()
                             "Core lock" -> repo.coreLock()
@@ -441,7 +480,8 @@ private fun CyberDeck(
     repo: AppRepository,
     onConnect: (ProxyProfile) -> Unit,
     onLibrary: () -> Unit,
-    onSettings: () -> Unit
+    onPrivacy: () -> Unit,
+    onRouting: () -> Unit
 ) {
     val downHistory = remember { mutableStateListOf<Float>() }
     val upHistory = remember { mutableStateListOf<Float>() }
@@ -486,6 +526,19 @@ private fun CyberDeck(
     val cpuBudgetPct = intel.thermalBudgetPercent.coerceIn(0, 100)
     val thermalImpact = (100 - intel.thermalBudgetPercent).coerceIn(0, 100)
     val batteryImpact = if (intel.powerSaveMode) 72 else if (connected) 30 else 10
+    val bestRank = repo.benchmarks.firstOrNull { it.success > 0 }
+    val smartRankDetail = when {
+        repo.busy -> "Working…"
+        bestRank != null -> "${bestRank.name.take(12)} • ${bestRank.latencyMs.toInt()} ms"
+        else -> "Benchmark routes"
+    }
+    val privacyDetail = when {
+        !connected -> "Connect first"
+        repo.sentinel.healthy -> "Sentinel healthy"
+        else -> "Audit egress + DNS"
+    }
+    val routingDetail = repo.settings.routingMode.name.replace('_', ' ').lowercase()
+        .replaceFirstChar { it.uppercase() }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -633,19 +686,19 @@ private fun CyberDeck(
             Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                     HoloActionPill(
-                        "◎", "Smart test", "Rank routes", Aether.Cyan, Modifier.weight(1f)
-                    ) { repo.smart(onConnect) }
+                        "◎", "Smart rank", smartRankDetail, Aether.Cyan, Modifier.weight(1f)
+                    ) { repo.smartRank() }
                     HoloActionPill(
                         "▦", "Library", "${repo.profiles.size} nodes", Aether.Amethyst, Modifier.weight(1f)
                     ) { onLibrary() }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                     HoloActionPill(
-                        "◇", "Privacy", "Audit path", Aether.Emerald, Modifier.weight(1f)
-                    ) { repo.audit() }
+                        "◇", "Privacy", privacyDetail, Aether.Emerald, Modifier.weight(1f)
+                    ) { onPrivacy() }
                     HoloActionPill(
-                        "⚙", "Routing", "Geo + policy", Aether.Amber, Modifier.weight(1f)
-                    ) { onSettings() }
+                        "⚙", "Routing", routingDetail, Aether.Amber, Modifier.weight(1f)
+                    ) { onRouting() }
                 }
             }
         }
@@ -1298,15 +1351,34 @@ private fun CyberLibrary(
     var sourceName by remember { mutableStateOf("") }
     var renameTarget by remember { mutableStateOf<ProxyProfile?>(null) }
     var renameText by remember { mutableStateOf("") }
+    var sourceFilter by remember { mutableStateOf("all") }
+    var manageSubscription by remember { mutableStateOf<Subscription?>(null) }
+    var editSubscriptionName by remember { mutableStateOf("") }
+    var editSubscriptionUrl by remember { mutableStateOf("") }
+    var deleteSubscription by remember { mutableStateOf<Subscription?>(null) }
+
+    val sourceIds = repo.subscriptions.map { it.id }
+    LaunchedEffect(sourceIds, sourceFilter) {
+        if (sourceFilter != "all" && sourceFilter != "manual" && sourceFilter !in sourceIds) {
+            sourceFilter = "all"
+        }
+    }
 
     val benchmarkById = repo.benchmarks.associateBy { it.profileId }
     val filtered = repo.profiles.filter {
-        search.isBlank() ||
-            it.name.contains(search, true) ||
-            it.scheme.contains(search, true) ||
-            it.host.contains(search, true) ||
-            it.transport.contains(search, true) ||
-            it.security.contains(search, true)
+        val sourceMatches = when (sourceFilter) {
+            "all" -> true
+            "manual" -> it.subscriptionId == "manual"
+            else -> it.subscriptionId == sourceFilter
+        }
+        sourceMatches && (
+            search.isBlank() ||
+                it.name.contains(search, true) ||
+                it.scheme.contains(search, true) ||
+                it.host.contains(search, true) ||
+                it.transport.contains(search, true) ||
+                it.security.contains(search, true)
+        )
     }
     val naturalOrder = when (repo.settings.nodeSortMode) {
         NodeSortMode.PING -> filtered.sortedWith(
@@ -1370,6 +1442,118 @@ private fun CyberLibrary(
         )
     }
 
+    manageSubscription?.let { target ->
+        AlertDialog(
+            onDismissRequest = { manageSubscription = null },
+            containerColor = Aether.VoidElevated,
+            title = {
+                Column {
+                    Text("Manage subscription", color = Aether.Ink)
+                    Text(
+                        "${repo.subscriptionNodeCount(target.id)} nodes • ${relativeTime(target.updatedAt)}",
+                        color = Aether.InkFaint,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedTextField(
+                        value = editSubscriptionName,
+                        onValueChange = { editSubscriptionName = it },
+                        label = { Text("Source name") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = editSubscriptionUrl,
+                        onValueChange = { editSubscriptionUrl = it },
+                        label = { Text("Subscription URL") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                        CyberButton(
+                            label = "VIEW NODES",
+                            color = Aether.Cyan,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            sourceFilter = target.id
+                            manageSubscription = null
+                        }
+                        CyberButton(
+                            label = "REFRESH",
+                            color = Aether.Amethyst,
+                            modifier = Modifier.weight(1f),
+                            enabled = !repo.busy
+                        ) {
+                            manageSubscription = null
+                            repo.refresh(target.id)
+                        }
+                    }
+                    Text(
+                        "Editing the URL keeps this source identity. Refresh replaces only this source's nodes.",
+                        color = Aether.InkFaint,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        if (repo.updateSubscription(target.id, editSubscriptionName, editSubscriptionUrl)) {
+                            manageSubscription = null
+                        }
+                    },
+                    enabled = !repo.busy && editSubscriptionUrl.isNotBlank()
+                ) { Text("SAVE", color = Aether.Cyan) }
+            },
+            dismissButton = {
+                Row {
+                    TextButton(
+                        onClick = {
+                            deleteSubscription = target
+                            manageSubscription = null
+                        },
+                        enabled = !repo.busy
+                    ) { Text("DELETE", color = Aether.Danger) }
+                    TextButton(onClick = { manageSubscription = null }) {
+                        Text("CLOSE", color = Aether.InkMuted)
+                    }
+                }
+            }
+        )
+    }
+
+    deleteSubscription?.let { target ->
+        AlertDialog(
+            onDismissRequest = { deleteSubscription = null },
+            containerColor = Aether.VoidElevated,
+            title = { Text("Delete ${target.name}?", color = Aether.Danger) },
+            text = {
+                Text(
+                    "This removes the subscription and ${repo.subscriptionNodeCount(target.id)} nodes that belong to it. Other sources are untouched.",
+                    color = Aether.InkMuted
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        if (sourceFilter == target.id) sourceFilter = "all"
+                        repo.removeSubscription(target.id)
+                        deleteSubscription = null
+                    },
+                    enabled = !repo.busy
+                ) { Text("DELETE SOURCE", color = Aether.Danger) }
+            },
+            dismissButton = {
+                TextButton(onClick = { deleteSubscription = null }) {
+                    Text("CANCEL", color = Aether.InkMuted)
+                }
+            }
+        )
+    }
+
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(bottom = 28.dp),
@@ -1379,8 +1563,8 @@ private fun CyberLibrary(
             SpatialHeader(
                 eyebrow = "Node Space",
                 title = "Library",
-                subtitle = "Dense tech rows • fallback clusters • orbit health",
-                status = "${repo.profiles.size} NODES",
+                subtitle = "Separate source views • full subscription management • node health",
+                status = "${repo.subscriptions.size} SUBS • ${repo.profiles.size} NODES",
                 statusColor = Aether.Amethyst
             )
         }
@@ -1470,22 +1654,23 @@ private fun CyberLibrary(
         if (repo.subscriptions.isNotEmpty()) {
             item {
                 SectionLabel(
-                    "Subscription orbit",
-                    "Quota and expiry appear when the provider exposes metadata"
+                    "Subscription manager",
+                    "Every source is separate • view nodes • edit URL/name • refresh • delete"
                 )
             }
 
-            item {
-                Row(
-                    modifier = Modifier
-                        .padding(horizontal = 14.dp)
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(9.dp)
-                ) {
-                    repo.subscriptions.forEach { sub ->
-                        SubscriptionCapsule(sub, repo)
+            items(repo.subscriptions, key = { "subscription-${it.id}" }) { sub ->
+                SubscriptionManagerCard(
+                    sub = sub,
+                    repo = repo,
+                    selected = sourceFilter == sub.id,
+                    onView = { sourceFilter = sub.id },
+                    onManage = {
+                        editSubscriptionName = sub.name
+                        editSubscriptionUrl = sub.url
+                        manageSubscription = sub
                     }
-                }
+                )
             }
         }
 
@@ -1507,6 +1692,55 @@ private fun CyberLibrary(
                     modifier = Modifier.weight(1f),
                     enabled = repo.profiles.isNotEmpty() && !repo.busy
                 ) { repo.testAll() }
+            }
+        }
+
+        item {
+            Column(
+                modifier = Modifier.padding(horizontal = 14.dp),
+                verticalArrangement = Arrangement.spacedBy(7.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column {
+                        Text("SOURCE VIEW", color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
+                        Text(
+                            "Nodes below belong only to the selected source",
+                            color = Aether.InkFaint.copy(alpha = .82f),
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                    HoloBadge(
+                        when (sourceFilter) {
+                            "all" -> "ALL ${repo.profiles.size}"
+                            "manual" -> "MANUAL ${repo.profiles.count { it.subscriptionId == "manual" }}"
+                            else -> repo.subscriptions.firstOrNull { it.id == sourceFilter }?.name?.take(16) ?: "ALL"
+                        },
+                        Aether.Emerald,
+                        compact = true
+                    )
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(7.dp)
+                ) {
+                    CyberChoiceChip("ALL", sourceFilter == "all", Aether.Cyan) { sourceFilter = "all" }
+                    CyberChoiceChip(
+                        "MANUAL (${repo.profiles.count { it.subscriptionId == "manual" }})",
+                        sourceFilter == "manual",
+                        Aether.Amber
+                    ) { sourceFilter = "manual" }
+                    repo.subscriptions.forEach { sub ->
+                        CyberChoiceChip(
+                            "${sub.name} (${repo.subscriptionNodeCount(sub.id)})",
+                            sourceFilter == sub.id,
+                            Aether.Amethyst
+                        ) { sourceFilter = sub.id }
+                    }
+                }
             }
         }
 
@@ -1646,76 +1880,81 @@ private fun CyberLibrary(
 }
 
 @Composable
-private fun SubscriptionCapsule(sub: Subscription, repo: AppRepository) {
+private fun SubscriptionManagerCard(
+    sub: Subscription,
+    repo: AppRepository,
+    selected: Boolean,
+    onView: () -> Unit,
+    onManage: () -> Unit
+) {
+    val count = repo.subscriptionNodeCount(sub.id)
     val used = (sub.uploadBytes + sub.downloadBytes).coerceAtLeast(0L)
-    val fraction = if (sub.totalBytes > 0L) {
-        (used.toFloat() / sub.totalBytes.toFloat()).coerceIn(0f, 1f)
-    } else {
-        0f
+    val fraction = if (sub.totalBytes > 0L) (used.toFloat() / sub.totalBytes.toFloat()).coerceIn(0f, 1f) else 0f
+    val expired = sub.expireAt > 0L && sub.expireAt < System.currentTimeMillis()
+    val color = when {
+        expired -> Aether.Danger
+        selected -> Aether.Cyan
+        else -> Aether.Amethyst
     }
 
     HoloGlass(
-        modifier = Modifier.width(235.dp),
-        glow = if (sub.expireAt > 0L && sub.expireAt < System.currentTimeMillis()) Aether.Danger else Aether.Amethyst,
-        contentPadding = PaddingValues(13.dp)
+        modifier = Modifier.padding(horizontal = 14.dp).fillMaxWidth(),
+        glow = color,
+        glowStrength = if (selected) .32f else .18f,
+        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp)
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                Modifier.size(42.dp).clip(CircleShape)
+                    .background(color.copy(alpha = .10f))
+                    .border(1.dp, color.copy(alpha = .30f), CircleShape),
+                contentAlignment = Alignment.Center
+            ) { Text("S", color = color, style = MaterialTheme.typography.titleMedium) }
+            Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
-                Text(
-                    sub.name,
-                    color = Aether.Ink,
-                    style = MaterialTheme.typography.labelLarge,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    "${repo.profiles.count { it.subscriptionId == sub.id }} nodes • ${relativeTime(sub.updatedAt)}",
-                    color = Aether.InkFaint,
-                    style = MaterialTheme.typography.labelSmall
-                )
+                Text(sub.name, color = Aether.Ink, style = MaterialTheme.typography.titleMedium,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text("$count nodes • ${relativeTime(sub.updatedAt)}", color = Aether.InkFaint,
+                    style = MaterialTheme.typography.labelSmall)
             }
-            TextButton(onClick = { repo.refresh(sub.id) }, enabled = !repo.busy) {
-                Text("↻", color = Aether.Cyan)
-            }
+            if (selected) HoloBadge("VIEWING", Aether.Cyan, compact = true)
         }
 
+        Text(
+            sub.url,
+            color = Aether.InkMuted,
+            style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+
         if (sub.totalBytes > 0L) {
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .height(5.dp)
-                    .clip(CircleShape)
-                    .background(Aether.Void)
-            ) {
+            Box(Modifier.fillMaxWidth().height(5.dp).clip(CircleShape).background(Aether.Void)) {
                 Box(
-                    Modifier
-                        .fillMaxWidth(fraction)
-                        .fillMaxHeight()
-                        .background(
-                            Brush.horizontalGradient(
-                                listOf(Aether.Amethyst, Aether.Cyan)
-                            )
-                        )
+                    Modifier.fillMaxWidth(fraction).fillMaxHeight()
+                        .background(Brush.horizontalGradient(listOf(Aether.Amethyst, Aether.Cyan)))
                 )
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(formatBytes(used), color = Aether.InkMuted, style = MaterialTheme.typography.labelSmall)
-                Text(
-                    formatBytes((sub.totalBytes - used).coerceAtLeast(0L)),
-                    color = Aether.Cyan,
-                    style = MaterialTheme.typography.labelSmall
-                )
+                Text("USED ${formatBytes(used)}", color = Aether.InkMuted,
+                    style = MaterialTheme.typography.labelSmall)
+                Text("LEFT ${formatBytes((sub.totalBytes-used).coerceAtLeast(0L))}", color = Aether.Cyan,
+                    style = MaterialTheme.typography.labelSmall)
             }
         } else {
-            Text("Quota metadata unavailable", color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
+            Text("Provider quota metadata unavailable", color = Aether.InkFaint,
+                style = MaterialTheme.typography.bodySmall)
         }
 
         if (sub.expireAt > 0L) {
-            HoloBadge(
-                "EXP ${relativeFuture(sub.expireAt)}",
-                if (sub.expireAt < System.currentTimeMillis()) Aether.Danger else Aether.Amber,
-                compact = true
-            )
+            HoloBadge("EXP ${relativeFuture(sub.expireAt)}",
+                if (expired) Aether.Danger else Aether.Amber, compact = true)
+        }
+
+        Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+            CyberButton(if (selected) "SHOWING" else "VIEW NODES", Aether.Cyan, Modifier.weight(1f)) { onView() }
+            CyberButton("REFRESH", Aether.Amethyst, Modifier.weight(1f), enabled = !repo.busy) { repo.refresh(sub.id) }
+            CyberButton("MANAGE", Aether.Amber, Modifier.weight(1f), enabled = !repo.busy) { onManage() }
         }
     }
 }
@@ -2647,9 +2886,19 @@ private fun CircularScanner(
 @Composable
 private fun SpatialSettings(
     repo: AppRepository,
-    onDialog: (String) -> Unit
+    onDialog: (String) -> Unit,
+    focusSection: String? = null
 ) {
+    val listState = rememberLazyListState()
+    LaunchedEffect(focusSection) {
+        if (focusSection == "Routing") {
+            delay(45)
+            listState.animateScrollToItem(8)
+        }
+    }
+
     LazyColumn(
+        state = listState,
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(11.dp)
@@ -2670,7 +2919,7 @@ private fun SpatialSettings(
                 subtitle = "Full TUN vs localhost proxy",
                 badge = "PATH",
                 color = Aether.Cyan,
-                initiallyOpen = true
+                initiallyOpen = focusSection == null
             ) {
                 ConnectionSettings(repo)
             }
@@ -2682,7 +2931,7 @@ private fun SpatialSettings(
                 subtitle = "Predictive routing • DNS shield • adaptive recovery",
                 badge = "AI NET",
                 color = Aether.Cyan,
-                initiallyOpen = true
+                initiallyOpen = focusSection == null
             ) {
                 IntelligenceSettings(repo)
             }
@@ -2748,7 +2997,8 @@ private fun SpatialSettings(
                 title = "Routing",
                 subtitle = "Geo assets, direct rules, block rules",
                 badge = "RULES",
-                color = Aether.Emerald
+                color = Aether.Emerald,
+                initiallyOpen = focusSection == "Routing"
             ) {
                 RoutingSettings(repo)
             }
