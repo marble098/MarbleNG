@@ -162,6 +162,16 @@ data class AppSettings(
     val intelligenceEnabled: Boolean = true,
     val configCompatibilityMode: Boolean = true,
     val verifiedPerformanceTuning: Boolean = true,
+
+    // Continuous Marble Autopilot. Cheap active-route monitoring plus real Xray challenger probes.
+    val continuousOptimizerEnabled: Boolean = true,
+    val optimizerIntervalSec: Int = 120,
+    val optimizerCandidateCount: Int = 4,
+    val optimizerDeepScanEvery: Int = 8,
+    val optimizerSwitchCooldownSec: Int = 300,
+    val optimizerConfirmations: Int = 2,
+    val optimizerAvoidHeavyTraffic: Boolean = true,
+
     val healthHistoryEnabled: Boolean = true,
     val raceConnectEnabled: Boolean = true,
     val raceWidth: Int = 3,

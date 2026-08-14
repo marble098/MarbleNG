@@ -3203,6 +3203,37 @@ private fun IntelligenceSettings(repo: AppRepository) {
     ) { repo.updateSettings(repo.settings.copy(verifiedPerformanceTuning = it)) }
 
     SettingSwitch(
+        title = "Continuous Marble Autopilot",
+        subtitle = "Continuously verify the active route and rotate real Xray challenges through the whole library",
+        checked = s.continuousOptimizerEnabled
+    ) { repo.updateSettings(repo.settings.copy(continuousOptimizerEnabled = it)) }
+
+    AnimatedVisibility(s.continuousOptimizerEnabled) {
+        Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+            NumberSetting("Autopilot interval", s.optimizerIntervalSec, 60..900, " sec") {
+                repo.updateSettings(repo.settings.copy(optimizerIntervalSec = it))
+            }
+            NumberSetting("Challengers per cycle", s.optimizerCandidateCount, 2..8) {
+                repo.updateSettings(repo.settings.copy(optimizerCandidateCount = it))
+            }
+            NumberSetting("Deep speed cycle", s.optimizerDeepScanEvery, 3..20, " cycles") {
+                repo.updateSettings(repo.settings.copy(optimizerDeepScanEvery = it))
+            }
+            NumberSetting("Switch cooldown", s.optimizerSwitchCooldownSec, 60..1800, " sec") {
+                repo.updateSettings(repo.settings.copy(optimizerSwitchCooldownSec = it))
+            }
+            NumberSetting("Evidence confirmations", s.optimizerConfirmations, 1..3) {
+                repo.updateSettings(repo.settings.copy(optimizerConfirmations = it))
+            }
+            SettingSwitch(
+                title = "Protect heavy downloads",
+                subtitle = "Delay non-urgent challenger scans while throughput is already high",
+                checked = s.optimizerAvoidHeavyTraffic
+            ) { repo.updateSettings(repo.settings.copy(optimizerAvoidHeavyTraffic = it)) }
+        }
+    }
+
+    SettingSwitch(
         title = "Persistent route intelligence",
         subtitle = "EWMA health history per network fingerprint",
         checked = s.healthHistoryEnabled

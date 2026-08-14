@@ -104,6 +104,13 @@ class AppStore(context: Context) {
         intelligenceEnabled = prefs.getBoolean("intelligenceEnabled", true),
         configCompatibilityMode = prefs.getBoolean("configCompatibilityMode", true),
         verifiedPerformanceTuning = prefs.getBoolean("verifiedPerformanceTuning", true),
+        continuousOptimizerEnabled = prefs.getBoolean("continuousOptimizerEnabled", true),
+        optimizerIntervalSec = prefs.getInt("optimizerIntervalSec", 120).coerceIn(60, 900),
+        optimizerCandidateCount = prefs.getInt("optimizerCandidateCount", 4).coerceIn(2, 8),
+        optimizerDeepScanEvery = prefs.getInt("optimizerDeepScanEvery", 8).coerceIn(3, 20),
+        optimizerSwitchCooldownSec = prefs.getInt("optimizerSwitchCooldownSec", 300).coerceIn(60, 1800),
+        optimizerConfirmations = prefs.getInt("optimizerConfirmations", 2).coerceIn(1, 3),
+        optimizerAvoidHeavyTraffic = prefs.getBoolean("optimizerAvoidHeavyTraffic", true),
         healthHistoryEnabled = prefs.getBoolean("healthHistoryEnabled", true),
         raceConnectEnabled = prefs.getBoolean("raceConnectEnabled", true),
         raceWidth = prefs.getInt("raceWidth", 3),
@@ -206,6 +213,13 @@ class AppStore(context: Context) {
         .putBoolean("intelligenceEnabled", s.intelligenceEnabled)
         .putBoolean("configCompatibilityMode", s.configCompatibilityMode)
         .putBoolean("verifiedPerformanceTuning", s.verifiedPerformanceTuning)
+        .putBoolean("continuousOptimizerEnabled", s.continuousOptimizerEnabled)
+        .putInt("optimizerIntervalSec", s.optimizerIntervalSec.coerceIn(60, 900))
+        .putInt("optimizerCandidateCount", s.optimizerCandidateCount.coerceIn(2, 8))
+        .putInt("optimizerDeepScanEvery", s.optimizerDeepScanEvery.coerceIn(3, 20))
+        .putInt("optimizerSwitchCooldownSec", s.optimizerSwitchCooldownSec.coerceIn(60, 1800))
+        .putInt("optimizerConfirmations", s.optimizerConfirmations.coerceIn(1, 3))
+        .putBoolean("optimizerAvoidHeavyTraffic", s.optimizerAvoidHeavyTraffic)
         .putBoolean("healthHistoryEnabled", s.healthHistoryEnabled)
         .putBoolean("raceConnectEnabled", s.raceConnectEnabled)
         .putInt("raceWidth", s.raceWidth)

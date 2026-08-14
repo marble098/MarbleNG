@@ -349,6 +349,45 @@ private class HealthDb(context: Context) : SQLiteOpenHelper(context, "marble-int
     }
 
     @Synchronized
+    fun recordLiveRoute(
+        profileId: String,
+        networkKey: String,
+        latencyMs: Int,
+        jitterMs: Int,
+        throughputBps: Long
+    ) {
+        val old = get(profileId, networkKey) ?: return
+        val now = System.currentTimeMillis()
+        val n = old.samples + 1
+        val alpha = if (old.samples <= 2) 0.42 else 0.12
+        val latencyNow = latencyMs.coerceAtLeast(1).toDouble()
+        val latency = if (!old.latencyEwma.isFinite() || old.latencyEwma >= 9000.0) latencyNow
+            else old.latencyEwma * (1.0 - alpha) + latencyNow * alpha
+        val jitterNow = jitterMs.coerceAtLeast(0).toDouble()
+        val jitter = if (!old.jitterEwma.isFinite() || old.jitterEwma >= 9000.0) jitterNow
+            else old.jitterEwma * (1.0 - alpha) + jitterNow * alpha
+        val throughputNow = throughputBps.coerceAtLeast(0).toDouble()
+        val throughput = if (old.throughputEwma <= 0.0 && throughputNow > 0.0) throughputNow
+            else old.throughputEwma * (1.0 - alpha) + throughputNow * alpha
+        val values = ContentValues().apply {
+            put("samples", n)
+            put("success_ewma", (old.successEwma * 0.92 + 8.0).coerceIn(0.0, 100.0))
+            put("latency_ewma", latency)
+            put("jitter_ewma", jitter)
+            put("throughput_ewma", throughput)
+            put("failure_streak", 0)
+            put("last_success_at", now)
+            put("last_seen_at", now)
+        }
+        writableDatabase.update(
+            "node_health", values,
+            "profile_id=? AND network_key=?",
+            arrayOf(profileId, networkKey)
+        )
+        trim(networkKey)
+    }
+
+    @Synchronized
     fun recordFailure(profileId: String, networkKey: String) {
         val old = get(profileId, networkKey)
         val values = ContentValues().apply {
@@ -1087,6 +1126,23 @@ class MarbleIntelligence(private val context: Context) {
         db.recordFailure(
             profileId,
             currentSnapshot().key()
+        )
+    }
+
+    fun recordLiveRoute(
+        profileId: String,
+        latencyMs: Int,
+        jitterMs: Int,
+        throughputBps: Long,
+        settings: AppSettings
+    ) {
+        if (!settings.healthHistoryEnabled || profileId.isBlank() || latencyMs <= 0) return
+        db.recordLiveRoute(
+            profileId,
+            currentSnapshot().key(),
+            latencyMs,
+            jitterMs,
+            throughputBps
         )
     }
 

@@ -42,6 +42,7 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     // Live tunnel telemetry. Ping is HTTPS time-to-first-response through the selected Xray path,
     // not the localhost SOCKS handshake.
     var livePingMs by mutableStateOf(0); private set
+    var liveJitterMs by mutableStateOf(0); private set
     var liveDownBps by mutableStateOf(0L); private set
     var liveUpBps by mutableStateOf(0L); private set
 
@@ -75,8 +76,14 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         if (ms > 0) livePingMs = ms
     }
 
+    fun updateRouteQuality(pingMs: Int, jitterMs: Int) {
+        if (pingMs > 0) livePingMs = pingMs
+        if (jitterMs >= 0) liveJitterMs = jitterMs
+    }
+
     fun resetTelemetry() {
         livePingMs = 0
+        liveJitterMs = 0
         liveDownBps = 0
         liveUpBps = 0
     }

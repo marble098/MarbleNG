@@ -128,6 +128,94 @@ class BenchmarkEngine(
         return winner
     }
 
+    /**
+     * Autopilot background comparison. Fast cycles do two real HTTPS samples for latency/jitter.
+     * Deep cycles do three samples plus one bounded 128 KiB download for fresh speed evidence.
+     */
+    fun continuousProbe(
+        profiles: List<ProxyProfile>,
+        settings: AppSettings,
+        deep: Boolean,
+        onProgress: (String) -> Unit = {}
+    ): List<BenchmarkResult> {
+        val unique = profiles.distinctBy { it.id }.take(9)
+        if (unique.isEmpty()) return emptyList()
+        val probeSettings = tuned(settings).copy(
+            benchMode = BenchMode.CUSTOM,
+            benchCandidates = unique.size,
+            benchSamples = if (deep) 3 else 2,
+            benchTimeoutSec = min(settings.benchTimeoutSec, 6),
+            benchBytes = if (deep) 128 * 1024 else 64 * 1024,
+            adaptiveThroughputEnabled = false,
+            adaptiveThroughputMaxBytes = 128 * 1024,
+            udpProbeEnabled = false
+        )
+        val pool = Executors.newFixedThreadPool(min(3, unique.size))
+        val results = Collections.synchronizedList(mutableListOf<BenchmarkResult>())
+        val jobs = unique.mapIndexed { index, profile ->
+            pool.submit {
+                onProgress(profile.name)
+                val result = backgroundCandidate(
+                    profile,
+                    OPTIMIZER_BASE_PORT + index * 4,
+                    probeSettings,
+                    deep
+                )
+                results += result
+                intelligence?.recordBenchmark(profile, result, probeSettings)
+            }
+        }
+        jobs.forEach { runCatching { it.get() } }
+        pool.shutdownNow()
+        val byId = unique.associateBy { it.id }
+        return results.map { result ->
+            val history = byId[result.profileId]?.let {
+                intelligence?.predictedScore(it, probeSettings)
+            } ?: 50.0
+            result.copy(score = continuousScore(result, history, deep))
+        }.sortedWith(
+            compareByDescending<BenchmarkResult> { it.score }
+                .thenBy { it.latencyMs }
+                .thenBy { it.jitterMs }
+        )
+    }
+
+    private fun backgroundCandidate(
+        profile: ProxyProfile,
+        port: Int,
+        settings: AppSettings,
+        deep: Boolean
+    ): BenchmarkResult {
+        val effective = intelligence?.effectiveSettings(profile, settings) ?: settings
+        val measurement = measure(profile, port, effective, includeThroughput = deep)
+        return benchmarkResult(
+            profile,
+            measurement,
+            usedFragment = effective.fragmentEnabled && !settings.fragmentEnabled,
+            usedMux = effective.muxEnabled && !settings.muxEnabled
+        )
+    }
+
+    private fun continuousScore(
+        result: BenchmarkResult,
+        historicalScore: Double,
+        deep: Boolean
+    ): Double {
+        if (result.success <= 0) return -1.0
+        val reliability = result.success.toDouble().coerceIn(0.0, 100.0)
+        val latency = 100.0 * exp(-result.latencyMs.coerceAtMost(5000.0) / 230.0)
+        val jitter = 100.0 * exp(-result.jitterMs.coerceAtMost(3000.0) / 85.0)
+        val history = historicalScore.coerceIn(0.0, 100.0)
+        if (!deep) {
+            return (reliability * 0.40 + latency * 0.32 + jitter * 0.20 + history * 0.08)
+                .coerceIn(0.0, 100.0)
+        }
+        val mbps = result.bytesPerSecond * 8.0 / 1_000_000.0
+        val speed = (ln(1.0 + mbps) / ln(51.0) * 100.0).coerceIn(0.0, 100.0)
+        return (reliability * 0.32 + latency * 0.27 + jitter * 0.18 + speed * 0.15 + history * 0.08)
+            .coerceIn(0.0, 100.0)
+    }
+
     private fun tuned(settings: AppSettings): AppSettings {
         val thermal = intelligence?.thermalBudget(settings) ?: 1.0
         val base = when (settings.benchMode) {
@@ -921,6 +1009,7 @@ class BenchmarkEngine(
     private companion object {
         const val BASE_PORT = 18080
         const val RACE_BASE_PORT = 19280
+        const val OPTIMIZER_BASE_PORT = 20580
         const val DEAD_LATENCY = 99_999.0
     }
 }

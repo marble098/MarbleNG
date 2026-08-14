@@ -7,6 +7,9 @@ import android.os.Build
 import android.os.ParcelFileDescriptor
 import androidx.core.app.ServiceCompat
 import com.marbleng.app.MarbleApplication
+import com.marbleng.app.core.ActiveRouteQuality
+import com.marbleng.app.core.BenchmarkEngine
+import com.marbleng.app.core.ContinuousRouteOptimizer
 import com.marbleng.app.core.NetworkSnapshot
 import com.marbleng.app.core.RuntimeDiagnostics
 import com.marbleng.app.core.SocksHttpClient
@@ -20,6 +23,7 @@ import java.io.Closeable
 import java.util.ArrayDeque
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /**
@@ -47,6 +51,8 @@ class MarbleVpnService : VpnService() {
     private val running = AtomicBoolean(false)
     private val recoveryScheduled = AtomicBoolean(false)
     private val routeProbeRequested = AtomicBoolean(false)
+    private val optimizerScanRequested = AtomicBoolean(false)
+    private val optimizerRunning = AtomicBoolean(false)
 
     // HEV is process-global; start/stop/recovery is serialized here.
     private val connectionWorker = Executors.newSingleThreadExecutor()
@@ -55,6 +61,7 @@ class MarbleVpnService : VpnService() {
     private lateinit var xray: XrayManager
     private lateinit var diag: RuntimeDiagnostics
     private lateinit var notifier: SmartNotifier
+    private lateinit var routeOptimizer: ContinuousRouteOptimizer
     private var networkListener: Closeable? = null
 
     @Volatile private var activeSession = ""
@@ -79,6 +86,7 @@ class MarbleVpnService : VpnService() {
         diag = RuntimeDiagnostics(this)
         notifier = SmartNotifier(this)
         notifier.ensureChannels()
+        routeOptimizer = ContinuousRouteOptimizer(app.repo.intelligence)
         app.repo.intelligence.startMonitoring()
         networkListener = app.repo.intelligence.addNetworkListener(::onUnderlyingNetworkChanged)
         diag.event("VPN", "service-created", "system" to diag.systemSnapshot())
@@ -127,6 +135,8 @@ class MarbleVpnService : VpnService() {
         connectStartedNs = System.nanoTime()
         consecutiveProbeFailures = 0
         recoveryScheduled.set(false)
+        optimizerScanRequested.set(false)
+        routeOptimizer.reset(System.currentTimeMillis())
         synchronized(recoveryTried) {
             recoveryTried.clear()
             recoveryTried += profile.id
@@ -442,6 +452,7 @@ class MarbleVpnService : VpnService() {
                 if (tick == 2 || tick % ROUTE_PROBE_INTERVAL_TICKS == 0 || routeProbeRequested.getAndSet(false)) {
                     sampleRouteLatency(session, port)
                 }
+                maybeScheduleOptimizer(session)
                 if (!sleepQuietly(1_000L)) return@execute
                 tick++
             }
@@ -477,13 +488,15 @@ class MarbleVpnService : VpnService() {
                 if (tick == 1 || tick % ROUTE_PROBE_INTERVAL_TICKS == 0 || routeProbeRequested.getAndSet(false)) {
                     sampleRouteLatency(session, port)
                 }
+                maybeScheduleOptimizer(session)
                 if (tick % 5 == 0 && (activeSettings ?: repo.settings).notificationLiveStats) {
                     val name = repo.profile(activeProfileId)?.name ?: "Active route"
                     val ping = repo.livePingMs.takeIf { it > 0 }?.let { "${it} ms" } ?: "— ms"
+                    val jitter = "J ${repo.liveJitterMs} ms"
                     notifyNow(
                         "Protected • $name",
                         true,
-                        "$ping • ↓ ${SmartNotifier.formatRate(repo.liveDownBps)} • ↑ ${SmartNotifier.formatRate(repo.liveUpBps)}"
+                        "$ping • $jitter • ↓ ${SmartNotifier.formatRate(repo.liveDownBps)} • ↑ ${SmartNotifier.formatRate(repo.liveUpBps)}"
                     )
                 }
                 if (tick % 10 == 0) {
@@ -493,6 +506,119 @@ class MarbleVpnService : VpnService() {
                 tick++
             }
             repo.resetTelemetry()
+        }
+    }
+
+    private fun activeRouteQuality(): ActiveRouteQuality {
+        val values = synchronized(latencyWindow) { latencyWindow.toList() }
+        if (values.isEmpty()) return ActiveRouteQuality(0, 0, 0)
+        val sorted = values.sorted()
+        val median = sorted[sorted.size / 2]
+        val deviations = values.map { abs(it - median) }.sorted()
+        val jitter = deviations[deviations.size / 2]
+        return ActiveRouteQuality(median, jitter, values.size)
+    }
+
+    private fun maybeScheduleOptimizer(session: String) {
+        if (!isCurrent(session) || recoveryScheduled.get()) return
+        val app = application as MarbleApplication
+        val repo = app.repo
+        val settings = repo.settings
+        if (!settings.continuousOptimizerEnabled) return
+        val quality = activeRouteQuality()
+        val force = optimizerScanRequested.getAndSet(false)
+        val thermal = repo.intelligence.thermalBudget(settings)
+        if (!routeOptimizer.shouldScan(settings, quality, thermal, repo.liveDownBps, force)) return
+        if (!optimizerRunning.compareAndSet(false, true)) return
+        monitorWorker.execute {
+            try {
+                runOptimizerCycle(session, quality)
+            } finally {
+                optimizerRunning.set(false)
+            }
+        }
+    }
+
+    private fun runOptimizerCycle(session: String, quality: ActiveRouteQuality) {
+        if (!isCurrent(session) || recoveryScheduled.get()) return
+        val app = application as MarbleApplication
+        val repo = app.repo
+        val active = repo.profile(activeProfileId) ?: return
+        val settings = repo.settings
+        val all = repo.profiles.toList()
+        if (all.size < 2) return
+        val plan = routeOptimizer.plan(active, all, settings)
+        if (plan.candidates.isEmpty()) return
+        val probeSet = (listOf(active) + plan.candidates).distinctBy { it.id }
+        diag.event(
+            "OPTIMIZER", "cycle-start",
+            "session" to session,
+            "cycle" to plan.cycle,
+            "deep" to plan.deep,
+            "active" to active.name,
+            "activePing" to quality.latencyMs,
+            "activeJitter" to quality.jitterMs,
+            "challengers" to plan.candidates.size
+        )
+        val results = BenchmarkEngine(xray, repo.intelligence).continuousProbe(
+            probeSet, settings, plan.deep
+        ) { name ->
+            repo.intelligence.setDecision("Autopilot cycle ${plan.cycle} • testing $name")
+        }
+        if (!isCurrent(session) || recoveryScheduled.get()) return
+        val decision = routeOptimizer.resolveTarget(active, all, results, settings)
+        repo.intelligence.setDecision(decision.summary)
+        repo.refreshIntelligenceStatus()
+        val target = decision.target ?: return
+        if (target.id == activeProfileId || !isCurrent(session)) return
+        scheduleOptimizerSwitch(session, target, decision.summary)
+    }
+
+    @Synchronized
+    private fun scheduleOptimizerSwitch(
+        session: String,
+        target: ProxyProfile,
+        reason: String
+    ) {
+        if (!isCurrent(session)) return
+        if (!recoveryScheduled.compareAndSet(false, true)) return
+        val app = application as MarbleApplication
+        val repo = app.repo
+        val settings = repo.settings
+        val holdTun = activeMode == MODE_TUN && tun != null
+        routeOptimizer.noteSwitch()
+        optimizerScanRequested.set(false)
+        repo.setRuntimeState("CONNECTING", "Autopilot → ${target.name}")
+        diag.event(
+            "OPTIMIZER", "switch",
+            "session" to session,
+            "from" to activeProfileId.take(12),
+            "to" to target.id.take(12),
+            "target" to target.name,
+            "failClosed" to holdTun,
+            "reason" to reason
+        )
+        notifier.alert(
+            SmartNotificationKind.RECOVERY,
+            "autopilot:$session:${target.id}",
+            "Marble Autopilot",
+            if (holdTun) "Moving to ${target.name} • TUN remains fail-closed during handoff"
+            else "Moving local proxy to ${target.name}",
+            settings,
+            minIntervalOverrideMs = 60_000L
+        )
+        if (hevActive) runCatching { HevTunnel.quit() }
+        xray.stop()
+        closeHevFd()
+        repo.resetTelemetry()
+        updateSentinel(killSwitch = holdTun)
+        connectionWorker.execute {
+            if (!isCurrent(session)) {
+                recoveryScheduled.set(false)
+                return@execute
+            }
+            recoveryScheduled.set(false)
+            recoverRoute(target, session)
         }
     }
 
@@ -598,42 +724,26 @@ class MarbleVpnService : VpnService() {
         consecutiveProbeFailures =
             0
 
-        val median =
-            synchronized(
-                latencyWindow
-            ) {
-                latencyWindow
-                    .addLast(ms)
-
-                while (
-                    latencyWindow.size >
-                    5
-                ) {
-                    latencyWindow
-                        .removeFirst()
-                }
-
-                latencyWindow
-                    .toList()
-                    .sorted()[
-                        latencyWindow.size /
-                            2
-                    ]
+        val quality =
+            synchronized(latencyWindow) {
+                latencyWindow.addLast(ms)
+                while (latencyWindow.size > 7) latencyWindow.removeFirst()
+                val values = latencyWindow.toList()
+                val sorted = values.sorted()
+                val median = sorted[sorted.size / 2]
+                val deviations = values.map { abs(it - median) }.sorted()
+                val jitter = deviations[deviations.size / 2]
+                ActiveRouteQuality(median, jitter, values.size)
             }
 
-        repo.updatePing(
-            median
+        repo.updateRouteQuality(quality.latencyMs, quality.jitterMs)
+        repo.intelligence.recordLiveRoute(
+            activeProfileId,
+            quality.latencyMs,
+            quality.jitterMs,
+            repo.liveDownBps + repo.liveUpBps,
+            activeSettings ?: repo.settings
         )
-
-        repo.intelligence
-            .recordRoute(
-                activeProfileId,
-                median,
-                repo.liveDownBps +
-                    repo.liveUpBps,
-                activeSettings
-                    ?: repo.settings
-            )
 
         return true
     }
@@ -697,6 +807,9 @@ class MarbleVpnService : VpnService() {
             settings
                 .networkChangeRecoveryEnabled
         ) {
+            synchronized(latencyWindow) { latencyWindow.clear() }
+            routeOptimizer.reset(0L)
+            optimizerScanRequested.set(true)
             routeProbeRequested
                 .set(true)
 
@@ -1077,6 +1190,8 @@ class MarbleVpnService : VpnService() {
         activeSession = ""
         recoveryScheduled.set(false)
         routeProbeRequested.set(false)
+        optimizerScanRequested.set(false)
+        if (::routeOptimizer.isInitialized) routeOptimizer.reset(System.currentTimeMillis())
         if (hevActive) runCatching { HevTunnel.quit() }
         hevActive = false
         xray.stop()
