@@ -37,7 +37,26 @@ class XrayManager(private val context: Context) {
      * check for anything actually new.
      */
     private val validatedConfigHashes = LinkedHashSet<String>()
-    private val validatedCacheLimit = 16
+    private val validatedCacheLimit = 96
+
+    private fun validationCached(key: String): Boolean =
+        synchronized(validatedConfigHashes) {
+            key in validatedConfigHashes
+        }
+
+    private fun rememberValidation(key: String) {
+        synchronized(validatedConfigHashes) {
+            validatedConfigHashes += key
+            while (
+                validatedConfigHashes.size >
+                validatedCacheLimit
+            ) {
+                validatedConfigHashes.remove(
+                    validatedConfigHashes.first()
+                )
+            }
+        }
+    }
 
     val isAlive: Boolean get() = process?.isAlive == true
     val logFile: File get() = File(context.filesDir, "logs/xray.log")
@@ -299,7 +318,7 @@ class XrayManager(private val context: Context) {
             config.writeText(configText)
             val configHash = sha256(configText)
 
-            if (configHash !in validatedConfigHashes) {
+            if (!validationCached(configHash)) {
                 val testProcess = createProcessBuilder("run", "-test", "-c", config.absolutePath)
                     .redirectOutput(ProcessBuilder.Redirect.appendTo(logFile))
                     .start()
@@ -313,10 +332,7 @@ class XrayManager(private val context: Context) {
                         "Xray rejected the generated config (exit ${testProcess.exitValue()}): ${lastLogHint()}"
                     )
                 }
-                validatedConfigHashes += configHash
-                while (validatedConfigHashes.size > validatedCacheLimit) {
-                    validatedConfigHashes.remove(validatedConfigHashes.first())
-                }
+                rememberValidation(configHash)
             }
 
             val startedProcess = createProcessBuilder("run", "-c", config.absolutePath)
@@ -324,7 +340,7 @@ class XrayManager(private val context: Context) {
                 .start()
             process = startedProcess
 
-            if (!waitPort(port, 7_000L, startedProcess)) {
+            if (!waitSocksPort(port, 7_000L, startedProcess)) {
                 val hint = if (startedProcess.isAlive) {
                     "SOCKS listener did not open"
                 } else {
@@ -388,6 +404,15 @@ class XrayManager(private val context: Context) {
 
         val config = File(context.cacheDir, "bench-$port.json")
         val benchmarkLog = File(context.cacheDir, "xray-bench-$port.log")
+        if (
+            benchmarkLog.isFile &&
+            benchmarkLog.length() >
+            512L * 1024L
+        ) {
+            runCatching {
+                benchmarkLog.delete()
+            }
+        }
 
         return runCatching {
             val benchmarkSettings = settings.copy(
@@ -405,7 +430,7 @@ class XrayManager(private val context: Context) {
             val configText = XrayConfigHardener.harden(profile.configJson, port, benchmarkSettings)
             config.writeText(configText)
             val validationKey = "bench:" + sha256(profile.configJson + "|" + benchmarkSettings.toString())
-            val needsValidation = synchronized(validatedConfigHashes) { validationKey !in validatedConfigHashes }
+            val needsValidation = !validationCached(validationKey)
 
             if (needsValidation) {
                 val testProcess = createProcessBuilder("run", "-test", "-c", config.absolutePath)
@@ -418,19 +443,14 @@ class XrayManager(private val context: Context) {
                 }
                 if (testProcess.exitValue() != 0) return@runCatching false
 
-                synchronized(validatedConfigHashes) {
-                    validatedConfigHashes += validationKey
-                    while (validatedConfigHashes.size > validatedCacheLimit) {
-                        validatedConfigHashes.remove(validatedConfigHashes.first())
-                    }
-                }
+                rememberValidation(validationKey)
             }
 
             val temporaryProcess = createProcessBuilder("run", "-c", config.absolutePath)
                 .redirectOutput(ProcessBuilder.Redirect.appendTo(benchmarkLog))
                 .start()
             try {
-                if (!waitPort(port, 7_000L, temporaryProcess)) false
+                if (!waitSocksPort(port, 7_000L, temporaryProcess)) false
                 else {
                     block(port)
                     true
@@ -445,25 +465,82 @@ class XrayManager(private val context: Context) {
         }
     }
 
-    private fun waitPort(port: Int, timeoutMs: Long, target: Process? = null): Boolean {
-        val deadline = System.currentTimeMillis() + timeoutMs
-        while (System.currentTimeMillis() < deadline) {
-            val connected = runCatching {
-                Socket().use { socket ->
-                    socket.connect(InetSocketAddress("127.0.0.1", port), 200)
-                }
-            }.isSuccess
-            if (connected) return true
+    private fun waitSocksPort(
+        port: Int,
+        timeoutMs: Long,
+        target: Process? = null
+    ): Boolean {
+        val deadline =
+            System.currentTimeMillis() +
+                timeoutMs
 
-            if (target != null && !target.isAlive) return false
+        while (
+            System.currentTimeMillis() <
+            deadline
+        ) {
+            val ready =
+                runCatching {
+                    Socket().use {
+                        socket ->
+                        socket.connect(
+                            InetSocketAddress(
+                                "127.0.0.1",
+                                port
+                            ),
+                            250
+                        )
+                        socket.soTimeout =
+                            350
+
+                        val output =
+                            socket
+                                .getOutputStream()
+
+                        output.write(
+                            byteArrayOf(
+                                0x05,
+                                0x01,
+                                0x00
+                            )
+                        )
+                        output.flush()
+
+                        val input =
+                            socket
+                                .getInputStream()
+
+                        val version =
+                            input.read()
+                        val method =
+                            input.read()
+
+                        version == 0x05 &&
+                            method == 0x00
+                    }
+                }.getOrDefault(false)
+
+            if (ready) {
+                return true
+            }
+
+            if (
+                target != null &&
+                !target.isAlive
+            ) {
+                return false
+            }
 
             try {
-                Thread.sleep(100L)
-            } catch (_: InterruptedException) {
-                Thread.currentThread().interrupt()
+                Thread.sleep(80L)
+            } catch (
+                _: InterruptedException
+            ) {
+                Thread.currentThread()
+                    .interrupt()
                 return false
             }
         }
+
         return false
     }
 

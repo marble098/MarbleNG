@@ -78,45 +78,148 @@ class BenchmarkEngine(
         onProgress: (String) -> Unit = {}
     ): Pair<ProxyProfile, BenchmarkResult>? {
         if (profiles.isEmpty()) return null
-        val width = settings.raceWidth.coerceIn(2, 4).coerceAtMost(profiles.size)
-        val raceSettings = tuned(settings).copy(
-            benchCandidates = width,
-            benchSamples = 1,
-            benchTimeoutSec = min(settings.benchTimeoutSec, 5),
-            benchBytes = min(settings.benchBytes, 64 * 1024),
-            adaptiveMuxEnabled = false,
-            adaptiveFragmentEnabled = false
-        )
-        val candidates = selectCandidates(profiles, raceSettings, usePrecheck = true).take(width)
-        if (candidates.isEmpty()) return null
 
-        val pool = Executors.newFixedThreadPool(candidates.size)
-        val completion = ExecutorCompletionService<Pair<ProxyProfile, BenchmarkResult>>(pool)
-        val futures = candidates.mapIndexed { idx, p ->
-            completion.submit {
-                onProgress(p.name)
-                p to quickCandidate(p, RACE_BASE_PORT + idx * 3, raceSettings)
-            }
+        val width =
+            settings.raceWidth
+                .coerceIn(2, 4)
+                .coerceAtMost(profiles.size)
+
+        val raceSettings =
+            tuned(settings).copy(
+                benchCandidates = width,
+                benchSamples = 1,
+                benchTimeoutSec =
+                    min(
+                        settings.benchTimeoutSec,
+                        5
+                    ),
+                benchBytes =
+                    min(
+                        settings.benchBytes,
+                        64 * 1024
+                    )
+            )
+
+        // Keep learned adaptive preferences. quickCandidate does not perform expensive new
+        // Fragment/Mux exploration; it only honors preferences already learned for this network.
+        val candidates =
+            selectCandidates(
+                profiles,
+                raceSettings,
+                usePrecheck = true
+            ).take(width)
+
+        if (candidates.isEmpty()) {
+            return null
         }
-        var winner: Pair<ProxyProfile, BenchmarkResult>? = null
+
+        val pool =
+            Executors.newFixedThreadPool(
+                candidates.size
+            )
+
+        val completion =
+            ExecutorCompletionService<
+                Pair<
+                    ProxyProfile,
+                    BenchmarkResult
+                >
+            >(pool)
+
+        val futures =
+            candidates.mapIndexed {
+                idx,
+                profile ->
+                completion.submit {
+                    onProgress(
+                        profile.name
+                    )
+                    profile to
+                        quickCandidate(
+                            profile,
+                            RACE_BASE_PORT +
+                                idx * 3,
+                            raceSettings
+                        )
+                }
+            }
+
+        var winner:
+            Pair<
+                ProxyProfile,
+                BenchmarkResult
+            >? = null
+
+        var remaining =
+            candidates.size
+
+        val deadline =
+            System.nanoTime() +
+                TimeUnit.SECONDS.toNanos(
+                    (
+                        raceSettings
+                            .benchTimeoutSec +
+                            5
+                    ).toLong()
+                )
+
         try {
-            for (ignored in candidates.indices) {
-                val result = runCatching {
-                    completion.poll((raceSettings.benchTimeoutSec + 4).toLong(), TimeUnit.SECONDS)?.get()
-                }.getOrNull() ?: continue
-                intelligence?.recordBenchmark(result.first, result.second, raceSettings)
-                if (result.second.success > 0) {
-                    winner = result
+            while (remaining > 0) {
+                val left =
+                    deadline -
+                        System.nanoTime()
+
+                if (left <= 0L) {
+                    break
+                }
+
+                val future =
+                    completion.poll(
+                        left,
+                        TimeUnit.NANOSECONDS
+                    ) ?: break
+
+                remaining--
+
+                val result =
+                    runCatching {
+                        future.get()
+                    }.getOrNull()
+                        ?: continue
+
+                intelligence
+                    ?.recordBenchmark(
+                        result.first,
+                        result.second,
+                        raceSettings
+                    )
+
+                if (
+                    result.second.success >
+                    0
+                ) {
+                    winner =
+                        result
                     break
                 }
             }
         } finally {
-            futures.forEach { if (!it.isDone) it.cancel(true) }
+            futures.forEach {
+                if (!it.isDone) {
+                    it.cancel(true)
+                }
+            }
             pool.shutdownNow()
         }
-        winner?.let { (p, r) ->
-            intelligence?.setDecision("Race winner ${p.name} • ${r.latencyMs.toInt()} ms")
+
+        winner?.let {
+            (profile, result) ->
+            intelligence?.setDecision(
+                "Race winner ${profile.name} • " +
+                    "${result.latencyMs.toInt()} ms"
+            )
         }
+
         return winner
     }
 
@@ -158,42 +261,317 @@ class BenchmarkEngine(
         s: AppSettings,
         usePrecheck: Boolean
     ): List<ProxyProfile> {
-        val ordered = intelligence?.orderCandidates(profiles, s) ?: profiles
-        val maxCandidates = s.benchCandidates.coerceAtMost(profiles.size)
-        if (!usePrecheck) return ordered.take(maxCandidates)
+        val ordered =
+            intelligence
+                ?.orderCandidates(
+                    profiles,
+                    s
+                ) ?: profiles
 
-        val pool = Executors.newFixedThreadPool(s.tcpWorkers.coerceIn(1, 32))
-        val probes = profiles.map { p ->
-            pool.submit<Pair<ProxyProfile, Double>> {
-                p to if (isUdpNative(p)) 0.0 else tcpLatency(p, s.tcpPrecheckTimeoutMs)
+        val maxCandidates =
+            s.benchCandidates
+                .coerceIn(
+                    1,
+                    profiles.size
+                )
+
+        if (!usePrecheck) {
+            return ordered
+                .take(maxCandidates)
+        }
+
+        val workers =
+            s.tcpWorkers
+                .coerceIn(1, 32)
+
+        // Huge subscriptions no longer receive a TCP SYN test for every config on every tap.
+        val precheckBudget =
+            min(
+                profiles.size,
+                max(
+                    maxCandidates * 4,
+                    max(
+                        24,
+                        workers * 2
+                    )
+                )
+            )
+
+        val exploreBudget =
+            max(
+                4,
+                precheckBudget / 4
+            )
+
+        val knownPool =
+            ordered
+                .filter {
+                    intelligence
+                        ?.hasHistory(it) ==
+                        true
+                }
+                .take(
+                    (
+                        precheckBudget -
+                            exploreBudget
+                    ).coerceAtLeast(0)
+                )
+
+        // Rotate unknown exploration every six hours so new nodes are not permanently starved.
+        val rotation =
+            (
+                (
+                    System.currentTimeMillis() /
+                        (
+                            6L *
+                            60L *
+                            60L *
+                            1000L
+                        )
+                ).toInt() xor
+                    (
+                        intelligence
+                            ?.currentSnapshot()
+                            ?.key()
+                            ?.hashCode()
+                            ?: 0
+                    )
+            )
+
+        val explorePool =
+            profiles
+                .filter {
+                    intelligence
+                        ?.hasHistory(it) !=
+                        true
+                }
+                .sortedBy {
+                    it.id.hashCode() xor
+                        rotation
+                }
+                .take(
+                    precheckBudget -
+                        knownPool.size
+                )
+
+        val poolCandidates =
+            (
+                knownPool +
+                    explorePool +
+                    ordered
+            )
+                .distinctBy {
+                    it.id
+                }
+                .take(
+                    precheckBudget
+                )
+
+        val pool =
+            Executors.newFixedThreadPool(
+                workers
+            )
+
+        val completion =
+            ExecutorCompletionService<
+                Pair<
+                    ProxyProfile,
+                    Double
+                >
+            >(pool)
+
+        val futures =
+            poolCandidates.map {
+                profile ->
+                completion.submit {
+                    profile to
+                        if (
+                            isUdpNative(
+                                profile
+                            )
+                        ) {
+                            0.0
+                        } else {
+                            tcpLatency(
+                                profile,
+                                s.tcpPrecheckTimeoutMs
+                            )
+                        }
+                }
             }
-        }.mapNotNull { runCatching { it.get() }.getOrNull() }
-        pool.shutdown()
 
-        val alive = probes.filter { (p, latency) -> isUdpNative(p) || latency < DEAD_LATENCY }
-        if (alive.isEmpty()) return emptyList()
-        val latencyById = alive.associate { it.first.id to it.second }
+        val alive =
+            mutableListOf<
+                Pair<
+                    ProxyProfile,
+                    Double
+                >
+            >()
 
-        // History is the primary rank. TCP latency is only a tie-breaker for unknown/equal history.
-        val historicallyOrdered = alive.map { it.first }.sortedWith(
-            compareByDescending<ProxyProfile> { intelligence?.predictedScore(it, s) ?: 50.0 }
-                .thenBy { latencyById[it.id] ?: DEAD_LATENCY }
+        var remaining =
+            futures.size
+
+        val waves =
+            (
+                poolCandidates.size +
+                    workers -
+                    1
+            ) / workers
+
+        val deadlineMs =
+            (
+                s.tcpPrecheckTimeoutMs
+                    .toLong() *
+                    waves.coerceAtMost(4) +
+                    750L
+            ).coerceAtMost(
+                8_500L
+            )
+
+        val deadline =
+            System.nanoTime() +
+                TimeUnit.MILLISECONDS
+                    .toNanos(
+                        deadlineMs
+                    )
+
+        try {
+            while (
+                remaining >
+                0
+            ) {
+                val left =
+                    deadline -
+                        System.nanoTime()
+
+                if (left <= 0L) {
+                    break
+                }
+
+                val future =
+                    completion.poll(
+                        left,
+                        TimeUnit.NANOSECONDS
+                    ) ?: break
+
+                remaining--
+
+                val pair =
+                    runCatching {
+                        future.get()
+                    }.getOrNull()
+                        ?: continue
+
+                if (
+                    isUdpNative(
+                        pair.first
+                    ) ||
+                    pair.second <
+                    DEAD_LATENCY
+                ) {
+                    alive += pair
+                }
+
+                // Enough healthy pre-gate survivors; let actual Xray tunnel tests decide.
+                if (
+                    alive.size >=
+                    maxCandidates * 2 &&
+                    alive.size >=
+                    maxCandidates + 4
+                ) {
+                    break
+                }
+            }
+        } finally {
+            futures.forEach {
+                if (!it.isDone) {
+                    it.cancel(true)
+                }
+            }
+            pool.shutdownNow()
+        }
+
+        if (alive.isEmpty()) {
+            return emptyList()
+        }
+
+        val latencyById =
+            alive.associate {
+                it.first.id to
+                    it.second
+            }
+
+        val historicallyOrdered =
+            alive
+                .map {
+                    it.first
+                }
+                .sortedWith(
+                    compareByDescending<
+                        ProxyProfile
+                    > {
+                        intelligence
+                            ?.predictedScore(
+                                it,
+                                s
+                            ) ?: 50.0
+                    }.thenBy {
+                        latencyById[
+                            it.id
+                        ] ?: DEAD_LATENCY
+                    }
+                )
+
+        val exploreCount =
+            if (
+                maxCandidates >=
+                8
+            ) {
+                max(
+                    1,
+                    maxCandidates /
+                        5
+                )
+            } else {
+                1
+            }
+
+        val known =
+            historicallyOrdered
+                .filter {
+                    intelligence
+                        ?.hasHistory(it) ==
+                        true
+                }
+                .take(
+                    (
+                        maxCandidates -
+                            exploreCount
+                    ).coerceAtLeast(0)
+                )
+
+        val unknown =
+            historicallyOrdered
+                .filter {
+                    intelligence
+                        ?.hasHistory(it) !=
+                        true
+                }
+                .take(
+                    exploreCount
+                )
+
+        return (
+            known +
+                unknown +
+                historicallyOrdered
         )
-
-        // Reserve a small exploration slice so new configs can earn history instead of being
-        // permanently starved by established nodes.
-        val exploreCount = if (maxCandidates >= 8) max(1, maxCandidates / 5) else 1
-        val known = historicallyOrdered.filter {
-            (intelligence?.predictedScore(it, s) ?: 50.0) != 50.0
-        }.take(maxCandidates - exploreCount)
-        val unknown = alive.map { it.first }
-            .filterNot { p -> known.any { it.id == p.id } }
-            .sortedBy { latencyById[it.id] ?: DEAD_LATENCY }
-            .take(exploreCount)
-
-        return (known + unknown + historicallyOrdered)
-            .distinctBy { it.id }
-            .take(maxCandidates)
+            .distinctBy {
+                it.id
+            }
+            .take(
+                maxCandidates
+            )
     }
 
     private data class Measurement(
@@ -328,7 +706,24 @@ class BenchmarkEngine(
         val success = ok * 100 / sampleCount
         val latency = if (times.isEmpty()) 9999.0 else times.sorted()[times.size / 2]
         val mean = if (times.isEmpty()) 9999.0 else times.average()
-        val jitter = if (times.size < 2) 0.0 else sqrt(times.sumOf { (it - mean) * (it - mean) } / times.size)
+        val jitter = when {
+            times.isEmpty() ->
+                9999.0
+            times.size < 2 ->
+                max(
+                    8.0,
+                    latency *
+                        0.08
+                )
+            else ->
+                sqrt(
+                    times.sumOf {
+                        (it - mean) *
+                            (it - mean)
+                    } /
+                        times.size
+                )
+        }
         return Measurement(success, latency, jitter, speed, udpSuccess)
     }
 
@@ -362,44 +757,233 @@ class BenchmarkEngine(
         return Measurement(if (ok == 1) 100 else 0, elapsed, 0.0, 0.0, 0)
     }
 
-    private fun rank(raw: List<BenchmarkResult>, settings: AppSettings): List<BenchmarkResult> {
-        if (raw.isEmpty()) return raw
-        return raw.map { r ->
-            val latency = if (r.success <= 0) 0.0 else 100.0 * exp(-r.latencyMs.coerceAtMost(5000.0) / 240.0)
-            val jitter = if (r.success <= 0) 0.0 else 100.0 * exp(-r.jitterMs.coerceAtMost(3000.0) / 95.0)
-            val speed = if (r.success <= 0) 0.0 else {
-                val mbps = r.bytesPerSecond * 8.0 / 1_000_000.0
-                (ln(1.0 + mbps) / ln(1.0 + 100.0) * 100.0).coerceIn(0.0, 100.0)
-            }
-            val reliability = r.success.toDouble().coerceIn(0.0, 100.0)
-            val udp = r.udpSuccess.toDouble().coerceIn(0.0, 100.0)
-            // Historical preference already shaped candidate selection; final ranking remains based
-            // on current-session measurements so stale history can never override fresh evidence.
-            val interactive = reliability * 0.30 + latency * 0.45 + jitter * 0.25
-            val streaming = reliability * 0.30 + speed * 0.55 + jitter * 0.15
-            val stability = reliability * 0.55 + jitter * 0.25 + latency * 0.20
-            val resilience = reliability * 0.78 + udp * 0.22
+    private fun rank(
+        raw: List<BenchmarkResult>,
+        settings: AppSettings
+    ): List<BenchmarkResult> {
+        if (raw.isEmpty()) {
+            return raw
+        }
 
-            val score = when (settings.workloadProfile) {
-                WorkloadProfile.INTERACTIVE -> interactive
-                WorkloadProfile.STREAMING -> streaming
-                WorkloadProfile.STABILITY -> stability
-                WorkloadProfile.STEALTH -> resilience
-                WorkloadProfile.AUTO -> when (settings.benchMode) {
-                    BenchMode.RELIABLE -> stability
-                    BenchMode.FAST, BenchMode.TURBO -> interactive * 0.55 + streaming * 0.45
-                    BenchMode.BALANCED, BenchMode.CUSTOM ->
-                        interactive * 0.32 + streaming * 0.28 + stability * 0.30 + resilience * 0.10
-                }
-            }
-            r.copy(
-                score = if (r.success <= 0) -1.0 else score,
-                interactiveScore = interactive,
-                streamingScore = streaming,
-                stabilityScore = stability,
-                resilienceScore = resilience
+        val sampleN =
+            settings.benchSamples
+                .coerceIn(1, 8)
+                .toDouble()
+
+        val confidence =
+            (
+                sampleN /
+                    4.0
+            ).coerceIn(
+                0.25,
+                1.0
             )
-        }.sortedWith(compareByDescending<BenchmarkResult> { it.score }.thenBy { it.latencyMs })
+
+        return raw.map {
+            result ->
+
+            val latency =
+                if (
+                    result.success <=
+                    0
+                ) {
+                    0.0
+                } else {
+                    100.0 *
+                        exp(
+                            -result.latencyMs
+                                .coerceAtMost(
+                                    5000.0
+                                ) /
+                                240.0
+                        )
+                }
+
+            val jitter =
+                if (
+                    result.success <=
+                    0
+                ) {
+                    0.0
+                } else {
+                    100.0 *
+                        exp(
+                            -result.jitterMs
+                                .coerceAtMost(
+                                    3000.0
+                                ) /
+                                95.0
+                        )
+                }
+
+            val speed =
+                if (
+                    result.success <=
+                    0
+                ) {
+                    0.0
+                } else {
+                    val mbps =
+                        result.bytesPerSecond *
+                            8.0 /
+                            1_000_000.0
+
+                    (
+                        ln(
+                            1.0 +
+                                mbps
+                        ) /
+                            ln(
+                                101.0
+                            ) *
+                            100.0
+                    ).coerceIn(
+                        0.0,
+                        100.0
+                    )
+                }
+
+            val observedReliability =
+                result.success
+                    .toDouble()
+                    .coerceIn(
+                        0.0,
+                        100.0
+                    )
+
+            // One 1/1 result is useful, but it is not the same evidence as four independent samples.
+            val reliability =
+                if (
+                    result.success <=
+                    0
+                ) {
+                    0.0
+                } else {
+                    observedReliability *
+                        confidence +
+                        65.0 *
+                        (
+                            1.0 -
+                                confidence
+                        )
+                }
+
+            val udp =
+                if (
+                    result.udpSuccess <=
+                    0
+                ) {
+                    50.0
+                } else {
+                    result.udpSuccess
+                        .toDouble()
+                        .coerceIn(
+                            0.0,
+                            100.0
+                        )
+                }
+
+            val interactive =
+                reliability * 0.31 +
+                    latency * 0.43 +
+                    jitter * 0.26
+
+            val streaming =
+                reliability * 0.29 +
+                    speed * 0.54 +
+                    jitter * 0.12 +
+                    latency * 0.05
+
+            val stability =
+                reliability * 0.52 +
+                    jitter * 0.27 +
+                    latency * 0.21
+
+            val resilience =
+                (
+                    reliability * 0.62 +
+                        udp * 0.12 +
+                        latency * 0.11 +
+                        jitter * 0.10 +
+                        if (
+                            result.usedFragment
+                        ) {
+                            5.0
+                        } else {
+                            0.0
+                        }
+                ).coerceIn(
+                    0.0,
+                    100.0
+                )
+
+            val score =
+                when (
+                    settings.workloadProfile
+                ) {
+                    WorkloadProfile.INTERACTIVE ->
+                        interactive
+                    WorkloadProfile.STREAMING ->
+                        streaming
+                    WorkloadProfile.STABILITY ->
+                        stability
+                    WorkloadProfile.STEALTH ->
+                        resilience
+                    WorkloadProfile.AUTO ->
+                        when (
+                            settings.benchMode
+                        ) {
+                            BenchMode.RELIABLE ->
+                                stability
+
+                            BenchMode.FAST,
+                            BenchMode.TURBO ->
+                                interactive *
+                                    0.58 +
+                                    streaming *
+                                    0.42
+
+                            BenchMode.BALANCED,
+                            BenchMode.CUSTOM ->
+                                interactive *
+                                    0.31 +
+                                    streaming *
+                                    0.27 +
+                                    stability *
+                                    0.31 +
+                                    resilience *
+                                    0.11
+                        }
+                }
+
+            result.copy(
+                score =
+                    if (
+                        result.success <=
+                        0
+                    ) {
+                        -1.0
+                    } else {
+                        score
+                    },
+                interactiveScore =
+                    interactive,
+                streamingScore =
+                    streaming,
+                stabilityScore =
+                    stability,
+                resilienceScore =
+                    resilience
+            )
+        }.sortedWith(
+            compareByDescending<
+                BenchmarkResult
+            > {
+                it.score
+            }.thenBy {
+                it.latencyMs
+            }
+        )
     }
 
     private fun tcpLatency(p: ProxyProfile, timeoutMs: Int): Double {

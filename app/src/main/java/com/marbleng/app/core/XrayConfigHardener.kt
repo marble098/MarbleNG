@@ -157,7 +157,9 @@ object XrayConfigHardener {
         val out = JSONArray()
         keep.forEach { tag ->
             byTag[tag]?.let { outbound ->
-                outbound.put("targetStrategy", "AsIs")
+                // targetStrategy defaults to AsIs. Remove imported overrides so endpoint
+                // resolution can be controlled by sockopt and Happy Eyeballs.
+                outbound.remove("targetStrategy")
                 outbound.remove("sendThrough")
 
                 if (endpointDomains(outbound).isNotEmpty()) {
@@ -165,10 +167,62 @@ object XrayConfigHardener {
                         ?: JSONObject().also { outbound.put("streamSettings", it) }
                     val sockopt = stream.optJSONObject("sockopt")
                         ?: JSONObject().also { stream.put("sockopt", it) }
+                    val endpointStrategy =
+                        forceDomainStrategy(
+                            sockopt.optString(
+                                "domainStrategy"
+                            ),
+                            settings.dnsQueryStrategy
+                        )
+
                     sockopt.put(
                         "domainStrategy",
-                        forceDomainStrategy(sockopt.optString("domainStrategy"))
+                        endpointStrategy
                     )
+
+                    val chained =
+                        outbound
+                            .optJSONObject(
+                                "proxySettings"
+                            )
+                            ?.optString(
+                                "tag"
+                            )
+                            ?.isNotBlank() ==
+                            true
+
+                    if (
+                        settings.adaptiveDualStackEnabled &&
+                        endpointStrategy ==
+                        "ForceIP" &&
+                        !chained &&
+                        sockopt
+                            .optString(
+                                "dialerProxy"
+                            )
+                            .isBlank()
+                    ) {
+                        sockopt.put(
+                            "happyEyeballs",
+                            JSONObject()
+                                .put(
+                                    "tryDelayMs",
+                                    250
+                                )
+                                .put(
+                                    "prioritizeIPv6",
+                                    false
+                                )
+                                .put(
+                                    "interleave",
+                                    1
+                                )
+                                .put(
+                                    "maxConcurrentTry",
+                                    3
+                                )
+                        )
+                    }
                 }
 
                 out.put(outbound)
@@ -402,14 +456,52 @@ object XrayConfigHardener {
         return host.lowercase()
     }
 
-    private fun forceDomainStrategy(current: String): String = when (current) {
-        "ForceIP", "ForceIPv4", "ForceIPv6", "ForceIPv4v6", "ForceIPv6v4" -> current
-        "UseIP" -> "ForceIP"
-        "UseIPv6" -> "ForceIPv6"
-        "UseIPv4v6" -> "ForceIPv4v6"
-        "UseIPv6v4" -> "ForceIPv6v4"
-        "UseIPv4" -> "ForceIPv4"
-        else -> "ForceIPv4"
+    private fun forceDomainStrategy(
+        current: String,
+        queryStrategy: String
+    ): String {
+        // Physical single-stack networks remain strict. Dual-stack defaults to ForceIP so Xray
+        // can race IPv4/IPv6 instead of silently falling back to forced IPv4.
+        if (
+            queryStrategy ==
+            "UseIPv4"
+        ) {
+            return "ForceIPv4"
+        }
+
+        if (
+            queryStrategy ==
+            "UseIPv6"
+        ) {
+            return "ForceIPv6"
+        }
+
+        return when (current) {
+            "ForceIP",
+            "ForceIPv4",
+            "ForceIPv6",
+            "ForceIPv4v6",
+            "ForceIPv6v4" ->
+                current
+
+            "UseIP" ->
+                "ForceIP"
+
+            "UseIPv6" ->
+                "ForceIPv6"
+
+            "UseIPv4v6" ->
+                "ForceIPv4v6"
+
+            "UseIPv6v4" ->
+                "ForceIPv6v4"
+
+            "UseIPv4" ->
+                "ForceIPv4"
+
+            else ->
+                "ForceIP"
+        }
     }
 
     private fun addDomainRule(rules: JSONArray, values: List<String>, outboundTag: String) {

@@ -65,6 +65,8 @@ class MarbleVpnService : VpnService() {
     @Volatile private var activeMtu = 1500
     @Volatile private var connectStartedNs = 0L
     @Volatile private var consecutiveProbeFailures = 0
+    @Volatile private var lastNetworkKey = ""
+    @Volatile private var lastNetworkValidated = false
 
     private val recoveryTried = linkedSetOf<String>()
     private val latencyWindow = ArrayDeque<Int>()
@@ -157,7 +159,6 @@ class MarbleVpnService : VpnService() {
         connectionWorker.execute {
             if (!isCurrent(session)) return@execute
             if (normalizedMode == MODE_TUN && !establishTun(profile, session, settings)) {
-                app.repo.intelligence.recordConnect(profile.id, false, elapsedConnectMs(), settings)
                 handleFailure(session, "VPN establish failed")
                 return@execute
             }
@@ -194,8 +195,12 @@ class MarbleVpnService : VpnService() {
         } else null
 
         if (!xray.start(profile, port, settings, chainProfile)) {
-            app.repo.intelligence.recordConnect(profile.id, false, elapsedConnectMs(), settings)
-            handleFailure(session, xray.lastStartError.ifBlank { "Xray rejected profile or routing policy" })
+            handleFailure(
+                session,
+                xray.lastStartError.ifBlank {
+                    "Xray rejected profile or routing policy"
+                }
+            )
             return
         }
         if (!isCurrent(session)) {
@@ -492,77 +497,228 @@ class MarbleVpnService : VpnService() {
     }
 
     /** Complete SOCKS + remote TCP + TLS + HTTP route health, rolling median. */
-    private fun sampleRouteLatency(session: String, port: Int): Boolean {
-        val probes = arrayOf(
-            "cp.cloudflare.com" to "/generate_204",
-            "www.gstatic.com" to "/generate_204",
-            "connectivitycheck.gstatic.com" to "/generate_204"
-        )
-        val (host, path) = probes[probeIndex++ % probes.size]
-        val ms = runCatching {
-            val result = SocksHttpClient.get(port, host, path, 5_000, 1024)
-            if (result.status in 200..399) result.elapsedMs.roundToInt() else -1
-        }.getOrDefault(-1)
-
-        val app = application as MarbleApplication
-        val repo = app.repo
-        if (ms <= 0 || !running.get()) {
-            consecutiveProbeFailures++
-            repo.intelligence.recordFailure(activeProfileId, activeSettings ?: repo.settings)
-            diag.event(
-                "ROUTE", "probe-failed",
-                "session" to session,
-                "count" to consecutiveProbeFailures,
-                "profile" to activeProfileId.take(12)
+    private fun sampleRouteLatency(
+        session: String,
+        port: Int
+    ): Boolean {
+        val probes =
+            arrayOf(
+                "cp.cloudflare.com" to
+                    "/generate_204",
+                "www.gstatic.com" to
+                    "/generate_204",
+                "connectivitycheck.gstatic.com" to
+                    "/generate_204"
             )
+
+        val (host, path) =
+            probes[
+                probeIndex++ %
+                    probes.size
+            ]
+
+        val ms =
+            runCatching {
+                val result =
+                    SocksHttpClient.get(
+                        port,
+                        host,
+                        path,
+                        5_000,
+                        1024
+                    )
+
+                if (
+                    result.status in
+                    200..399
+                ) {
+                    result.elapsedMs
+                        .roundToInt()
+                } else {
+                    -1
+                }
+            }.getOrDefault(-1)
+
+        val app =
+            application as
+                MarbleApplication
+        val repo =
+            app.repo
+
+        if (
+            ms <= 0 ||
+            !running.get()
+        ) {
+            consecutiveProbeFailures++
+
+            diag.event(
+                "ROUTE",
+                "probe-failed",
+                "session" to
+                    session,
+                "count" to
+                    consecutiveProbeFailures,
+                "profile" to
+                    activeProfileId
+                        .take(12)
+            )
+
+            val settings =
+                activeSettings
+                    ?: repo.settings
+
+            val recoveryEnabled =
+                settings
+                    .smartFallbackEnabled ||
+                    settings
+                        .networkChangeRecoveryEnabled
+
             if (
-                activeMode == MODE_TUN &&
-                (activeSettings ?: repo.settings).networkChangeRecoveryEnabled &&
-                consecutiveProbeFailures >= PROBE_FAILURES_BEFORE_RECOVERY
+                recoveryEnabled &&
+                consecutiveProbeFailures >=
+                PROBE_FAILURES_BEFORE_RECOVERY
             ) {
-                handleFailure(session, "Route health degraded after $consecutiveProbeFailures probes")
-            } else if ((activeSettings ?: repo.settings).networkChangeRecoveryEnabled) {
-                // Confirm transient failures quickly instead of waiting another 30 seconds.
-                routeProbeRequested.set(true)
+                // Hysteresis: the whole outage is recorded once by handleFailure().
+                handleFailure(
+                    session,
+                    "Route health degraded after " +
+                        "$consecutiveProbeFailures probes"
+                )
+            } else if (
+                recoveryEnabled
+            ) {
+                // Confirm a transient failure quickly rather than waiting another normal interval.
+                routeProbeRequested
+                    .set(true)
             }
+
             return false
         }
 
-        consecutiveProbeFailures = 0
-        val median = synchronized(latencyWindow) {
-            latencyWindow.addLast(ms)
-            while (latencyWindow.size > 5) latencyWindow.removeFirst()
-            latencyWindow.toList().sorted()[latencyWindow.size / 2]
-        }
-        repo.updatePing(median)
-        repo.intelligence.recordRoute(
-            activeProfileId,
-            median,
-            repo.liveDownBps + repo.liveUpBps,
-            activeSettings ?: repo.settings
+        consecutiveProbeFailures =
+            0
+
+        val median =
+            synchronized(
+                latencyWindow
+            ) {
+                latencyWindow
+                    .addLast(ms)
+
+                while (
+                    latencyWindow.size >
+                    5
+                ) {
+                    latencyWindow
+                        .removeFirst()
+                }
+
+                latencyWindow
+                    .toList()
+                    .sorted()[
+                        latencyWindow.size /
+                            2
+                    ]
+            }
+
+        repo.updatePing(
+            median
         )
+
+        repo.intelligence
+            .recordRoute(
+                activeProfileId,
+                median,
+                repo.liveDownBps +
+                    repo.liveUpBps,
+                activeSettings
+                    ?: repo.settings
+            )
+
         return true
     }
 
-    private fun onUnderlyingNetworkChanged(snapshot: NetworkSnapshot) {
-        val app = application as MarbleApplication
-        app.repo.refreshIntelligenceStatus()
-        if (Build.VERSION.SDK_INT >= 22 && tun != null) {
-            app.repo.intelligence.currentUnderlyingNetwork()?.let { network ->
-                runCatching { setUnderlyingNetworks(arrayOf(network)) }
-            }
+    private fun onUnderlyingNetworkChanged(
+        snapshot: NetworkSnapshot
+    ) {
+        val app =
+            application as
+                MarbleApplication
+
+        app.repo
+            .refreshIntelligenceStatus()
+
+        if (
+            Build.VERSION.SDK_INT >=
+            22 &&
+            tun != null
+        ) {
+            app.repo
+                .intelligence
+                .currentUnderlyingNetwork()
+                ?.let {
+                    network ->
+                    runCatching {
+                        setUnderlyingNetworks(
+                            arrayOf(
+                                network
+                            )
+                        )
+                    }
+                }
         }
-        if (running.get() && (activeSettings ?: app.repo.settings).networkChangeRecoveryEnabled) {
-            val settings = activeSettings ?: app.repo.settings
-            routeProbeRequested.set(true)
-            diag.event("NETWORK", "underlay-change", "session" to activeSession, "network" to snapshot.label)
+
+        val key =
+            snapshot.key()
+
+        val meaningful =
+            key !=
+                lastNetworkKey ||
+                snapshot.validated !=
+                    lastNetworkValidated
+
+        lastNetworkKey =
+            key
+        lastNetworkValidated =
+            snapshot.validated
+
+        if (
+            !meaningful ||
+            !running.get()
+        ) {
+            return
+        }
+
+        val settings =
+            activeSettings
+                ?: app.repo.settings
+
+        if (
+            settings
+                .networkChangeRecoveryEnabled
+        ) {
+            routeProbeRequested
+                .set(true)
+
+            diag.event(
+                "NETWORK",
+                "underlay-change",
+                "session" to
+                    activeSession,
+                "network" to
+                    snapshot.label
+            )
+
             notifier.alert(
                 SmartNotificationKind.NETWORK,
-                "underlay:${snapshot.key()}",
+                "underlay:$key:" +
+                    "${snapshot.validated}",
                 "Network changed",
-                "${snapshot.label} • validating the active Xray route",
+                "${snapshot.label} • " +
+                    "validating the active Xray route",
                 settings,
-                minIntervalOverrideMs = 60_000L
+                minIntervalOverrideMs =
+                    60_000L
             )
         }
     }
@@ -572,93 +728,306 @@ class MarbleVpnService : VpnService() {
      * remains established. This preserves the kill switch during route changes and core crashes.
      */
     @Synchronized
-    private fun handleFailure(session: String, reason: String) {
-        if (session.isNotBlank() && activeSession.isNotBlank() && session != activeSession) return
-        if (recoveryScheduled.get() && reason.startsWith("HEV stopped")) return
+    private fun handleFailure(
+        session: String,
+        reason: String
+    ) {
+        if (
+            session.isNotBlank() &&
+            activeSession.isNotBlank() &&
+            session != activeSession
+        ) {
+            return
+        }
 
-        val app = application as MarbleApplication
-        val repo = app.repo
-        val settings = activeSettings ?: repo.settings
-        val failedId = activeProfileId
-        val holdTun = activeMode == MODE_TUN && tun != null
+        if (
+            recoveryScheduled.get() &&
+            reason.startsWith(
+                "HEV stopped"
+            )
+        ) {
+            return
+        }
+
+        val app =
+            application as
+                MarbleApplication
+        val repo =
+            app.repo
+        val settings =
+            activeSettings
+                ?: repo.settings
+        val failedId =
+            activeProfileId
+        val holdTun =
+            activeMode ==
+                MODE_TUN &&
+                tun != null
 
         diag.event(
-            "VPN", "blocked",
-            "session" to activeSession,
-            "mode" to activeMode,
-            "reason" to reason,
-            "killSwitchHold" to holdTun,
-            "xrayAlive" to xray.isAlive,
-            "hevFd" to hevFd,
-            "tunOpen" to (tun != null),
-            "profile" to failedId.take(12)
+            "VPN",
+            "blocked",
+            "session" to
+                activeSession,
+            "mode" to
+                activeMode,
+            "reason" to
+                reason,
+            "killSwitchHold" to
+                holdTun,
+            "xrayAlive" to
+                xray.isAlive,
+            "hevFd" to
+                hevFd,
+            "tunOpen" to
+                (tun != null),
+            "profile" to
+                failedId
+                    .take(12)
         )
 
-        if (hevActive) runCatching { HevTunnel.quit() }
-        hevActive = false
+        if (hevActive) {
+            runCatching {
+                HevTunnel.quit()
+            }
+        }
+
+        hevActive =
+            false
         xray.stop()
         closeHevFd()
         repo.resetTelemetry()
-        repo.intelligence.recordConnect(failedId, false, elapsedConnectMs(), settings)
-        repo.intelligence.recordFailure(failedId, settings)
-        updateSentinel(killSwitch = holdTun)
+
+        // Exactly one historical failure update for one connection incident.
+        repo.intelligence
+            .recordConnect(
+                failedId,
+                false,
+                elapsedConnectMs(),
+                settings
+            )
+
+        updateSentinel(
+            killSwitch =
+                holdTun
+        )
 
         if (holdTun) {
             running.set(true)
-            repo.setRuntimeState("BLOCKED", "Kill switch active • $reason")
-            promoteForeground("BLOCKED • Kill switch holding traffic", ongoing = true)
-            notifier.alert(
-                SmartNotificationKind.PRIVACY,
-                "blocked:${activeSession}:${failedId}",
-                "Traffic blocked safely",
-                "Kill switch is holding traffic • $reason",
-                settings,
-                minIntervalOverrideMs = 60_000L
+
+            repo.setRuntimeState(
+                "BLOCKED",
+                "Kill switch active • " +
+                    reason
             )
 
-            if (settings.smartFallbackEnabled && recoveryScheduled.compareAndSet(false, true)) {
-                synchronized(recoveryTried) { recoveryTried += failedId }
-                val tried = synchronized(recoveryTried) { recoveryTried.toSet() }
-                val next = repo.recoveryCandidates(tried).firstOrNull()
-                if (next != null && tried.size <= settings.fallbackCount.coerceIn(1, 8) + 1) {
-                    synchronized(recoveryTried) { recoveryTried += next.id }
-                    repo.setRuntimeState("CONNECTING", "Failover → ${next.name}")
-                    promoteForeground("Recovering • ${next.name}", ongoing = true)
-                    notifier.alert(
-                        SmartNotificationKind.RECOVERY,
-                        "failover:${activeSession}:${next.id}",
-                        "Smart fallback",
-                        "Switching to ${next.name} while Full TUN stays fail-closed",
-                        settings
-                    )
-                    diag.event("VPN", "fallback-selected", "from" to failedId.take(12), "to" to next.id.take(12))
-                    connectionWorker.execute {
-                        recoveryScheduled.set(false)
-                        recoverOnHeldTun(next, session)
-                    }
-                    return
-                }
-                recoveryScheduled.set(false)
-            }
-        } else {
-            running.set(false)
-            closeTun()
-            repo.setRuntimeState("BLOCKED", reason)
-            stopForeground(STOP_FOREGROUND_REMOVE)
-            stopSelf()
+            promoteForeground(
+                "BLOCKED • " +
+                    "Kill switch holding traffic",
+                ongoing = true
+            )
+
+            notifier.alert(
+                SmartNotificationKind.PRIVACY,
+                "blocked:" +
+                    "${activeSession}:" +
+                    failedId,
+                "Traffic blocked safely",
+                "Kill switch is holding traffic • " +
+                    reason,
+                settings,
+                minIntervalOverrideMs =
+                    60_000L
+            )
         }
+
+        if (
+            settings.smartFallbackEnabled &&
+            recoveryScheduled
+                .compareAndSet(
+                    false,
+                    true
+                )
+        ) {
+            synchronized(
+                recoveryTried
+            ) {
+                recoveryTried +=
+                    failedId
+            }
+
+            val tried =
+                synchronized(
+                    recoveryTried
+                ) {
+                    recoveryTried
+                        .toSet()
+                }
+
+            val next =
+                repo.recoveryCandidates(
+                    tried
+                ).firstOrNull()
+
+            if (
+                next != null &&
+                tried.size <=
+                    settings
+                        .fallbackCount
+                        .coerceIn(
+                            1,
+                            8
+                        ) +
+                        1
+            ) {
+                synchronized(
+                    recoveryTried
+                ) {
+                    recoveryTried +=
+                        next.id
+                }
+
+                running.set(true)
+
+                repo.setRuntimeState(
+                    "CONNECTING",
+                    "Failover → " +
+                        next.name
+                )
+
+                promoteForeground(
+                    "Recovering • " +
+                        next.name,
+                    ongoing = true
+                )
+
+                notifier.alert(
+                    SmartNotificationKind.RECOVERY,
+                    "failover:" +
+                        "${activeSession}:" +
+                        next.id,
+                    "Smart fallback",
+                    if (holdTun) {
+                        "Switching to ${next.name} " +
+                            "while Full TUN stays fail-closed"
+                    } else {
+                        "Local proxy route failed • " +
+                            "switching to ${next.name}"
+                    },
+                    settings
+                )
+
+                diag.event(
+                    "VPN",
+                    "fallback-selected",
+                    "from" to
+                        failedId
+                            .take(12),
+                    "to" to
+                        next.id
+                            .take(12)
+                )
+
+                connectionWorker
+                    .execute {
+                        // Clear before the candidate starts so a failed fallback can advance to
+                        // the next bounded candidate.
+                        recoveryScheduled
+                            .set(false)
+
+                        recoverRoute(
+                            next,
+                            session
+                        )
+                    }
+
+                return
+            }
+
+            recoveryScheduled
+                .set(false)
+        }
+
+        if (holdTun) {
+            // No fallback survived. Keep the established TUN open as a fail-closed blackhole.
+            running.set(true)
+            return
+        }
+
+        running.set(false)
+        closeTun()
+
+        repo.setRuntimeState(
+            "BLOCKED",
+            reason
+        )
+
+        stopForeground(
+            STOP_FOREGROUND_REMOVE
+        )
+
+        stopSelf()
     }
 
-    private fun recoverOnHeldTun(profile: ProxyProfile, session: String) {
-        val app = application as MarbleApplication
-        if (!isCurrent(session) || tun == null) return
-        val settings = app.repo.effectiveSettingsFor(profile)
-        activeProfileId = profile.id
-        activeSettings = settings
-        consecutiveProbeFailures = 0
-        synchronized(latencyWindow) { latencyWindow.clear() }
-        val port = settings.socksPort
-        startXrayAndForward(profile, session, port, settings, recovering = true)
+    private fun recoverRoute(
+        profile: ProxyProfile,
+        session: String
+    ) {
+        val app =
+            application as
+                MarbleApplication
+
+        if (!isCurrent(session)) {
+            return
+        }
+
+        if (
+            activeMode ==
+                MODE_TUN &&
+            tun == null
+        ) {
+            return
+        }
+
+        val settings =
+            app.repo
+                .effectiveSettingsFor(
+                    profile
+                )
+
+        activeProfileId =
+            profile.id
+        activeSettings =
+            settings
+        consecutiveProbeFailures =
+            0
+
+        synchronized(
+            latencyWindow
+        ) {
+            latencyWindow
+                .clear()
+        }
+
+        val port =
+            if (
+                activeMode ==
+                MODE_PROXY
+            ) {
+                settings
+                    .localProxyPort
+            } else {
+                settings
+                    .socksPort
+            }
+
+        startXrayAndForward(
+            profile,
+            session,
+            port,
+            settings,
+            recovering = true
+        )
     }
 
     private fun updateSentinel(killSwitch: Boolean) {

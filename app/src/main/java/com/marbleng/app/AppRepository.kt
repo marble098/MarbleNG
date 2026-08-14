@@ -365,20 +365,78 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         listOf("manual" to "Manual") + subscriptions.map { it.id to it.name }
 
     fun lastProfile() = profile(store.lastProfileId())
-    fun auto(onConnect: (ProxyProfile) -> Unit) {
+    fun auto(
+        onConnect: (ProxyProfile) -> Unit
+    ) {
         if (profiles.isEmpty()) {
-            message = "Add a subscription or import a node first"
+            message =
+                "Add a subscription or import a node first"
             return
         }
-        val last = lastProfile()
-        val predicted = last?.let { intelligence.predictedScore(it, settings) } ?: 0.0
-        val historyReady = intelligenceStatus.historyRecords > 0
-        if (last != null && (!settings.intelligenceEnabled || !historyReady || predicted >= 72.0)) {
-            message = if (historyReady) "Connecting remembered route • ${last.name}"
-            else "Connecting last route immediately • intelligence is still learning"
+
+        val last =
+            lastProfile()
+
+        val predicted =
+            last?.let {
+                intelligence
+                    .predictedScore(
+                        it,
+                        settings
+                    )
+            } ?: 0.0
+
+        val confidence =
+            last?.let {
+                intelligence
+                    .historyConfidence(
+                        it
+                    )
+            } ?: 0.0
+
+        val lastHasHistory =
+            last?.let {
+                intelligence
+                    .hasHistory(it)
+            } == true
+
+        if (
+            last != null &&
+            (
+                !settings
+                    .intelligenceEnabled ||
+                    !lastHasHistory ||
+                    confidence <
+                        0.45 ||
+                    predicted >=
+                        68.0
+            )
+        ) {
+            message =
+                when {
+                    !settings
+                        .intelligenceEnabled ->
+                        "Connecting remembered route • " +
+                            last.name
+
+                    !lastHasHistory ||
+                        confidence <
+                        0.45 ->
+                        "Connecting last route immediately • " +
+                            "intelligence is still building confidence"
+
+                    else ->
+                        "Connecting proven route • " +
+                            "${last.name} • " +
+                            "score ${predicted.toInt()}"
+                }
+
             onConnect(last)
         } else {
-            message = "Selecting a healthy route • real Xray path test"
+            message =
+                "Last route confidence dropped • " +
+                    "selecting a healthier Xray path"
+
             smart(onConnect)
         }
     }
