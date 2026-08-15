@@ -735,9 +735,21 @@ class BenchmarkEngine(
             m.latency,
             m.jitter,
             0.0,
-            0.0,
+            quickScore(m),
             udpSuccess = 0
         )
+    }
+
+    /**
+     * A race probe is one real HTTPS round trip through a real Xray process, so it deserves a real
+     * score. Leaving it at 0 made the winning route show "0 / 100" everywhere until the first live
+     * telemetry sample arrived.
+     */
+    private fun quickScore(m: Measurement): Double {
+        if (m.success <= 0) return -1.0
+        val reliability = m.success.toDouble().coerceIn(0.0, 100.0)
+        val latency = 100.0 * exp(-m.latency.coerceAtMost(5000.0) / 240.0)
+        return (reliability * 0.45 + latency * 0.55).coerceIn(0.0, 100.0)
     }
 
     private fun quickMeasure(p: ProxyProfile, port: Int, s: AppSettings): Measurement {

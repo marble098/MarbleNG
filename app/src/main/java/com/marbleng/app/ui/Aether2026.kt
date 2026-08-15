@@ -48,7 +48,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
@@ -299,9 +298,9 @@ private fun FloatingSpatialDock(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .shadow(2.dp, dockShape, clip = false)
                 .clip(dockShape)
-                .background(Aether.VoidElevated.copy(alpha = .98f))
+                .background(Aether.VoidElevated)
+                .border(1.dp, Aether.GlassBorderSoft, dockShape)
                 .padding(horizontal = 6.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -464,7 +463,7 @@ private fun SpatialHeader(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 4.dp, vertical = 10.dp),
+            .padding(vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         Text(
@@ -503,17 +502,21 @@ private fun SpatialHeader(
 @Composable
 private fun HoloGlass(
     modifier: Modifier = Modifier,
-    glow: Color = Aether.Cyan,
-    glowStrength: Float = .18f,
+    borderColor: Color = Aether.GlassBorderSoft,
     contentPadding: PaddingValues = PaddingValues(16.dp),
     content: @Composable ColumnScope.() -> Unit
 ) {
     val shape = RoundedCornerShape(22.dp)
+    val borderTint by animateColorAsState(
+        targetValue = borderColor,
+        animationSpec = tween(160),
+        label = "surface-border"
+    )
     Column(
         modifier = modifier
-            .shadow(2.dp, shape, clip = false)
             .clip(shape)
             .background(Aether.VoidElevated)
+            .border(1.dp, borderTint, shape)
             .padding(contentPadding),
         verticalArrangement = Arrangement.spacedBy(11.dp),
         content = content
@@ -551,7 +554,7 @@ private fun HoloBadge(
 
 @Composable
 private fun SectionLabel(title:String,subtitle:String?=null){
-    Column(Modifier.padding(horizontal=4.dp,vertical=2.dp)){Text(title,color=Aether.Ink,style=MaterialTheme.typography.titleMedium);if(!subtitle.isNullOrBlank()){Spacer(Modifier.height(2.dp));Text(subtitle,color=Aether.InkFaint,style=MaterialTheme.typography.bodySmall)}}
+    Column(Modifier.padding(vertical=2.dp)){Text(title,color=Aether.Ink,style=MaterialTheme.typography.titleMedium);if(!subtitle.isNullOrBlank()){Spacer(Modifier.height(2.dp));Text(subtitle,color=Aether.InkFaint,style=MaterialTheme.typography.bodySmall)}}
 }
 
 // =================================================================================================
@@ -573,20 +576,24 @@ private fun CyberDeck(
         repo.lastProfile()?.name ?: "No active connection"
     }
     val activeId = repo.activeProfileId.ifBlank { repo.lastProfile()?.id.orEmpty() }
-    val priorEvidence = repo.benchmarks.firstOrNull {
+    val routeEvidence = repo.benchmarks.firstOrNull {
         (activeId.isNotBlank() && it.profileId == activeId) || it.name == activeName
     }?.takeIf { it.success > 0 }
+
+    // Without evidence for this exact route, the best measured route is still a real answer —
+    // far better than showing a hard 0 / 100 that looks like a broken gauge.
+    val priorEvidence = routeEvidence ?: repo.benchmarks.firstOrNull { it.success > 0 }
     val liveReady =
         connected &&
             repo.liveRouteScore >= 0 &&
             repo.livePingMs > 0 &&
             repo.liveRouteSamples > 0
 
+    // Negative means "not measured yet"; the ring renders that as "—" instead of zero.
     val score = when {
         liveReady -> repo.liveRouteScore
-        connected -> priorEvidence?.score?.roundToInt()?.coerceIn(0, 100) ?: 0
         priorEvidence != null -> priorEvidence.score.roundToInt().coerceIn(0, 100)
-        else -> 0
+        else -> -1
     }
 
     LazyColumn(
@@ -690,7 +697,7 @@ private fun CyberDeck(
                 "Advanced network controls are intentionally kept in Settings → Expert controls.",
                 color = Aether.InkFaint,
                 style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.padding(horizontal = 4.dp, vertical = 8.dp)
+                modifier = Modifier.padding(vertical = 8.dp)
             )
         }
     }
@@ -723,9 +730,9 @@ private fun PerformanceScoreOverview(
                 Spacer(Modifier.height(4.dp))
                 Text(
                     when {
-                        !connected && !hasPriorEvidence -> "Connect to build a live score."
-                        connected && !liveReady && hasPriorEvidence -> "Updating live route evidence…"
-                        connected && !liveReady -> "Measuring the active Xray path…"
+                        score < 0 && connected -> "Measuring the active Xray path…"
+                        score < 0 -> "Run a test or connect to measure a score."
+                        connected && !liveReady -> "Updating live route evidence…"
                         score >= 85 -> "Excellent route quality"
                         score >= 70 -> "Healthy route quality"
                         score >= 50 -> "Usable, with some pressure"
@@ -733,12 +740,12 @@ private fun PerformanceScoreOverview(
                         else -> "Poor route quality"
                     },
                     color = when {
+                        score < 0 -> Aether.InkMuted
                         connected && !liveReady -> Aether.Cyan
                         score >= 70 -> Aether.Emerald
                         score >= 50 -> Aether.Cyan
                         score >= 30 -> Aether.Amber
-                        score > 0 -> Aether.Danger
-                        else -> Aether.InkMuted
+                        else -> Aether.Danger
                     },
                     style = MaterialTheme.typography.bodyMedium
                 )
@@ -748,9 +755,11 @@ private fun PerformanceScoreOverview(
                         liveReady ->
                             "Live • $pingMs ms RTT • $jitterMs ms jitter • $samples sample${if(samples==1)"" else "s"}"
                         connected && hasPriorEvidence ->
-                            "Showing pre-connect evidence until the first live sample arrives."
+                            "Last measured evidence • waiting for the first live sample"
                         connected ->
                             routeName
+                        hasPriorEvidence ->
+                            "Last measured evidence for $routeName"
                         else ->
                             "Based on real Xray-path latency, reliability and route evidence."
                     },
@@ -862,7 +871,6 @@ private fun ConnectionCore(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(58.dp)
-                    .shadow(2.dp, actionShape, clip = false)
                     .clip(actionShape)
                     .background(
                         when {
@@ -971,9 +979,9 @@ private fun HoloActionPill(
     Row(
         modifier = modifier
             .heightIn(min = 72.dp)
-            .shadow(1.dp, shape, clip = false)
             .clip(shape)
             .background(Aether.VoidElevated)
+            .border(1.dp, Aether.GlassBorderSoft, shape)
             .clickable(onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -1237,14 +1245,15 @@ private fun CyberLibrary(
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(bottom = 28.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+        // One gutter for the whole screen: titles, controls and cards share the same edge.
+        contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 10.dp, bottom = 28.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         item {
             SpatialHeader(
                 eyebrow = "Connections",
                 title = "Library",
-                subtitle = "Subscriptions, connections and measured route health",
+                subtitle = "Your sources and nodes, with measured route health",
                 status = "${repo.profiles.size} nodes",
                 statusColor = Aether.Amethyst
             )
@@ -1252,8 +1261,9 @@ private fun CyberLibrary(
 
         item {
             Row(
-                modifier = Modifier.padding(horizontal = 14.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 OutlinedTextField(
                     value = search,
@@ -1261,7 +1271,7 @@ private fun CyberLibrary(
                     placeholder = { Text("Search connections") },
                     singleLine = true,
                     modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(20.dp)
+                    shape = RoundedCornerShape(18.dp)
                 )
 
                 Button(
@@ -1269,7 +1279,7 @@ private fun CyberLibrary(
                     modifier = Modifier.height(56.dp),
                     shape = RoundedCornerShape(18.dp),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = Aether.Cyan.copy(alpha = .10f),
+                        containerColor = Aether.Cyan.copy(alpha = .12f),
                         contentColor = Aether.Ink
                     ),
                     elevation = ButtonDefaults.buttonElevation(
@@ -1279,10 +1289,10 @@ private fun CyberLibrary(
                         hoveredElevation = 0.dp,
                         disabledElevation = 0.dp
                     ),
-                    contentPadding = PaddingValues(horizontal = 14.dp)
+                    contentPadding = PaddingValues(horizontal = 16.dp)
                 ) {
                     Text(
-                        if (addOpen) "Close" else "+ Add",
+                        if (addOpen) "Close" else "Add",
                         maxLines = 1,
                         softWrap = false
                     )
@@ -1293,10 +1303,14 @@ private fun CyberLibrary(
         if (addOpen) {
             item {
                 HoloGlass(
-                    modifier = Modifier.padding(horizontal = 14.dp).fillMaxWidth(),
-                    glow = Aether.Amethyst
+                    modifier = Modifier.fillMaxWidth(),
+                    borderColor = Aether.Amethyst.copy(alpha = .45f)
                 ) {
-                    Text("Add source", color = Aether.AmethystBright, style = MaterialTheme.typography.labelSmall)
+                    Text(
+                        "Add a source",
+                        color = Aether.Ink,
+                        style = MaterialTheme.typography.titleMedium
+                    )
                     OutlinedTextField(
                         value = url,
                         onValueChange = { url = it },
@@ -1339,8 +1353,8 @@ private fun CyberLibrary(
         if (repo.subscriptions.isNotEmpty()) {
             item {
                 SectionLabel(
-                    "Subscription manager",
-                    "Every source is separate • view nodes • edit URL/name • refresh • delete"
+                    "Sources",
+                    "View, refresh, edit or delete each subscription"
                 )
             }
 
@@ -1361,11 +1375,11 @@ private fun CyberLibrary(
 
         item {
             Row(
-                modifier = Modifier.padding(horizontal = 14.dp),
+                modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 CyberButton(
-                    label = "Refresh",
+                    label = "Refresh all",
                     color = Aether.Amethyst,
                     modifier = Modifier.weight(1f),
                     enabled = repo.subscriptions.isNotEmpty() && !repo.busy
@@ -1381,119 +1395,38 @@ private fun CyberLibrary(
         }
 
         item {
-            Column(
-                modifier = Modifier.padding(horizontal = 14.dp),
-                verticalArrangement = Arrangement.spacedBy(7.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column {
-                        Text("Filter", color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
-                        Text(
-                            "Nodes below belong only to the selected source",
-                            color = Aether.InkFaint.copy(alpha = .82f),
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                    }
-                    HoloBadge(
-                        when (sourceFilter) {
-                            "all" -> "ALL ${repo.profiles.size}"
-                            "manual" -> "MANUAL ${repo.profiles.count { it.subscriptionId == "manual" }}"
-                            else -> repo.subscriptions.firstOrNull { it.id == sourceFilter }?.name?.take(16) ?: "ALL"
-                        },
-                        Aether.Emerald,
-                        compact = true
-                    )
-                }
-                Row(
-                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(7.dp)
-                ) {
-                    CyberChoiceChip("ALL", sourceFilter == "all", Aether.Cyan) { sourceFilter = "all" }
-                    CyberChoiceChip(
-                        "MANUAL (${repo.profiles.count { it.subscriptionId == "manual" }})",
-                        sourceFilter == "manual",
-                        Aether.Amber
-                    ) { sourceFilter = "manual" }
-                    repo.subscriptions.forEach { sub ->
-                        CyberChoiceChip(
-                            "${sub.name} (${repo.subscriptionNodeCount(sub.id)})",
-                            sourceFilter == sub.id,
-                            Aether.Amethyst
-                        ) { sourceFilter = sub.id }
-                    }
-                }
-            }
-        }
-
-        item {
-            Column(
-                modifier = Modifier.padding(horizontal = 14.dp),
-                verticalArrangement = Arrangement.spacedBy(7.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column {
-                        Text("Sort nodes", color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
-                        Text(
-                            "Ping is the default • untested routes stay last",
-                            color = Aether.InkFaint.copy(alpha = .82f),
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                    }
-                    HoloBadge(
-                        if (repo.settings.nodeSortReverse) "REVERSED" else "NATURAL",
-                        if (repo.settings.nodeSortReverse) Aether.Amber else Aether.Cyan,
-                        compact = true
-                    )
-                }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(7.dp)
-                ) {
-                    NodeSortMode.entries.forEach { mode ->
-                        CyberChoiceChip(
-                            text = mode.name,
-                            selected = repo.settings.nodeSortMode == mode,
-                            color = if (mode == NodeSortMode.PING) Aether.Cyan else Aether.Amethyst
-                        ) {
-                            repo.updateSettings(repo.settings.copy(nodeSortMode = mode, nodeSortReverse = false))
-                        }
-                    }
-                    CyberChoiceChip(
-                        text = if (repo.settings.nodeSortReverse) "ORDER ↥" else "ORDER ↧",
-                        selected = repo.settings.nodeSortReverse,
-                        color = Aether.Amber
-                    ) {
-                        repo.updateSettings(repo.settings.copy(nodeSortReverse = !repo.settings.nodeSortReverse))
-                    }
-                }
-            }
-        }
-
-        item {
             SectionLabel(
                 "Nodes",
-                "Swipe → Test / Edit • overflow → delete • center action → connect"
+                if (repo.profiles.isEmpty()) {
+                    "Add a subscription or import a file to get started"
+                } else {
+                    "${visible.size} shown • swipe right to test, left to rename"
+                }
+            )
+        }
+
+        item {
+            LibraryViewControls(
+                repo = repo,
+                sourceFilter = sourceFilter,
+                onSourceFilter = { sourceFilter = it }
             )
         }
 
         if (visible.isEmpty()) {
             item {
-                HoloGlass(
-                    modifier = Modifier.padding(horizontal = 14.dp).fillMaxWidth(),
-                    glow = Aether.InkFaint
-                ) {
-                    Text("No connections", color = Aether.Ink, style = MaterialTheme.typography.titleMedium)
+                HoloGlass(modifier = Modifier.fillMaxWidth()) {
                     Text(
-                        "Add a source or clear the current search.",
+                        if (repo.profiles.isEmpty()) "No connections yet" else "Nothing matches",
+                        color = Aether.Ink,
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                    Text(
+                        if (repo.profiles.isEmpty()) {
+                            "Add a subscription URL above, or import a config file."
+                        } else {
+                            "Clear the search box or pick another source."
+                        },
                         color = Aether.InkFaint,
                         style = MaterialTheme.typography.bodySmall
                     )
@@ -1528,29 +1461,20 @@ private fun CyberLibrary(
                 enableDismissFromEndToStart = true,
                 backgroundContent = {
                     val editSide = swipeState.targetValue == SwipeToDismissBoxValue.EndToStart
+                    val accent = if (editSide) Aether.Amethyst else Aether.Cyan
+                    val shape = RoundedCornerShape(22.dp)
                     Row(
                         modifier = Modifier
-                            .padding(horizontal = 14.dp)
                             .fillMaxSize()
-                            .clip(RoundedCornerShape(22.dp))
-                            .background(
-                                if (editSide) {
-                                    Aether.Amethyst.copy(alpha = .18f)
-                                } else {
-                                    Aether.Cyan.copy(alpha = .17f)
-                                }
-                            )
-                            .border(
-                                1.dp,
-                                if (editSide) Aether.Amethyst.copy(alpha = .24f) else Aether.Cyan.copy(alpha = .24f),
-                                RoundedCornerShape(22.dp)
-                            )
+                            .clip(shape)
+                            .background(accent.copy(alpha = .12f))
+                            .border(1.dp, accent.copy(alpha = .30f), shape)
                             .padding(horizontal = 22.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = if (editSide) Arrangement.End else Arrangement.Start
                     ) {
                         Text(
-                            if (editSide) "EDIT" else "TEST",
+                            if (editSide) "Rename" else "Test",
                             color = if (editSide) Aether.AmethystBright else Aether.CyanBright,
                             style = MaterialTheme.typography.labelLarge
                         )
@@ -1571,6 +1495,105 @@ private fun CyberLibrary(
             }
         }
     }
+}
+
+/** Source filter and sort order, grouped on one surface instead of two loose label blocks. */
+@Composable
+private fun LibraryViewControls(
+    repo: AppRepository,
+    sourceFilter: String,
+    onSourceFilter: (String) -> Unit
+) {
+    val manualCount = repo.profiles.count { it.subscriptionId == "manual" }
+    val sourceLabel = when (sourceFilter) {
+        "all" -> "All sources"
+        "manual" -> "Manual"
+        else -> repo.subscriptions.firstOrNull { it.id == sourceFilter }?.name ?: "All sources"
+    }
+
+    HoloGlass(
+        modifier = Modifier.fillMaxWidth(),
+        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 13.dp)
+    ) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "Source",
+                color = Aether.InkMuted,
+                style = MaterialTheme.typography.labelLarge,
+                modifier = Modifier.weight(1f)
+            )
+            HoloBadge(sourceLabel.take(18), Aether.Emerald, compact = true)
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(7.dp)
+        ) {
+            CyberChoiceChip("All ${repo.profiles.size}", sourceFilter == "all", Aether.Cyan) {
+                onSourceFilter("all")
+            }
+            if (manualCount > 0) {
+                CyberChoiceChip("Manual $manualCount", sourceFilter == "manual", Aether.Amber) {
+                    onSourceFilter("manual")
+                }
+            }
+            repo.subscriptions.forEach { sub ->
+                CyberChoiceChip(
+                    "${sub.name} ${repo.subscriptionNodeCount(sub.id)}",
+                    sourceFilter == sub.id,
+                    Aether.Amethyst
+                ) { onSourceFilter(sub.id) }
+            }
+        }
+
+        HorizontalDivider(color = Aether.GlassBorderSoft)
+
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "Sort",
+                color = Aether.InkMuted,
+                style = MaterialTheme.typography.labelLarge,
+                modifier = Modifier.weight(1f)
+            )
+            Text(
+                if (repo.settings.nodeSortReverse) "Reversed" else "Best first",
+                color = Aether.InkFaint,
+                style = MaterialTheme.typography.labelSmall
+            )
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(7.dp)
+        ) {
+            NodeSortMode.entries.forEach { mode ->
+                CyberChoiceChip(
+                    text = sortModeLabel(mode),
+                    selected = repo.settings.nodeSortMode == mode,
+                    color = if (mode == NodeSortMode.PING) Aether.Cyan else Aether.Amethyst
+                ) {
+                    repo.updateSettings(
+                        repo.settings.copy(nodeSortMode = mode, nodeSortReverse = false)
+                    )
+                }
+            }
+            CyberChoiceChip(
+                text = if (repo.settings.nodeSortReverse) "Order ↑" else "Order ↓",
+                selected = repo.settings.nodeSortReverse,
+                color = Aether.Amber
+            ) {
+                repo.updateSettings(
+                    repo.settings.copy(nodeSortReverse = !repo.settings.nodeSortReverse)
+                )
+            }
+        }
+    }
+}
+
+private fun sortModeLabel(mode: NodeSortMode): String = when (mode) {
+    NodeSortMode.PING -> "Ping"
+    NodeSortMode.SCORE -> "Score"
+    NodeSortMode.NAME -> "Name"
+    NodeSortMode.PROTOCOL -> "Protocol"
+    NodeSortMode.SOURCE -> "Source"
 }
 
 @Composable
@@ -1600,7 +1623,8 @@ private fun SubscriptionManagerCard(
     }
 
     HoloGlass(
-        modifier = Modifier.padding(horizontal = 14.dp).fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth(),
+        borderColor = if (selected) Aether.Cyan.copy(alpha = .50f) else Aether.GlassBorderSoft,
         contentPadding = PaddingValues(horizontal = 15.dp, vertical = 14.dp)
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -1608,10 +1632,14 @@ private fun SubscriptionManagerCard(
                 Modifier
                     .size(40.dp)
                     .clip(RoundedCornerShape(13.dp))
-                    .background(color.copy(alpha = .09f)),
+                    .background(color.copy(alpha = .12f)),
                 contentAlignment = Alignment.Center
             ) {
-                Text("S", color = color, style = MaterialTheme.typography.titleMedium)
+                Text(
+                    sub.name.trim().firstOrNull()?.uppercase() ?: "S",
+                    color = color,
+                    style = MaterialTheme.typography.titleMedium
+                )
             }
             Spacer(Modifier.width(11.dp))
             Column(Modifier.weight(1f)) {
@@ -1669,7 +1697,7 @@ private fun SubscriptionManagerCard(
             }
         } else {
             Text(
-                "Quota information not provided",
+                "No quota reported by this provider",
                 color = Aether.InkFaint,
                 style = MaterialTheme.typography.bodySmall
             )
@@ -1684,8 +1712,13 @@ private fun SubscriptionManagerCard(
         }
 
         Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-            CyberButton(if (selected) "Selected" else "View", Aether.Cyan, Modifier.weight(1f)) { onView() }
-            CyberButton("Refresh", Aether.Cyan, Modifier.weight(1f), enabled = !repo.busy) { repo.refresh(sub.id) }
+            CyberButton(
+                label = if (selected) "Viewing" else "View nodes",
+                color = Aether.Cyan,
+                modifier = Modifier.weight(1f),
+                enabled = !selected
+            ) { onView() }
+            CyberButton("Refresh", Aether.Emerald, Modifier.weight(1f), enabled = !repo.busy) { repo.refresh(sub.id) }
             CyberButton("Manage", Aether.InkMuted, Modifier.weight(1f), enabled = !repo.busy) { onManage() }
         }
     }
@@ -1700,24 +1733,24 @@ private fun SpatialServerCard(
     onConnect: (ProxyProfile) -> Unit,
     onEdit: () -> Unit
 ) {
-    val latency = result?.takeIf { it.success > 0 }?.latencyMs?.toInt() ?: 0
-    val success = result?.success ?: 0
-    val health = healthColor(latency, success)
+    val measured = result?.takeIf { it.success > 0 }
+    val latency = measured?.latencyMs?.toInt() ?: 0
+    val health = healthColor(latency, result?.success ?: 0)
     var menuOpen by remember { mutableStateOf(false) }
 
     HoloGlass(
         modifier = Modifier
-            .padding(horizontal = 14.dp)
             .fillMaxWidth()
             .animateContentSize(tween(180)),
-        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 13.dp)
+        borderColor = if (active) Aether.Emerald.copy(alpha = .55f) else Aether.GlassBorderSoft,
+        contentPadding = PaddingValues(start = 14.dp, top = 12.dp, end = 8.dp, bottom = 12.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             HealthOrb(
                 label = countryGlyph(profile.host),
                 color = if (active) Aether.Emerald else health,
                 active = active,
-                modifier = Modifier.size(44.dp)
+                modifier = Modifier.size(42.dp)
             )
             Spacer(Modifier.width(11.dp))
             Column(Modifier.weight(1f)) {
@@ -1728,13 +1761,14 @@ private fun SpatialServerCard(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                val connectionLine = listOf(
+                Spacer(Modifier.height(2.dp))
+                val connectionLine = listOfNotNull(
                     profile.scheme.uppercase(),
-                    profile.transport.uppercase().takeIf { it.isNotBlank() },
+                    profile.transport.uppercase().takeIf { it.isNotBlank() && it != "NATIVE" },
                     profile.security.uppercase().takeIf {
                         it.isNotBlank() && !it.equals("NONE", true)
                     }
-                ).filterNotNull().joinToString(" • ")
+                ).joinToString(" • ")
                 Text(
                     connectionLine,
                     color = Aether.InkFaint,
@@ -1745,28 +1779,30 @@ private fun SpatialServerCard(
             }
 
             if (latency > 0) {
-                Column(horizontalAlignment = Alignment.End) {
+                Column(
+                    modifier = Modifier.widthIn(min = 42.dp),
+                    horizontalAlignment = Alignment.End
+                ) {
                     Text(
                         "$latency",
                         color = health,
                         style = MaterialTheme.typography.titleMedium.copy(
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.SemiBold
-                        )
+                        ),
+                        maxLines = 1
                     )
                     Text("ms", color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
                 }
-                Spacer(Modifier.width(10.dp))
+                Spacer(Modifier.width(8.dp))
             }
 
             Box(
                 modifier = Modifier
-                    .size(42.dp)
+                    .size(40.dp)
                     .clip(RoundedCornerShape(14.dp))
-                    .background((if (active) Aether.Emerald else Aether.Cyan).copy(alpha = .10f))
-                    .clickable {
-                        if (active) repo.stopVpn() else onConnect(profile)
-                    },
+                    .background((if (active) Aether.Emerald else Aether.Cyan).copy(alpha = .12f))
+                    .clickable { if (active) repo.stopVpn() else onConnect(profile) },
                 contentAlignment = Alignment.Center
             ) {
                 Text(
@@ -1777,9 +1813,12 @@ private fun SpatialServerCard(
             }
 
             Box {
-                TextButton(
-                    onClick = { menuOpen = true },
-                    contentPadding = PaddingValues(horizontal = 7.dp)
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .clickable { menuOpen = true },
+                    contentAlignment = Alignment.Center
                 ) {
                     Text("⋮", color = Aether.InkMuted, style = MaterialTheme.typography.titleMedium)
                 }
@@ -1789,14 +1828,14 @@ private fun SpatialServerCard(
                     containerColor = Aether.VoidElevated
                 ) {
                     DropdownMenuItem(
-                        text = { Text("Real tunnel test") },
+                        text = { Text("Test this node") },
                         onClick = {
                             menuOpen = false
                             repo.fullTest(profile)
                         }
                     )
                     DropdownMenuItem(
-                        text = { Text("Edit name") },
+                        text = { Text("Rename") },
                         onClick = {
                             menuOpen = false
                             onEdit()
@@ -1813,21 +1852,21 @@ private fun SpatialServerCard(
             }
         }
 
-        if (active || (result != null && result.success > 0)) {
+        if (active || measured != null) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(7.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 if (active) HoloBadge("Active", Aether.Emerald, compact = true)
-                if (result != null && result.success > 0) {
+                measured?.let { evidence ->
                     HoloBadge(
-                        "${result.success}% success",
-                        if (result.success >= 90) Aether.Emerald else Aether.Amber,
+                        "${evidence.success}% ok",
+                        if (evidence.success >= 90) Aether.Emerald else Aether.Amber,
                         compact = true
                     )
                     Text(
-                        "Jitter ${result.jitterMs.toInt()} ms • Score ${result.score.roundToInt().coerceIn(0, 100)}",
+                        "Score ${evidence.score.roundToInt().coerceIn(0, 100)} • jitter ${evidence.jitterMs.toInt()} ms",
                         color = Aether.InkFaint,
                         style = MaterialTheme.typography.labelSmall,
                         maxLines = 1,
@@ -1943,10 +1982,11 @@ private fun BenchmarkStudio(
             repo.livePingMs > 0 &&
             repo.liveRouteSamples > 0
 
+    // Negative = nothing measured yet, rendered as "—" rather than a misleading zero.
     val score = when {
         liveReady -> repo.liveRouteScore
         measuredBest != null -> measuredBest.score.roundToInt().coerceIn(0, 100)
-        else -> 0
+        else -> -1
     }
     val latency = when {
         liveReady -> repo.livePingMs
@@ -1973,12 +2013,12 @@ private fun BenchmarkStudio(
                 "Route quality",
                 "Live evidence while connected; full route ranking when you run a test",
                 when {
-                    connected && !liveReady -> "Measuring"
-                    liveReady || measuredBest != null -> "$score / 100"
+                    score >= 0 -> "$score / 100"
+                    connected -> "Measuring"
                     else -> "No sample"
                 },
                 when {
-                    connected && !liveReady -> Aether.Cyan
+                    score < 0 -> Aether.InkFaint
                     score >= 80 && latency in 1..500 -> Aether.Emerald
                     score >= 55 && latency in 1..1500 -> Aether.Cyan
                     score > 0 -> Aether.Amber
@@ -2005,13 +2045,15 @@ private fun BenchmarkStudio(
         }
 
         item {
+            // Measure and rank the library. This button must not silently connect: racing a few
+            // nodes returned a single result and left the score table looking empty.
             CyberButton(
                 if (repo.busy) "Measuring…" else "Run performance test",
                 Aether.Cyan,
                 Modifier.fillMaxWidth(),
                 repo.profiles.isNotEmpty() && !repo.busy
             ) {
-                repo.smart(onConnect)
+                repo.smartRank()
             }
         }
 
@@ -2074,8 +2116,8 @@ private fun BenchmarkStudio(
                             if (liveReady) "${repo.liveRouteSamples}" else "${measuredBest?.success ?: 0}%",
                             Modifier.weight(1f)
                         )
-                        MicroStat("RTT", "$latency ms", Modifier.weight(1f))
-                        MicroStat("Jitter", "$jitter ms", Modifier.weight(1f))
+                        MicroStat("RTT", if (latency > 0) "$latency ms" else "—", Modifier.weight(1f))
+                        MicroStat("Jitter", if (latency > 0) "$jitter ms" else "—", Modifier.weight(1f))
                     }
                 }
             }
@@ -2286,7 +2328,7 @@ private fun SpatialSettings(
                     "Advanced controls stay out of the way until you enable Expert mode.",
                 color = Aether.InkFaint,
                 style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.padding(horizontal = 4.dp, vertical = 10.dp)
+                modifier = Modifier.padding(vertical = 10.dp)
             )
         }
     }
@@ -2313,9 +2355,9 @@ private fun SpatialAccordion(
         Modifier
             .fillMaxWidth()
             .animateContentSize(tween(160, easing = FastOutSlowInEasing))
-            .shadow(1.dp, shape, clip = false)
             .clip(shape)
             .background(Aether.VoidElevated)
+            .border(1.dp, Aether.GlassBorderSoft, shape)
             .padding(horizontal = 14.dp, vertical = 13.dp),
         verticalArrangement = Arrangement.spacedBy(11.dp)
     ) {
@@ -3584,7 +3626,6 @@ private fun MarbleToggle(
             modifier = Modifier
                 .offset(x = thumbX, y = 3.dp)
                 .size(24.dp)
-                .shadow(1.dp, CircleShape, clip = false)
                 .clip(CircleShape)
                 .background(thumb)
         )
@@ -3709,19 +3750,22 @@ private fun EmptyVisual(
 }
 
 
+/** Score ring. A negative score means "not measured yet" and renders as an empty dash. */
 @Composable
 private fun ScoreRing(
     score: Int,
     modifier: Modifier = Modifier
 ) {
+    val known = score >= 0
     val target = score.coerceIn(0, 100)
     val progress by animateFloatAsState(
-        targetValue = target / 100f,
+        targetValue = if (known) target / 100f else 0f,
         animationSpec = tween(420, easing = FastOutSlowInEasing),
         label = "score-ring-progress"
     )
     val track = Aether.GlassBorderSoft
     val ring = when {
+        !known -> Aether.InkFaint
         target >= 80 -> Aether.Emerald
         target >= 55 -> Aether.Cyan
         target >= 35 -> Aether.Amber
@@ -3731,21 +3775,36 @@ private fun ScoreRing(
     Box(modifier, contentAlignment = Alignment.Center) {
         Canvas(Modifier.matchParentSize()) {
             val width = size.minDimension * .072f
-            drawArc(track, -90f, 360f, false, style = Stroke(width, cap = StrokeCap.Round))
+            // The arc must be inset by half the stroke, otherwise the ring is clipped flat at the
+            // four edges of the canvas.
+            val inset = width / 2f
+            val arcSize = Size(size.width - width, size.height - width)
+            val topLeft = Offset(inset, inset)
+            drawArc(
+                color = track,
+                startAngle = -90f,
+                sweepAngle = 360f,
+                useCenter = false,
+                topLeft = topLeft,
+                size = arcSize,
+                style = Stroke(width, cap = StrokeCap.Round)
+            )
             if (progress > 0f) {
                 drawArc(
-                    ring,
-                    -90f,
-                    360f * progress,
-                    false,
+                    color = ring,
+                    startAngle = -90f,
+                    sweepAngle = 360f * progress,
+                    useCenter = false,
+                    topLeft = topLeft,
+                    size = arcSize,
                     style = Stroke(width, cap = StrokeCap.Round)
                 )
             }
         }
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
-                target.toString(),
-                color = Aether.Ink,
+                if (known) target.toString() else "—",
+                color = if (known) Aether.Ink else Aether.InkMuted,
                 style = MaterialTheme.typography.headlineMedium,
                 fontWeight = FontWeight.SemiBold
             )

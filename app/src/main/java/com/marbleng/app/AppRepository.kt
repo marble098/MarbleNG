@@ -97,17 +97,6 @@ fun updateTelemetry(downBps: Long, upBps: Long) {
         }
     }
 
-fun updatePing(ms: Int) {
-        if (ms <= 0) return
-        postToMain {
-            livePingMs = ms
-            val raw = calculateLiveRouteScore(ms, liveJitterMs)
-            liveRouteScore =
-                if (liveRouteScore < 0) raw
-                else ((liveRouteScore * 3 + raw * 2) / 5).coerceIn(0, 100)
-        }
-    }
-
 fun updateRouteQuality(pingMs: Int, jitterMs: Int) {
         if (pingMs <= 0) return
         val safeJitter = jitterMs.coerceAtLeast(0)
