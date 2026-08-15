@@ -21,40 +21,52 @@ import com.marbleng.app.model.RoutingMode
  * destinations stay on one stable proxy exit for the user-started session.
  */
 object IdentityGuard {
+    private fun hasGeoTag(raw: String, name: String, prefix: String): Boolean =
+        raw.split(',', '\n', '\r', ';')
+            .asSequence()
+            .map(String::trim)
+            .filter(String::isNotBlank)
+            .any { token ->
+                token.equals(name, ignoreCase = true) ||
+                    token.equals("$prefix:$name", ignoreCase = true)
+            }
+
     fun apply(settings: AppSettings): AppSettings {
         if (!settings.identityGuardEnabled) return settings
 
-        fun hasTag(raw: String, name: String, prefix: String): Boolean =
-            raw.split(',', '
-', '
-', ';')
-                .map(String::trim)
-                .any {
-                    it.equals(name, ignoreCase = true) ||
-                        it.equals("$prefix:$name", ignoreCase = true)
-                }
-
         val iranDirect =
             settings.routingMode in setOf(RoutingMode.GEO_DIRECT, RoutingMode.CUSTOM) &&
-                hasTag(settings.routeGeoIpTags, "ir", "geoip") &&
-                hasTag(settings.routeGeoSiteTags, "ir", "geosite")
-        val privateOnly = settings.routingMode == RoutingMode.BYPASS_PRIVATE
+                hasGeoTag(settings.routeGeoIpTags, "ir", "geoip") &&
+                hasGeoTag(settings.routeGeoSiteTags, "ir", "geosite")
+
+        val privateOnly =
+            settings.routingMode == RoutingMode.BYPASS_PRIVATE
 
         return settings.copy(
+            // Stable identity applies to the selected proxy exit. Do not let optimizer/failover
+            // silently replace that exit while this guard is active.
             continuousOptimizerEnabled = false,
+
+            // Keep only the bounded intentional direct policy:
+            // Iran + private networks, or private-only. Everything else remains proxy-all.
             routingMode = when {
                 iranDirect -> RoutingMode.GEO_DIRECT
                 privateOnly -> RoutingMode.BYPASS_PRIVATE
                 else -> RoutingMode.PROXY_ALL
             },
-            routeGeoIpTags = if (iranDirect) RoutingDefaults.GEOIP_DIRECT_TAGS else "",
-            routeGeoSiteTags = if (iranDirect) RoutingDefaults.GEOSITE_DIRECT_TAGS else "",
-            // Identity Guard permits only the bounded Iran/private geo-direct policy. Arbitrary
-            // hand-entered direct public destinations would create extra public identities.
+            routeGeoIpTags =
+                if (iranDirect) RoutingDefaults.GEOIP_DIRECT_TAGS else "",
+            routeGeoSiteTags =
+                if (iranDirect) RoutingDefaults.GEOSITE_DIRECT_TAGS else "",
+
+            // Arbitrary hand-entered public direct routes create additional public identities,
+            // so Identity Guard strips them while retaining explicit proxy/block rules.
             routeDirectDomains = "",
             routeDirectIps = "",
             routeBypassPrivate = iranDirect || privateOnly,
             iranDomesticDirect = iranDirect,
+
+            // Keep classic DNS interception enabled on tunneled traffic.
             dnsHijackEnabled = true
         )
     }
