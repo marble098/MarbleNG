@@ -154,7 +154,18 @@ object ProxyParser {
     private fun pad64(value: String) = value + "=".repeat((4 - value.length % 4) % 4)
     private fun id(raw: String) = MessageDigest.getInstance("SHA-256").digest(raw.toByteArray())
         .take(8).joinToString("") { "%02x".format(it) }
-    private fun dec(value: String?) = URLDecoder.decode(value ?: "", "UTF-8")
+    /**
+     * Percent-decoding that never drops a node.
+     *
+     * Uri.parse() already returns decoded fragments/user-info, and node names legitimately contain
+     * a bare '%' ("100% uptime"). URLDecoder throws on those and used to make the whole share link
+     * disappear from the library, so decoding is attempted only when it can apply and never throws.
+     */
+    private fun dec(value: String?): String {
+        val raw = value ?: return ""
+        if (!raw.contains('%')) return raw
+        return runCatching { URLDecoder.decode(raw, "UTF-8") }.getOrDefault(raw)
+    }
 
     private fun parseUri(raw: String, sid: String, sname: String): ProxyProfile = when (raw.substringBefore(':').lowercase()) {
         "vless" -> parseVless(raw, sid, sname)
@@ -266,7 +277,9 @@ object ProxyParser {
         val body = raw.removePrefix("vmess://").substringBefore('#')
         if (!body.substringBefore('?').contains('@')) {
             val o = JSONObject(String(decode64(body), Charsets.UTF_8)); val host = o.optString("add", o.optString("address"))
-            val port = o.optString("port").toInt(); val uuid = o.getString("id"); val net = o.optString("net", "tcp")
+            val port = o.optString("port").trim().toIntOrNull() ?: o.optInt("port")
+            require(port in 1..65535) { "VMess payload has no usable port" }
+            val uuid = o.getString("id"); val net = o.optString("net", "tcp")
             val sec = if (o.optString("tls").lowercase() in setOf("tls", "1", "true")) "tls" else "none"
             val fake = Uri.parse("vmess://$uuid@$host:$port?type=${Uri.encode(net)}&security=$sec&host=${Uri.encode(o.optString("host"))}&path=${Uri.encode(o.optString("path"))}&sni=${Uri.encode(o.optString("sni"))}&fp=${Uri.encode(o.optString("fp", "chrome"))}")
             val out = JSONObject().put("tag", "proxy").put("protocol", "vmess").put("settings", JSONObject()
@@ -283,7 +296,13 @@ object ProxyParser {
 
     private fun parseTrojan(raw: String, sid: String, sname: String): ProxyProfile {
         val u = Uri.parse(raw); val host = u.host ?: error("host"); val port = u.port.takeIf { it > 0 } ?: error("port")
-        val rebuilt = if (q(u, "security").isBlank()) Uri.parse(raw.replace("?", "?security=tls&")) else u
+        // Trojan is TLS-only in practice and share links routinely omit `security`. String
+        // surgery on the raw URI silently failed when there was no query string at all.
+        val rebuilt = if (q(u, "security").isBlank()) {
+            u.buildUpon().appendQueryParameter("security", "tls").build()
+        } else {
+            u
+        }
         val out = JSONObject().put("tag", "proxy").put("protocol", "trojan")
             .put("settings", JSONObject().put("address", host).put("port", port).put("password", dec(u.userInfo)))
             .put("streamSettings", stream(rebuilt, host))
@@ -293,14 +312,23 @@ object ProxyParser {
     private fun parseSs(raw: String, sid: String, sname: String): ProxyProfile {
         val u = Uri.parse(raw); require(q(u, "plugin").isBlank()) { "SS plugin is not a native Xray outbound" }
         var host = u.host; var port = u.port; var method = ""; var password = ""
-        if (host != null && u.userInfo?.contains(':') == true) {
-            val c = dec(u.userInfo).split(':', limit = 2); method = c[0]; password = c[1]
-        } else {
+        val userInfo = u.userInfo
+        if (host != null && !userInfo.isNullOrBlank()) {
+            // SIP002 allows plain "method:password" or base64("method:password") in the user info.
+            val credentials = if (userInfo.contains(':')) {
+                dec(userInfo)
+            } else {
+                runCatching { String(decode64(userInfo), Charsets.UTF_8) }.getOrDefault("")
+            }
+            method = credentials.substringBefore(':', ""); password = credentials.substringAfter(':', "")
+        }
+        if (method.isBlank()) {
             val decoded = String(decode64(raw.removePrefix("ss://").substringBefore('#').substringBefore('?')), Charsets.UTF_8)
             val du = Uri.parse("ss://$decoded"); host = du.host; port = du.port
-            val c = dec(du.userInfo).split(':', limit = 2); method = c[0]; password = c[1]
+            val credentials = dec(du.userInfo)
+            method = credentials.substringBefore(':', ""); password = credentials.substringAfter(':', "")
         }
-        require(host != null && port > 0 && method.isNotBlank())
+        require(host != null && port > 0 && method.isNotBlank() && password.isNotBlank())
         val out = JSONObject().put("tag", "proxy").put("protocol", "shadowsocks")
             .put("settings", JSONObject().put("address", host).put("port", port).put("method", method).put("password", password))
         return prof(raw, u.fragment ?: "SS $host", "ss", host!!, port, "native", "none", base(out), sid, sname)

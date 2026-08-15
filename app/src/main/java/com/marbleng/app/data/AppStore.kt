@@ -177,7 +177,8 @@ class AppStore(context: Context) {
         thermalAwareEnabled = prefs.getBoolean("thermalAwareEnabled", true),
         workloadProfile = enumValue("workloadProfile", WorkloadProfile.AUTO),
 
-        theme = prefs.getString("theme", "dark") ?: "dark"
+        theme = prefs.getString("theme", "dark") ?: "dark",
+        expertMode = prefs.getBoolean("expertMode", false)
         )
     }
 
@@ -297,6 +298,7 @@ class AppStore(context: Context) {
         .putString("workloadProfile", s.workloadProfile.name)
 
         .putString("theme", s.theme)
+        .putBoolean("expertMode", s.expertMode)
         .apply()
 
     private inline fun <reified T : Enum<T>> enumValue(key: String, fallback: T): T =

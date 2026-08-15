@@ -97,126 +97,138 @@ object SocksHttpClient {
 
         val start = System.nanoTime()
         val tcp = Socket()
-        tcp.soTimeout = timeoutMs
-        tcp.connect(InetSocketAddress("127.0.0.1", port), timeoutMs)
-
-        val output = BufferedOutputStream(tcp.getOutputStream())
-        val input = BufferedInputStream(tcp.getInputStream())
-
-        // SOCKS5 no-auth negotiation.
-        output.write(byteArrayOf(5, 1, 0))
-        output.flush()
-        require(input.read() == 5 && input.read() == 0) { "SOCKS auth negotiation failed" }
-
-        // ATYP=3 sends the hostname to Xray instead of resolving it with Android/system DNS.
-        val hostBytes = host.toByteArray(Charsets.UTF_8)
-        require(hostBytes.size in 1..255) { "SOCKS hostname too long" }
-        output.write(byteArrayOf(5, 1, 0, 3, hostBytes.size.toByte()))
-        output.write(hostBytes)
-        output.write(byteArrayOf((targetPort ushr 8).toByte(), targetPort.toByte()))
-        output.flush()
-
-        val reply = ByteArray(4)
-        readFully(input, reply)
-        require(reply[0].toInt() == 5 && reply[1].toInt() == 0) {
-            "SOCKS connect failed: ${reply[1].toInt() and 0xff}"
-        }
-        when (reply[3].toInt() and 0xff) {
-            1 -> skip(input, 4)
-            3 -> {
-                val length = input.read()
-                require(length >= 0)
-                skip(input, length)
-            }
-            4 -> skip(input, 16)
-            else -> error("Invalid SOCKS address type")
-        }
-        skip(input, 2)
-
-        val ssl = (SSLSocketFactory.getDefault() as SSLSocketFactory)
-            .createSocket(tcp, host, targetPort, true) as SSLSocket
-        ssl.soTimeout = timeoutMs
+        var ssl: SSLSocket? = null
 
         /*
-         * Raw SSLSocket does not automatically enable HTTPS endpoint identification on every
-         * Android/JSSE path. Enforce hostname verification before the handshake.
+         * Every failure below (SOCKS refusal, TLS handshake, truncated response, size limit) must
+         * release the local socket. Benchmarks probe hundreds of dead nodes per run, so leaking one
+         * file descriptor per failure exhausts the process FD table and breaks the whole engine.
          */
-        val parameters = ssl.sslParameters
-        parameters.endpointIdentificationAlgorithm = "HTTPS"
-        ssl.sslParameters = parameters
-        ssl.startHandshake()
+        try {
+            tcp.soTimeout = timeoutMs
+            tcp.connect(InetSocketAddress("127.0.0.1", port), timeoutMs)
 
-        val sslOut = BufferedOutputStream(ssl.getOutputStream())
-        val sslIn = BufferedInputStream(ssl.getInputStream())
+            val output = BufferedOutputStream(tcp.getOutputStream())
+            val input = BufferedInputStream(tcp.getInputStream())
 
-        val normalizedHeaders = LinkedHashMap<String, String>()
-        normalizedHeaders["User-Agent"] = "MarbleNG/1"
-        normalizedHeaders["Connection"] = "close"
-        if (headers.keys.none { it.equals("Accept-Encoding", ignoreCase = true) }) {
-            normalizedHeaders["Accept-Encoding"] = "identity"
-        }
-        headers.forEach { (key, value) -> normalizedHeaders[key] = value }
+            // SOCKS5 no-auth negotiation.
+            output.write(byteArrayOf(5, 1, 0))
+            output.flush()
+            require(input.read() == 5 && input.read() == 0) { "SOCKS auth negotiation failed" }
 
-        val hostHeader = if (targetPort == 443) host else "$host:$targetPort"
-        val requestText = buildString {
-            append("$method $path HTTP/1.1\r\n")
-            append("Host: $hostHeader\r\n")
-            normalizedHeaders.forEach { (key, value) -> append("$key: $value\r\n") }
-            if (body != null) append("Content-Length: ${body.size}\r\n")
-            append("\r\n")
-        }
+            // ATYP=3 sends the hostname to Xray instead of resolving it with Android/system DNS.
+            val hostBytes = host.toByteArray(Charsets.UTF_8)
+            require(hostBytes.size in 1..255) { "SOCKS hostname too long" }
+            output.write(byteArrayOf(5, 1, 0, 3, hostBytes.size.toByte()))
+            output.write(hostBytes)
+            output.write(byteArrayOf((targetPort ushr 8).toByte(), targetPort.toByte()))
+            output.flush()
 
-        sslOut.write(requestText.toByteArray(Charsets.ISO_8859_1))
-        if (body != null) sslOut.write(body)
-        sslOut.flush()
-
-        val raw = readToLimit(sslIn, maxBytes + 64 * 1024)
-        val separator = "\r\n\r\n".toByteArray(Charsets.ISO_8859_1)
-        val headerEnd = indexOf(raw, separator, 0)
-        require(headerEnd >= 0) { "Invalid HTTPS response" }
-
-        val headerText = String(raw, 0, headerEnd, Charsets.ISO_8859_1)
-        val headerLines = headerText.split("\r\n")
-        val status = headerLines.firstOrNull()
-            ?.split(' ')
-            ?.getOrNull(1)
-            ?.toIntOrNull()
-            ?: 0
-
-        val responseHeaders = linkedMapOf<String, String>()
-        headerLines.drop(1).forEach { line ->
-            val colon = line.indexOf(':')
-            if (colon > 0) {
-                val key = line.substring(0, colon).trim().lowercase(Locale.US)
-                val value = line.substring(colon + 1).trim()
-                responseHeaders[key] = responseHeaders[key]
-                    ?.let { "$it, $value" }
-                    ?: value
+            val reply = ByteArray(4)
+            readFully(input, reply)
+            require(reply[0].toInt() == 5 && reply[1].toInt() == 0) {
+                "SOCKS connect failed: ${reply[1].toInt() and 0xff}"
             }
-        }
-
-        var payload = raw.copyOfRange(headerEnd + separator.size, raw.size)
-        if (responseHeaders["transfer-encoding"]?.contains("chunked", ignoreCase = true) == true) {
-            payload = decodeChunked(payload, maxBytes)
-        }
-        if (responseHeaders["content-encoding"]?.contains("gzip", ignoreCase = true) == true) {
-            payload = GZIPInputStream(ByteArrayInputStream(payload)).use { gzip ->
-                readToLimit(gzip, maxBytes)
+            when (reply[3].toInt() and 0xff) {
+                1 -> skip(input, 4)
+                3 -> {
+                    val length = input.read()
+                    require(length >= 0)
+                    skip(input, length)
+                }
+                4 -> skip(input, 16)
+                else -> error("Invalid SOCKS address type")
             }
+            skip(input, 2)
+
+            val secure = (SSLSocketFactory.getDefault() as SSLSocketFactory)
+                .createSocket(tcp, host, targetPort, true) as SSLSocket
+            ssl = secure
+            secure.soTimeout = timeoutMs
+
+            /*
+             * Raw SSLSocket does not automatically enable HTTPS endpoint identification on every
+             * Android/JSSE path. Enforce hostname verification before the handshake.
+             */
+            val parameters = secure.sslParameters
+            parameters.endpointIdentificationAlgorithm = "HTTPS"
+            secure.sslParameters = parameters
+            secure.startHandshake()
+
+            val sslOut = BufferedOutputStream(secure.getOutputStream())
+            val sslIn = BufferedInputStream(secure.getInputStream())
+
+            val normalizedHeaders = LinkedHashMap<String, String>()
+            normalizedHeaders["User-Agent"] = "MarbleNG/1"
+            normalizedHeaders["Connection"] = "close"
+            if (headers.keys.none { it.equals("Accept-Encoding", ignoreCase = true) }) {
+                normalizedHeaders["Accept-Encoding"] = "identity"
+            }
+            headers.forEach { (key, value) -> normalizedHeaders[key] = value }
+
+            val hostHeader = if (targetPort == 443) host else "$host:$targetPort"
+            val requestText = buildString {
+                append("$method $path HTTP/1.1\r\n")
+                append("Host: $hostHeader\r\n")
+                normalizedHeaders.forEach { (key, value) -> append("$key: $value\r\n") }
+                if (body != null) append("Content-Length: ${body.size}\r\n")
+                append("\r\n")
+            }
+
+            sslOut.write(requestText.toByteArray(Charsets.ISO_8859_1))
+            if (body != null) sslOut.write(body)
+            sslOut.flush()
+
+            val raw = readToLimit(sslIn, maxBytes + 64 * 1024)
+            val separator = "\r\n\r\n".toByteArray(Charsets.ISO_8859_1)
+            val headerEnd = indexOf(raw, separator, 0)
+            require(headerEnd >= 0) { "Invalid HTTPS response" }
+
+            val headerText = String(raw, 0, headerEnd, Charsets.ISO_8859_1)
+            val headerLines = headerText.split("\r\n")
+            val status = headerLines.firstOrNull()
+                ?.split(' ')
+                ?.getOrNull(1)
+                ?.toIntOrNull()
+                ?: 0
+
+            val responseHeaders = linkedMapOf<String, String>()
+            headerLines.drop(1).forEach { line ->
+                val colon = line.indexOf(':')
+                if (colon > 0) {
+                    val key = line.substring(0, colon).trim().lowercase(Locale.US)
+                    val value = line.substring(colon + 1).trim()
+                    responseHeaders[key] = responseHeaders[key]
+                        ?.let { "$it, $value" }
+                        ?: value
+                }
+            }
+
+            var payload = raw.copyOfRange(headerEnd + separator.size, raw.size)
+            if (responseHeaders["transfer-encoding"]?.contains("chunked", ignoreCase = true) == true) {
+                payload = decodeChunked(payload, maxBytes)
+            }
+            if (responseHeaders["content-encoding"]?.contains("gzip", ignoreCase = true) == true) {
+                payload = GZIPInputStream(ByteArrayInputStream(payload)).use { gzip ->
+                    readToLimit(gzip, maxBytes)
+                }
+            }
+
+            require(payload.size <= maxBytes) { "HTTPS response exceeds $maxBytes bytes" }
+
+            val elapsed = (System.nanoTime() - start) / 1e6
+
+            return HttpProbe(
+                status = status,
+                body = payload,
+                elapsedMs = elapsed,
+                bytesPerSecond = if (elapsed > 0) payload.size / (elapsed / 1000.0) else 0.0,
+                headers = responseHeaders
+            )
+        } finally {
+            runCatching { ssl?.close() }
+            runCatching { tcp.close() }
         }
-
-        require(payload.size <= maxBytes) { "HTTPS response exceeds $maxBytes bytes" }
-
-        val elapsed = (System.nanoTime() - start) / 1e6
-        runCatching { ssl.close() }
-
-        return HttpProbe(
-            status = status,
-            body = payload,
-            elapsedMs = elapsed,
-            bytesPerSecond = if (elapsed > 0) payload.size / (elapsed / 1000.0) else 0.0,
-            headers = responseHeaders
-        )
     }
 
     private fun readToLimit(input: java.io.InputStream, limit: Int): ByteArray {

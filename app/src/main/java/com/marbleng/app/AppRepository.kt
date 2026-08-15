@@ -42,6 +42,12 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     var iranMode by mutableStateOf(IranModeState()); private set
     var state by mutableStateOf("DISCONNECTED"); private set
     var stateDetail by mutableStateOf(""); private set
+
+    /**
+     * Id of the profile currently carrying traffic. Screens must identify the active node by id;
+     * display names are user-editable and are frequently duplicated inside one subscription.
+     */
+    var activeProfileId by mutableStateOf(""); private set
     var busy by mutableStateOf(false); private set
     var message by mutableStateOf(""); private set
     var benchmarks by mutableStateOf<List<BenchmarkResult>>(emptyList()); private set
@@ -129,10 +135,21 @@ fun resetTelemetry() {
 
     fun profile(id: String) = profiles.firstOrNull { it.id == id }
 
+    /** True only for the node that is actually carrying traffic right now. */
+    fun isActiveProfile(id: String): Boolean {
+        if (state != "CONNECTED" || id.isBlank()) return false
+        if (activeProfileId.isNotBlank()) return activeProfileId == id
+        // Pre-connect state restored without an id: fall back to the displayed route name.
+        return stateDetail.isNotBlank() && profile(id)?.name == stateDetail
+    }
+
     fun setRuntimeState(s: String, d: String) {
         state = s
         stateDetail = d
-        if (s != "CONNECTED") resetTelemetry()
+        if (s != "CONNECTED") {
+            activeProfileId = ""
+            resetTelemetry()
+        }
     }
 
     fun updateSettings(v: AppSettings) {
@@ -493,7 +510,10 @@ private fun postToMain(block: () -> Unit) {
         }
         val doomedIds = profiles.filter { it.subscriptionId == id }.map { it.id }.toSet()
         val activeBelongs = state in setOf("CONNECTED", "CONNECTING", "BLOCKED") &&
-            profiles.any { it.subscriptionId == id && it.name == stateDetail }
+            (
+                activeProfileId in doomedIds ||
+                    (activeProfileId.isBlank() && profiles.any { it.subscriptionId == id && it.name == stateDetail })
+                )
         if (activeBelongs) stopVpn()
         if (lastProfile()?.id?.let { it in doomedIds } == true) store.setLastProfileId("")
         subscriptions.removeAll { it.id == id }
@@ -620,8 +640,11 @@ private fun postToMain(block: () -> Unit) {
     fun markConnected(p: ProxyProfile) {
         state = "CONNECTED"
         stateDetail = p.name
+        activeProfileId = p.id
         if (settings.rememberLast) store.setLastProfileId(p.id)
         history += ConnectionRecord(p.id, p.name, System.currentTimeMillis(), "connected:${settings.connectionMode.name}")
+        // The store keeps the last 200 records; keep the in-memory list bounded the same way.
+        while (history.size > MAX_HISTORY_RECORDS) history.removeAt(0)
         store.saveHistory(history)
     }
 
@@ -663,20 +686,37 @@ private fun postToMain(block: () -> Unit) {
         }
     }
 
+    /**
+     * Folds a fresh measurement set into the existing evidence table instead of replacing it.
+     * Testing one node used to erase every other measured route from Library/Quality.
+     */
+    private fun mergeBenchmarks(fresh: List<BenchmarkResult>) {
+        if (fresh.isEmpty()) return
+        val freshIds = fresh.mapTo(mutableSetOf()) { it.profileId }
+        val liveIds = profiles.mapTo(mutableSetOf()) { it.id }
+        benchmarks = (fresh + benchmarks.filterNot { it.profileId in freshIds })
+            .distinctBy { it.profileId }
+            .filter { it.profileId in liveIds || it.profileId in freshIds }
+            .sortedWith(
+                compareByDescending<BenchmarkResult> { it.score }
+                    .thenBy { it.latencyMs }
+            )
+    }
+
     fun smart(onBest: (ProxyProfile) -> Unit) {
         task("Marble Intelligence • selecting route") {
             val engine = BenchmarkEngine(xray, intelligence)
             if (settings.intelligenceEnabled && settings.raceConnectEnabled && profiles.size > 1) {
                 val raced = engine.race(profiles.toList(), settings) { n -> message = "Connection race • $n" }
                 if (raced != null) {
-                    benchmarks = listOf(raced.second)
+                    mergeBenchmarks(listOf(raced.second))
                     message = "Race winner: ${raced.first.name}"
                     android.os.Handler(android.os.Looper.getMainLooper()).post { onBest(raced.first) }
                     return@task
                 }
             }
             val results = engine.run(profiles.toList(), settings) { a, b, n -> message = "Tunnel intelligence $a/$b • $n" }
-            benchmarks = results
+            mergeBenchmarks(results)
             val best = results.firstOrNull { it.success > 0 }?.let { profile(it.profileId) }
             message = if (best == null) "No working candidate" else "Best: ${best.name}"
             best?.let { android.os.Handler(android.os.Looper.getMainLooper()).post { onBest(it) } }
@@ -692,7 +732,7 @@ private fun postToMain(block: () -> Unit) {
             val results = BenchmarkEngine(xray, intelligence).run(profiles.toList(), settings) { done, total, name ->
                 message = "Smart rank $done/$total • $name"
             }
-            benchmarks = results
+            mergeBenchmarks(results)
             val best = results.firstOrNull { it.success > 0 }
             message = if (best == null) "Smart rank finished • no healthy route found"
             else "Best route • ${best.name} • ${best.latencyMs.toInt()} ms • score ${best.score.toInt()}"
@@ -701,8 +741,9 @@ private fun postToMain(block: () -> Unit) {
 
     fun fullTest(p: ProxyProfile) {
         task("Full test ${p.name}") {
-            benchmarks = BenchmarkEngine(xray, intelligence).run(listOf(p), settings.copy(benchCandidates = 1))
-            message = benchmarks.firstOrNull()?.let {
+            val result = BenchmarkEngine(xray, intelligence).run(listOf(p), settings.copy(benchCandidates = 1))
+            mergeBenchmarks(result)
+            message = result.firstOrNull()?.let {
                 "${it.success}% • ${"%.0f".format(it.latencyMs)} ms • ${"%.1f".format(it.score)}"
             } ?: "Test failed"
         }
@@ -717,9 +758,10 @@ private fun postToMain(block: () -> Unit) {
         task("Testing all configs") {
             val all = profiles.toList()
             val testSettings = settings.copy(benchMode = BenchMode.CUSTOM, benchCandidates = all.size)
-            benchmarks = BenchmarkEngine(xray, intelligence).run(all, testSettings) { a, b, n -> message = "Tunnel test $a/$b • $n" }
-            val passed = benchmarks.count { it.success > 0 }
-            message = "Tested ${benchmarks.size} configs • $passed reachable"
+            val results = BenchmarkEngine(xray, intelligence).run(all, testSettings) { a, b, n -> message = "Tunnel test $a/$b • $n" }
+            mergeBenchmarks(results)
+            val passed = results.count { it.success > 0 }
+            message = "Tested ${results.size} configs • $passed reachable"
         }
     }
 
@@ -1072,5 +1114,8 @@ private fun postToMain(block: () -> Unit) {
     private companion object {
         /** Detection is cheap but not free; unchanged networks are re-checked every 10 minutes. */
         const val IRAN_RESCAN_INTERVAL_MS = 10L * 60L * 1000L
+
+        /** Mirrors AppStore's persisted history window. */
+        const val MAX_HISTORY_RECORDS = 200
     }
 }

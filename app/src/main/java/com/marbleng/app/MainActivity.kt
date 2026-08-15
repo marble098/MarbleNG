@@ -11,6 +11,11 @@ import com.marbleng.app.model.ProxyProfile
 import com.marbleng.app.ui.MarbleApp
 
 class MainActivity : ComponentActivity() {
+    private companion object {
+        /** Survives the recreation that a rotation during the system VPN consent dialog causes. */
+        const val KEY_PENDING_PROFILE = "pendingProfileId"
+    }
+
     private var pending: ProxyProfile? = null
     private val app get() = application as MarbleApplication
 
@@ -27,8 +32,16 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        pending?.let { outState.putString(KEY_PENDING_PROFILE, it.id) }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        savedInstanceState?.getString(KEY_PENDING_PROFILE)?.let { id ->
+            pending = app.repo.profile(id)
+        }
         setContent {
             MarbleApp(app.repo, ::connect) {
                 openFile.launch(arrayOf("text/*", "application/json", "application/octet-stream"))
