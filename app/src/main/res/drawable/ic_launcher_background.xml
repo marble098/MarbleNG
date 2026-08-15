@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- MarbleNG v7 • Aurora Prism background -->
+<!-- MarbleNG • deep-field gradient. Flat, modern, no busy geometry behind the mark. -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="rectangle">
     <gradient
         android:angle="315"
-        android:startColor="#070B1F"
-        android:centerColor="#25105E"
-        android:endColor="#063A59"
+        android:startColor="#0B1020"
+        android:centerColor="#1D2A6E"
+        android:endColor="#3F6BD8"
         android:type="linear" />
 </shape>

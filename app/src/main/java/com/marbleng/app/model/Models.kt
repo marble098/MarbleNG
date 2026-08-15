@@ -60,7 +60,6 @@ data class BenchmarkResult(
     val name: String,
     val success: Int,
     val latencyMs: Double,
-    val jitterMs: Double,
     val bytesPerSecond: Double,
     val score: Double,
     val udpSuccess: Int = 0,
@@ -83,6 +82,14 @@ enum class NodeSortMode { PING, SCORE, NAME, PROTOCOL, SOURCE }
 
 /** Live state of one node inside a running test batch, shown on the node's own card. */
 enum class ProbeState { IDLE, QUEUED, TESTING }
+
+/**
+ * How MarbleNG measures a node.
+ *
+ * TUNNEL is the only method that proves a node actually carries traffic; the others are fast
+ * reachability estimates of the physical endpoint and cannot see censorship or a dead account.
+ */
+enum class ProbeMethod { TUNNEL, TCP, ICMP, HYBRID }
 
 /**
  * Canonical MarbleNG routing baseline.
@@ -114,7 +121,10 @@ data class AppSettings(
     val socksPort: Int = 10808,
     val localProxyPort: Int = 10101,
     val connectionMode: ConnectionMode = ConnectionMode.FULL_TUN,
-    val autoCoreUpdate: Boolean = true,
+
+    // How nodes are measured, and how deep each measurement goes.
+    val probeMethod: ProbeMethod = ProbeMethod.HYBRID,
+    val probeSpeedTest: Boolean = false,
 
     val benchMode: BenchMode = BenchMode.BALANCED,
     val benchCandidates: Int = 20,
@@ -142,13 +152,6 @@ data class AppSettings(
     val notifyCoreUpdates: Boolean = true,
     val notificationLiveStats: Boolean = true,
     val notificationCooldownSec: Int = 20,
-
-    val telegramPosts: Int = 20,
-    val telegramMaxConfigs: Int = 80,
-    val telegramTcpGate: Boolean = true,
-    val telegramTcpSamples: Int = 3,
-    val telegramAutoSub: Boolean = true,
-    val telegramPassMinSuccess: Int = 75,
 
     val routingMode: RoutingMode = RoutingMode.GEO_DIRECT,
     val geoIpUrl: String = RoutingDefaults.GEOIP_URL,

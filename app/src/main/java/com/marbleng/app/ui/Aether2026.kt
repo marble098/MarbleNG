@@ -213,9 +213,7 @@ fun Aether2026App(
                     runCatching {
                         when (what) {
                             "Logs" -> repo.readLogs()
-                            "Capabilities" -> repo.capabilities()
                             "System Doctor" -> repo.doctor()
-                            "Core lock" -> repo.coreLock()
                             "History" -> repo.history.takeLast(80).asReversed().joinToString("\n") {
                                 "${DateFormat.getDateTimeInstance().format(Date(it.at))} • ${it.name} • ${it.reason}"
                             }
@@ -710,27 +708,9 @@ private fun CyberDeck(
                 routeName = activeName,
                 liveReady = liveReady,
                 pingMs = repo.livePingMs,
-                jitterMs = repo.liveJitterMs,
                 samples = repo.liveRouteSamples,
                 hasPriorEvidence = priorEvidence != null
             )
-        }
-
-        item {
-            SectionLabel("Connection path", "A simpler view of where protected traffic goes")
-            HoloGlass(
-                Modifier.fillMaxWidth(),
-                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 16.dp)
-            ) {
-                SpatialRouteMap(
-                    repo.settings.connectionMode,
-                    activeName,
-                    repo.profiles.firstOrNull { it.id == repo.settings.chainSecondProfileId }?.name,
-                    repo.settings.chainEnabled,
-                    connected,
-                    Modifier.fillMaxWidth().height(112.dp)
-                )
-            }
         }
 
         item {
@@ -764,14 +744,6 @@ private fun CyberDeck(
             }
         }
 
-        item {
-            Text(
-                "Advanced network controls are intentionally kept in Settings → Expert controls.",
-                color = Aether.InkFaint,
-                style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.padding(vertical = 8.dp)
-            )
-        }
     }
 }
 
@@ -782,7 +754,6 @@ private fun PerformanceScoreOverview(
     routeName: String,
     liveReady: Boolean,
     pingMs: Int,
-    jitterMs: Int,
     samples: Int,
     hasPriorEvidence: Boolean
 ) {
@@ -825,7 +796,7 @@ private fun PerformanceScoreOverview(
                 Text(
                     when {
                         liveReady ->
-                            "Live • $pingMs ms RTT • $jitterMs ms jitter • $samples sample${if(samples==1)"" else "s"}"
+                            "Live • $pingMs ms RTT • $samples sample${if(samples==1)"" else "s"}"
                         connected && hasPriorEvidence ->
                             "Last measured evidence • waiting for the first live sample"
                         connected ->
@@ -1092,13 +1063,6 @@ private fun HoloActionPill(
         }
     }
 }
-
-@Composable
-private fun SpatialRouteMap(mode:ConnectionMode,entryName:String,exitName:String?,chainEnabled:Boolean,connected:Boolean,modifier:Modifier=Modifier){
-    val active=if(connected)Aether.Cyan else Aether.InkFaint;Row(modifier,verticalAlignment=Alignment.CenterVertically){PremiumFlowStage("Device","Apps",Aether.InkMuted,Modifier.weight(1f));PremiumFlowConnector(connected,active,Modifier.weight(.42f));PremiumFlowStage("Secure tunnel",when{chainEnabled&&!exitName.isNullOrBlank()->"${if(mode==ConnectionMode.FULL_TUN)"TUN" else "SOCKS"} • 2-hop";mode==ConnectionMode.FULL_TUN->"TUN • Xray";else->"Local SOCKS"},active,Modifier.weight(1.18f));PremiumFlowConnector(connected,active,Modifier.weight(.42f));PremiumFlowStage("Internet",if(connected)"Protected" else "Waiting",if(connected)Aether.Emerald else Aether.InkFaint,Modifier.weight(1f))}
-}
-@Composable private fun PremiumFlowStage(title:String,detail:String,color:Color,modifier:Modifier=Modifier){Column(modifier.clip(RoundedCornerShape(18.dp)).background(Aether.GlassStrong.copy(alpha=.72f)).padding(horizontal=8.dp,vertical=13.dp),horizontalAlignment=Alignment.CenterHorizontally){Box(Modifier.size(8.dp).clip(CircleShape).background(color));Spacer(Modifier.height(7.dp));Text(title,color=Aether.Ink,style=MaterialTheme.typography.labelLarge,textAlign=TextAlign.Center,maxLines=1);Text(detail,color=Aether.InkFaint,style=MaterialTheme.typography.labelSmall,textAlign=TextAlign.Center,maxLines=1,overflow=TextOverflow.Ellipsis)}}
-@Composable private fun PremiumFlowConnector(active:Boolean,color:Color,modifier:Modifier=Modifier){Box(modifier.padding(horizontal=5.dp).height(4.dp).clip(CircleShape).background(if(active)color.copy(alpha=.55f) else Aether.GlassBorderSoft))}
 
 
 // =================================================================================================
@@ -2009,7 +1973,7 @@ private fun SpatialServerCard(
                         compact = true
                     )
                     Text(
-                        "Score ${evidence.score.roundToInt().coerceIn(0, 100)} • jitter ${evidence.jitterMs.toInt()} ms",
+                        "Score ${evidence.score.roundToInt().coerceIn(0, 100)} • ${evidence.success}% reachable",
                         color = Aether.InkFaint,
                         style = MaterialTheme.typography.labelSmall,
                         maxLines = 1,
@@ -2142,11 +2106,6 @@ private fun BenchmarkStudio(
     val latency = when {
         liveReady -> repo.livePingMs
         measuredBest != null -> measuredBest.latencyMs.toInt()
-        else -> 0
-    }
-    val jitter = when {
-        liveReady -> repo.liveJitterMs
-        measuredBest != null -> measuredBest.jitterMs.toInt()
         else -> 0
     }
     val routeName =
@@ -2302,7 +2261,11 @@ private fun BenchmarkStudio(
                             Modifier.weight(1f)
                         )
                         MicroStat("RTT", if (latency > 0) "$latency ms" else "—", Modifier.weight(1f))
-                        MicroStat("Jitter", if (latency > 0) "$jitter ms" else "—", Modifier.weight(1f))
+                        MicroStat(
+                            "Method",
+                            probeMethodShortLabel(repo.settings.probeMethod),
+                            Modifier.weight(1f)
+                        )
                     }
                 }
             }
@@ -2368,7 +2331,7 @@ private fun CompactBenchmarkRow(
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
-                    "${result.latencyMs.toInt()} ms • ${result.jitterMs.toInt()} ms jitter • ${rate(result.bytesPerSecond.toLong())}",
+                    routeEvidenceLine(result),
                     color = Aether.InkFaint,
                     style = MaterialTheme.typography.labelSmall,
                     maxLines = 1,
@@ -2399,7 +2362,7 @@ private fun DiscoveryRadar(repo:AppRepository){
         item{SectionLabel("Current network");HoloGlass(Modifier.fillMaxWidth()){Row(verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f)){Text(network.label,color=Aether.Ink,style=MaterialTheme.typography.titleMedium);Text("${if(network.metered)"Metered" else "Unmetered"} • ${if(network.hasIpv4)"IPv4" else "No IPv4"} • ${if(network.hasIpv6)"IPv6" else "No IPv6"}",color=Aether.InkMuted,style=MaterialTheme.typography.bodySmall)};HoloBadge(if(network.validated)"Validated" else "Unvalidated",linkColor,true)};Text("MTU ${network.mtu.takeIf{it>0}?:0} • Downlink ${network.downstreamKbps.coerceAtLeast(0)} kbps • Uplink ${network.upstreamKbps.coerceAtLeast(0)} kbps",color=Aether.InkFaint,style=MaterialTheme.typography.bodySmall);CyberButton(if(iran.scanning)"Checking network…" else "Refresh network check",Aether.Cyan,Modifier.fillMaxWidth(),!iran.scanning){repo.scanIranMode(force=true,deep=true)}}}
         item{SectionLabel("Marble Intelligence");HoloGlass(Modifier.fillMaxWidth()){Row(verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f)){Text(if(repo.settings.intelligenceEnabled)"Adaptive engine enabled" else "Adaptive engine disabled",color=Aether.Ink,style=MaterialTheme.typography.titleMedium);Text("Effective MTU ${intel.effectiveMtu.takeIf{it>0}?:network.mtu} • Thermal budget ${intel.thermalBudgetPercent}% • History ${intel.historyRecords}",color=Aether.InkFaint,style=MaterialTheme.typography.bodySmall)};HoloBadge(if(repo.settings.intelligenceEnabled)"On" else "Off",if(repo.settings.intelligenceEnabled)Aether.Emerald else Aether.InkFaint,true)};Text(intel.lastDecision.ifBlank{"Waiting for the next network decision"},color=Aether.InkMuted,style=MaterialTheme.typography.bodyMedium)}}
         if(iran.active){item{SectionLabel("Regional protection");HoloGlass(Modifier.fillMaxWidth()){Row(verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f)){Text(iran.ispLine,color=Aether.Ink,style=MaterialTheme.typography.titleMedium);Text(iran.summary,color=Aether.InkMuted,style=MaterialTheme.typography.bodySmall)};HoloBadge("${iran.confidence}%",Aether.Emerald,true)}}}}
-        if(repo.benchmarks.isNotEmpty()){item{SectionLabel("Recent measurements","Read-only route evidence")};items(repo.benchmarks.sortedByDescending{it.score}.take(6),key={"network-memory-${it.profileId}"}){r->val c=healthColor(r.latencyMs.toInt(),r.success);HoloGlass(Modifier.fillMaxWidth(),contentPadding=PaddingValues(horizontal=14.dp,vertical=12.dp)){Row(verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f)){Text(r.name,color=Aether.Ink,style=MaterialTheme.typography.labelLarge,maxLines=1,overflow=TextOverflow.Ellipsis);Text("${r.latencyMs.toInt()} ms • jitter ${r.jitterMs.toInt()} ms • success ${r.success}%",color=Aether.InkFaint,style=MaterialTheme.typography.bodySmall)};HoloBadge("${r.score.roundToInt().coerceIn(0,100)}",c,true)}}}}
+        if(repo.benchmarks.isNotEmpty()){item{SectionLabel("Recent measurements","Read-only route evidence")};items(repo.benchmarks.sortedByDescending{it.score}.take(6),key={"network-memory-${it.profileId}"}){r->val c=healthColor(r.latencyMs.toInt(),r.success);HoloGlass(Modifier.fillMaxWidth(),contentPadding=PaddingValues(horizontal=14.dp,vertical=12.dp)){Row(verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f)){Text(r.name,color=Aether.Ink,style=MaterialTheme.typography.labelLarge,maxLines=1,overflow=TextOverflow.Ellipsis);Text("${r.latencyMs.toInt()} ms • success ${r.success}%",color=Aether.InkFaint,style=MaterialTheme.typography.bodySmall)};HoloBadge("${r.score.roundToInt().coerceIn(0,100)}",c,true)}}}}
     }
 }
 
@@ -2410,10 +2373,10 @@ private fun DiscoveryRadar(repo:AppRepository){
 
 /**
  * Position of the Routing accordion inside SpatialSettings while Expert controls are on:
- * header, appearance, connection, split tunneling, notifications, subscriptions, regional,
- * intelligence, DNS, routing.
+ * header, appearance, connection, testing, split tunneling, notifications, subscriptions,
+ * regional, intelligence, DNS, routing.
  */
-private const val ROUTING_SECTION_ITEM_INDEX = 9
+private const val ROUTING_SECTION_ITEM_INDEX = 10
 
 @Composable
 private fun SpatialSettings(
@@ -2490,6 +2453,7 @@ private fun SpatialSettings(
         }
 
         item { SpatialAccordion("Connection","Full-device tunnel or local SOCKS proxy","Core",Aether.Cyan,true){ConnectionSettings(repo)} }
+        item { SpatialAccordion("Testing & ping","How MarbleNG measures nodes: tunnel, TCP or ICMP","Tests",Aether.Amethyst){ProbeSettings(repo)} }
         item { SpatialAccordion("Split tunneling","Choose exactly which apps use or bypass the tunnel","Apps",Aether.Emerald){SplitTunnelSettings(repo)} }
         item { SpatialAccordion("Notifications","Connection, recovery and privacy alerts","Alerts",Aether.InkMuted){NotificationSettings(repo)} }
         item { SpatialAccordion("Subscriptions","Automatic refresh cadence","Sync",Aether.Cyan){SubscriptionSettings(repo)} }
@@ -3098,15 +3062,6 @@ private fun ChainSettings(repo: AppRepository) {
 
     AnimatedVisibility(repo.settings.chainEnabled) {
         Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
-            SpatialRouteMap(
-                mode = repo.settings.connectionMode,
-                entryName = repo.lastProfile()?.name ?: "Entry node",
-                exitName = repo.profiles.firstOrNull { it.id == repo.settings.chainSecondProfileId }?.name,
-                chainEnabled = true,
-                connected = true,
-                modifier = Modifier.fillMaxWidth().height(210.dp)
-            )
-
             Text("EXIT NODE", color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
             Row(
                 modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
@@ -3598,28 +3553,159 @@ private fun SubscriptionSettings(repo: AppRepository) {
 
 @Composable
 private fun MaintenanceSettings(repo: AppRepository, onDialog: (String) -> Unit) {
-    MaintenanceRow("System Doctor", "Runtime, assets, native bridge") {
+    // Only the entries that answer a real question survive here. The old "Capabilities" and
+    // "Core lock" rows just printed static text and were removed.
+    MaintenanceRow("Check the app", "Runtime, native bridge and routing assets") {
         onDialog("System Doctor")
     }
-    MaintenanceRow("Logs", "Shareable runtime diagnostics") {
+    MaintenanceRow("Diagnostic log", "Shareable technical detail for bug reports") {
         onDialog("Logs")
     }
-    MaintenanceRow("Capabilities", "Current engine feature matrix") {
-        onDialog("Capabilities")
-    }
-    MaintenanceRow("Core lock", "Pinned Xray / HEV metadata") {
-        onDialog("Core lock")
-    }
-    MaintenanceRow("History", "Recent connection records") {
+    MaintenanceRow("Connection history", "Recent connections and why they changed") {
         onDialog("History")
     }
 
     CyberButton(
-        label = "RESET SETTINGS",
+        label = "Reset all settings",
         color = Aether.Danger,
         modifier = Modifier.fillMaxWidth()
     ) {
         repo.resetSettings()
+    }
+}
+
+// =================================================================================================
+// TESTING & PING
+// =================================================================================================
+
+private fun probeMethodTitle(method: ProbeMethod): String = when (method) {
+    ProbeMethod.HYBRID -> "Smart"
+    ProbeMethod.TUNNEL -> "Real tunnel"
+    ProbeMethod.TCP -> "TCP ping"
+    ProbeMethod.ICMP -> "ICMP ping"
+}
+
+private fun probeMethodDetail(method: ProbeMethod): String = when (method) {
+    ProbeMethod.HYBRID -> "TCP gate, then real test"
+    ProbeMethod.TUNNEL -> "Most accurate"
+    ProbeMethod.TCP -> "Fastest"
+    ProbeMethod.ICMP -> "Classic ping"
+}
+
+private fun probeMethodShortLabel(method: ProbeMethod): String = when (method) {
+    ProbeMethod.HYBRID -> "Smart"
+    ProbeMethod.TUNNEL -> "Tunnel"
+    ProbeMethod.TCP -> "TCP"
+    ProbeMethod.ICMP -> "ICMP"
+}
+
+private fun probeMethodExplainer(method: ProbeMethod): String = when (method) {
+    ProbeMethod.HYBRID ->
+        "Dead endpoints are dropped with a quick TCP check, then the survivors get a real Xray " +
+            "tunnel test. Best balance of speed and truth, and the default."
+    ProbeMethod.TUNNEL ->
+        "Every node starts a real Xray process and fetches a real HTTPS URL through it. This is " +
+            "the only method that proves a node actually works, and the slowest."
+    ProbeMethod.TCP ->
+        "Measures the TCP handshake to the server address (tcping). Very fast and light, but it " +
+            "cannot tell a working proxy from an expired account or a filtered route."
+    ProbeMethod.ICMP ->
+        "Classic ping through the system. Fast, but many servers and mobile carriers drop ICMP, " +
+            "so healthy nodes can appear unreachable."
+}
+
+@Composable
+private fun ProbeSettings(repo: AppRepository) {
+    val s = repo.settings
+
+    Text(
+        "Choose how nodes are measured everywhere: Test all, the performance test, a single node " +
+            "test and the automatic route picker.",
+        color = Aether.InkFaint,
+        style = MaterialTheme.typography.bodySmall
+    )
+
+    Row(
+        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(7.dp)
+    ) {
+        ProbeMethod.entries.forEach { method ->
+            CyberSegment(
+                label = probeMethodTitle(method),
+                detail = probeMethodDetail(method),
+                selected = s.probeMethod == method,
+                color = when (method) {
+                    ProbeMethod.TUNNEL -> Aether.Emerald
+                    ProbeMethod.TCP -> Aether.Cyan
+                    ProbeMethod.ICMP -> Aether.Amber
+                    ProbeMethod.HYBRID -> Aether.Amethyst
+                },
+                modifier = Modifier.width(150.dp)
+            ) { repo.updateSettings(repo.settings.copy(probeMethod = method)) }
+        }
+    }
+
+    Text(
+        probeMethodExplainer(s.probeMethod),
+        color = Aether.InkMuted,
+        style = MaterialTheme.typography.bodySmall
+    )
+
+    HorizontalDivider(color = Aether.GlassBorderSoft)
+
+    NumberSetting(
+        title = "Pings per node",
+        value = s.benchSamples,
+        range = 1..8
+    ) { repo.updateSettings(repo.settings.copy(benchSamples = it)) }
+
+    NumberSetting(
+        title = "Timeout per try",
+        value = s.benchTimeoutSec,
+        range = 2..20,
+        suffix = " sec"
+    ) { repo.updateSettings(repo.settings.copy(benchTimeoutSec = it)) }
+
+    NumberSetting(
+        title = "Nodes per test run",
+        value = s.benchCandidates,
+        range = 5..200
+    ) { repo.updateSettings(repo.settings.copy(benchCandidates = it)) }
+
+    SettingSwitch(
+        title = "Also measure download speed",
+        subtitle = "Downloads a sample file through each tested node. Much slower and uses data",
+        checked = s.probeSpeedTest
+    ) { repo.updateSettings(repo.settings.copy(probeSpeedTest = it)) }
+
+    AnimatedVisibility(s.probeSpeedTest) {
+        Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+            SettingSwitch(
+                title = "Grow the speed sample",
+                subtitle = "Download more only from nodes that are already fast",
+                checked = s.adaptiveThroughputEnabled
+            ) { repo.updateSettings(repo.settings.copy(adaptiveThroughputEnabled = it)) }
+        }
+    }
+
+    if (s.probeMethod != ProbeMethod.TUNNEL && s.probeMethod != ProbeMethod.HYBRID) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(15.dp))
+                .background(Aether.Amber.copy(alpha = .08f))
+                .padding(11.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("!", color = Aether.Amber, style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.width(9.dp))
+            Text(
+                "Direct probes never open the proxy, so a node can look fast here and still fail " +
+                    "to carry traffic. Auto-connect still verifies the route it picks.",
+                color = Aether.InkMuted,
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
     }
 }
 
@@ -4012,6 +4098,13 @@ private fun healthColor(latencyMs: Int, success: Int): Color = when {
     latencyMs > 280 -> Aether.Danger
     else -> Aether.Cyan
 }
+
+/** One line of evidence for a measured route; speed only appears when it was actually measured. */
+private fun routeEvidenceLine(result: BenchmarkResult): String = listOfNotNull(
+    "${result.latencyMs.toInt()} ms",
+    "${result.success}% reachable",
+    result.bytesPerSecond.takeIf { it > 0.0 }?.let { rate(it.toLong()) }
+).joinToString(" • ")
 
 private fun rate(bytes: Long): String = when {
     bytes >= 1024L * 1024L -> "%.1f MB/s".format(bytes / (1024.0 * 1024.0))

@@ -6,7 +6,6 @@ import android.os.Build
 import androidx.compose.runtime.*
 import com.marbleng.app.core.*
 import com.marbleng.app.data.AppStore
-import com.marbleng.app.data.SecretStore
 import com.marbleng.app.model.*
 import com.marbleng.app.net.*
 import com.marbleng.app.vpn.MarbleVpnService
@@ -19,7 +18,6 @@ import kotlin.math.roundToInt
 
 class AppRepository(private val context: Context, val xray: XrayManager) {
     private val store = AppStore(context)
-    private val secrets = SecretStore(context)
     private val io = Executors.newFixedThreadPool(3)
 
     // Iran Mode scanning runs on its own thread so a detection sweep can never block or be blocked
@@ -52,8 +50,6 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     var message by mutableStateOf(""); private set
     var benchmarks by mutableStateOf<List<BenchmarkResult>>(emptyList()); private set
     var privacy by mutableStateOf<PrivacyReport?>(null); private set
-    var radarConfigs by mutableStateOf<List<String>>(emptyList()); private set
-    var radarResults by mutableStateOf<List<BenchmarkResult>>(emptyList()); private set
 
     // Live tunnel telemetry. Ping is HTTPS time-to-first-response through the selected Xray path,
     // not the localhost SOCKS handshake.
@@ -119,7 +115,6 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     }
 
     var livePingMs by mutableStateOf(0); private set
-    var liveJitterMs by mutableStateOf(0); private set
     var liveDownBps by mutableStateOf(0L); private set
     var liveUpBps by mutableStateOf(0L); private set
     var liveRouteScore by mutableStateOf(-1); private set
@@ -158,13 +153,11 @@ fun updateTelemetry(downBps: Long, upBps: Long) {
         }
     }
 
-fun updateRouteQuality(pingMs: Int, jitterMs: Int) {
+fun updateRouteQuality(pingMs: Int) {
         if (pingMs <= 0) return
-        val safeJitter = jitterMs.coerceAtLeast(0)
-        val rawScore = calculateLiveRouteScore(pingMs, safeJitter)
+        val rawScore = calculateLiveRouteScore(pingMs)
         postToMain {
             livePingMs = pingMs
-            liveJitterMs = safeJitter
             liveRouteScore =
                 if (liveRouteScore < 0) rawScore
                 else ((liveRouteScore * 3 + rawScore * 2) / 5).coerceIn(0, 100)
@@ -175,7 +168,6 @@ fun updateRouteQuality(pingMs: Int, jitterMs: Int) {
 fun resetTelemetry() {
         postToMain {
             livePingMs = 0
-            liveJitterMs = 0
             liveDownBps = 0
             liveUpBps = 0
             liveRouteScore = -1
@@ -333,14 +325,9 @@ private fun postToMain(block: () -> Unit) {
         }
     }
 
-    private fun calculateLiveRouteScore(pingMs: Int, jitterMs: Int): Int {
+    private fun calculateLiveRouteScore(pingMs: Int): Int {
         val latencyFactor = exp(-pingMs.coerceIn(1, 10_000) / 360.0)
-        val jitterFactor = exp(-jitterMs.coerceIn(0, 3_000) / 120.0)
-        return (
-            100.0 *
-                latencyFactor *
-                (0.82 + 0.18 * jitterFactor)
-            ).roundToInt().coerceIn(0, 100)
+        return (100.0 * latencyFactor).roundToInt().coerceIn(0, 100)
     }
 
     fun recoveryCandidates(failedIds: Set<String>): List<ProxyProfile> =
@@ -593,27 +580,9 @@ private fun postToMain(block: () -> Unit) {
         store.saveProfiles(profiles)
     }
 
-    fun renameSubscription(id: String, name: String) {
-        val current = subscriptions.firstOrNull { it.id == id } ?: return
-        updateSubscription(id, name, current.url)
-    }
-
     fun subscriptionNodeCount(id: String): Int = profiles.count { it.subscriptionId == id }
 
     /** Reassigns a profile to another subscription bucket (or "manual") so nodes can move between library sources. */
-    fun moveProfile(id: String, targetSubscriptionId: String) {
-        val idx = profiles.indexOfFirst { it.id == id }
-        if (idx < 0) return
-        val targetName = if (targetSubscriptionId == "manual") "Manual" else {
-            subscriptions.firstOrNull { it.id == targetSubscriptionId }?.name ?: return
-        }
-        profiles[idx] = profiles[idx].copy(subscriptionId = targetSubscriptionId, subscriptionName = targetName)
-        store.saveProfiles(profiles)
-    }
-
-    fun moveTargets(): List<Pair<String, String>> =
-        listOf("manual" to "Manual") + subscriptions.map { it.id to it.name }
-
     fun lastProfile() = profile(store.lastProfileId())
     fun auto(
         onConnect: (ProxyProfile) -> Unit
@@ -836,7 +805,13 @@ private fun postToMain(block: () -> Unit) {
         }
         task("Testing all configs") {
             val all = profiles.toList()
-            val testSettings = settings.copy(benchMode = BenchMode.CUSTOM, benchCandidates = all.size)
+            // A full-library sweep is about reachability and latency ranking. Extra samples per
+            // node multiply the wall-clock cost of the whole batch for very little extra evidence.
+            val testSettings = settings.copy(
+                benchMode = BenchMode.CUSTOM,
+                benchCandidates = all.size,
+                benchSamples = settings.benchSamples.coerceAtMost(2)
+            )
             val results = BenchmarkEngine(xray, intelligence).run(
                 all,
                 testSettings,
@@ -869,82 +844,6 @@ private fun postToMain(block: () -> Unit) {
             }
             message = privacy?.note.orEmpty().ifBlank { "Privacy audit finished" }
         }
-    }
-
-    fun telegram(channel: String) {
-        task("Telegram radar • fetch") {
-            val saved = channels()
-            val normalized = channel.trim()
-            if (normalized.isNotBlank() && !saved.contains(normalized)) {
-                saved.add(normalized)
-                saveChannels(saved)
-            }
-            val radarProxyPort = when {
-                state == "DISCONNECTED" -> null
-                xray.isAlive -> activeProxyPort()
-                else -> error("Telegram fetch blocked while the tunnel is not healthy")
-            }
-            val out = TelegramRadar.fetch(channel, radarProxyPort, settings.telegramMaxConfigs)
-            val candidates = ProxyParser.parseInput(out.joinToString("\n"), "telegram", "Telegram Radar")
-            if (candidates.isEmpty()) {
-                radarConfigs = emptyList()
-                radarResults = emptyList()
-                message = "No supported configs found"
-                return@task
-            }
-            message = "Telegram radar • tunnel lab ${candidates.size} configs"
-            val testSettings = settings.copy(
-                benchCandidates = minOf(settings.telegramMaxConfigs, candidates.size),
-                benchSamples = settings.telegramTcpSamples.coerceIn(1, 6)
-            )
-            val results = BenchmarkEngine(xray, intelligence).run(candidates, testSettings, settings.telegramTcpGate) { a, b, n ->
-                message = "Radar tunnel test $a/$b • $n"
-            }
-            radarResults = results
-            val passed = results.filter { it.success >= settings.telegramPassMinSuccess }.map { it.profileId }.toSet()
-            radarConfigs = candidates.filter { it.id in passed }.map { it.raw }
-            if (settings.telegramAutoSub && radarConfigs.isNotEmpty()) {
-                profiles.removeAll { it.subscriptionId == "telegram-passed" }
-                profiles.addAll(
-                    candidates.filter { it.id in passed }.map {
-                        it.copy(subscriptionId = "telegram-passed", subscriptionName = "Telegram Passed")
-                    }
-                )
-                store.saveProfiles(profiles)
-            }
-            message = "Radar: ${out.size} found • ${radarConfigs.size} passed ≥${settings.telegramPassMinSuccess}%"
-        }
-    }
-
-    fun importRadar() { importText(radarConfigs.joinToString("\n"), "Telegram Radar") }
-    fun channels() = store.channels()
-    fun saveChannels(v: List<String>) = store.saveChannels(v)
-
-    fun cloudflareToken() = secrets.get("cfToken")
-    fun cloudflareAccount() = secrets.get("cfAccount")
-    fun cloudflareKey() = secrets.get("cfAccessKey")
-
-    fun deployWorker(token: String, account: String, script: String, key: String) {
-        if (state != "DISCONNECTED") {
-            message = "Disconnect before Cloudflare deployment • direct management traffic is blocked while a tunnel is active"
-            return
-        }
-        task("Deploying Cloudflare Worker") {
-            val r = CloudflareWorker.deploy(token, account, script, key)
-            if (r.ok) {
-                secrets.put("cfToken", token)
-                secrets.put("cfAccount", account)
-                secrets.put("cfAccessKey", key)
-            }
-            message = r.message + if (r.workerUrl.isNotBlank()) " • ${r.workerUrl}" else ""
-        }
-    }
-
-    fun forgetCloudflare() {
-        secrets.put("cfToken", "")
-        secrets.put("cfAccount", "")
-        secrets.put("cfAccessKey", "")
-        message = "Cloudflare credentials removed from Android Keystore-backed storage"
     }
 
     fun routingAssetStatus(): RoutingAssetStatus = xray.routingAssetStatus()
@@ -1008,29 +907,10 @@ private fun postToMain(block: () -> Unit) {
         }
     }
 
-    fun deleteRoutingAssets() {
-        task("Removing routing assets") {
-            xray.deleteRoutingAssets()
-            message = "Local geo assets removed; they will be restored/downloaded on next prepare"
-        }
-    }
-
     fun resetSettings() {
         updateSettings(AppSettings())
         message = "Settings reset • Iran direct routing + ad blocking restored"
     }
-
-    fun capabilities(): String = """
-        Xray inputs: VLESS, VMess, Trojan, Shadowsocks, Hysteria2, SOCKS, HTTP/HTTPS and Xray JSON.
-        Transports: raw/TCP, WebSocket, XHTTP/SplitHTTP, HTTPUpgrade, gRPC, HTTP/H2 and mKCP where supported by Xray.
-        Connection modes: Full Android TUN or localhost SOCKS5 on 127.0.0.1:${settings.localProxyPort}.
-        Routing: proxy-all, private bypass, geo direct and custom domain/IP rules with managed geoip.dat + geosite.dat.
-        Split tunneling: all apps, only selected apps, or bypass selected apps in Full TUN mode.
-        Advanced Xray: encrypted DNS hijack, adaptive DoH ordering, optional Freedom.fragment, Mux/XUDP and two-hop chained outbounds.
-        Marble Intelligence: persistent network-scoped health history, connection race, bounded failover, adaptive MTU/dual-stack/thermal policies and UDP probing.
-        Iran Mode: automatic Iranian ISP detection (carrier MCC/MNC, ASN/geolocation, block-page DNS injection, domestic-only resolvers) plus live filtering fingerprinting and per-ISP anti-DPI countermeasures.
-        ABIs: arm64-v8a, armeabi-v7a, x86_64, x86.
-    """.trimIndent()
 
     fun doctor(): String {
         val checks = mutableListOf<String>()
@@ -1060,43 +940,6 @@ private fun postToMain(block: () -> Unit) {
 
     fun clearMessage() { message = "" }
     fun readLogs(): String = RuntimeDiagnostics(context).bundle(xray.logFile)
-    fun coreLock(): String = runCatching { context.assets.open("core-lock.json").bufferedReader().readText() }.getOrDefault("{}")
-
-    fun checkCoreUpdates() {
-        task("Checking cores") {
-            val current = org.json.JSONObject(coreLock())
-            val xr = current.getJSONObject("xray").getString("tag")
-            val hv = current.getJSONObject("hev").getString("tag")
-            val xJson = http("https://api.github.com/repos/XTLS/Xray-core/releases?per_page=20")
-            val xa = org.json.JSONArray(xJson)
-            var latestX = xr
-            for (i in 0 until xa.length()) {
-                val o = xa.getJSONObject(i)
-                if (!o.optBoolean("draft") && o.optBoolean("prerelease")) {
-                    latestX = o.optString("tag_name")
-                    break
-                }
-            }
-            val h = org.json.JSONObject(http("https://api.github.com/repos/heiher/hev-socks5-tunnel/releases/latest"))
-                .optString("tag_name", hv)
-            val updateAvailable = latestX != xr || h != hv
-            message = if (!updateAvailable) {
-                "Cores are current ($xr / $hv)"
-            } else {
-                "Update available: Xray $latestX • HEV $h. GitHub core-update workflow will rebuild a signed APK."
-            }
-            if (updateAvailable) {
-                notifier.alert(
-                    SmartNotificationKind.CORE,
-                    "core:$latestX:$h",
-                    "Core update available",
-                    "Xray $latestX • HEV $h",
-                    settings,
-                    minIntervalOverrideMs = 6L * 60L * 60L * 1000L
-                )
-            }
-        }
-    }
 
     private fun task(label: String, block: () -> Unit) {
         if (busy) {

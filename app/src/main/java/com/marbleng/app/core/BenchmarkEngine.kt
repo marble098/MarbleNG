@@ -12,7 +12,6 @@ import kotlin.math.exp
 import kotlin.math.ln
 import kotlin.math.max
 import kotlin.math.min
-import kotlin.math.sqrt
 
 /**
  * Real-tunnel benchmark and predictive route selector.
@@ -37,14 +36,23 @@ class BenchmarkEngine(
     ): List<BenchmarkResult> {
         if (profiles.isEmpty()) return emptyList()
         val s = tuned(settings)
+        // TUNNEL means "test everything for real"; HYBRID keeps the cheap TCP gate in front of the
+        // expensive tunnel tests, which is what makes a large library finish in reasonable time.
+        val precheck = usePrecheck && s.probeMethod != ProbeMethod.TUNNEL
         // The same node can legitimately appear in two subscriptions; test it once.
-        val candidates = selectCandidates(profiles, s, usePrecheck).distinctBy { it.id }
+        val candidates = selectCandidates(profiles, s, precheck).distinctBy { it.id }
         if (candidates.isEmpty()) return emptyList()
         onCandidates(candidates)
 
         val thermal = intelligence?.thermalBudget(s) ?: 1.0
         val cpu = Runtime.getRuntime().availableProcessors().coerceAtLeast(2)
-        val nominalWorkers = (cpu / 2).coerceIn(2, 5)
+        // Probing waits on sockets far more than on the CPU, and direct probes spawn no process at
+        // all, so the old (cpu / 2) cap left most of the batch idle behind four workers.
+        val nominalWorkers = if (directProbe(s)) {
+            (cpu * 3).coerceIn(8, 24)
+        } else {
+            cpu.coerceIn(4, 8)
+        }
         val liveWorkers = max(1, (nominalWorkers * thermal).toInt())
             .coerceAtMost(candidates.size)
 
@@ -146,7 +154,7 @@ class BenchmarkEngine(
     }
 
     /**
-     * Autopilot background comparison. Fast cycles do two real HTTPS samples for latency/jitter.
+     * Autopilot background comparison. Fast cycles do two real HTTPS samples for latency.
      * Deep cycles do three samples plus one bounded 128 KiB download for fresh speed evidence.
      */
     fun continuousProbe(
@@ -193,7 +201,6 @@ class BenchmarkEngine(
         }.sortedWith(
             compareByDescending<BenchmarkResult> { it.score }
                 .thenBy { it.latencyMs }
-                .thenBy { it.jitterMs }
         )
     }
 
@@ -221,15 +228,14 @@ class BenchmarkEngine(
         if (result.success <= 0) return -1.0
         val reliability = result.success.toDouble().coerceIn(0.0, 100.0)
         val latency = 100.0 * exp(-result.latencyMs.coerceAtMost(5000.0) / 230.0)
-        val jitter = 100.0 * exp(-result.jitterMs.coerceAtMost(3000.0) / 85.0)
         val history = historicalScore.coerceIn(0.0, 100.0)
         if (!deep) {
-            return (reliability * 0.40 + latency * 0.32 + jitter * 0.20 + history * 0.08)
+            return (reliability * 0.48 + latency * 0.44 + history * 0.08)
                 .coerceIn(0.0, 100.0)
         }
         val mbps = result.bytesPerSecond * 8.0 / 1_000_000.0
         val speed = (ln(1.0 + mbps) / ln(51.0) * 100.0).coerceIn(0.0, 100.0)
-        return (reliability * 0.32 + latency * 0.27 + jitter * 0.18 + speed * 0.15 + history * 0.08)
+        return (reliability * 0.40 + latency * 0.35 + speed * 0.17 + history * 0.08)
             .coerceIn(0.0, 100.0)
     }
 
@@ -591,12 +597,33 @@ class BenchmarkEngine(
     private data class Measurement(
         val success: Int,
         val latency: Double,
-        val jitter: Double,
         val speed: Double,
         val udpSuccess: Int
     )
 
+    /** True when the selected method never needs a temporary Xray process. */
+    private fun directProbe(s: AppSettings): Boolean =
+        s.probeMethod == ProbeMethod.TCP || s.probeMethod == ProbeMethod.ICMP
+
+    private fun directResult(p: ProxyProfile, s: AppSettings): BenchmarkResult {
+        val sample = RouteProbe.measure(
+            profile = p,
+            icmpMode = s.probeMethod == ProbeMethod.ICMP,
+            samples = s.benchSamples.coerceIn(1, 8),
+            timeoutMs = (s.benchTimeoutSec * 1000).coerceIn(500, 10_000)
+        )
+        return BenchmarkResult(
+            profileId = p.id,
+            name = p.name,
+            success = sample.successPercent,
+            latencyMs = sample.latencyMs,
+            bytesPerSecond = 0.0,
+            score = 0.0
+        )
+    }
+
     private fun testCandidate(p: ProxyProfile, port: Int, s: AppSettings): BenchmarkResult {
+        if (directProbe(s)) return directResult(p, s)
         val effective = intelligence?.effectiveSettings(p, s) ?: s
         if (!s.verifiedPerformanceTuning) {
             val direct = measure(p, port, effective, true)
@@ -634,7 +661,7 @@ class BenchmarkEngine(
     }
 
     private fun benchmarkResult(profile: ProxyProfile, m: Measurement, usedFragment: Boolean, usedMux: Boolean) = BenchmarkResult(
-        profile.id, profile.name, m.success, m.latency, m.jitter, m.speed, 0.0,
+        profile.id, profile.name, m.success, m.latency, m.speed, 0.0,
         udpSuccess = m.udpSuccess, interactiveScore = 0.0, streamingScore = 0.0,
         stabilityScore = 0.0, resilienceScore = 0.0, usedFragment = usedFragment, usedMux = usedMux
     )
@@ -647,9 +674,8 @@ class BenchmarkEngine(
         val speedGain = if (baseline.speed > 32.0 * 1024.0) {
             (candidate.speed - baseline.speed) / baseline.speed
         } else if (candidate.speed > baseline.speed + 128.0 * 1024.0) 1.0 else 0.0
-        val jitterOkay = baseline.jitter >= 9000.0 || candidate.jitter <= max(12.0, baseline.jitter * 1.25)
-        return (latencyGain >= 0.12 && candidate.speed >= baseline.speed * 0.82 && jitterOkay) ||
-            (speedGain >= 0.22 && candidate.latency <= baseline.latency * 1.12 && jitterOkay) ||
+        return (latencyGain >= 0.12 && candidate.speed >= baseline.speed * 0.82) ||
+            (speedGain >= 0.22 && candidate.latency <= baseline.latency * 1.12) ||
             candidate.success >= baseline.success + 25
     }
 
@@ -679,7 +705,7 @@ class BenchmarkEngine(
                         ok++
                     }
 
-                    if (includeThroughput && sample == 0 && r.status > 0) {
+                    if (includeThroughput && s.probeSpeedTest && sample == 0 && r.status > 0) {
                         var bytes = s.benchBytes.coerceIn(64 * 1024, 4 * 1024 * 1024)
                         var z = SocksHttpClient.get(
                             port,
@@ -719,26 +745,7 @@ class BenchmarkEngine(
         val sampleCount = s.benchSamples.coerceIn(1, 8)
         val success = ok * 100 / sampleCount
         val latency = if (times.isEmpty()) 9999.0 else times.sorted()[times.size / 2]
-        val mean = if (times.isEmpty()) 9999.0 else times.average()
-        val jitter = when {
-            times.isEmpty() ->
-                9999.0
-            times.size < 2 ->
-                max(
-                    8.0,
-                    latency *
-                        0.08
-                )
-            else ->
-                sqrt(
-                    times.sumOf {
-                        (it - mean) *
-                            (it - mean)
-                    } /
-                        times.size
-                )
-        }
-        return Measurement(success, latency, jitter, speed, udpSuccess)
+        return Measurement(success, latency, speed, udpSuccess)
     }
 
     private fun quickCandidate(p: ProxyProfile, port: Int, s: AppSettings): BenchmarkResult {
@@ -749,7 +756,6 @@ class BenchmarkEngine(
             p.name,
             m.success,
             m.latency,
-            m.jitter,
             0.0,
             quickScore(m),
             udpSuccess = 0
@@ -780,7 +786,7 @@ class BenchmarkEngine(
                 }
             }
         }
-        return Measurement(if (ok == 1) 100 else 0, elapsed, 0.0, 0.0, 0)
+        return Measurement(if (ok == 1) 100 else 0, elapsed, 0.0, 0)
     }
 
     private fun rank(
@@ -825,29 +831,19 @@ class BenchmarkEngine(
                         )
                 }
 
-            val jitter =
-                if (
-                    result.success <=
-                    0
-                ) {
-                    0.0
-                } else {
-                    100.0 *
-                        exp(
-                            -result.jitterMs
-                                .coerceAtMost(
-                                    3000.0
-                                ) /
-                                95.0
-                        )
-                }
-
+            // No speed evidence (direct probe, or the optional speed test is off) must not read as
+            // "slow": an unknown throughput scores neutral instead of zero.
             val speed =
                 if (
                     result.success <=
                     0
                 ) {
                     0.0
+                } else if (
+                    result.bytesPerSecond <=
+                    0.0
+                ) {
+                    50.0
                 } else {
                     val mbps =
                         result.bytesPerSecond *
@@ -910,27 +906,23 @@ class BenchmarkEngine(
                 }
 
             val interactive =
-                reliability * 0.31 +
-                    latency * 0.43 +
-                    jitter * 0.26
+                reliability * 0.42 +
+                    latency * 0.58
 
             val streaming =
-                reliability * 0.29 +
-                    speed * 0.54 +
-                    jitter * 0.12 +
-                    latency * 0.05
+                reliability * 0.33 +
+                    speed * 0.58 +
+                    latency * 0.09
 
             val stability =
-                reliability * 0.52 +
-                    jitter * 0.27 +
-                    latency * 0.21
+                reliability * 0.66 +
+                    latency * 0.34
 
             val resilience =
                 (
-                    reliability * 0.62 +
-                        udp * 0.12 +
-                        latency * 0.11 +
-                        jitter * 0.10 +
+                    reliability * 0.68 +
+                        udp * 0.15 +
+                        latency * 0.12 +
                         if (
                             result.usedFragment
                         ) {

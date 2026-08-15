@@ -23,8 +23,6 @@ class AppStore(context: Context) {
 
     fun lastProfileId(): String = prefs.getString("lastProfileId", "") ?: ""
     fun setLastProfileId(id: String) = prefs.edit().putString("lastProfileId", id).apply()
-    fun channels(): MutableList<String> = prefs.getStringSet("channels", emptySet())?.toMutableList() ?: mutableListOf()
-    fun saveChannels(v: List<String>) = prefs.edit().putStringSet("channels", v.toSet()).apply()
 
     /**
      * v8.1 migration: existing installs already have old proxy-all/ads-off preferences persisted,
@@ -66,7 +64,9 @@ class AppStore(context: Context) {
         socksPort = prefs.getInt("socksPort", 10808),
         localProxyPort = prefs.getInt("localProxyPort", 10101),
         connectionMode = enumValue("connectionMode", ConnectionMode.FULL_TUN),
-        autoCoreUpdate = prefs.getBoolean("autoCoreUpdate", true),
+
+        probeMethod = enumValue("probeMethod", ProbeMethod.HYBRID),
+        probeSpeedTest = prefs.getBoolean("probeSpeedTest", false),
 
         benchMode = enumValue("benchMode", BenchMode.BALANCED),
         benchCandidates = prefs.getInt("benchCandidates", 20),
@@ -92,13 +92,6 @@ class AppStore(context: Context) {
         notifyCoreUpdates = prefs.getBoolean("notifyCoreUpdates", true),
         notificationLiveStats = prefs.getBoolean("notificationLiveStats", true),
         notificationCooldownSec = prefs.getInt("notificationCooldownSec", 20).coerceIn(5, 300),
-
-        telegramPosts = prefs.getInt("telegramPosts", 20),
-        telegramMaxConfigs = prefs.getInt("telegramMaxConfigs", 80),
-        telegramTcpGate = prefs.getBoolean("telegramTcpGate", true),
-        telegramTcpSamples = prefs.getInt("telegramTcpSamples", 3),
-        telegramAutoSub = prefs.getBoolean("telegramAutoSub", true),
-        telegramPassMinSuccess = prefs.getInt("telegramPassMinSuccess", 75),
 
         routingMode = enumValue("routingMode", RoutingMode.GEO_DIRECT),
         geoIpUrl = prefs.getString("geoIpUrl", RoutingDefaults.GEOIP_URL) ?: RoutingDefaults.GEOIP_URL,
@@ -186,7 +179,9 @@ class AppStore(context: Context) {
         .putInt("socksPort", s.socksPort)
         .putInt("localProxyPort", s.localProxyPort)
         .putString("connectionMode", s.connectionMode.name)
-        .putBoolean("autoCoreUpdate", s.autoCoreUpdate)
+
+        .putString("probeMethod", s.probeMethod.name)
+        .putBoolean("probeSpeedTest", s.probeSpeedTest)
 
         .putString("benchMode", s.benchMode.name)
         .putInt("benchCandidates", s.benchCandidates)
@@ -212,13 +207,6 @@ class AppStore(context: Context) {
         .putBoolean("notifyCoreUpdates", s.notifyCoreUpdates)
         .putBoolean("notificationLiveStats", s.notificationLiveStats)
         .putInt("notificationCooldownSec", s.notificationCooldownSec.coerceIn(5, 300))
-
-        .putInt("telegramPosts", s.telegramPosts)
-        .putInt("telegramMaxConfigs", s.telegramMaxConfigs)
-        .putBoolean("telegramTcpGate", s.telegramTcpGate)
-        .putInt("telegramTcpSamples", s.telegramTcpSamples)
-        .putBoolean("telegramAutoSub", s.telegramAutoSub)
-        .putInt("telegramPassMinSuccess", s.telegramPassMinSuccess)
 
         .putString("routingMode", s.routingMode.name)
         .putString("geoIpUrl", s.geoIpUrl)

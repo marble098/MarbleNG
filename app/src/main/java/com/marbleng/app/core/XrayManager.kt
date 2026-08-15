@@ -553,6 +553,12 @@ class XrayManager(private val context: Context) {
             }
         }
 
+        // A throwaway benchmark instance does not need the `xray run -test` dry run that the live
+        // path uses: an unusable config simply fails to open its SOCKS port, and waitSocksPort()
+        // notices the dead process immediately. Skipping it halves the process spawns per node,
+        // which is the single biggest cost of testing a large library.
+        val portWaitMs = (settings.benchTimeoutSec * 1000L).coerceIn(2_500L, 7_000L)
+
         return runCatching {
             val benchmarkSettings = settings.copy(
                 routingMode = RoutingMode.PROXY_ALL,
@@ -568,28 +574,12 @@ class XrayManager(private val context: Context) {
             )
             val configText = XrayConfigHardener.harden(profile.configJson, port, benchmarkSettings)
             config.writeText(configText)
-            val validationKey = "bench:" + sha256(profile.configJson + "|" + benchmarkSettings.toString())
-            val needsValidation = !validationCached(validationKey)
-
-            if (needsValidation) {
-                val testProcess = createProcessBuilder("run", "-test", "-c", config.absolutePath)
-                    .redirectOutput(ProcessBuilder.Redirect.appendTo(benchmarkLog))
-                    .start()
-
-                if (!testProcess.waitFor(10, TimeUnit.SECONDS)) {
-                    stopProcess(testProcess)
-                    return@runCatching false
-                }
-                if (testProcess.exitValue() != 0) return@runCatching false
-
-                rememberValidation(validationKey)
-            }
 
             val temporaryProcess = createProcessBuilder("run", "-c", config.absolutePath)
                 .redirectOutput(ProcessBuilder.Redirect.appendTo(benchmarkLog))
                 .start()
             try {
-                if (!waitSocksPort(port, 7_000L, temporaryProcess)) false
+                if (!waitSocksPort(port, portWaitMs, temporaryProcess)) false
                 else {
                     block(port)
                     true

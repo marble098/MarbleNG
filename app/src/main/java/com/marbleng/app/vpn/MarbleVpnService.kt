@@ -24,7 +24,6 @@ import java.util.ArrayDeque
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
-import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /**
@@ -569,12 +568,11 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                 if (tick % 5 == 0 && (activeSettings ?: repo.settings).notificationLiveStats) {
                     val name = repo.profile(activeProfileId)?.name ?: "Active route"
                     val ping = repo.livePingMs.takeIf { it > 0 }?.let { "${it} ms" } ?: "— ms"
-                    val jitter = "J ${repo.liveJitterMs} ms"
                     val score = repo.liveRouteScore.takeIf { it >= 0 }?.let { " • Q $it" }.orEmpty()
                     notifyNow(
                         "Protected • $name",
                         true,
-                        "$ping • $jitter$score • ↓ ${SmartNotifier.formatRate(repo.liveDownBps)} • ↑ ${SmartNotifier.formatRate(repo.liveUpBps)}"
+                        "$ping$score • ↓ ${SmartNotifier.formatRate(repo.liveDownBps)} • ↑ ${SmartNotifier.formatRate(repo.liveUpBps)}"
                     )
                 }
 
@@ -593,12 +591,9 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
 
     private fun activeRouteQuality(): ActiveRouteQuality {
         val values = synchronized(latencyWindow) { latencyWindow.toList() }
-        if (values.isEmpty()) return ActiveRouteQuality(0, 0, 0)
+        if (values.isEmpty()) return ActiveRouteQuality(0, 0)
         val sorted = values.sorted()
-        val median = sorted[sorted.size / 2]
-        val deviations = values.map { abs(it - median) }.sorted()
-        val jitter = deviations[deviations.size / 2]
-        return ActiveRouteQuality(median, jitter, values.size)
+        return ActiveRouteQuality(sorted[sorted.size / 2], values.size)
     }
 
     private fun maybeScheduleOptimizer(session: String, generation: Int) {
@@ -648,7 +643,6 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             "deep" to plan.deep,
             "active" to active.name,
             "activePing" to quality.latencyMs,
-            "activeJitter" to quality.jitterMs,
             "challengers" to plan.candidates.size
         )
         val results = BenchmarkEngine(xray, repo.intelligence).continuousProbe(
@@ -829,19 +823,14 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             synchronized(latencyWindow) {
                 latencyWindow.addLast(ms)
                 while (latencyWindow.size > 7) latencyWindow.removeFirst()
-                val values = latencyWindow.toList()
-                val sorted = values.sorted()
-                val median = sorted[sorted.size / 2]
-                val deviations = values.map { abs(it - median) }.sorted()
-                val jitter = deviations[deviations.size / 2]
-                ActiveRouteQuality(median, jitter, values.size)
+                val sorted = latencyWindow.sorted()
+                ActiveRouteQuality(sorted[sorted.size / 2], sorted.size)
             }
 
-        repo.updateRouteQuality(quality.latencyMs, quality.jitterMs)
+        repo.updateRouteQuality(quality.latencyMs)
         repo.intelligence.recordLiveRoute(
             activeProfileId,
             quality.latencyMs,
-            quality.jitterMs,
             repo.liveDownBps + repo.liveUpBps,
             activeSettings ?: repo.settings
         )

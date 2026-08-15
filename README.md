@@ -20,9 +20,8 @@ Native Android port of the Xray Genius Termux client, powered by **Xray-core** +
 ### 🏠 Home
 - 🔘 One big **Connect / Disconnect** button.
 - 🟢 Live status: `Protected` • `Connecting` • `Blocked` • `Ready`.
-- 📊 **Performance score** (0–100) from real latency, jitter and route evidence.
-- ⏱️ Live numbers: ping (RTT), jitter, download and upload speed.
-- 🗺️ **Connection path**: Device → Secure tunnel → Internet (shows 2-hop when chaining).
+- 📊 **Performance score** (0–100) from real latency, reliability and route evidence.
+- ⏱️ Live numbers: ping (RTT), download and upload speed.
 - 🚀 Shortcuts: measure routes, open Library, run a privacy audit, jump to Routing.
 
 ### 📚 Library
@@ -36,7 +35,7 @@ Native Android port of the Xray Genius Termux client, powered by **Xray-core** +
 - 👉 Swipe a node: right = **Test**, left = **Edit name**.
 - ⋮ Menu: real tunnel test, rename, delete.
 - ▶️ Tap the node action to connect straight to it.
-- 🧪 **Test all** runs a real Xray tunnel test on every node.
+- 🧪 **Test all** measures every node with the method you picked in Settings → Testing & ping.
 - 🔴 **Live progress on the cards themselves**: each node shows `Queued` → `Testing…` with its own
   bar, and its score appears the moment that node finishes — no more waiting for one anonymous bar
   at the top of the screen. Refreshing a source animates on that source's card.
@@ -46,7 +45,7 @@ Native Android port of the Xray Genius Termux client, powered by **Xray-core** +
 - ▶️ **Run performance test** ranks your library with real tunnels, showing `Measuring 12 / 40`
   and the node being probed right now.
 - 💍 Score ring for the active (live) route or the best measured one.
-- 📉 RTT, jitter, reliability and live sample count.
+- 📉 RTT, reliability, live sample count and the test method in use.
 - 🏆 **Measured routes** table, ranked, with a one-tap **Use** button.
 
 ### 🌐 Network
@@ -73,6 +72,15 @@ Simple controls first — everything technical hides behind **Expert controls**.
 - 🔢 Local SOCKS port.
 - 💾 Remember last node and reconnect to it.
 
+### 🧪 Testing & ping
+- 🧠 **Smart** (default) — quick TCP gate to drop dead servers, then a real tunnel test on the rest.
+- 🛡️ **Real tunnel** — every node gets a real Xray process and a real HTTPS request. Slowest, and
+  the only method that proves a node truly works.
+- ⚡ **TCP ping** — TCP handshake time to the server (tcping). Very fast and light.
+- 📡 **ICMP ping** — classic system ping. Fast, but many servers and carriers drop ICMP.
+- 🔢 Pings per node, timeout per try, nodes per test run.
+- 📶 Optional download-speed measurement (off by default — it is the slowest part of a test).
+
 ### 🧩 Split tunneling
 - 🌍 **All apps** through the tunnel.
 - ✅ **Only selected** apps.
@@ -81,7 +89,7 @@ Simple controls first — everything technical hides behind **Expert controls**.
 
 ### 🔔 Notifications
 - 🔐 Grant notification permission, 🧪 send a test alert, 🎚️ open Android channels, 🧹 clear alerts.
-- 📟 Live status in the notification (ping, jitter, quality, ↓/↑ rates).
+- 📟 Live status in the notification (ping, quality, ↓/↑ rates).
 - 🔕 Per-event switches: connection, recovery/failover, privacy warnings, network changes, subscription updates, core updates.
 - ⏲️ Alert cooldown (5–300 s).
 
@@ -137,12 +145,10 @@ Simple controls first — everything technical hides behind **Expert controls**.
 - 🪢 Two-hop route: entry node → chosen exit node, keeping the exit's transport intact.
 
 ### 🧰 Maintenance
-- 🩺 **System Doctor** — runtime, assets, native bridge checks.
-- 📜 **Logs** — shareable runtime diagnostics.
-- 🧾 **Capabilities** — what the engine currently supports.
-- 🔒 **Core lock** — pinned Xray / HEV versions.
-- 🕘 **History** — recent connections.
-- ♻️ **Reset settings** back to the safe defaults.
+- 🩺 **Check the app** — runtime, native bridge and routing-asset checks.
+- 📜 **Diagnostic log** — shareable technical detail for bug reports.
+- 🕘 **Connection history** — recent connections and why they changed.
+- ♻️ **Reset all settings** back to the safe defaults.
 
 ---
 

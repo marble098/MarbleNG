@@ -7,7 +7,6 @@ import kotlin.math.max
 
 data class ActiveRouteQuality(
     val latencyMs: Int,
-    val jitterMs: Int,
     val samples: Int
 )
 
@@ -60,7 +59,7 @@ class ContinuousRouteOptimizer(
         if (thermalBudget < 0.45) return false
 
         val baseIntervalMs = settings.optimizerIntervalSec.coerceIn(60, 900) * 1_000L
-        val degraded = active.latencyMs >= 300 || active.jitterMs >= 80
+        val degraded = active.latencyMs >= 300
         val thermalFactor = if (thermalBudget < 0.65) 2L else 1L
         val interval = if (degraded) max(45_000L, baseIntervalMs / 2L) else baseIntervalMs * thermalFactor
         val elapsed = now - lastScanAt
@@ -134,22 +133,16 @@ class ContinuousRouteOptimizer(
         val latencyGain = if (current.latencyMs > 0.0 && current.latencyMs < 9000.0) {
             (current.latencyMs - best.latencyMs) / current.latencyMs
         } else 1.0
-        val jitterGain = if (current.jitterMs > 0.0 && current.jitterMs < 9000.0) {
-            (current.jitterMs - best.jitterMs) / current.jitterMs
-        } else 1.0
         val speedGain = if (current.bytesPerSecond > 64.0 * 1024.0) {
             (best.bytesPerSecond - current.bytesPerSecond) / current.bytesPerSecond
         } else if (best.bytesPerSecond > current.bytesPerSecond + 256.0 * 1024.0) 1.0 else 0.0
 
         val compositeGain = best.score - current.score
         val emergency = current.success < 75 && best.success >= 75
-        val regressionSafe = emergency || (
-            best.latencyMs <= current.latencyMs * 1.15 &&
-                best.jitterMs <= max(25.0, current.jitterMs * 1.40)
-            )
+        val regressionSafe = emergency || best.latencyMs <= current.latencyMs * 1.15
         val meaningful = emergency || (
             compositeGain >= 7.0 &&
-                (latencyGain >= 0.12 || jitterGain >= 0.20 || speedGain >= 0.25) &&
+                (latencyGain >= 0.12 || speedGain >= 0.25) &&
                 regressionSafe
             )
 
@@ -174,7 +167,7 @@ class ContinuousRouteOptimizer(
         clearPending()
         return OptimizerDecision(
             target = target,
-            summary = "Autopilot • ${best.name} wins • ${best.latencyMs.toInt()} ms • jitter ${best.jitterMs.toInt()} ms • gain ${"%.1f".format(compositeGain)}",
+            summary = "Autopilot • ${best.name} wins • ${best.latencyMs.toInt()} ms • gain ${"%.1f".format(compositeGain)}",
             gain = compositeGain
         )
     }

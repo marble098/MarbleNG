@@ -83,7 +83,6 @@ data class NodeHealthRecord(
     val samples: Int = 0,
     val successEwma: Double = 0.0,
     val latencyEwma: Double = 9999.0,
-    val jitterEwma: Double = 9999.0,
     val throughputEwma: Double = 0.0,
     val udpEwma: Double = 0.0,
     val connectMsEwma: Double = 0.0,
@@ -143,7 +142,6 @@ private class HealthDb(context: Context) : SQLiteOpenHelper(context, "marble-int
                 samples INTEGER NOT NULL DEFAULT 0,
                 success_ewma REAL NOT NULL DEFAULT 0,
                 latency_ewma REAL NOT NULL DEFAULT 9999,
-                jitter_ewma REAL NOT NULL DEFAULT 9999,
                 throughput_ewma REAL NOT NULL DEFAULT 0,
                 udp_ewma REAL NOT NULL DEFAULT 0,
                 connect_ms_ewma REAL NOT NULL DEFAULT 0,
@@ -181,7 +179,6 @@ private class HealthDb(context: Context) : SQLiteOpenHelper(context, "marble-int
                 samples = c.getInt(i("samples")),
                 successEwma = c.getDouble(i("success_ewma")),
                 latencyEwma = c.getDouble(i("latency_ewma")),
-                jitterEwma = c.getDouble(i("jitter_ewma")),
                 throughputEwma = c.getDouble(i("throughput_ewma")),
                 udpEwma = c.getDouble(i("udp_ewma")),
                 connectMsEwma = c.getDouble(i("connect_ms_ewma")),
@@ -219,7 +216,6 @@ private class HealthDb(context: Context) : SQLiteOpenHelper(context, "marble-int
             val samplesIndex = c.getColumnIndexOrThrow("samples")
             val successIndex = c.getColumnIndexOrThrow("success_ewma")
             val latencyIndex = c.getColumnIndexOrThrow("latency_ewma")
-            val jitterIndex = c.getColumnIndexOrThrow("jitter_ewma")
             val throughputIndex = c.getColumnIndexOrThrow("throughput_ewma")
             val udpIndex = c.getColumnIndexOrThrow("udp_ewma")
             val connectIndex = c.getColumnIndexOrThrow("connect_ms_ewma")
@@ -236,7 +232,6 @@ private class HealthDb(context: Context) : SQLiteOpenHelper(context, "marble-int
                     samples = c.getInt(samplesIndex),
                     successEwma = c.getDouble(successIndex),
                     latencyEwma = c.getDouble(latencyIndex),
-                    jitterEwma = c.getDouble(jitterIndex),
                     throughputEwma = c.getDouble(throughputIndex),
                     udpEwma = c.getDouble(udpIndex),
                     connectMsEwma = c.getDouble(connectIndex),
@@ -280,7 +275,6 @@ private class HealthDb(context: Context) : SQLiteOpenHelper(context, "marble-int
             put("samples", n)
             put("success_ewma", ewma(old?.successEwma, success, 0.0))
             put("latency_ewma", ewma(old?.latencyEwma, result.latencyMs.coerceAtMost(10_000.0), 9999.0))
-            put("jitter_ewma", ewma(old?.jitterEwma, result.jitterMs.coerceAtMost(10_000.0), 9999.0))
             put("throughput_ewma", ewma(old?.throughputEwma, max(0.0, result.bytesPerSecond), 0.0))
             put("udp_ewma", ewma(old?.udpEwma, result.udpSuccess.toDouble(), 0.0))
             put("connect_ms_ewma", old?.connectMsEwma ?: 0.0)
@@ -352,7 +346,6 @@ private class HealthDb(context: Context) : SQLiteOpenHelper(context, "marble-int
             put("samples", n)
             put("success_ewma", successEwma)
             put("latency_ewma", old?.latencyEwma ?: 9999.0)
-            put("jitter_ewma", old?.jitterEwma ?: 9999.0)
             put("throughput_ewma", old?.throughputEwma ?: 0.0)
             put("udp_ewma", old?.udpEwma ?: 0.0)
             put("connect_ms_ewma", connectEwma)
@@ -423,7 +416,6 @@ private class HealthDb(context: Context) : SQLiteOpenHelper(context, "marble-int
         profileId: String,
         networkKey: String,
         latencyMs: Int,
-        jitterMs: Int,
         throughputBps: Long
     ) {
         val old = get(profileId, networkKey) ?: return
@@ -434,9 +426,6 @@ private class HealthDb(context: Context) : SQLiteOpenHelper(context, "marble-int
         val latencyNow = latencyMs.coerceAtLeast(1).toDouble()
         val latency = if (!old.latencyEwma.isFinite() || old.latencyEwma >= 9000.0) latencyNow
             else old.latencyEwma * (1.0 - alpha) + latencyNow * alpha
-        val jitterNow = jitterMs.coerceAtLeast(0).toDouble()
-        val jitter = if (!old.jitterEwma.isFinite() || old.jitterEwma >= 9000.0) jitterNow
-            else old.jitterEwma * (1.0 - alpha) + jitterNow * alpha
         val throughputNow = throughputBps.coerceAtLeast(0).toDouble()
         val throughput = if (old.throughputEwma <= 0.0 && throughputNow > 0.0) throughputNow
             else old.throughputEwma * (1.0 - alpha) + throughputNow * alpha
@@ -444,7 +433,6 @@ private class HealthDb(context: Context) : SQLiteOpenHelper(context, "marble-int
             put("samples", n)
             put("success_ewma", (old.successEwma * 0.92 + 8.0).coerceIn(0.0, 100.0))
             put("latency_ewma", latency)
-            put("jitter_ewma", jitter)
             put("throughput_ewma", throughput)
             put("failure_streak", 0)
             put("last_success_at", now)
@@ -467,7 +455,6 @@ private class HealthDb(context: Context) : SQLiteOpenHelper(context, "marble-int
             put("samples", max(1, old?.samples ?: 0))
             put("success_ewma", (old?.successEwma ?: 50.0) * 0.78)
             put("latency_ewma", old?.latencyEwma ?: 9999.0)
-            put("jitter_ewma", old?.jitterEwma ?: 9999.0)
             put("throughput_ewma", old?.throughputEwma ?: 0.0)
             put("udp_ewma", old?.udpEwma ?: 0.0)
             put("connect_ms_ewma", old?.connectMsEwma ?: 0.0)
@@ -955,8 +942,6 @@ class MarbleIntelligence(private val context: Context) {
             h.successEwma.coerceIn(0.0, 100.0)
         val latency =
             expScore(h.latencyEwma, 250.0)
-        val jitter =
-            expScore(h.jitterEwma, 115.0)
 
         val speed =
             if (h.throughputEwma <= 0.0) {
@@ -991,28 +976,24 @@ class MarbleIntelligence(private val context: Context) {
             }
 
         val interactive =
-            reliability * 0.34 +
-                latency * 0.32 +
-                jitter * 0.19 +
-                connect * 0.15
+            reliability * 0.40 +
+                latency * 0.42 +
+                connect * 0.18
 
         val streaming =
-            reliability * 0.31 +
-                speed * 0.42 +
-                jitter * 0.17 +
-                latency * 0.10
+            reliability * 0.36 +
+                speed * 0.50 +
+                latency * 0.14
 
         val stability =
-            reliability * 0.49 +
-                jitter * 0.23 +
-                latency * 0.16 +
-                connect * 0.12
+            reliability * 0.58 +
+                latency * 0.28 +
+                connect * 0.14
 
         val resilience =
-            reliability * 0.58 +
-                udp * 0.16 +
-                latency * 0.11 +
-                jitter * 0.10 +
+            reliability * 0.63 +
+                udp * 0.19 +
+                latency * 0.18 +
                 if (h.preferredFragment) 5.0 else 0.0
 
         val measured =
@@ -1263,7 +1244,6 @@ class MarbleIntelligence(private val context: Context) {
     fun recordLiveRoute(
         profileId: String,
         latencyMs: Int,
-        jitterMs: Int,
         throughputBps: Long,
         settings: AppSettings
     ) {
@@ -1272,7 +1252,6 @@ class MarbleIntelligence(private val context: Context) {
             profileId,
             currentSnapshot().key(),
             latencyMs,
-            jitterMs,
             throughputBps
         )
     }
