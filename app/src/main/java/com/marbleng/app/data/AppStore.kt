@@ -26,7 +26,43 @@ class AppStore(context: Context) {
     fun channels(): MutableList<String> = prefs.getStringSet("channels", emptySet())?.toMutableList() ?: mutableListOf()
     fun saveChannels(v: List<String>) = prefs.edit().putStringSet("channels", v.toSet()).apply()
 
-    fun settings(): AppSettings = AppSettings(
+    /**
+     * v8.1 migration: existing installs already have old proxy-all/ads-off preferences persisted,
+     * so changing AppSettings constructor defaults alone would not activate the new policy.
+     * Apply the new Iran baseline exactly once while preserving user custom block/proxy lists.
+     */
+    private fun migrateRoutingDefaultsIfNeeded() {
+        if (prefs.getInt("routingDefaultsSchema", 0) >= RoutingDefaults.PREFS_SCHEMA_VERSION) return
+
+        fun merged(raw: String?, required: List<String>): String =
+            ((raw ?: "")
+                .split(',', '\n', '\r', ';')
+                .map(String::trim)
+                .filter(String::isNotBlank) + required)
+                .distinctBy { it.lowercase() }
+                .joinToString(",")
+
+        val ipTags = merged(prefs.getString("routeGeoIpTags", ""), listOf("ir", "private"))
+        val siteTags = merged(prefs.getString("routeGeoSiteTags", ""), listOf("ir"))
+
+        prefs.edit()
+            .putString("routingMode", RoutingMode.GEO_DIRECT.name)
+            .putString("geoIpUrl", RoutingDefaults.GEOIP_URL)
+            .putString("geoSiteUrl", RoutingDefaults.GEOSITE_URL)
+            .putString("routeGeoIpTags", ipTags)
+            .putString("routeGeoSiteTags", siteTags)
+            .putBoolean("routeBypassPrivate", true)
+            .putBoolean("routeBlockAds", true)
+            .putString("routeAdsTag", RoutingDefaults.ADS_TAG)
+            .putString("routeDomainStrategy", RoutingDefaults.DOMAIN_STRATEGY)
+            .putBoolean("iranDomesticDirect", true)
+            .putInt("routingDefaultsSchema", RoutingDefaults.PREFS_SCHEMA_VERSION)
+            .apply()
+    }
+
+    fun settings(): AppSettings {
+        migrateRoutingDefaultsIfNeeded()
+        return AppSettings(
         socksPort = prefs.getInt("socksPort", 10808),
         localProxyPort = prefs.getInt("localProxyPort", 10101),
         connectionMode = enumValue("connectionMode", ConnectionMode.FULL_TUN),
@@ -64,20 +100,20 @@ class AppStore(context: Context) {
         telegramAutoSub = prefs.getBoolean("telegramAutoSub", true),
         telegramPassMinSuccess = prefs.getInt("telegramPassMinSuccess", 75),
 
-        routingMode = enumValue("routingMode", RoutingMode.PROXY_ALL),
-        geoIpUrl = prefs.getString("geoIpUrl", "") ?: "",
-        geoSiteUrl = prefs.getString("geoSiteUrl", "") ?: "",
-        routeGeoIpTags = prefs.getString("routeGeoIpTags", "private") ?: "private",
-        routeGeoSiteTags = prefs.getString("routeGeoSiteTags", "") ?: "",
+        routingMode = enumValue("routingMode", RoutingMode.GEO_DIRECT),
+        geoIpUrl = prefs.getString("geoIpUrl", RoutingDefaults.GEOIP_URL) ?: RoutingDefaults.GEOIP_URL,
+        geoSiteUrl = prefs.getString("geoSiteUrl", RoutingDefaults.GEOSITE_URL) ?: RoutingDefaults.GEOSITE_URL,
+        routeGeoIpTags = prefs.getString("routeGeoIpTags", RoutingDefaults.GEOIP_DIRECT_TAGS) ?: RoutingDefaults.GEOIP_DIRECT_TAGS,
+        routeGeoSiteTags = prefs.getString("routeGeoSiteTags", RoutingDefaults.GEOSITE_DIRECT_TAGS) ?: RoutingDefaults.GEOSITE_DIRECT_TAGS,
         routeDirectDomains = prefs.getString("routeDirectDomains", "") ?: "",
         routeProxyDomains = prefs.getString("routeProxyDomains", "") ?: "",
         routeBlockDomains = prefs.getString("routeBlockDomains", "") ?: "",
         routeDirectIps = prefs.getString("routeDirectIps", "") ?: "",
         routeBlockIps = prefs.getString("routeBlockIps", "") ?: "",
         routeBypassPrivate = prefs.getBoolean("routeBypassPrivate", true),
-        routeBlockAds = prefs.getBoolean("routeBlockAds", false),
-        routeAdsTag = prefs.getString("routeAdsTag", "category-ads-all") ?: "category-ads-all",
-        routeDomainStrategy = prefs.getString("routeDomainStrategy", "AsIs") ?: "AsIs",
+        routeBlockAds = prefs.getBoolean("routeBlockAds", true),
+        routeAdsTag = prefs.getString("routeAdsTag", RoutingDefaults.ADS_TAG) ?: RoutingDefaults.ADS_TAG,
+        routeDomainStrategy = prefs.getString("routeDomainStrategy", RoutingDefaults.DOMAIN_STRATEGY) ?: RoutingDefaults.DOMAIN_STRATEGY,
 
         splitTunnelMode = enumValue("splitTunnelMode", SplitTunnelMode.ALL_APPS),
         splitTunnelPackages = prefs.getString("splitTunnelPackages", "") ?: "",
@@ -142,7 +178,8 @@ class AppStore(context: Context) {
         workloadProfile = enumValue("workloadProfile", WorkloadProfile.AUTO),
 
         theme = prefs.getString("theme", "dark") ?: "dark"
-    )
+        )
+    }
 
     fun saveSettings(s: AppSettings) = prefs.edit()
         .putInt("socksPort", s.socksPort)

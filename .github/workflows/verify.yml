@@ -32,6 +32,49 @@ jobs:
           set -euo pipefail
           jq -e '.xray.tag and .hev.tag' core-lock.json
 
+      - name: Reject malformed Compose function types
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          bad=[]
+          pattern=re.compile(r':\s*@Composable\(\)\s*->')
+          for path in Path('app/src/main/java').rglob('*.kt'):
+              data=path.read_text(encoding='utf-8')
+              if pattern.search(data):
+                  bad.append(str(path))
+          if bad:
+              raise SystemExit('Malformed @Composable function type: ' + ', '.join(bad))
+          PY
+
+      - name: Verify routing source invariants
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          models=Path('app/src/main/java/com/marbleng/app/model/Models.kt').read_text()
+          hardener=Path('app/src/main/java/com/marbleng/app/core/XrayConfigHardener.kt').read_text()
+          identity=Path('app/src/main/java/com/marbleng/app/core/IdentityGuard.kt').read_text()
+          build=Path('.github/workflows/build.yml').read_text()
+          required={
+              'geoip source':'Iran-v2ray-rules/release/geoip.dat' in models,
+              'geosite source':'Iran-v2ray-rules/release/geosite.dat' in models,
+              'geo direct default':'RoutingMode.GEO_DIRECT' in models,
+              'ads default':'val routeBlockAds: Boolean = true' in models,
+              'IPIfNonMatch':'IPIfNonMatch' in models,
+              'normalized ad tag':'normalizeGeoSiteTag(settings.routeAdsTag)' in hardener,
+              'proxy fallback':'Unmatched routing fallback must stay on the selected proxy' in hardener,
+              'bounded identity direct':'RoutingDefaults.GEOSITE_DIRECT_TAGS' in identity,
+              'bundled routing assets':'Bundle verified Iran routing assets' in build,
+          }
+          failed=[k for k,v in required.items() if not v]
+          if failed:
+              raise SystemExit('Routing invariant failure: ' + ', '.join(failed))
+          PY
+
       - name: Set up JDK 17
         uses: actions/setup-java@v5
         with:
@@ -57,4 +100,4 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          gradle --no-daemon :app:compileDebugKotlin
+          gradle --no-daemon :app:compileDebugKotlin :app:compileReleaseKotlin

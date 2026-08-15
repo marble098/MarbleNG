@@ -136,6 +136,69 @@ jobs:
           ./scripts/prepare-native.sh
 
       # ========================================================================
+      # Verified routing data bundled into the APK
+      # ========================================================================
+
+      - name: Bundle verified Iran routing assets
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          DEST="app/src/main/assets/xray"
+          TMP="$(mktemp -d)"
+          trap 'rm -rf "$TMP"' EXIT
+          mkdir -p "$DEST"
+
+          fetch_one() {
+            local output="$1"
+            shift
+            local tmp="$TMP/$(basename "$output").part"
+            rm -f "$tmp"
+            for url in "$@"; do
+              echo "Fetching $url"
+              if curl --fail --location --silent --show-error \
+                  --retry 4 --retry-delay 2 --retry-all-errors \
+                  --connect-timeout 15 --max-time 240 \
+                  --output "$tmp" "$url"; then
+                test -s "$tmp"
+                mv -f "$tmp" "$output"
+                return 0
+              fi
+              rm -f "$tmp"
+            done
+            return 1
+          }
+
+          fetch_one "$DEST/geoip.dat" \
+            "https://raw.githubusercontent.com/Chocolate4U/Iran-v2ray-rules/release/geoip.dat" \
+            "https://cdn.jsdelivr.net/gh/chocolate4u/Iran-v2ray-rules@release/geoip.dat"
+          fetch_one "$TMP/geoip.sha256" \
+            "https://raw.githubusercontent.com/Chocolate4U/Iran-v2ray-rules/release/geoip.dat.sha256sum" \
+            "https://cdn.jsdelivr.net/gh/chocolate4u/Iran-v2ray-rules@release/geoip.dat.sha256sum"
+
+          fetch_one "$DEST/geosite.dat" \
+            "https://raw.githubusercontent.com/Chocolate4U/Iran-v2ray-rules/release/geosite.dat" \
+            "https://cdn.jsdelivr.net/gh/chocolate4u/Iran-v2ray-rules@release/geosite.dat"
+          fetch_one "$TMP/geosite.sha256" \
+            "https://raw.githubusercontent.com/Chocolate4U/Iran-v2ray-rules/release/geosite.dat.sha256sum" \
+            "https://cdn.jsdelivr.net/gh/chocolate4u/Iran-v2ray-rules@release/geosite.dat.sha256sum"
+
+          expected_geoip="$(awk 'NF {print $1; exit}' "$TMP/geoip.sha256")"
+          expected_geosite="$(awk 'NF {print $1; exit}' "$TMP/geosite.sha256")"
+          actual_geoip="$(sha256sum "$DEST/geoip.dat" | awk '{print $1}')"
+          actual_geosite="$(sha256sum "$DEST/geosite.dat" | awk '{print $1}')"
+
+          test -n "$expected_geoip"
+          test -n "$expected_geosite"
+          test "$actual_geoip" = "$expected_geoip"
+          test "$actual_geosite" = "$expected_geosite"
+          test "$(stat -c '%s' "$DEST/geoip.dat")" -gt 1024
+          test "$(stat -c '%s' "$DEST/geosite.dat")" -gt 1024
+
+          echo "[OK] geoip.dat   $actual_geoip"
+          echo "[OK] geosite.dat $actual_geosite"
+
+      # ========================================================================
       # Gradle
       # ========================================================================
 

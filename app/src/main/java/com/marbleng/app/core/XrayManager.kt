@@ -3,6 +3,7 @@ package com.marbleng.app.core
 import android.content.Context
 import com.marbleng.app.model.AppSettings
 import com.marbleng.app.model.ProxyProfile
+import com.marbleng.app.model.RoutingDefaults
 import com.marbleng.app.model.RoutingMode
 import java.io.File
 import java.net.HttpURLConnection
@@ -23,6 +24,10 @@ data class RoutingAssetStatus(
 )
 
 class XrayManager(private val context: Context) {
+    private companion object {
+        const val ROUTING_ASSET_REFRESH_MS = 24L * 60L * 60L * 1000L
+        const val ROUTING_ASSET_RETRY_MS = 6L * 60L * 60L * 1000L
+    }
     @Volatile private var process: Process? = null
 
     @Volatile
@@ -79,12 +84,14 @@ class XrayManager(private val context: Context) {
 
     @Synchronized
     fun deleteRoutingAssets() {
-        listOf("geoip.dat", "geosite.dat").forEach { name ->
-            File(assetsDir, name).delete()
-            sourceMarker(name).delete()
-            File(assetsDir, "$name.download").delete()
-        }
+    listOf("geoip.dat", "geosite.dat").forEach { name ->
+        File(assetsDir, name).delete()
+        sourceMarker(name).delete()
+        refreshFailureMarker(name).delete()
+        File(assetsDir, "$name.download").delete()
+        File(assetsDir, "$name.bak").delete()
     }
+}
 
     fun routingAssetStatus(): RoutingAssetStatus {
         val ip = File(assetsDir, "geoip.dat")
@@ -102,33 +109,117 @@ class XrayManager(private val context: Context) {
     }
 
     private fun ensureAsset(name: String, remoteUrl: String, force: Boolean) {
-        val destination = File(assetsDir, name)
-        val marker = sourceMarker(name)
-        val currentSource = runCatching { marker.readText().trim() }.getOrDefault("")
-        val ready = destination.isFile && destination.length() > 1024L
+    val destination = File(assetsDir, name)
+    val marker = sourceMarker(name)
+    val failureMarker = refreshFailureMarker(name)
+    var currentSource = runCatching { marker.readText().trim() }.getOrDefault("")
+    var ready = destination.isFile && destination.length() > 1024L
+    val now = System.currentTimeMillis()
+    val canonicalDefault = defaultRemoteUrl(name)
 
-        if (remoteUrl.isNotBlank()) {
-            val sameRemote = ready && currentSource == remoteUrl
-            if (!force && sameRemote) return
-            require(remoteUrl.startsWith("https://")) {
-                "$name URL must use https:// because cleartext HTTP is disabled by the app network security policy"
+    // Signed CI builds contain verified Chocolate4U assets. Use them immediately on first launch
+    // instead of making the user's very first VPN connection depend on raw.githubusercontent.com.
+    if (!ready && remoteUrl == canonicalDefault && copyBundledAsset(name, destination)) {
+        marker.writeText("apk://xray/$name")
+        failureMarker.delete()
+        currentSource = "apk://xray/$name"
+        ready = true
+        if (!force) return
+    }
+
+    if (remoteUrl.isNotBlank()) {
+        require(remoteUrl.startsWith("https://", ignoreCase = true)) {
+            "$name URL must use https:// because cleartext HTTP is disabled"
+        }
+
+        val ageMs = if (ready) (now - destination.lastModified()).coerceAtLeast(0L) else Long.MAX_VALUE
+        val sameRemote = ready && currentSource == remoteUrl
+        val bundledDefault = ready && currentSource == "apk://xray/$name" && remoteUrl == canonicalDefault
+        if (!force && (sameRemote || bundledDefault) && ageMs < ROUTING_ASSET_REFRESH_MS) return
+
+        val recentFailure = ready && failureMarker.isFile &&
+            now - failureMarker.lastModified() in 0L until ROUTING_ASSET_RETRY_MS
+        if (!force && recentFailure) return
+
+        var lastError: Throwable? = null
+        for (candidate in remoteCandidates(name, remoteUrl)) {
+            val attempt = runCatching { downloadAsset(candidate, destination) }
+            if (attempt.isSuccess) {
+                // Store the canonical configured URL even when the jsDelivr mirror won the fetch.
+                marker.writeText(remoteUrl)
+                failureMarker.delete()
+                return
             }
-            downloadAsset(remoteUrl, destination)
-            marker.writeText(remoteUrl)
+            lastError = attempt.exceptionOrNull()
+        }
+
+        // A transient update outage must never destroy a valid previous routing database.
+        if (ready) {
+            runCatching {
+                failureMarker.writeText(lastError?.message.orEmpty().take(300))
+                failureMarker.setLastModified(now)
+            }
             return
         }
 
-        if (!force && ready) return
+        // Custom/default remote failed and nothing valid exists yet. Last chance: bundled data.
+        if (copyBundledAsset(name, destination)) {
+            marker.writeText("apk://xray/$name")
+            runCatching {
+                failureMarker.writeText(lastError?.message.orEmpty().take(300))
+                failureMarker.setLastModified(now)
+            }
+            return
+        }
+
+        throw lastError ?: IllegalStateException("Unable to prepare $name")
+    }
+
+    if (!force && ready) return
+    if (!copyBundledAsset(name, destination)) {
+        if (!ready) error("Bundled $name is missing and no HTTPS source is configured")
+    } else {
+        marker.writeText("apk://xray/$name")
+        failureMarker.delete()
+    }
+}
+
+    private fun defaultRemoteUrl(name: String): String = when (name) {
+        "geoip.dat" -> RoutingDefaults.GEOIP_URL
+        "geosite.dat" -> RoutingDefaults.GEOSITE_URL
+        else -> ""
+    }
+
+    private fun remoteCandidates(name: String, configured: String): List<String> {
+        val fallback = when (name) {
+            "geoip.dat" -> RoutingDefaults.GEOIP_MIRROR
+            "geosite.dat" -> RoutingDefaults.GEOSITE_MIRROR
+            else -> ""
+        }
+        return if (configured == defaultRemoteUrl(name) && fallback.isNotBlank()) {
+            listOf(configured, fallback).distinct()
+        } else {
+            listOf(configured)
+        }
+    }
+
+    private fun copyBundledAsset(name: String, destination: File): Boolean {
         val temp = File(assetsDir, "$name.download")
-        val copied = runCatching {
+        temp.delete()
+        return runCatching {
             context.assets.open("xray/$name").use { input ->
-                temp.outputStream().use { output -> input.copyTo(output) }
+                temp.outputStream().use { output ->
+                    input.copyTo(output)
+                    output.flush()
+                }
             }
             require(temp.length() > 1024L) { "Bundled $name is empty" }
             replaceFile(temp, destination)
-            marker.writeText("apk://xray/$name")
-        }.isSuccess
-        if (!copied) temp.delete()
+            true
+        }.getOrElse {
+            temp.delete()
+            false
+        }
     }
 
     private fun downloadAsset(url: String, destination: File) {
@@ -224,6 +315,7 @@ class XrayManager(private val context: Context) {
     }
 
     private fun sourceMarker(name: String) = File(assetsDir, "$name.source")
+    private fun refreshFailureMarker(name: String) = File(assetsDir, "$name.refresh-failed")
 
     /**
      * "private" geoip tags/bypass never need geoip.dat: XrayConfigHardener expands them to literal

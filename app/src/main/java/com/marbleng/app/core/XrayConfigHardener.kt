@@ -336,8 +336,10 @@ object XrayConfigHardener {
         addDomainRule(rules, splitDomains(settings.routeBlockDomains), "block")
         addIpRule(rules, splitIps(settings.routeBlockIps), "block")
 
-        if (settings.routeBlockAds && settings.routeAdsTag.isNotBlank()) {
-            addDomainRule(rules, listOf("geosite:${settings.routeAdsTag.trim()}"), "block")
+        if (settings.routeBlockAds) {
+            normalizeGeoSiteTag(settings.routeAdsTag)?.let { adsTag ->
+                addDomainRule(rules, listOf(adsTag), "block")
+            }
         }
 
         // Explicit proxy rules are evaluated before direct rules so users can create exceptions.
@@ -353,14 +355,14 @@ object XrayConfigHardener {
 
             if (settings.routingMode == RoutingMode.GEO_DIRECT || settings.routingMode == RoutingMode.CUSTOM) {
                 splitTokens(settings.routeGeoIpTags).forEach { tag ->
-                    when {
-                        tag.equals("private", true) || tag.equals("geoip:private", true) -> directIps += PRIVATE_CIDRS
-                        tag.startsWith("geoip:") -> directIps += tag
-                        else -> directIps += "geoip:$tag"
+                    if (tag.equals("private", true) || tag.equals("geoip:private", true)) {
+                        directIps += PRIVATE_CIDRS
+                    } else {
+                        normalizeGeoIpTag(tag)?.let(directIps::add)
                     }
                 }
                 splitTokens(settings.routeGeoSiteTags).forEach { tag ->
-                    directDomains += if (tag.startsWith("geosite:")) tag else "geosite:$tag"
+                    normalizeGeoSiteTag(tag)?.let(directDomains::add)
                 }
             }
 
@@ -398,7 +400,7 @@ object XrayConfigHardener {
         listOf("api", "reverse", "metrics", "stats", "observatory", "burstObservatory", "fakedns")
             .forEach(src::remove)
 
-        verify(src, socksPort, firstTag, needsDirect)
+        verify(src, socksPort, firstTag, needsDirect, settings)
         return src.toString(2)
     }
 
@@ -521,49 +523,136 @@ object XrayConfigHardener {
         )
     }
 
+    private fun normalizeGeoSiteTag(raw: String): String? {
+        val token = raw.trim()
+        if (token.isBlank()) return null
+        val body = if (token.startsWith("geosite:", ignoreCase = true)) {
+            token.substringAfter(':').trim()
+        } else {
+            token
+        }
+        return body.takeIf { it.isNotBlank() }?.let { "geosite:$it" }
+    }
+
+    private fun normalizeGeoIpTag(raw: String): String? {
+        val token = raw.trim()
+        if (token.isBlank()) return null
+        val body = if (token.startsWith("geoip:", ignoreCase = true)) {
+            token.substringAfter(':').trim()
+        } else {
+            token
+        }
+        return body.takeIf { it.isNotBlank() }?.let { "geoip:$it" }
+    }
+
     private fun splitTokens(raw: String): List<String> = raw
         .split(',', '\n', '\r', ';')
         .map { it.trim() }
         .filter { it.isNotBlank() }
         .distinct()
 
-    private fun splitDomains(raw: String): List<String> = splitTokens(raw).map { value ->
+    private fun splitDomains(raw: String): List<String> = splitTokens(raw).mapNotNull { value ->
         when {
-            value.startsWith("geosite:", true) -> value
-            value.startsWith("domain:", true) -> value
-            value.startsWith("full:", true) -> value
-            value.startsWith("keyword:", true) -> value
-            value.startsWith("regexp:", true) -> value
+            value.startsWith("geosite:", true) -> normalizeGeoSiteTag(value)
+            value.startsWith("domain:", true) -> "domain:${value.substringAfter(':').trim()}"
+            value.startsWith("full:", true) -> "full:${value.substringAfter(':').trim()}"
+            value.startsWith("keyword:", true) -> "keyword:${value.substringAfter(':').trim()}"
+            value.startsWith("regexp:", true) -> "regexp:${value.substringAfter(':').trim()}"
             else -> "domain:$value"
         }
-    }
+    }.distinct()
 
     private fun splitIps(raw: String): List<String> = splitTokens(raw).flatMap { token ->
-        if (token.equals("geoip:private", true)) PRIVATE_CIDRS else listOf(token)
+        when {
+            token.equals("geoip:private", true) -> PRIVATE_CIDRS
+            token.startsWith("geoip:", true) -> normalizeGeoIpTag(token)?.let { listOf(it) } ?: emptyList()
+            else -> listOf(token)
+        }
+    }.distinct()
+
+    private fun verify(
+    o: JSONObject,
+    port: Int,
+    selectedTag: String,
+    needsDirect: Boolean,
+    settings: AppSettings
+) {
+    val ins = o.getJSONArray("inbounds")
+    require(
+        ins.length() == 1 &&
+            ins.getJSONObject(0).getInt("port") == port &&
+            ins.getJSONObject(0).getString("listen") == "127.0.0.1"
+    ) { "SOCKS hardening failed" }
+
+    val outs = o.getJSONArray("outbounds")
+    var selected = false
+    var direct = false
+    var block = false
+    for (i in 0 until outs.length()) {
+        val outbound = outs.getJSONObject(i)
+        if (outbound.optString("tag") == selectedTag) selected = true
+        if (outbound.optString("tag") == "direct" && outbound.optString("protocol") == "freedom") direct = true
+        if (outbound.optString("tag") == "block" && outbound.optString("protocol") == "blackhole") block = true
+    }
+    require(selected) { "Selected proxy outbound missing" }
+    require(block) { "Routing blackhole outbound missing" }
+    require(direct == needsDirect) { "Routing direct-outbound invariant failed" }
+
+    val dns = o.getJSONObject("dns")
+    require(!dns.toString().contains("\"localhost\"")) { "System DNS must not be used" }
+
+    val routing = o.getJSONObject("routing")
+    val rules = routing.getJSONArray("rules")
+    require(rules.length() > 0) { "Routing rule set is empty" }
+
+    val fallback = rules.getJSONObject(rules.length() - 1)
+    require(fallback.optString("outboundTag") == selectedTag) {
+        "Unmatched routing fallback must stay on the selected proxy"
     }
 
-    private fun verify(o: JSONObject, port: Int, selectedTag: String, needsDirect: Boolean) {
-        val ins = o.getJSONArray("inbounds")
-        require(
-            ins.length() == 1 &&
-                ins.getJSONObject(0).getInt("port") == port &&
-                ins.getJSONObject(0).getString("listen") == "127.0.0.1"
-        ) { "SOCKS hardening failed" }
-
-        val outs = o.getJSONArray("outbounds")
-        var selected = false
-        var direct = false
-        for (i in 0 until outs.length()) {
-            val outbound = outs.getJSONObject(i)
-            if (outbound.optString("tag") == selectedTag) selected = true
-            if (outbound.optString("tag") == "direct" && outbound.optString("protocol") == "freedom") {
-                direct = true
+    fun hasDomain(value: String, outbound: String): Boolean {
+        for (i in 0 until rules.length()) {
+            val rule = rules.optJSONObject(i) ?: continue
+            if (rule.optString("outboundTag") != outbound) continue
+            val domains = rule.optJSONArray("domain") ?: continue
+            for (j in 0 until domains.length()) {
+                if (domains.optString(j).equals(value, ignoreCase = true)) return true
             }
         }
-        require(selected) { "Selected proxy outbound missing" }
-        require(direct == needsDirect) { "Routing direct-outbound invariant failed" }
-
-        val dns = o.getJSONObject("dns")
-        require(!dns.toString().contains("\"localhost\"")) { "System DNS must not be used" }
+        return false
     }
+
+    fun hasIp(value: String, outbound: String): Boolean {
+        for (i in 0 until rules.length()) {
+            val rule = rules.optJSONObject(i) ?: continue
+            if (rule.optString("outboundTag") != outbound) continue
+            val ips = rule.optJSONArray("ip") ?: continue
+            for (j in 0 until ips.length()) {
+                if (ips.optString(j).equals(value, ignoreCase = true)) return true
+            }
+        }
+        return false
+    }
+
+    if (settings.routeBlockAds) {
+        val ads = normalizeGeoSiteTag(settings.routeAdsTag)
+            ?: error("Ad blocking is enabled without a valid geosite category")
+        require(hasDomain(ads, "block")) { "Ad-block route invariant failed: $ads" }
+    }
+
+    if (settings.routingMode in setOf(RoutingMode.GEO_DIRECT, RoutingMode.CUSTOM)) {
+        splitTokens(settings.routeGeoSiteTags).forEach { raw ->
+            normalizeGeoSiteTag(raw)?.let { tag ->
+                require(hasDomain(tag, "direct")) { "Missing direct domain route: $tag" }
+            }
+        }
+        splitTokens(settings.routeGeoIpTags).forEach { raw ->
+            if (!raw.equals("private", true) && !raw.equals("geoip:private", true)) {
+                normalizeGeoIpTag(raw)?.let { tag ->
+                    require(hasIp(tag, "direct")) { "Missing direct IP route: $tag" }
+                }
+            }
+        }
+    }
+}
 }

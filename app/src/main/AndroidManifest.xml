@@ -15,7 +15,6 @@
     <application
         android:name=".MarbleApplication"
         android:allowBackup="false"
-        android:extractNativeLibs="true"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher"
         android:label="MarbleNG"
