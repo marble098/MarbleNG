@@ -11,6 +11,7 @@ import com.marbleng.app.model.SplitTunnelMode
  * Its purpose is:
  *  - no mid-session rotation to a "faster" exit;
  *  - no silent failover to another public exit while strict pinning is enabled;
+ *  - same-family public exit rotation is detected before forwarding and during the session;
  *  - no public/custom/domestic direct routes while the guard is enabled;
  *  - classic DNS capture stays enabled;
  *  - existing IPv4/IPv6 Full-TUN fail-closed behavior stays intact.

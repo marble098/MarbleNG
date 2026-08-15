@@ -139,13 +139,19 @@ class XrayManager(private val context: Context) {
         connection.connectTimeout = 15_000
         connection.readTimeout = 60_000
         connection.setRequestProperty("User-Agent", "MarbleNG/1 routing-assets")
-        connection.connect()
-        val code = connection.responseCode
-        require(code in 200..299) { "${destination.name} download HTTP $code" }
-        val declared = connection.contentLengthLong
-        require(declared <= 128L * 1024L * 1024L || declared < 0) { "${destination.name} is too large" }
 
         try {
+            connection.connect()
+            require(connection.url.protocol.equals("https", ignoreCase = true)) {
+                "${destination.name} redirect left HTTPS"
+            }
+            val code = connection.responseCode
+            require(code in 200..299) { "${destination.name} download HTTP $code" }
+            val declared = connection.contentLengthLong
+            require(declared <= 128L * 1024L * 1024L || declared < 0) {
+                "${destination.name} is too large"
+            }
+
             connection.inputStream.use { input ->
                 temp.outputStream().use { output ->
                     val buffer = ByteArray(32 * 1024)
@@ -154,25 +160,66 @@ class XrayManager(private val context: Context) {
                         val read = input.read(buffer)
                         if (read <= 0) break
                         total += read
-                        require(total <= 128L * 1024L * 1024L) { "${destination.name} exceeds 128 MiB" }
+                        require(total <= 128L * 1024L * 1024L) {
+                            "${destination.name} exceeds 128 MiB"
+                        }
                         output.write(buffer, 0, read)
                     }
+                    output.flush()
                 }
             }
+
+            require(temp.length() > 1024L) { "${destination.name} download is empty" }
+            replaceFile(temp, destination)
+        } catch (error: Throwable) {
+            temp.delete()
+            throw error
         } finally {
             connection.disconnect()
         }
-
-        require(temp.length() > 1024L) { "${destination.name} download is empty" }
-        replaceFile(temp, destination)
     }
 
+    /**
+     * Crash-safe same-directory replacement. The last known-good geo database is preserved until
+     * the replacement has been committed; failures roll back instead of leaving a missing asset.
+     */
     private fun replaceFile(temp: File, destination: File) {
         destination.parentFile?.mkdirs()
-        if (destination.exists() && !destination.delete()) error("Cannot replace ${destination.name}")
-        if (!temp.renameTo(destination)) {
-            temp.inputStream().use { input -> destination.outputStream().use { output -> input.copyTo(output) } }
+        require(temp.isFile && temp.length() > 0L) { "Replacement ${destination.name} is empty" }
+
+        val backup = File(destination.parentFile, "${destination.name}.bak")
+        backup.delete()
+
+        val hadDestination = destination.exists()
+        if (hadDestination && !destination.renameTo(backup)) {
+            error("Cannot protect existing ${destination.name} before replacement")
+        }
+
+        try {
+            if (!temp.renameTo(destination)) {
+                temp.inputStream().use { input ->
+                    destination.outputStream().use { output ->
+                        input.copyTo(output)
+                        output.flush()
+                    }
+                }
+                require(destination.isFile && destination.length() == temp.length()) {
+                    "Copied ${destination.name} size mismatch"
+                }
+                temp.delete()
+            }
+
+            require(destination.isFile && destination.length() > 0L) {
+                "Replacement ${destination.name} was not committed"
+            }
+            backup.delete()
+        } catch (error: Throwable) {
+            runCatching { destination.delete() }
+            if (hadDestination && backup.exists()) {
+                runCatching { backup.renameTo(destination) }
+            }
             temp.delete()
+            throw error
         }
     }
 

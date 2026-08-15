@@ -111,8 +111,9 @@ data class PrivacySentinelState(
     val updatedAt: Long = System.currentTimeMillis()
 ) {
     val healthy: Boolean
-        get() = coverage == "DEVICE-WIDE" && tunnelRoutes && ipv4Captured && dnsHijack &&
-            encryptedDns && systemDnsFallbackBlocked && xrayAlive && hevAlive
+        get() = coverage == "DEVICE-WIDE" && tunnelRoutes && ipv4Captured && ipv6Captured &&
+            dnsHijack && encryptedDns && systemDnsFallbackBlocked && killSwitchArmed &&
+            xrayAlive && hevAlive
 }
 
 data class IntelligenceStatus(
@@ -267,11 +268,21 @@ private class HealthDb(context: Context) : SQLiteOpenHelper(context, "marble-int
             n <= 8 -> 0.30
             else -> 0.18
         }
-        val previousConnect =
-            old?.connectMsEwma?.takeIf { it > 0 } ?: connectMs.toDouble()
+        // Failed connection durations are not connection-latency samples. Reliability and
+        // failureStreak already account for the outage, so only successful handshakes teach latency.
         val connectEwma =
-            previousConnect * (1.0 - alpha) +
-                connectMs.coerceAtLeast(0).toDouble() * alpha
+            if (success) {
+                val currentConnect = connectMs.coerceAtLeast(0).toDouble()
+                val previousConnect =
+                    old?.connectMsEwma?.takeIf { it > 0.0 } ?: currentConnect
+                if (old == null || old.connectMsEwma <= 0.0) {
+                    currentConnect
+                } else {
+                    previousConnect * (1.0 - alpha) + currentConnect * alpha
+                }
+            } else {
+                old?.connectMsEwma ?: 0.0
+            }
         val successNow = if (success) 100.0 else 0.0
         val successEwma =
             old?.successEwma?.let {
@@ -312,7 +323,9 @@ private class HealthDb(context: Context) : SQLiteOpenHelper(context, "marble-int
     ) {
         val old = get(profileId, networkKey) ?: return
         val now = System.currentTimeMillis()
-        val n = old.samples + 1
+        // Frequent live telemetry refines quality EWMAs but does not increase evidence confidence.
+        // Otherwise a periodic ping loop can turn one real benchmark into high confidence quickly.
+        val n = old.samples
         val alpha = if (old.samples <= 2) 0.42 else 0.12
         val currentLatency = latencyMs.coerceAtLeast(1).toDouble()
         val latency =
@@ -358,7 +371,8 @@ private class HealthDb(context: Context) : SQLiteOpenHelper(context, "marble-int
     ) {
         val old = get(profileId, networkKey) ?: return
         val now = System.currentTimeMillis()
-        val n = old.samples + 1
+        // Same confidence rule as recordRoute(): telemetry updates quality, not evidence count.
+        val n = old.samples
         val alpha = if (old.samples <= 2) 0.42 else 0.12
         val latencyNow = latencyMs.coerceAtLeast(1).toDouble()
         val latency = if (!old.latencyEwma.isFinite() || old.latencyEwma >= 9000.0) latencyNow
@@ -609,6 +623,7 @@ class MarbleIntelligence(private val context: Context) {
 
     @Synchronized
     private fun publishPrimary() {
+        val previousNetwork = activeNetwork
         val network = choosePrimaryPhysical()
         val caps = network?.let { capsByNetwork[it] }
         val lp = network?.let { linksByNetwork[it] }
@@ -672,7 +687,8 @@ class MarbleIntelligence(private val context: Context) {
 
         // Dynamic bandwidth-only changes do not trigger recovery probes.
         val meaningful =
-            previous.key() != next.key() ||
+            previousNetwork != network ||
+                previous.key() != next.key() ||
                 previous.validated != next.validated ||
                 previous.dualNetworkAvailable !=
                     next.dualNetworkAvailable
@@ -1329,6 +1345,7 @@ class MarbleIntelligence(private val context: Context) {
         settings: AppSettings,
         mode: String,
         tunUp: Boolean,
+        ipv6RouteCaptured: Boolean,
         xrayUp: Boolean,
         hevUp: Boolean,
         killSwitchArmed: Boolean,
@@ -1382,7 +1399,7 @@ class MarbleIntelligence(private val context: Context) {
             ipv4Captured =
                 fullTun && tunUp,
             ipv6Captured =
-                fullTun && tunUp,
+                fullTun && tunUp && ipv6RouteCaptured,
             dnsHijack =
                 fullTun &&
                     settings.dnsHijackEnabled,

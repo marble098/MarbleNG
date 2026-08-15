@@ -23,6 +23,7 @@ import java.io.Closeable
 import java.util.ArrayDeque
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -44,6 +45,7 @@ class MarbleVpnService : VpnService() {
         const val NOTIFY = 7301
         private const val ROUTE_PROBE_INTERVAL_TICKS = 30
         private const val PROBE_FAILURES_BEFORE_RECOVERY = 3
+        private const val EXIT_IDENTITY_PROBE_INTERVAL_TICKS = 180
     }
 
     private var tun: ParcelFileDescriptor? = null
@@ -53,6 +55,7 @@ class MarbleVpnService : VpnService() {
     private val routeProbeRequested = AtomicBoolean(false)
     private val optimizerScanRequested = AtomicBoolean(false)
     private val optimizerRunning = AtomicBoolean(false)
+    private val routeGeneration = AtomicInteger(0)
 
     // HEV is process-global; start/stop/recovery is serialized here.
     private val connectionWorker = Executors.newSingleThreadExecutor()
@@ -73,6 +76,9 @@ class MarbleVpnService : VpnService() {
     @Volatile private var connectStartedNs = 0L
     @Volatile private var consecutiveProbeFailures = 0
     @Volatile private var identityRecoveryAttempts = 0
+    @Volatile private var ipv6RouteCaptured = false
+    @Volatile private var pinnedExitV4 = ""
+    @Volatile private var pinnedExitV6 = ""
     @Volatile private var lastNetworkKey = ""
     @Volatile private var lastNetworkValidated = false
 
@@ -136,6 +142,10 @@ class MarbleVpnService : VpnService() {
         connectStartedNs = System.nanoTime()
         consecutiveProbeFailures = 0
         identityRecoveryAttempts = 0
+        ipv6RouteCaptured = false
+        pinnedExitV4 = ""
+        pinnedExitV6 = ""
+        routeGeneration.incrementAndGet()
         recoveryScheduled.set(false)
         optimizerScanRequested.set(false)
         routeOptimizer.reset(System.currentTimeMillis())
@@ -190,6 +200,7 @@ class MarbleVpnService : VpnService() {
         activeProfileId = profile.id
         activeSettings = settings
         connectStartedNs = System.nanoTime()
+        val generation = routeGeneration.incrementAndGet()
 
         diag.event(
             "XRAY", if (recovering) "recovery-start" else "start-begin",
@@ -221,8 +232,20 @@ class MarbleVpnService : VpnService() {
         }
 
         diag.event("XRAY", "socks-ready", "session" to session, "alive" to xray.isAlive, "port" to port)
+
+        // Verify/pin public egress BEFORE exposing this route to device traffic.
+        // An inconclusive observation is tolerated; a proven same-family rotation is not.
+        if (
+            settings.identityGuardEnabled &&
+            !verifyExitIdentity(session, port, generation)
+        ) {
+            return
+        }
+
         monitorWorker.execute {
-            runCatching { app.repo.intelligence.probeDnsResolvers(port, settings) }
+            if (isRouteCurrent(session, generation)) {
+                runCatching { app.repo.intelligence.probeDnsResolvers(port, settings) }
+            }
         }
 
         if (activeMode == MODE_PROXY) {
@@ -237,10 +260,10 @@ class MarbleVpnService : VpnService() {
                 settings
             )
             updateSentinel(killSwitch = false)
-            startProxyMonitor(session, port)
+            startProxyMonitor(session, port, generation)
             return
         }
-        runTun(profile, session, port, settings, recovering)
+        runTun(profile, session, port, settings, recovering, generation)
     }
 
     private fun establishTun(profile: ProxyProfile, session: String, settings: AppSettings): Boolean {
@@ -278,14 +301,19 @@ class MarbleVpnService : VpnService() {
             return false
         }
 
-        // Always attempt to capture IPv6. Even when the physical network has no IPv6, keeping the
-        // route in the VPN prevents an OEM/app from treating the missing family as permission to leak.
+        // Always attempt to capture IPv6. Privacy state must reflect the real Builder result.
+        var ipv6Ok = false
         runCatching {
             builder.addAddress("fc00::1", 128).addRoute("::", 0)
         }.onSuccess {
+            ipv6Ok = true
             diag.event("TUN", "ipv6-enabled", "session" to session)
         }.onFailure {
             diag.error("TUN", "ipv6-builder-failed", it, "session" to session)
+        }
+        if (settings.identityGuardEnabled && !ipv6Ok) {
+            diag.event("TUN", "identity-ipv6-fail-closed", "session" to session)
+            return false
         }
 
         val packages = settings.splitTunnelPackages
@@ -336,6 +364,7 @@ class MarbleVpnService : VpnService() {
             return false
         }
         tun = established
+        ipv6RouteCaptured = ipv6Ok
         diag.event(
             "TUN", "established",
             "session" to session,
@@ -344,7 +373,8 @@ class MarbleVpnService : VpnService() {
             "splitMode" to settings.splitTunnelMode.name,
             "splitPackages" to packages.size,
             "dnsCount" to dnsCount,
-            "dnsHijack" to settings.dnsHijackEnabled
+            "dnsHijack" to settings.dnsHijackEnabled,
+            "ipv6Captured" to ipv6Ok
         )
         app.repo.refreshIntelligenceStatus()
         updateSentinel(killSwitch = true)
@@ -356,8 +386,10 @@ class MarbleVpnService : VpnService() {
         session: String,
         socksPort: Int,
         settings: AppSettings,
-        recovering: Boolean
+        recovering: Boolean,
+        generation: Int
     ) {
+        if (!isRouteCurrent(session, generation)) return
         val currentTun = tun ?: run {
             handleFailure(session, "TUN disappeared before HEV startup")
             return
@@ -431,7 +463,7 @@ class MarbleVpnService : VpnService() {
         consecutiveProbeFailures = 0
         hevActive = true
         updateSentinel(killSwitch = true)
-        startTelemetry(session, socksPort)
+        startTelemetry(session, socksPort, generation)
 
         diag.event("HEV", "run-enter", "session" to session, "hevFd" to hevFd, "xrayAlive" to xray.isAlive)
         val result = runCatching { HevTunnel.run(cfg, hevFd) }
@@ -448,34 +480,40 @@ class MarbleVpnService : VpnService() {
         }
     }
 
-    private fun startProxyMonitor(session: String, port: Int) {
+    private fun startProxyMonitor(session: String, port: Int, generation: Int) {
         monitorWorker.execute {
             var tick = 0
-            while (isCurrent(session) && activeMode == MODE_PROXY) {
+            while (isRouteCurrent(session, generation) && activeMode == MODE_PROXY) {
                 if (!xray.isAlive) {
                     handleFailure(session, "Xray local proxy stopped")
                     return@execute
                 }
                 if (tick == 2 || tick % ROUTE_PROBE_INTERVAL_TICKS == 0 || routeProbeRequested.getAndSet(false)) {
-                    sampleRouteLatency(session, port)
+                    sampleRouteLatency(session, port, generation)
                 }
-                maybeScheduleOptimizer(session)
+                if (
+                    (tick == 3 || (tick > 0 && tick % EXIT_IDENTITY_PROBE_INTERVAL_TICKS == 0)) &&
+                    !verifyExitIdentity(session, port, generation)
+                ) {
+                    return@execute
+                }
+                maybeScheduleOptimizer(session, generation)
                 if (!sleepQuietly(1_000L)) return@execute
                 tick++
             }
         }
     }
 
-    private fun startTelemetry(session: String, port: Int) {
+    private fun startTelemetry(session: String, port: Int, generation: Int) {
         monitorWorker.execute {
             val repo = (application as MarbleApplication).repo
             var lastUp = -1L
             var lastDown = -1L
             var lastT = System.nanoTime()
             var tick = 0
-            while (isCurrent(session) && hevActive) {
+            while (isRouteCurrent(session, generation) && hevActive) {
                 if (!sleepQuietly(1_000L)) return@execute
-                if (!isCurrent(session) || !hevActive) break
+                if (!isRouteCurrent(session, generation) || !hevActive) break
                 val stats = runCatching { HevTunnel.stats() }.getOrNull()
                 if (stats != null && stats.size >= 4) {
                     val now = System.nanoTime()
@@ -493,9 +531,15 @@ class MarbleVpnService : VpnService() {
                     lastT = now
                 }
                 if (tick == 1 || tick % ROUTE_PROBE_INTERVAL_TICKS == 0 || routeProbeRequested.getAndSet(false)) {
-                    sampleRouteLatency(session, port)
+                    sampleRouteLatency(session, port, generation)
                 }
-                maybeScheduleOptimizer(session)
+                if (
+                    (tick == 3 || (tick > 0 && tick % EXIT_IDENTITY_PROBE_INTERVAL_TICKS == 0)) &&
+                    !verifyExitIdentity(session, port, generation)
+                ) {
+                    return@execute
+                }
+                maybeScheduleOptimizer(session, generation)
                 if (tick % 5 == 0 && (activeSettings ?: repo.settings).notificationLiveStats) {
                     val name = repo.profile(activeProfileId)?.name ?: "Active route"
                     val ping = repo.livePingMs.takeIf { it > 0 }?.let { "${it} ms" } ?: "— ms"
@@ -512,7 +556,9 @@ class MarbleVpnService : VpnService() {
                 }
                 tick++
             }
-            repo.resetTelemetry()
+            if (isRouteCurrent(session, generation)) {
+                repo.resetTelemetry()
+            }
         }
     }
 
@@ -526,8 +572,8 @@ class MarbleVpnService : VpnService() {
         return ActiveRouteQuality(median, jitter, values.size)
     }
 
-    private fun maybeScheduleOptimizer(session: String) {
-        if (!isCurrent(session) || recoveryScheduled.get()) return
+    private fun maybeScheduleOptimizer(session: String, generation: Int) {
+        if (!isRouteCurrent(session, generation) || recoveryScheduled.get()) return
         val app = application as MarbleApplication
         val repo = app.repo
         val settings = activeSettings ?: repo.settings
@@ -547,19 +593,20 @@ class MarbleVpnService : VpnService() {
         if (!optimizerRunning.compareAndSet(false, true)) return
         monitorWorker.execute {
             try {
-                runOptimizerCycle(session, quality)
+                runOptimizerCycle(session, quality, generation)
             } finally {
                 optimizerRunning.set(false)
             }
         }
     }
 
-    private fun runOptimizerCycle(session: String, quality: ActiveRouteQuality) {
-        if (!isCurrent(session) || recoveryScheduled.get()) return
+    private fun runOptimizerCycle(session: String, quality: ActiveRouteQuality, generation: Int) {
+        if (!isRouteCurrent(session, generation) || recoveryScheduled.get()) return
         val app = application as MarbleApplication
         val repo = app.repo
         val active = repo.profile(activeProfileId) ?: return
-        val settings = repo.settings
+        val settings = activeSettings ?: repo.settings
+        if (settings.identityGuardEnabled || !settings.continuousOptimizerEnabled) return
         val all = repo.profiles.toList()
         if (all.size < 2) return
         val plan = routeOptimizer.plan(active, all, settings)
@@ -580,27 +627,33 @@ class MarbleVpnService : VpnService() {
         ) { name ->
             repo.intelligence.setDecision("Autopilot cycle ${plan.cycle} • testing $name")
         }
-        if (!isCurrent(session) || recoveryScheduled.get()) return
+        if (!isRouteCurrent(session, generation) || recoveryScheduled.get()) return
         val decision = routeOptimizer.resolveTarget(active, all, results, settings)
         repo.intelligence.setDecision(decision.summary)
         repo.refreshIntelligenceStatus()
         val target = decision.target ?: return
-        if (target.id == activeProfileId || !isCurrent(session)) return
-        scheduleOptimizerSwitch(session, target, decision.summary)
+        if (target.id == activeProfileId || !isRouteCurrent(session, generation)) return
+        scheduleOptimizerSwitch(session, target, decision.summary, generation)
     }
 
     @Synchronized
     private fun scheduleOptimizerSwitch(
         session: String,
         target: ProxyProfile,
-        reason: String
+        reason: String,
+        generation: Int
     ) {
-        if (!isCurrent(session)) return
+        if (!isRouteCurrent(session, generation)) return
         if (!recoveryScheduled.compareAndSet(false, true)) return
         val app = application as MarbleApplication
         val repo = app.repo
-        val settings = repo.settings
+        val settings = activeSettings ?: repo.settings
+        if (settings.identityGuardEnabled || !settings.continuousOptimizerEnabled) {
+            recoveryScheduled.set(false)
+            return
+        }
         val holdTun = activeMode == MODE_TUN && tun != null
+        routeGeneration.incrementAndGet()
         routeOptimizer.noteSwitch()
         optimizerScanRequested.set(false)
         repo.setRuntimeState("CONNECTING", "Autopilot → ${target.name}")
@@ -640,8 +693,10 @@ class MarbleVpnService : VpnService() {
     /** Complete SOCKS + remote TCP + TLS + HTTP route health, rolling median. */
     private fun sampleRouteLatency(
         session: String,
-        port: Int
+        port: Int,
+        generation: Int
     ): Boolean {
+        if (!isRouteCurrent(session, generation)) return false
         val probes =
             arrayOf(
                 "cp.cloudflare.com" to
@@ -688,7 +743,7 @@ class MarbleVpnService : VpnService() {
 
         if (
             ms <= 0 ||
-            !running.get()
+            !isRouteCurrent(session, generation)
         ) {
             consecutiveProbeFailures++
 
@@ -765,6 +820,91 @@ class MarbleVpnService : VpnService() {
         return true
     }
 
+    /**
+     * Pins observed public egress independently for IPv4 and IPv6. A provider can legitimately
+     * expose one stable address per family; only a change inside the SAME family counts as rotation.
+     *
+     * The observation itself travels through Xray SOCKS. No direct physical-network IP lookup is sent.
+     * Failure to observe an address is inconclusive and does not tear down an otherwise healthy route.
+     */
+    private fun verifyExitIdentity(
+        session: String,
+        port: Int,
+        generation: Int
+    ): Boolean {
+        if (!isRouteCurrent(session, generation)) return false
+
+        val trace =
+            runCatching {
+                val response =
+                    SocksHttpClient.get(
+                        port,
+                        "www.cloudflare.com",
+                        "/cdn-cgi/trace",
+                        5_000,
+                        8_192
+                    )
+                if (response.status !in 200..399) "" else String(response.body)
+            }.getOrDefault("")
+
+        val observed =
+            Regex("(?m)^ip=([^\\r\\n]+)$")
+                .find(trace)
+                ?.groupValues
+                ?.getOrNull(1)
+                ?.trim()
+                .orEmpty()
+
+        if (observed.isBlank()) return true
+        if (!isRouteCurrent(session, generation)) return false
+
+        val isV6 = observed.contains(':')
+        val pinned = if (isV6) pinnedExitV6 else pinnedExitV4
+        val settings = activeSettings ?: (application as MarbleApplication).repo.settings
+
+        if (
+            pinned.isNotBlank() &&
+            pinned != observed &&
+            settings.identityGuardEnabled &&
+            settings.identityGuardStrictNoFailover
+        ) {
+            diag.event(
+                "IDENTITY",
+                "exit-rotation-blocked",
+                "session" to session,
+                "family" to if (isV6) "ipv6" else "ipv4",
+                "fromHash" to Integer.toHexString(pinned.hashCode()),
+                "toHash" to Integer.toHexString(observed.hashCode())
+            )
+            handleFailure(
+                session,
+                "Identity Guard detected public exit-IP rotation"
+            )
+            return false
+        }
+
+        if (isV6) {
+            pinnedExitV6 = observed
+        } else {
+            pinnedExitV4 = observed
+        }
+
+        val repo = (application as MarbleApplication).repo
+        val label =
+            listOf(
+                pinnedExitV4.takeIf { it.isNotBlank() }?.let { "IPv4 $it" },
+                pinnedExitV6.takeIf { it.isNotBlank() }?.let { "IPv6 $it" }
+            ).filterNotNull().joinToString(" • ")
+
+        repo.updateSentinel(
+            repo.sentinel.copy(
+                exitIp = label,
+                updatedAt = System.currentTimeMillis()
+            )
+        )
+        return true
+    }
+
     private fun onUnderlyingNetworkChanged(
         snapshot: NetworkSnapshot
     ) {
@@ -826,7 +966,9 @@ class MarbleVpnService : VpnService() {
         ) {
             synchronized(latencyWindow) { latencyWindow.clear() }
             routeOptimizer.reset(0L)
-            optimizerScanRequested.set(true)
+            optimizerScanRequested.set(
+                settings.continuousOptimizerEnabled && !settings.identityGuardEnabled
+            )
             routeProbeRequested
                 .set(true)
 
@@ -894,6 +1036,14 @@ class MarbleVpnService : VpnService() {
                 MODE_TUN &&
                 tun != null
 
+        val invalidatedGeneration = routeGeneration.incrementAndGet()
+        diag.event(
+            "VPN",
+            "failure-generation",
+            "session" to activeSession,
+            "generation" to invalidatedGeneration
+        )
+
         diag.event(
             "VPN",
             "blocked",
@@ -941,6 +1091,25 @@ class MarbleVpnService : VpnService() {
             killSwitch =
                 holdTun
         )
+
+        if (activeMode == MODE_TUN && !holdTun) {
+            recoveryScheduled.set(false)
+            running.set(false)
+            closeTun()
+            repo.setRuntimeState(
+                "BLOCKED",
+                "VPN interface unavailable • $reason"
+            )
+            diag.event(
+                "VPN",
+                "full-tun-missing-stop",
+                "session" to activeSession,
+                "reason" to reason
+            )
+            runCatching { stopForeground(STOP_FOREGROUND_REMOVE) }
+            stopSelf()
+            return
+        }
 
         if (holdTun) {
             running.set(true)
@@ -1311,6 +1480,7 @@ class MarbleVpnService : VpnService() {
                 settings = settings,
                 mode = activeMode,
                 tunUp = tun != null,
+                ipv6RouteCaptured = ipv6RouteCaptured,
                 xrayUp = xray.isAlive,
                 hevUp = hevActive,
                 killSwitchArmed = killSwitch,
@@ -1332,6 +1502,7 @@ class MarbleVpnService : VpnService() {
         val oldSession = activeSession
         running.set(false)
         activeSession = ""
+        routeGeneration.incrementAndGet()
         recoveryScheduled.set(false)
         routeProbeRequested.set(false)
         optimizerScanRequested.set(false)
@@ -1346,6 +1517,9 @@ class MarbleVpnService : VpnService() {
         repo.resetTelemetry()
         activeSettings = null
         activeProfileId = ""
+        pinnedExitV4 = ""
+        pinnedExitV6 = ""
+        ipv6RouteCaptured = false
         if (setDisconnected) repo.setRuntimeState("DISCONNECTED", "User disconnected")
         repo.updateSentinel(
             repo.sentinel.copy(
@@ -1371,6 +1545,7 @@ class MarbleVpnService : VpnService() {
     private fun closeTun() {
         runCatching { tun?.close() }
         tun = null
+        ipv6RouteCaptured = false
     }
 
     private fun shutdown(explicit: Boolean) {
@@ -1399,6 +1574,9 @@ class MarbleVpnService : VpnService() {
     }
 
     private fun isCurrent(session: String): Boolean = running.get() && activeSession == session
+
+    private fun isRouteCurrent(session: String, generation: Int): Boolean =
+        isCurrent(session) && routeGeneration.get() == generation
 
     private fun elapsedConnectMs(): Long =
         if (connectStartedNs <= 0L) 0L else ((System.nanoTime() - connectStartedNs) / 1_000_000L).coerceAtLeast(0L)
