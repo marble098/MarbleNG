@@ -81,6 +81,29 @@ enum class SplitTunnelMode { ALL_APPS, ONLY_SELECTED, BYPASS_SELECTED }
 enum class WorkloadProfile { AUTO, INTERACTIVE, STREAMING, STABILITY, STEALTH }
 enum class NodeSortMode { PING, SCORE, NAME, PROTOCOL, SOURCE }
 
+/**
+ * Canonical MarbleNG routing baseline.
+ *
+ * Chocolate4U/Iran-v2ray-rules publishes a continuously updated `release` branch containing
+ * Xray-compatible geoip.dat/geosite.dat. Signed CI builds also bundle the same two verified files,
+ * so a blocked GitHub/raw endpoint can never prevent the first proxy connection.
+ */
+object RoutingDefaults {
+    const val GEOIP_URL =
+        "https://raw.githubusercontent.com/Chocolate4U/Iran-v2ray-rules/release/geoip.dat"
+    const val GEOSITE_URL =
+        "https://raw.githubusercontent.com/Chocolate4U/Iran-v2ray-rules/release/geosite.dat"
+    const val GEOIP_MIRROR =
+        "https://cdn.jsdelivr.net/gh/chocolate4u/Iran-v2ray-rules@release/geoip.dat"
+    const val GEOSITE_MIRROR =
+        "https://cdn.jsdelivr.net/gh/chocolate4u/Iran-v2ray-rules@release/geosite.dat"
+    const val GEOIP_DIRECT_TAGS = "ir,private"
+    const val GEOSITE_DIRECT_TAGS = "ir"
+    const val ADS_TAG = "category-ads-all"
+    const val DOMAIN_STRATEGY = "IPIfNonMatch"
+    const val PREFS_SCHEMA_VERSION = 1
+}
+
 /** How Iran Mode decides whether the anti-filtering engine should run. */
 enum class IranModePolicy { AUTO, ALWAYS_ON, OFF }
 
@@ -124,20 +147,20 @@ data class AppSettings(
     val telegramAutoSub: Boolean = true,
     val telegramPassMinSuccess: Int = 75,
 
-    val routingMode: RoutingMode = RoutingMode.PROXY_ALL,
-    val geoIpUrl: String = "",
-    val geoSiteUrl: String = "",
-    val routeGeoIpTags: String = "private",
-    val routeGeoSiteTags: String = "",
+    val routingMode: RoutingMode = RoutingMode.GEO_DIRECT,
+    val geoIpUrl: String = RoutingDefaults.GEOIP_URL,
+    val geoSiteUrl: String = RoutingDefaults.GEOSITE_URL,
+    val routeGeoIpTags: String = RoutingDefaults.GEOIP_DIRECT_TAGS,
+    val routeGeoSiteTags: String = RoutingDefaults.GEOSITE_DIRECT_TAGS,
     val routeDirectDomains: String = "",
     val routeProxyDomains: String = "",
     val routeBlockDomains: String = "",
     val routeDirectIps: String = "",
     val routeBlockIps: String = "",
     val routeBypassPrivate: Boolean = true,
-    val routeBlockAds: Boolean = false,
-    val routeAdsTag: String = "category-ads-all",
-    val routeDomainStrategy: String = "AsIs",
+    val routeBlockAds: Boolean = true,
+    val routeAdsTag: String = RoutingDefaults.ADS_TAG,
+    val routeDomainStrategy: String = RoutingDefaults.DOMAIN_STRATEGY,
 
     val splitTunnelMode: SplitTunnelMode = SplitTunnelMode.ALL_APPS,
     val splitTunnelPackages: String = "",

@@ -780,6 +780,33 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
 
     fun routingAssetStatus(): RoutingAssetStatus = xray.routingAssetStatus()
 
+    /** Apply MarbleNG's recommended Iran routing baseline without erasing explicit block/proxy lists. */
+    fun applyIranRoutingPreset(prepareAssets: Boolean = true) {
+        updateSettings(
+            settings.copy(
+                routingMode = RoutingMode.GEO_DIRECT,
+                geoIpUrl = RoutingDefaults.GEOIP_URL,
+                geoSiteUrl = RoutingDefaults.GEOSITE_URL,
+                routeGeoIpTags = RoutingDefaults.GEOIP_DIRECT_TAGS,
+                routeGeoSiteTags = RoutingDefaults.GEOSITE_DIRECT_TAGS,
+                routeBypassPrivate = true,
+                routeBlockAds = true,
+                routeAdsTag = RoutingDefaults.ADS_TAG,
+                routeDomainStrategy = RoutingDefaults.DOMAIN_STRATEGY,
+                iranDomesticDirect = true
+            )
+        )
+
+        when {
+            state != "DISCONNECTED" ->
+                message = "Iran routing preset saved • reconnect to apply it to the active tunnel"
+            prepareAssets && !busy ->
+                prepareRoutingAssets(force = false)
+            else ->
+                message = "Iran routing preset saved"
+        }
+    }
+
     fun prepareRoutingAssets(force: Boolean = false) {
         if (state != "DISCONNECTED" && (settings.geoIpUrl.isNotBlank() || settings.geoSiteUrl.isNotBlank())) {
             message = "Disconnect before downloading routing assets • direct management downloads are blocked while a tunnel is active"
@@ -821,7 +848,7 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
 
     fun resetSettings() {
         updateSettings(AppSettings())
-        message = "Settings reset • proxy-all routing restored"
+        message = "Settings reset • Iran direct routing + ad blocking restored"
     }
 
     fun capabilities(): String = """

@@ -75,7 +75,11 @@ val AetherTypography = Typography(
     labelLarge=TextStyle(fontFamily=ProductSans,fontWeight=FontWeight.SemiBold,fontSize=14.sp,lineHeight=19.sp,letterSpacing=0.05.sp),
     labelSmall=TextStyle(fontFamily=ProductSans,fontWeight=FontWeight.Medium,fontSize=12.sp,lineHeight=16.sp,letterSpacing=0.16.sp)
 )
-@Composable fun AetherFlowTheme(themeId:String="dark",content:@Composable()->Unit){
+@Composable
+fun AetherFlowTheme(
+    themeId: String = "dark",
+    content: @Composable () -> Unit
+) {
     val p=if(parseAppTheme(themeId)==AppTheme.LIGHT) LightPalette else DarkPalette
     val light=p===LightPalette
     val scheme=if(light) lightColorScheme(
