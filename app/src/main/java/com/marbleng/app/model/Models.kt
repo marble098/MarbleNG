@@ -203,6 +203,20 @@ data class AppSettings(
     val configCompatibilityMode: Boolean = true,
     val verifiedPerformanceTuning: Boolean = true,
 
+    // Marble Turbo. On connect, the engine executes real transport methods against the selected
+    // node (fragmentation shapes, Mux reuse, endpoint address family), measures ping and speed for
+    // each, and keeps the winner. The exit node never changes, so this stays Identity-Guard safe.
+    val connectTuningEnabled: Boolean = true,
+    val connectTuningBudgetSec: Int = 5,
+    val connectTuningMethods: Int = 4,
+    /** Background passes re-measure the live route and hot-apply a materially faster method. */
+    val liveTuningEnabled: Boolean = true,
+    val liveTuningIntervalSec: Int = 300,
+    val liveTuningPingTriggerMs: Int = 220,
+    val liveTuningMinGainPercent: Int = 15,
+    /** Size the userspace tunnel datapath from measured throughput instead of a fixed guess. */
+    val adaptiveBufferEnabled: Boolean = true,
+
     // Identity Guard. Enabled by default: keep a user-started session on one public exit.
     val identityGuardEnabled: Boolean = true,
     val identityGuardStrictNoFailover: Boolean = true,

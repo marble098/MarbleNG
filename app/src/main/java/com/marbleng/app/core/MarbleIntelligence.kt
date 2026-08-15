@@ -17,6 +17,7 @@ import com.marbleng.app.model.ConnectionMode
 import com.marbleng.app.model.ProxyProfile
 import com.marbleng.app.model.SplitTunnelMode
 import com.marbleng.app.model.WorkloadProfile
+import org.json.JSONObject
 import java.io.Closeable
 import java.net.URL
 import java.util.concurrent.ConcurrentHashMap
@@ -126,7 +127,21 @@ data class IntelligenceStatus(
     val kernelSuDetected: Boolean = false,
     val ebpfCapable: Boolean = false,
     val historyRecords: Int = 0,
+    val accelerationLabel: String = "OFF",
+    val acceleratedRoutes: Int = 0,
     val lastDecision: String = "Waiting for network intelligence"
+)
+
+/**
+ * Datapath sizing for the userspace tunnel. Buffers and session limits are derived from measured
+ * throughput instead of one fixed compromise, so a fast link stops being capped by a 64 KiB
+ * socket buffer and a slow/throttled device stops paying for memory it cannot use.
+ */
+data class TunnelTuning(
+    val maxSessions: Int,
+    val tcpBufferBytes: Int,
+    val udpBufferBytes: Int,
+    val label: String
 )
 
 /**
@@ -511,6 +526,14 @@ class MarbleIntelligence(private val context: Context) {
     @Volatile private var lastThermalPollAt = 0L
     @Volatile private var cachedThermalFactor = 1.0
 
+    /**
+     * Measured acceleration plans, keyed by profile + physical-network fingerprint. Kept in memory
+     * for the hot path and mirrored into prefs so a proven method survives an app restart.
+     */
+    private val accelerationCache = ConcurrentHashMap<String, AccelerationPlan>()
+    @Volatile private var accelerationLoaded = false
+    @Volatile private var lastAcceleration = ""
+
     private val callback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) {
             availableTransports.putIfAbsent(network, emptySet())
@@ -787,9 +810,128 @@ class MarbleIntelligence(private val context: Context) {
         return chosen
     }
 
+    /** Measured health for one node on the current physical network, or null when unknown. */
+    fun healthOf(profileId: String): NodeHealthRecord? =
+        db.get(profileId, currentSnapshot().key())
+
+    private fun accelerationKey(profileId: String): String =
+        "$profileId|${currentSnapshot().key()}"
+
+    @Synchronized
+    private fun loadAcceleration() {
+        if (accelerationLoaded) return
+        accelerationLoaded = true
+        runCatching {
+            val stored = JSONObject(prefs.getString(ACCELERATION_PREF, "{}") ?: "{}")
+            stored.keys().forEach { key ->
+                val plan = stored.optJSONObject(key)?.let { AccelerationPlan.fromJson(it) }
+                    ?: return@forEach
+                accelerationCache[key] = plan
+            }
+        }
+    }
+
+    private fun persistAcceleration() {
+        runCatching {
+            // Bounded: only the most recently proven routes are worth carrying across restarts.
+            val recent = accelerationCache.entries
+                .sortedByDescending { it.value.at }
+                .take(ACCELERATION_LIMIT)
+            val out = JSONObject()
+            recent.forEach { (key, plan) -> out.put(key, plan.toJson()) }
+            if (recent.size < accelerationCache.size) {
+                val keep = recent.mapTo(mutableSetOf()) { it.key }
+                accelerationCache.keys.retainAll(keep)
+            }
+            prefs.edit().putString(ACCELERATION_PREF, out.toString()).apply()
+        }
+    }
+
+    /**
+     * The acceleration method proven for this node on this network, or null when nothing fresh is
+     * known. Stale evidence expires instead of being trusted forever: link conditions move.
+     */
+    fun acceleration(profileId: String): AccelerationPlan? {
+        if (profileId.isBlank()) return null
+        loadAcceleration()
+        val plan = accelerationCache[accelerationKey(profileId)] ?: return null
+        if (System.currentTimeMillis() - plan.at > ACCELERATION_TTL_MS) return null
+        return plan
+    }
+
+    fun rememberAcceleration(profileId: String, plan: AccelerationPlan) {
+        if (profileId.isBlank()) return
+        loadAcceleration()
+        accelerationCache[accelerationKey(profileId)] = plan
+        lastAcceleration = if (plan.neutral) "DIRECT" else plan.label.uppercase()
+        persistAcceleration()
+    }
+
+    fun forgetAcceleration(profileId: String) {
+        if (profileId.isBlank()) return
+        loadAcceleration()
+        if (accelerationCache.remove(accelerationKey(profileId)) != null) persistAcceleration()
+    }
+
+    private fun accelerationCount(): Int {
+        loadAcceleration()
+        val now = System.currentTimeMillis()
+        val suffix = "|${currentSnapshot().key()}"
+        return accelerationCache.count { (key, plan) ->
+            key.endsWith(suffix) && now - plan.at <= ACCELERATION_TTL_MS && !plan.neutral
+        }
+    }
+
+    /**
+     * Userspace-tunnel sizing for the node about to carry traffic. Evidence comes from the measured
+     * acceleration pass first and from long-run history second; both beat a static guess.
+     */
+    fun tunnelTuning(profileId: String, settings: AppSettings): TunnelTuning {
+        val thermal = thermalBudget(settings)
+        val conservative = TunnelTuning(
+            maxSessions = if (thermal < 0.55) 2048 else 4096,
+            tcpBufferBytes = 65_536,
+            udpBufferBytes = 524_288,
+            label = "baseline"
+        )
+        if (!settings.adaptiveBufferEnabled) return conservative
+
+        val measured = acceleration(profileId)?.bytesPerSecond ?: 0.0
+        val historical = if (settings.healthHistoryEnabled) {
+            db.get(profileId, currentSnapshot().key())?.throughputEwma ?: 0.0
+        } else {
+            0.0
+        }
+        val linkBps = snapshot.downstreamKbps.toDouble() * 1000.0 / 8.0
+        val evidence = max(max(measured, historical), linkBps * 0.5)
+
+        val tuned = when {
+            evidence >= 6.0 * 1024.0 * 1024.0 -> TunnelTuning(8192, 262_144, 1_048_576, "high-bandwidth")
+            evidence >= 1.5 * 1024.0 * 1024.0 -> TunnelTuning(6144, 131_072, 786_432, "wide")
+            else -> conservative
+        }
+
+        // Never let a bigger datapath fight the thermal governor for the same silicon.
+        return if (thermal < 0.55) {
+            TunnelTuning(
+                maxSessions = min(tuned.maxSessions, 2048),
+                tcpBufferBytes = min(tuned.tcpBufferBytes, 65_536),
+                udpBufferBytes = min(tuned.udpBufferBytes, 524_288),
+                label = "${tuned.label}/thermal"
+            )
+        } else {
+            tuned
+        }
+    }
+
+    /**
+     * @param withAcceleration false returns the pre-acceleration baseline, which is what the
+     *   tuner must measure against so it never re-proves its own previous conclusion.
+     */
     fun effectiveSettings(
         profile: ProxyProfile,
-        base: AppSettings
+        base: AppSettings,
+        withAcceleration: Boolean = true
     ): AppSettings {
         startMonitoring()
 
@@ -867,8 +1009,17 @@ class MarbleIntelligence(private val context: Context) {
                 base.muxEnabled || autoMux
         )
 
+        // A measured acceleration plan outranks the predictive fragment/mux guesses above: it was
+        // proven on this node, on this network, against an untouched baseline.
+        val accelerated =
+            if (withAcceleration && base.connectTuningEnabled) {
+                acceleration(profile.id)?.applyTo(tuned) ?: tuned
+            } else {
+                tuned
+            }
+
         // Iran Mode is applied last so its countermeasures win over generic adaptive tuning.
-        return IranShield.apply(tuned, profile, iranState, iranGeoIpReady)
+        return IranShield.apply(accelerated, profile, iranState, iranGeoIpReady)
     }
 
     fun hasHistory(
@@ -1387,6 +1538,14 @@ class MarbleIntelligence(private val context: Context) {
                 } else {
                     0
                 },
+            accelerationLabel =
+                if (settings.connectTuningEnabled) {
+                    lastAcceleration.ifBlank { "READY" }
+                } else {
+                    "OFF"
+                },
+            acceleratedRoutes =
+                if (settings.connectTuningEnabled) accelerationCount() else 0,
             lastDecision =
                 lastDecision
         )
@@ -1668,4 +1827,10 @@ class MarbleIntelligence(private val context: Context) {
                     java.io.File(it).exists()
                 }.getOrDefault(false)
             }
+
+    private companion object {
+        const val ACCELERATION_PREF = "route-acceleration"
+        const val ACCELERATION_LIMIT = 160
+        const val ACCELERATION_TTL_MS = 6L * 60L * 60L * 1000L
+    }
 }

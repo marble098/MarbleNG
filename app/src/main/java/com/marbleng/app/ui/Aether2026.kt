@@ -2624,6 +2624,15 @@ private fun IntelligenceSettings(repo: AppRepository) {
         HoloBadge("MTU ${status.effectiveMtu.takeIf { it > 0 } ?: s.mtuMax}", Aether.Emerald, compact = true)
         HoloBadge("CPU ${status.thermalBudgetPercent}%", if (status.thermalBudgetPercent >= 65) Aether.Emerald else Aether.Amber, compact = true)
         HoloBadge("HISTORY ${status.historyRecords}", Aether.Amethyst, compact = true)
+        HoloBadge(
+            if (status.acceleratedRoutes > 0) {
+                "TURBO ${status.accelerationLabel} • ${status.acceleratedRoutes}"
+            } else {
+                "TURBO ${status.accelerationLabel}"
+            },
+            if (s.connectTuningEnabled) Aether.Emerald else Aether.InkFaint,
+            compact = true
+        )
     }
 
     Text(status.lastDecision, color = Aether.InkMuted, style = MaterialTheme.typography.bodySmall)
@@ -2645,6 +2654,55 @@ private fun IntelligenceSettings(repo: AppRepository) {
         subtitle = "A/B test adaptive Fragment/Mux and keep only material latency, speed or reliability gains",
         checked = s.verifiedPerformanceTuning
     ) { repo.updateSettings(repo.settings.copy(verifiedPerformanceTuning = it)) }
+
+    SettingSwitch(
+        title = "Marble Turbo acceleration",
+        subtitle = "On connect, execute real transport methods on the selected node — fragmentation shapes, Mux reuse, endpoint address family — and keep the method that measures fastest",
+        checked = s.connectTuningEnabled
+    ) { repo.updateSettings(repo.settings.copy(connectTuningEnabled = it)) }
+
+    AnimatedVisibility(s.connectTuningEnabled) {
+        Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+            NumberSetting("Connect tuning budget", s.connectTuningBudgetSec, 0..20, " sec") {
+                repo.updateSettings(repo.settings.copy(connectTuningBudgetSec = it))
+            }
+            NumberSetting("Methods per pass", s.connectTuningMethods, 1..5) {
+                repo.updateSettings(repo.settings.copy(connectTuningMethods = it))
+            }
+            SettingSwitch(
+                title = "Keep improving while connected",
+                subtitle = "Re-measure the live route in the background and hot-apply a faster method on the same exit IP",
+                checked = s.liveTuningEnabled
+            ) { repo.updateSettings(repo.settings.copy(liveTuningEnabled = it)) }
+
+            AnimatedVisibility(s.liveTuningEnabled) {
+                Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                    NumberSetting("Live tuning interval", s.liveTuningIntervalSec, 60..3600, " sec") {
+                        repo.updateSettings(repo.settings.copy(liveTuningIntervalSec = it))
+                    }
+                    NumberSetting("Ping that triggers tuning", s.liveTuningPingTriggerMs, 80..1200, " ms") {
+                        repo.updateSettings(repo.settings.copy(liveTuningPingTriggerMs = it))
+                    }
+                    NumberSetting("Minimum gain to re-dial", s.liveTuningMinGainPercent, 5..80, " %") {
+                        repo.updateSettings(repo.settings.copy(liveTuningMinGainPercent = it))
+                    }
+                }
+            }
+
+            SettingSwitch(
+                title = "Adaptive tunnel datapath",
+                subtitle = "Size tunnel buffers and session limits from measured throughput instead of one fixed value",
+                checked = s.adaptiveBufferEnabled
+            ) { repo.updateSettings(repo.settings.copy(adaptiveBufferEnabled = it)) }
+
+            CyberButton(
+                label = "Boost active route now",
+                color = Aether.Emerald,
+                modifier = Modifier.fillMaxWidth(),
+                enabled = repo.state == "CONNECTED"
+            ) { repo.boostActiveRoute() }
+        }
+    }
 
     SettingSwitch(
         title = "Continuous Marble Autopilot",

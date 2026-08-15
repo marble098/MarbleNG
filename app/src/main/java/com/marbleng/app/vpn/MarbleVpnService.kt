@@ -7,8 +7,10 @@ import android.os.Build
 import android.os.ParcelFileDescriptor
 import androidx.core.app.ServiceCompat
 import com.marbleng.app.MarbleApplication
+import com.marbleng.app.core.AccelerationPlan
 import com.marbleng.app.core.ActiveRouteQuality
 import com.marbleng.app.core.BenchmarkEngine
+import com.marbleng.app.core.ConnectionTuner
 import com.marbleng.app.core.ContinuousRouteOptimizer
 import com.marbleng.app.core.NetworkSnapshot
 import com.marbleng.app.core.RuntimeDiagnostics
@@ -36,6 +38,9 @@ class MarbleVpnService : VpnService() {
     companion object {
         const val ACTION_START = "com.marbleng.START"
         const val ACTION_STOP = "com.marbleng.STOP"
+
+        /** User-triggered acceleration pass on the route that is already carrying traffic. */
+        const val ACTION_TUNE = "com.marbleng.TUNE"
         const val EXTRA_PROFILE = "profile"
         const val EXTRA_MODE = "mode"
         const val MODE_TUN = "tun"
@@ -45,6 +50,11 @@ class MarbleVpnService : VpnService() {
         private const val ROUTE_PROBE_INTERVAL_TICKS = 15
         private const val PROBE_FAILURES_BEFORE_RECOVERY = 3
         private const val EXIT_IDENTITY_PROBE_INTERVAL_TICKS = 180
+
+        /** Let a fresh route settle before spending link capacity on measuring alternatives. */
+        private const val FIRST_TUNE_DELAY_MS = 20_000L
+        private const val HEAVY_TRAFFIC_BPS = 3L * 1024L * 1024L
+        private const val MAX_TUNING_RESTARTS = 3
     }
 
     private var tun: ParcelFileDescriptor? = null
@@ -54,6 +64,8 @@ class MarbleVpnService : VpnService() {
     private val routeProbeRequested = AtomicBoolean(false)
     private val optimizerScanRequested = AtomicBoolean(false)
     private val optimizerRunning = AtomicBoolean(false)
+    private val tuningRequested = AtomicBoolean(false)
+    private val tuningRunning = AtomicBoolean(false)
     private val routeGeneration = AtomicInteger(0)
 
     // HEV is process-global; start/stop/recovery is serialized here.
@@ -67,6 +79,7 @@ class MarbleVpnService : VpnService() {
     private lateinit var diag: RuntimeDiagnostics
     private lateinit var notifier: SmartNotifier
     private lateinit var routeOptimizer: ContinuousRouteOptimizer
+    private lateinit var tuner: ConnectionTuner
     private var networkListener: Closeable? = null
 
     @Volatile private var activeSession = ""
@@ -83,6 +96,12 @@ class MarbleVpnService : VpnService() {
     @Volatile private var pinnedExitV6 = ""
     @Volatile private var lastNetworkKey = ""
     @Volatile private var lastNetworkValidated = false
+    @Volatile private var lastTuneAt = 0L
+    @Volatile private var sessionTuned = false
+    @Volatile private var tuningRestarts = 0
+
+    /** Acceleration method the live Xray process was actually started with. */
+    @Volatile private var activeMethodId = AccelerationPlan.DIRECT
 
     private val recoveryTried = linkedSetOf<String>()
     private val latencyWindow = ArrayDeque<Int>()
@@ -98,6 +117,7 @@ class MarbleVpnService : VpnService() {
         notifier = SmartNotifier(this)
         notifier.ensureChannels()
         routeOptimizer = ContinuousRouteOptimizer(app.repo.intelligence)
+        tuner = ConnectionTuner(xray, app.repo.intelligence)
         app.repo.intelligence.startMonitoring()
         networkListener = app.repo.intelligence.addNetworkListener(::onUnderlyingNetworkChanged)
         diag.event("VPN", "service-created", "system" to diag.systemSnapshot())
@@ -108,6 +128,10 @@ class MarbleVpnService : VpnService() {
             diag.event("VPN", "command", "action" to intent?.action, "startId" to startId, "flags" to flags)
             when (intent?.action) {
                 ACTION_STOP -> shutdown(true)
+                ACTION_TUNE -> {
+                    tuningRequested.set(true)
+                    diag.event("TURBO", "manual-request", "session" to activeSession)
+                }
                 ACTION_START -> {
                     val id = intent.getStringExtra(EXTRA_PROFILE)
                     if (id.isNullOrBlank()) failBeforeTunnel("Missing profile id")
@@ -152,6 +176,10 @@ class MarbleVpnService : VpnService() {
         routeGeneration.incrementAndGet()
         recoveryScheduled.set(false)
         optimizerScanRequested.set(false)
+        tuningRequested.set(false)
+        lastTuneAt = 0L
+        sessionTuned = false
+        tuningRestarts = 0
         routeOptimizer.reset(System.currentTimeMillis())
         synchronized(recoveryTried) {
             recoveryTried.clear()
@@ -197,12 +225,20 @@ class MarbleVpnService : VpnService() {
         profile: ProxyProfile,
         session: String,
         port: Int,
-        settings: AppSettings,
+        requestedSettings: AppSettings,
         recovering: Boolean
     ) {
         val app = application as MarbleApplication
         activeProfileId = profile.id
+        activeSettings = requestedSettings
+
+        // Marble Turbo runs before the route carries traffic: the TUN is already established and
+        // fail-closed, so measuring transport methods here costs nothing but a few seconds.
+        val settings = preTune(profile, session, requestedSettings, recovering)
+        if (!isCurrent(session)) return
         activeSettings = settings
+        activeMethodId = app.repo.intelligence.acceleration(profile.id)?.methodId
+            ?: AccelerationPlan.DIRECT
         connectStartedNs = System.nanoTime()
         val generation = routeGeneration.incrementAndGet()
 
@@ -408,8 +444,10 @@ class MarbleVpnService : VpnService() {
         }
         hevFd = dupFd
 
-        val thermal = (application as MarbleApplication).repo.intelligence.thermalBudget(settings)
-        val sessions = if (thermal < 0.55) 2048 else 4096
+        // Datapath sizing follows measured throughput: a fast link stops being capped by a 64 KiB
+        // socket buffer, and a throttled device stops paying for buffers it cannot fill.
+        val datapath = (application as MarbleApplication).repo.intelligence
+            .tunnelTuning(profile.id, settings)
         val cfg = listOf(
             "tunnel:",
             "  mtu: $activeMtu",
@@ -424,9 +462,9 @@ class MarbleVpnService : VpnService() {
             "  log-file: '${diag.hevLog.absolutePath}'",
             "  log-level: error",
             "  task-stack-size: 86016",
-            "  tcp-buffer-size: 65536",
-            "  udp-recv-buffer-size: 524288",
-            "  max-session-count: $sessions"
+            "  tcp-buffer-size: ${datapath.tcpBufferBytes}",
+            "  udp-recv-buffer-size: ${datapath.udpBufferBytes}",
+            "  max-session-count: ${datapath.maxSessions}"
         ).joinToString(separator = "\n", postfix = "\n")
         if (cfg.contains("\\n") || !cfg.contains('\n')) {
             handleFailure(session, "Internal HEV YAML encoding failure")
@@ -440,7 +478,10 @@ class MarbleVpnService : VpnService() {
             "lines" to cfg.lineSequence().count(),
             "sha256" to diag.sha256(cfg),
             "mtu" to activeMtu,
-            "sessions" to sessions
+            "sessions" to datapath.maxSessions,
+            "tcpBuffer" to datapath.tcpBufferBytes,
+            "udpBuffer" to datapath.udpBufferBytes,
+            "datapath" to datapath.label
         )
         if (!isCurrent(session)) {
             closeHevFd()
@@ -509,6 +550,7 @@ private fun startProxyMonitor(session: String, port: Int, generation: Int) {
                 ) {
                     return@execute
                 }
+                maybeAccelerate(session, generation)
                 maybeScheduleOptimizer(session, generation)
                 if (!sleepQuietly(1_000L)) return@execute
                 tick++
@@ -563,6 +605,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                     return@execute
                 }
 
+                maybeAccelerate(session, generation)
                 maybeScheduleOptimizer(session, generation)
 
                 if (tick % 5 == 0 && (activeSettings ?: repo.settings).notificationLiveStats) {
@@ -710,6 +753,258 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             }
             recoveryScheduled.set(false)
             recoverRoute(target, session)
+        }
+    }
+
+    /**
+     * Connect-time acceleration.
+     *
+     * Executes the eligible transport methods against the node the user selected and returns the
+     * settings that measured best. Nothing here can change the exit node, so a pinned identity is
+     * preserved; the worst case is the untouched configuration the user already asked for.
+     */
+    private fun preTune(
+        profile: ProxyProfile,
+        session: String,
+        requested: AppSettings,
+        recovering: Boolean
+    ): AppSettings {
+        if (!requested.intelligenceEnabled || !requested.connectTuningEnabled) return requested
+        if (!isCurrent(session)) return requested
+
+        val app = application as MarbleApplication
+        val repo = app.repo
+        if (!tuner.shouldPreTune(profile, requested)) {
+            // A fresh plan already exists for this node/network: it is folded in by
+            // effectiveSettingsFor(), so connecting stays instant.
+            return requested
+        }
+
+        // Recovery is time-critical. Halve the budget so a rescue still gets a fragmentation
+        // attempt without turning an outage into a long measurement session.
+        val budgetSec = requested.connectTuningBudgetSec.coerceIn(0, 20)
+        if (budgetSec <= 0) return requested
+        val budgetMs = if (recovering) budgetSec * 500L else budgetSec * 1_000L
+
+        val base = repo.tuningBaseFor(profile)
+        repo.setRuntimeState("CONNECTING", "Marble Turbo • measuring ${profile.name}")
+        notifyNow("Tuning route • ${profile.name}", true)
+        diag.event(
+            "TURBO", "pre-connect-begin",
+            "session" to session,
+            "profile" to profile.name,
+            "budgetMs" to budgetMs,
+            "recovering" to recovering
+        )
+
+        val report = runCatching {
+            tuner.accelerate(profile, base, budgetMs, measureSpeed = false) { label ->
+                repo.intelligence.setDecision("Marble Turbo • ${profile.name} • $label")
+            }
+        }.onFailure {
+            diag.error("TURBO", "pre-connect-failed", it, "session" to session)
+        }.getOrNull()
+
+        if (report == null || !report.healthy || !isCurrent(session)) {
+            diag.event("TURBO", "pre-connect-inconclusive", "session" to session)
+            return requested
+        }
+
+        repo.intelligence.rememberAcceleration(profile.id, report.winner)
+        repo.intelligence.setDecision(report.summary)
+        repo.refreshIntelligenceStatus()
+        diag.event(
+            "TURBO", "pre-connect-result",
+            "session" to session,
+            "method" to report.winner.methodId,
+            "pingMs" to report.winner.latencyMs.toInt(),
+            "gainPercent" to report.gainPercent.toInt(),
+            "trials" to report.trials.size
+        )
+        return report.winner.applyTo(base)
+    }
+
+    /**
+     * Live acceleration gate. The active route is re-measured against the other methods when it
+     * degrades, once opportunistically per session, or immediately when the user asks for it.
+     */
+    private fun maybeAccelerate(session: String, generation: Int) {
+        if (!isRouteCurrent(session, generation) || recoveryScheduled.get()) return
+        if (tuningRunning.get()) return
+
+        val app = application as MarbleApplication
+        val repo = app.repo
+        val settings = activeSettings ?: repo.settings
+        if (!settings.intelligenceEnabled || !settings.connectTuningEnabled) return
+
+        val forced = tuningRequested.getAndSet(false)
+        if (!forced && !settings.liveTuningEnabled) return
+
+        val quality = activeRouteQuality()
+        val degraded = quality.samples >= 3 &&
+            quality.latencyMs >= settings.liveTuningPingTriggerMs.coerceIn(80, 1200)
+
+        if (!forced) {
+            if (quality.samples < 3) return
+            if (sessionTuned && !degraded) return
+            if (elapsedConnectMs() < FIRST_TUNE_DELAY_MS) return
+            val intervalMs = settings.liveTuningIntervalSec.coerceIn(60, 3600) * 1_000L
+            val sinceLast = System.currentTimeMillis() - lastTuneAt
+            if (lastTuneAt > 0L && sinceLast < (if (degraded) intervalMs else intervalMs * 2L)) return
+            if (repo.intelligence.thermalBudget(settings) < 0.55) return
+            if (settings.optimizerAvoidHeavyTraffic && !degraded && repo.liveDownBps >= HEAVY_TRAFFIC_BPS) return
+        }
+
+        if (!tuningRunning.compareAndSet(false, true)) return
+        lastTuneAt = System.currentTimeMillis()
+        monitorWorker.execute {
+            try {
+                runAccelerationCycle(session, generation, degraded || forced)
+            } finally {
+                tuningRunning.set(false)
+            }
+        }
+    }
+
+    private fun runAccelerationCycle(session: String, generation: Int, urgent: Boolean) {
+        if (!isRouteCurrent(session, generation) || recoveryScheduled.get()) return
+        val app = application as MarbleApplication
+        val repo = app.repo
+        val profile = repo.profile(activeProfileId) ?: return
+        val settings = activeSettings ?: repo.settings
+        val base = repo.tuningBaseFor(profile)
+
+        // Background passes buy speed evidence, which needs a real download per method. On a metered
+        // link that download is the user's data allowance, so it is only spent when the route is
+        // actually degraded or the user asked for a boost.
+        val budgetMs = (settings.connectTuningBudgetSec.coerceIn(2, 20) * 2_000L)
+            .coerceIn(8_000L, 40_000L)
+        val measureSpeed = urgent || !repo.intelligence.currentSnapshot().metered
+
+        diag.event(
+            "TURBO", "live-begin",
+            "session" to session,
+            "profile" to profile.name,
+            "urgent" to urgent,
+            "speedEvidence" to measureSpeed,
+            "budgetMs" to budgetMs
+        )
+
+        val report = runCatching {
+            tuner.accelerate(profile, base, budgetMs, measureSpeed) { label ->
+                repo.intelligence.setDecision("Marble Turbo • ${profile.name} • $label")
+            }
+        }.onFailure {
+            diag.error("TURBO", "live-failed", it, "session" to session)
+        }.getOrNull() ?: return
+
+        if (!isRouteCurrent(session, generation) || recoveryScheduled.get()) return
+        sessionTuned = true
+
+        if (!report.healthy) {
+            repo.intelligence.setDecision(report.summary)
+            diag.event("TURBO", "live-inconclusive", "session" to session)
+            return
+        }
+
+        // Compare against the method the live process is really running, not against whatever a
+        // previous held pass wrote to the store.
+        val appliedMethod = activeMethodId
+        repo.intelligence.rememberAcceleration(profile.id, report.winner)
+        repo.intelligence.setDecision(report.summary)
+        repo.refreshIntelligenceStatus()
+
+        if (report.winner.methodId == appliedMethod) {
+            diag.event("TURBO", "live-confirmed", "session" to session, "method" to appliedMethod)
+            return
+        }
+
+        // Restarting Xray costs a short interruption, so it has to buy a real improvement over the
+        // method that is running right now — not merely over the untouched baseline.
+        val appliedTrial = report.trials.firstOrNull { it.methodId == appliedMethod }
+        val winnerTrial = report.trials.firstOrNull { it.methodId == report.winner.methodId }
+        val improvement = when {
+            appliedTrial == null || winnerTrial == null -> report.gainPercent
+            appliedTrial.success <= 0 -> 100.0
+            appliedTrial.score <= 0.0 -> 100.0
+            else -> (winnerTrial.score - appliedTrial.score) / appliedTrial.score * 100.0
+        }
+        val minGain = settings.liveTuningMinGainPercent.coerceIn(5, 80).toDouble()
+        if (improvement < minGain && !(urgent && improvement > 0.0)) {
+            diag.event(
+                "TURBO", "live-held",
+                "session" to session,
+                "applied" to appliedMethod,
+                "candidate" to report.winner.methodId,
+                "improvement" to improvement.toInt()
+            )
+            return
+        }
+
+        scheduleAccelerationRestart(session, profile, report.winner.label, improvement, generation)
+    }
+
+    /**
+     * Applies a newly proven method to the live route by restarting Xray on the SAME node.
+     * The public exit is unchanged, so this runs even while Identity Guard has the session pinned.
+     */
+    @Synchronized
+    private fun scheduleAccelerationRestart(
+        session: String,
+        profile: ProxyProfile,
+        methodLabel: String,
+        improvement: Double,
+        generation: Int
+    ) {
+        if (!isRouteCurrent(session, generation)) return
+
+        // Re-dialling costs a short interruption. Cap it so a noisy link can never turn
+        // acceleration into a flapping loop for one session.
+        if (tuningRestarts >= MAX_TUNING_RESTARTS) {
+            diag.event("TURBO", "restart-budget-exhausted", "session" to session)
+            return
+        }
+        if (!recoveryScheduled.compareAndSet(false, true)) return
+
+        val app = application as MarbleApplication
+        val repo = app.repo
+        val settings = activeSettings ?: repo.settings
+        val holdTun = activeMode == MODE_TUN && tun != null
+
+        tuningRestarts++
+        lastTuneAt = System.currentTimeMillis()
+        routeGeneration.incrementAndGet()
+        repo.setRuntimeState("CONNECTING", "Marble Turbo • ${profile.name}")
+        diag.event(
+            "TURBO", "apply-restart",
+            "session" to session,
+            "profile" to profile.name,
+            "method" to methodLabel,
+            "improvement" to improvement.toInt(),
+            "failClosed" to holdTun
+        )
+        notifier.alert(
+            SmartNotificationKind.RECOVERY,
+            "turbo:$session:${profile.id}:$methodLabel",
+            "Marble Turbo",
+            "$methodLabel is ${improvement.toInt()}% faster on ${profile.name} • same exit IP",
+            settings,
+            minIntervalOverrideMs = 60_000L
+        )
+
+        if (hevActive) runCatching { HevTunnel.quit() }
+        xray.stop()
+        closeHevFd()
+        repo.resetTelemetry()
+        updateSentinel(killSwitch = holdTun)
+
+        connectionWorker.execute {
+            if (!isCurrent(session)) {
+                recoveryScheduled.set(false)
+                return@execute
+            }
+            recoveryScheduled.set(false)
+            recoverRoute(profile, session)
         }
     }
 

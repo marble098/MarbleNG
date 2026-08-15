@@ -206,14 +206,24 @@ fun resetTelemetry() {
      * Effective settings for one profile. Marble Intelligence already folds Iran Mode into its own
      * output, so the shield is only applied here when the intelligence engine is switched off.
      */
-    fun effectiveSettingsFor(profile: ProxyProfile): AppSettings =
+    fun effectiveSettingsFor(
+        profile: ProxyProfile,
+        withAcceleration: Boolean = true
+    ): AppSettings =
         IdentityGuard.apply(
             if (settings.intelligenceEnabled) {
-                intelligence.effectiveSettings(profile, settings)
+                intelligence.effectiveSettings(profile, settings, withAcceleration)
             } else {
                 IranShield.apply(settings, profile, iranMode, geoIpReady())
             }
         )
+
+    /**
+     * Baseline the acceleration tuner measures against: everything the user, Iran Mode and
+     * Identity Guard ask for, minus any method a previous tuning pass already applied.
+     */
+    fun tuningBaseFor(profile: ProxyProfile): AppSettings =
+        effectiveSettingsFor(profile, withAcceleration = false)
 
     private fun geoIpReady(): Boolean =
         runCatching { xray.routingAssetStatus().geoIpReady }.getOrDefault(false)
@@ -557,6 +567,7 @@ private fun postToMain(block: () -> Unit) {
                 )
         if (activeBelongs) stopVpn()
         if (lastProfile()?.id?.let { it in doomedIds } == true) store.setLastProfileId("")
+        doomedIds.forEach(intelligence::forgetAcceleration)
         subscriptions.removeAll { it.id == id }
         profiles.removeAll { it.subscriptionId == id }
         benchmarks = benchmarks.filterNot { it.profileId in doomedIds }
@@ -568,6 +579,7 @@ private fun postToMain(block: () -> Unit) {
     fun removeProfile(id: String) {
         profiles.removeAll { it.id == id }
         benchmarks = benchmarks.filterNot { it.profileId == id }
+        intelligence.forgetAcceleration(id)
         store.saveProfiles(profiles)
     }
 
@@ -698,6 +710,30 @@ private fun postToMain(block: () -> Unit) {
             val detail = "Could not start connection service for $profileName: ${error::class.java.simpleName}: ${error.message ?: "unknown error"}"
             setRuntimeState("BLOCKED", detail)
             message = detail
+        }
+    }
+
+    /**
+     * Asks the running tunnel to re-measure acceleration methods on the route that is already
+     * carrying traffic. The exit node is never changed by this, only how the node is dialled.
+     */
+    fun boostActiveRoute() {
+        if (state != "CONNECTED") {
+            message = "Marble Turbo needs an active connection"
+            return
+        }
+        if (!settings.intelligenceEnabled || !settings.connectTuningEnabled) {
+            message = "Marble Turbo is switched off in Settings → Engine"
+            return
+        }
+        runCatching {
+            context.startService(
+                Intent(context, MarbleVpnService::class.java).setAction(MarbleVpnService.ACTION_TUNE)
+            )
+        }.onSuccess {
+            message = "Marble Turbo • measuring acceleration methods on the active route"
+        }.onFailure { error ->
+            message = "Could not start Marble Turbo: ${error::class.java.simpleName}: ${error.message ?: "unknown error"}"
         }
     }
 

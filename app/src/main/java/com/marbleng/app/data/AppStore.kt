@@ -139,6 +139,14 @@ class AppStore(context: Context) {
         intelligenceEnabled = prefs.getBoolean("intelligenceEnabled", true),
         configCompatibilityMode = prefs.getBoolean("configCompatibilityMode", true),
         verifiedPerformanceTuning = prefs.getBoolean("verifiedPerformanceTuning", true),
+        connectTuningEnabled = prefs.getBoolean("connectTuningEnabled", true),
+        connectTuningBudgetSec = prefs.getInt("connectTuningBudgetSec", 5).coerceIn(0, 20),
+        connectTuningMethods = prefs.getInt("connectTuningMethods", 4).coerceIn(1, 5),
+        liveTuningEnabled = prefs.getBoolean("liveTuningEnabled", true),
+        liveTuningIntervalSec = prefs.getInt("liveTuningIntervalSec", 300).coerceIn(60, 3600),
+        liveTuningPingTriggerMs = prefs.getInt("liveTuningPingTriggerMs", 220).coerceIn(80, 1200),
+        liveTuningMinGainPercent = prefs.getInt("liveTuningMinGainPercent", 15).coerceIn(5, 80),
+        adaptiveBufferEnabled = prefs.getBoolean("adaptiveBufferEnabled", true),
         identityGuardEnabled = prefs.getBoolean("identityGuardEnabled", true),
         identityGuardStrictNoFailover = prefs.getBoolean("identityGuardStrictNoFailover", true),
         identityGuardSameRouteRetries = prefs.getInt("identityGuardSameRouteRetries", 3).coerceIn(0, 5),
@@ -254,6 +262,14 @@ class AppStore(context: Context) {
         .putBoolean("intelligenceEnabled", s.intelligenceEnabled)
         .putBoolean("configCompatibilityMode", s.configCompatibilityMode)
         .putBoolean("verifiedPerformanceTuning", s.verifiedPerformanceTuning)
+        .putBoolean("connectTuningEnabled", s.connectTuningEnabled)
+        .putInt("connectTuningBudgetSec", s.connectTuningBudgetSec.coerceIn(0, 20))
+        .putInt("connectTuningMethods", s.connectTuningMethods.coerceIn(1, 5))
+        .putBoolean("liveTuningEnabled", s.liveTuningEnabled)
+        .putInt("liveTuningIntervalSec", s.liveTuningIntervalSec.coerceIn(60, 3600))
+        .putInt("liveTuningPingTriggerMs", s.liveTuningPingTriggerMs.coerceIn(80, 1200))
+        .putInt("liveTuningMinGainPercent", s.liveTuningMinGainPercent.coerceIn(5, 80))
+        .putBoolean("adaptiveBufferEnabled", s.adaptiveBufferEnabled)
         .putBoolean("identityGuardEnabled", s.identityGuardEnabled)
         .putBoolean("identityGuardStrictNoFailover", s.identityGuardStrictNoFailover)
         .putInt("identityGuardSameRouteRetries", s.identityGuardSameRouteRetries.coerceIn(0, 5))

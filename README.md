@@ -109,6 +109,7 @@ Simple controls first — everything technical hides behind **Expert controls**.
 - 🧠 Adaptive engine on/off, using network-scoped history.
 - 🧷 Maximum config compatibility (keeps outbound dependencies, verifies with `xray run -test`).
 - 🧪 Verified performance auto-tune (A/B Fragment & Mux, keep only real gains).
+- 🚀 **Marble Turbo**: when you connect, the engine *executes* real methods on the node you picked — TLS fragmentation shapes, Mux reuse, IPv4-first endpoint resolution — measures ping and speed for each, and keeps the winner. Tuning budget, methods per pass, live re-tuning interval, ping trigger, minimum gain to re-dial, adaptive tunnel datapath, and a **Boost active route now** button. The exit IP never changes, so it works with Identity Guard on.
 - 🛰️ **Continuous Autopilot**: interval, challengers per cycle, deep-speed cycle, switch cooldown, evidence confirmations, protect heavy downloads.
 - 💾 Persistent route intelligence (EWMA health per network fingerprint).
 - 🏁 **Connection race** + race width — first healthy route wins.
