@@ -81,6 +81,9 @@ enum class SplitTunnelMode { ALL_APPS, ONLY_SELECTED, BYPASS_SELECTED }
 enum class WorkloadProfile { AUTO, INTERACTIVE, STREAMING, STABILITY, STEALTH }
 enum class NodeSortMode { PING, SCORE, NAME, PROTOCOL, SOURCE }
 
+/** Live state of one node inside a running test batch, shown on the node's own card. */
+enum class ProbeState { IDLE, QUEUED, TESTING }
+
 /**
  * Canonical MarbleNG routing baseline.
  *

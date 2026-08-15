@@ -37,10 +37,14 @@ Native Android port of the Xray Genius Termux client, powered by **Xray-core** +
 - ⋮ Menu: real tunnel test, rename, delete.
 - ▶️ Tap the node action to connect straight to it.
 - 🧪 **Test all** runs a real Xray tunnel test on every node.
+- 🔴 **Live progress on the cards themselves**: each node shows `Queued` → `Testing…` with its own
+  bar, and its score appears the moment that node finishes — no more waiting for one anonymous bar
+  at the top of the screen. Refreshing a source animates on that source's card.
 
 ### 📊 Quality
 - 🎛️ Test modes: **Reliable**, **Balanced**, **Fast**, **Turbo**.
-- ▶️ **Run performance test** ranks your library with real tunnels.
+- ▶️ **Run performance test** ranks your library with real tunnels, showing `Measuring 12 / 40`
+  and the node being probed right now.
 - 💍 Score ring for the active (live) route or the best measured one.
 - 📉 RTT, jitter, reliability and live sample count.
 - 🏆 **Measured routes** table, ranked, with a one-tap **Use** button.

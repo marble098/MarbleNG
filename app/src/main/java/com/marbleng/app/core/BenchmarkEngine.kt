@@ -30,6 +30,9 @@ class BenchmarkEngine(
         profiles: List<ProxyProfile>,
         settings: AppSettings,
         usePrecheck: Boolean = true,
+        onCandidates: (List<ProxyProfile>) -> Unit = {},
+        onStart: (ProxyProfile) -> Unit = {},
+        onResult: (ProxyProfile, BenchmarkResult) -> Unit = { _, _ -> },
         onProgress: (Int, Int, String) -> Unit = { _, _, _ -> }
     ): List<BenchmarkResult> {
         if (profiles.isEmpty()) return emptyList()
@@ -37,6 +40,7 @@ class BenchmarkEngine(
         // The same node can legitimately appear in two subscriptions; test it once.
         val candidates = selectCandidates(profiles, s, usePrecheck).distinctBy { it.id }
         if (candidates.isEmpty()) return emptyList()
+        onCandidates(candidates)
 
         val thermal = intelligence?.thermalBudget(s) ?: 1.0
         val cpu = Runtime.getRuntime().availableProcessors().coerceAtLeast(2)
@@ -49,9 +53,14 @@ class BenchmarkEngine(
         val results = Collections.synchronizedList(mutableListOf<BenchmarkResult>())
         val jobs = candidates.mapIndexed { idx, p ->
             livePool.submit {
-                val result = testCandidate(p, BASE_PORT + idx * 4, s)
+                onStart(p)
+                // Score each measurement as it lands so the caller can publish a finished node
+                // immediately instead of holding every result back until the batch ends.
+                val measured = testCandidate(p, BASE_PORT + idx * 4, s)
+                val result = rank(listOf(measured), s).firstOrNull() ?: measured
                 results += result
                 intelligence?.recordBenchmark(p, result, s)
+                onResult(p, result)
                 onProgress(completed.incrementAndGet(), candidates.size, p.name)
             }
         }
@@ -76,6 +85,9 @@ class BenchmarkEngine(
     fun race(
         profiles: List<ProxyProfile>,
         settings: AppSettings,
+        onCandidates: (List<ProxyProfile>) -> Unit = {},
+        onStart: (ProxyProfile) -> Unit = {},
+        onResult: (ProxyProfile, BenchmarkResult) -> Unit = { _, _ -> },
         onProgress: (String) -> Unit = {}
     ): Pair<ProxyProfile, BenchmarkResult>? {
         if (profiles.isEmpty()) return null
@@ -88,12 +100,16 @@ class BenchmarkEngine(
         )
         val candidates = selectCandidates(profiles, raceSettings, true).distinctBy { it.id }.take(width)
         if (candidates.isEmpty()) return null
+        onCandidates(candidates)
         val pool = Executors.newFixedThreadPool(candidates.size)
         val completion = ExecutorCompletionService<Pair<ProxyProfile, BenchmarkResult>>(pool)
         val futures = candidates.mapIndexed { idx, profile ->
             completion.submit {
+                onStart(profile)
                 onProgress(profile.name)
-                profile to quickCandidate(profile, RACE_BASE_PORT + idx * 3, raceSettings)
+                val result = quickCandidate(profile, RACE_BASE_PORT + idx * 3, raceSettings)
+                onResult(profile, result)
+                profile to result
             }
         }
         val successes = mutableListOf<Pair<ProxyProfile, BenchmarkResult>>()

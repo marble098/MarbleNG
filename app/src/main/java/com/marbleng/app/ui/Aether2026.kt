@@ -182,8 +182,10 @@ fun Aether2026App(
                 }
             }
 
+            // The top bar is the fallback for work that has no card of its own (audits, geo assets,
+            // routing verification). Tests and refreshes report on their own node/source cards.
             AnimatedVisibility(
-                visible = repo.busy,
+                visible = repo.busy && !repo.inlineProgressActive,
                 modifier = Modifier.align(Alignment.TopCenter),
                 enter = fadeIn(tween(90)),
                 exit = fadeOut(tween(120))
@@ -523,6 +525,70 @@ private fun HoloGlass(
     )
 }
 
+/**
+ * Progress that belongs to one card.
+ *
+ * fraction == null runs an indeterminate sweep (this node is being probed right now); a value
+ * renders a determinate fill. This replaces the single anonymous bar that used to sit at the top
+ * of the screen for every background task.
+ */
+@Composable
+private fun LiveProgressBar(
+    fraction: Float?,
+    modifier: Modifier = Modifier,
+    color: Color = Aether.Cyan
+) {
+    val track = Aether.GlassBorderSoft
+    val sweep = rememberInfiniteTransition(label = "live-progress")
+    val head by sweep.animateFloat(
+        initialValue = -0.4f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1150, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "live-progress-head"
+    )
+    val settled by animateFloatAsState(
+        targetValue = fraction?.coerceIn(0f, 1f) ?: 0f,
+        animationSpec = tween(220, easing = FastOutSlowInEasing),
+        label = "live-progress-fill"
+    )
+
+    Canvas(modifier.fillMaxWidth().height(4.dp)) {
+        val y = size.height / 2f
+        drawLine(
+            color = track,
+            start = Offset(0f, y),
+            end = Offset(size.width, y),
+            strokeWidth = size.height,
+            cap = StrokeCap.Round
+        )
+        if (fraction == null) {
+            val segment = size.width * .4f
+            val start = (size.width * head).coerceAtLeast(0f)
+            val end = (size.width * head + segment).coerceAtMost(size.width)
+            if (end > start) {
+                drawLine(
+                    color = color,
+                    start = Offset(start, y),
+                    end = Offset(end, y),
+                    strokeWidth = size.height,
+                    cap = StrokeCap.Round
+                )
+            }
+        } else if (settled > 0f) {
+            drawLine(
+                color = color,
+                start = Offset(0f, y),
+                end = Offset(size.width * settled, y),
+                strokeWidth = size.height,
+                cap = StrokeCap.Round
+            )
+        }
+    }
+}
+
 @Composable
 private fun HoloBadge(
     text: String,
@@ -670,7 +736,13 @@ private fun CyberDeck(
         item {
             SectionLabel("Shortcuts")
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                HoloActionPill("◔","Performance","Measure routes",Aether.Cyan,Modifier.weight(1f)) {
+                HoloActionPill(
+                    "◔",
+                    "Performance",
+                    if (repo.probeActive) "Testing ${repo.probeDone}/${repo.probeTotal}" else "Measure routes",
+                    Aether.Cyan,
+                    Modifier.weight(1f)
+                ) {
                     repo.smartRank()
                 }
                 HoloActionPill("▦","Library","${repo.profiles.size} connections",Aether.Cyan,Modifier.weight(1f)) {
@@ -787,16 +859,22 @@ private fun ConnectionCore(
     onToggle: () -> Unit
 ) {
     var detailsOpen by remember { mutableStateOf(false) }
-    val transition = rememberInfiniteTransition(label = "connection-breath")
-    val breath by transition.animateFloat(
-        initialValue = .975f,
-        targetValue = 1.025f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(2000, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "connection-breath-value"
-    )
+    // Breathing only while the tunnel is up; an idle screen should not animate forever.
+    val breath: Float = if (connected) {
+        val transition = rememberInfiniteTransition(label = "connection-breath")
+        val animated by transition.animateFloat(
+            initialValue = .975f,
+            targetValue = 1.025f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(2000, easing = FastOutSlowInEasing),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "connection-breath-value"
+        )
+        animated
+    } else {
+        1f
+    }
     val statusColor = when {
         connected -> Aether.Emerald
         connecting -> Aether.Cyan
@@ -1363,6 +1441,7 @@ private fun CyberLibrary(
                     sub = sub,
                     repo = repo,
                     selected = sourceFilter == sub.id,
+                    refreshing = sub.id in repo.refreshingSources,
                     onView = { sourceFilter = sub.id },
                     onManage = {
                         editSubscriptionName = sub.name
@@ -1379,14 +1458,22 @@ private fun CyberLibrary(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 CyberButton(
-                    label = "Refresh all",
+                    label = if (repo.refreshingSources.isNotEmpty()) {
+                        "Refreshing ${repo.refreshingSources.size}…"
+                    } else {
+                        "Refresh all"
+                    },
                     color = Aether.Amethyst,
                     modifier = Modifier.weight(1f),
                     enabled = repo.subscriptions.isNotEmpty() && !repo.busy
                 ) { repo.refreshAll() }
 
                 CyberButton(
-                    label = "Test all",
+                    label = if (repo.probeActive) {
+                        "Testing ${repo.probeDone}/${repo.probeTotal}"
+                    } else {
+                        "Test all"
+                    },
                     color = Aether.Cyan,
                     modifier = Modifier.weight(1f),
                     enabled = repo.profiles.isNotEmpty() && !repo.busy
@@ -1486,6 +1573,7 @@ private fun CyberLibrary(
                     repo = repo,
                     result = benchmarkById[profile.id],
                     active = repo.isActiveProfile(profile.id),
+                    probeState = repo.probeStateOf(profile.id),
                     onConnect = onConnect,
                     onEdit = {
                         renameTarget = profile
@@ -1601,6 +1689,7 @@ private fun SubscriptionManagerCard(
     sub: Subscription,
     repo: AppRepository,
     selected: Boolean,
+    refreshing: Boolean,
     onView: () -> Unit,
     onManage: () -> Unit
 ) {
@@ -1623,8 +1712,12 @@ private fun SubscriptionManagerCard(
     }
 
     HoloGlass(
-        modifier = Modifier.fillMaxWidth(),
-        borderColor = if (selected) Aether.Cyan.copy(alpha = .50f) else Aether.GlassBorderSoft,
+        modifier = Modifier.fillMaxWidth().animateContentSize(tween(180)),
+        borderColor = when {
+            refreshing -> Aether.Amethyst.copy(alpha = .55f)
+            selected -> Aether.Cyan.copy(alpha = .50f)
+            else -> Aether.GlassBorderSoft
+        },
         contentPadding = PaddingValues(horizontal = 15.dp, vertical = 14.dp)
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -1657,7 +1750,19 @@ private fun SubscriptionManagerCard(
                     maxLines = 1
                 )
             }
-            if (selected) HoloBadge("Selected", Aether.Cyan, compact = true)
+            if (refreshing) {
+                HoloBadge("Refreshing", Aether.Amethyst, compact = true)
+            } else if (selected) {
+                HoloBadge("Selected", Aether.Cyan, compact = true)
+            }
+        }
+
+        if (refreshing) {
+            LiveProgressBar(
+                fraction = null,
+                modifier = Modifier.fillMaxWidth(),
+                color = Aether.Amethyst
+            )
         }
 
         Text(
@@ -1718,7 +1823,12 @@ private fun SubscriptionManagerCard(
                 modifier = Modifier.weight(1f),
                 enabled = !selected
             ) { onView() }
-            CyberButton("Refresh", Aether.Emerald, Modifier.weight(1f), enabled = !repo.busy) { repo.refresh(sub.id) }
+            CyberButton(
+                label = if (refreshing) "Refreshing…" else "Refresh",
+                color = Aether.Emerald,
+                modifier = Modifier.weight(1f),
+                enabled = !repo.busy
+            ) { repo.refresh(sub.id) }
             CyberButton("Manage", Aether.InkMuted, Modifier.weight(1f), enabled = !repo.busy) { onManage() }
         }
     }
@@ -1730,26 +1840,38 @@ private fun SpatialServerCard(
     repo: AppRepository,
     result: BenchmarkResult?,
     active: Boolean,
+    probeState: ProbeState,
     onConnect: (ProxyProfile) -> Unit,
     onEdit: () -> Unit
 ) {
     val measured = result?.takeIf { it.success > 0 }
     val latency = measured?.latencyMs?.toInt() ?: 0
     val health = healthColor(latency, result?.success ?: 0)
+    val testing = probeState == ProbeState.TESTING
+    val queued = probeState == ProbeState.QUEUED
     var menuOpen by remember { mutableStateOf(false) }
 
     HoloGlass(
         modifier = Modifier
             .fillMaxWidth()
             .animateContentSize(tween(180)),
-        borderColor = if (active) Aether.Emerald.copy(alpha = .55f) else Aether.GlassBorderSoft,
+        borderColor = when {
+            testing -> Aether.Cyan.copy(alpha = .55f)
+            active -> Aether.Emerald.copy(alpha = .55f)
+            else -> Aether.GlassBorderSoft
+        },
         contentPadding = PaddingValues(start = 14.dp, top = 12.dp, end = 8.dp, bottom = 12.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             HealthOrb(
                 label = countryGlyph(profile.host),
-                color = if (active) Aether.Emerald else health,
+                color = when {
+                    testing -> Aether.Cyan
+                    active -> Aether.Emerald
+                    else -> health
+                },
                 active = active,
+                pulsing = active || testing,
                 modifier = Modifier.size(42.dp)
             )
             Spacer(Modifier.width(11.dp))
@@ -1852,6 +1974,27 @@ private fun SpatialServerCard(
             }
         }
 
+        if (testing || queued) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(9.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    if (testing) "Testing…" else "Queued",
+                    color = if (testing) Aether.Cyan else Aether.InkFaint,
+                    style = MaterialTheme.typography.labelSmall,
+                    maxLines = 1,
+                    softWrap = false
+                )
+                LiveProgressBar(
+                    fraction = if (testing) null else 0f,
+                    modifier = Modifier.weight(1f),
+                    color = Aether.Cyan
+                )
+            }
+        }
+
         if (active || measured != null) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -1884,18 +2027,26 @@ private fun HealthOrb(
     label: String,
     color: Color,
     active: Boolean,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    pulsing: Boolean = active
 ) {
-    val transition = rememberInfiniteTransition(label = "health-orb")
-    val pulse by transition.animateFloat(
-        initialValue = .82f,
-        targetValue = 1.20f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(if (active) 1400 else 2400, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "health-pulse"
-    )
+    // Only the node that is connected or currently being probed animates. A permanent infinite
+    // transition per row made every idle library card pay for a frame callback.
+    val pulse: Float = if (pulsing) {
+        val transition = rememberInfiniteTransition(label = "health-orb")
+        val animated by transition.animateFloat(
+            initialValue = .82f,
+            targetValue = 1.20f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(if (active) 1400 else 900, easing = FastOutSlowInEasing),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "health-pulse"
+        )
+        animated
+    } else {
+        1f
+    }
 
     Box(modifier, contentAlignment = Alignment.Center) {
         Canvas(Modifier.matchParentSize()) {
@@ -2048,12 +2199,46 @@ private fun BenchmarkStudio(
             // Measure and rank the library. This button must not silently connect: racing a few
             // nodes returned a single result and left the score table looking empty.
             CyberButton(
-                if (repo.busy) "Measuring…" else "Run performance test",
+                when {
+                    repo.probeActive -> "Measuring ${repo.probeDone}/${repo.probeTotal}"
+                    repo.busy -> "Measuring…"
+                    else -> "Run performance test"
+                },
                 Aether.Cyan,
                 Modifier.fillMaxWidth(),
                 repo.profiles.isNotEmpty() && !repo.busy
             ) {
                 repo.smartRank()
+            }
+        }
+
+        if (repo.probeActive) {
+            item {
+                HoloGlass(
+                    modifier = Modifier.fillMaxWidth(),
+                    borderColor = Aether.Cyan.copy(alpha = .45f)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            "Measuring real routes",
+                            color = Aether.Ink,
+                            style = MaterialTheme.typography.titleMedium,
+                            modifier = Modifier.weight(1f)
+                        )
+                        HoloBadge("${repo.probeDone}/${repo.probeTotal}", Aether.Cyan, compact = true)
+                    }
+                    LiveProgressBar(
+                        fraction = repo.probeDone.toFloat() / repo.probeTotal.coerceAtLeast(1),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Text(
+                        repo.probeCurrentName.ifBlank { "Starting real Xray tunnels…" },
+                        color = Aether.InkFaint,
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
             }
         }
 

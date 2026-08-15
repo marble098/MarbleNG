@@ -57,6 +57,67 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
 
     // Live tunnel telemetry. Ping is HTTPS time-to-first-response through the selected Xray path,
     // not the localhost SOCKS handshake.
+    // ------------------------------------------------------------------
+    // Live batch progress
+    //
+    // Tests and refreshes report per-item state so each node/source card can show its own progress
+    // instead of one anonymous bar at the top of the screen.
+    // ------------------------------------------------------------------
+    var probeBatch by mutableStateOf<Set<String>>(emptySet()); private set
+    var probeRunning by mutableStateOf<Set<String>>(emptySet()); private set
+    var probeFinished by mutableStateOf<Set<String>>(emptySet()); private set
+    var probeTotal by mutableStateOf(0); private set
+    var probeCurrentName by mutableStateOf(""); private set
+    var refreshingSources by mutableStateOf<Set<String>>(emptySet()); private set
+
+    val probeDone: Int get() = probeFinished.size
+    val probeActive: Boolean get() = probeTotal > 0
+
+    /** True while any card is showing its own progress, so the global bar can stay hidden. */
+    val inlineProgressActive: Boolean get() = probeActive || refreshingSources.isNotEmpty()
+
+    fun probeStateOf(id: String): ProbeState = when {
+        id in probeRunning -> ProbeState.TESTING
+        probeTotal > 0 && id in probeBatch && id !in probeFinished -> ProbeState.QUEUED
+        else -> ProbeState.IDLE
+    }
+
+    private fun beginProbeBatch(candidates: List<ProxyProfile>) = postToMain {
+        probeBatch = candidates.mapTo(mutableSetOf()) { it.id }
+        probeRunning = emptySet()
+        probeFinished = emptySet()
+        probeTotal = probeBatch.size
+        probeCurrentName = ""
+    }
+
+    private fun markProbeStart(profile: ProxyProfile) = postToMain {
+        probeRunning = probeRunning + profile.id
+        probeCurrentName = profile.name
+    }
+
+    /** Publishes one finished node immediately; the card updates while the batch continues. */
+    private fun markProbeResult(profile: ProxyProfile, result: BenchmarkResult) = postToMain {
+        probeRunning = probeRunning - profile.id
+        probeFinished = probeFinished + profile.id
+        mergeBenchmarks(listOf(result))
+    }
+
+    private fun endProbeBatch() = postToMain {
+        probeBatch = emptySet()
+        probeRunning = emptySet()
+        probeFinished = emptySet()
+        probeTotal = 0
+        probeCurrentName = ""
+    }
+
+    private fun beginRefresh(ids: Collection<String>) = postToMain {
+        refreshingSources = ids.toSet()
+    }
+
+    private fun endRefresh(id: String) = postToMain {
+        refreshingSources = refreshingSources - id
+    }
+
     var livePingMs by mutableStateOf(0); private set
     var liveJitterMs by mutableStateOf(0); private set
     var liveDownBps by mutableStateOf(0L); private set
@@ -355,6 +416,7 @@ private fun postToMain(block: () -> Unit) {
     fun refresh(id: String) {
         val sub = subscriptions.firstOrNull { it.id == id } ?: return
         task("Refreshing ${sub.name}") {
+            beginRefresh(listOf(sub.id))
             val payload = httpSubscription(sub.url)
             val parsed = ProxyParser.parseInput(payload.text, sub.id, sub.name)
             require(parsed.isNotEmpty()) {
@@ -396,7 +458,9 @@ private fun postToMain(block: () -> Unit) {
             var nodeCount = 0
             val failed = mutableListOf<String>()
 
-            subscriptions.toList().forEach { sub ->
+            val pending = subscriptions.toList()
+            beginRefresh(pending.map { it.id })
+            pending.forEach { sub ->
                 val result = runCatching {
                     val payload = httpSubscription(sub.url)
                     val parsed = ProxyParser.parseInput(payload.text, sub.id, sub.name)
@@ -422,6 +486,7 @@ private fun postToMain(block: () -> Unit) {
                     parsed.size
                 }
 
+                endRefresh(sub.id)
                 result.onSuccess { count ->
                     refreshed++
                     nodeCount += count
@@ -696,7 +761,14 @@ private fun postToMain(block: () -> Unit) {
         task("Marble Intelligence • selecting route") {
             val engine = BenchmarkEngine(xray, intelligence)
             if (settings.intelligenceEnabled && settings.raceConnectEnabled && profiles.size > 1) {
-                val raced = engine.race(profiles.toList(), settings) { n -> message = "Connection race • $n" }
+                val raced = engine.race(
+                    profiles.toList(),
+                    settings,
+                    onCandidates = ::beginProbeBatch,
+                    onStart = ::markProbeStart,
+                    onResult = ::markProbeResult
+                ) { n -> message = "Connection race • $n" }
+                endProbeBatch()
                 if (raced != null) {
                     mergeBenchmarks(listOf(raced.second))
                     message = "Race winner: ${raced.first.name}"
@@ -704,7 +776,13 @@ private fun postToMain(block: () -> Unit) {
                     return@task
                 }
             }
-            val results = engine.run(profiles.toList(), settings) { a, b, n -> message = "Tunnel intelligence $a/$b • $n" }
+            val results = engine.run(
+                profiles.toList(),
+                settings,
+                onCandidates = ::beginProbeBatch,
+                onStart = ::markProbeStart,
+                onResult = ::markProbeResult
+            ) { a, b, n -> message = "Tunnel intelligence $a/$b • $n" }
             mergeBenchmarks(results)
             val best = results.firstOrNull { it.success > 0 }?.let { profile(it.profileId) }
             message = if (best == null) "No working candidate" else "Best: ${best.name}"
@@ -718,7 +796,13 @@ private fun postToMain(block: () -> Unit) {
             return
         }
         task("Smart rank • testing real Xray routes") {
-            val results = BenchmarkEngine(xray, intelligence).run(profiles.toList(), settings) { done, total, name ->
+            val results = BenchmarkEngine(xray, intelligence).run(
+                profiles.toList(),
+                settings,
+                onCandidates = ::beginProbeBatch,
+                onStart = ::markProbeStart,
+                onResult = ::markProbeResult
+            ) { done, total, name ->
                 message = "Smart rank $done/$total • $name"
             }
             mergeBenchmarks(results)
@@ -730,7 +814,13 @@ private fun postToMain(block: () -> Unit) {
 
     fun fullTest(p: ProxyProfile) {
         task("Full test ${p.name}") {
-            val result = BenchmarkEngine(xray, intelligence).run(listOf(p), settings.copy(benchCandidates = 1))
+            val result = BenchmarkEngine(xray, intelligence).run(
+                listOf(p),
+                settings.copy(benchCandidates = 1),
+                onCandidates = ::beginProbeBatch,
+                onStart = ::markProbeStart,
+                onResult = ::markProbeResult
+            )
             mergeBenchmarks(result)
             message = result.firstOrNull()?.let {
                 "${it.success}% • ${"%.0f".format(it.latencyMs)} ms • ${"%.1f".format(it.score)}"
@@ -747,7 +837,13 @@ private fun postToMain(block: () -> Unit) {
         task("Testing all configs") {
             val all = profiles.toList()
             val testSettings = settings.copy(benchMode = BenchMode.CUSTOM, benchCandidates = all.size)
-            val results = BenchmarkEngine(xray, intelligence).run(all, testSettings) { a, b, n -> message = "Tunnel test $a/$b • $n" }
+            val results = BenchmarkEngine(xray, intelligence).run(
+                all,
+                testSettings,
+                onCandidates = ::beginProbeBatch,
+                onStart = ::markProbeStart,
+                onResult = ::markProbeResult
+            ) { a, b, n -> message = "Tunnel test $a/$b • $n" }
             mergeBenchmarks(results)
             val passed = results.count { it.success > 0 }
             message = "Tested ${results.size} configs • $passed reachable"
@@ -1016,6 +1112,9 @@ private fun postToMain(block: () -> Unit) {
                 message = "${t::class.simpleName}: ${t.message}"
             } finally {
                 busy = false
+                // No card may be left spinning if a batch aborts.
+                endProbeBatch()
+                postToMain { refreshingSources = emptySet() }
             }
         }
     }
