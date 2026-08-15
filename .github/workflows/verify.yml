@@ -75,6 +75,32 @@ jobs:
               raise SystemExit('Routing invariant failure: ' + ', '.join(failed))
           PY
 
+      - name: Verify Product UI v9 invariants
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          ui=Path('app/src/main/java/com/marbleng/app/ui/Aether2026.kt').read_text()
+          theme=Path('app/src/main/java/com/marbleng/app/ui/AetherTheme.kt').read_text()
+          repo=Path('app/src/main/java/com/marbleng/app/AppRepository.kt').read_text()
+          dock=ui[ui.find('private fun FloatingSpatialDock'):ui.find('private fun SpatialHeader')]
+          required={
+              'v9 marker':'Marble Product UI v9.0.0' in ui,
+              'five-item dock':'onTheme' not in dock and 'isLight' not in dock,
+              'short nav label':'LAB("Quality", "◔")' in ui,
+              'page motion':'marble-page-transition' in ui and 'slideInHorizontally' in ui,
+              'appearance in settings':'"Appearance"' in ui,
+              'animated score ring':'score-ring-progress' in ui,
+              'race score floor removed':'maxOf(80.0, raced.second.score)' not in repo,
+              'theme v9':'Marble Product UI v9' in theme,
+          }
+          failed=[k for k,v in required.items() if not v]
+          if failed:
+              raise SystemExit('Product UI v9 invariant failure: '+', '.join(failed))
+          print('[OK] Product UI v9 source invariants')
+          PY
+
       - name: Set up JDK 17
         uses: actions/setup-java@v5
         with:

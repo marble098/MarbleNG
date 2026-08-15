@@ -18,32 +18,52 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 
-/** Marble Product UI v8 — Nordic Noir / Soft Minimalist. */
+/** Marble Product UI v9 — high-legibility Nordic minimal surface. */
 enum class AppTheme { DARK, LIGHT }
-fun parseAppTheme(id: String): AppTheme = if (id.equals("light", true)) AppTheme.LIGHT else AppTheme.DARK
+
+fun parseAppTheme(id: String): AppTheme =
+    if (id.equals("light", true)) AppTheme.LIGHT else AppTheme.DARK
 
 private data class AetherPalette(
-    val void: Color, val voidElevated: Color, val glass: Color, val glassStrong: Color,
-    val glassBorder: Color, val glassBorderSoft: Color, val amethyst: Color,
-    val amethystBright: Color, val cyan: Color, val cyanBright: Color, val slate: Color,
-    val slateBright: Color, val danger: Color, val dangerBright: Color, val emerald: Color,
-    val amber: Color, val ink: Color, val inkMuted: Color, val inkFaint: Color
+    val void: Color,
+    val voidElevated: Color,
+    val glass: Color,
+    val glassStrong: Color,
+    val glassBorder: Color,
+    val glassBorderSoft: Color,
+    val amethyst: Color,
+    val amethystBright: Color,
+    val cyan: Color,
+    val cyanBright: Color,
+    val slate: Color,
+    val slateBright: Color,
+    val danger: Color,
+    val dangerBright: Color,
+    val emerald: Color,
+    val amber: Color,
+    val ink: Color,
+    val inkMuted: Color,
+    val inkFaint: Color
 )
+
 private val DarkPalette = AetherPalette(
-    Color(0xFF0E1114), Color(0xFF15191D), Color(0xFF181D22), Color(0xFF1D2329),
-    Color(0xFF2A3036), Color(0xFF22282E), Color(0xFF365FD9), Color(0xFF6682D8),
-    Color(0xFF365FD9), Color(0xFF7890D8), Color(0xFF3B434B), Color(0xFF69747E),
-    Color(0xFFC87171), Color(0xFFD98A8A), Color(0xFF7FA68B), Color(0xFFC3A36B),
-    Color(0xFFF1F3F4), Color(0xFFB3BAC0), Color(0xFF7B858D)
+    Color(0xFF0D1013), Color(0xFF161A1E), Color(0xFF171C20), Color(0xFF20262B),
+    Color(0xFF30373D), Color(0xFF252C31), Color(0xFF526AB5), Color(0xFF7184C3),
+    Color(0xFF4166D5), Color(0xFF7790DD), Color(0xFF3A4249), Color(0xFF76818A),
+    Color(0xFFC66A6A), Color(0xFFD98686), Color(0xFF79A287), Color(0xFFC19E65),
+    Color(0xFFF3F5F5), Color(0xFFB5BCC1), Color(0xFF818B92)
 )
+
 private val LightPalette = AetherPalette(
-    Color(0xFFF4F5F2), Color(0xFFFDFDFB), Color(0xFFF8F9F6), Color(0xFFF0F2EE),
-    Color(0xFFD9DDD8), Color(0xFFE5E8E3), Color(0xFF244AC7), Color(0xFF4D67BD),
-    Color(0xFF244AC7), Color(0xFF3F5DC4), Color(0xFFD3D8D3), Color(0xFF7E8881),
-    Color(0xFFB65E5E), Color(0xFFC87575), Color(0xFF62876D), Color(0xFFA18452),
-    Color(0xFF171A1D), Color(0xFF50585E), Color(0xFF7B8388)
+    Color(0xFFF5F6F3), Color(0xFFFFFFFF), Color(0xFFF8F9F6), Color(0xFFEEF1ED),
+    Color(0xFFD9DED9), Color(0xFFE6E9E5), Color(0xFF4C61A7), Color(0xFF6576B2),
+    Color(0xFF3157C7), Color(0xFF4A68C5), Color(0xFFD5DAD5), Color(0xFF747F78),
+    Color(0xFFB85E5E), Color(0xFFC67575), Color(0xFF628B70), Color(0xFF9B7D49),
+    Color(0xFF15191C), Color(0xFF535C62), Color(0xFF7B8489)
 )
+
 private val LocalAetherPalette = staticCompositionLocalOf { DarkPalette }
+
 object Aether {
     val Void: Color @Composable get()=LocalAetherPalette.current.void
     val VoidElevated: Color @Composable get()=LocalAetherPalette.current.voidElevated
@@ -65,16 +85,19 @@ object Aether {
     val InkMuted: Color @Composable get()=LocalAetherPalette.current.inkMuted
     val InkFaint: Color @Composable get()=LocalAetherPalette.current.inkFaint
 }
+
 private val ProductSans = FontFamily.SansSerif
+
 val AetherTypography = Typography(
-    displayLarge=TextStyle(fontFamily=ProductSans,fontWeight=FontWeight.Bold,fontSize=38.sp,lineHeight=44.sp,letterSpacing=(-0.7).sp),
-    headlineMedium=TextStyle(fontFamily=ProductSans,fontWeight=FontWeight.SemiBold,fontSize=25.sp,lineHeight=31.sp,letterSpacing=(-0.35).sp),
-    titleMedium=TextStyle(fontFamily=ProductSans,fontWeight=FontWeight.SemiBold,fontSize=17.sp,lineHeight=23.sp,letterSpacing=(-0.08).sp),
-    bodyMedium=TextStyle(fontFamily=ProductSans,fontWeight=FontWeight.Normal,fontSize=15.sp,lineHeight=22.sp),
-    bodySmall=TextStyle(fontFamily=ProductSans,fontWeight=FontWeight.Normal,fontSize=13.sp,lineHeight=19.sp),
-    labelLarge=TextStyle(fontFamily=ProductSans,fontWeight=FontWeight.SemiBold,fontSize=14.sp,lineHeight=19.sp,letterSpacing=0.05.sp),
-    labelSmall=TextStyle(fontFamily=ProductSans,fontWeight=FontWeight.Medium,fontSize=12.sp,lineHeight=16.sp,letterSpacing=0.16.sp)
+    displayLarge=TextStyle(fontFamily=ProductSans,fontWeight=FontWeight.Bold,fontSize=37.sp,lineHeight=43.sp,letterSpacing=(-0.6).sp),
+    headlineMedium=TextStyle(fontFamily=ProductSans,fontWeight=FontWeight.SemiBold,fontSize=24.sp,lineHeight=30.sp,letterSpacing=(-0.30).sp),
+    titleMedium=TextStyle(fontFamily=ProductSans,fontWeight=FontWeight.SemiBold,fontSize=16.sp,lineHeight=22.sp,letterSpacing=(-0.05).sp),
+    bodyMedium=TextStyle(fontFamily=ProductSans,fontWeight=FontWeight.Normal,fontSize=15.sp,lineHeight=21.sp),
+    bodySmall=TextStyle(fontFamily=ProductSans,fontWeight=FontWeight.Normal,fontSize=13.sp,lineHeight=18.sp),
+    labelLarge=TextStyle(fontFamily=ProductSans,fontWeight=FontWeight.SemiBold,fontSize=14.sp,lineHeight=18.sp,letterSpacing=0.sp),
+    labelSmall=TextStyle(fontFamily=ProductSans,fontWeight=FontWeight.Medium,fontSize=11.sp,lineHeight=15.sp,letterSpacing=0.08.sp)
 )
+
 @Composable
 fun AetherFlowTheme(
     themeId: String = "dark",
@@ -94,9 +117,17 @@ fun AetherFlowTheme(
         surfaceVariant=p.glassStrong,onSurfaceVariant=p.inkMuted,error=p.danger,outline=p.glassBorder
     )
     val view=LocalView.current
-    if(!view.isInEditMode){ val window=(view.context as Activity).window; SideEffect{
-        val c=WindowCompat.getInsetsController(window,view); c.isAppearanceLightStatusBars=light; c.isAppearanceLightNavigationBars=light
-        window.statusBarColor=p.void.toArgb(); window.navigationBarColor=p.void.toArgb()
-    }}
-    CompositionLocalProvider(LocalAetherPalette provides p){ MaterialTheme(colorScheme=scheme,typography=AetherTypography,content=content) }
+    if(!view.isInEditMode){
+        val window=(view.context as Activity).window
+        SideEffect{
+            val c=WindowCompat.getInsetsController(window,view)
+            c.isAppearanceLightStatusBars=light
+            c.isAppearanceLightNavigationBars=light
+            window.statusBarColor=p.void.toArgb()
+            window.navigationBarColor=p.void.toArgb()
+        }
+    }
+    CompositionLocalProvider(LocalAetherPalette provides p){
+        MaterialTheme(colorScheme=scheme,typography=AetherTypography,content=content)
+    }
 }

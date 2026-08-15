@@ -627,7 +627,7 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
             if (settings.intelligenceEnabled && settings.raceConnectEnabled && profiles.size > 1) {
                 val raced = engine.race(profiles.toList(), settings) { n -> message = "Connection race • $n" }
                 if (raced != null) {
-                    benchmarks = listOf(raced.second.copy(score = maxOf(80.0, raced.second.score)))
+                    benchmarks = listOf(raced.second)
                     message = "Race winner: ${raced.first.name}"
                     android.os.Handler(android.os.Looper.getMainLooper()).post { onBest(raced.first) }
                     return@task
