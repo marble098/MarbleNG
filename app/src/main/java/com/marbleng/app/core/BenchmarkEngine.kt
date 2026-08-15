@@ -34,7 +34,8 @@ class BenchmarkEngine(
     ): List<BenchmarkResult> {
         if (profiles.isEmpty()) return emptyList()
         val s = tuned(settings)
-        val candidates = selectCandidates(profiles, s, usePrecheck)
+        // The same node can legitimately appear in two subscriptions; test it once.
+        val candidates = selectCandidates(profiles, s, usePrecheck).distinctBy { it.id }
         if (candidates.isEmpty()) return emptyList()
 
         val thermal = intelligence?.thermalBudget(s) ?: 1.0
@@ -85,7 +86,7 @@ class BenchmarkEngine(
             benchTimeoutSec = min(settings.benchTimeoutSec, 5),
             benchBytes = min(settings.benchBytes, 64 * 1024)
         )
-        val candidates = selectCandidates(profiles, raceSettings, true).take(width)
+        val candidates = selectCandidates(profiles, raceSettings, true).distinctBy { it.id }.take(width)
         if (candidates.isEmpty()) return null
         val pool = Executors.newFixedThreadPool(candidates.size)
         val completion = ExecutorCompletionService<Pair<ProxyProfile, BenchmarkResult>>(pool)
@@ -261,6 +262,21 @@ class BenchmarkEngine(
                     s
                 ) ?: profiles
 
+        // Evidence lookups are resolved once per selection pass. Querying history per profile (or
+        // worse, per comparison) turned every "test all" on a large subscription into thousands of
+        // synchronized SQLite reads before a single node was probed.
+        val health: Map<String, NodeHealthRecord> =
+            intelligence
+                ?.healthSnapshot()
+                ?: emptyMap()
+
+        val known = health.keys
+
+        val predicted =
+            intelligence
+                ?.rankingScores(profiles, s, health)
+                ?: emptyMap()
+
         val maxCandidates =
             s.benchCandidates
                 .coerceIn(
@@ -299,9 +315,7 @@ class BenchmarkEngine(
         val knownPool =
             ordered
                 .filter {
-                    intelligence
-                        ?.hasHistory(it) ==
-                        true
+                    it.id in known
                 }
                 .take(
                     (
@@ -334,9 +348,7 @@ class BenchmarkEngine(
         val explorePool =
             profiles
                 .filter {
-                    intelligence
-                        ?.hasHistory(it) !=
-                        true
+                    it.id !in known
                 }
                 .sortedBy {
                     it.id.hashCode() xor
@@ -503,11 +515,8 @@ class BenchmarkEngine(
                     compareByDescending<
                         ProxyProfile
                     > {
-                        intelligence
-                            ?.predictedScore(
-                                it,
-                                s
-                            ) ?: 50.0
+                        predicted[it.id]
+                            ?: 50.0
                     }.thenBy {
                         latencyById[
                             it.id
@@ -529,12 +538,10 @@ class BenchmarkEngine(
                 1
             }
 
-        val known =
+        val knownCandidates =
             historicallyOrdered
                 .filter {
-                    intelligence
-                        ?.hasHistory(it) ==
-                        true
+                    it.id in known
                 }
                 .take(
                     (
@@ -543,20 +550,18 @@ class BenchmarkEngine(
                     ).coerceAtLeast(0)
                 )
 
-        val unknown =
+        val unknownCandidates =
             historicallyOrdered
                 .filter {
-                    intelligence
-                        ?.hasHistory(it) !=
-                        true
+                    it.id !in known
                 }
                 .take(
                     exploreCount
                 )
 
         return (
-            known +
-                unknown +
+            knownCandidates +
+                unknownCandidates +
                 historicallyOrdered
         )
             .distinctBy {

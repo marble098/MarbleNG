@@ -194,6 +194,63 @@ private class HealthDb(context: Context) : SQLiteOpenHelper(context, "marble-int
         }
     }
 
+    /**
+     * Whole-network history in a single query.
+     *
+     * Candidate ordering used to call [get] from inside sort comparators, which produced
+     * O(n log n) synchronized SQLite reads for every ranking pass. One bulk read keeps large
+     * subscriptions (hundreds of nodes) responsive.
+     */
+    @Synchronized
+    fun all(networkKey: String): Map<String, NodeHealthRecord> {
+        val out = HashMap<String, NodeHealthRecord>()
+        readableDatabase.query(
+            "node_health",
+            null,
+            "network_key=?",
+            arrayOf(networkKey),
+            null,
+            null,
+            null
+        ).use { c ->
+            if (!c.moveToFirst()) return out
+            val idIndex = c.getColumnIndexOrThrow("profile_id")
+            val keyIndex = c.getColumnIndexOrThrow("network_key")
+            val samplesIndex = c.getColumnIndexOrThrow("samples")
+            val successIndex = c.getColumnIndexOrThrow("success_ewma")
+            val latencyIndex = c.getColumnIndexOrThrow("latency_ewma")
+            val jitterIndex = c.getColumnIndexOrThrow("jitter_ewma")
+            val throughputIndex = c.getColumnIndexOrThrow("throughput_ewma")
+            val udpIndex = c.getColumnIndexOrThrow("udp_ewma")
+            val connectIndex = c.getColumnIndexOrThrow("connect_ms_ewma")
+            val streakIndex = c.getColumnIndexOrThrow("failure_streak")
+            val fragmentIndex = c.getColumnIndexOrThrow("preferred_fragment")
+            val muxIndex = c.getColumnIndexOrThrow("preferred_mux")
+            val lastSuccessIndex = c.getColumnIndexOrThrow("last_success_at")
+            val lastSeenIndex = c.getColumnIndexOrThrow("last_seen_at")
+            do {
+                val id = c.getString(idIndex) ?: continue
+                out[id] = NodeHealthRecord(
+                    profileId = id,
+                    networkKey = c.getString(keyIndex),
+                    samples = c.getInt(samplesIndex),
+                    successEwma = c.getDouble(successIndex),
+                    latencyEwma = c.getDouble(latencyIndex),
+                    jitterEwma = c.getDouble(jitterIndex),
+                    throughputEwma = c.getDouble(throughputIndex),
+                    udpEwma = c.getDouble(udpIndex),
+                    connectMsEwma = c.getDouble(connectIndex),
+                    failureStreak = c.getInt(streakIndex),
+                    preferredFragment = c.getInt(fragmentIndex) != 0,
+                    preferredMux = c.getInt(muxIndex) != 0,
+                    lastSuccessAt = c.getLong(lastSuccessIndex),
+                    lastSeenAt = c.getLong(lastSeenIndex)
+                )
+            } while (c.moveToNext())
+        }
+        return out
+    }
+
     @Synchronized
     fun count(networkKey: String): Int {
         readableDatabase.rawQuery(
@@ -848,8 +905,23 @@ class MarbleIntelligence(private val context: Context) {
             .coerceIn(0.0, 1.0)
     }
 
+    /** One SQLite read for the whole current-network history. */
+    fun healthSnapshot(): Map<String, NodeHealthRecord> =
+        db.all(currentSnapshot().key())
+
+    /** Profile ids that already carry measured evidence on the current physical network. */
+    fun knownProfileIds(): Set<String> = healthSnapshot().keys
+
     fun predictedScore(
         profile: ProxyProfile,
+        settings: AppSettings
+    ): Double = predictedScoreOf(
+        db.get(profile.id, currentSnapshot().key()),
+        settings
+    )
+
+    private fun predictedScoreOf(
+        record: NodeHealthRecord?,
         settings: AppSettings
     ): Double {
         if (
@@ -859,11 +931,7 @@ class MarbleIntelligence(private val context: Context) {
             return 50.0
         }
 
-        val h =
-            db.get(
-                profile.id,
-                currentSnapshot().key()
-            ) ?: return 50.0
+        val h = record ?: return 50.0
 
         fun expScore(
             value: Double,
@@ -1037,28 +1105,43 @@ class MarbleIntelligence(private val context: Context) {
         settings: AppSettings
     ): Double = predictedScore(profile, settings) + IranShield.profileBias(profile, iranState)
 
+    /**
+     * Ranking score for a whole list using a single history read. Callers that need to sort or
+     * filter many profiles must use this instead of [rankingScore] per element.
+     */
+    fun rankingScores(
+        profiles: List<ProxyProfile>,
+        settings: AppSettings,
+        health: Map<String, NodeHealthRecord> = healthSnapshot()
+    ): Map<String, Double> {
+        val out = HashMap<String, Double>(profiles.size * 2)
+        profiles.forEach { profile ->
+            if (!out.containsKey(profile.id)) {
+                out[profile.id] =
+                    predictedScoreOf(health[profile.id], settings) +
+                        IranShield.profileBias(profile, iranState)
+            }
+        }
+        return out
+    }
+
     fun orderCandidates(
         profiles: List<ProxyProfile>,
         settings: AppSettings
     ): List<ProxyProfile> {
-        if (!settings.intelligenceEnabled) {
+        if (!settings.intelligenceEnabled || profiles.isEmpty()) {
             return profiles
         }
 
-        val key =
-            currentSnapshot().key()
+        // Scores and last-success timestamps are resolved once; the comparator only reads memory.
+        val health = healthSnapshot()
+        val scores = rankingScores(profiles, settings, health)
 
         return profiles.sortedWith(
             compareByDescending<ProxyProfile> {
-                rankingScore(
-                    it,
-                    settings
-                )
+                scores[it.id] ?: 50.0
             }.thenByDescending {
-                db.get(
-                    it.id,
-                    key
-                )?.lastSuccessAt ?: 0L
+                health[it.id]?.lastSuccessAt ?: 0L
             }.thenBy {
                 it.name
             }
@@ -1087,8 +1170,8 @@ class MarbleIntelligence(private val context: Context) {
         }
 
         // Prefer different physical hosts first; then fill remaining slots.
-        val key =
-            currentSnapshot().key()
+        val health =
+            healthSnapshot()
 
         val chosen =
             mutableListOf<ProxyProfile>()
@@ -1098,14 +1181,8 @@ class MarbleIntelligence(private val context: Context) {
         for (p in ordered) {
             if (chosen.size >= limit) break
 
-            val health =
-                db.get(
-                    p.id,
-                    key
-                )
-
             if (
-                (health?.failureStreak ?: 0) >=
+                (health[p.id]?.failureStreak ?: 0) >=
                     4
             ) {
                 continue

@@ -59,7 +59,10 @@ class MarbleVpnService : VpnService() {
 
     // HEV is process-global; start/stop/recovery is serialized here.
     private val connectionWorker = Executors.newSingleThreadExecutor()
-    private val monitorWorker = Executors.newFixedThreadPool(3)
+
+    // Telemetry, the proxy monitor, DNS probing and a long autopilot cycle can all be in flight at
+    // once, so a long optimizer cycle must not queue the identity/health probes behind it.
+    private val monitorWorker = Executors.newFixedThreadPool(4)
 
     private lateinit var xray: XrayManager
     private lateinit var diag: RuntimeDiagnostics
@@ -84,7 +87,9 @@ class MarbleVpnService : VpnService() {
 
     private val recoveryTried = linkedSetOf<String>()
     private val latencyWindow = ArrayDeque<Int>()
-    private var probeIndex = 0
+
+    // Telemetry and the proxy monitor both rotate probe endpoints from their own threads.
+    private val probeIndex = AtomicInteger(0)
 
     override fun onCreate() {
         super.onCreate()
@@ -733,8 +738,8 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
 
         val (host, path) =
             probes[
-                probeIndex++ %
-                    probes.size
+                (probeIndex.getAndIncrement() % probes.size)
+                    .coerceAtLeast(0)
             ]
 
         val ms =

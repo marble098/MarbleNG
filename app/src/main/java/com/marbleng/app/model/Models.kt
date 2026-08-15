@@ -232,5 +232,8 @@ data class AppSettings(
     val thermalAwareEnabled: Boolean = true,
     val workloadProfile: WorkloadProfile = WorkloadProfile.AUTO,
 
-    val theme: String = "dark"
+    val theme: String = "dark",
+
+    /** Settings screen reveals the low-level Xray/tunnel controls. Persisted like any other choice. */
+    val expertMode: Boolean = false
 )
