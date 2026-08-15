@@ -1,5 +1,7 @@
 package com.marbleng.app.ui
 
+// Marble Product UI v8.0.0 • mature privacy-tool surface
+
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -40,6 +42,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
@@ -73,10 +76,10 @@ import kotlin.math.roundToInt
 import kotlin.math.sin
 
 private enum class SpatialTab(val label: String, val glyph: String) {
-    DECK("Deck", "⌁"),
+    DECK("Home", "●"),
     LIBRARY("Library", "▦"),
-    LAB("Lab", "△"),
-    RADAR("Radar", "◉"),
+    LAB("Performance", "◔"),
+    RADAR("Network", "⌁"),
     SETTINGS("Settings", "⚙")
 }
 
@@ -236,243 +239,54 @@ fun Aether2026App(
 
 @Composable
 private fun DeepSpaceBackdrop(modifier: Modifier = Modifier) {
-    val cyan = Aether.Cyan
-    val purple = Aether.Amethyst
-    val faint = Aether.InkFaint
-
-    val stars = remember {
-        listOf(
-            .04f to .10f, .16f to .07f, .28f to .15f, .42f to .05f, .57f to .12f, .72f to .08f, .91f to .16f,
-            .08f to .27f, .22f to .34f, .36f to .25f, .49f to .31f, .63f to .22f, .78f to .35f, .95f to .29f,
-            .03f to .48f, .18f to .55f, .32f to .44f, .46f to .59f, .61f to .47f, .74f to .53f, .89f to .45f,
-            .11f to .72f, .25f to .66f, .39f to .78f, .52f to .69f, .68f to .81f, .83f to .71f, .97f to .77f,
-            .06f to .92f, .31f to .88f, .56f to .95f, .79f to .90f, .93f to .98f
-        )
-    }
-
-    Canvas(modifier) {
-        drawCircle(
-            brush = Brush.radialGradient(
-                colors = listOf(purple.copy(alpha = .10f), Color.Transparent),
-                center = Offset(size.width * .16f, size.height * .12f),
-                radius = size.minDimension * .55f
-            ),
-            radius = size.minDimension * .55f,
-            center = Offset(size.width * .16f, size.height * .12f)
-        )
-        drawCircle(
-            brush = Brush.radialGradient(
-                colors = listOf(cyan.copy(alpha = .065f), Color.Transparent),
-                center = Offset(size.width * .88f, size.height * .48f),
-                radius = size.minDimension * .60f
-            ),
-            radius = size.minDimension * .60f,
-            center = Offset(size.width * .88f, size.height * .48f)
-        )
-
-        stars.forEachIndexed { index, (fx, fy) ->
-            val radius = if (index % 7 == 0) 1.8f else 1.0f
-            val color = when {
-                index % 11 == 0 -> cyan.copy(alpha = .35f)
-                index % 13 == 0 -> purple.copy(alpha = .32f)
-                else -> faint.copy(alpha = .18f)
-            }
-            drawCircle(color, radius, Offset(size.width * fx, size.height * fy))
-        }
+    val accent=Aether.Cyan; val base=Aether.Void; val raised=Aether.VoidElevated; val soft=Aether.GlassBorderSoft
+    Canvas(modifier){
+        drawRect(brush=Brush.verticalGradient(listOf(base,raised.copy(alpha=.34f),base)))
+        drawCircle(brush=Brush.radialGradient(listOf(accent.copy(alpha=.045f),Color.Transparent),center=Offset(size.width*.82f,size.height*.10f),radius=size.minDimension*.72f),radius=size.minDimension*.72f,center=Offset(size.width*.82f,size.height*.10f))
+        drawCircle(brush=Brush.radialGradient(listOf(soft.copy(alpha=.18f),Color.Transparent),center=Offset(size.width*.10f,size.height*.86f),radius=size.minDimension*.60f),radius=size.minDimension*.60f,center=Offset(size.width*.10f,size.height*.86f))
     }
 }
 
 @Composable
-private fun FloatingSpatialDock(
-    selected: SpatialTab,
-    onSelect: (SpatialTab) -> Unit,
-    isLight: Boolean,
-    onTheme: () -> Unit
-) {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .navigationBarsPadding()
-            .padding(horizontal = 14.dp, vertical = 8.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(28.dp))
-                .background(Aether.VoidElevated.copy(alpha = .90f))
-                .border(
-                    1.dp,
-                    Brush.horizontalGradient(
-                        listOf(
-                            Aether.Amethyst.copy(alpha = .30f),
-                            Aether.GlassBorderSoft,
-                            Aether.Cyan.copy(alpha = .30f)
-                        )
-                    ),
-                    RoundedCornerShape(28.dp)
-                )
-                .padding(horizontal = 7.dp, vertical = 7.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            SpatialTab.entries.forEach { item ->
-                val active = item == selected
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(52.dp)
-                        .clip(RoundedCornerShape(19.dp))
-                        .background(
-                            if (active) {
-                                Brush.verticalGradient(
-                                    listOf(
-                                        Aether.Cyan.copy(alpha = .13f),
-                                        Aether.Amethyst.copy(alpha = .12f)
-                                    )
-                                )
-                            } else {
-                                Brush.verticalGradient(listOf(Color.Transparent, Color.Transparent))
-                            }
-                        )
-                        .clickable { onSelect(item) },
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
-                ) {
-                    Text(
-                        item.glyph,
-                        color = if (active) Aether.CyanBright else Aether.InkFaint,
-                        style = MaterialTheme.typography.titleMedium
-                    )
-                    Text(
-                        item.label,
-                        color = if (active) Aether.Ink else Aether.InkMuted,
-                        style = MaterialTheme.typography.labelSmall
-                    )
+private fun FloatingSpatialDock(selected: SpatialTab,onSelect:(SpatialTab)->Unit,isLight:Boolean,onTheme:()->Unit){
+    val shape=RoundedCornerShape(24.dp)
+    Box(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal=14.dp,vertical=9.dp),contentAlignment=Alignment.Center){
+        Row(Modifier.fillMaxWidth().shadow(12.dp,shape,clip=false).clip(shape).background(Aether.VoidElevated.copy(alpha=.96f)).padding(8.dp),verticalAlignment=Alignment.CenterVertically){
+            SpatialTab.entries.forEach{ item -> val active=item==selected
+                Column(Modifier.weight(1f).height(50.dp).clip(RoundedCornerShape(16.dp)).background(if(active) Aether.Cyan.copy(alpha=.10f) else Color.Transparent).clickable{onSelect(item)},horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.Center){
+                    Text(item.glyph,color=if(active) Aether.Cyan else Aether.InkFaint,style=MaterialTheme.typography.titleMedium)
+                    Text(item.label,color=if(active) Aether.Ink else Aether.InkMuted,style=MaterialTheme.typography.labelSmall)
                 }
             }
-
-            Box(
-                modifier = Modifier
-                    .padding(start = 3.dp)
-                    .size(44.dp)
-                    .clip(CircleShape)
-                    .background(Aether.Glass.copy(alpha = .72f))
-                    .border(1.dp, Aether.GlassBorderSoft, CircleShape)
-                    .clickable(onClick = onTheme),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(if (isLight) "☀" else "☾", color = Aether.Cyan)
-            }
+            Box(Modifier.padding(start=4.dp).size(42.dp).clip(RoundedCornerShape(14.dp)).background(Aether.GlassStrong).clickable(onClick=onTheme),contentAlignment=Alignment.Center){Text(if(isLight)"☀" else "☾",color=Aether.InkMuted)}
         }
     }
 }
 
 @Composable
-private fun SpatialHeader(
-    eyebrow: String,
-    title: String,
-    subtitle: String,
-    status: String? = null,
-    statusColor: Color = Aether.Cyan
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text(
-                eyebrow.uppercase(),
-                color = Aether.Cyan,
-                style = MaterialTheme.typography.labelSmall
-            )
-            Spacer(Modifier.height(2.dp))
-            Text(
-                title,
-                color = Aether.Ink,
-                style = MaterialTheme.typography.headlineMedium
-            )
-            Text(
-                subtitle,
-                color = Aether.InkFaint,
-                style = MaterialTheme.typography.bodySmall
-            )
-        }
-        if (!status.isNullOrBlank()) {
-            HoloBadge(status, statusColor)
-        }
+private fun SpatialHeader(eyebrow:String,title:String,subtitle:String,status:String?=null,statusColor:Color=Aether.Cyan){
+    Row(Modifier.fillMaxWidth().padding(horizontal=4.dp,vertical=12.dp),verticalAlignment=Alignment.CenterVertically){
+        Column(Modifier.weight(1f)){Text(eyebrow,color=Aether.InkFaint,style=MaterialTheme.typography.labelSmall);Spacer(Modifier.height(4.dp));Text(title,color=Aether.Ink,style=MaterialTheme.typography.headlineMedium);Spacer(Modifier.height(3.dp));Text(subtitle,color=Aether.InkMuted,style=MaterialTheme.typography.bodySmall)}
+        if(!status.isNullOrBlank()) HoloBadge(status,statusColor)
     }
 }
 
 @Composable
-private fun HoloGlass(
-    modifier: Modifier = Modifier,
-    glow: Color = Aether.Cyan,
-    glowStrength: Float = .18f,
-    contentPadding: PaddingValues = PaddingValues(16.dp),
-    content: @Composable ColumnScope.() -> Unit
-) {
-    Column(
-        modifier = modifier
-            .clip(RoundedCornerShape(25.dp))
-            .background(
-                Brush.linearGradient(
-                    listOf(
-                        Aether.GlassStrong.copy(alpha = .74f),
-                        Aether.Glass.copy(alpha = .48f),
-                        Aether.VoidElevated.copy(alpha = .74f)
-                    )
-                )
-            )
-            .border(
-                1.dp,
-                Brush.linearGradient(
-                    listOf(
-                        glow.copy(alpha = glowStrength),
-                        Aether.GlassBorderSoft,
-                        Aether.Amethyst.copy(alpha = glowStrength * .75f)
-                    )
-                ),
-                RoundedCornerShape(25.dp)
-            )
-            .padding(contentPadding),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-        content = content
-    )
+private fun HoloGlass(modifier:Modifier=Modifier,glow:Color=Aether.Cyan,glowStrength:Float=.18f,contentPadding:PaddingValues=PaddingValues(16.dp),content:@Composable ColumnScope.()->Unit){
+    val shape=RoundedCornerShape(24.dp)
+    Column(modifier.shadow(8.dp,shape,clip=false).clip(shape).background(Brush.verticalGradient(listOf(Aether.VoidElevated,Aether.Glass.copy(alpha=.98f)))).padding(contentPadding),verticalArrangement=Arrangement.spacedBy(12.dp),content=content)
 }
 
 @Composable
-private fun HoloBadge(text: String, color: Color, compact: Boolean = false) {
-    Text(
-        text = text,
-        color = color,
-        style = MaterialTheme.typography.labelSmall,
-        modifier = Modifier
-            .clip(CircleShape)
-            .background(color.copy(alpha = .08f))
-            .border(1.dp, color.copy(alpha = .30f), CircleShape)
-            .padding(
-                horizontal = if (compact) 7.dp else 9.dp,
-                vertical = if (compact) 3.dp else 5.dp
-            )
-    )
-}
-
-@Composable
-private fun SectionLabel(title: String, subtitle: String? = null) {
-    Column(Modifier.padding(horizontal = 2.dp)) {
-        Text(
-            title.uppercase(),
-            color = Aether.InkFaint,
-            style = MaterialTheme.typography.labelSmall
-        )
-        if (!subtitle.isNullOrBlank()) {
-            Text(
-                subtitle,
-                color = Aether.InkFaint.copy(alpha = .82f),
-                style = MaterialTheme.typography.bodySmall
-            )
-        }
+private fun HoloBadge(text:String,color:Color,compact:Boolean=false){
+    Row(Modifier.clip(RoundedCornerShape(10.dp)).background(color.copy(alpha=.10f)).padding(horizontal=if(compact)7.dp else 9.dp,vertical=if(compact)4.dp else 6.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(5.dp)){
+        Box(Modifier.size(6.dp).clip(CircleShape).background(color));Text(text,color=color,style=MaterialTheme.typography.labelSmall)
     }
+}
+
+@Composable
+private fun SectionLabel(title:String,subtitle:String?=null){
+    Column(Modifier.padding(horizontal=4.dp,vertical=2.dp)){Text(title,color=Aether.Ink,style=MaterialTheme.typography.titleMedium);if(!subtitle.isNullOrBlank()){Spacer(Modifier.height(2.dp));Text(subtitle,color=Aether.InkFaint,style=MaterialTheme.typography.bodySmall)}}
 }
 
 // =================================================================================================
@@ -480,419 +294,38 @@ private fun SectionLabel(title: String, subtitle: String? = null) {
 // =================================================================================================
 
 @Composable
-private fun CyberDeck(
-    repo: AppRepository,
-    onConnect: (ProxyProfile) -> Unit,
-    onLibrary: () -> Unit,
-    onPrivacy: () -> Unit,
-    onRouting: () -> Unit
-) {
-    val downHistory = remember { mutableStateListOf<Float>() }
-    val upHistory = remember { mutableStateListOf<Float>() }
-    val pingHistory = remember { mutableStateListOf<Float>() }
-
-    LaunchedEffect(Unit) {
-        while (true) {
-            downHistory += repo.liveDownBps.toFloat()
-            upHistory += repo.liveUpBps.toFloat()
-            pingHistory += repo.livePingMs.toFloat()
-            while (downHistory.size > 56) downHistory.removeAt(0)
-            while (upHistory.size > 56) upHistory.removeAt(0)
-            while (pingHistory.size > 56) pingHistory.removeAt(0)
-            delay(900)
-        }
-    }
-
-    val connected = repo.state == "CONNECTED"
-    val connecting = repo.state == "CONNECTING"
-    val statusColor = when (repo.state) {
-        "CONNECTED" -> Aether.Emerald
-        "CONNECTING" -> Aether.Cyan
-        "BLOCKED" -> Aether.Danger
-        else -> Aether.InkFaint
-    }
-    val activeName = repo.stateDetail.ifBlank { repo.lastProfile()?.name ?: "No active node" }
-    val activeBench = repo.benchmarks.firstOrNull { it.name == activeName || it.profileId == repo.lastProfile()?.id }
-    val packetLossPct = (100 - (activeBench?.success ?: if (connected) 100 else 0)).coerceIn(0, 100)
-    val jitterMs = activeBench?.jitterMs?.roundToInt() ?: 0
-    val healthScore = when {
-        !connected -> 0
-        activeBench != null -> activeBench.stabilityScore.roundToInt().coerceIn(0, 100)
-        repo.livePingMs <= 0 -> 70
-        else -> (100 - repo.livePingMs / 5).coerceIn(20, 95)
-    }
-    val resilienceScore = activeBench?.resilienceScore?.roundToInt()?.coerceIn(0, 100)
-        ?: if (connected && repo.sentinel.dnsHijack && repo.sentinel.xrayAlive) 82 else 0
-    val intel = repo.intelligenceStatus
-    val kernelBypassActive = intel.kernelSuDetected
-    val ebpfActive = intel.ebpfCapable
-    val multiWanAvailable = intel.dualNetworkAvailable
-    val cpuBudgetPct = intel.thermalBudgetPercent.coerceIn(0, 100)
-    val thermalImpact = (100 - intel.thermalBudgetPercent).coerceIn(0, 100)
-    val batteryImpact = if (intel.powerSaveMode) 72 else if (connected) 30 else 10
-    val bestRank = repo.benchmarks.firstOrNull { it.success > 0 }
-    val smartRankDetail = when {
-        repo.busy -> "Working…"
-        bestRank != null -> "${bestRank.name.take(12)} • ${bestRank.latencyMs.toInt()} ms"
-        else -> "Benchmark routes"
-    }
-    val privacyDetail = when {
-        !connected -> "Connect first"
-        repo.sentinel.healthy -> "Sentinel healthy"
-        else -> "Audit egress + DNS"
-    }
-    val routingDetail = repo.settings.routingMode.name.replace('_', ' ').lowercase()
-        .replaceFirstChar { it.uppercase() }
-
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
-    ) {
-        item {
-            SpatialHeader(
-                eyebrow = "Aether / Deck",
-                title = "MarbleNG",
-                subtitle = "Spatial Xray control surface",
-                status = when (repo.state) {
-                    "CONNECTED" -> "ONLINE"
-                    "CONNECTING" -> "NEGOTIATING"
-                    "BLOCKED" -> "BLOCKED"
-                    else -> "IDLE"
-                },
-                statusColor = statusColor
-            )
-        }
-
-        item {
-            ConnectionCore(
-                activeName = activeName,
-                connected = connected,
-                connecting = connecting,
-                mode = repo.settings.connectionMode,
-                localPort = repo.settings.localProxyPort,
-                pingMs = repo.livePingMs,
-                downBps = repo.liveDownBps,
-                upBps = repo.liveUpBps,
-                onToggle = {
-                    if (connected || connecting) repo.stopVpn() else repo.auto(onConnect)
-                }
-            )
-        }
-
-        item { IranModePanel(repo) }
-
-        item {
-            SectionLabel("Command matrix", "Health score • privacy sentinel • adaptive network telemetry")
-            HoloGlass(
-                modifier = Modifier.fillMaxWidth(),
-                glow = when {
-                    healthScore >= 80 -> Aether.Emerald
-                    healthScore >= 55 -> Aether.Cyan
-                    else -> Aether.Amber
-                }
-            ) {
-                ConnectionHealthMatrix(
-                    score = healthScore,
-                    latencyMs = repo.livePingMs,
-                    jitterMs = jitterMs,
-                    packetLossPct = packetLossPct,
-                    resilienceScore = resilienceScore,
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TacticalIndicatorTile(
-                        title = "KernelSU",
-                        state = if (kernelBypassActive) "DETECTED" else "OPTIONAL",
-                        color = if (kernelBypassActive) Aether.Emerald else Aether.InkFaint,
-                        detail = if (kernelBypassActive) "Root detected" else "Not required",
-                        modifier = Modifier.weight(1f)
-                    )
-                    TacticalIndicatorTile(
-                        title = "eBPF",
-                        state = if (ebpfActive) "CAPABLE" else "UNAVAILABLE",
-                        color = if (ebpfActive) Aether.Cyan else Aether.InkFaint,
-                        detail = if (ebpfActive) "Kernel support" else "Userspace TUN",
-                        modifier = Modifier.weight(1f)
-                    )
-                    TacticalIndicatorTile(
-                        title = "Multi-WAN",
-                        state = if (multiWanAvailable) "DUAL READY" else "SINGLE",
-                        color = if (multiWanAvailable) Aether.Amethyst else Aether.InkFaint,
-                        detail = if (multiWanAvailable) "Dual links available" else "Single upstream",
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-
-                MultiWanVisualizer(
-                    bonding = multiWanAvailable,
-                    modifier = Modifier.fillMaxWidth().height(82.dp)
-                )
-
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    ThermalGauge(
-                        title = "CPU Budget",
-                        value = cpuBudgetPct.coerceIn(0, 100),
-                        color = Aether.Cyan,
-                        modifier = Modifier.weight(1f)
-                    )
-                    ThermalGauge(
-                        title = "Thermals",
-                        value = thermalImpact.coerceIn(0, 100),
-                        color = if (thermalImpact < 55) Aether.Emerald else Aether.Amber,
-                        modifier = Modifier.weight(1f)
-                    )
-                    ThermalGauge(
-                        title = "Battery",
-                        value = batteryImpact.coerceIn(0, 100),
-                        color = if (batteryImpact < 45) Aether.Emerald else Aether.Amber,
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-            }
-        }
-
-        item {
-            SectionLabel("Live traffic", "Liquid data wave • last 50 seconds")
-            HoloGlass(
-                modifier = Modifier.fillMaxWidth(),
-                glow = if (repo.liveDownBps > 2L * 1024L * 1024L) Aether.Emerald else Aether.Cyan
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.Bottom
-                ) {
-                    DataReadout("DOWN", rate(repo.liveDownBps), Aether.Cyan, Modifier.weight(1f))
-                    DataReadout("UP", rate(repo.liveUpBps), Aether.AmethystBright, Modifier.weight(1f))
-                    DataReadout(
-                        "RTT",
-                        if (repo.livePingMs > 0) "${repo.livePingMs} ms" else "—",
-                        healthColor(repo.livePingMs, if (repo.livePingMs > 0) 100 else 0),
-                        Modifier.weight(1f)
-                    )
-                }
-
-                LiquidDataWave(
-                    down = downHistory,
-                    up = upHistory,
-                    modifier = Modifier.fillMaxWidth().height(150.dp)
-                )
-
-                DpiResilienceStrip(
-                    successfulPackets = resilienceScore,
-                    packetLossPct = packetLossPct,
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-        }
-
-        item {
-            SectionLabel("Quick field", "Four primary actions • no horizontal clipping")
-            Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
-                Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-                    HoloActionPill(
-                        "◎", "Smart rank", smartRankDetail, Aether.Cyan, Modifier.weight(1f)
-                    ) { repo.smartRank() }
-                    HoloActionPill(
-                        "▦", "Library", "${repo.profiles.size} nodes", Aether.Amethyst, Modifier.weight(1f)
-                    ) { onLibrary() }
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-                    HoloActionPill(
-                        "◇", "Privacy", privacyDetail, Aether.Emerald, Modifier.weight(1f)
-                    ) { onPrivacy() }
-                    HoloActionPill(
-                        "⚙", "Routing", routingDetail, Aether.Amber, Modifier.weight(1f)
-                    ) { onRouting() }
-                }
-            }
-        }
-
-        item {
-            SectionLabel("Spatial route", "Client → TUN/HEV → Xray policy → Entry → Internet")
-            HoloGlass(
-                modifier = Modifier.fillMaxWidth(),
-                glow = Aether.Amethyst,
-                contentPadding = PaddingValues(10.dp)
-            ) {
-                SpatialRouteMap(
-                    mode = repo.settings.connectionMode,
-                    entryName = activeName,
-                    exitName = repo.profiles.firstOrNull { it.id == repo.settings.chainSecondProfileId }?.name,
-                    chainEnabled = repo.settings.chainEnabled,
-                    connected = connected,
-                    modifier = Modifier.fillMaxWidth().height(250.dp)
-                )
-
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 6.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    HoloBadge(
-                        if (repo.settings.connectionMode == ConnectionMode.FULL_TUN) "FULL TUN" else "LOCAL SOCKS",
-                        Aether.Cyan,
-                        compact = true
-                    )
-                    HoloBadge(
-                        repo.settings.routingMode.name.replace('_', ' '),
-                        Aether.Amethyst,
-                        compact = true
-                    )
-                    if (repo.settings.chainEnabled) {
-                        HoloBadge("2-HOP", Aether.Amber, compact = true)
-                    }
-                }
-
-                TopologyLifecycleStrip(
-                    fragmentEnabled = repo.settings.fragmentEnabled,
-                    muxEnabled = repo.settings.muxEnabled,
-                    geo = activeName,
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-        }
-
-        item {
-            SectionLabel("Latency trace")
-            HoloGlass(Modifier.fillMaxWidth(), glow = Aether.Emerald) {
-                MiniPulseTrace(
-                    values = pingHistory,
-                    modifier = Modifier.fillMaxWidth().height(72.dp)
-                )
-            }
-        }
+private fun CyberDeck(repo:AppRepository,onConnect:(ProxyProfile)->Unit,onLibrary:()->Unit,onPrivacy:()->Unit,onRouting:()->Unit){
+    val connected=repo.state=="CONNECTED"; val connecting=repo.state=="CONNECTING"; val blocked=repo.state=="BLOCKED"
+    val activeName=repo.stateDetail.ifBlank{repo.lastProfile()?.name?:"No active connection"}
+    val lastId=repo.lastProfile()?.id
+    val bench=repo.benchmarks.firstOrNull{it.name==activeName || (lastId!=null && it.profileId==lastId)}
+    val score=when{bench!=null&&bench.success>0->bench.score.roundToInt().coerceIn(0,100);connected&&repo.livePingMs>0->(94-repo.livePingMs/7-repo.liveJitterMs/4).coerceIn(35,94);connected->78;else->0}
+    LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(horizontal=18.dp,vertical=10.dp),verticalArrangement=Arrangement.spacedBy(18.dp)){
+        item{SpatialHeader("Privacy dashboard","MarbleNG","Private networking, quietly monitored",when{connected->"Protected";connecting->"Connecting";blocked->"Blocked";else->"Idle"},when{connected->Aether.Emerald;connecting->Aether.Cyan;blocked->Aether.Danger;else->Aether.InkFaint})}
+        item{ConnectionCore(activeName,connected,connecting,blocked,repo.settings.connectionMode,repo.settings.localProxyPort,repo.livePingMs,repo.liveDownBps,repo.liveUpBps){if(connected||connecting)repo.stopVpn() else repo.auto(onConnect)}}
+        item{PerformanceScoreOverview(score,connected,activeName)}
+        item{SectionLabel("Connection path","A simpler view of where protected traffic goes");HoloGlass(Modifier.fillMaxWidth(),contentPadding=PaddingValues(horizontal=14.dp,vertical=16.dp)){SpatialRouteMap(repo.settings.connectionMode,activeName,repo.profiles.firstOrNull{it.id==repo.settings.chainSecondProfileId}?.name,repo.settings.chainEnabled,connected,Modifier.fillMaxWidth().height(112.dp))}}
+        item{SectionLabel("Shortcuts");Row(horizontalArrangement=Arrangement.spacedBy(10.dp)){HoloActionPill("◔","Performance","Measure routes",Aether.Cyan,Modifier.weight(1f)){repo.smartRank()};HoloActionPill("▦","Library","${repo.profiles.size} connections",Aether.Cyan,Modifier.weight(1f)){onLibrary()}};Spacer(Modifier.height(10.dp));Row(horizontalArrangement=Arrangement.spacedBy(10.dp)){HoloActionPill("◇","Privacy audit",if(connected)"Check egress & DNS" else "Connect first",Aether.Emerald,Modifier.weight(1f)){onPrivacy()};HoloActionPill("⚙","Routing","Open Expert settings",Aether.InkMuted,Modifier.weight(1f)){onRouting()}}}
+        item{Text("Advanced network controls are intentionally kept in Settings → Expert controls.",color=Aether.InkFaint,style=MaterialTheme.typography.bodySmall,modifier=Modifier.padding(horizontal=4.dp,vertical=8.dp))}
     }
 }
 
+@Composable private fun PerformanceScoreOverview(score:Int,connected:Boolean,routeName:String){
+    HoloGlass(Modifier.fillMaxWidth(),contentPadding=PaddingValues(18.dp)){Row(verticalAlignment=Alignment.CenterVertically){ScoreRing(score,Modifier.size(106.dp));Spacer(Modifier.width(18.dp));Column(Modifier.weight(1f)){Text("Performance score",color=Aether.Ink,style=MaterialTheme.typography.titleMedium);Spacer(Modifier.height(4.dp));Text(when{!connected->"Connect to build a live score.";score>=85->"Excellent route quality";score>=70->"Healthy route quality";score>=50->"Usable, with some pressure";else->"Route quality needs attention"},color=if(connected&&score>=70)Aether.Emerald else Aether.InkMuted,style=MaterialTheme.typography.bodyMedium);Spacer(Modifier.height(5.dp));Text(if(connected)routeName else "Based on latency, reliability and route evidence.",color=Aether.InkFaint,style=MaterialTheme.typography.bodySmall,maxLines=2,overflow=TextOverflow.Ellipsis)}}}
+}
+
 @Composable
-private fun ConnectionCore(
-    activeName: String,
-    connected: Boolean,
-    connecting: Boolean,
-    mode: ConnectionMode,
-    localPort: Int,
-    pingMs: Int,
-    downBps: Long,
-    upBps: Long,
-    onToggle: () -> Unit
-) {
-    val pulseTransition = rememberInfiniteTransition(label = "core-pulse")
-    val pulse by pulseTransition.animateFloat(
-        initialValue = .86f,
-        targetValue = 1.16f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1600, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "core-pulse-value"
-    )
-    val coreColor = if (connected) Aether.Emerald else Aether.Cyan
-    val coreSecondaryColor = Aether.Amethyst
-
-    HoloGlass(
-        modifier = Modifier.fillMaxWidth(),
-        glow = coreColor,
-        glowStrength = .34f
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                modifier = Modifier.size(84.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Canvas(Modifier.matchParentSize()) {
-                    drawCircle(
-                        coreColor.copy(alpha = .055f),
-                        radius = size.minDimension * .50f * pulse
-                    )
-                    drawCircle(
-                        coreColor.copy(alpha = .12f),
-                        radius = size.minDimension * .40f * pulse
-                    )
-                    drawCircle(
-                        brush = Brush.radialGradient(
-                            listOf(
-                                coreColor.copy(alpha = .34f),
-                                coreSecondaryColor.copy(alpha = .13f),
-                                Color.Transparent
-                            )
-                        ),
-                        radius = size.minDimension * .38f
-                    )
-                    drawCircle(
-                        color = coreColor.copy(alpha = .70f),
-                        radius = size.minDimension * .32f,
-                        style = Stroke(width = 1.6f)
-                    )
-                }
-
-                Text(
-                    if (connected) "✓" else if (connecting) "⋯" else "⌁",
-                    color = Aether.Ink,
-                    style = MaterialTheme.typography.headlineMedium
-                )
-            }
-
-            Spacer(Modifier.width(14.dp))
-            Column(Modifier.weight(1f)) {
-                Text(
-                    if (connected) "ACTIVE ROUTE" else if (connecting) "NEGOTIATING" else "READY",
-                    color = coreColor,
-                    style = MaterialTheme.typography.labelSmall
-                )
-                Text(
-                    activeName,
-                    color = Aether.Ink,
-                    style = MaterialTheme.typography.titleMedium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    when (mode) {
-                        ConnectionMode.FULL_TUN -> "Device TUN • HEV → Xray"
-                        ConnectionMode.LOCAL_PROXY -> "SOCKS5 • 127.0.0.1:$localPort"
-                    },
-                    color = Aether.InkFaint,
-                    style = MaterialTheme.typography.bodySmall,
-                    maxLines = 1
-                )
-            }
-
-            Spacer(Modifier.width(10.dp))
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(18.dp))
-                    .background(
-                        Brush.horizontalGradient(
-                            if (connected) {
-                                listOf(Aether.GlassStrong, Aether.Glass)
-                            } else {
-                                listOf(Aether.Amethyst.copy(alpha = .78f), Aether.Cyan.copy(alpha = .62f))
-                            }
-                        )
-                    )
-                    .border(
-                        1.dp,
-                        if (connected) Aether.GlassBorder else Aether.Cyan.copy(alpha = .44f),
-                        RoundedCornerShape(18.dp)
-                    )
-                    .clickable(onClick = onToggle)
-                    .padding(horizontal = 16.dp, vertical = 12.dp)
-            ) {
-                Text(
-                    if (connected) "STOP" else if (connecting) "CANCEL" else "CONNECT",
-                    color = Aether.Ink,
-                    style = MaterialTheme.typography.labelLarge
-                )
-            }
-        }
-
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            MiniMetric("PING", if (pingMs > 0) "$pingMs" else "—", "ms", Modifier.weight(1f))
-            MiniMetric("DOWN", compactRate(downBps), "", Modifier.weight(1f))
-            MiniMetric("UP", compactRate(upBps), "", Modifier.weight(1f))
-        }
-    }
+private fun ConnectionCore(activeName:String,connected:Boolean,connecting:Boolean,blocked:Boolean,mode:ConnectionMode,localPort:Int,pingMs:Int,downBps:Long,upBps:Long,onToggle:()->Unit){
+    var detailsOpen by remember{mutableStateOf(false)}
+    val tr=rememberInfiniteTransition(label="connection-breath");val breath by tr.animateFloat(.96f,1.04f,infiniteRepeatable(tween(1900,easing=FastOutSlowInEasing),RepeatMode.Reverse),label="connection-breath-value")
+    val statusColor=when{connected->Aether.Emerald;connecting->Aether.Cyan;blocked->Aether.Danger;else->Aether.InkFaint};val track=Aether.GlassBorderSoft;val shape=RoundedCornerShape(22.dp)
+    HoloGlass(Modifier.fillMaxWidth(),contentPadding=PaddingValues(horizontal=18.dp,vertical=20.dp)){Column(horizontalAlignment=Alignment.CenterHorizontally){
+        Box(Modifier.size(188.dp),contentAlignment=Alignment.Center){Canvas(Modifier.matchParentSize()){val scale=if(connected)breath else 1f;val r=size.minDimension*.40f;if(connected){drawCircle(statusColor.copy(alpha=.045f),size.minDimension*.49f*scale);drawCircle(statusColor.copy(alpha=.07f),size.minDimension*.45f*scale)};drawCircle(track,r,style=Stroke(8f,cap=StrokeCap.Round));drawArc(statusColor,-90f,when{connected->360f;connecting->255f;blocked->120f;else->54f},false,Offset(size.width/2-r,size.height/2-r),Size(r*2,r*2),style=Stroke(8f,cap=StrokeCap.Round))};Column(horizontalAlignment=Alignment.CenterHorizontally){Text(when{connected->"Protected";connecting->"Connecting";blocked->"Blocked";else->"Ready"},color=Aether.Ink,style=MaterialTheme.typography.headlineMedium);Spacer(Modifier.height(5.dp));Text(if(mode==ConnectionMode.FULL_TUN)"Full-device tunnel" else "Local SOCKS5",color=Aether.InkFaint,style=MaterialTheme.typography.bodySmall)}}
+        Text(activeName,color=Aether.InkMuted,style=MaterialTheme.typography.bodyMedium,maxLines=1,overflow=TextOverflow.Ellipsis);Spacer(Modifier.height(18.dp))
+        Box(Modifier.fillMaxWidth().height(64.dp).shadow(if(connected)4.dp else 12.dp,shape,clip=false).clip(shape).background(when{connected->Aether.GlassStrong;blocked->Aether.Danger.copy(alpha=.18f);else->Aether.Cyan}).clickable(onClick=onToggle),contentAlignment=Alignment.Center){Text(when{connected->"Disconnect";connecting->"Stop connection";blocked->"Retry connection";else->"Connect securely"},color=if(!connected&&!blocked)Color.White else Aether.Ink,style=MaterialTheme.typography.titleMedium)}
+        TextButton(onClick={detailsOpen=!detailsOpen}){Text(if(detailsOpen)"Hide connection details" else "Connection details",color=Aether.InkMuted,style=MaterialTheme.typography.labelLarge)}
+        AnimatedVisibility(detailsOpen,enter=fadeIn()+expandVertically(),exit=fadeOut()+shrinkVertically()){Column(Modifier.fillMaxWidth(),verticalArrangement=Arrangement.spacedBy(10.dp)){HorizontalDivider(color=Aether.GlassBorderSoft);Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){MiniMetric("HTTPS RTT",if(pingMs>0)"$pingMs" else "—","ms",Modifier.weight(1f));MiniMetric("Download",compactRate(downBps),"",Modifier.weight(1f));MiniMetric("Upload",compactRate(upBps),"",Modifier.weight(1f))};Text(if(mode==ConnectionMode.FULL_TUN)"Android VpnService captures device traffic through HEV → Xray." else "SOCKS5 is available only on 127.0.0.1:$localPort.",color=Aether.InkFaint,style=MaterialTheme.typography.bodySmall)}}
+    }}
 }
 
 @Composable
@@ -1082,198 +515,16 @@ private fun MiniPulseTrace(values: List<Float>, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun HoloActionPill(
-    glyph: String,
-    title: String,
-    subtitle: String,
-    color: Color,
-    modifier: Modifier = Modifier,
-    onClick: () -> Unit
-) {
-    Row(
-        modifier = modifier
-            .heightIn(min = 64.dp)
-            .clip(RoundedCornerShape(22.dp))
-            .background(
-                Brush.horizontalGradient(
-                    listOf(
-                        color.copy(alpha = .095f),
-                        Aether.Glass.copy(alpha = .58f)
-                    )
-                )
-            )
-            .border(1.dp, color.copy(alpha = .25f), RoundedCornerShape(22.dp))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 13.dp, vertical = 11.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Box(
-            Modifier
-                .size(35.dp)
-                .clip(CircleShape)
-                .background(color.copy(alpha = .12f))
-                .border(1.dp, color.copy(alpha = .24f), CircleShape),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(glyph, color = color, style = MaterialTheme.typography.titleMedium)
-        }
-
-        Spacer(Modifier.width(9.dp))
-        Column(Modifier.weight(1f)) {
-            Text(
-                title,
-                color = Aether.Ink,
-                style = MaterialTheme.typography.labelLarge,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                subtitle,
-                color = Aether.InkFaint,
-                style = MaterialTheme.typography.labelSmall,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-    }
+private fun HoloActionPill(glyph:String,title:String,subtitle:String,color:Color,modifier:Modifier=Modifier,onClick:()->Unit){
+    val shape=RoundedCornerShape(20.dp);Row(modifier.heightIn(min=76.dp).shadow(4.dp,shape,clip=false).clip(shape).background(Aether.VoidElevated).clickable(onClick=onClick).padding(horizontal=13.dp,vertical=12.dp),verticalAlignment=Alignment.CenterVertically){Box(Modifier.size(38.dp).clip(RoundedCornerShape(13.dp)).background(color.copy(alpha=.11f)),contentAlignment=Alignment.Center){Text(glyph,color=color,style=MaterialTheme.typography.titleMedium)};Spacer(Modifier.width(10.dp));Column(Modifier.weight(1f)){Text(title,color=Aether.Ink,style=MaterialTheme.typography.labelLarge,maxLines=1,overflow=TextOverflow.Ellipsis);Spacer(Modifier.height(2.dp));Text(subtitle,color=Aether.InkFaint,style=MaterialTheme.typography.labelSmall,maxLines=2,overflow=TextOverflow.Ellipsis)}}
 }
 
 @Composable
-private fun SpatialRouteMap(
-    mode: ConnectionMode,
-    entryName: String,
-    exitName: String?,
-    chainEnabled: Boolean,
-    connected: Boolean,
-    modifier: Modifier = Modifier
-) {
-    val flowTransition = rememberInfiniteTransition(label = "route-flow")
-    val phase by flowTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(2300, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "route-phase"
-    )
-    val pulse by flowTransition.animateFloat(
-        initialValue = .78f,
-        targetValue = 1.22f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1350, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "route-pulse"
-    )
-
-    val cyan = Aether.Cyan
-    val purple = Aether.Amethyst
-    val green = Aether.Emerald
-    val amber = Aether.Amber
-    val dim = Aether.InkFaint
-    val routeColor = if (connected) cyan else dim
-
-    BoxWithConstraints(modifier) {
-        val client = .10f to .57f
-        val tunnel = .34f to .26f
-        val entry = .56f to .66f
-        val exit = .76f to .27f
-        val internet = if (chainEnabled && !exitName.isNullOrBlank()) {
-            .91f to .62f
-        } else {
-            .83f to .36f
-        }
-
-        val nodes = if (chainEnabled && !exitName.isNullOrBlank()) {
-            listOf(client, tunnel, entry, exit, internet)
-        } else {
-            listOf(client, tunnel, entry, internet)
-        }
-
-        Canvas(Modifier.matchParentSize()) {
-            val points = nodes.map { Offset(size.width * it.first, size.height * it.second) }
-
-            points.zipWithNext().forEachIndexed { index, (a, b) ->
-                drawLine(
-                    color = routeColor.copy(alpha = if (connected) .09f else .06f),
-                    start = a,
-                    end = b,
-                    strokeWidth = 13f,
-                    cap = StrokeCap.Round
-                )
-                drawLine(
-                    color = routeColor.copy(alpha = if (connected) .42f else .16f),
-                    start = a,
-                    end = b,
-                    strokeWidth = 2.3f,
-                    cap = StrokeCap.Round
-                )
-
-                if (connected) {
-                    val particle = ((phase + index * .21f) % 1f)
-                    val x = a.x + (b.x - a.x) * particle
-                    val y = a.y + (b.y - a.y) * particle
-                    drawCircle(
-                        routeColor.copy(alpha = .13f),
-                        radius = 10f * pulse,
-                        center = Offset(x, y)
-                    )
-                    drawCircle(
-                        routeColor,
-                        radius = 3.2f,
-                        center = Offset(x, y)
-                    )
-                }
-            }
-        }
-
-        SpatialNode(
-            x = maxWidth * client.first,
-            y = maxHeight * client.second,
-            title = "CLIENT",
-            detail = "Apps",
-            color = purple,
-            pulse = pulse
-        )
-        SpatialNode(
-            x = maxWidth * tunnel.first,
-            y = maxHeight * tunnel.second,
-            title = if (mode == ConnectionMode.FULL_TUN) "TUN" else "SOCKS",
-            detail = if (mode == ConnectionMode.FULL_TUN) "HEV" else "LOCAL",
-            color = cyan,
-            pulse = pulse
-        )
-        SpatialNode(
-            x = maxWidth * entry.first,
-            y = maxHeight * entry.second,
-            title = "ENTRY",
-            detail = entryName.take(13),
-            color = green,
-            pulse = pulse
-        )
-
-        if (chainEnabled && !exitName.isNullOrBlank()) {
-            SpatialNode(
-                x = maxWidth * exit.first,
-                y = maxHeight * exit.second,
-                title = "EXIT",
-                detail = exitName.take(13),
-                color = amber,
-                pulse = pulse
-            )
-        }
-
-        SpatialNode(
-            x = maxWidth * internet.first,
-            y = maxHeight * internet.second,
-            title = "NET",
-            detail = "Internet",
-            color = if (connected) green else dim,
-            pulse = pulse
-        )
-    }
+private fun SpatialRouteMap(mode:ConnectionMode,entryName:String,exitName:String?,chainEnabled:Boolean,connected:Boolean,modifier:Modifier=Modifier){
+    val active=if(connected)Aether.Cyan else Aether.InkFaint;Row(modifier,verticalAlignment=Alignment.CenterVertically){PremiumFlowStage("Device","Apps",Aether.InkMuted,Modifier.weight(1f));PremiumFlowConnector(connected,active,Modifier.weight(.42f));PremiumFlowStage("Secure tunnel",when{chainEnabled&&!exitName.isNullOrBlank()->"${if(mode==ConnectionMode.FULL_TUN)"TUN" else "SOCKS"} • 2-hop";mode==ConnectionMode.FULL_TUN->"TUN • Xray";else->"Local SOCKS"},active,Modifier.weight(1.18f));PremiumFlowConnector(connected,active,Modifier.weight(.42f));PremiumFlowStage("Internet",if(connected)"Protected" else "Waiting",if(connected)Aether.Emerald else Aether.InkFaint,Modifier.weight(1f))}
 }
+@Composable private fun PremiumFlowStage(title:String,detail:String,color:Color,modifier:Modifier=Modifier){Column(modifier.clip(RoundedCornerShape(18.dp)).background(Aether.GlassStrong.copy(alpha=.72f)).padding(horizontal=8.dp,vertical=13.dp),horizontalAlignment=Alignment.CenterHorizontally){Box(Modifier.size(8.dp).clip(CircleShape).background(color));Spacer(Modifier.height(7.dp));Text(title,color=Aether.Ink,style=MaterialTheme.typography.labelLarge,textAlign=TextAlign.Center,maxLines=1);Text(detail,color=Aether.InkFaint,style=MaterialTheme.typography.labelSmall,textAlign=TextAlign.Center,maxLines=1,overflow=TextOverflow.Ellipsis)}}
+@Composable private fun PremiumFlowConnector(active:Boolean,color:Color,modifier:Modifier=Modifier){Box(modifier.padding(horizontal=5.dp).height(4.dp).clip(CircleShape).background(if(active)color.copy(alpha=.55f) else Aether.GlassBorderSoft))}
 
 @Composable
 private fun SpatialNode(
@@ -1567,9 +818,9 @@ private fun CyberLibrary(
     ) {
         item {
             SpatialHeader(
-                eyebrow = "Node Space",
+                eyebrow = "Connections",
                 title = "Library",
-                subtitle = "Separate source views • full subscription management • node health",
+                subtitle = "Subscriptions, connections and measured route health",
                 status = "${repo.subscriptions.size} SUBS • ${repo.profiles.size} NODES",
                 statusColor = Aether.Amethyst
             )
@@ -1617,7 +868,7 @@ private fun CyberLibrary(
                     modifier = Modifier.padding(horizontal = 14.dp).fillMaxWidth(),
                     glow = Aether.Amethyst
                 ) {
-                    Text("ADD SOURCE", color = Aether.AmethystBright, style = MaterialTheme.typography.labelSmall)
+                    Text("Add source", color = Aether.AmethystBright, style = MaterialTheme.typography.labelSmall)
                     OutlinedTextField(
                         value = url,
                         onValueChange = { url = it },
@@ -1712,7 +963,7 @@ private fun CyberLibrary(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Column {
-                        Text("SOURCE VIEW", color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
+                        Text("Filter", color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
                         Text(
                             "Nodes below belong only to the selected source",
                             color = Aether.InkFaint.copy(alpha = .82f),
@@ -2220,117 +1471,14 @@ private fun MicroStat(label: String, value: String, modifier: Modifier = Modifie
 // =================================================================================================
 
 @Composable
-private fun BenchmarkStudio(
-    repo: AppRepository,
-    onConnect: (ProxyProfile) -> Unit
-) {
-    val modes = listOf(BenchMode.RELIABLE, BenchMode.BALANCED, BenchMode.FAST, BenchMode.TURBO)
-    val radarNodes = remember(repo.benchmarks) {
-        buildRadarNodes(repo.benchmarks)
-    }
-
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(13.dp)
-    ) {
-        item {
-            SpatialHeader(
-                eyebrow = "Neural Benchmark",
-                title = "Lab",
-                subtitle = "Benchmark studio • spider analysis • packet tuning",
-                status = "${repo.benchmarks.size} SAMPLES",
-                statusColor = Aether.Cyan
-            )
-        }
-
-        item {
-            Row(
-                modifier = Modifier.horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(7.dp)
-            ) {
-                modes.forEach { mode ->
-                    CyberChoiceChip(
-                        text = mode.name,
-                        selected = repo.settings.benchMode == mode,
-                        color = Aether.Cyan
-                    ) {
-                        repo.updateSettings(repo.settings.copy(benchMode = mode))
-                    }
-                }
-            }
-        }
-
-        item {
-            CyberButton(
-                label = "RUN MULTI-AXIS BENCHMARK",
-                color = Aether.Cyan,
-                modifier = Modifier.fillMaxWidth(),
-                enabled = repo.profiles.isNotEmpty() && !repo.busy
-            ) {
-                repo.smart(onConnect)
-            }
-        }
-
-        item {
-            SectionLabel("Spider field", "Speed • Reliability • Ping • Jitter")
-            HoloGlass(
-                modifier = Modifier.fillMaxWidth(),
-                glow = Aether.Cyan,
-                contentPadding = PaddingValues(10.dp)
-            ) {
-                if (radarNodes.isEmpty()) {
-                    EmptyVisual(
-                        glyph = "△",
-                        title = "NO BENCHMARK FIELD",
-                        body = "Run the lab to project node quality into the spider space."
-                    )
-                } else {
-                    SpiderComparisonChart(
-                        nodes = radarNodes.take(3),
-                        modifier = Modifier.fillMaxWidth().height(310.dp)
-                    )
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(7.dp)
-                    ) {
-                        radarNodes.take(3).forEach { node ->
-                            HoloBadge(
-                                node.name.take(18),
-                                radarColor(node.colorIndex),
-                                compact = true
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        item {
-            SectionLabel("Packet modulator", "Visual simulator for Fragment and Mux")
-            HoloGlass(
-                modifier = Modifier.fillMaxWidth(),
-                glow = Aether.Amethyst,
-                contentPadding = PaddingValues(12.dp)
-            ) {
-                FragmentMuxVisualizer(
-                    fragmentEnabled = repo.settings.fragmentEnabled,
-                    muxEnabled = repo.settings.muxEnabled,
-                    modifier = Modifier.fillMaxWidth().height(132.dp)
-                )
-            }
-        }
-
-        if (repo.benchmarks.isNotEmpty()) {
-            item {
-                SectionLabel("Ranked telemetry", "Compact details beneath the visual comparison")
-            }
-
-            items(repo.benchmarks, key = { "bench-${it.profileId}" }) { result ->
-                CompactBenchmarkRow(result, repo, onConnect)
-            }
-        }
+private fun BenchmarkStudio(repo:AppRepository,onConnect:(ProxyProfile)->Unit){
+    val modes=listOf(BenchMode.RELIABLE,BenchMode.BALANCED,BenchMode.FAST,BenchMode.TURBO);val best=repo.benchmarks.firstOrNull{it.success>0};val score=best?.score?.roundToInt()?.coerceIn(0,100)?:0
+    LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(horizontal=18.dp,vertical=10.dp),verticalArrangement=Arrangement.spacedBy(16.dp)){
+        item{SpatialHeader("Performance","Route quality","One clear score, with technical evidence available below",if(best==null)"No sample" else "$score / 100",if(score>=75)Aether.Emerald else Aether.Cyan)}
+        item{Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(8.dp)){modes.forEach{mode->CyberChoiceChip(mode.name.lowercase().replaceFirstChar{it.uppercase()},repo.settings.benchMode==mode,Aether.Cyan){repo.updateSettings(repo.settings.copy(benchMode=mode))}}}}
+        item{CyberButton(if(repo.busy)"Measuring…" else "Run performance test",Aether.Cyan,Modifier.fillMaxWidth(),repo.profiles.isNotEmpty()&&!repo.busy){repo.smart(onConnect)}}
+        item{HoloGlass(Modifier.fillMaxWidth(),contentPadding=PaddingValues(20.dp)){if(best==null)EmptyVisual("◔","No performance sample yet","Run a performance test to score real Xray routes.") else {Row(verticalAlignment=Alignment.CenterVertically){ScoreRing(score,Modifier.size(132.dp));Spacer(Modifier.width(18.dp));Column(Modifier.weight(1f)){Text("Best measured route",color=Aether.InkFaint,style=MaterialTheme.typography.labelSmall);Text(best.name,color=Aether.Ink,style=MaterialTheme.typography.titleMedium,maxLines=2,overflow=TextOverflow.Ellipsis);Spacer(Modifier.height(8.dp));Text(when{score>=85->"Excellent";score>=70->"Healthy";score>=50->"Fair";else->"Needs attention"},color=if(score>=70)Aether.Emerald else Aether.Amber,style=MaterialTheme.typography.bodyMedium)}};HorizontalDivider(color=Aether.GlassBorderSoft);Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){MicroStat("Reliability","${best.success}%",Modifier.weight(1f));MicroStat("RTT","${best.latencyMs.toInt()} ms",Modifier.weight(1f));MicroStat("Jitter","${best.jitterMs.toInt()} ms",Modifier.weight(1f))}}}}
+        if(repo.benchmarks.isNotEmpty()){item{SectionLabel("Measured routes","Ranked evidence from complete proxy-path tests")};items(repo.benchmarks,key={"bench-${it.profileId}"}){result->CompactBenchmarkRow(result,repo,onConnect)}}
     }
 }
 
@@ -2504,9 +1652,9 @@ private fun radarColor(index: Int): Color = when (index % 3) {
 }
 
 private fun radarColorRaw(index: Int): Color = when (index % 3) {
-    0 -> Color(0xFF20F6FF)
-    1 -> Color(0xFFB15CFF)
-    else -> Color(0xFF45FFB1)
+    0 -> Color(0xFF365FD9)
+    1 -> Color(0xFF6078BE)
+    else -> Color(0xFF7FA68B)
 }
 
 @Composable
@@ -2564,228 +1712,14 @@ private fun CompactBenchmarkRow(
 // =================================================================================================
 
 @Composable
-private fun DiscoveryRadar(repo: AppRepository) {
-    // MarbleNG v6.1.0 underlay radar: this screen must remain useful with no VPN/proxy running.
-    val network = repo.networkSnapshot
-    val intel = repo.intelligenceStatus
-    val iran = repo.iranMode
-    val connected = repo.state == "CONNECTED"
-    val linkColor = if (network.validated) Aether.Emerald else Aether.Amber
-
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(13.dp)
-    ) {
-        item {
-            SpatialHeader(
-                eyebrow = "Physical Network Intelligence",
-                title = "Radar",
-                subtitle = "Underlay diagnostics that work without a VPN or proxy",
-                status = if (network.validated) "LINK READY" else "CHECK LINK",
-                statusColor = linkColor
-            )
-        }
-
-        item {
-            HoloGlass(
-                modifier = Modifier.fillMaxWidth(),
-                glow = linkColor,
-                glowStrength = .30f,
-                contentPadding = PaddingValues(15.dp)
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text("PHYSICAL UNDERLAY", color = linkColor, style = MaterialTheme.typography.labelSmall)
-                        Text(network.label, color = Aether.Ink, style = MaterialTheme.typography.titleLarge)
-                    }
-                    HoloBadge(
-                        if (network.validated) "VALIDATED" else "UNVALIDATED",
-                        linkColor,
-                        compact = true
-                    )
-                }
-
-                Text(
-                    buildString {
-                        append(if (network.metered) "Metered" else "Unmetered")
-                        append(" • ")
-                        append(if (network.hasIpv4) "IPv4" else "No IPv4")
-                        append(" • ")
-                        append(if (network.hasIpv6) "IPv6" else "No IPv6")
-                    },
-                    color = Aether.InkMuted,
-                    style = MaterialTheme.typography.bodyMedium
-                )
-
-                Text(
-                    "Downlink ${network.downstreamKbps.coerceAtLeast(0)} kbps • " +
-                        "Uplink ${network.upstreamKbps.coerceAtLeast(0)} kbps • " +
-                        "MTU ${network.mtu.takeIf { it > 0 } ?: 0}",
-                    color = Aether.InkFaint,
-                    style = MaterialTheme.typography.bodySmall
-                )
-
-                CyberButton(
-                    label = if (iran.scanning) "SCANNING UNDERLAY…" else "RESCAN PHYSICAL LINK",
-                    color = Aether.Cyan,
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = !iran.scanning
-                ) {
-                    repo.scanIranMode(force = true, deep = true)
-                }
-            }
-        }
-
-        item {
-            SectionLabel("Marble engine", "One decision context shared by detection, ranking, racing and recovery")
-            HoloGlass(
-                modifier = Modifier.fillMaxWidth(),
-                glow = Aether.Cyan,
-                contentPadding = PaddingValues(14.dp)
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text("MARBLE INTELLIGENCE", color = Aether.Cyan, style = MaterialTheme.typography.labelSmall)
-                        Text(
-                            if (repo.settings.intelligenceEnabled) "Adaptive engine enabled" else "Adaptive engine disabled",
-                            color = Aether.Ink,
-                            style = MaterialTheme.typography.titleMedium
-                        )
-                    }
-                    HoloBadge(
-                        if (repo.settings.intelligenceEnabled) "ENGINE ON" else "ENGINE OFF",
-                        if (repo.settings.intelligenceEnabled) Aether.Emerald else Aether.InkFaint,
-                        compact = true
-                    )
-                }
-
-                Text(
-                    "Effective MTU ${intel.effectiveMtu.takeIf { it > 0 } ?: network.mtu} • " +
-                        "Thermal budget ${intel.thermalBudgetPercent}% • " +
-                        "History ${intel.historyRecords}",
-                    color = Aether.InkMuted,
-                    style = MaterialTheme.typography.bodyMedium
-                )
-                Text(
-                    "Dual-network ${if (intel.dualNetworkAvailable) "available" else "unavailable"} • " +
-                        "KernelSU ${if (intel.kernelSuDetected) "detected" else "not detected"} • " +
-                        "eBPF ${if (intel.ebpfCapable) "capable" else "standard path"}",
-                    color = Aether.InkFaint,
-                    style = MaterialTheme.typography.bodySmall
-                )
-                Text(
-                    intel.lastDecision.ifBlank { "Waiting for the next network decision" },
-                    color = Aether.InkMuted,
-                    style = MaterialTheme.typography.bodySmall
-                )
-            }
-        }
-
-        if (iran.active) {
-            item {
-                SectionLabel("Iran network intelligence", "Shown because Iran Mode is currently active")
-                HoloGlass(
-                    modifier = Modifier.fillMaxWidth(),
-                    glow = Aether.Emerald,
-                    glowStrength = .30f,
-                    contentPadding = PaddingValues(14.dp)
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text("IRAN MODE ACTIVE", color = Aether.Emerald, style = MaterialTheme.typography.labelSmall)
-                            Text(iran.ispLine, color = Aether.Ink, style = MaterialTheme.typography.titleMedium)
-                        }
-                        HoloBadge("${iran.confidence}%", Aether.Emerald, compact = true)
-                    }
-                    Text(iran.summary, color = Aether.InkMuted, style = MaterialTheme.typography.bodySmall)
-                    if (iran.techniques.isNotEmpty()) {
-                        Text(
-                            iran.techniques.joinToString(" • ") { it.label },
-                            color = Aether.InkFaint,
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                    }
-                }
-            }
-        }
-
-        item {
-            SectionLabel("Tunnel independence", "Radar reads the physical link first; tunnel health is secondary")
-            HoloGlass(
-                modifier = Modifier.fillMaxWidth(),
-                glow = if (connected) Aether.Emerald else Aether.Amethyst,
-                contentPadding = PaddingValues(14.dp)
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Runtime", color = Aether.InkMuted, modifier = Modifier.weight(1f))
-                    HoloBadge(repo.state, if (connected) Aether.Emerald else Aether.Amethyst, compact = true)
-                }
-                if (connected) {
-                    Text(
-                        "Tunnel routes ${if (repo.sentinel.tunnelRoutes) "captured" else "checking"} • " +
-                            "DNS ${if (repo.sentinel.dnsHijack) "protected" else "checking"} • " +
-                            "Xray ${if (repo.sentinel.xrayAlive) "alive" else "checking"}",
-                        color = Aether.InkMuted,
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                } else {
-                    Text(
-                        "No tunnel is required here. Physical-link validation, ISP detection, MTU, transport and engine state remain available.",
-                        color = Aether.InkMuted,
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                }
-            }
-        }
-
-        if (repo.benchmarks.isNotEmpty()) {
-            item { SectionLabel("Recent route memory", "Last known benchmark evidence; not a requirement for Radar") }
-            items(
-                repo.benchmarks.sortedByDescending { it.score }.take(6),
-                key = { "radar-memory-${it.profileId}" }
-            ) { result ->
-                val color = healthColor(result.latencyMs.toInt(), result.success)
-                HoloGlass(
-                    modifier = Modifier.fillMaxWidth(),
-                    glow = color,
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 9.dp)
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text(
-                                result.name,
-                                color = Aether.Ink,
-                                style = MaterialTheme.typography.labelLarge,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Text(
-                                "${result.latencyMs.toInt()} ms • jitter ${result.jitterMs.toInt()} ms • success ${result.success}%",
-                                color = Aether.InkFaint,
-                                style = MaterialTheme.typography.labelSmall
-                            )
-                        }
-                        HoloBadge("${"%.0f".format(result.score)}", color, compact = true)
-                    }
-                }
-            }
-        } else {
-            item {
-                HoloGlass(
-                    modifier = Modifier.fillMaxWidth(),
-                    glow = Aether.Amethyst,
-                    contentPadding = PaddingValues(14.dp)
-                ) {
-                    Text("ROUTE MEMORY EMPTY", color = Aether.AmethystBright, style = MaterialTheme.typography.labelSmall)
-                    Text(
-                        "No tunnel benchmark history exists yet. Radar itself is already operational on the physical network.",
-                        color = Aether.InkMuted,
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                }
-            }
-        }
+private fun DiscoveryRadar(repo:AppRepository){
+    val network=repo.networkSnapshot;val intel=repo.intelligenceStatus;val iran=repo.iranMode;val linkColor=if(network.validated)Aether.Emerald else Aether.Amber
+    LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(horizontal=18.dp,vertical=10.dp),verticalArrangement=Arrangement.spacedBy(16.dp)){
+        item{SpatialHeader("Network","Environment","Physical-link context and Marble Intelligence",if(network.validated)"Healthy" else "Checking",linkColor)}
+        item{SectionLabel("Current network");HoloGlass(Modifier.fillMaxWidth()){Row(verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f)){Text(network.label,color=Aether.Ink,style=MaterialTheme.typography.titleMedium);Text("${if(network.metered)"Metered" else "Unmetered"} • ${if(network.hasIpv4)"IPv4" else "No IPv4"} • ${if(network.hasIpv6)"IPv6" else "No IPv6"}",color=Aether.InkMuted,style=MaterialTheme.typography.bodySmall)};HoloBadge(if(network.validated)"Validated" else "Unvalidated",linkColor,true)};Text("MTU ${network.mtu.takeIf{it>0}?:0} • Downlink ${network.downstreamKbps.coerceAtLeast(0)} kbps • Uplink ${network.upstreamKbps.coerceAtLeast(0)} kbps",color=Aether.InkFaint,style=MaterialTheme.typography.bodySmall);CyberButton(if(iran.scanning)"Checking network…" else "Refresh network check",Aether.Cyan,Modifier.fillMaxWidth(),!iran.scanning){repo.scanIranMode(force=true,deep=true)}}}
+        item{SectionLabel("Marble Intelligence");HoloGlass(Modifier.fillMaxWidth()){Row(verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f)){Text(if(repo.settings.intelligenceEnabled)"Adaptive engine enabled" else "Adaptive engine disabled",color=Aether.Ink,style=MaterialTheme.typography.titleMedium);Text("Effective MTU ${intel.effectiveMtu.takeIf{it>0}?:network.mtu} • Thermal budget ${intel.thermalBudgetPercent}% • History ${intel.historyRecords}",color=Aether.InkFaint,style=MaterialTheme.typography.bodySmall)};HoloBadge(if(repo.settings.intelligenceEnabled)"On" else "Off",if(repo.settings.intelligenceEnabled)Aether.Emerald else Aether.InkFaint,true)};Text(intel.lastDecision.ifBlank{"Waiting for the next network decision"},color=Aether.InkMuted,style=MaterialTheme.typography.bodyMedium)}}
+        if(iran.active){item{SectionLabel("Regional protection");HoloGlass(Modifier.fillMaxWidth()){Row(verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f)){Text(iran.ispLine,color=Aether.Ink,style=MaterialTheme.typography.titleMedium);Text(iran.summary,color=Aether.InkMuted,style=MaterialTheme.typography.bodySmall)};HoloBadge("${iran.confidence}%",Aether.Emerald,true)}}}}
+        if(repo.benchmarks.isNotEmpty()){item{SectionLabel("Recent measurements","Read-only route evidence")};items(repo.benchmarks.sortedByDescending{it.score}.take(6),key={"network-memory-${it.profileId}"}){r->val c=healthColor(r.latencyMs.toInt(),r.success);HoloGlass(Modifier.fillMaxWidth(),contentPadding=PaddingValues(horizontal=14.dp,vertical=12.dp)){Row(verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f)){Text(r.name,color=Aether.Ink,style=MaterialTheme.typography.labelLarge,maxLines=1,overflow=TextOverflow.Ellipsis);Text("${r.latencyMs.toInt()} ms • jitter ${r.jitterMs.toInt()} ms • success ${r.success}%",color=Aether.InkFaint,style=MaterialTheme.typography.bodySmall)};HoloBadge("${r.score.roundToInt().coerceIn(0,100)}",c,true)}}}}
     }
 }
 
@@ -2947,256 +1881,28 @@ private fun CircularScanner(
 // =================================================================================================
 
 @Composable
-private fun SpatialSettings(
-    repo: AppRepository,
-    onDialog: (String) -> Unit,
-    focusSection: String? = null
-) {
-    val listState = rememberLazyListState()
-    LaunchedEffect(focusSection) {
-        if (focusSection == "Routing") {
-            delay(45)
-            listState.animateScrollToItem(9)
-        }
-    }
-
-    LazyColumn(
-        state = listState,
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(11.dp)
-    ) {
-        item {
-            SpatialHeader(
-                eyebrow = "Control Matrix",
-                title = "Settings",
-                subtitle = "Advanced systems reveal only when needed",
-                status = "AETHER V2",
-                statusColor = Aether.Amethyst
-            )
-        }
-
-        item {
-            SpatialAccordion(
-                title = "Connection surface",
-                subtitle = "Full TUN vs localhost proxy",
-                badge = "PATH",
-                color = Aether.Cyan,
-                initiallyOpen = focusSection == null
-            ) {
-                ConnectionSettings(repo)
-            }
-        }
-
-        item {
-            SpatialAccordion(
-                title = "Iran Mode",
-                subtitle = "Iranian ISP detection • anti-filtering countermeasures",
-                badge = "IR",
-                color = Aether.Emerald,
-                initiallyOpen = focusSection == null && repo.iranMode.active
-            ) {
-                IranModeSettings(repo)
-            }
-        }
-
-        item {
-            SpatialAccordion(
-                title = "Marble Intelligence",
-                subtitle = "Predictive routing • DNS shield • adaptive recovery",
-                badge = "AI NET",
-                color = Aether.Cyan,
-                initiallyOpen = focusSection == null
-            ) {
-                IntelligenceSettings(repo)
-            }
-        }
-
-        item {
-            SpatialAccordion(
-                title = "Notifications",
-                subtitle = "Smart alerts • recovery • privacy • sync",
-                badge = "ALERTS",
-                color = Aether.Amber
-            ) {
-                NotificationSettings(repo)
-            }
-        }
-
-        item {
-            SpatialAccordion(
-                title = "Split tunneling",
-                subtitle = "Per-app capture policy",
-                badge = "APPS",
-                color = Aether.Emerald
-            ) {
-                SplitTunnelSettings(repo)
-            }
-        }
-
-        item {
-            SpatialAccordion(
-                title = "Fragment & Mux",
-                subtitle = "DPI resilience and connection reuse",
-                badge = "XRAY",
-                color = Aether.Amethyst
-            ) {
-                FragmentMuxSettings(repo)
-            }
-        }
-
-        item {
-            SpatialAccordion(
-                title = "Chain proxy",
-                subtitle = "Visual two-hop route",
-                badge = "2-HOP",
-                color = Aether.Amber
-            ) {
-                ChainSettings(repo)
-            }
-        }
-
-        item {
-            SpatialAccordion(
-                title = "DNS",
-                subtitle = "TUN resolvers and DoH path",
-                badge = "DOH",
-                color = Aether.Cyan
-            ) {
-                DnsSettings(repo)
-            }
-        }
-
-        item {
-            SpatialAccordion(
-                title = "Routing",
-                subtitle = "Geo assets, direct rules, block rules",
-                badge = "RULES",
-                color = Aether.Emerald,
-                initiallyOpen = focusSection == "Routing"
-            ) {
-                RoutingSettings(repo)
-            }
-        }
-
-        item {
-            SpatialAccordion(
-                title = "Subscriptions",
-                subtitle = "Automatic refresh cadence",
-                badge = "SYNC",
-                color = Aether.Amethyst
-            ) {
-                SubscriptionSettings(repo)
-            }
-        }
-
-        item {
-            SpatialAccordion(
-                title = "Maintenance",
-                subtitle = "Diagnostics and recovery",
-                badge = "TOOLS",
-                color = Aether.InkMuted
-            ) {
-                MaintenanceSettings(repo, onDialog)
-            }
-        }
-
-        item {
-            Text(
-                "Marble Intelligence performs bounded health probes through Xray, persists network-scoped route history, and keeps Full TUN fail-closed during recovery. Multi-WAN and KernelSU/eBPF are displayed only as capabilities until a real datapath backend exists.",
-                color = Aether.InkFaint,
-                style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.padding(horizontal = 4.dp, vertical = 12.dp)
-            )
-        }
+private fun SpatialSettings(repo:AppRepository,onDialog:(String)->Unit,focusSection:String?=null){
+    val listState=rememberLazyListState();var expertMode by remember(focusSection){mutableStateOf(focusSection=="Routing")}
+    LaunchedEffect(focusSection){if(focusSection=="Routing"){expertMode=true;delay(80);listState.animateScrollToItem(9)}}
+    LazyColumn(state=listState,modifier=Modifier.fillMaxSize(),contentPadding=PaddingValues(horizontal=18.dp,vertical=10.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
+        item{SpatialHeader("Preferences","Settings","Simple by default. Technical controls appear only when requested.",if(expertMode)"Expert" else "Simple",if(expertMode)Aether.Cyan else Aether.Emerald)}
+        item{HoloGlass(Modifier.fillMaxWidth()){SettingSwitch("Expert controls","Reveal MTU, DNS, routing, fragmentation, recovery and chain settings",expertMode){expertMode=it}}}
+        item{SpatialAccordion("Connection","Full-device tunnel or local SOCKS proxy","Core",Aether.Cyan,true){ConnectionSettings(repo)}}
+        item{SpatialAccordion("Split tunneling","Choose exactly which apps use or bypass the tunnel","Apps",Aether.Emerald){SplitTunnelSettings(repo)}}
+        item{SpatialAccordion("Notifications","Connection, recovery and privacy alerts","Alerts",Aether.InkMuted){NotificationSettings(repo)}}
+        item{SpatialAccordion("Subscriptions","Automatic refresh cadence","Sync",Aether.Cyan){SubscriptionSettings(repo)}}
+        if(expertMode){item{SpatialAccordion("Regional protection","Iran Mode detection and countermeasures","Expert",Aether.Emerald){IranModeSettings(repo)}};item{SpatialAccordion("Marble Intelligence","Adaptive MTU, route history, recovery and optimizer policy","Expert",Aether.Cyan){IntelligenceSettings(repo)}};item{SpatialAccordion("DNS","TUN resolvers and encrypted DoH path","Expert",Aether.Cyan){DnsSettings(repo)}};item{SpatialAccordion("Routing","Geo assets, direct rules and blocking policy","Expert",Aether.Emerald,focusSection=="Routing"){RoutingSettings(repo)}};item{SpatialAccordion("Fragmentation & Mux","DPI resilience and connection reuse","Expert",Aether.InkMuted){FragmentMuxSettings(repo)}};item{SpatialAccordion("Chain proxy","Optional two-hop route","Expert",Aether.InkMuted){ChainSettings(repo)}}}
+        item{SpatialAccordion("Maintenance","Diagnostics, logs and recovery tools","Tools",Aether.InkMuted){MaintenanceSettings(repo,onDialog)}}
+        item{Text(if(expertMode)"Expert controls affect low-level Xray and tunnel behavior. Change them only when you know why." else "Most users never need Expert controls. MarbleNG keeps the advanced engine available without making it the interface.",color=Aether.InkFaint,style=MaterialTheme.typography.bodySmall,modifier=Modifier.padding(horizontal=4.dp,vertical=10.dp))}
     }
 }
 
 @Composable
-private fun SpatialAccordion(
-    title: String,
-    subtitle: String,
-    badge: String,
-    color: Color,
-    initiallyOpen: Boolean = false,
-    content: @Composable ColumnScope.() -> Unit
-) {
-    var open by remember { mutableStateOf(initiallyOpen) }
-    val glow by animateFloatAsState(
-        targetValue = if (open) .24f else .10f,
-        animationSpec = tween(135, easing = FastOutSlowInEasing),
-        label = "accordion-glow"
-    )
-
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .animateContentSize(
-                animationSpec = tween(165, easing = FastOutSlowInEasing)
-            )
-            .clip(RoundedCornerShape(24.dp))
-            .background(
-                Brush.linearGradient(
-                    listOf(
-                        Aether.GlassStrong.copy(alpha = .68f),
-                        Aether.Glass.copy(alpha = .40f),
-                        Aether.VoidElevated.copy(alpha = .72f)
-                    )
-                )
-            )
-            .border(
-                1.dp,
-                Brush.horizontalGradient(
-                    listOf(
-                        color.copy(alpha = if (open) glow else .10f),
-                        Aether.GlassBorderSoft,
-                        color.copy(alpha = if (open) glow * .72f else .07f)
-                    )
-                ),
-                RoundedCornerShape(24.dp)
-            )
-            .padding(14.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth().clickable { open = !open },
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
-                Modifier
-                    .size(39.dp)
-                    .clip(CircleShape)
-                    .background(color.copy(alpha = .09f))
-                    .border(1.dp, color.copy(alpha = .22f), CircleShape),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(if (open) "−" else "+", color = color, style = MaterialTheme.typography.titleMedium)
-            }
-
-            Spacer(Modifier.width(11.dp))
-            Column(Modifier.weight(1f)) {
-                Text(title, color = Aether.Ink, style = MaterialTheme.typography.titleMedium)
-                Text(subtitle, color = Aether.InkFaint, style = MaterialTheme.typography.bodySmall)
-            }
-            HoloBadge(badge, color, compact = true)
-        }
-
-        AnimatedVisibility(
-            visible = open,
-            enter = expandVertically(
-                animationSpec = tween(150, easing = FastOutSlowInEasing),
-                expandFrom = Alignment.Top
-            ) + fadeIn(animationSpec = tween(85)),
-            exit = shrinkVertically(
-                animationSpec = tween(120, easing = FastOutSlowInEasing),
-                shrinkTowards = Alignment.Top
-            ) + fadeOut(animationSpec = tween(70))
-        ) {
-            Column(verticalArrangement = Arrangement.spacedBy(11.dp)) {
-                HorizontalDivider(color = Aether.GlassBorderSoft.copy(alpha = .72f))
-                content()
-            }
-        }
+private fun SpatialAccordion(title:String,subtitle:String,badge:String,color:Color,initiallyOpen:Boolean=false,content:@Composable ColumnScope.()->Unit){
+    var open by remember{mutableStateOf(initiallyOpen)};val shape=RoundedCornerShape(22.dp)
+    Column(Modifier.fillMaxWidth().animateContentSize(tween(170,easing=FastOutSlowInEasing)).shadow(5.dp,shape,clip=false).clip(shape).background(Aether.VoidElevated).padding(15.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
+        Row(Modifier.fillMaxWidth().clickable{open=!open},verticalAlignment=Alignment.CenterVertically){Box(Modifier.size(38.dp).clip(RoundedCornerShape(13.dp)).background(color.copy(alpha=.10f)),contentAlignment=Alignment.Center){Text(if(open)"−" else "+",color=color)};Spacer(Modifier.width(12.dp));Column(Modifier.weight(1f)){Text(title,color=Aether.Ink,style=MaterialTheme.typography.titleMedium);Spacer(Modifier.height(2.dp));Text(subtitle,color=Aether.InkFaint,style=MaterialTheme.typography.bodySmall)};HoloBadge(badge,color,true)}
+        AnimatedVisibility(open,enter=expandVertically(tween(150))+fadeIn(tween(90)),exit=shrinkVertically(tween(120))+fadeOut(tween(70))){Column(verticalArrangement=Arrangement.spacedBy(11.dp)){HorizontalDivider(color=Aether.GlassBorderSoft);content()}}
     }
 }
 
@@ -3556,112 +2262,22 @@ private fun NotificationSettings(repo: AppRepository) {
 }
 
 @Composable
-private fun SplitTunnelSettings(repo: AppRepository) {
-    val context = LocalContext.current
-    val pm = context.packageManager
-    var search by remember { mutableStateOf("") }
-
-    val apps = remember {
-        val launcherIntent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
-        @Suppress("DEPRECATION")
-        pm.queryIntentActivities(launcherIntent, PackageManager.MATCH_ALL)
-            .mapNotNull { result ->
-                val pkg = result.activityInfo?.packageName ?: return@mapNotNull null
-                if (pkg == context.packageName) return@mapNotNull null
-                InstalledApp(
-                    label = runCatching { result.loadLabel(pm).toString() }.getOrDefault(pkg),
-                    packageName = pkg
-                )
-            }
-            .distinctBy { it.packageName }
-            .sortedBy { it.label.lowercase() }
+private fun SplitTunnelSettings(repo:AppRepository){
+    val context=LocalContext.current;val pm=context.packageManager;var search by remember{mutableStateOf("")}
+    val apps=remember{val intent=Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER);@Suppress("DEPRECATION") pm.queryIntentActivities(intent,PackageManager.MATCH_ALL).mapNotNull{r->val pkg=r.activityInfo?.packageName?:return@mapNotNull null;if(pkg==context.packageName)return@mapNotNull null;InstalledApp(runCatching{r.loadLabel(pm).toString()}.getOrDefault(pkg),pkg)}.distinctBy{it.packageName}.sortedBy{it.label.lowercase()}}
+    val selected=remember(repo.settings.splitTunnelPackages){repo.settings.splitTunnelPackages.split(',', '\n','\r',';').map(String::trim).filter(String::isNotBlank).toSet()}
+    val visibleApps=remember(apps,search){apps.filter{search.isBlank()||it.label.contains(search,true)||it.packageName.contains(search,true)}}
+    fun toggle(pkg:String){val n=selected.toMutableSet();if(!n.add(pkg))n.remove(pkg);repo.updateSettings(repo.settings.copy(splitTunnelPackages=n.sorted().joinToString(",")))}
+    Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(8.dp)){SplitTunnelMode.entries.forEach{m->CyberChoiceChip(when(m){SplitTunnelMode.ALL_APPS->"All apps";SplitTunnelMode.ONLY_SELECTED->"Only selected";SplitTunnelMode.BYPASS_SELECTED->"Bypass selected"},repo.settings.splitTunnelMode==m,Aether.Emerald){repo.updateSettings(repo.settings.copy(splitTunnelMode=m))}}}
+    if(repo.settings.splitTunnelMode!=SplitTunnelMode.ALL_APPS){
+        TextField(search,{search=it},placeholder={Text("Search installed apps")},singleLine=true,modifier=Modifier.fillMaxWidth(),shape=RoundedCornerShape(18.dp),colors=TextFieldDefaults.colors(focusedContainerColor=Aether.GlassStrong,unfocusedContainerColor=Aether.GlassStrong,disabledContainerColor=Aether.GlassStrong,focusedIndicatorColor=Color.Transparent,unfocusedIndicatorColor=Color.Transparent))
+        Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=Alignment.CenterVertically){Text("${visibleApps.size} apps",color=Aether.InkFaint,style=MaterialTheme.typography.bodySmall);HoloBadge("${selected.size} selected",Aether.Emerald,true)}
+        LazyColumn(Modifier.fillMaxWidth().height(360.dp).clip(RoundedCornerShape(18.dp)).background(Aether.Glass.copy(alpha=.70f)),contentPadding=PaddingValues(vertical=6.dp),verticalArrangement=Arrangement.spacedBy(2.dp),userScrollEnabled=true){items(visibleApps,key={it.packageName}){app->SplitTunnelAppRow(app,app.packageName in selected){toggle(app.packageName)}}}
+        Text("Changes apply on the next Full TUN connection.",color=Aether.InkFaint,style=MaterialTheme.typography.bodySmall)
     }
-
-    Row(
-        modifier = Modifier.horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(7.dp)
-    ) {
-        SplitTunnelMode.entries.forEach { mode ->
-            CyberChoiceChip(
-                text = when (mode) {
-                    SplitTunnelMode.ALL_APPS -> "ALL APPS"
-                    SplitTunnelMode.ONLY_SELECTED -> "ONLY SELECTED"
-                    SplitTunnelMode.BYPASS_SELECTED -> "BYPASS SELECTED"
-                },
-                selected = repo.settings.splitTunnelMode == mode,
-                color = Aether.Emerald
-            ) {
-                repo.updateSettings(repo.settings.copy(splitTunnelMode = mode))
-            }
-        }
-    }
-
-    if (repo.settings.splitTunnelMode != SplitTunnelMode.ALL_APPS) {
-        OutlinedTextField(
-            value = search,
-            onValueChange = { search = it },
-            placeholder = { Text("Search installed apps") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(18.dp)
-        )
-
-        val selected = repo.settings.splitTunnelPackages
-            .split(',', '\n', ';')
-            .map { it.trim() }
-            .filter { it.isNotBlank() }
-            .toSet()
-
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text("APP MATRIX", color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
-            HoloBadge("${selected.size} SELECTED", Aether.Emerald, compact = true)
-        }
-
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(max = 380.dp)
-                .clip(RoundedCornerShape(18.dp))
-                .background(Aether.Void.copy(alpha = .50f))
-                .border(1.dp, Aether.GlassBorderSoft, RoundedCornerShape(18.dp))
-                .padding(6.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            apps.filter {
-                search.isBlank() ||
-                    it.label.contains(search, true) ||
-                    it.packageName.contains(search, true)
-            }.take(48).chunked(2).forEach { rowApps ->
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    rowApps.forEach { app ->
-                        val checked = app.packageName in selected
-                        AppGridTile(
-                            app = app,
-                            checked = checked,
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            val next = selected.toMutableSet()
-                            if (!next.add(app.packageName)) next.remove(app.packageName)
-                            repo.updateSettings(
-                                repo.settings.copy(
-                                    splitTunnelPackages = next.sorted().joinToString(",")
-                                )
-                            )
-                        }
-                    }
-                    if (rowApps.size == 1) {
-                        Spacer(Modifier.weight(1f))
-                    }
-                }
-            }
-        }
-
-        Text(
-            "Per-app capture changes take effect on the next Full TUN connection.",
-            color = Aether.Amber,
-            style = MaterialTheme.typography.bodySmall
-        )
-    }
+}
+@Composable private fun SplitTunnelAppRow(app:InstalledApp,checked:Boolean,onToggle:()->Unit){
+    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(15.dp)).clickable(onClick=onToggle).padding(horizontal=10.dp,vertical=8.dp),verticalAlignment=Alignment.CenterVertically){Box(Modifier.size(38.dp).clip(RoundedCornerShape(12.dp)).background(if(checked)Aether.Emerald.copy(alpha=.12f) else Aether.GlassStrong),contentAlignment=Alignment.Center){Text(app.label.trim().firstOrNull()?.uppercase()?:"•",color=if(checked)Aether.Emerald else Aether.InkMuted,style=MaterialTheme.typography.labelLarge)};Spacer(Modifier.width(11.dp));Column(Modifier.weight(1f)){Text(app.label,color=Aether.Ink,style=MaterialTheme.typography.bodyMedium,maxLines=1,overflow=TextOverflow.Ellipsis);Text(app.packageName,color=Aether.InkFaint,style=MaterialTheme.typography.labelSmall,maxLines=1,overflow=TextOverflow.Ellipsis)};Checkbox(checked,{onToggle()},colors=CheckboxDefaults.colors(checkedColor=Aether.Emerald,checkmarkColor=Aether.Void))}
 }
 
 @Composable
@@ -4173,103 +2789,13 @@ private fun MaintenanceSettings(repo: AppRepository, onDialog: (String) -> Unit)
 // =================================================================================================
 
 @Composable
-private fun CyberButton(
-    label: String,
-    color: Color,
-    modifier: Modifier = Modifier,
-    enabled: Boolean = true,
-    onClick: () -> Unit
-) {
-    Box(
-        modifier = modifier
-            .alpha(if (enabled) 1f else .42f)
-            .clip(RoundedCornerShape(18.dp))
-            .background(
-                Brush.horizontalGradient(
-                    listOf(
-                        color.copy(alpha = .24f),
-                        Aether.Glass.copy(alpha = .62f)
-                    )
-                )
-            )
-            .border(1.dp, color.copy(alpha = .30f), RoundedCornerShape(18.dp))
-            .clickable(enabled = enabled, onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 12.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(label, color = Aether.Ink, style = MaterialTheme.typography.labelLarge)
-    }
-}
+private fun CyberButton(label:String,color:Color,modifier:Modifier=Modifier,enabled:Boolean=true,onClick:()->Unit){val shape=RoundedCornerShape(18.dp);Box(modifier.alpha(if(enabled)1f else .42f).shadow(3.dp,shape,clip=false).clip(shape).background(if(enabled)color.copy(alpha=.12f) else Aether.GlassStrong).clickable(enabled=enabled,onClick=onClick).padding(horizontal=14.dp,vertical=13.dp),contentAlignment=Alignment.Center){Text(label,color=if(enabled)Aether.Ink else Aether.InkFaint,style=MaterialTheme.typography.labelLarge)}}
 
 @Composable
-private fun CyberChoiceChip(
-    text: String,
-    selected: Boolean,
-    color: Color,
-    onClick: () -> Unit
-) {
-    Box(
-        modifier = Modifier
-            .clip(CircleShape)
-            .background(
-                if (selected) color.copy(alpha = .13f)
-                else Aether.Glass.copy(alpha = .42f)
-            )
-            .border(
-                1.dp,
-                if (selected) color.copy(alpha = .38f)
-                else Aether.GlassBorderSoft,
-                CircleShape
-            )
-            .clickable(onClick = onClick)
-            .padding(horizontal = 11.dp, vertical = 7.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(
-            text,
-            color = if (selected) color else Aether.InkMuted,
-            style = MaterialTheme.typography.labelSmall,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-    }
-}
+private fun CyberChoiceChip(text:String,selected:Boolean,color:Color,onClick:()->Unit){Box(Modifier.clip(RoundedCornerShape(12.dp)).background(if(selected)color.copy(alpha=.13f) else Aether.GlassStrong.copy(alpha=.72f)).clickable(onClick=onClick).padding(horizontal=11.dp,vertical=8.dp),contentAlignment=Alignment.Center){Text(text,color=if(selected)color else Aether.InkMuted,style=MaterialTheme.typography.labelSmall,maxLines=1,overflow=TextOverflow.Ellipsis)}}
 
 @Composable
-private fun CyberSegment(
-    label: String,
-    detail: String,
-    selected: Boolean,
-    color: Color,
-    modifier: Modifier = Modifier,
-    onClick: () -> Unit
-) {
-    Column(
-        modifier = modifier
-            .clip(RoundedCornerShape(18.dp))
-            .background(
-                if (selected) {
-                    Brush.linearGradient(
-                        listOf(color.copy(alpha = .16f), Aether.Glass.copy(alpha = .54f))
-                    )
-                } else {
-                    Brush.linearGradient(
-                        listOf(Aether.Glass.copy(alpha = .38f), Aether.Glass.copy(alpha = .38f))
-                    )
-                }
-            )
-            .border(
-                1.dp,
-                if (selected) color.copy(alpha = .34f) else Aether.GlassBorderSoft,
-                RoundedCornerShape(18.dp)
-            )
-            .clickable(onClick = onClick)
-            .padding(12.dp)
-    ) {
-        Text(label, color = if (selected) color else Aether.Ink, style = MaterialTheme.typography.labelLarge)
-        Text(detail, color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
-    }
-}
+private fun CyberSegment(label:String,detail:String,selected:Boolean,color:Color,modifier:Modifier=Modifier,onClick:()->Unit){val shape=RoundedCornerShape(18.dp);Column(modifier.shadow(if(selected)3.dp else 0.dp,shape,clip=false).clip(shape).background(if(selected)color.copy(alpha=.11f) else Aether.GlassStrong.copy(alpha=.64f)).clickable(onClick=onClick).padding(12.dp)){Text(label,color=if(selected)color else Aether.Ink,style=MaterialTheme.typography.labelLarge);Text(detail,color=Aether.InkFaint,style=MaterialTheme.typography.labelSmall)}}
 
 @Composable
 private fun SettingSwitch(
@@ -4454,37 +2980,7 @@ private fun ConnectionHealthMatrix(
 }
 
 @Composable
-private fun ScoreRing(score: Int, modifier: Modifier = Modifier) {
-    Box(modifier, contentAlignment = Alignment.Center) {
-        Canvas(Modifier.matchParentSize()) {
-            val stroke = size.minDimension * .085f
-            drawArc(
-                color = Color(0x221B2430),
-                startAngle = -210f,
-                sweepAngle = 240f,
-                useCenter = false,
-                style = Stroke(width = stroke, cap = StrokeCap.Round)
-            )
-            val ring = when {
-                score >= 80 -> Color(0xFF45FFB1)
-                score >= 55 -> Color(0xFF20F6FF)
-                score >= 35 -> Color(0xFFFFD35A)
-                else -> Color(0xFFFF6F7A)
-            }
-            drawArc(
-                brush = Brush.sweepGradient(listOf(ring.copy(alpha=.35f), ring)),
-                startAngle = -210f,
-                sweepAngle = 240f * (score.coerceIn(0,100) / 100f),
-                useCenter = false,
-                style = Stroke(width = stroke, cap = StrokeCap.Round)
-            )
-        }
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(score.toString(), color = Aether.Ink, style = MaterialTheme.typography.headlineSmall.copy(fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold))
-            Text("HEALTH", color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
-        }
-    }
-}
+private fun ScoreRing(score:Int,modifier:Modifier=Modifier){val s=score.coerceIn(0,100);val track=Aether.GlassBorderSoft;val ring=when{s>=80->Aether.Emerald;s>=55->Aether.Cyan;s>=35->Aether.Amber;else->Aether.Danger};Box(modifier,contentAlignment=Alignment.Center){Canvas(Modifier.matchParentSize()){val w=size.minDimension*.075f;drawArc(track,-90f,360f,false,style=Stroke(w,cap=StrokeCap.Round));if(s>0)drawArc(ring,-90f,360f*s/100f,false,style=Stroke(w,cap=StrokeCap.Round))};Column(horizontalAlignment=Alignment.CenterHorizontally){Text(s.toString(),color=Aether.Ink,style=MaterialTheme.typography.headlineMedium,fontWeight=FontWeight.SemiBold);Text("/ 100",color=Aether.InkFaint,style=MaterialTheme.typography.labelSmall)}}}
 
 @Composable
 private fun TacticalIndicatorTile(title: String, state: String, color: Color, detail: String, modifier: Modifier = Modifier) {
@@ -4511,9 +3007,9 @@ private fun TacticalIndicatorTile(title: String, state: String, color: Color, de
 private fun MultiWanVisualizer(bonding: Boolean, modifier: Modifier = Modifier) {
     val transition = rememberInfiniteTransition(label = "multiwan")
     val phase by transition.animateFloat(initialValue = 0f, targetValue = 1f, animationSpec = infiniteRepeatable(animation = tween(2000, easing = LinearEasing), repeatMode = RepeatMode.Restart), label = "multiwan-phase")
-    val cyanRaw = Color(0xFF20F6FF)
-    val purpleRaw = Color(0xFFB15CFF)
-    val mintRaw = Color(0xFF45FFB1)
+    val cyanRaw = Color(0xFF365FD9)
+    val purpleRaw = Color(0xFF6078BE)
+    val mintRaw = Color(0xFF7FA68B)
     Canvas(modifier) {
         val leftTop = Offset(size.width * .12f, size.height * .28f)
         val leftBottom = Offset(size.width * .12f, size.height * .72f)
@@ -4621,9 +3117,9 @@ private fun FallbackClusterStrip(title: String, detail: String, modifier: Modifi
 private fun FragmentMuxVisualizer(fragmentEnabled: Boolean, muxEnabled: Boolean, modifier: Modifier = Modifier) {
     val transition = rememberInfiniteTransition(label = "frag-mux")
     val phase by transition.animateFloat(initialValue = 0f, targetValue = 1f, animationSpec = infiniteRepeatable(animation = tween(1800, easing = LinearEasing), repeatMode = RepeatMode.Restart), label = "frag-mux-phase")
-    val cyanRaw = Color(0xFF20F6FF)
-    val amberRaw = Color(0xFFFFD35A)
-    val purpleRaw = Color(0xFFB15CFF)
+    val cyanRaw = Color(0xFF365FD9)
+    val amberRaw = Color(0xFFC3A36B)
+    val purpleRaw = Color(0xFF6078BE)
     Box(modifier) {
         Canvas(Modifier.matchParentSize()) {
             val y = size.height / 2f
