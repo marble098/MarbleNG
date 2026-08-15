@@ -72,6 +72,7 @@ class MarbleVpnService : VpnService() {
     @Volatile private var activeMtu = 1500
     @Volatile private var connectStartedNs = 0L
     @Volatile private var consecutiveProbeFailures = 0
+    @Volatile private var identityRecoveryAttempts = 0
     @Volatile private var lastNetworkKey = ""
     @Volatile private var lastNetworkValidated = false
 
@@ -134,6 +135,7 @@ class MarbleVpnService : VpnService() {
         activeSettings = settings
         connectStartedNs = System.nanoTime()
         consecutiveProbeFailures = 0
+        identityRecoveryAttempts = 0
         recoveryScheduled.set(false)
         optimizerScanRequested.set(false)
         routeOptimizer.reset(System.currentTimeMillis())
@@ -528,8 +530,16 @@ class MarbleVpnService : VpnService() {
         if (!isCurrent(session) || recoveryScheduled.get()) return
         val app = application as MarbleApplication
         val repo = app.repo
-        val settings = repo.settings
-        if (!settings.continuousOptimizerEnabled) return
+        val settings = activeSettings ?: repo.settings
+        if (!settings.continuousOptimizerEnabled) {
+            optimizerScanRequested.set(false)
+            if (settings.identityGuardEnabled) {
+                repo.intelligence.setDecision(
+                    "Identity Guard • session pinned • proactive exit switching disabled"
+                )
+            }
+            return
+        }
         val quality = activeRouteQuality()
         val force = optimizerScanRequested.getAndSet(false)
         val thermal = repo.intelligence.thermalBudget(settings)
@@ -727,6 +737,8 @@ class MarbleVpnService : VpnService() {
         }
 
         consecutiveProbeFailures =
+            0
+        identityRecoveryAttempts =
             0
 
         val quality =
@@ -971,6 +983,133 @@ class MarbleVpnService : VpnService() {
                 settings,
                 minIntervalOverrideMs = 60_000L
             )
+            return
+        }
+
+        // Identity Guard keeps the public exit pinned. It may restart the SAME profile
+        // while Full TUN remains fail-closed, but it never silently selects another profile/IP.
+        if (
+            settings.identityGuardEnabled &&
+            settings.identityGuardStrictNoFailover
+        ) {
+            val pinned =
+                repo.profile(failedId)
+
+            val maxRetries =
+                settings
+                    .identityGuardSameRouteRetries
+                    .coerceIn(0, 5)
+
+            if (
+                pinned != null &&
+                identityRecoveryAttempts < maxRetries &&
+                recoveryScheduled.compareAndSet(false, true)
+            ) {
+                identityRecoveryAttempts++
+                val attempt =
+                    identityRecoveryAttempts
+                val delayMs =
+                    (750L * attempt)
+                        .coerceAtMost(3_000L)
+
+                running.set(true)
+                repo.setRuntimeState(
+                    "CONNECTING",
+                    "Identity Guard • retry $attempt/$maxRetries • ${pinned.name}"
+                )
+                promoteForeground(
+                    "Identity Guard • recovering pinned route",
+                    ongoing = true
+                )
+
+                notifier.alert(
+                    SmartNotificationKind.RECOVERY,
+                    "identity-retry:${activeSession}:$failedId:$attempt",
+                    "Identity Guard",
+                    if (holdTun) {
+                        "Retrying the same route • Full TUN remains fail-closed • public IP will not be rotated"
+                    } else {
+                        "Retrying the same local-proxy route • public exit will not be rotated"
+                    },
+                    settings,
+                    minIntervalOverrideMs = 60_000L
+                )
+
+                diag.event(
+                    "IDENTITY",
+                    "same-route-retry",
+                    "session" to activeSession,
+                    "profile" to failedId.take(12),
+                    "attempt" to attempt,
+                    "maxRetries" to maxRetries,
+                    "failClosed" to holdTun
+                )
+
+                connectionWorker.execute {
+                    if (delayMs > 0L) {
+                        try {
+                            Thread.sleep(delayMs)
+                        } catch (_: InterruptedException) {
+                            Thread.currentThread().interrupt()
+                        }
+                    }
+
+                    if (!isCurrent(session)) {
+                        recoveryScheduled.set(false)
+                        return@execute
+                    }
+
+                    recoveryScheduled.set(false)
+                    recoverRoute(
+                        pinned,
+                        session
+                    )
+                }
+                return
+            }
+
+            recoveryScheduled.set(false)
+
+            diag.event(
+                "IDENTITY",
+                "pinned-route-held",
+                "session" to activeSession,
+                "profile" to failedId.take(12),
+                "attempts" to identityRecoveryAttempts,
+                "reason" to reason,
+                "failClosed" to holdTun
+            )
+
+            if (holdTun) {
+                running.set(true)
+                repo.setRuntimeState(
+                    "BLOCKED",
+                    "Identity Guard • pinned route unavailable • public IP not changed"
+                )
+                promoteForeground(
+                    "BLOCKED • Identity Guard holding traffic",
+                    ongoing = true
+                )
+                notifier.alert(
+                    SmartNotificationKind.PRIVACY,
+                    "identity-hold:${activeSession}:$failedId",
+                    "Identity Guard is holding traffic",
+                    "Pinned exit is unavailable • traffic stays blocked instead of switching to another public IP",
+                    settings,
+                    minIntervalOverrideMs = 60_000L
+                )
+                return
+            }
+
+            running.set(false)
+            repo.setRuntimeState(
+                "BLOCKED",
+                "Identity Guard • pinned local-proxy route unavailable"
+            )
+            stopForeground(
+                STOP_FOREGROUND_REMOVE
+            )
+            stopSelf()
             return
         }
 

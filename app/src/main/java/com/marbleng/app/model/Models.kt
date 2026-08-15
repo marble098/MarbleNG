@@ -174,6 +174,11 @@ data class AppSettings(
     val configCompatibilityMode: Boolean = true,
     val verifiedPerformanceTuning: Boolean = true,
 
+    // Identity Guard. Enabled by default: keep a user-started session on one public exit.
+    val identityGuardEnabled: Boolean = true,
+    val identityGuardStrictNoFailover: Boolean = true,
+    val identityGuardSameRouteRetries: Int = 3,
+
     // Continuous Marble Autopilot. Cheap active-route monitoring plus real Xray challenger probes.
     val continuousOptimizerEnabled: Boolean = true,
     val optimizerIntervalSec: Int = 120,

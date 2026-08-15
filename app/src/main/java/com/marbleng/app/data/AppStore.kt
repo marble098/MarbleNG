@@ -110,6 +110,9 @@ class AppStore(context: Context) {
         intelligenceEnabled = prefs.getBoolean("intelligenceEnabled", true),
         configCompatibilityMode = prefs.getBoolean("configCompatibilityMode", true),
         verifiedPerformanceTuning = prefs.getBoolean("verifiedPerformanceTuning", true),
+        identityGuardEnabled = prefs.getBoolean("identityGuardEnabled", true),
+        identityGuardStrictNoFailover = prefs.getBoolean("identityGuardStrictNoFailover", true),
+        identityGuardSameRouteRetries = prefs.getInt("identityGuardSameRouteRetries", 3).coerceIn(0, 5),
         continuousOptimizerEnabled = prefs.getBoolean("continuousOptimizerEnabled", true),
         optimizerIntervalSec = prefs.getInt("optimizerIntervalSec", 120).coerceIn(60, 900),
         optimizerCandidateCount = prefs.getInt("optimizerCandidateCount", 4).coerceIn(2, 8),
@@ -225,6 +228,9 @@ class AppStore(context: Context) {
         .putBoolean("intelligenceEnabled", s.intelligenceEnabled)
         .putBoolean("configCompatibilityMode", s.configCompatibilityMode)
         .putBoolean("verifiedPerformanceTuning", s.verifiedPerformanceTuning)
+        .putBoolean("identityGuardEnabled", s.identityGuardEnabled)
+        .putBoolean("identityGuardStrictNoFailover", s.identityGuardStrictNoFailover)
+        .putInt("identityGuardSameRouteRetries", s.identityGuardSameRouteRetries.coerceIn(0, 5))
         .putBoolean("continuousOptimizerEnabled", s.continuousOptimizerEnabled)
         .putInt("optimizerIntervalSec", s.optimizerIntervalSec.coerceIn(60, 900))
         .putInt("optimizerCandidateCount", s.optimizerCandidateCount.coerceIn(2, 8))

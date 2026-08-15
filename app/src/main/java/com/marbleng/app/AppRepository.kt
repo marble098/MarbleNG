@@ -120,11 +120,13 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
      * output, so the shield is only applied here when the intelligence engine is switched off.
      */
     fun effectiveSettingsFor(profile: ProxyProfile): AppSettings =
-        if (settings.intelligenceEnabled) {
-            intelligence.effectiveSettings(profile, settings)
-        } else {
-            IranShield.apply(settings, profile, iranMode, geoIpReady())
-        }
+        IdentityGuard.apply(
+            if (settings.intelligenceEnabled) {
+                intelligence.effectiveSettings(profile, settings)
+            } else {
+                IranShield.apply(settings, profile, iranMode, geoIpReady())
+            }
+        )
 
     private fun geoIpReady(): Boolean =
         runCatching { xray.routingAssetStatus().geoIpReady }.getOrDefault(false)
