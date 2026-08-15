@@ -43,7 +43,7 @@ class MarbleVpnService : VpnService() {
         const val MODE_PROXY = "proxy"
         const val CHANNEL = "marbleng-vpn"
         const val NOTIFY = 7301
-        private const val ROUTE_PROBE_INTERVAL_TICKS = 30
+        private const val ROUTE_PROBE_INTERVAL_TICKS = 15
         private const val PROBE_FAILURES_BEFORE_RECOVERY = 3
         private const val EXIT_IDENTITY_PROBE_INTERVAL_TICKS = 180
     }
@@ -480,15 +480,23 @@ class MarbleVpnService : VpnService() {
         }
     }
 
-    private fun startProxyMonitor(session: String, port: Int, generation: Int) {
+private fun startProxyMonitor(session: String, port: Int, generation: Int) {
         monitorWorker.execute {
             var tick = 0
+
+            // Publish a real active-path score immediately instead of waiting for the periodic
+            // health cadence. A failure requests a quick confirmation through routeProbeRequested.
+            sampleRouteLatency(session, port, generation)
+
             while (isRouteCurrent(session, generation) && activeMode == MODE_PROXY) {
                 if (!xray.isAlive) {
                     handleFailure(session, "Xray local proxy stopped")
                     return@execute
                 }
-                if (tick == 2 || tick % ROUTE_PROBE_INTERVAL_TICKS == 0 || routeProbeRequested.getAndSet(false)) {
+                if (
+                    (tick > 0 && tick % ROUTE_PROBE_INTERVAL_TICKS == 0) ||
+                    routeProbeRequested.getAndSet(false)
+                ) {
                     sampleRouteLatency(session, port, generation)
                 }
                 if (
@@ -504,16 +512,22 @@ class MarbleVpnService : VpnService() {
         }
     }
 
-    private fun startTelemetry(session: String, port: Int, generation: Int) {
+private fun startTelemetry(session: String, port: Int, generation: Int) {
         monitorWorker.execute {
             val repo = (application as MarbleApplication).repo
             var lastUp = -1L
             var lastDown = -1L
             var lastT = System.nanoTime()
             var tick = 0
+
+            // The dashboard should become meaningful as soon as Xray is live. Probe the actual
+            // SOCKS/Xray path now, then keep a light 15-second health cadence.
+            sampleRouteLatency(session, port, generation)
+
             while (isRouteCurrent(session, generation) && hevActive) {
                 if (!sleepQuietly(1_000L)) return@execute
                 if (!isRouteCurrent(session, generation) || !hevActive) break
+
                 val stats = runCatching { HevTunnel.stats() }.getOrNull()
                 if (stats != null && stats.size >= 4) {
                     val now = System.nanoTime()
@@ -530,32 +544,42 @@ class MarbleVpnService : VpnService() {
                     lastDown = down
                     lastT = now
                 }
-                if (tick == 1 || tick % ROUTE_PROBE_INTERVAL_TICKS == 0 || routeProbeRequested.getAndSet(false)) {
+
+                if (
+                    (tick > 0 && tick % ROUTE_PROBE_INTERVAL_TICKS == 0) ||
+                    routeProbeRequested.getAndSet(false)
+                ) {
                     sampleRouteLatency(session, port, generation)
                 }
+
                 if (
                     (tick == 3 || (tick > 0 && tick % EXIT_IDENTITY_PROBE_INTERVAL_TICKS == 0)) &&
                     !verifyExitIdentity(session, port, generation)
                 ) {
                     return@execute
                 }
+
                 maybeScheduleOptimizer(session, generation)
+
                 if (tick % 5 == 0 && (activeSettings ?: repo.settings).notificationLiveStats) {
                     val name = repo.profile(activeProfileId)?.name ?: "Active route"
                     val ping = repo.livePingMs.takeIf { it > 0 }?.let { "${it} ms" } ?: "— ms"
                     val jitter = "J ${repo.liveJitterMs} ms"
+                    val score = repo.liveRouteScore.takeIf { it >= 0 }?.let { " • Q $it" }.orEmpty()
                     notifyNow(
                         "Protected • $name",
                         true,
-                        "$ping • $jitter • ↓ ${SmartNotifier.formatRate(repo.liveDownBps)} • ↑ ${SmartNotifier.formatRate(repo.liveUpBps)}"
+                        "$ping • $jitter$score • ↓ ${SmartNotifier.formatRate(repo.liveDownBps)} • ↑ ${SmartNotifier.formatRate(repo.liveUpBps)}"
                     )
                 }
+
                 if (tick % 10 == 0) {
                     repo.refreshIntelligenceStatus()
                     updateSentinel(killSwitch = true)
                 }
                 tick++
             }
+
             if (isRouteCurrent(session, generation)) {
                 repo.resetTelemetry()
             }
