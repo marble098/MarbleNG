@@ -14,6 +14,8 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
 import java.util.concurrent.Executors
+import kotlin.math.exp
+import kotlin.math.roundToInt
 
 class AppRepository(private val context: Context, val xray: XrayManager) {
     private val store = AppStore(context)
@@ -53,6 +55,8 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     var liveJitterMs by mutableStateOf(0); private set
     var liveDownBps by mutableStateOf(0L); private set
     var liveUpBps by mutableStateOf(0L); private set
+    var liveRouteScore by mutableStateOf(-1); private set
+    var liveRouteSamples by mutableStateOf(0); private set
 
     init {
         notifier.ensureChannels()
@@ -78,25 +82,49 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         }
     }
 
-    fun updateTelemetry(downBps: Long, upBps: Long) {
-        liveDownBps = downBps.coerceAtLeast(0)
-        liveUpBps = upBps.coerceAtLeast(0)
+fun updateTelemetry(downBps: Long, upBps: Long) {
+        val down = downBps.coerceAtLeast(0)
+        val up = upBps.coerceAtLeast(0)
+        postToMain {
+            liveDownBps = down
+            liveUpBps = up
+        }
     }
 
-    fun updatePing(ms: Int) {
-        if (ms > 0) livePingMs = ms
+fun updatePing(ms: Int) {
+        if (ms <= 0) return
+        postToMain {
+            livePingMs = ms
+            val raw = calculateLiveRouteScore(ms, liveJitterMs)
+            liveRouteScore =
+                if (liveRouteScore < 0) raw
+                else ((liveRouteScore * 3 + raw * 2) / 5).coerceIn(0, 100)
+        }
     }
 
-    fun updateRouteQuality(pingMs: Int, jitterMs: Int) {
-        if (pingMs > 0) livePingMs = pingMs
-        if (jitterMs >= 0) liveJitterMs = jitterMs
+fun updateRouteQuality(pingMs: Int, jitterMs: Int) {
+        if (pingMs <= 0) return
+        val safeJitter = jitterMs.coerceAtLeast(0)
+        val rawScore = calculateLiveRouteScore(pingMs, safeJitter)
+        postToMain {
+            livePingMs = pingMs
+            liveJitterMs = safeJitter
+            liveRouteScore =
+                if (liveRouteScore < 0) rawScore
+                else ((liveRouteScore * 3 + rawScore * 2) / 5).coerceIn(0, 100)
+            liveRouteSamples = (liveRouteSamples + 1).coerceAtMost(1_000_000)
+        }
     }
 
-    fun resetTelemetry() {
-        livePingMs = 0
-        liveJitterMs = 0
-        liveDownBps = 0
-        liveUpBps = 0
+fun resetTelemetry() {
+        postToMain {
+            livePingMs = 0
+            liveJitterMs = 0
+            liveDownBps = 0
+            liveUpBps = 0
+            liveRouteScore = -1
+            liveRouteSamples = 0
+        }
     }
 
     fun profile(id: String) = profiles.firstOrNull { it.id == id }
@@ -230,8 +258,22 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         }
     }
 
-    private fun postToMain(block: () -> Unit) {
-        android.os.Handler(android.os.Looper.getMainLooper()).post(block)
+private fun postToMain(block: () -> Unit) {
+        if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
+            block()
+        } else {
+            android.os.Handler(android.os.Looper.getMainLooper()).post(block)
+        }
+    }
+
+    private fun calculateLiveRouteScore(pingMs: Int, jitterMs: Int): Int {
+        val latencyFactor = exp(-pingMs.coerceIn(1, 10_000) / 360.0)
+        val jitterFactor = exp(-jitterMs.coerceIn(0, 3_000) / 120.0)
+        return (
+            100.0 *
+                latencyFactor *
+                (0.82 + 0.18 * jitterFactor)
+            ).roundToInt().coerceIn(0, 100)
     }
 
     fun recoveryCandidates(failedIds: Set<String>): List<ProxyProfile> =

@@ -1,6 +1,6 @@
 package com.marbleng.app.ui
 
-// Marble Product UI v9.0.0 • responsive calm-motion product surface
+// Marble Product UI v9.1.0 • live-aware fast-motion product surface
 
 import android.Manifest
 import android.content.Intent
@@ -21,6 +21,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
@@ -80,12 +81,12 @@ import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlin.math.sin
 
-private enum class SpatialTab(val label: String, val glyph: String) {
-    DECK("Home", "●"),
-    LIBRARY("Library", "▦"),
-    LAB("Quality", "◔"),
-    RADAR("Network", "⌁"),
-    SETTINGS("Settings", "⚙")
+private enum class SpatialTab(val label: String) {
+    DECK("Home"),
+    LIBRARY("Library"),
+    LAB("Quality"),
+    RADAR("Network"),
+    SETTINGS("Settings")
 }
 
 private data class InstalledApp(val label: String, val packageName: String)
@@ -153,30 +154,30 @@ fun Aether2026App(
                     if (forward) {
                         (
                             slideInHorizontally(
-                                animationSpec = tween(260, easing = FastOutSlowInEasing)
-                            ) { width -> width / 7 } +
-                                fadeIn(animationSpec = tween(180))
+                                animationSpec = tween(180, easing = FastOutSlowInEasing)
+                            ) { width -> width / 10 } +
+                                fadeIn(animationSpec = tween(110))
                         ) togetherWith (
                             slideOutHorizontally(
-                                animationSpec = tween(220, easing = FastOutSlowInEasing)
-                            ) { width -> -width / 9 } +
-                                fadeOut(animationSpec = tween(130))
+                                animationSpec = tween(150, easing = FastOutSlowInEasing)
+                            ) { width -> -width / 12 } +
+                                fadeOut(animationSpec = tween(90))
                         )
                     } else {
                         (
                             slideInHorizontally(
-                                animationSpec = tween(260, easing = FastOutSlowInEasing)
-                            ) { width -> -width / 7 } +
-                                fadeIn(animationSpec = tween(180))
+                                animationSpec = tween(180, easing = FastOutSlowInEasing)
+                            ) { width -> -width / 10 } +
+                                fadeIn(animationSpec = tween(110))
                         ) togetherWith (
                             slideOutHorizontally(
-                                animationSpec = tween(220, easing = FastOutSlowInEasing)
-                            ) { width -> width / 9 } +
-                                fadeOut(animationSpec = tween(130))
+                                animationSpec = tween(150, easing = FastOutSlowInEasing)
+                            ) { width -> width / 12 } +
+                                fadeOut(animationSpec = tween(90))
                         )
                     }
                 },
-                label = "marble-page-transition"
+                label = "marble-page-transition-fast"
             ) { page ->
                 when (page) {
                     SpatialTab.DECK -> CyberDeck(
@@ -206,8 +207,8 @@ fun Aether2026App(
             AnimatedVisibility(
                 visible = repo.busy,
                 modifier = Modifier.align(Alignment.TopCenter),
-                enter = fadeIn(tween(120)),
-                exit = fadeOut(tween(180))
+                enter = fadeIn(tween(90)),
+                exit = fadeOut(tween(120))
             ) {
                 LinearProgressIndicator(
                     modifier = Modifier.fillMaxWidth(),
@@ -309,18 +310,23 @@ private fun FloatingSpatialDock(
                 val active = item == selected
                 val background by animateColorAsState(
                     targetValue = if (active) Aether.Cyan.copy(alpha = .11f) else Color.Transparent,
-                    animationSpec = tween(220),
-                    label = "nav-background-${item.name}"
+                    animationSpec = tween(120),
+                    label = "nav-bg-${item.name}"
                 )
-                val glyphColor by animateColorAsState(
+                val iconColor by animateColorAsState(
                     targetValue = if (active) Aether.Cyan else Aether.InkFaint,
-                    animationSpec = tween(220),
-                    label = "nav-glyph-${item.name}"
+                    animationSpec = tween(120),
+                    label = "nav-icon-${item.name}"
                 )
                 val textColor by animateColorAsState(
                     targetValue = if (active) Aether.Ink else Aether.InkMuted,
-                    animationSpec = tween(220),
+                    animationSpec = tween(120),
                     label = "nav-text-${item.name}"
+                )
+                val iconSize by animateDpAsState(
+                    targetValue = if (active) 22.dp else 20.dp,
+                    animationSpec = tween(120),
+                    label = "nav-size-${item.name}"
                 )
 
                 Column(
@@ -334,13 +340,13 @@ private fun FloatingSpatialDock(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center
                 ) {
-                    Text(
-                        item.glyph,
-                        color = glyphColor,
-                        style = MaterialTheme.typography.titleMedium,
-                        maxLines = 1
+                    MarbleTabIcon(
+                        tab = item,
+                        color = iconColor,
+                        active = active,
+                        modifier = Modifier.size(iconSize)
                     )
-                    Spacer(Modifier.height(1.dp))
+                    Spacer(Modifier.height(3.dp))
                     Text(
                         item.label,
                         color = textColor,
@@ -349,6 +355,99 @@ private fun FloatingSpatialDock(
                         softWrap = false,
                         overflow = TextOverflow.Clip
                     )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MarbleTabIcon(
+    tab: SpatialTab,
+    color: Color,
+    active: Boolean,
+    modifier: Modifier = Modifier
+) {
+    Canvas(modifier) {
+        val w = size.width
+        val h = size.height
+        val stroke = if (active) 2.35f else 1.9f
+        val line = Stroke(width = stroke, cap = StrokeCap.Round)
+
+        when (tab) {
+            SpatialTab.DECK -> {
+                val roof = Path().apply {
+                    moveTo(w * .18f, h * .47f)
+                    lineTo(w * .50f, h * .20f)
+                    lineTo(w * .82f, h * .47f)
+                }
+                drawPath(roof, color, style = line)
+                drawLine(color, Offset(w*.27f,h*.43f), Offset(w*.27f,h*.80f), stroke, StrokeCap.Round)
+                drawLine(color, Offset(w*.73f,h*.43f), Offset(w*.73f,h*.80f), stroke, StrokeCap.Round)
+                drawLine(color, Offset(w*.27f,h*.80f), Offset(w*.73f,h*.80f), stroke, StrokeCap.Round)
+                drawLine(color, Offset(w*.47f,h*.80f), Offset(w*.47f,h*.60f), stroke, StrokeCap.Round)
+            }
+            SpatialTab.LIBRARY -> {
+                val positions = listOf(
+                    Offset(w*.31f,h*.31f), Offset(w*.69f,h*.31f),
+                    Offset(w*.31f,h*.69f), Offset(w*.69f,h*.69f)
+                )
+                positions.forEach { p ->
+                    drawCircle(
+                        color = color,
+                        radius = w * .115f,
+                        center = p,
+                        style = Stroke(width = stroke, cap = StrokeCap.Round)
+                    )
+                }
+            }
+            SpatialTab.LAB -> {
+                val r = w * .34f
+                drawArc(
+                    color = color,
+                    startAngle = -70f,
+                    sweepAngle = 285f,
+                    useCenter = false,
+                    topLeft = Offset(w/2-r,h/2-r),
+                    size = Size(r*2,r*2),
+                    style = line
+                )
+                drawLine(
+                    color,
+                    Offset(w*.50f,h*.50f),
+                    Offset(w*.69f,h*.34f),
+                    stroke,
+                    StrokeCap.Round
+                )
+                drawCircle(color, w*.055f, Offset(w*.50f,h*.50f))
+            }
+            SpatialTab.RADAR -> {
+                val left = Offset(w*.23f,h*.62f)
+                val top = Offset(w*.50f,h*.27f)
+                val right = Offset(w*.77f,h*.62f)
+                drawLine(color,left,top,stroke,StrokeCap.Round)
+                drawLine(color,top,right,stroke,StrokeCap.Round)
+                drawLine(color,left,right,stroke,StrokeCap.Round)
+                listOf(left,top,right).forEach { p ->
+                    drawCircle(color,w*.075f,p)
+                    drawCircle(color.copy(alpha=.18f),w*.14f,p)
+                }
+            }
+            SpatialTab.SETTINGS -> {
+                val center = Offset(w*.50f,h*.50f)
+                drawCircle(color,w*.25f,center,style=line)
+                drawCircle(color,w*.075f,center,style=line)
+                for (i in 0 until 8) {
+                    val angle = i * PI.toFloat() / 4f
+                    val from = Offset(
+                        center.x + cos(angle) * w*.31f,
+                        center.y + sin(angle) * h*.31f
+                    )
+                    val to = Offset(
+                        center.x + cos(angle) * w*.40f,
+                        center.y + sin(angle) * h*.40f
+                    )
+                    drawLine(color,from,to,stroke,StrokeCap.Round)
                 }
             }
         }
@@ -461,24 +560,209 @@ private fun SectionLabel(title:String,subtitle:String?=null){
 // =================================================================================================
 
 @Composable
-private fun CyberDeck(repo:AppRepository,onConnect:(ProxyProfile)->Unit,onLibrary:()->Unit,onPrivacy:()->Unit,onRouting:()->Unit){
-    val connected=repo.state=="CONNECTED"; val connecting=repo.state=="CONNECTING"; val blocked=repo.state=="BLOCKED"
-    val activeName=repo.stateDetail.ifBlank{repo.lastProfile()?.name?:"No active connection"}
-    val lastId=repo.lastProfile()?.id
-    val bench=repo.benchmarks.firstOrNull{it.name==activeName || (lastId!=null && it.profileId==lastId)}
-    val score=when{bench!=null&&bench.success>0->bench.score.roundToInt().coerceIn(0,100);connected&&repo.livePingMs>0->(94-repo.livePingMs/7-repo.liveJitterMs/4).coerceIn(35,94);connected->78;else->0}
-    LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(horizontal=18.dp,vertical=10.dp),verticalArrangement=Arrangement.spacedBy(18.dp)){
-        item{SpatialHeader("Privacy dashboard","MarbleNG","Private networking, quietly monitored",when{connected->"Protected";connecting->"Connecting";blocked->"Blocked";else->"Idle"},when{connected->Aether.Emerald;connecting->Aether.Cyan;blocked->Aether.Danger;else->Aether.InkFaint})}
-        item{ConnectionCore(activeName,connected,connecting,blocked,repo.settings.connectionMode,repo.settings.localProxyPort,repo.livePingMs,repo.liveDownBps,repo.liveUpBps){if(connected||connecting)repo.stopVpn() else repo.auto(onConnect)}}
-        item{PerformanceScoreOverview(score,connected,activeName)}
-        item{SectionLabel("Connection path","A simpler view of where protected traffic goes");HoloGlass(Modifier.fillMaxWidth(),contentPadding=PaddingValues(horizontal=14.dp,vertical=16.dp)){SpatialRouteMap(repo.settings.connectionMode,activeName,repo.profiles.firstOrNull{it.id==repo.settings.chainSecondProfileId}?.name,repo.settings.chainEnabled,connected,Modifier.fillMaxWidth().height(112.dp))}}
-        item{SectionLabel("Shortcuts");Row(horizontalArrangement=Arrangement.spacedBy(10.dp)){HoloActionPill("◔","Performance","Measure routes",Aether.Cyan,Modifier.weight(1f)){repo.smartRank()};HoloActionPill("▦","Library","${repo.profiles.size} connections",Aether.Cyan,Modifier.weight(1f)){onLibrary()}};Spacer(Modifier.height(10.dp));Row(horizontalArrangement=Arrangement.spacedBy(10.dp)){HoloActionPill("◇","Privacy audit",if(connected)"Check egress & DNS" else "Connect first",Aether.Emerald,Modifier.weight(1f)){onPrivacy()};HoloActionPill("⚙","Routing","Open Expert settings",Aether.InkMuted,Modifier.weight(1f)){onRouting()}}}
-        item{Text("Advanced network controls are intentionally kept in Settings → Expert controls.",color=Aether.InkFaint,style=MaterialTheme.typography.bodySmall,modifier=Modifier.padding(horizontal=4.dp,vertical=8.dp))}
+private fun CyberDeck(
+    repo: AppRepository,
+    onConnect: (ProxyProfile) -> Unit,
+    onLibrary: () -> Unit,
+    onPrivacy: () -> Unit,
+    onRouting: () -> Unit
+) {
+    val connected = repo.state == "CONNECTED"
+    val connecting = repo.state == "CONNECTING"
+    val blocked = repo.state == "BLOCKED"
+    val activeName = repo.stateDetail.ifBlank {
+        repo.lastProfile()?.name ?: "No active connection"
+    }
+    val activeId = repo.lastProfile()?.id
+    val priorEvidence = repo.benchmarks.firstOrNull {
+        it.name == activeName || (activeId != null && it.profileId == activeId)
+    }?.takeIf { it.success > 0 }
+    val liveReady =
+        connected &&
+            repo.liveRouteScore >= 0 &&
+            repo.livePingMs > 0 &&
+            repo.liveRouteSamples > 0
+
+    val score = when {
+        liveReady -> repo.liveRouteScore
+        connected -> priorEvidence?.score?.roundToInt()?.coerceIn(0, 100) ?: 0
+        priorEvidence != null -> priorEvidence.score.roundToInt().coerceIn(0, 100)
+        else -> 0
+    }
+
+    LazyColumn(
+        Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(horizontal = 18.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(18.dp)
+    ) {
+        item {
+            SpatialHeader(
+                "Privacy dashboard",
+                "MarbleNG",
+                "Private networking, quietly monitored",
+                when {
+                    connected -> "Protected"
+                    connecting -> "Connecting"
+                    blocked -> "Blocked"
+                    else -> "Idle"
+                },
+                when {
+                    connected -> Aether.Emerald
+                    connecting -> Aether.Cyan
+                    blocked -> Aether.Danger
+                    else -> Aether.InkFaint
+                }
+            )
+        }
+
+        item {
+            ConnectionCore(
+                activeName,
+                connected,
+                connecting,
+                blocked,
+                repo.settings.connectionMode,
+                repo.settings.localProxyPort,
+                repo.livePingMs,
+                repo.liveDownBps,
+                repo.liveUpBps
+            ) {
+                if (connected || connecting) repo.stopVpn() else repo.auto(onConnect)
+            }
+        }
+
+        item {
+            PerformanceScoreOverview(
+                score = score,
+                connected = connected,
+                routeName = activeName,
+                liveReady = liveReady,
+                pingMs = repo.livePingMs,
+                jitterMs = repo.liveJitterMs,
+                samples = repo.liveRouteSamples,
+                hasPriorEvidence = priorEvidence != null
+            )
+        }
+
+        item {
+            SectionLabel("Connection path", "A simpler view of where protected traffic goes")
+            HoloGlass(
+                Modifier.fillMaxWidth(),
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 16.dp)
+            ) {
+                SpatialRouteMap(
+                    repo.settings.connectionMode,
+                    activeName,
+                    repo.profiles.firstOrNull { it.id == repo.settings.chainSecondProfileId }?.name,
+                    repo.settings.chainEnabled,
+                    connected,
+                    Modifier.fillMaxWidth().height(112.dp)
+                )
+            }
+        }
+
+        item {
+            SectionLabel("Shortcuts")
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                HoloActionPill("◔","Performance","Measure routes",Aether.Cyan,Modifier.weight(1f)) {
+                    repo.smartRank()
+                }
+                HoloActionPill("▦","Library","${repo.profiles.size} connections",Aether.Cyan,Modifier.weight(1f)) {
+                    onLibrary()
+                }
+            }
+            Spacer(Modifier.height(10.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                HoloActionPill(
+                    "◇",
+                    "Privacy audit",
+                    if (connected) "Check egress & DNS" else "Connect first",
+                    Aether.Emerald,
+                    Modifier.weight(1f)
+                ) { onPrivacy() }
+                HoloActionPill("⚙","Routing","Open Expert settings",Aether.InkMuted,Modifier.weight(1f)) {
+                    onRouting()
+                }
+            }
+        }
+
+        item {
+            Text(
+                "Advanced network controls are intentionally kept in Settings → Expert controls.",
+                color = Aether.InkFaint,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(horizontal = 4.dp, vertical = 8.dp)
+            )
+        }
     }
 }
 
-@Composable private fun PerformanceScoreOverview(score:Int,connected:Boolean,routeName:String){
-    HoloGlass(Modifier.fillMaxWidth(),contentPadding=PaddingValues(18.dp)){Row(verticalAlignment=Alignment.CenterVertically){ScoreRing(score,Modifier.size(106.dp));Spacer(Modifier.width(18.dp));Column(Modifier.weight(1f)){Text("Performance score",color=Aether.Ink,style=MaterialTheme.typography.titleMedium);Spacer(Modifier.height(4.dp));Text(when{!connected->"Connect to build a live score.";score>=85->"Excellent route quality";score>=70->"Healthy route quality";score>=50->"Usable, with some pressure";else->"Route quality needs attention"},color=if(connected&&score>=70)Aether.Emerald else Aether.InkMuted,style=MaterialTheme.typography.bodyMedium);Spacer(Modifier.height(5.dp));Text(if(connected)routeName else "Based on latency, reliability and route evidence.",color=Aether.InkFaint,style=MaterialTheme.typography.bodySmall,maxLines=2,overflow=TextOverflow.Ellipsis)}}}
+@Composable
+private fun PerformanceScoreOverview(
+    score: Int,
+    connected: Boolean,
+    routeName: String,
+    liveReady: Boolean,
+    pingMs: Int,
+    jitterMs: Int,
+    samples: Int,
+    hasPriorEvidence: Boolean
+) {
+    HoloGlass(
+        Modifier.fillMaxWidth(),
+        contentPadding = PaddingValues(18.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            ScoreRing(score, Modifier.size(106.dp))
+            Spacer(Modifier.width(18.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    "Performance score",
+                    color = Aether.Ink,
+                    style = MaterialTheme.typography.titleMedium
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    when {
+                        !connected && !hasPriorEvidence -> "Connect to build a live score."
+                        connected && !liveReady && hasPriorEvidence -> "Updating live route evidence…"
+                        connected && !liveReady -> "Measuring the active Xray path…"
+                        score >= 85 -> "Excellent route quality"
+                        score >= 70 -> "Healthy route quality"
+                        score >= 50 -> "Usable, with some pressure"
+                        score >= 30 -> "Degraded route quality"
+                        else -> "Poor route quality"
+                    },
+                    color = when {
+                        connected && !liveReady -> Aether.Cyan
+                        score >= 70 -> Aether.Emerald
+                        score >= 50 -> Aether.Cyan
+                        score >= 30 -> Aether.Amber
+                        score > 0 -> Aether.Danger
+                        else -> Aether.InkMuted
+                    },
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Spacer(Modifier.height(5.dp))
+                Text(
+                    when {
+                        liveReady ->
+                            "Live • $pingMs ms RTT • $jitterMs ms jitter • $samples sample${if(samples==1)"" else "s"}"
+                        connected && hasPriorEvidence ->
+                            "Showing pre-connect evidence until the first live sample arrives."
+                        connected ->
+                            routeName
+                        else ->
+                            "Based on real Xray-path latency, reliability and route evidence."
+                    },
+                    color = Aether.InkFaint,
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+    }
 }
 
 @Composable
@@ -1518,7 +1802,7 @@ private fun SubscriptionManagerCard(
         else 0f
     val animatedFraction by animateFloatAsState(
         targetValue = fraction,
-        animationSpec = tween(420, easing = FastOutSlowInEasing),
+        animationSpec = tween(260, easing = FastOutSlowInEasing),
         label = "subscription-quota-${sub.id}"
     )
     val expired = sub.expireAt > 0L && sub.expireAt < System.currentTimeMillis()
@@ -1878,9 +2162,32 @@ private fun BenchmarkStudio(
     onConnect: (ProxyProfile) -> Unit
 ) {
     val modes = listOf(BenchMode.RELIABLE, BenchMode.BALANCED, BenchMode.FAST, BenchMode.TURBO)
-    val best = repo.benchmarks.firstOrNull { it.success > 0 }
-    val score = best?.score?.roundToInt()?.coerceIn(0, 100) ?: 0
-    val latency = best?.latencyMs?.toInt() ?: 0
+    val measuredBest = repo.benchmarks.firstOrNull { it.success > 0 }
+    val connected = repo.state == "CONNECTED"
+    val liveReady =
+        connected &&
+            repo.liveRouteScore >= 0 &&
+            repo.livePingMs > 0 &&
+            repo.liveRouteSamples > 0
+
+    val score = when {
+        liveReady -> repo.liveRouteScore
+        measuredBest != null -> measuredBest.score.roundToInt().coerceIn(0, 100)
+        else -> 0
+    }
+    val latency = when {
+        liveReady -> repo.livePingMs
+        measuredBest != null -> measuredBest.latencyMs.toInt()
+        else -> 0
+    }
+    val jitter = when {
+        liveReady -> repo.liveJitterMs
+        measuredBest != null -> measuredBest.jitterMs.toInt()
+        else -> 0
+    }
+    val routeName =
+        if (liveReady) repo.stateDetail.ifBlank { repo.lastProfile()?.name ?: "Active route" }
+        else measuredBest?.name ?: "No measured route"
 
     LazyColumn(
         Modifier.fillMaxSize(),
@@ -1891,13 +2198,18 @@ private fun BenchmarkStudio(
             SpatialHeader(
                 "Performance",
                 "Route quality",
-                "A measured score with latency, reliability and jitter kept visible",
-                if (best == null) "No sample" else "$score / 100",
+                "Live evidence while connected; full route ranking when you run a test",
                 when {
-                    best == null -> Aether.InkFaint
+                    connected && !liveReady -> "Measuring"
+                    liveReady || measuredBest != null -> "$score / 100"
+                    else -> "No sample"
+                },
+                when {
+                    connected && !liveReady -> Aether.Cyan
                     score >= 80 && latency in 1..500 -> Aether.Emerald
                     score >= 55 && latency in 1..1500 -> Aether.Cyan
-                    else -> Aether.Amber
+                    score > 0 -> Aether.Amber
+                    else -> Aether.InkFaint
                 }
             )
         }
@@ -1932,11 +2244,14 @@ private fun BenchmarkStudio(
 
         item {
             HoloGlass(Modifier.fillMaxWidth(), contentPadding = PaddingValues(20.dp)) {
-                if (best == null) {
+                if (!liveReady && measuredBest == null) {
                     EmptyVisual(
                         "◔",
-                        "No performance sample yet",
-                        "Run a performance test to measure real Xray routes."
+                        if (connected) "Collecting live evidence" else "No performance sample yet",
+                        if (connected)
+                            "The first real Xray-path RTT sample is requested immediately after connection."
+                        else
+                            "Connect or run a performance test to measure real Xray routes."
                     )
                 } else {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1944,12 +2259,12 @@ private fun BenchmarkStudio(
                         Spacer(Modifier.width(18.dp))
                         Column(Modifier.weight(1f)) {
                             Text(
-                                "Best measured route",
+                                if (liveReady) "Active route • live" else "Best measured route",
                                 color = Aether.InkFaint,
                                 style = MaterialTheme.typography.labelSmall
                             )
                             Text(
-                                best.name,
+                                routeName,
                                 color = Aether.Ink,
                                 style = MaterialTheme.typography.titleMedium,
                                 maxLines = 2,
@@ -1964,13 +2279,15 @@ private fun BenchmarkStudio(
                                     score >= 85 -> "Excellent"
                                     score >= 70 -> "Healthy"
                                     score >= 50 -> "Fair"
-                                    else -> "Needs attention"
+                                    score >= 30 -> "Degraded"
+                                    else -> "Poor"
                                 },
                                 color = when {
                                     latency >= 2000 -> Aether.Danger
                                     latency >= 1000 -> Aether.Amber
                                     score >= 70 -> Aether.Emerald
-                                    else -> Aether.InkMuted
+                                    score >= 50 -> Aether.Cyan
+                                    else -> Aether.Danger
                                 },
                                 style = MaterialTheme.typography.bodyMedium
                             )
@@ -1979,9 +2296,13 @@ private fun BenchmarkStudio(
 
                     HorizontalDivider(color = Aether.GlassBorderSoft)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        MicroStat("Reliability", "${best.success}%", Modifier.weight(1f))
-                        MicroStat("RTT", "${best.latencyMs.toInt()} ms", Modifier.weight(1f))
-                        MicroStat("Jitter", "${best.jitterMs.toInt()} ms", Modifier.weight(1f))
+                        MicroStat(
+                            if (liveReady) "Live samples" else "Reliability",
+                            if (liveReady) "${repo.liveRouteSamples}" else "${measuredBest?.success ?: 0}%",
+                            Modifier.weight(1f)
+                        )
+                        MicroStat("RTT", "$latency ms", Modifier.weight(1f))
+                        MicroStat("Jitter", "$jitter ms", Modifier.weight(1f))
                     }
                 }
             }
@@ -2530,7 +2851,7 @@ private fun SpatialAccordion(
     Column(
         Modifier
             .fillMaxWidth()
-            .animateContentSize(tween(220, easing = FastOutSlowInEasing))
+            .animateContentSize(tween(160, easing = FastOutSlowInEasing))
             .shadow(1.dp, shape, clip = false)
             .clip(shape)
             .background(Aether.VoidElevated)
@@ -2585,8 +2906,8 @@ private fun SpatialAccordion(
 
         AnimatedVisibility(
             visible = open,
-            enter = expandVertically(tween(220, easing = FastOutSlowInEasing)) + fadeIn(tween(150)),
-            exit = shrinkVertically(tween(180, easing = FastOutSlowInEasing)) + fadeOut(tween(100))
+            enter = expandVertically(tween(165, easing = FastOutSlowInEasing)) + fadeIn(tween(100)),
+            exit = shrinkVertically(tween(135, easing = FastOutSlowInEasing)) + fadeOut(tween(80))
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(11.dp)) {
                 HorizontalDivider(color = Aether.GlassBorderSoft)
@@ -2967,7 +3288,7 @@ private fun SplitTunnelSettings(repo:AppRepository){
     }
 }
 @Composable private fun SplitTunnelAppRow(app:InstalledApp,checked:Boolean,onToggle:()->Unit){
-    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(15.dp)).clickable(onClick=onToggle).padding(horizontal=10.dp,vertical=8.dp),verticalAlignment=Alignment.CenterVertically){Box(Modifier.size(38.dp).clip(RoundedCornerShape(12.dp)).background(if(checked)Aether.Emerald.copy(alpha=.12f) else Aether.GlassStrong),contentAlignment=Alignment.Center){Text(app.label.trim().firstOrNull()?.uppercase()?:"•",color=if(checked)Aether.Emerald else Aether.InkMuted,style=MaterialTheme.typography.labelLarge)};Spacer(Modifier.width(11.dp));Column(Modifier.weight(1f)){Text(app.label,color=Aether.Ink,style=MaterialTheme.typography.bodyMedium,maxLines=1,overflow=TextOverflow.Ellipsis);Text(app.packageName,color=Aether.InkFaint,style=MaterialTheme.typography.labelSmall,maxLines=1,overflow=TextOverflow.Ellipsis)};Checkbox(checked,{onToggle()},colors=CheckboxDefaults.colors(checkedColor=Aether.Emerald,checkmarkColor=Aether.Void))}
+    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(15.dp)).clickable(onClick=onToggle).padding(horizontal=10.dp,vertical=8.dp),verticalAlignment=Alignment.CenterVertically){Box(Modifier.size(38.dp).clip(RoundedCornerShape(12.dp)).background(if(checked)Aether.Emerald.copy(alpha=.12f) else Aether.GlassStrong),contentAlignment=Alignment.Center){Text(app.label.trim().firstOrNull()?.uppercase()?:"•",color=if(checked)Aether.Emerald else Aether.InkMuted,style=MaterialTheme.typography.labelLarge)};Spacer(Modifier.width(11.dp));Column(Modifier.weight(1f)){Text(app.label,color=Aether.Ink,style=MaterialTheme.typography.bodyMedium,maxLines=1,overflow=TextOverflow.Ellipsis);Text(app.packageName,color=Aether.InkFaint,style=MaterialTheme.typography.labelSmall,maxLines=1,overflow=TextOverflow.Ellipsis)};Checkbox(checked,{onToggle()},colors=CheckboxDefaults.colors(checkedColor=Aether.Emerald,checkmarkColor=Aether.Void,uncheckedColor=Aether.GlassBorder))}
 }
 
 @Composable
@@ -3651,12 +3972,12 @@ private fun CyberChoiceChip(
 ) {
     val background by animateColorAsState(
         targetValue = if (selected) color.copy(alpha = .12f) else Aether.GlassStrong.copy(alpha = .55f),
-        animationSpec = tween(180),
+        animationSpec = tween(120),
         label = "chip-background-$text"
     )
     val contentColor by animateColorAsState(
         targetValue = if (selected) color else Aether.InkMuted,
-        animationSpec = tween(180),
+        animationSpec = tween(120),
         label = "chip-content-$text"
     )
 
@@ -3690,7 +4011,7 @@ private fun CyberSegment(
 ) {
     val background by animateColorAsState(
         targetValue = if (selected) color.copy(alpha = .10f) else Aether.GlassStrong.copy(alpha = .54f),
-        animationSpec = tween(180),
+        animationSpec = tween(120),
         label = "segment-$label"
     )
     Column(
@@ -3727,11 +4048,8 @@ private fun SettingSwitch(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
-            .background(
-                if (checked) Aether.Cyan.copy(alpha = .035f)
-                else Color.Transparent
-            )
-            .padding(horizontal = 4.dp, vertical = 4.dp),
+            .background(if (checked) Aether.Cyan.copy(alpha = .028f) else Color.Transparent)
+            .padding(horizontal = 7.dp, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column(Modifier.weight(1f)) {
@@ -3741,16 +4059,59 @@ private fun SettingSwitch(
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.SemiBold
             )
-            Text(subtitle, color = Aether.InkFaint, style = MaterialTheme.typography.bodySmall)
-        }
-        Switch(
-            checked = checked,
-            onCheckedChange = onChecked,
-            colors = SwitchDefaults.colors(
-                checkedThumbColor = Aether.Void,
-                checkedTrackColor = Aether.Cyan,
-                checkedBorderColor = Aether.Cyan
+            Text(
+                subtitle,
+                color = Aether.InkFaint,
+                style = MaterialTheme.typography.bodySmall
             )
+        }
+        Spacer(Modifier.width(12.dp))
+        MarbleToggle(checked = checked, onChecked = onChecked)
+    }
+}
+
+@Composable
+private fun MarbleToggle(
+    checked: Boolean,
+    onChecked: (Boolean) -> Unit
+) {
+    val track by animateColorAsState(
+        targetValue = if (checked) Aether.Cyan else Aether.GlassStrong,
+        animationSpec = tween(130),
+        label = "marble-toggle-track"
+    )
+    val border by animateColorAsState(
+        targetValue = if (checked) Aether.Cyan else Aether.GlassBorder,
+        animationSpec = tween(130),
+        label = "marble-toggle-border"
+    )
+    val thumb by animateColorAsState(
+        targetValue = if (checked) Color.White else Aether.InkMuted,
+        animationSpec = tween(130),
+        label = "marble-toggle-thumb"
+    )
+    val thumbX by animateDpAsState(
+        targetValue = if (checked) 23.dp else 3.dp,
+        animationSpec = tween(150, easing = FastOutSlowInEasing),
+        label = "marble-toggle-position"
+    )
+
+    Box(
+        modifier = Modifier
+            .width(50.dp)
+            .height(30.dp)
+            .clip(CircleShape)
+            .background(track)
+            .border(1.dp, border, CircleShape)
+            .clickable { onChecked(!checked) }
+    ) {
+        Box(
+            modifier = Modifier
+                .offset(x = thumbX, y = 3.dp)
+                .size(24.dp)
+                .shadow(1.dp, CircleShape, clip = false)
+                .clip(CircleShape)
+                .background(thumb)
         )
     }
 }
@@ -3906,7 +4267,7 @@ private fun ScoreRing(
     val target = score.coerceIn(0, 100)
     val progress by animateFloatAsState(
         targetValue = target / 100f,
-        animationSpec = tween(650, easing = FastOutSlowInEasing),
+        animationSpec = tween(420, easing = FastOutSlowInEasing),
         label = "score-ring-progress"
     )
     val track = Aether.GlassBorderSoft

@@ -75,30 +75,94 @@ jobs:
               raise SystemExit('Routing invariant failure: ' + ', '.join(failed))
           PY
 
-      - name: Verify Product UI v9 invariants
+      - name: Source-wide Marble regression audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          root=Path('.')
+          scanned=0
+          decode_fail=[]
+          for ext in ('*.kt','*.kts','*.xml','*.yml','*.yaml','*.sh','*.pro'):
+              for path in root.rglob(ext):
+                  if any(part in {'.git','.gradle','build'} for part in path.parts):
+                      continue
+                  scanned += 1
+                  try:
+                      path.read_text(encoding='utf-8')
+                  except UnicodeDecodeError:
+                      decode_fail.append(str(path))
+
+          if decode_fail:
+              raise SystemExit('Non UTF-8 source files: '+', '.join(decode_fail))
+
+          ui=Path('app/src/main/java/com/marbleng/app/ui/Aether2026.kt').read_text()
+          repo=Path('app/src/main/java/com/marbleng/app/AppRepository.kt').read_text()
+          vpn=Path('app/src/main/java/com/marbleng/app/vpn/MarbleVpnService.kt').read_text()
+
+          strict={
+              'v9.1 marker':'Marble Product UI v9.1.0' in ui,
+              'no glyph-font tab icons':'val glyph: String' not in ui,
+              'Canvas tab icons':'private fun MarbleTabIcon(' in ui,
+              'no raw Material Switch':'SwitchDefaults.colors(' not in ui,
+              'custom Marble toggle':'private fun MarbleToggle(' in ui,
+              'live route score state':'var liveRouteScore by mutableStateOf(-1)' in repo,
+              'live score samples':'var liveRouteSamples by mutableStateOf(0)' in repo,
+              'scientific decay score':'calculateLiveRouteScore' in repo and 'latencyFactor' in repo,
+              'fast initial route sample':vpn.count('sampleRouteLatency(session, port, generation)') >= 3,
+              '15 second live cadence':'ROUTE_PROBE_INTERVAL_TICKS = 15' in vpn,
+              'split list not truncated':'.take(48)' not in ui,
+              'old race score floor absent':'maxOf(80.0, raced.second.score)' not in repo,
+              'fast page motion':'marble-page-transition-fast' in ui,
+          }
+          failed=[k for k,v in strict.items() if not v]
+          if failed:
+              raise SystemExit('Regression audit failure: '+', '.join(failed))
+
+          suspicious=[]
+          forbidden_patterns={
+              'GlobalScope':r'\bGlobalScope\.',
+              'blocking UI sleep':r'Aether2026\.kt.*Thread\.sleep',
+          }
+          all_kotlin='\n'.join(
+              p.read_text(encoding='utf-8')
+              for p in Path('app/src/main/java').rglob('*.kt')
+          )
+          if re.search(forbidden_patterns['GlobalScope'],all_kotlin):
+              suspicious.append('GlobalScope usage')
+
+          if suspicious:
+              raise SystemExit('Source-wide unsafe pattern: '+', '.join(suspicious))
+
+          print(f'[OK] source-wide audit scanned {scanned} text source files')
+          PY
+
+      - name: Verify Product UI v9.1 invariants
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
           ui=Path('app/src/main/java/com/marbleng/app/ui/Aether2026.kt').read_text()
-          theme=Path('app/src/main/java/com/marbleng/app/ui/AetherTheme.kt').read_text()
           repo=Path('app/src/main/java/com/marbleng/app/AppRepository.kt').read_text()
-          dock=ui[ui.find('private fun FloatingSpatialDock'):ui.find('private fun SpatialHeader')]
+          vpn=Path('app/src/main/java/com/marbleng/app/vpn/MarbleVpnService.kt').read_text()
           required={
-              'v9 marker':'Marble Product UI v9.0.0' in ui,
-              'five-item dock':'onTheme' not in dock and 'isLight' not in dock,
-              'short nav label':'LAB("Quality", "◔")' in ui,
-              'page motion':'marble-page-transition' in ui and 'slideInHorizontally' in ui,
-              'appearance in settings':'"Appearance"' in ui,
-              'animated score ring':'score-ring-progress' in ui,
-              'race score floor removed':'maxOf(80.0, raced.second.score)' not in repo,
-              'theme v9':'Marble Product UI v9' in theme,
+              'v9.1 marker':'Marble Product UI v9.1.0' in ui,
+              'modern Canvas icons':'MarbleTabIcon(' in ui,
+              'custom off toggle':'MarbleToggle(' in ui and 'SwitchDefaults.colors(' not in ui,
+              'connected score prioritizes live':'repo.liveRouteScore' in ui,
+              'live score model':'calculateLiveRouteScore' in repo,
+              'live sample count':'liveRouteSamples' in repo,
+              'immediate active probe':'The dashboard should become meaningful as soon as Xray is live' in vpn,
+              'fast navigation':'marble-page-transition-fast' in ui,
           }
           failed=[k for k,v in required.items() if not v]
           if failed:
-              raise SystemExit('Product UI v9 invariant failure: '+', '.join(failed))
-          print('[OK] Product UI v9 source invariants')
+              raise SystemExit('Product UI v9.1 invariant failure: '+', '.join(failed))
+          print('[OK] Product UI v9.1 invariants')
           PY
 
       - name: Set up JDK 17
