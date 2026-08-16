@@ -2,6 +2,7 @@ package com.marbleng.app.ui
 
 // Marble Product UI v10.0.1 • stability-first Library power surface
 // MARBLE_LIBRARY_UI_V10
+// MARBLE_BUG_FINDER_UI_V11
 
 import android.Manifest
 import android.content.Intent
@@ -65,6 +66,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.marbleng.app.AppRepository
+import com.marbleng.app.core.BugSeverity
 import com.marbleng.app.model.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -2191,7 +2193,7 @@ private fun SpatialSettings(
             item { SpatialAccordion("Chain proxy","Optional two-hop route","Expert",Aether.InkMuted){ChainSettings(repo)} }
         }
 
-        item { SpatialAccordion("Maintenance","Diagnostics, logs and recovery tools","Tools",Aether.InkMuted){MaintenanceSettings(repo,onDialog)} }
+        item { SpatialAccordion("Bug Finder","Deep Xray + SOCKS + TUN + HEV diagnostics","Live scan",Aether.Danger){BugFinderSettings(repo)} }
 
         item {
             Text(
@@ -3334,25 +3336,101 @@ private fun SubscriptionSettings(repo: AppRepository) {
 }
 
 @Composable
-private fun MaintenanceSettings(repo: AppRepository, onDialog: (String) -> Unit) {
-    // Only the entries that answer a real question survive here. The old "Capabilities" and
-    // "Core lock" rows just printed static text and were removed.
-    MaintenanceRow("Check the app", "Runtime, native bridge and routing assets") {
-        onDialog("System Doctor")
-    }
-    MaintenanceRow("Diagnostic log", "Shareable technical detail for bug reports") {
-        onDialog("Logs")
-    }
-    MaintenanceRow("Connection history", "Recent connections and why they changed") {
-        onDialog("History")
-    }
+private fun BugFinderSettings(repo: AppRepository) {
+    val clipboard = LocalClipboardManager.current
+    val report = repo.bugReport
 
-    CyberButton(
-        label = "Reset all settings",
-        color = Aether.Danger,
-        modifier = Modifier.fillMaxWidth()
+    HoloGlass(
+        modifier = Modifier.fillMaxWidth(),
+        borderColor = when {
+            report == null -> Aether.GlassBorderSoft
+            report.failures > 0 -> Aether.Danger.copy(alpha = .55f)
+            report.warnings > 0 -> Aether.Amber.copy(alpha = .50f)
+            else -> Aether.Emerald.copy(alpha = .50f)
+        },
+        contentPadding = PaddingValues(14.dp)
     ) {
-        repo.resetSettings()
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Live datapath investigator", color=Aether.Ink, style=MaterialTheme.typography.titleMedium)
+                Text("Tests Xray, SOCKS HTTPS, HEV lifecycle/counters, routing assets and logs independently.",
+                    color=Aether.InkFaint, style=MaterialTheme.typography.bodySmall)
+            }
+            HoloBadge(
+                when {
+                    repo.busy -> "Scanning"
+                    report == null -> "Ready"
+                    report.failures > 0 -> "${report.failures} fail"
+                    report.warnings > 0 -> "${report.warnings} warn"
+                    else -> "Healthy"
+                },
+                when {
+                    repo.busy -> Aether.Cyan
+                    report == null -> Aether.InkMuted
+                    report.failures > 0 -> Aether.Danger
+                    report.warnings > 0 -> Aether.Amber
+                    else -> Aether.Emerald
+                }, true
+            )
+        }
+
+        Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+            CyberButton(if(repo.busy)"SCANNING…" else "RUN DEEP SCAN", Aether.Cyan,
+                Modifier.weight(1f), !repo.busy) { repo.runBugFinder() }
+            CyberButton("COPY REPORT", Aether.Amethyst, Modifier.weight(1f),
+                report != null && !repo.busy) {
+                clipboard.setText(AnnotatedString(repo.bugFinderReportText()))
+                repo.setRuntimeMessage("Bug Finder report copied")
+            }
+        }
+
+        report?.let { current ->
+            Row(horizontalArrangement=Arrangement.spacedBy(7.dp)) {
+                HoloBadge("${current.passed} pass",Aether.Emerald,true)
+                if(current.warnings>0) HoloBadge("${current.warnings} warn",Aether.Amber,true)
+                if(current.failures>0) HoloBadge("${current.failures} fail",Aether.Danger,true)
+            }
+            Text(current.headline,
+                color=if(current.failures>0)Aether.Danger else if(current.warnings>0)Aether.Amber else Aether.Emerald,
+                style=MaterialTheme.typography.titleMedium)
+
+            current.checks.forEach { check ->
+                val c=when(check.severity){
+                    BugSeverity.PASS->Aether.Emerald
+                    BugSeverity.INFO->Aether.Cyan
+                    BugSeverity.WARN->Aether.Amber
+                    BugSeverity.FAIL->Aether.Danger
+                }
+                Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(15.dp))
+                    .background(c.copy(alpha=.055f))
+                    .border(1.dp,c.copy(alpha=.20f),RoundedCornerShape(15.dp))
+                    .padding(11.dp), verticalArrangement=Arrangement.spacedBy(4.dp)) {
+                    Row(verticalAlignment=Alignment.CenterVertically) {
+                        Text(check.title,color=Aether.Ink,style=MaterialTheme.typography.labelLarge,
+                            modifier=Modifier.weight(1f))
+                        HoloBadge(check.severity.name,c,true)
+                    }
+                    Text(check.detail,color=Aether.InkMuted,style=MaterialTheme.typography.bodySmall)
+                    if(check.action.isNotBlank())
+                        Text("→ ${check.action}",color=c,style=MaterialTheme.typography.bodySmall)
+                }
+            }
+
+            if(current.evidence.isNotEmpty()) {
+                Text("RECENT EVIDENCE",color=Aether.InkFaint,style=MaterialTheme.typography.labelSmall)
+                SelectionContainer {
+                    Text(current.evidence.joinToString("
+"),color=Aether.InkMuted,
+                        style=MaterialTheme.typography.bodySmall.copy(fontFamily=FontFamily.Monospace))
+                }
+            }
+
+            if(current.failures>0)
+                CyberButton("SAFE RUNTIME RESET",Aether.Danger,Modifier.fillMaxWidth(),!repo.busy) {
+                    repo.safeRuntimeResetFromBugFinder()
+                }
+        } ?: Text("Run this while the problem is happening. Credentials and subscription contents are not included.",
+            color=Aether.InkMuted,style=MaterialTheme.typography.bodySmall)
     }
 }
 
@@ -3744,40 +3822,6 @@ private fun TinyField(
         modifier = modifier,
         shape = RoundedCornerShape(17.dp)
     )
-}
-
-@Composable
-private fun MaintenanceRow(
-    title: String,
-    subtitle: String,
-    onClick: () -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(15.dp))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 5.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Box(
-            Modifier
-                .size(33.dp)
-                .clip(CircleShape)
-                .background(Aether.InkFaint.copy(alpha = .08f))
-                .border(1.dp, Aether.GlassBorderSoft, CircleShape),
-            contentAlignment = Alignment.Center
-        ) {
-            Text("›", color = Aether.Cyan)
-        }
-
-        Spacer(Modifier.width(9.dp))
-        Column(Modifier.weight(1f)) {
-            Text(title, color = Aether.Ink, style = MaterialTheme.typography.bodyMedium)
-            Text(subtitle, color = Aether.InkFaint, style = MaterialTheme.typography.bodySmall)
-        }
-        Text("OPEN", color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
-    }
 }
 
 @Composable

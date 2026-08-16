@@ -19,6 +19,7 @@ import kotlin.math.roundToInt
 
 class AppRepository(private val context: Context, val xray: XrayManager) {
     // MARBLE_LIBRARY_POWER_V10
+    // MARBLE_ENGINE_RESCUE_V11
 
     private val store = AppStore(context)
     private val io = Executors.newFixedThreadPool(3)
@@ -31,6 +32,7 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     val intelligence = MarbleIntelligence(context)
     private val notifier = SmartNotifier(context)
     private val iranDetector = IranModeDetector(context, intelligence)
+    private val bugFinder = BugFinder(context, xray)
 
     val profiles = mutableStateListOf<ProxyProfile>().apply { addAll(store.loadProfiles()) }
     val subscriptions = mutableStateListOf<Subscription>().apply { addAll(store.loadSubscriptions()) }
@@ -53,6 +55,7 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     var message by mutableStateOf(""); private set
     var benchmarks by mutableStateOf<List<BenchmarkResult>>(emptyList()); private set
     var privacy by mutableStateOf<PrivacyReport?>(null); private set
+    var bugReport by mutableStateOf<BugReport?>(null); private set
 
     // Live tunnel telemetry. Ping is HTTPS time-to-first-response through the selected Xray path,
     // not the localhost SOCKS handshake.
@@ -189,11 +192,17 @@ fun resetTelemetry() {
     }
 
     fun setRuntimeState(s: String, d: String) {
-        state = s
-        stateDetail = d
-        if (s != "CONNECTED") {
-            activeProfileId = ""
-            resetTelemetry()
+        postToMain {
+            state = s
+            stateDetail = d
+            if (s != "CONNECTED") {
+                activeProfileId = ""
+                livePingMs = 0
+                liveDownBps = 0L
+                liveUpBps = 0L
+                liveRouteScore = -1
+                liveRouteSamples = 0
+            }
         }
     }
 
@@ -797,14 +806,15 @@ private fun postToMain(block: () -> Unit) {
     }
 
     fun markConnected(p: ProxyProfile) {
-        state = "CONNECTED"
-        stateDetail = p.name
-        activeProfileId = p.id
-        if (settings.rememberLast) store.setLastProfileId(p.id)
-        history += ConnectionRecord(p.id, p.name, System.currentTimeMillis(), "connected:${settings.connectionMode.name}")
-        // The store keeps the last 200 records; keep the in-memory list bounded the same way.
-        while (history.size > MAX_HISTORY_RECORDS) history.removeAt(0)
-        store.saveHistory(history)
+        postToMain {
+            state = "CONNECTED"
+            stateDetail = p.name
+            activeProfileId = p.id
+            if (settings.rememberLast) store.setLastProfileId(p.id)
+            history += ConnectionRecord(p.id, p.name, System.currentTimeMillis(), "connected:${settings.connectionMode.name}")
+            while (history.size > MAX_HISTORY_RECORDS) history.removeAt(0)
+            store.saveHistory(history)
+        }
     }
 
     fun startVpn(p: ProxyProfile) {
@@ -1064,6 +1074,39 @@ private fun postToMain(block: () -> Unit) {
                 profile(settings.chainSecondProfileId)?.takeUnless { it.id == candidate.id }
             } else null
             message = xray.verifyRoutingPolicy(candidate, settings, chain)
+        }
+    }
+
+    fun runBugFinder() {
+        task("Bug Finder • scanning Xray + SOCKS + TUN + HEV") {
+            val report = bugFinder.scan(
+                appState = state,
+                stateDetail = stateDetail,
+                activeProfileId = activeProfileId,
+                settings = settings,
+                profiles = profiles.toList(),
+                history = history.toList(),
+                networkLabel = networkSnapshot.label
+            )
+            postToMain {
+                bugReport = report
+                message = "Bug Finder • ${report.headline}"
+            }
+        }
+    }
+
+    fun bugFinderReportText(): String = bugReport?.asText() ?: "Run Bug Finder first"
+
+    fun safeRuntimeResetFromBugFinder() {
+        bugReport = null
+        if (state in setOf("CONNECTED", "CONNECTING", "BLOCKED")) {
+            stopVpn()
+            message = "Bug Finder • safe runtime reset requested"
+        } else {
+            xray.stop()
+            resetTelemetry()
+            setRuntimeState("DISCONNECTED", "")
+            message = "Bug Finder • stale runtime state cleared"
         }
     }
 

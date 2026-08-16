@@ -36,6 +36,7 @@ import kotlin.math.roundToInt
  */
 class MarbleVpnService : VpnService() {
     // MARBLE_STABILITY_V10
+    // MARBLE_ENGINE_RESCUE_V11
     // Live optimisation may learn while connected, but it must never intentionally tear down
     // a healthy user tunnel merely to hot-apply a transport experiment.
     companion object {
@@ -56,6 +57,10 @@ class MarbleVpnService : VpnService() {
         private const val PROBE_FAILURES_BEFORE_RECOVERY = 4
         private const val ROUTE_CONFIRM_TIMEOUT_MS = 4_500
         private const val RECENT_TRAFFIC_GRACE_MS = 45_000L
+        private const val HEV_READY_GRACE_MS = 750L
+        private const val HEV_STALL_MIN_MS = 20_000L
+        private const val HEV_STALL_MIN_TX_BYTES = 32L * 1024L
+        private const val HEV_STATS_FAILURE_LIMIT = 3
         private const val EXIT_IDENTITY_PROBE_INTERVAL_TICKS = 180
 
         /** Let a fresh route settle before spending link capacity on measuring alternatives. */
@@ -72,6 +77,7 @@ class MarbleVpnService : VpnService() {
     private val optimizerRunning = AtomicBoolean(false)
     private val tuningRequested = AtomicBoolean(false)
     private val tuningRunning = AtomicBoolean(false)
+    private val tunReadyPublished = AtomicBoolean(false)
     private val routeGeneration = AtomicInteger(0)
 
     // HEV is process-global; start/stop/recovery is serialized here.
@@ -184,8 +190,9 @@ class MarbleVpnService : VpnService() {
         optimizerScanRequested.set(false)
         tuningRequested.set(false)
         lastTuneAt = 0L
-        lastTrafficProgressAt = System.currentTimeMillis()
+        lastTrafficProgressAt = 0L
         sessionTuned = false
+        tunReadyPublished.set(false)
         routeOptimizer.reset(System.currentTimeMillis())
         synchronized(recoveryTried) {
             recoveryTried.clear()
@@ -495,27 +502,45 @@ class MarbleVpnService : VpnService() {
         }
 
         val app = application as MarbleApplication
-        app.repo.markConnected(profile)
-        app.repo.intelligence.recordConnect(profile.id, true, elapsedConnectMs(), settings)
-        val iran = app.repo.iranMode
-        notifyNow(
-            if (iran.active) "Protected • ${profile.name} • Iran Mode ${iran.ispShortName}".trimEnd()
-            else "Protected • ${profile.name}",
-            true
-        )
-        notifier.alert(
-            if (recovering) SmartNotificationKind.RECOVERY else SmartNotificationKind.CONNECTION,
-            if (recovering) "recovered:$session:${profile.id}" else "connected:$session:${profile.id}",
-            if (recovering) "Route recovered" else "VPN protected",
-            if (recovering) "Traffic moved safely to ${profile.name}" else profile.name,
-            settings
-        )
+
+        // Full TUN is not CONNECTED until HEV survives startup and its live stats API responds.
         recoveryScheduled.set(false)
         consecutiveProbeFailures = 0
-        lastTrafficProgressAt = System.currentTimeMillis()
+        lastTrafficProgressAt = 0L
+        tunReadyPublished.set(false)
         hevActive = true
         updateSentinel(killSwitch = true)
         startTelemetry(session, socksPort, generation)
+
+        monitorWorker.execute {
+            if (!sleepQuietly(HEV_READY_GRACE_MS)) return@execute
+            if (!isRouteCurrent(session, generation) || !hevActive || !xray.isAlive) return@execute
+
+            val statsReady = runCatching { HevTunnel.stats() }.getOrNull()?.size?.let { it >= 4 } ?: false
+            if (!statsReady) {
+                diag.event("HEV", "startup-stats-unavailable", "session" to session)
+                handleFailure(session, "HEV did not expose a healthy stats API after startup")
+                return@execute
+            }
+
+            if (tunReadyPublished.compareAndSet(false, true) && isRouteCurrent(session, generation)) {
+                app.repo.markConnected(profile)
+                app.repo.intelligence.recordConnect(profile.id, true, elapsedConnectMs(), settings)
+                val iran = app.repo.iranMode
+                notifyNow(
+                    if (iran.active) "Protected • ${profile.name} • Iran Mode ${iran.ispShortName}".trimEnd()
+                    else "Protected • ${profile.name}", true
+                )
+                notifier.alert(
+                    if (recovering) SmartNotificationKind.RECOVERY else SmartNotificationKind.CONNECTION,
+                    if (recovering) "recovered:$session:${profile.id}" else "connected:$session:${profile.id}",
+                    if (recovering) "Route recovered" else "VPN protected",
+                    if (recovering) "Traffic moved safely to ${profile.name}" else profile.name,
+                    settings
+                )
+                diag.event("HEV", "ready", "session" to session, "graceMs" to HEV_READY_GRACE_MS)
+            }
+        }
 
         diag.event("HEV", "run-enter", "session" to session, "hevFd" to hevFd, "xrayAlive" to xray.isAlive)
         val result = runCatching { HevTunnel.run(cfg, hevFd) }
@@ -527,7 +552,9 @@ class MarbleVpnService : VpnService() {
         diag.event("HEV", "run-exit", "session" to session, "code" to code, "runningFlag" to running.get(), "xrayAlive" to xray.isAlive)
 
         if (isCurrent(session)) {
-            // If monitorWorker already scheduled recovery and quit HEV, don't schedule it twice.
+            if (!tunReadyPublished.get()) {
+                diag.event("HEV", "exited-before-ready", "session" to session, "code" to code)
+            }
             if (!recoveryScheduled.get()) handleFailure(session, "HEV stopped ($code)")
         }
     }
@@ -572,6 +599,9 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             var lastDown = -1L
             var lastT = System.nanoTime()
             var tick = 0
+            var statsFailures = 0
+            var txWithoutRxBytes = 0L
+            var txWithoutRxSince = 0L
 
             // The dashboard should become meaningful as soon as Xray is live. Probe the actual
             // SOCKS/Xray path now, then keep a light 15-second health cadence.
@@ -586,25 +616,50 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                 }
 
                 val stats = runCatching { HevTunnel.stats() }.getOrNull()
-                if (stats != null && stats.size >= 4) {
-                    val now = System.nanoTime()
-                    val dt = (now - lastT) / 1e9
-                    val up = stats[1]
-                    val down = stats[3]
+                if (stats == null || stats.size < 4) {
+                    statsFailures++
+                    diag.event("HEV", "stats-unavailable", "session" to session, "count" to statsFailures)
+                    if (statsFailures >= HEV_STATS_FAILURE_LIMIT) {
+                        handleFailure(session, "HEV stats unavailable $statsFailures times")
+                        return@execute
+                    }
+                } else {
+                    statsFailures = 0
+                    val nowNs = System.nanoTime()
+                    val nowMs = System.currentTimeMillis()
+                    val dt = (nowNs - lastT) / 1e9
+                    val up = stats[1].coerceAtLeast(0L)
+                    val down = stats[3].coerceAtLeast(0L)
                     if (lastUp >= 0 && lastDown >= 0 && dt > 0.25) {
                         val deltaDown = (down - lastDown).coerceAtLeast(0)
                         val deltaUp = (up - lastUp).coerceAtLeast(0)
-                        if (deltaDown > 0L || deltaUp > 0L) {
-                            lastTrafficProgressAt = System.currentTimeMillis()
+                        if (deltaDown > 0L || deltaUp > 0L) lastTrafficProgressAt = nowMs
+
+                        if (deltaDown > 0L) {
+                            txWithoutRxBytes = 0L
+                            txWithoutRxSince = 0L
+                        } else if (deltaUp > 0L) {
+                            if (txWithoutRxSince == 0L) txWithoutRxSince = nowMs
+                            txWithoutRxBytes += deltaUp
+                            if (txWithoutRxBytes >= HEV_STALL_MIN_TX_BYTES &&
+                                nowMs - txWithoutRxSince >= HEV_STALL_MIN_MS &&
+                                isRouteCurrent(session, generation)) {
+                                diag.event("HEV", "datapath-stalled",
+                                    "session" to session,
+                                    "txWithoutRxBytes" to txWithoutRxBytes,
+                                    "stallMs" to (nowMs - txWithoutRxSince),
+                                    "xrayAlive" to xray.isAlive)
+                                handleFailure(session,
+                                    "HEV datapath stalled: outbound traffic moved but no inbound traffic returned")
+                                return@execute
+                            }
                         }
-                        repo.updateTelemetry(
-                            (deltaDown / dt).toLong(),
-                            (deltaUp / dt).toLong()
-                        )
+
+                        repo.updateTelemetry((deltaDown / dt).toLong(), (deltaUp / dt).toLong())
                     }
                     lastUp = up
                     lastDown = down
-                    lastT = now
+                    lastT = nowNs
                 }
 
                 if (
