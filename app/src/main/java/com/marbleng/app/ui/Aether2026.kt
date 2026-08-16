@@ -3419,8 +3419,7 @@ private fun BugFinderSettings(repo: AppRepository) {
             if(current.evidence.isNotEmpty()) {
                 Text("RECENT EVIDENCE",color=Aether.InkFaint,style=MaterialTheme.typography.labelSmall)
                 SelectionContainer {
-                    Text(current.evidence.joinToString("
-"),color=Aether.InkMuted,
+                    Text(current.evidence.joinToString("\n"),color=Aether.InkMuted,
                         style=MaterialTheme.typography.bodySmall.copy(fontFamily=FontFamily.Monospace))
                 }
             }

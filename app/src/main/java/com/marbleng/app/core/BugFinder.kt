@@ -180,7 +180,7 @@ class BugFinder(private val context: Context, private val xray: XrayManager) {
         }
 
         (problems(runtime).takeLast(6) + problems(hevlog).takeLast(4) + problems(xlog).takeLast(6))
-            .distinct().takeLast(12).forEach { evidence += sanitize(it) }
+            .distinct().takeLast(12).forEach { line -> evidence += sanitize(line) }
 
         return BugReport(now, "$appState • ${stateDetail.ifBlank { "no active route" }}", out, evidence)
     }
@@ -197,7 +197,7 @@ class BugFinder(private val context: Context, private val xray: XrayManager) {
         it.contains("error",true) || it.contains("fail",true) || it.contains("blocked",true) ||
             it.contains("run-exit",true) || it.contains("handshake",true) ||
             it.contains("timeout",true) || it.contains("refused",true)
-    }.takeLast(24).toList()
+    }.toList().takeLast(24)
 
     private fun sanitize(s: String) = s.take(900)
         .replace(Regex("(?i)(uuid|password|token|private[-_ ]?key)=[^ |]+"), "$1=<redacted>")
