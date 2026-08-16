@@ -11,6 +11,7 @@ import com.marbleng.app.model.ProxyProfile
 import com.marbleng.app.ui.MarbleApp
 
 class MainActivity : ComponentActivity() {
+    // MARBLE_CONNECT_PERMISSION_V12
     private companion object {
         /** Survives the recreation that a rotation during the system VPN consent dialog causes. */
         const val KEY_PENDING_PROFILE = "pendingProfileId"
@@ -19,9 +20,23 @@ class MainActivity : ComponentActivity() {
     private var pending: ProxyProfile? = null
     private val app get() = application as MarbleApplication
 
-    private val vpnPermission = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-        if (it.resultCode == Activity.RESULT_OK) pending?.let(app.repo::startVpn)
+    private val vpnPermission = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        val selected = pending
         pending = null
+
+        if (result.resultCode == Activity.RESULT_OK) {
+            if (selected != null) {
+                app.repo.startVpn(selected)
+            } else {
+                app.repo.setRuntimeState("DISCONNECTED", "")
+                app.repo.setRuntimeMessage(
+                    "VPN permission returned without a pending profile • tap Connect again"
+                )
+            }
+        } else {
+            app.repo.setRuntimeState("DISCONNECTED", "VPN permission denied")
+            app.repo.setRuntimeMessage("VPN permission was not granted")
+        }
     }
 
     private val openFile = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -58,7 +73,17 @@ class MainActivity : ComponentActivity() {
                     app.repo.startVpn(p)
                 } else {
                     pending = p
-                    vpnPermission.launch(prep)
+                    runCatching { vpnPermission.launch(prep) }
+                        .onFailure { error ->
+                            pending = null
+                            app.repo.setRuntimeState(
+                                "BLOCKED",
+                                "Could not open Android VPN permission"
+                            )
+                            app.repo.setRuntimeMessage(
+                                "Could not open Android VPN permission • ${error::class.java.simpleName}"
+                            )
+                        }
                 }
             }
         }

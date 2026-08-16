@@ -38,6 +38,7 @@ class MarbleVpnService : VpnService() {
     // MARBLE_STABILITY_V10
     // MARBLE_ENGINE_RESCUE_V11
     // MARBLE_DNS_SELF_HEAL_V111
+    // MARBLE_CONNECT_RESCUE_V12
     // Live optimisation may learn while connected, but it must never intentionally tear down
     // a healthy user tunnel merely to hot-apply a transport experiment.
     companion object {
@@ -58,10 +59,11 @@ class MarbleVpnService : VpnService() {
         private const val PROBE_FAILURES_BEFORE_RECOVERY = 4
         private const val ROUTE_CONFIRM_TIMEOUT_MS = 4_500
         private const val RECENT_TRAFFIC_GRACE_MS = 45_000L
-        private const val HEV_READY_GRACE_MS = 750L
+        private const val HEV_READY_GRACE_MS = 1_500L
+        private const val CONNECT_STARTUP_TIMEOUT_MS = 35_000L
         private const val HEV_STALL_MIN_MS = 20_000L
         private const val HEV_STALL_MIN_TX_BYTES = 32L * 1024L
-        private const val HEV_STATS_FAILURE_LIMIT = 3
+        private const val HEV_STATS_FAILURE_LIMIT = 5
         private const val EXIT_IDENTITY_PROBE_INTERVAL_TICKS = 180
 
         /** Let a fresh route settle before spending link capacity on measuring alternatives. */
@@ -79,6 +81,7 @@ class MarbleVpnService : VpnService() {
     private val tuningRequested = AtomicBoolean(false)
     private val tuningRunning = AtomicBoolean(false)
     private val tunReadyPublished = AtomicBoolean(false)
+    private val startupTimedOut = AtomicBoolean(false)
     private val routeGeneration = AtomicInteger(0)
 
     // HEV is process-global; start/stop/recovery is serialized here.
@@ -194,6 +197,7 @@ class MarbleVpnService : VpnService() {
         lastTrafficProgressAt = 0L
         sessionTuned = false
         tunReadyPublished.set(false)
+        startupTimedOut.set(false)
         routeOptimizer.reset(System.currentTimeMillis())
         synchronized(recoveryTried) {
             recoveryTried.clear()
@@ -223,6 +227,26 @@ class MarbleVpnService : VpnService() {
 
         running.set(true)
         updateSentinel(killSwitch = normalizedMode == MODE_TUN)
+
+        // One connection attempt gets a finite wall-clock budget. This watchdog is independent of
+        // Xray/DNS/HEV workers, so a wedged verification path can never leave the UI CONNECTING
+        // forever. Full TUN keeps the already-established interface as a fail-closed kill switch.
+        monitorWorker.execute {
+            if (!sleepQuietly(CONNECT_STARTUP_TIMEOUT_MS)) return@execute
+            if (!isCurrent(session) || tunReadyPublished.get()) return@execute
+
+            startupTimedOut.set(true)
+            diag.event(
+                "VPN", "startup-timeout",
+                "session" to session,
+                "mode" to normalizedMode,
+                "timeoutMs" to CONNECT_STARTUP_TIMEOUT_MS
+            )
+            handleFailure(
+                session,
+                "Connection startup timed out after ${CONNECT_STARTUP_TIMEOUT_MS / 1_000}s"
+            )
+        }
 
         connectionWorker.execute {
             if (!isCurrent(session)) return@execute
@@ -323,6 +347,8 @@ class MarbleVpnService : VpnService() {
         }
 
         if (activeMode == MODE_PROXY) {
+            startupTimedOut.set(false)
+            tunReadyPublished.set(true)
             app.repo.markConnected(profile)
             app.repo.intelligence.recordConnect(profile.id, true, elapsedConnectMs(), settings)
             notifyNow("SOCKS5 • 127.0.0.1:$port • ${profile.name}", true)
@@ -524,27 +550,22 @@ class MarbleVpnService : VpnService() {
 
         val app = application as MarbleApplication
 
-        // Full TUN is not CONNECTED until HEV survives startup and its live stats API responds.
+        // HEV's public API defines main_from_str() as a blocking run call: it returns only after
+        // quit/error. A run that remains alive through this short grace is therefore a much safer
+        // startup signal than calling the native stats function while HEV is still initializing.
         recoveryScheduled.set(false)
         consecutiveProbeFailures = 0
         lastTrafficProgressAt = 0L
         tunReadyPublished.set(false)
         hevActive = true
         updateSentinel(killSwitch = true)
-        startTelemetry(session, socksPort, generation)
 
         monitorWorker.execute {
             if (!sleepQuietly(HEV_READY_GRACE_MS)) return@execute
             if (!isRouteCurrent(session, generation) || !hevActive || !xray.isAlive) return@execute
 
-            val statsReady = runCatching { HevTunnel.stats() }.getOrNull()?.size?.let { it >= 4 } ?: false
-            if (!statsReady) {
-                diag.event("HEV", "startup-stats-unavailable", "session" to session)
-                handleFailure(session, "HEV did not expose a healthy stats API after startup")
-                return@execute
-            }
-
             if (tunReadyPublished.compareAndSet(false, true) && isRouteCurrent(session, generation)) {
+                startupTimedOut.set(false)
                 app.repo.markConnected(profile)
                 app.repo.intelligence.recordConnect(profile.id, true, elapsedConnectMs(), settings)
                 val iran = app.repo.iranMode
@@ -559,7 +580,16 @@ class MarbleVpnService : VpnService() {
                     if (recovering) "Traffic moved safely to ${profile.name}" else profile.name,
                     settings
                 )
-                diag.event("HEV", "ready", "session" to session, "graceMs" to HEV_READY_GRACE_MS)
+                diag.event(
+                    "HEV", "ready",
+                    "session" to session,
+                    "graceMs" to HEV_READY_GRACE_MS,
+                    "proof" to "blocking-run-alive"
+                )
+
+                // Telemetry starts only after readiness is published. Its own warm-up below delays
+                // the first native stats call again, eliminating the early JNI initialization race.
+                startTelemetry(session, socksPort, generation)
             }
         }
 
@@ -634,6 +664,13 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                 if (!xray.isAlive) {
                     handleFailure(session, "Xray core stopped")
                     return@execute
+                }
+
+                // HevTunnel.stats() is advisory telemetry, not a startup primitive. Give the native
+                // tunnel several seconds after its blocking run begins before the first JNI read.
+                if (tick < 2) {
+                    tick++
+                    continue
                 }
 
                 val stats = runCatching { HevTunnel.stats() }.getOrNull()
@@ -848,11 +885,11 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
     }
 
     /**
-     * Connect-time acceleration.
+     * Connect-time acceleration must never hold the user's connection hostage.
      *
-     * Executes the eligible transport methods against the node the user selected and returns the
-     * settings that measured best. Nothing here can change the exit node, so a pinned identity is
-     * preserved; the worst case is the untouched configuration the user already asked for.
+     * Any fresh acceleration plan is already folded into requested settings by effectiveSettingsFor().
+     * If a node/network still needs measurement, queue that work for the healthy live tunnel instead
+     * of running multiple temporary Xray processes before the real connection even starts.
      */
     private fun preTune(
         profile: ProxyProfile,
@@ -863,56 +900,14 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         if (!requested.intelligenceEnabled || !requested.connectTuningEnabled) return requested
         if (!isCurrent(session)) return requested
 
-        val app = application as MarbleApplication
-        val repo = app.repo
-        if (!tuner.shouldPreTune(profile, requested)) {
-            // A fresh plan already exists for this node/network: it is folded in by
-            // effectiveSettingsFor(), so connecting stays instant.
-            return requested
-        }
-
-        // Recovery is time-critical. Halve the budget so a rescue still gets a fragmentation
-        // attempt without turning an outage into a long measurement session.
-        val budgetSec = requested.connectTuningBudgetSec.coerceIn(0, 20)
-        if (budgetSec <= 0) return requested
-        val budgetMs = if (recovering) budgetSec * 500L else budgetSec * 1_000L
-
-        val base = repo.tuningBaseFor(profile)
-        repo.setRuntimeState("CONNECTING", "Marble Turbo • measuring ${profile.name}")
-        notifyNow("Tuning route • ${profile.name}", true)
+        if (!recovering) tuningRequested.set(true)
         diag.event(
-            "TURBO", "pre-connect-begin",
+            "TURBO", "pre-connect-deferred",
             "session" to session,
             "profile" to profile.name,
-            "budgetMs" to budgetMs,
             "recovering" to recovering
         )
-
-        val report = runCatching {
-            tuner.accelerate(profile, base, budgetMs, measureSpeed = false) { label ->
-                repo.intelligence.setDecision("Marble Turbo • ${profile.name} • $label")
-            }
-        }.onFailure {
-            diag.error("TURBO", "pre-connect-failed", it, "session" to session)
-        }.getOrNull()
-
-        if (report == null || !report.healthy || !isCurrent(session)) {
-            diag.event("TURBO", "pre-connect-inconclusive", "session" to session)
-            return requested
-        }
-
-        repo.intelligence.rememberAcceleration(profile.id, report.winner)
-        repo.intelligence.setDecision(report.summary)
-        repo.refreshIntelligenceStatus()
-        diag.event(
-            "TURBO", "pre-connect-result",
-            "session" to session,
-            "method" to report.winner.methodId,
-            "pingMs" to report.winner.latencyMs.toInt(),
-            "gainPercent" to report.gainPercent.toInt(),
-            "trials" to report.trials.size
-        )
-        return report.winner.applyTo(base)
+        return requested
     }
 
     /**
@@ -1067,8 +1062,10 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
     ): AppSettings? {
         if (!isCurrent(session) || !xray.isAlive) return null
 
-        val literalHealthy = probeLiteralIpHttps(port)
+        // A successful hostname HTTPS request already proves transport + DNS. Only spend a
+        // second request on literal-IP diagnosis when hostname HTTPS actually fails.
         val domainHealthy = probeDomainHttps(port)
+        val literalHealthy = domainHealthy || probeLiteralIpHttps(port)
 
         diag.event(
             "EGRESS", "startup-proof",
@@ -1723,6 +1720,33 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             )
         }
 
+        // A startup timeout is terminal for this user attempt. Do not turn one hung connect into
+        // an unbounded chain of Identity Guard retries or Smart Fallback candidates. In Full TUN
+        // the TUN fd stays open as a fail-closed blackhole until the user retries or disconnects.
+        if (startupTimedOut.get()) {
+            recoveryScheduled.set(false)
+            tunReadyPublished.set(false)
+
+            if (holdTun) {
+                running.set(false)
+                repo.setRuntimeState("BLOCKED", "Kill switch active • $reason")
+                promoteForeground("BLOCKED • Startup timed out • tap Retry", ongoing = true)
+                diag.event(
+                    "VPN", "startup-timeout-held",
+                    "session" to activeSession,
+                    "profile" to failedId.take(12)
+                )
+                return
+            }
+
+            running.set(false)
+            closeTun()
+            repo.setRuntimeState("BLOCKED", reason)
+            runCatching { stopForeground(STOP_FOREGROUND_REMOVE) }
+            stopSelf()
+            return
+        }
+
         if (holdTun && !settings.autoReconnectAfterKillSwitch) {
             recoveryScheduled.set(false)
             repo.setRuntimeState("BLOCKED", "Kill switch active • manual reconnect required")
@@ -2087,6 +2111,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         activeSession = ""
         routeGeneration.incrementAndGet()
         recoveryScheduled.set(false)
+        startupTimedOut.set(false)
         routeProbeRequested.set(false)
         optimizerScanRequested.set(false)
         if (::routeOptimizer.isInitialized) routeOptimizer.reset(System.currentTimeMillis())

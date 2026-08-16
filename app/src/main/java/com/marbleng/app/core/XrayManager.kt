@@ -24,6 +24,7 @@ data class RoutingAssetStatus(
 )
 
 class XrayManager(private val context: Context) {
+    // MARBLE_FAST_START_V12
     private companion object {
         const val ROUTING_ASSET_REFRESH_MS = 24L * 60L * 60L * 1000L
         const val ROUTING_ASSET_RETRY_MS = 6L * 60L * 60L * 1000L
@@ -455,24 +456,10 @@ class XrayManager(private val context: Context) {
 
             val configText = XrayConfigHardener.harden(sourceConfig, port, settings)
             config.writeText(configText)
-            val configHash = sha256(configText)
-
-            if (!validationCached(configHash)) {
-                val testProcess = createProcessBuilder("run", "-test", "-c", config.absolutePath)
-                    .redirectOutput(ProcessBuilder.Redirect.appendTo(logFile))
-                    .start()
-
-                if (!testProcess.waitFor(10, TimeUnit.SECONDS)) {
-                    stopProcess(testProcess)
-                    return@runCatching fail("Xray config validation timed out")
-                }
-                if (testProcess.exitValue() != 0) {
-                    return@runCatching fail(
-                        "Xray rejected the generated config (exit ${testProcess.exitValue()}): ${lastLogHint()}"
-                    )
-                }
-                rememberValidation(configHash)
-            }
+            // The live Xray process is the validator on the user-critical path. Invalid configs
+            // exit before the SOCKS handshake can succeed, and waitSocksPort() detects that process
+            // death immediately. The explicit Settings routing verifier still uses `xray run -test`.
+            // Avoiding a second process spawn removes up to 10 seconds from every uncached connect.
 
             val startedProcess = createProcessBuilder("run", "-c", config.absolutePath)
                 .redirectOutput(ProcessBuilder.Redirect.appendTo(logFile))
