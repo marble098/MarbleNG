@@ -1,6 +1,7 @@
 package com.marbleng.app.ui
 
-// Marble Product UI v9.1.0 • live-aware fast-motion product surface
+// Marble Product UI v10.0.1 • stability-first Library power surface
+// MARBLE_LIBRARY_UI_V10
 
 import android.Manifest
 import android.content.Intent
@@ -56,6 +57,8 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -77,7 +80,6 @@ import kotlin.math.sin
 private enum class SpatialTab(val label: String) {
     DECK("Home"),
     LIBRARY("Library"),
-    LAB("Quality"),
     RADAR("Network"),
     SETTINGS("Settings")
 }
@@ -172,7 +174,6 @@ fun Aether2026App(
                         }
                     )
                     SpatialTab.LIBRARY -> CyberLibrary(repo, onConnect, onImportFile)
-                    SpatialTab.LAB -> BenchmarkStudio(repo, onConnect)
                     SpatialTab.RADAR -> DiscoveryRadar(repo)
                     SpatialTab.SETTINGS -> SpatialSettings(
                         repo = repo,
@@ -399,26 +400,6 @@ private fun MarbleTabIcon(
                     )
                 }
             }
-            SpatialTab.LAB -> {
-                val r = w * .34f
-                drawArc(
-                    color = color,
-                    startAngle = -70f,
-                    sweepAngle = 285f,
-                    useCenter = false,
-                    topLeft = Offset(w/2-r,h/2-r),
-                    size = Size(r*2,r*2),
-                    style = line
-                )
-                drawLine(
-                    color,
-                    Offset(w*.50f,h*.50f),
-                    Offset(w*.69f,h*.34f),
-                    stroke,
-                    StrokeCap.Round
-                )
-                drawCircle(color, w*.055f, Offset(w*.50f,h*.50f))
-            }
             SpatialTab.RADAR -> {
                 val left = Offset(w*.23f,h*.62f)
                 val top = Offset(w*.50f,h*.27f)
@@ -639,27 +620,6 @@ private fun CyberDeck(
     val activeName = repo.stateDetail.ifBlank {
         repo.lastProfile()?.name ?: "No active connection"
     }
-    val activeId = repo.activeProfileId.ifBlank { repo.lastProfile()?.id.orEmpty() }
-    val routeEvidence = repo.benchmarks.firstOrNull {
-        (activeId.isNotBlank() && it.profileId == activeId) || it.name == activeName
-    }?.takeIf { it.success > 0 }
-
-    // Without evidence for this exact route, the best measured route is still a real answer —
-    // far better than showing a hard 0 / 100 that looks like a broken gauge.
-    val priorEvidence = routeEvidence ?: repo.benchmarks.firstOrNull { it.success > 0 }
-    val liveReady =
-        connected &&
-            repo.liveRouteScore >= 0 &&
-            repo.livePingMs > 0 &&
-            repo.liveRouteSamples > 0
-
-    // Negative means "not measured yet"; the ring renders that as "—" instead of zero.
-    val score = when {
-        liveReady -> repo.liveRouteScore
-        priorEvidence != null -> priorEvidence.score.roundToInt().coerceIn(0, 100)
-        else -> -1
-    }
-
     LazyColumn(
         Modifier.fillMaxSize(),
         contentPadding = PaddingValues(horizontal = 18.dp, vertical = 10.dp),
@@ -702,24 +662,12 @@ private fun CyberDeck(
         }
 
         item {
-            PerformanceScoreOverview(
-                score = score,
-                connected = connected,
-                routeName = activeName,
-                liveReady = liveReady,
-                pingMs = repo.livePingMs,
-                samples = repo.liveRouteSamples,
-                hasPriorEvidence = priorEvidence != null
-            )
-        }
-
-        item {
             SectionLabel("Shortcuts")
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 HoloActionPill(
                     "◔",
-                    "Performance",
-                    if (repo.probeActive) "Testing ${repo.probeDone}/${repo.probeTotal}" else "Measure routes",
+                    "Test nodes",
+                    if (repo.probeActive) "Testing ${repo.probeDone}/${repo.probeTotal}" else "Measure real route latency",
                     Aether.Cyan,
                     Modifier.weight(1f)
                 ) {
@@ -744,75 +692,6 @@ private fun CyberDeck(
             }
         }
 
-    }
-}
-
-@Composable
-private fun PerformanceScoreOverview(
-    score: Int,
-    connected: Boolean,
-    routeName: String,
-    liveReady: Boolean,
-    pingMs: Int,
-    samples: Int,
-    hasPriorEvidence: Boolean
-) {
-    HoloGlass(
-        Modifier.fillMaxWidth(),
-        contentPadding = PaddingValues(18.dp)
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            ScoreRing(score, Modifier.size(106.dp))
-            Spacer(Modifier.width(18.dp))
-            Column(Modifier.weight(1f)) {
-                Text(
-                    "Performance score",
-                    color = Aether.Ink,
-                    style = MaterialTheme.typography.titleMedium
-                )
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    when {
-                        score < 0 && connected -> "Measuring the active Xray path…"
-                        score < 0 -> "Run a test or connect to measure a score."
-                        connected && !liveReady -> "Updating live route evidence…"
-                        score >= 85 -> "Excellent route quality"
-                        score >= 70 -> "Healthy route quality"
-                        score >= 50 -> "Usable, with some pressure"
-                        score >= 30 -> "Degraded route quality"
-                        else -> "Poor route quality"
-                    },
-                    color = when {
-                        score < 0 -> Aether.InkMuted
-                        connected && !liveReady -> Aether.Cyan
-                        score >= 70 -> Aether.Emerald
-                        score >= 50 -> Aether.Cyan
-                        score >= 30 -> Aether.Amber
-                        else -> Aether.Danger
-                    },
-                    style = MaterialTheme.typography.bodyMedium
-                )
-                Spacer(Modifier.height(5.dp))
-                Text(
-                    when {
-                        liveReady ->
-                            "Live • $pingMs ms RTT • $samples sample${if(samples==1)"" else "s"}"
-                        connected && hasPriorEvidence ->
-                            "Last measured evidence • waiting for the first live sample"
-                        connected ->
-                            routeName
-                        hasPriorEvidence ->
-                            "Last measured evidence for $routeName"
-                        else ->
-                            "Based on real Xray-path latency, reliability and route evidence."
-                    },
-                    color = Aether.InkFaint,
-                    style = MaterialTheme.typography.bodySmall,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-        }
     }
 }
 
@@ -1076,6 +955,7 @@ private fun CyberLibrary(
     onConnect: (ProxyProfile) -> Unit,
     onImportFile: () -> Unit
 ) {
+    val clipboard = LocalClipboardManager.current
     var search by remember { mutableStateOf("") }
     var addOpen by remember { mutableStateOf(false) }
     var url by remember { mutableStateOf("") }
@@ -1204,6 +1084,21 @@ private fun CyberLibrary(
                         modifier = Modifier.fillMaxWidth()
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                        CyberButton("Copy URL", Aether.Emerald, Modifier.weight(1f)) {
+                            clipboard.setText(AnnotatedString(target.url))
+                            repo.setRuntimeMessage("Subscription URL copied")
+                        }
+                        CyberButton(
+                            "Copy nodes",
+                            Aether.Cyan,
+                            Modifier.weight(1f),
+                            enabled = repo.subscriptionNodeCount(target.id) > 0
+                        ) {
+                            clipboard.setText(AnnotatedString(repo.subscriptionRawText(target.id)))
+                            repo.setRuntimeMessage("${repo.subscriptionNodeCount(target.id)} node links copied")
+                        }
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                         CyberButton(
                             label = "VIEW NODES",
                             color = Aether.Cyan,
@@ -1315,6 +1210,28 @@ private fun CyberLibrary(
                     modifier = Modifier.weight(1f),
                     shape = RoundedCornerShape(18.dp)
                 )
+
+                Button(
+                    onClick = {
+                        repo.importClipboard(clipboard.getText()?.text.orEmpty())
+                    },
+                    modifier = Modifier.height(56.dp),
+                    shape = RoundedCornerShape(18.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Aether.Emerald.copy(alpha = .13f),
+                        contentColor = Aether.Emerald
+                    ),
+                    elevation = ButtonDefaults.buttonElevation(
+                        defaultElevation = 0.dp,
+                        pressedElevation = 0.dp,
+                        focusedElevation = 0.dp,
+                        hoveredElevation = 0.dp,
+                        disabledElevation = 0.dp
+                    ),
+                    contentPadding = PaddingValues(horizontal = 11.dp)
+                ) {
+                    Text("✦ Magic", maxLines = 1, softWrap = false)
+                }
 
                 Button(
                     onClick = { addOpen = !addOpen },
@@ -1616,7 +1533,7 @@ private fun LibraryViewControls(
             modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(7.dp)
         ) {
-            NodeSortMode.entries.forEach { mode ->
+            NodeSortMode.entries.filter { it != NodeSortMode.SCORE }.forEach { mode ->
                 CyberChoiceChip(
                     text = sortModeLabel(mode),
                     selected = repo.settings.nodeSortMode == mode,
@@ -1813,7 +1730,53 @@ private fun SpatialServerCard(
     val health = healthColor(latency, result?.success ?: 0)
     val testing = probeState == ProbeState.TESTING
     val queued = probeState == ProbeState.QUEUED
+    val clipboard = LocalClipboardManager.current
     var menuOpen by remember { mutableStateOf(false) }
+    var jsonOpen by remember(profile.id) { mutableStateOf(false) }
+    var jsonText by remember(profile.id, profile.configJson) { mutableStateOf(profile.configJson) }
+
+    if (jsonOpen) {
+        AlertDialog(
+            onDismissRequest = { jsonOpen = false },
+            containerColor = Aether.VoidElevated,
+            title = {
+                Column {
+                    Text("Edit Xray JSON", color = Aether.Ink)
+                    Text(profile.name, color = Aether.InkFaint, style = MaterialTheme.typography.bodySmall,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                    OutlinedTextField(
+                        value = jsonText,
+                        onValueChange = { jsonText = it },
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 260.dp, max = 430.dp),
+                        textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                        label = { Text("Effective config JSON") },
+                        minLines = 10,
+                        maxLines = 22
+                    )
+                    Text(
+                        if (profile.subscriptionId == "manual")
+                            "Manual node • edits are stored locally."
+                        else
+                            "Subscription node • refresh can replace this edit. Duplicate to Manual for a permanent fork.",
+                        color = Aether.InkFaint,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (repo.updateProfileJson(profile.id, jsonText)) jsonOpen = false
+                }) { Text("SAVE JSON", color = Aether.Cyan) }
+            },
+            dismissButton = {
+                TextButton(onClick = { jsonOpen = false }) { Text("CANCEL", color = Aether.InkMuted) }
+            }
+        )
+    }
 
     HoloGlass(
         modifier = Modifier
@@ -1914,6 +1877,38 @@ private fun SpatialServerCard(
                     containerColor = Aether.VoidElevated
                 ) {
                     DropdownMenuItem(
+                        text = { Text("Copy config link") },
+                        onClick = {
+                            menuOpen = false
+                            clipboard.setText(AnnotatedString(profile.raw.trim().ifBlank { profile.configJson }))
+                            repo.setRuntimeMessage("Config copied")
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Copy Xray JSON") },
+                        onClick = {
+                            menuOpen = false
+                            clipboard.setText(AnnotatedString(profile.configJson))
+                            repo.setRuntimeMessage("Xray JSON copied")
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Edit Xray JSON") },
+                        onClick = {
+                            menuOpen = false
+                            jsonText = profile.configJson
+                            jsonOpen = true
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Duplicate to Manual") },
+                        onClick = {
+                            menuOpen = false
+                            repo.duplicateProfile(profile.id)
+                        }
+                    )
+                    HorizontalDivider(color = Aether.GlassBorderSoft)
+                    DropdownMenuItem(
                         text = { Text("Test this node") },
                         onClick = {
                             menuOpen = false
@@ -1973,7 +1968,7 @@ private fun SpatialServerCard(
                         compact = true
                     )
                     Text(
-                        "Score ${evidence.score.roundToInt().coerceIn(0, 100)} • ${evidence.success}% reachable",
+                        "${evidence.success}% reachable • measured through Xray",
                         color = Aether.InkFaint,
                         style = MaterialTheme.typography.labelSmall,
                         maxLines = 1,
@@ -2080,277 +2075,6 @@ private fun MicroStat(
 }
 
 // =================================================================================================
-// QUALITY / BENCHMARK STUDIO
-// =================================================================================================
-
-@Composable
-private fun BenchmarkStudio(
-    repo: AppRepository,
-    onConnect: (ProxyProfile) -> Unit
-) {
-    val modes = listOf(BenchMode.RELIABLE, BenchMode.BALANCED, BenchMode.FAST, BenchMode.TURBO)
-    val measuredBest = repo.benchmarks.firstOrNull { it.success > 0 }
-    val connected = repo.state == "CONNECTED"
-    val liveReady =
-        connected &&
-            repo.liveRouteScore >= 0 &&
-            repo.livePingMs > 0 &&
-            repo.liveRouteSamples > 0
-
-    // Negative = nothing measured yet, rendered as "—" rather than a misleading zero.
-    val score = when {
-        liveReady -> repo.liveRouteScore
-        measuredBest != null -> measuredBest.score.roundToInt().coerceIn(0, 100)
-        else -> -1
-    }
-    val latency = when {
-        liveReady -> repo.livePingMs
-        measuredBest != null -> measuredBest.latencyMs.toInt()
-        else -> 0
-    }
-    val routeName =
-        if (liveReady) repo.stateDetail.ifBlank { repo.lastProfile()?.name ?: "Active route" }
-        else measuredBest?.name ?: "No measured route"
-
-    LazyColumn(
-        Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = 18.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        item {
-            SpatialHeader(
-                "Performance",
-                "Route quality",
-                "Live evidence while connected; full route ranking when you run a test",
-                when {
-                    score >= 0 -> "$score / 100"
-                    connected -> "Measuring"
-                    else -> "No sample"
-                },
-                when {
-                    score < 0 -> Aether.InkFaint
-                    score >= 80 && latency in 1..500 -> Aether.Emerald
-                    score >= 55 && latency in 1..1500 -> Aether.Cyan
-                    score > 0 -> Aether.Amber
-                    else -> Aether.InkFaint
-                }
-            )
-        }
-
-        item {
-            Row(
-                Modifier.horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                modes.forEach { mode ->
-                    CyberChoiceChip(
-                        mode.name.lowercase().replaceFirstChar { it.uppercase() },
-                        repo.settings.benchMode == mode,
-                        Aether.Cyan
-                    ) {
-                        repo.updateSettings(repo.settings.copy(benchMode = mode))
-                    }
-                }
-            }
-        }
-
-        item {
-            // Measure and rank the library. This button must not silently connect: racing a few
-            // nodes returned a single result and left the score table looking empty.
-            CyberButton(
-                when {
-                    repo.probeActive -> "Measuring ${repo.probeDone}/${repo.probeTotal}"
-                    repo.busy -> "Measuring…"
-                    else -> "Run performance test"
-                },
-                Aether.Cyan,
-                Modifier.fillMaxWidth(),
-                repo.profiles.isNotEmpty() && !repo.busy
-            ) {
-                repo.smartRank()
-            }
-        }
-
-        if (repo.probeActive) {
-            item {
-                HoloGlass(
-                    modifier = Modifier.fillMaxWidth(),
-                    borderColor = Aether.Cyan.copy(alpha = .45f)
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            "Measuring real routes",
-                            color = Aether.Ink,
-                            style = MaterialTheme.typography.titleMedium,
-                            modifier = Modifier.weight(1f)
-                        )
-                        HoloBadge("${repo.probeDone}/${repo.probeTotal}", Aether.Cyan, compact = true)
-                    }
-                    LiveProgressBar(
-                        fraction = repo.probeDone.toFloat() / repo.probeTotal.coerceAtLeast(1),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Text(
-                        repo.probeCurrentName.ifBlank { "Starting real Xray tunnels…" },
-                        color = Aether.InkFaint,
-                        style = MaterialTheme.typography.bodySmall,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
-        }
-
-        item {
-            HoloGlass(Modifier.fillMaxWidth(), contentPadding = PaddingValues(20.dp)) {
-                if (!liveReady && measuredBest == null) {
-                    EmptyVisual(
-                        "◔",
-                        if (connected) "Collecting live evidence" else "No performance sample yet",
-                        if (connected)
-                            "The first real Xray-path RTT sample is requested immediately after connection."
-                        else
-                            "Connect or run a performance test to measure real Xray routes."
-                    )
-                } else {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        ScoreRing(score, Modifier.size(124.dp))
-                        Spacer(Modifier.width(18.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text(
-                                if (liveReady) "Active route • live" else "Best measured route",
-                                color = Aether.InkFaint,
-                                style = MaterialTheme.typography.labelSmall
-                            )
-                            Text(
-                                routeName,
-                                color = Aether.Ink,
-                                style = MaterialTheme.typography.titleMedium,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Spacer(Modifier.height(7.dp))
-                            Text(
-                                when {
-                                    latency >= 4000 -> "Very high latency"
-                                    latency >= 2000 -> "High latency"
-                                    latency >= 1000 -> "Latency constrained"
-                                    score >= 85 -> "Excellent"
-                                    score >= 70 -> "Healthy"
-                                    score >= 50 -> "Fair"
-                                    score >= 30 -> "Degraded"
-                                    else -> "Poor"
-                                },
-                                color = when {
-                                    latency >= 2000 -> Aether.Danger
-                                    latency >= 1000 -> Aether.Amber
-                                    score >= 70 -> Aether.Emerald
-                                    score >= 50 -> Aether.Cyan
-                                    else -> Aether.Danger
-                                },
-                                style = MaterialTheme.typography.bodyMedium
-                            )
-                        }
-                    }
-
-                    HorizontalDivider(color = Aether.GlassBorderSoft)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        MicroStat(
-                            if (liveReady) "Live samples" else "Reliability",
-                            if (liveReady) "${repo.liveRouteSamples}" else "${measuredBest?.success ?: 0}%",
-                            Modifier.weight(1f)
-                        )
-                        MicroStat("RTT", if (latency > 0) "$latency ms" else "—", Modifier.weight(1f))
-                        MicroStat(
-                            "Method",
-                            probeMethodShortLabel(repo.settings.probeMethod),
-                            Modifier.weight(1f)
-                        )
-                    }
-                }
-            }
-        }
-
-        if (repo.benchmarks.isNotEmpty()) {
-            item {
-                SectionLabel(
-                    "Measured routes",
-                    "Ranked evidence from complete proxy-path tests"
-                )
-            }
-            itemsIndexed(
-                repo.benchmarks,
-                key = { _, result -> "bench-${result.profileId}" }
-            ) { index, result ->
-                CompactBenchmarkRow(index + 1, result, repo, onConnect)
-            }
-        }
-    }
-}
-
-
-@Composable
-private fun CompactBenchmarkRow(
-    rank: Int,
-    result: BenchmarkResult,
-    repo: AppRepository,
-    onConnect: (ProxyProfile) -> Unit
-) {
-    val latencyColor = healthColor(result.latencyMs.toInt(), result.success)
-    val successColor =
-        if (result.success >= 90) Aether.Emerald
-        else if (result.success >= 65) Aether.Amber
-        else Aether.Danger
-
-    HoloGlass(
-        modifier = Modifier.fillMaxWidth(),
-        contentPadding = PaddingValues(horizontal = 13.dp, vertical = 11.dp)
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                Modifier
-                    .size(38.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(latencyColor.copy(alpha = .09f)),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    "$rank",
-                    color = latencyColor,
-                    style = MaterialTheme.typography.labelLarge
-                )
-            }
-
-            Spacer(Modifier.width(10.dp))
-            Column(Modifier.weight(1f)) {
-                Text(
-                    result.name,
-                    color = Aether.Ink,
-                    style = MaterialTheme.typography.labelLarge,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    routeEvidenceLine(result),
-                    color = Aether.InkFaint,
-                    style = MaterialTheme.typography.labelSmall,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-
-            HoloBadge("${result.success}%", successColor, compact = true)
-            TextButton(
-                onClick = { repo.profile(result.profileId)?.let(onConnect) },
-                enabled = result.success > 0
-            ) {
-                Text("Use", color = Aether.Cyan, style = MaterialTheme.typography.labelLarge)
-            }
-        }
-    }
-}
-
-// =================================================================================================
 // NETWORK / ENVIRONMENT
 // =================================================================================================
 
@@ -2362,7 +2086,7 @@ private fun DiscoveryRadar(repo:AppRepository){
         item{SectionLabel("Current network");HoloGlass(Modifier.fillMaxWidth()){Row(verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f)){Text(network.label,color=Aether.Ink,style=MaterialTheme.typography.titleMedium);Text("${if(network.metered)"Metered" else "Unmetered"} • ${if(network.hasIpv4)"IPv4" else "No IPv4"} • ${if(network.hasIpv6)"IPv6" else "No IPv6"}",color=Aether.InkMuted,style=MaterialTheme.typography.bodySmall)};HoloBadge(if(network.validated)"Validated" else "Unvalidated",linkColor,true)};Text("MTU ${network.mtu.takeIf{it>0}?:0} • Downlink ${network.downstreamKbps.coerceAtLeast(0)} kbps • Uplink ${network.upstreamKbps.coerceAtLeast(0)} kbps",color=Aether.InkFaint,style=MaterialTheme.typography.bodySmall);CyberButton(if(iran.scanning)"Checking network…" else "Refresh network check",Aether.Cyan,Modifier.fillMaxWidth(),!iran.scanning){repo.scanIranMode(force=true,deep=true)}}}
         item{SectionLabel("Marble Intelligence");HoloGlass(Modifier.fillMaxWidth()){Row(verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f)){Text(if(repo.settings.intelligenceEnabled)"Adaptive engine enabled" else "Adaptive engine disabled",color=Aether.Ink,style=MaterialTheme.typography.titleMedium);Text("Effective MTU ${intel.effectiveMtu.takeIf{it>0}?:network.mtu} • Thermal budget ${intel.thermalBudgetPercent}% • History ${intel.historyRecords}",color=Aether.InkFaint,style=MaterialTheme.typography.bodySmall)};HoloBadge(if(repo.settings.intelligenceEnabled)"On" else "Off",if(repo.settings.intelligenceEnabled)Aether.Emerald else Aether.InkFaint,true)};Text(intel.lastDecision.ifBlank{"Waiting for the next network decision"},color=Aether.InkMuted,style=MaterialTheme.typography.bodyMedium)}}
         if(iran.active){item{SectionLabel("Regional protection");HoloGlass(Modifier.fillMaxWidth()){Row(verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f)){Text(iran.ispLine,color=Aether.Ink,style=MaterialTheme.typography.titleMedium);Text(iran.summary,color=Aether.InkMuted,style=MaterialTheme.typography.bodySmall)};HoloBadge("${iran.confidence}%",Aether.Emerald,true)}}}}
-        if(repo.benchmarks.isNotEmpty()){item{SectionLabel("Recent measurements","Read-only route evidence")};items(repo.benchmarks.sortedByDescending{it.score}.take(6),key={"network-memory-${it.profileId}"}){r->val c=healthColor(r.latencyMs.toInt(),r.success);HoloGlass(Modifier.fillMaxWidth(),contentPadding=PaddingValues(horizontal=14.dp,vertical=12.dp)){Row(verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f)){Text(r.name,color=Aether.Ink,style=MaterialTheme.typography.labelLarge,maxLines=1,overflow=TextOverflow.Ellipsis);Text("${r.latencyMs.toInt()} ms • success ${r.success}%",color=Aether.InkFaint,style=MaterialTheme.typography.bodySmall)};HoloBadge("${r.score.roundToInt().coerceIn(0,100)}",c,true)}}}}
+        if(repo.benchmarks.isNotEmpty()){item{SectionLabel("Recent measurements","Read-only route evidence")};items(repo.benchmarks.sortedByDescending{it.score}.take(6),key={"network-memory-${it.profileId}"}){r->val c=healthColor(r.latencyMs.toInt(),r.success);HoloGlass(Modifier.fillMaxWidth(),contentPadding=PaddingValues(horizontal=14.dp,vertical=12.dp)){Row(verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f)){Text(r.name,color=Aether.Ink,style=MaterialTheme.typography.labelLarge,maxLines=1,overflow=TextOverflow.Ellipsis);Text("${r.latencyMs.toInt()} ms • success ${r.success}%",color=Aether.InkFaint,style=MaterialTheme.typography.bodySmall)};HoloBadge("${r.latencyMs.toInt()} ms",c,true)}}}}
     }
 }
 
@@ -2671,7 +2395,7 @@ private fun IntelligenceSettings(repo: AppRepository) {
             }
             SettingSwitch(
                 title = "Keep improving while connected",
-                subtitle = "Re-measure the live route in the background and hot-apply a faster method on the same exit IP",
+                subtitle = "Re-measure in the background and learn a faster method for the next reconnect — never tear down the live tunnel",
                 checked = s.liveTuningEnabled
             ) { repo.updateSettings(repo.settings.copy(liveTuningEnabled = it)) }
 
@@ -2683,7 +2407,7 @@ private fun IntelligenceSettings(repo: AppRepository) {
                     NumberSetting("Ping that triggers tuning", s.liveTuningPingTriggerMs, 80..1200, " ms") {
                         repo.updateSettings(repo.settings.copy(liveTuningPingTriggerMs = it))
                     }
-                    NumberSetting("Minimum gain to re-dial", s.liveTuningMinGainPercent, 5..80, " %") {
+                    NumberSetting("Minimum gain to learn", s.liveTuningMinGainPercent, 5..80, " %") {
                         repo.updateSettings(repo.settings.copy(liveTuningMinGainPercent = it))
                     }
                 }
@@ -2696,7 +2420,7 @@ private fun IntelligenceSettings(repo: AppRepository) {
             ) { repo.updateSettings(repo.settings.copy(adaptiveBufferEnabled = it)) }
 
             CyberButton(
-                label = "Boost active route now",
+                label = "Learn faster route now",
                 color = Aether.Emerald,
                 modifier = Modifier.fillMaxWidth(),
                 enabled = repo.state == "CONNECTED"
@@ -4080,67 +3804,6 @@ private fun EmptyVisual(
 
 
 /** Score ring. A negative score means "not measured yet" and renders as an empty dash. */
-@Composable
-private fun ScoreRing(
-    score: Int,
-    modifier: Modifier = Modifier
-) {
-    val known = score >= 0
-    val target = score.coerceIn(0, 100)
-    val progress by animateFloatAsState(
-        targetValue = if (known) target / 100f else 0f,
-        animationSpec = tween(420, easing = FastOutSlowInEasing),
-        label = "score-ring-progress"
-    )
-    val track = Aether.GlassBorderSoft
-    val ring = when {
-        !known -> Aether.InkFaint
-        target >= 80 -> Aether.Emerald
-        target >= 55 -> Aether.Cyan
-        target >= 35 -> Aether.Amber
-        else -> Aether.Danger
-    }
-
-    Box(modifier, contentAlignment = Alignment.Center) {
-        Canvas(Modifier.matchParentSize()) {
-            val width = size.minDimension * .072f
-            // The arc must be inset by half the stroke, otherwise the ring is clipped flat at the
-            // four edges of the canvas.
-            val inset = width / 2f
-            val arcSize = Size(size.width - width, size.height - width)
-            val topLeft = Offset(inset, inset)
-            drawArc(
-                color = track,
-                startAngle = -90f,
-                sweepAngle = 360f,
-                useCenter = false,
-                topLeft = topLeft,
-                size = arcSize,
-                style = Stroke(width, cap = StrokeCap.Round)
-            )
-            if (progress > 0f) {
-                drawArc(
-                    color = ring,
-                    startAngle = -90f,
-                    sweepAngle = 360f * progress,
-                    useCenter = false,
-                    topLeft = topLeft,
-                    size = arcSize,
-                    style = Stroke(width, cap = StrokeCap.Round)
-                )
-            }
-        }
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(
-                if (known) target.toString() else "—",
-                color = if (known) Aether.Ink else Aether.InkMuted,
-                style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.SemiBold
-            )
-            Text("/ 100", color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
-        }
-    }
-}
 
 
 // =================================================================================================

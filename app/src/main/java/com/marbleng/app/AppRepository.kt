@@ -12,11 +12,14 @@ import com.marbleng.app.vpn.MarbleVpnService
 import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
+import org.json.JSONObject
 import java.util.concurrent.Executors
 import kotlin.math.exp
 import kotlin.math.roundToInt
 
 class AppRepository(private val context: Context, val xray: XrayManager) {
+    // MARBLE_LIBRARY_POWER_V10
+
     private val store = AppStore(context)
     private val io = Executors.newFixedThreadPool(3)
 
@@ -520,6 +523,127 @@ private fun postToMain(block: () -> Unit) {
         }
     }
 
+    /** Smart clipboard intake used by the Library magic button. */
+    fun importClipboard(text: String) {
+        val clean = text.trim()
+        if (clean.isBlank()) {
+            message = "Clipboard is empty"
+            return
+        }
+
+        val lines = clean.lineSequence().map(String::trim).filter(String::isNotBlank).toList()
+        val allHttpUrls = lines.isNotEmpty() && lines.all {
+            it.startsWith("https://", ignoreCase = true) || it.startsWith("http://", ignoreCase = true)
+        }
+        val looksLikeJson = clean.startsWith("{") || clean.startsWith("[")
+        val hasShareLinks = Regex(
+            "(?im)^(vless|vmess|trojan|ss|ssr|socks|hysteria2|hy2|tuic|wireguard)://"
+        ).containsMatchIn(clean)
+
+        if (!allHttpUrls || looksLikeJson || hasShareLinks) {
+            importText(clean, "Clipboard")
+            return
+        }
+
+        var added = 0
+        lines.distinct().take(32).forEachIndexed { index, rawUrl ->
+            val cleanUrl = rawUrl.trim()
+            if (subscriptions.any { it.url.trim().equals(cleanUrl, true) }) return@forEachIndexed
+            val baseId = sha(cleanUrl).take(12)
+            var id = baseId
+            var suffix = 1
+            while (subscriptions.any { it.id == id }) id = "${baseId.take(9)}-${suffix++}"
+            val host = runCatching { URL(cleanUrl).host.removePrefix("www.") }.getOrDefault("")
+            subscriptions += Subscription(
+                id = id,
+                name = host.ifBlank { "Clipboard source ${index + 1}" },
+                url = cleanUrl,
+                updatedAt = 0L
+            )
+            added++
+        }
+
+        if (added == 0) {
+            message = "Clipboard subscriptions are already in the Library"
+            return
+        }
+        store.saveSubscriptions(subscriptions)
+        message = "$added clipboard source${if (added == 1) "" else "s"} added • refreshing"
+        refreshAll()
+    }
+
+    /** Original links (or JSON fallback) for every node owned by one subscription. */
+    fun subscriptionRawText(id: String): String =
+        profiles.asSequence()
+            .filter { it.subscriptionId == id }
+            .map { it.raw.trim().ifBlank { it.configJson.trim() } }
+            .filter(String::isNotBlank)
+            .distinct()
+            .joinToString("\n")
+
+    /** Save effective Xray JSON for a node. Xray itself still validates again on connect. */
+    fun updateProfileJson(id: String, jsonText: String): Boolean {
+        if (busy) {
+            message = "Wait for the current background task before editing a node"
+            return false
+        }
+        if (isActiveProfile(id)) {
+            message = "Disconnect this node before editing its Xray JSON"
+            return false
+        }
+        val index = profiles.indexOfFirst { it.id == id }
+        if (index < 0) {
+            message = "Node no longer exists"
+            return false
+        }
+        val normalized = runCatching {
+            val root = JSONObject(jsonText)
+            require(root.has("outbounds")) { "Xray JSON must contain outbounds" }
+            root.toString(2)
+        }.getOrElse {
+            message = "Invalid Xray JSON • ${it.message ?: it::class.java.simpleName}"
+            return false
+        }
+        val current = profiles[index]
+        profiles[index] = current.copy(
+            configJson = normalized,
+            raw = if (current.raw.trimStart().startsWith("{")) normalized else current.raw
+        )
+        benchmarks = benchmarks.filterNot { it.profileId == id }
+        intelligence.forgetAcceleration(id)
+        store.saveProfiles(profiles)
+        message = "Node JSON saved • learned acceleration cleared"
+        return true
+    }
+
+    /** Make a durable Manual copy of any node, including subscription-owned nodes. */
+    fun duplicateProfile(id: String): Boolean {
+        if (busy) {
+            message = "Wait for the current background task before duplicating a node"
+            return false
+        }
+        val source = profile(id) ?: run {
+            message = "Node no longer exists"
+            return false
+        }
+        val newId = sha("${source.id}:${System.nanoTime()}:${profiles.size}").take(12)
+        var name = "${source.name} • copy"
+        var n = 2
+        while (profiles.any { it.name.equals(name, true) && it.subscriptionId == "manual" }) {
+            name = "${source.name} • copy $n"
+            n++
+        }
+        profiles += source.copy(
+            id = newId,
+            name = name,
+            subscriptionId = "manual",
+            subscriptionName = "Manual"
+        )
+        store.saveProfiles(profiles)
+        message = "Manual copy created • $name"
+        return true
+    }
+
     fun updateSubscription(id: String, name: String, url: String): Boolean {
         if (busy) {
             message = "Wait for the current background task before editing a subscription"
@@ -714,8 +838,8 @@ private fun postToMain(block: () -> Unit) {
     }
 
     /**
-     * Asks the running tunnel to re-measure acceleration methods on the route that is already
-     * carrying traffic. The exit node is never changed by this, only how the node is dialled.
+     * Asks the running tunnel to re-measure acceleration methods on the active route.
+     * A winner is learned for the next reconnect; the live tunnel is never interrupted.
      */
     fun boostActiveRoute() {
         if (state != "CONNECTED") {
@@ -731,7 +855,7 @@ private fun postToMain(block: () -> Unit) {
                 Intent(context, MarbleVpnService::class.java).setAction(MarbleVpnService.ACTION_TUNE)
             )
         }.onSuccess {
-            message = "Marble Turbo • measuring acceleration methods on the active route"
+            message = "Marble Turbo • learning a faster method without interrupting this route"
         }.onFailure { error ->
             message = "Could not start Marble Turbo: ${error::class.java.simpleName}: ${error.message ?: "unknown error"}"
         }
@@ -974,6 +1098,7 @@ private fun postToMain(block: () -> Unit) {
         return checks.joinToString("\n")
     }
 
+    fun setRuntimeMessage(value: String) { message = value }
     fun clearMessage() { message = "" }
     fun readLogs(): String = RuntimeDiagnostics(context).bundle(xray.logFile)
 

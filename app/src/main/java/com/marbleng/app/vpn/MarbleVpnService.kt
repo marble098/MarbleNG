@@ -35,6 +35,9 @@ import kotlin.math.roundToInt
  * traffic is blackholed while Marble Intelligence attempts bounded fallback on the same TUN.
  */
 class MarbleVpnService : VpnService() {
+    // MARBLE_STABILITY_V10
+    // Live optimisation may learn while connected, but it must never intentionally tear down
+    // a healthy user tunnel merely to hot-apply a transport experiment.
     companion object {
         const val ACTION_START = "com.marbleng.START"
         const val ACTION_STOP = "com.marbleng.STOP"
@@ -48,13 +51,16 @@ class MarbleVpnService : VpnService() {
         const val CHANNEL = "marbleng-vpn"
         const val NOTIFY = 7301
         private const val ROUTE_PROBE_INTERVAL_TICKS = 15
-        private const val PROBE_FAILURES_BEFORE_RECOVERY = 3
+        // Synthetic endpoints are advisory. Process death is handled immediately; route failure
+        // requires normally-spaced misses plus a second independent confirmation.
+        private const val PROBE_FAILURES_BEFORE_RECOVERY = 4
+        private const val ROUTE_CONFIRM_TIMEOUT_MS = 4_500
+        private const val RECENT_TRAFFIC_GRACE_MS = 45_000L
         private const val EXIT_IDENTITY_PROBE_INTERVAL_TICKS = 180
 
         /** Let a fresh route settle before spending link capacity on measuring alternatives. */
         private const val FIRST_TUNE_DELAY_MS = 20_000L
         private const val HEAVY_TRAFFIC_BPS = 3L * 1024L * 1024L
-        private const val MAX_TUNING_RESTARTS = 3
     }
 
     private var tun: ParcelFileDescriptor? = null
@@ -97,8 +103,8 @@ class MarbleVpnService : VpnService() {
     @Volatile private var lastNetworkKey = ""
     @Volatile private var lastNetworkValidated = false
     @Volatile private var lastTuneAt = 0L
+    @Volatile private var lastTrafficProgressAt = 0L
     @Volatile private var sessionTuned = false
-    @Volatile private var tuningRestarts = 0
 
     /** Acceleration method the live Xray process was actually started with. */
     @Volatile private var activeMethodId = AccelerationPlan.DIRECT
@@ -178,8 +184,8 @@ class MarbleVpnService : VpnService() {
         optimizerScanRequested.set(false)
         tuningRequested.set(false)
         lastTuneAt = 0L
+        lastTrafficProgressAt = System.currentTimeMillis()
         sessionTuned = false
-        tuningRestarts = 0
         routeOptimizer.reset(System.currentTimeMillis())
         synchronized(recoveryTried) {
             recoveryTried.clear()
@@ -506,6 +512,7 @@ class MarbleVpnService : VpnService() {
         )
         recoveryScheduled.set(false)
         consecutiveProbeFailures = 0
+        lastTrafficProgressAt = System.currentTimeMillis()
         hevActive = true
         updateSentinel(killSwitch = true)
         startTelemetry(session, socksPort, generation)
@@ -573,6 +580,10 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             while (isRouteCurrent(session, generation) && hevActive) {
                 if (!sleepQuietly(1_000L)) return@execute
                 if (!isRouteCurrent(session, generation) || !hevActive) break
+                if (!xray.isAlive) {
+                    handleFailure(session, "Xray core stopped")
+                    return@execute
+                }
 
                 val stats = runCatching { HevTunnel.stats() }.getOrNull()
                 if (stats != null && stats.size >= 4) {
@@ -581,9 +592,14 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                     val up = stats[1]
                     val down = stats[3]
                     if (lastUp >= 0 && lastDown >= 0 && dt > 0.25) {
+                        val deltaDown = (down - lastDown).coerceAtLeast(0)
+                        val deltaUp = (up - lastUp).coerceAtLeast(0)
+                        if (deltaDown > 0L || deltaUp > 0L) {
+                            lastTrafficProgressAt = System.currentTimeMillis()
+                        }
                         repo.updateTelemetry(
-                            ((down - lastDown).coerceAtLeast(0) / dt).toLong(),
-                            ((up - lastUp).coerceAtLeast(0) / dt).toLong()
+                            (deltaDown / dt).toLong(),
+                            (deltaUp / dt).toLong()
                         )
                     }
                     lastUp = up
@@ -611,11 +627,10 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                 if (tick % 5 == 0 && (activeSettings ?: repo.settings).notificationLiveStats) {
                     val name = repo.profile(activeProfileId)?.name ?: "Active route"
                     val ping = repo.livePingMs.takeIf { it > 0 }?.let { "${it} ms" } ?: "— ms"
-                    val score = repo.liveRouteScore.takeIf { it >= 0 }?.let { " • Q $it" }.orEmpty()
                     notifyNow(
                         "Protected • $name",
                         true,
-                        "$ping$score • ↓ ${SmartNotifier.formatRate(repo.liveDownBps)} • ↑ ${SmartNotifier.formatRate(repo.liveUpBps)}"
+                        "$ping • ↓ ${SmartNotifier.formatRate(repo.liveDownBps)} • ↑ ${SmartNotifier.formatRate(repo.liveUpBps)}"
                     )
                 }
 
@@ -825,8 +840,8 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
     }
 
     /**
-     * Live acceleration gate. The active route is re-measured against the other methods when it
-     * degrades, once opportunistically per session, or immediately when the user asks for it.
+     * Live acceleration gate. The active route may be re-measured when degraded or on demand.
+     * A better method is learned for the next reconnect; the live tunnel is never torn down.
      */
     private fun maybeAccelerate(session: String, generation: Int) {
         if (!isRouteCurrent(session, generation) || recoveryScheduled.get()) return
@@ -941,71 +956,47 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             return
         }
 
-        scheduleAccelerationRestart(session, profile, report.winner.label, improvement, generation)
+        repo.intelligence.setDecision(
+            "Marble Turbo • learned ${report.winner.label} • applies on next reconnect without interrupting this tunnel"
+        )
+        repo.refreshIntelligenceStatus()
+        diag.event(
+            "TURBO", "live-learned-no-restart",
+            "session" to session,
+            "profile" to profile.name,
+            "applied" to appliedMethod,
+            "learned" to report.winner.methodId,
+            "improvement" to improvement.toInt()
+        )
     }
 
     /**
-     * Applies a newly proven method to the live route by restarting Xray on the SAME node.
-     * The public exit is unchanged, so this runs even while Identity Guard has the session pinned.
+     * Confirms a synthetic route failure against independent HTTPS endpoints.
+     * A single blocked connectivity-check domain must never tear down a healthy tunnel.
      */
-    @Synchronized
-    private fun scheduleAccelerationRestart(
+    private fun confirmRouteUnavailable(
         session: String,
-        profile: ProxyProfile,
-        methodLabel: String,
-        improvement: Double,
+        port: Int,
         generation: Int
-    ) {
-        if (!isRouteCurrent(session, generation)) return
+    ): Boolean {
+        if (!isRouteCurrent(session, generation)) return false
+        if (!xray.isAlive) return true
+        if (activeMode == MODE_TUN && !hevActive) return true
 
-        // Re-dialling costs a short interruption. Cap it so a noisy link can never turn
-        // acceleration into a flapping loop for one session.
-        if (tuningRestarts >= MAX_TUNING_RESTARTS) {
-            diag.event("TURBO", "restart-budget-exhausted", "session" to session)
-            return
-        }
-        if (!recoveryScheduled.compareAndSet(false, true)) return
-
-        val app = application as MarbleApplication
-        val repo = app.repo
-        val settings = activeSettings ?: repo.settings
-        val holdTun = activeMode == MODE_TUN && tun != null
-
-        tuningRestarts++
-        lastTuneAt = System.currentTimeMillis()
-        routeGeneration.incrementAndGet()
-        repo.setRuntimeState("CONNECTING", "Marble Turbo • ${profile.name}")
-        diag.event(
-            "TURBO", "apply-restart",
-            "session" to session,
-            "profile" to profile.name,
-            "method" to methodLabel,
-            "improvement" to improvement.toInt(),
-            "failClosed" to holdTun
+        val confirmations = arrayOf(
+            "www.cloudflare.com" to "/cdn-cgi/trace",
+            "www.google.com" to "/generate_204"
         )
-        notifier.alert(
-            SmartNotificationKind.RECOVERY,
-            "turbo:$session:${profile.id}:$methodLabel",
-            "Marble Turbo",
-            "$methodLabel is ${improvement.toInt()}% faster on ${profile.name} • same exit IP",
-            settings,
-            minIntervalOverrideMs = 60_000L
-        )
-
-        if (hevActive) runCatching { HevTunnel.quit() }
-        xray.stop()
-        closeHevFd()
-        repo.resetTelemetry()
-        updateSentinel(killSwitch = holdTun)
-
-        connectionWorker.execute {
-            if (!isCurrent(session)) {
-                recoveryScheduled.set(false)
-                return@execute
-            }
-            recoveryScheduled.set(false)
-            recoverRoute(profile, session)
+        confirmations.forEach { (host, path) ->
+            if (!isRouteCurrent(session, generation)) return false
+            val healthy = runCatching {
+                SocksHttpClient.get(port, host, path, ROUTE_CONFIRM_TIMEOUT_MS, 2_048).status in 200..399
+            }.getOrDefault(false)
+            if (healthy) return false
         }
+        return isRouteCurrent(session, generation) &&
+            xray.isAlive &&
+            (activeMode != MODE_TUN || hevActive)
     }
 
     /** Complete SOCKS + remote TCP + TLS + HTTP route health, rolling median. */
@@ -1087,25 +1078,42 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                     settings
                         .networkChangeRecoveryEnabled
 
+            val trafficRecentlyMoved =
+                activeMode == MODE_TUN &&
+                    hevActive &&
+                    (System.currentTimeMillis() - lastTrafficProgressAt) in 0L..RECENT_TRAFFIC_GRACE_MS
+
             if (
                 recoveryEnabled &&
-                consecutiveProbeFailures >=
-                PROBE_FAILURES_BEFORE_RECOVERY
+                consecutiveProbeFailures >= PROBE_FAILURES_BEFORE_RECOVERY
             ) {
-                // Hysteresis: the whole outage is recorded once by handleFailure().
-                handleFailure(
-                    session,
-                    "Route health degraded after " +
-                        "$consecutiveProbeFailures probes"
-                )
-            } else if (
-                recoveryEnabled
-            ) {
-                // Confirm a transient failure quickly rather than waiting another normal interval.
-                routeProbeRequested
-                    .set(true)
+                val confirmedUnavailable = when {
+                    !xray.isAlive -> true
+                    activeMode == MODE_TUN && !hevActive -> true
+                    trafficRecentlyMoved -> false
+                    else -> confirmRouteUnavailable(session, port, generation)
+                }
+
+                if (confirmedUnavailable) {
+                    handleFailure(
+                        session,
+                        "Route unavailable after $consecutiveProbeFailures spaced probes + confirmation"
+                    )
+                } else {
+                    consecutiveProbeFailures =
+                        (PROBE_FAILURES_BEFORE_RECOVERY - 1).coerceAtLeast(1)
+                    diag.event(
+                        "ROUTE", "probe-failure-held",
+                        "session" to session,
+                        "trafficRecent" to trafficRecentlyMoved,
+                        "xrayAlive" to xray.isAlive,
+                        "hevActive" to hevActive
+                    )
+                }
             }
 
+            // Do NOT request an immediate retry here. The old code turned one failed probe into a
+            // one-second retry storm and could reach fail-closed recovery within seconds.
             return false
         }
 
