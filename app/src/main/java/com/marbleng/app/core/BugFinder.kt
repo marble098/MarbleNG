@@ -110,11 +110,40 @@ class BugFinder(private val context: Context, private val xray: XrayManager) {
             else -> BugCheck("Local SOCKS listener", BugSeverity.INFO, "Skipped because Xray is stopped")
         }
 
+        var literalIpOk = false
+        var literalDetail = "Not tested"
+        if (listener) {
+            val literal = runCatching {
+                SocksHttpClient.get(port, "1.1.1.1", "/cdn-cgi/trace", 3_500, 2_048)
+            }.getOrNull()
+            if (literal != null && literal.status in 200..399) {
+                literalIpOk = true
+                literalDetail = "1.1.1.1 • HTTP ${literal.status} • ${literal.elapsedMs.toInt()} ms"
+            }
+        }
+        out += when {
+            literalIpOk ->
+                BugCheck("Proxy transport without DNS", BugSeverity.PASS, literalDetail)
+            listener ->
+                BugCheck(
+                    "Proxy transport without DNS",
+                    BugSeverity.FAIL,
+                    "SOCKS opens but literal-IP HTTPS also fails; this is not only a DNS problem",
+                    "Check the selected node/transport/server path"
+                )
+            else -> BugCheck("Proxy transport without DNS", BugSeverity.INFO, "Skipped")
+        }
+
         var proxyOk = false
         var proxyDetail = "Not tested"
-        if (listener) {
-            for ((host,path) in arrayOf("cp.cloudflare.com" to "/generate_204", "www.gstatic.com" to "/generate_204")) {
-                val r = runCatching { SocksHttpClient.get(port, host, path, 5_000, 2048) }.getOrNull()
+        if (listener && literalIpOk) {
+            for ((host,path) in arrayOf(
+                "cp.cloudflare.com" to "/generate_204",
+                "www.gstatic.com" to "/generate_204"
+            )) {
+                val r = runCatching {
+                    SocksHttpClient.get(port, host, path, 4_000, 2_048)
+                }.getOrNull()
                 if (r != null && r.status in 200..399) {
                     proxyOk = true
                     proxyDetail = "$host • HTTP ${r.status} • ${r.elapsedMs.toInt()} ms"
@@ -123,9 +152,22 @@ class BugFinder(private val context: Context, private val xray: XrayManager) {
             }
         }
         out += when {
-            proxyOk -> BugCheck("Real HTTPS through Xray", BugSeverity.PASS, proxyDetail)
-            listener -> BugCheck("Real HTTPS through Xray", BugSeverity.FAIL, "SOCKS opens but two proxied HTTPS probes failed", "Check node/server/DNS/routing")
-            else -> BugCheck("Real HTTPS through Xray", BugSeverity.INFO, "Skipped")
+            proxyOk ->
+                BugCheck("DNS + HTTPS through Xray", BugSeverity.PASS, proxyDetail)
+            listener && literalIpOk ->
+                BugCheck(
+                    "Xray DNS upstream",
+                    BugSeverity.FAIL,
+                    "Literal-IP HTTPS works but hostname HTTPS fails. Proxy transport is alive; Xray DNS is the failing layer.",
+                    "Reconnect with Marble DNS self-healing or change the resolver"
+                )
+            listener ->
+                BugCheck(
+                    "DNS + HTTPS through Xray",
+                    BugSeverity.INFO,
+                    "Not classified because literal-IP transport already failed"
+                )
+            else -> BugCheck("DNS + HTTPS through Xray", BugSeverity.INFO, "Skipped")
         }
 
         val runtime = tail(File(context.filesDir, "logs/runtime-debug.log"), 80000)
@@ -182,7 +224,12 @@ class BugFinder(private val context: Context, private val xray: XrayManager) {
         (problems(runtime).takeLast(6) + problems(hevlog).takeLast(4) + problems(xlog).takeLast(6))
             .distinct().takeLast(12).forEach { line -> evidence += sanitize(line) }
 
-        return BugReport(now, "$appState • ${stateDetail.ifBlank { "no active route" }}", out, evidence)
+        return BugReport(
+            System.currentTimeMillis(),
+            "$appState • ${stateDetail.ifBlank { "no active route" }}",
+            out,
+            evidence
+        )
     }
 
     private fun tcpOpen(port: Int) = runCatching {
@@ -193,10 +240,22 @@ class BugFinder(private val context: Context, private val xray: XrayManager) {
         if (!file.isFile) "" else file.readText().let { if (it.length <= max) it else it.takeLast(max) }
     }.getOrDefault("")
 
-    private fun problems(text: String) = text.lineSequence().filter {
-        it.contains("error",true) || it.contains("fail",true) || it.contains("blocked",true) ||
-            it.contains("run-exit",true) || it.contains("handshake",true) ||
-            it.contains("timeout",true) || it.contains("refused",true)
+    private fun problems(text: String) = text.lineSequence().filter { line ->
+        val cleanHevExit =
+            line.contains("HEV | run-exit", true) &&
+                line.contains("code=0", true) &&
+                line.contains("runningFlag=false", true) &&
+                line.contains("xrayAlive=false", true)
+
+        !cleanHevExit && (
+            line.contains("error", true) ||
+                line.contains("fail", true) ||
+                line.contains("blocked", true) ||
+                line.contains("run-exit", true) ||
+                line.contains("handshake", true) ||
+                line.contains("timeout", true) ||
+                line.contains("refused", true)
+            )
     }.toList().takeLast(24)
 
     private fun sanitize(s: String) = s.take(900)

@@ -37,6 +37,7 @@ import kotlin.math.roundToInt
 class MarbleVpnService : VpnService() {
     // MARBLE_STABILITY_V10
     // MARBLE_ENGINE_RESCUE_V11
+    // MARBLE_DNS_SELF_HEAL_V111
     // Live optimisation may learn while connected, but it must never intentionally tear down
     // a healthy user tunnel merely to hot-apply a transport experiment.
     companion object {
@@ -247,7 +248,7 @@ class MarbleVpnService : VpnService() {
 
         // Marble Turbo runs before the route carries traffic: the TUN is already established and
         // fail-closed, so measuring transport methods here costs nothing but a few seconds.
-        val settings = preTune(profile, session, requestedSettings, recovering)
+        var settings = preTune(profile, session, requestedSettings, recovering)
         if (!isCurrent(session)) return
         activeSettings = settings
         activeMethodId = app.repo.intelligence.acceleration(profile.id)?.methodId
@@ -283,6 +284,26 @@ class MarbleVpnService : VpnService() {
             xray.stop()
             return
         }
+
+        // A listening localhost SOCKS port proves only that Xray started. It does not prove that
+        // the selected route can reach the internet, and a hostname-only probe cannot distinguish
+        // a broken node from a broken Xray DNS upstream.
+        val repairedSettings = verifyAndRepairStartupEgress(
+            profile = profile,
+            session = session,
+            port = port,
+            initialSettings = settings,
+            chainProfile = chainProfile
+        )
+        if (repairedSettings == null) {
+            handleFailure(
+                session,
+                "Xray SOCKS opened but the selected route could not pass verified HTTPS"
+            )
+            return
+        }
+        settings = repairedSettings
+        activeSettings = settings
 
         diag.event("XRAY", "socks-ready", "session" to session, "alive" to xray.isAlive, "port" to port)
 
@@ -1026,6 +1047,183 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
     }
 
     /**
+     * Verify the remote route before HEV can publish CONNECTED.
+     *
+     * Phase 1 uses a literal IP whose HTTPS certificate is valid for the IP. That request does not
+     * need Xray's DNS resolver. If it fails, the proxy transport/node is unusable and changing DNS
+     * would only hide the real problem.
+     *
+     * Phase 2 uses a hostname. If literal-IP HTTPS works but hostname HTTPS fails, transport is
+     * proven alive and the failure is DNS-specific. Retry the SAME node with a small bounded set of
+     * runtime-only resolver policies. Nothing is persisted and HEV has not started yet, so device
+     * traffic remains fail-closed during the repair.
+     */
+    private fun verifyAndRepairStartupEgress(
+        profile: ProxyProfile,
+        session: String,
+        port: Int,
+        initialSettings: AppSettings,
+        chainProfile: ProxyProfile?
+    ): AppSettings? {
+        if (!isCurrent(session) || !xray.isAlive) return null
+
+        val literalHealthy = probeLiteralIpHttps(port)
+        val domainHealthy = probeDomainHttps(port)
+
+        diag.event(
+            "EGRESS", "startup-proof",
+            "session" to session,
+            "literalIpHttps" to literalHealthy,
+            "domainHttps" to domainHealthy,
+            "dnsPrimary" to initialSettings.dnsPrimaryDoH.take(80),
+            "dnsSecondary" to initialSettings.dnsSecondaryDoH.take(80),
+            "dnsStrategy" to initialSettings.dnsQueryStrategy
+        )
+
+        if (domainHealthy) return initialSettings
+
+        if (!literalHealthy) {
+            diag.event(
+                "EGRESS", "transport-unusable",
+                "session" to session,
+                "profile" to profile.name,
+                "xrayAlive" to xray.isAlive
+            )
+            return null
+        }
+
+        val app = application as MarbleApplication
+        app.repo.intelligence.setDecision(
+            "DNS recovery • proxy transport works • repairing resolver path on ${profile.name}"
+        )
+
+        val candidates = listOf(
+            initialSettings.copy(
+                dnsQueryStrategy = "UseIPv4",
+                adaptiveDualStackEnabled = false
+            ),
+            initialSettings.copy(
+                dnsPrimaryIp = "1.1.1.1",
+                dnsSecondaryIp = "8.8.8.8",
+                dnsPrimaryDoH = "https://1.1.1.1/dns-query",
+                dnsSecondaryDoH = "https://8.8.8.8/dns-query",
+                dnsQueryStrategy = "UseIPv4",
+                adaptiveDnsEnabled = false,
+                adaptiveDualStackEnabled = false
+            ),
+            initialSettings.copy(
+                dnsPrimaryIp = "1.1.1.1",
+                dnsSecondaryIp = "1.0.0.1",
+                dnsPrimaryDoH = "https://1.1.1.1/dns-query",
+                dnsSecondaryDoH = "https://1.0.0.1/dns-query",
+                dnsQueryStrategy = "UseIPv4",
+                adaptiveDnsEnabled = false,
+                adaptiveDualStackEnabled = false
+            )
+        ).distinctBy {
+            listOf(
+                it.dnsPrimaryIp,
+                it.dnsSecondaryIp,
+                it.dnsPrimaryDoH,
+                it.dnsSecondaryDoH,
+                it.dnsQueryStrategy
+            ).joinToString("|")
+        }.filterNot {
+            it.dnsPrimaryIp == initialSettings.dnsPrimaryIp &&
+                it.dnsSecondaryIp == initialSettings.dnsSecondaryIp &&
+                it.dnsPrimaryDoH == initialSettings.dnsPrimaryDoH &&
+                it.dnsSecondaryDoH == initialSettings.dnsSecondaryDoH &&
+                it.dnsQueryStrategy == initialSettings.dnsQueryStrategy
+        }
+
+        for ((index, candidate) in candidates.withIndex()) {
+            if (!isCurrent(session)) return null
+
+            diag.event(
+                "DNS-RECOVERY", "attempt",
+                "session" to session,
+                "attempt" to (index + 1),
+                "strategy" to candidate.dnsQueryStrategy,
+                "primary" to candidate.dnsPrimaryDoH.take(80),
+                "secondary" to candidate.dnsSecondaryDoH.take(80)
+            )
+
+            if (!xray.start(profile, port, candidate, chainProfile)) {
+                diag.event(
+                    "DNS-RECOVERY", "xray-restart-failed",
+                    "session" to session,
+                    "attempt" to (index + 1),
+                    "reason" to xray.lastStartError.take(500)
+                )
+                continue
+            }
+            if (!isCurrent(session)) {
+                xray.stop()
+                return null
+            }
+
+            val transportOk = probeLiteralIpHttps(port)
+            val dnsOk = transportOk && probeDomainHttps(port)
+            diag.event(
+                "DNS-RECOVERY", "result",
+                "session" to session,
+                "attempt" to (index + 1),
+                "transport" to transportOk,
+                "dns" to dnsOk
+            )
+
+            if (dnsOk) {
+                app.repo.intelligence.setDecision(
+                    "DNS recovered • ${profile.name} • ${candidate.dnsPrimaryDoH}"
+                )
+                app.repo.refreshIntelligenceStatus()
+                diag.event(
+                    "DNS-RECOVERY", "recovered",
+                    "session" to session,
+                    "attempt" to (index + 1),
+                    "profile" to profile.name
+                )
+                return candidate
+            }
+
+            if (!transportOk) return null
+        }
+
+        app.repo.intelligence.setDecision(
+            "DNS recovery failed • proxy transport was reachable but no safe resolver path answered"
+        )
+        diag.event(
+            "DNS-RECOVERY", "exhausted",
+            "session" to session,
+            "profile" to profile.name,
+            "attempts" to candidates.size
+        )
+        return null
+    }
+
+    private fun probeLiteralIpHttps(port: Int): Boolean =
+        runCatching {
+            SocksHttpClient.get(
+                port,
+                "1.1.1.1",
+                "/cdn-cgi/trace",
+                3_500,
+                2_048
+            ).status in 200..399
+        }.getOrDefault(false)
+
+    private fun probeDomainHttps(port: Int): Boolean =
+        runCatching {
+            SocksHttpClient.get(
+                port,
+                "cp.cloudflare.com",
+                "/generate_204",
+                4_000,
+                1_024
+            ).status in 200..399
+        }.getOrDefault(false)
+
+    /**
      * Confirms a synthetic route failure against independent HTTPS endpoints.
      * A single blocked connectivity-check domain must never tear down a healthy tunnel.
      */
@@ -1037,6 +1235,15 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         if (!isRouteCurrent(session, generation)) return false
         if (!xray.isAlive) return true
         if (activeMode == MODE_TUN && !hevActive) return true
+
+        if (probeLiteralIpHttps(port)) {
+            diag.event(
+                "ROUTE", "transport-alive-dns-suspect",
+                "session" to session,
+                "profile" to activeProfileId.take(12)
+            )
+            return false
+        }
 
         val confirmations = arrayOf(
             "www.cloudflare.com" to "/cdn-cgi/trace",
