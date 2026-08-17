@@ -22,6 +22,7 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     // MARBLE_ENGINE_RESCUE_V11
     // MARBLE_CONNECT_DISPATCH_V13
     // MARBLE_SMART_ENGINE_V14
+    // MARBLE_ULTIMATE_BUG_FINDER_REPO_V15
 
     private val store = AppStore(context)
     private val io = Executors.newFixedThreadPool(3)
@@ -35,6 +36,7 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     private val notifier = SmartNotifier(context)
     private val iranDetector = IranModeDetector(context, intelligence)
     private val bugFinder = BugFinder(context, xray)
+    private val diagnostics = RuntimeDiagnostics(context)
 
     val profiles = mutableStateListOf<ProxyProfile>().apply { addAll(store.loadProfiles()) }
     val subscriptions = mutableStateListOf<Subscription>().apply { addAll(store.loadSubscriptions()) }
@@ -129,6 +131,8 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     var liveRouteSamples by mutableStateOf(0); private set
 
     init {
+        RuntimeDiagnostics.setDebugEnabled(context, settings.debugModeEnabled)
+        diagnostics.event("APP", "repository-init", "debugMode" to settings.debugModeEnabled)
         notifier.ensureChannels()
         intelligence.startMonitoring()
         intelligence.addNetworkListener { next ->
@@ -195,6 +199,7 @@ fun resetTelemetry() {
     }
 
     fun setRuntimeState(s: String, d: String) {
+        diagnostics.event("APP", "state", "from" to state, "to" to s, "detail" to d.take(160))
         postToMain {
             state = s
             stateDetail = d
@@ -210,8 +215,13 @@ fun resetTelemetry() {
     }
 
     fun updateSettings(v: AppSettings) {
+        val debugChanged = settings.debugModeEnabled != v.debugModeEnabled
         settings = v
         store.saveSettings(v)
+        if (debugChanged) {
+            RuntimeDiagnostics.setDebugEnabled(context, v.debugModeEnabled)
+            diagnostics.event("DEBUG", "mode-changed", "enabled" to v.debugModeEnabled)
+        }
         notifier.ensureChannels()
         if (!v.smartNotificationsEnabled) notifier.cancelOptional()
         refreshIntelligenceStatus()
@@ -1071,7 +1081,8 @@ private fun postToMain(block: () -> Unit) {
     }
 
     fun runBugFinder() {
-        task("Bug Finder • scanning Xray + SOCKS + TUN + HEV") {
+        task("Bug Finder Ultimate • collecting passive runtime evidence") {
+            diagnostics.event("BUGFINDER", "scan-begin", "state" to state, "debugMode" to settings.debugModeEnabled)
             val report = bugFinder.scan(
                 appState = state,
                 stateDetail = stateDetail,
@@ -1081,14 +1092,35 @@ private fun postToMain(block: () -> Unit) {
                 history = history.toList(),
                 networkLabel = networkSnapshot.label
             )
+            if (settings.debugModeEnabled) diagnostics.exportReport("bugfinder-auto", report.asText())
+            diagnostics.event("BUGFINDER", "scan-finish", "failures" to report.failures, "warnings" to report.warnings, "autoExport" to settings.debugModeEnabled)
             postToMain {
                 bugReport = report
-                message = "Bug Finder • ${report.headline}"
+                message = if (settings.debugModeEnabled) {
+                    "Bug Finder • ${report.headline} • TXT queued in ${RuntimeDiagnostics.reportFolderLabel()}"
+                } else "Bug Finder • ${report.headline}"
             }
         }
     }
 
+    fun setDebugMode(enabled: Boolean) {
+        updateSettings(settings.copy(debugModeEnabled = enabled))
+        message = if (enabled) {
+            "Debug Mode ON • async TXT stream → ${RuntimeDiagnostics.reportFolderLabel()}"
+        } else "Debug Mode OFF • connection fast path unchanged"
+    }
+
+    fun debugReportLocation(): String = RuntimeDiagnostics.reportFolderLabel()
+
     fun bugFinderReportText(): String = bugReport?.asText() ?: "Run Bug Finder first"
+
+    fun saveBugFinderReport() {
+        val report = bugReport ?: run { message = "Run Bug Finder first"; return }
+        val accepted = diagnostics.exportReport("bugfinder-manual", report.asText())
+        message = if (accepted) {
+            "Bug Finder TXT queued → ${RuntimeDiagnostics.reportFolderLabel()}"
+        } else "Diagnostics queue is full • report was not allowed to slow the app"
+    }
 
     fun safeRuntimeResetFromBugFinder() {
         bugReport = null
@@ -1141,16 +1173,20 @@ private fun postToMain(block: () -> Unit) {
     private fun task(label: String, block: () -> Unit) {
         if (busy) {
             message = "MarbleNG is busy • finish the current task before starting another"
+            diagnostics.event("APP", "task-rejected-busy", "label" to label)
             return
         }
         busy = true
         message = label
+        diagnostics.event("APP", "task-start", "label" to label)
         io.execute {
             try {
                 block()
             } catch (t: Throwable) {
+                diagnostics.error("APP", "task-failed", t, "label" to label)
                 message = "${t::class.simpleName}: ${t.message}"
             } finally {
+                diagnostics.event("APP", "task-finish", "label" to label)
                 busy = false
                 // No card may be left spinning if a batch aborts.
                 endProbeBatch()

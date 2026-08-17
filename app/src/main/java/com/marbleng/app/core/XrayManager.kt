@@ -25,6 +25,7 @@ data class RoutingAssetStatus(
 class XrayManager(private val context: Context) {
     // MARBLE_FAST_START_V12
     // MARBLE_LOG_RESCUE_V13
+    // MARBLE_DIAG_PROCESS_PID_V15
     private companion object {
         const val ROUTING_ASSET_REFRESH_MS = 24L * 60L * 60L * 1000L
         const val ROUTING_ASSET_RETRY_MS = 6L * 60L * 60L * 1000L
@@ -65,6 +66,7 @@ class XrayManager(private val context: Context) {
     }
 
     val isAlive: Boolean get() = process?.isAlive == true
+    val processPid: Long get() = runCatching { process?.pid() ?: -1L }.getOrDefault(-1L)
     val logFile: File get() = File(context.filesDir, "logs/xray.log")
     private val bin: File get() = File(context.applicationInfo.nativeLibraryDir, "libxray.so")
     private val assetsDir = File(context.filesDir, "xray-assets")

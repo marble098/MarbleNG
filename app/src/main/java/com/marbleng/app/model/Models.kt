@@ -118,6 +118,7 @@ object RoutingDefaults {
 enum class IranModePolicy { AUTO, ALWAYS_ON, OFF }
 
 // MARBLE_SMART_DEFAULTS_V14
+// MARBLE_ULTIMATE_DEBUG_SETTING_V15
 data class AppSettings(
     val socksPort: Int = 10808,
     val localProxyPort: Int = 10101,
@@ -256,5 +257,8 @@ data class AppSettings(
     val theme: String = "dark",
 
     /** Settings screen reveals the low-level Xray/tunnel controls. Persisted like any other choice. */
-    val expertMode: Boolean = false
+    val expertMode: Boolean = false,
+
+    /** Continuous non-blocking diagnostic export to Downloads/marbleng/report. */
+    val debugModeEnabled: Boolean = false
 )

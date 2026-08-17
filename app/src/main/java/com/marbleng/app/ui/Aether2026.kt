@@ -4,6 +4,7 @@ package com.marbleng.app.ui
 // MARBLE_LIBRARY_UI_V10
 // MARBLE_BUG_FINDER_UI_V11
 // MARBLE_SMART_UI_V14
+// MARBLE_ULTIMATE_BUG_FINDER_UI_V15
 
 import android.Manifest
 import android.content.Intent
@@ -3417,26 +3418,28 @@ private fun SubscriptionSettings(repo: AppRepository) {
 private fun BugFinderSettings(repo: AppRepository) {
     val clipboard = LocalClipboardManager.current
     val report = repo.bugReport
+    val debug = repo.settings.debugModeEnabled
 
     HoloGlass(
         modifier = Modifier.fillMaxWidth(),
         borderColor = when {
-            report == null -> Aether.GlassBorderSoft
-            report.failures > 0 -> Aether.Danger.copy(alpha = .55f)
-            report.warnings > 0 -> Aether.Amber.copy(alpha = .50f)
-            else -> Aether.Emerald.copy(alpha = .50f)
+            (report?.failures ?: 0) > 0 -> Aether.Danger.copy(alpha = .55f)
+            (report?.warnings ?: 0) > 0 -> Aether.Amber.copy(alpha = .50f)
+            debug -> Aether.Cyan.copy(alpha = .55f)
+            else -> Aether.GlassBorderSoft
         },
         contentPadding = PaddingValues(14.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text("Live datapath investigator", color=Aether.Ink, style=MaterialTheme.typography.titleMedium)
-                Text("Tests Xray, SOCKS HTTPS, HEV lifecycle/counters, routing assets and logs independently.",
+                Text("Ultimate runtime observatory", color=Aether.Ink, style=MaterialTheme.typography.titleMedium)
+                Text("Passive crash, process, thread, Xray, HEV, VPN and engine evidence. The scanner itself does not generate Internet traffic.",
                     color=Aether.InkFaint, style=MaterialTheme.typography.bodySmall)
             }
             HoloBadge(
                 when {
                     repo.busy -> "Scanning"
+                    debug -> "DEBUG ON"
                     report == null -> "Ready"
                     report.failures > 0 -> "${report.failures} fail"
                     report.warnings > 0 -> "${report.warnings} warn"
@@ -3444,6 +3447,7 @@ private fun BugFinderSettings(repo: AppRepository) {
                 },
                 when {
                     repo.busy -> Aether.Cyan
+                    debug -> Aether.Cyan
                     report == null -> Aether.InkMuted
                     report.failures > 0 -> Aether.Danger
                     report.warnings > 0 -> Aether.Amber
@@ -3452,15 +3456,37 @@ private fun BugFinderSettings(repo: AppRepository) {
             )
         }
 
+        SettingSwitch(
+            title = "Debug Mode • Ultimate TXT log",
+            subtitle = if (debug) {
+                "ON • runtime, Xray and HEV evidence streams asynchronously to ${repo.debugReportLocation()}"
+            } else {
+                "Off by default. When enabled, normal app/VPN threads only enqueue bounded events; storage work stays on a diagnostics thread."
+            },
+            checked = debug
+        ) { repo.setDebugMode(it) }
+
+        Column(
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(15.dp))
+                .background((if(debug) Aether.Cyan else Aether.GlassBorderSoft).copy(alpha=.065f))
+                .border(1.dp,(if(debug) Aether.Cyan else Aether.GlassBorderSoft).copy(alpha=.24f),RoundedCornerShape(15.dp))
+                .padding(11.dp), verticalArrangement=Arrangement.spacedBy(4.dp)
+        ) {
+            Text("TXT REPORT LOCATION", color=if(debug) Aether.Cyan else Aether.InkFaint, style=MaterialTheme.typography.labelSmall)
+            Text(repo.debugReportLocation(), color=Aether.Ink, style=MaterialTheme.typography.bodySmall.copy(fontFamily=FontFamily.Monospace))
+            Text("Debug Mode records a rolling live session plus Bug Finder snapshots. Raw proxy configs and credentials are redacted.",
+                color=Aether.InkMuted, style=MaterialTheme.typography.bodySmall)
+        }
+
         Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-            CyberButton(if(repo.busy)"SCANNING…" else "RUN DEEP SCAN", Aether.Cyan,
-                Modifier.weight(1f), !repo.busy) { repo.runBugFinder() }
-            CyberButton("COPY REPORT", Aether.Amethyst, Modifier.weight(1f),
-                report != null && !repo.busy) {
+            CyberButton(if(repo.busy)"SCANNING…" else "RUN ULTIMATE SCAN", Aether.Cyan, Modifier.weight(1f), !repo.busy) { repo.runBugFinder() }
+            CyberButton("COPY REPORT", Aether.Amethyst, Modifier.weight(1f), report != null && !repo.busy) {
                 clipboard.setText(AnnotatedString(repo.bugFinderReportText()))
-                repo.setRuntimeMessage("Bug Finder report copied")
+                repo.setRuntimeMessage("Ultimate Bug Finder report copied")
             }
         }
+
+        if(report != null) CyberButton("SAVE TXT SNAPSHOT",Aether.Emerald,Modifier.fillMaxWidth(),!repo.busy) { repo.saveBugFinderReport() }
 
         report?.let { current ->
             Row(horizontalArrangement=Arrangement.spacedBy(7.dp)) {
@@ -3471,42 +3497,29 @@ private fun BugFinderSettings(repo: AppRepository) {
             Text(current.headline,
                 color=if(current.failures>0)Aether.Danger else if(current.warnings>0)Aether.Amber else Aether.Emerald,
                 style=MaterialTheme.typography.titleMedium)
-
             current.checks.forEach { check ->
                 val c=when(check.severity){
-                    BugSeverity.PASS->Aether.Emerald
-                    BugSeverity.INFO->Aether.Cyan
-                    BugSeverity.WARN->Aether.Amber
-                    BugSeverity.FAIL->Aether.Danger
+                    BugSeverity.PASS->Aether.Emerald; BugSeverity.INFO->Aether.Cyan; BugSeverity.WARN->Aether.Amber; BugSeverity.FAIL->Aether.Danger
                 }
-                Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(15.dp))
-                    .background(c.copy(alpha=.055f))
-                    .border(1.dp,c.copy(alpha=.20f),RoundedCornerShape(15.dp))
-                    .padding(11.dp), verticalArrangement=Arrangement.spacedBy(4.dp)) {
+                Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(15.dp)).background(c.copy(alpha=.055f))
+                    .border(1.dp,c.copy(alpha=.20f),RoundedCornerShape(15.dp)).padding(11.dp),verticalArrangement=Arrangement.spacedBy(4.dp)) {
                     Row(verticalAlignment=Alignment.CenterVertically) {
-                        Text(check.title,color=Aether.Ink,style=MaterialTheme.typography.labelLarge,
-                            modifier=Modifier.weight(1f))
+                        Text(check.title,color=Aether.Ink,style=MaterialTheme.typography.labelLarge,modifier=Modifier.weight(1f))
                         HoloBadge(check.severity.name,c,true)
                     }
                     Text(check.detail,color=Aether.InkMuted,style=MaterialTheme.typography.bodySmall)
-                    if(check.action.isNotBlank())
-                        Text("→ ${check.action}",color=c,style=MaterialTheme.typography.bodySmall)
+                    if(check.action.isNotBlank()) Text("→ ${check.action}",color=c,style=MaterialTheme.typography.bodySmall)
                 }
             }
-
             if(current.evidence.isNotEmpty()) {
-                Text("RECENT EVIDENCE",color=Aether.InkFaint,style=MaterialTheme.typography.labelSmall)
-                SelectionContainer {
-                    Text(current.evidence.joinToString("\n"),color=Aether.InkMuted,
-                        style=MaterialTheme.typography.bodySmall.copy(fontFamily=FontFamily.Monospace))
-                }
+                Text("PRIORITY EVIDENCE",color=Aether.InkFaint,style=MaterialTheme.typography.labelSmall)
+                SelectionContainer { Text(current.evidence.joinToString("\n"),color=Aether.InkMuted,
+                    style=MaterialTheme.typography.bodySmall.copy(fontFamily=FontFamily.Monospace)) }
             }
-
-            if(current.failures>0)
-                CyberButton("SAFE RUNTIME RESET",Aether.Danger,Modifier.fillMaxWidth(),!repo.busy) {
-                    repo.safeRuntimeResetFromBugFinder()
-                }
-        } ?: Text("Run this while the problem is happening. Credentials and subscription contents are not included.",
+            Text("Full process exits, thread stacks, connection history and retained logs are kept in COPY/SAVE TXT output so this screen stays responsive.",
+                color=Aether.InkFaint,style=MaterialTheme.typography.bodySmall)
+            if(current.failures>0) CyberButton("SAFE RUNTIME RESET",Aether.Danger,Modifier.fillMaxWidth(),!repo.busy) { repo.safeRuntimeResetFromBugFinder() }
+        } ?: Text("Run the scan while the problem is happening. It is passive and does not open diagnostic HTTPS/DNS connections.",
             color=Aether.InkMuted,style=MaterialTheme.typography.bodySmall)
     }
 }

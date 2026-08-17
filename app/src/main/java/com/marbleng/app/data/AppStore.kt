@@ -6,6 +6,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 class AppStore(context: Context) {
+    // MARBLE_ULTIMATE_DEBUG_STORE_V15
     private val prefs = context.getSharedPreferences("marbleng-store", Context.MODE_PRIVATE)
 
     fun loadProfiles(): MutableList<ProxyProfile> = parseArray("profiles") { ProxyProfile.fromJson(it) }
@@ -194,6 +195,7 @@ class AppStore(context: Context) {
         workloadProfile = enumValue("workloadProfile", WorkloadProfile.AUTO),
 
         theme = prefs.getString("theme", "dark") ?: "dark",
+        debugModeEnabled = prefs.getBoolean("debugModeEnabled", false),
         expertMode = prefs.getBoolean("expertMode", false)
         )
     }
@@ -317,6 +319,7 @@ class AppStore(context: Context) {
         .putString("workloadProfile", s.workloadProfile.name)
 
         .putString("theme", s.theme)
+        .putBoolean("debugModeEnabled", s.debugModeEnabled)
         .putBoolean("expertMode", s.expertMode)
         .apply()
 
