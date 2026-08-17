@@ -7,6 +7,7 @@ import org.json.JSONObject
 
 object XrayConfigHardener {
     // MARBLE_CLEAN_XRAY_LOG_V13
+    // MARBLE_DNS_RESILIENCE_V16
     private val infra = setOf("freedom", "blackhole", "dns", "loopback")
     private val compatibilityDependencyProtocols = setOf(
         "freedom", "http", "shadowsocks", "socks", "trojan", "vless", "vmess", "hysteria", "wireguard"
@@ -306,6 +307,12 @@ object XrayConfigHardener {
             JSONObject()
                 .put("servers", dnsServers)
                 .put("queryStrategy", queryStrategy)
+                .put("disableCache", false)
+                // Xray optimistic cache: if both encrypted upstreams briefly time out, return a
+                // previously validated answer immediately while the cache refreshes in background.
+                // No plaintext/system-DNS fallback is introduced.
+                .put("serveStale", true)
+                .put("serveExpiredTTL", 900)
                 .put("useSystemHosts", false)
                 .put("disableFallbackIfMatch", bootstrapDomains.isNotEmpty())
                 .put("enableParallelQuery", true)

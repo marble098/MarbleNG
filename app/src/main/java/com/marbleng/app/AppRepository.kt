@@ -14,6 +14,7 @@ import java.net.URL
 import java.security.MessageDigest
 import org.json.JSONObject
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.exp
 import kotlin.math.roundToInt
 
@@ -23,9 +24,23 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     // MARBLE_CONNECT_DISPATCH_V13
     // MARBLE_SMART_ENGINE_V14
     // MARBLE_ULTIMATE_BUG_FINDER_REPO_V15
+    // MARBLE_REPO_ANR_HARDENING_V16
 
     private val store = AppStore(context)
     private val io = Executors.newFixedThreadPool(3)
+
+    // Connect decisions touch synchronized SQLite health history. Keep that work off MainActivity
+    // and independent from subscription/import tasks so a refresh can never swallow a Connect tap.
+    private val connectDecisionWorker = Executors.newSingleThreadExecutor()
+    private val connectDecisionInFlight = AtomicBoolean(false)
+
+    // IntelligenceStatus includes a SQLite count + thermal inspection. Coalesce it on a worker so
+    // a DB writer can never make the Android input thread wait on the HealthDb monitor.
+    private val statusWorker = Executors.newSingleThreadExecutor()
+    private val statusRefreshInFlight = AtomicBoolean(false)
+
+    // `busy` is UI state, not a cross-thread lock. This atomic gate is the actual task mutex.
+    private val taskInFlight = AtomicBoolean(false)
 
     // Iran Mode scanning runs on its own thread so a detection sweep can never block or be blocked
     // by a user-visible task such as a subscription refresh.
@@ -44,7 +59,7 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
 
     var settings by mutableStateOf(store.settings()); private set
     var networkSnapshot by mutableStateOf(intelligence.currentSnapshot()); private set
-    var intelligenceStatus by mutableStateOf(intelligence.status(settings)); private set
+    var intelligenceStatus by mutableStateOf(IntelligenceStatus()); private set
     var sentinel by mutableStateOf(PrivacySentinelState()); private set
     var iranMode by mutableStateOf(IranModeState()); private set
     var state by mutableStateOf("DISCONNECTED"); private set
@@ -56,7 +71,16 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
      */
     var activeProfileId by mutableStateOf(""); private set
     var busy by mutableStateOf(false); private set
-    var message by mutableStateOf(""); private set
+
+    // Background engines are allowed to publish status text, but Compose state itself is committed
+    // on the main looper. This removes cross-thread snapshot churn from benchmark/refresh callbacks.
+    private var messageState by mutableStateOf("")
+    var message: String
+        get() = messageState
+        private set(value) {
+            postToMain { messageState = value }
+        }
+
     var benchmarks by mutableStateOf<List<BenchmarkResult>>(emptyList()); private set
     var privacy by mutableStateOf<PrivacyReport?>(null); private set
     var bugReport by mutableStateOf<BugReport?>(null); private set
@@ -347,11 +371,17 @@ private fun postToMain(block: () -> Unit) {
         intelligence.recoveryCandidates(profiles.toList(), failedIds, settings)
 
     fun refreshIntelligenceStatus() {
-        intelligenceStatus = intelligence.status(settings)
+        if (!statusRefreshInFlight.compareAndSet(false, true)) return
+        val settingsSnapshot = settings
+        statusWorker.execute {
+            val next = runCatching { intelligence.status(settingsSnapshot) }.getOrNull()
+            statusRefreshInFlight.set(false)
+            if (next != null) postToMain { intelligenceStatus = next }
+        }
     }
 
     fun updateSentinel(value: PrivacySentinelState) {
-        sentinel = value
+        postToMain { sentinel = value }
     }
 
     fun testSmartNotification() {
@@ -724,99 +754,147 @@ private fun postToMain(block: () -> Unit) {
         onConnect: (ProxyProfile) -> Unit
     ) {
         if (profiles.isEmpty()) {
-            message =
-                "Add a subscription or import a node first"
+            message = "Add a subscription or import a node first"
             return
         }
 
-        val last =
-            lastProfile()
+        val available = profiles.toList()
+        val last = lastProfile()
 
-        // Home Connect runs on the main thread. Intelligence history is useful evidence, but a
-        // damaged/locked SQLite history must never be allowed to crash the click path before
-        // MarbleVpnService can even receive connect-request.
-        val routeEvidence = last?.let { profile ->
-            runCatching {
-                Triple(
-                    intelligence.predictedScore(profile, settings),
-                    intelligence.historyConfidence(profile),
-                    intelligence.hasHistory(profile)
-                )
-            }.getOrElse {
-                message =
-                    "Intelligence history unavailable • connecting remembered route safely"
-                Triple(50.0, 0.0, false)
-            }
+        // A subscription refresh is maintenance, not a reason to reject Connect. If maintenance is
+        // already active, choose the remembered route (or the first available node) immediately.
+        if (busy) {
+            val fallback = last ?: available.first()
+            diagnostics.event(
+                "APP",
+                "connect-busy-bypass",
+                "profile" to fallback.id.take(12),
+                "taskBusy" to true
+            )
+            message = "Background maintenance active • connecting ${fallback.name} immediately"
+            onConnect(fallback)
+            return
         }
 
-        val predicted = routeEvidence?.first ?: 0.0
-        val confidence = routeEvidence?.second ?: 0.0
-        val lastHasHistory = routeEvidence?.third == true
-
-        if (
-            last != null &&
-            (
-                !settings
-                    .intelligenceEnabled ||
-                    !lastHasHistory ||
-                    confidence <
-                        0.45 ||
-                    predicted >=
-                        68.0
-            )
-        ) {
-            message =
-                when {
-                    !settings
-                        .intelligenceEnabled ->
-                        "Connecting remembered route • " +
-                            last.name
-
-                    !lastHasHistory ||
-                        confidence <
-                        0.45 ->
-                        "Connecting last route immediately • " +
-                            "intelligence is still building confidence"
-
-                    else ->
-                        "Connecting proven route • " +
-                            "${last.name} • " +
-                            "score ${predicted.toInt()}"
-                }
-
-            onConnect(last)
-        } else {
-            message =
-                "Last route confidence dropped • " +
-                    "selecting a healthier Xray path"
-
+        if (last == null) {
             smart(onConnect)
+            return
+        }
+
+        if (!connectDecisionInFlight.compareAndSet(false, true)) {
+            message = "Connection selection is already running"
+            return
+        }
+
+        val settingsSnapshot = settings
+        message = "Marble Intelligence • checking remembered route"
+        diagnostics.event(
+            "APP",
+            "connect-decision-start",
+            "profile" to last.id.take(12)
+        )
+
+        connectDecisionWorker.execute {
+            val routeEvidence = runCatching {
+                Triple(
+                    intelligence.predictedScore(last, settingsSnapshot),
+                    intelligence.historyConfidence(last),
+                    intelligence.hasHistory(last)
+                )
+            }.getOrElse { error ->
+                diagnostics.error(
+                    "APP",
+                    "connect-history-read-skipped",
+                    error,
+                    "profile" to last.id.take(12)
+                )
+                Triple(50.0, 0.0, false)
+            }
+
+            val predicted = routeEvidence.first
+            val confidence = routeEvidence.second
+            val lastHasHistory = routeEvidence.third
+            val useLast =
+                !settingsSnapshot.intelligenceEnabled ||
+                    !lastHasHistory ||
+                    confidence < 0.45 ||
+                    predicted >= 68.0
+
+            postToMain {
+                try {
+                    val liveLast = profile(last.id)
+                    when {
+                        liveLast == null -> {
+                            message = "Remembered route changed • selecting a current route"
+                            smart(onConnect)
+                        }
+                        useLast -> {
+                            message = when {
+                                !settingsSnapshot.intelligenceEnabled ->
+                                    "Connecting remembered route • ${liveLast.name}"
+                                !lastHasHistory || confidence < 0.45 ->
+                                    "Connecting last route immediately • intelligence is still building confidence"
+                                else ->
+                                    "Connecting proven route • ${liveLast.name} • score ${predicted.toInt()}"
+                            }
+                            onConnect(liveLast)
+                        }
+                        busy -> {
+                            // Maintenance started while the SQLite evidence read was in flight.
+                            // Do not feed the user's Connect tap into the global task busy gate.
+                            message = "Maintenance started • connecting remembered route immediately"
+                            onConnect(liveLast)
+                        }
+                        else -> {
+                            message = "Last route confidence dropped • selecting a healthier Xray path"
+                            smart(onConnect)
+                        }
+                    }
+                } finally {
+                    connectDecisionInFlight.set(false)
+                }
+            }
         }
     }
 
     fun markConnected(p: ProxyProfile) {
         postToMain {
+            val previousState = state
+            val settingsSnapshot = settings
+
             state = "CONNECTED"
             stateDetail = p.name
             activeProfileId = p.id
-
-            if (settings.rememberLast) {
-                runCatching { store.setLastProfileId(p.id) }
-            }
 
             history += ConnectionRecord(
                 p.id,
                 p.name,
                 System.currentTimeMillis(),
-                "connected:${settings.connectionMode.name}"
+                "connected:${settingsSnapshot.connectionMode.name}"
             )
             while (history.size > MAX_HISTORY_RECORDS) history.removeAt(0)
 
-            runCatching {
-                store.saveHistory(history)
-            }.onFailure {
-                message = "Connected • history persistence skipped"
+            // Serialize/persist outside MainActivity. SharedPreferences.apply() is asynchronous, but
+            // building the 200-record JSON string on the input thread was not.
+            val historySnapshot = history.toList()
+            io.execute {
+                if (settingsSnapshot.rememberLast) {
+                    runCatching { store.setLastProfileId(p.id) }
+                }
+                runCatching {
+                    store.saveHistory(historySnapshot)
+                }.onFailure {
+                    message = "Connected • history persistence skipped"
+                }
             }
+
+            diagnostics.event(
+                "APP",
+                "state",
+                "from" to previousState,
+                "to" to "CONNECTED",
+                "detail" to p.name.take(160)
+            )
         }
     }
 
@@ -888,15 +966,18 @@ private fun postToMain(block: () -> Unit) {
      */
     private fun mergeBenchmarks(fresh: List<BenchmarkResult>) {
         if (fresh.isEmpty()) return
-        val freshIds = fresh.mapTo(mutableSetOf()) { it.profileId }
-        val liveIds = profiles.mapTo(mutableSetOf()) { it.id }
-        benchmarks = (fresh + benchmarks.filterNot { it.profileId in freshIds })
-            .distinctBy { it.profileId }
-            .filter { it.profileId in liveIds || it.profileId in freshIds }
-            .sortedWith(
-                compareByDescending<BenchmarkResult> { it.score }
-                    .thenBy { it.latencyMs }
-            )
+        val incoming = fresh.toList()
+        postToMain {
+            val freshIds = incoming.mapTo(mutableSetOf()) { it.profileId }
+            val liveIds = profiles.mapTo(mutableSetOf()) { it.id }
+            benchmarks = (incoming + benchmarks.filterNot { it.profileId in freshIds })
+                .distinctBy { it.profileId }
+                .filter { it.profileId in liveIds || it.profileId in freshIds }
+                .sortedWith(
+                    compareByDescending<BenchmarkResult> { it.score }
+                        .thenBy { it.latencyMs }
+                )
+        }
     }
 
     fun smart(onBest: (ProxyProfile) -> Unit) {
@@ -1171,14 +1252,18 @@ private fun postToMain(block: () -> Unit) {
     fun readLogs(): String = RuntimeDiagnostics(context).bundle(xray.logFile)
 
     private fun task(label: String, block: () -> Unit) {
-        if (busy) {
+        if (!taskInFlight.compareAndSet(false, true)) {
             message = "MarbleNG is busy • finish the current task before starting another"
             diagnostics.event("APP", "task-rejected-busy", "label" to label)
             return
         }
-        busy = true
-        message = label
+
+        postToMain {
+            busy = true
+            message = label
+        }
         diagnostics.event("APP", "task-start", "label" to label)
+
         io.execute {
             try {
                 block()
@@ -1187,10 +1272,13 @@ private fun postToMain(block: () -> Unit) {
                 message = "${t::class.simpleName}: ${t.message}"
             } finally {
                 diagnostics.event("APP", "task-finish", "label" to label)
-                busy = false
+                taskInFlight.set(false)
                 // No card may be left spinning if a batch aborts.
                 endProbeBatch()
-                postToMain { refreshingSources = emptySet() }
+                postToMain {
+                    busy = false
+                    refreshingSources = emptySet()
+                }
             }
         }
     }

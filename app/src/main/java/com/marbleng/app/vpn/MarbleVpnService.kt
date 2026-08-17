@@ -24,6 +24,7 @@ import com.marbleng.app.nativebridge.HevTunnel
 import java.io.Closeable
 import java.util.ArrayDeque
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.roundToInt
@@ -41,6 +42,7 @@ class MarbleVpnService : VpnService() {
     // MARBLE_CONNECT_RESCUE_V12
     // MARBLE_CONNECT_RESCUE_V13
     // MARBLE_FAST_DECISION_V14
+    // MARBLE_RUNTIME_HARDENING_V16
     // Live optimisation may learn while connected, but it must never intentionally tear down
     // a healthy user tunnel merely to hot-apply a transport experiment.
     companion object {
@@ -88,6 +90,14 @@ class MarbleVpnService : VpnService() {
 
     // HEV is process-global; start/stop/recovery is serialized here.
     private val connectionWorker = Executors.newSingleThreadExecutor()
+
+    // Service commands may terminate a child process. XrayManager.stop() deliberately waits for a
+    // bounded process shutdown, so START/STOP must never execute that wait on Android's main thread.
+    private val controlWorker = Executors.newSingleThreadExecutor()
+
+    // Delayed gates belong on a scheduler. Sleeping watchdog/readiness jobs inside monitorWorker
+    // could occupy half of the health pool during the exact startup window we are trying to prove.
+    private val timerWorker = Executors.newSingleThreadScheduledExecutor()
 
     // Telemetry, the proxy monitor, DNS probing and a long autopilot cycle can all be in flight at
     // once, so a long optimizer cycle must not queue the identity/health probes behind it.
@@ -145,15 +155,55 @@ class MarbleVpnService : VpnService() {
         return runCatching {
             diag.event("VPN", "command", "action" to intent?.action, "startId" to startId, "flags" to flags)
             when (intent?.action) {
-                ACTION_STOP -> shutdown(true)
+                ACTION_STOP -> {
+                    // cleanupRuntime() can wait for the Xray child to terminate; never block
+                    // MainActivity/input dispatch while Android delivers this service command.
+                    controlWorker.execute {
+                        runCatching { shutdown(true) }
+                            .onFailure { diag.error("VPN", "async-stop-failed", it) }
+                    }
+                }
                 ACTION_TUNE -> {
                     tuningRequested.set(true)
                     diag.event("TURBO", "manual-request", "session" to activeSession)
                 }
                 ACTION_START -> {
                     val id = intent.getStringExtra(EXTRA_PROFILE)
-                    if (id.isNullOrBlank()) failBeforeTunnel("Missing profile id")
-                    else startConnection(id, intent.getStringExtra(EXTRA_MODE) ?: MODE_TUN)
+                    if (id.isNullOrBlank()) {
+                        failBeforeTunnel("Missing profile id")
+                    } else {
+                        val requestedMode = intent.getStringExtra(EXTRA_MODE) ?: MODE_TUN
+
+                        // startForegroundService() has a strict Android deadline. Publish a small
+                        // foreground notification immediately, then do DB/process/runtime cleanup
+                        // on the serialized control worker instead of the app main thread.
+                        if (!promoteForeground("Preparing secure route", ongoing = true)) {
+                            failBeforeTunnel("Android rejected foreground-service startup")
+                        } else {
+                            controlWorker.execute {
+                                runCatching { startConnection(id, requestedMode) }
+                                    .onFailure { error ->
+                                        diag.error(
+                                            "VPN",
+                                            "async-start-failed",
+                                            error,
+                                            "profile" to id.take(12),
+                                            "mode" to requestedMode
+                                        )
+                                        if (activeSession.isBlank()) {
+                                            failBeforeTunnel(
+                                                "Connection setup failed: ${safeMessage(error)}"
+                                            )
+                                        } else {
+                                            handleFailure(
+                                                activeSession,
+                                                "Connection setup failed: ${safeMessage(error)}"
+                                            )
+                                        }
+                                    }
+                            }
+                        }
+                    }
                 }
                 null -> diag.event("VPN", "null-intent-ignored")
                 else -> diag.event("VPN", "unknown-action", "action" to intent.action)
@@ -230,25 +280,24 @@ class MarbleVpnService : VpnService() {
         running.set(true)
         updateSentinel(killSwitch = normalizedMode == MODE_TUN)
 
-        // One connection attempt gets a finite wall-clock budget. This watchdog is independent of
-        // Xray/DNS/HEV workers, so a wedged verification path can never leave the UI CONNECTING
-        // forever. Full TUN keeps the already-established interface as a fail-closed kill switch.
-        monitorWorker.execute {
-            if (!sleepQuietly(CONNECT_STARTUP_TIMEOUT_MS)) return@execute
-            if (!isCurrent(session) || tunReadyPublished.get()) return@execute
-
-            startupTimedOut.set(true)
-            diag.event(
-                "VPN", "startup-timeout",
-                "session" to session,
-                "mode" to normalizedMode,
-                "timeoutMs" to CONNECT_STARTUP_TIMEOUT_MS
-            )
-            handleFailure(
-                session,
-                "Connection startup timed out after ${CONNECT_STARTUP_TIMEOUT_MS / 1_000}s"
-            )
-        }
+        // One connection attempt gets a finite wall-clock budget. A scheduled watchdog does not
+        // consume a monitor thread for 35 seconds, so HEV readiness/identity/DNS workers cannot be
+        // starved by the watchdog whose job is to protect them.
+        timerWorker.schedule({
+            if (isCurrent(session) && !tunReadyPublished.get()) {
+                startupTimedOut.set(true)
+                diag.event(
+                    "VPN", "startup-timeout",
+                    "session" to session,
+                    "mode" to normalizedMode,
+                    "timeoutMs" to CONNECT_STARTUP_TIMEOUT_MS
+                )
+                handleFailure(
+                    session,
+                    "Connection startup timed out after ${CONNECT_STARTUP_TIMEOUT_MS / 1_000}s"
+                )
+            }
+        }, CONNECT_STARTUP_TIMEOUT_MS, TimeUnit.MILLISECONDS)
 
         connectionWorker.execute {
             runCatching {
@@ -591,11 +640,9 @@ class MarbleVpnService : VpnService() {
         hevActive = true
         updateSentinel(killSwitch = true)
 
-        monitorWorker.execute {
-            if (!sleepQuietly(HEV_READY_GRACE_MS)) return@execute
-            if (!isRouteCurrent(session, generation) || !hevActive || !xray.isAlive) return@execute
-
-            if (tunReadyPublished.compareAndSet(false, true) && isRouteCurrent(session, generation)) {
+        timerWorker.schedule({
+            if (isRouteCurrent(session, generation) && hevActive && xray.isAlive) {
+                if (tunReadyPublished.compareAndSet(false, true) && isRouteCurrent(session, generation)) {
                 startupTimedOut.set(false)
                 app.repo.markConnected(profile)
                 app.repo.intelligence.recordConnect(profile.id, true, elapsedConnectMs(), settings)
@@ -620,9 +667,10 @@ class MarbleVpnService : VpnService() {
 
                 // Telemetry starts only after readiness is published. Its own warm-up below delays
                 // the first native stats call again, eliminating the early JNI initialization race.
-                startTelemetry(session, socksPort, generation)
+                    startTelemetry(session, socksPort, generation)
+                }
             }
-        }
+        }, HEV_READY_GRACE_MS, TimeUnit.MILLISECONDS)
 
         diag.event("HEV", "run-enter", "session" to session, "hevFd" to hevFd, "xrayAlive" to xray.isAlive)
         val result = runCatching { HevTunnel.run(cfg, hevFd) }
@@ -722,7 +770,12 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                     if (lastUp >= 0 && lastDown >= 0 && dt > 0.25) {
                         val deltaDown = (down - lastDown).coerceAtLeast(0)
                         val deltaUp = (up - lastUp).coerceAtLeast(0)
-                        if (deltaDown > 0L || deltaUp > 0L) lastTrafficProgressAt = nowMs
+                        if (deltaDown > 0L || deltaUp > 0L) {
+                            lastTrafficProgressAt = nowMs
+                            // Real HEV byte movement is stronger route-health evidence than a
+                            // blocked synthetic connectivity-check hostname.
+                            consecutiveProbeFailures = 0
+                        }
 
                         if (deltaDown > 0L) {
                             txWithoutRxBytes = 0L
@@ -931,7 +984,9 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         if (!requested.intelligenceEnabled || !requested.connectTuningEnabled) return requested
         if (!isCurrent(session)) return requested
 
-        if (!recovering) tuningRequested.set(true)
+        // A fresh connect is not a manual/urgent tuning request. The old forced flag bypassed
+        // FIRST_TUNE_DELAY_MS, sample-count, thermal and heavy-traffic guards and spawned several
+        // throwaway Xray processes immediately after every connection.
         diag.event(
             "TURBO", "pre-connect-deferred",
             "session" to session,
@@ -1342,6 +1397,23 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             ms <= 0 ||
             !isRouteCurrent(session, generation)
         ) {
+            val trafficRecentlyMoved =
+                activeMode == MODE_TUN &&
+                    hevActive &&
+                    (System.currentTimeMillis() - lastTrafficProgressAt) in 0L..RECENT_TRAFFIC_GRACE_MS
+
+            if (trafficRecentlyMoved) {
+                consecutiveProbeFailures = 0
+                diag.event(
+                    "ROUTE", "probe-advisory-miss-held",
+                    "session" to session,
+                    "trafficRecent" to true,
+                    "xrayAlive" to xray.isAlive,
+                    "hevActive" to hevActive
+                )
+                return false
+            }
+
             consecutiveProbeFailures++
 
             diag.event(
@@ -1365,11 +1437,6 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                     .smartFallbackEnabled ||
                     settings
                         .networkChangeRecoveryEnabled
-
-            val trafficRecentlyMoved =
-                activeMode == MODE_TUN &&
-                    hevActive &&
-                    (System.currentTimeMillis() - lastTrafficProgressAt) in 0L..RECENT_TRAFFIC_GRACE_MS
 
             if (
                 recoveryEnabled &&
@@ -1562,6 +1629,21 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             !meaningful ||
             !running.get()
         ) {
+            return
+        }
+
+        // Connectivity callbacks briefly publish UNKNOWN/NO IP while Android hands a cellular or
+        // Wi-Fi network over. Treat that snapshot as a transient gap, not as proof the Xray route
+        // failed. HEV/Xray liveness and the datapath-stall detector still fail closed on real loss.
+        if (!snapshot.hasIpv4 && !snapshot.hasIpv6) {
+            routeProbeRequested.set(false)
+            optimizerScanRequested.set(false)
+            diag.event(
+                "NETWORK",
+                "underlay-transient-no-ip",
+                "session" to activeSession,
+                "network" to snapshot.label
+            )
             return
         }
 
@@ -2249,7 +2331,9 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         if (running.get() || tun != null || hevActive || xray.isAlive) cleanupRuntime(setDisconnected = true)
         runCatching { networkListener?.close() }
         networkListener = null
+        timerWorker.shutdownNow()
         monitorWorker.shutdownNow()
+        controlWorker.shutdownNow()
         connectionWorker.shutdownNow()
         super.onDestroy()
     }
