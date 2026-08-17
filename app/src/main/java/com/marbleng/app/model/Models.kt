@@ -117,6 +117,7 @@ object RoutingDefaults {
 /** How Iran Mode decides whether the anti-filtering engine should run. */
 enum class IranModePolicy { AUTO, ALWAYS_ON, OFF }
 
+// MARBLE_SMART_DEFAULTS_V14
 data class AppSettings(
     val socksPort: Int = 10808,
     val localProxyPort: Int = 10101,
@@ -128,10 +129,10 @@ data class AppSettings(
 
     val benchMode: BenchMode = BenchMode.BALANCED,
     val benchCandidates: Int = 20,
-    val benchSamples: Int = 4,
-    val benchTimeoutSec: Int = 8,
+    val benchSamples: Int = 3,
+    val benchTimeoutSec: Int = 6,
     val benchBytes: Int = 262144,
-    val tcpPrecheckTimeoutMs: Int = 1800,
+    val tcpPrecheckTimeoutMs: Int = 1000,
     val tcpWorkers: Int = 20,
 
     // Library order. Ping is intentionally the default; untested nodes stay last.
@@ -196,7 +197,7 @@ data class AppSettings(
     val iranModeCountermeasures: Boolean = true,
     val iranDomesticDirect: Boolean = true,
     val iranDeepProbeEnabled: Boolean = true,
-    val iranModeNotify: Boolean = true,
+    val iranModeNotify: Boolean = false,
 
     // Marble Intelligence Engine
     val intelligenceEnabled: Boolean = true,
@@ -208,7 +209,7 @@ data class AppSettings(
     // each, and keeps the winner. The exit node never changes, so this stays Identity-Guard safe.
     val connectTuningEnabled: Boolean = true,
     val connectTuningBudgetSec: Int = 5,
-    val connectTuningMethods: Int = 4,
+    val connectTuningMethods: Int = 8,
     /** Background passes re-measure the live route and hot-apply a materially faster method. */
     val liveTuningEnabled: Boolean = true,
     val liveTuningIntervalSec: Int = 300,
@@ -233,7 +234,7 @@ data class AppSettings(
 
     val healthHistoryEnabled: Boolean = true,
     val raceConnectEnabled: Boolean = true,
-    val raceWidth: Int = 3,
+    val raceWidth: Int = 4,
     val smartFallbackEnabled: Boolean = true,
     val fallbackCount: Int = 3,
     val autoReconnectAfterKillSwitch: Boolean = true,

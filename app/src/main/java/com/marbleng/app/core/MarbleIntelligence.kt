@@ -495,6 +495,7 @@ private class HealthDb(context: Context) : SQLiteOpenHelper(context, "marble-int
  * MarbleNG's policy brain. It intentionally does not claim KernelSU/eBPF or bandwidth bonding:
  * those are surfaced as detected capabilities only until a real datapath backend exists.
  */
+// MARBLE_MEASURED_FIRST_V14
 class MarbleIntelligence(private val context: Context) {
     private val connectivity =
         context.getSystemService(ConnectivityManager::class.java)
@@ -936,13 +937,6 @@ class MarbleIntelligence(private val context: Context) {
         startMonitoring()
 
         val n = snapshot
-        val health =
-            if (base.healthHistoryEnabled) {
-                db.get(profile.id, n.key())
-            } else {
-                null
-            }
-
         val queryStrategy =
             if (!base.adaptiveDualStackEnabled) {
                 base.dnsQueryStrategy
@@ -954,63 +948,17 @@ class MarbleIntelligence(private val context: Context) {
                 }
             }
 
-        val now = System.currentTimeMillis()
-        val recentSuccess =
-            health?.lastSuccessAt
-                ?.takeIf { it > 0L }
-                ?.let {
-                    now - it <=
-                        72L * 60L * 60L * 1000L
-                } == true
-
-        val canFragment =
-            profile.security.contains("tls", true) ||
-                profile.security.contains("reality", true)
-
-        val rescueFragment =
-            health != null &&
-                recentSuccess &&
-                health.failureStreak in 2..3
-
-        val autoFragment =
-            base.adaptiveFragmentEnabled &&
-                canFragment &&
-                (
-                    health?.preferredFragment == true ||
-                        rescueFragment
-                )
-
-        val muxEligible =
-            profile.scheme.lowercase() in
-                setOf("vless", "vmess", "trojan", "ss") &&
-                !profile.transport.contains("hysteria", true)
-
-        val autoMux =
-            base.adaptiveMuxEnabled &&
-                muxEligible &&
-                health != null &&
-                health.preferredMux &&
-                recentSuccess &&
-                health.failureStreak == 0 &&
-                health.successEwma >= 80.0 &&
-                health.latencyEwma >= 150.0 &&
-                health.throughputEwma <
-                    12.0 * 1024.0 * 1024.0
-
         val dnsOrdered = preferredDnsOrder(base)
 
+        // Measured-first policy: history chooses what to test, but never mutates Fragment/Mux by guess.
+        // Explicit user settings remain intact, and IranShield may still apply censorship-specific changes.
         val tuned = base.copy(
             dnsQueryStrategy = queryStrategy,
             dnsPrimaryDoH = dnsOrdered.first,
-            dnsSecondaryDoH = dnsOrdered.second,
-            fragmentEnabled =
-                base.fragmentEnabled || autoFragment,
-            muxEnabled =
-                base.muxEnabled || autoMux
+            dnsSecondaryDoH = dnsOrdered.second
         )
 
-        // A measured acceleration plan outranks the predictive fragment/mux guesses above: it was
-        // proven on this node, on this network, against an untouched baseline.
+        // Only a freshly measured acceleration plan may change generic transport tuning.
         val accelerated =
             if (withAcceleration && base.connectTuningEnabled) {
                 acceleration(profile.id)?.applyTo(tuned) ?: tuned

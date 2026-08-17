@@ -3,6 +3,7 @@ package com.marbleng.app.ui
 // Marble Product UI v10.0.1 • stability-first Library power surface
 // MARBLE_LIBRARY_UI_V10
 // MARBLE_BUG_FINDER_UI_V11
+// MARBLE_SMART_UI_V14
 
 import android.Manifest
 import android.content.Intent
@@ -110,7 +111,7 @@ fun Aether2026App(
 
     Scaffold(
         containerColor = Aether.Void,
-        snackbarHost = { SnackbarHost(snackbar) },
+        snackbarHost = { MarbleSnackbarHost(snackbar) },
         bottomBar = {
             FloatingSpatialDock(
                 selected = tab,
@@ -271,6 +272,45 @@ fun Aether2026App(
                 }
             }
         )
+    }
+}
+
+@Composable
+private fun MarbleSnackbarHost(hostState: SnackbarHostState) {
+    SnackbarHost(
+        hostState = hostState,
+        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp).widthIn(max = 560.dp)
+    ) { data ->
+        val message = data.visuals.message
+        val lower = message.lowercase()
+        val tone = when {
+            listOf("fail", "error", "blocked", "denied", "could not", "missing").any(lower::contains) -> Aether.Danger
+            listOf("warn", "inconclusive", "unavailable", "skipped").any(lower::contains) -> Aether.Amber
+            listOf("connected", "ready", "saved", "added", "refreshed", "verified", "best").any(lower::contains) -> Aether.Emerald
+            else -> Aether.Cyan
+        }
+        val shape = RoundedCornerShape(20.dp)
+        Row(
+            modifier = Modifier.fillMaxWidth().clip(shape)
+                .background(Brush.horizontalGradient(listOf(tone.copy(alpha=.22f), Aether.VoidElevated, tone.copy(alpha=.10f))))
+                .border(1.dp, tone.copy(alpha=.52f), shape)
+                .padding(horizontal=14.dp, vertical=12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(11.dp)
+        ) {
+            Box(Modifier.size(32.dp).clip(CircleShape).background(tone.copy(alpha=.14f)), contentAlignment=Alignment.Center) {
+                Canvas(Modifier.size(16.dp)) { drawCircle(tone.copy(alpha=.20f), size.minDimension*.48f); drawCircle(tone, size.minDimension*.21f) }
+            }
+            Column(Modifier.weight(1f), verticalArrangement=Arrangement.spacedBy(2.dp)) {
+                Text("MarbleNG", color=tone, style=MaterialTheme.typography.labelSmall, fontWeight=FontWeight.SemiBold)
+                Text(message, color=Aether.Ink, style=MaterialTheme.typography.bodySmall, maxLines=3, overflow=TextOverflow.Ellipsis)
+            }
+            data.visuals.actionLabel?.let { action ->
+                TextButton(onClick=data::performAction, contentPadding=PaddingValues(horizontal=8.dp, vertical=4.dp)) {
+                    Text(action, color=tone, style=MaterialTheme.typography.labelSmall, fontWeight=FontWeight.SemiBold)
+                }
+            }
+        }
     }
 }
 
@@ -664,6 +704,14 @@ private fun CyberDeck(
         }
 
         item {
+            AnimatedVisibility(
+                visible = repo.iranMode.active || repo.iranMode.scanning,
+                enter = fadeIn(tween(160)) + expandVertically(tween(200)),
+                exit = fadeOut(tween(120)) + shrinkVertically(tween(160))
+            ) { IranModeStatusPill(repo.iranMode) }
+        }
+
+        item {
             SectionLabel("Shortcuts")
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 HoloActionPill(
@@ -694,6 +742,35 @@ private fun CyberDeck(
             }
         }
 
+    }
+}
+
+@Composable
+private fun IranModeStatusPill(state: IranModeState) {
+    val scanning = state.scanning
+    val tone = if (scanning) Aether.Amber else Aether.Emerald
+    val transition = rememberInfiniteTransition(label="iran-mode-home-pulse")
+    val pulse by transition.animateFloat(
+        initialValue=.72f, targetValue=1f,
+        animationSpec=infiniteRepeatable(animation=tween(1100,easing=FastOutSlowInEasing), repeatMode=RepeatMode.Reverse),
+        label="iran-mode-home-pulse-value"
+    )
+    val shape=RoundedCornerShape(16.dp)
+    Row(
+        Modifier.fillMaxWidth().clip(shape)
+            .background(Brush.horizontalGradient(listOf(tone.copy(alpha=.15f),Aether.VoidElevated,tone.copy(alpha=.06f))))
+            .border(1.dp,tone.copy(alpha=.35f),shape).padding(horizontal=12.dp,vertical=9.dp),
+        verticalAlignment=Alignment.CenterVertically, horizontalArrangement=Arrangement.spacedBy(9.dp)
+    ) {
+        Canvas(Modifier.size(18.dp)) { val r=size.minDimension/2f; drawCircle(tone.copy(alpha=.12f),r*pulse); drawCircle(tone.copy(alpha=.28f),r*.58f); drawCircle(tone,r*.27f) }
+        Column(Modifier.weight(1f)) {
+            Text(if(scanning) "IRAN MODE • SCANNING" else "IRAN MODE • ON", color=tone, style=MaterialTheme.typography.labelSmall, fontWeight=FontWeight.SemiBold)
+            Text(
+                if(scanning) "Checking the physical underlay" else buildString { append(state.ispLine.ifBlank { "Restricted-network protection active" }); if(state.confidence>0) append(" • ${state.confidence}%") },
+                color=Aether.InkMuted, style=MaterialTheme.typography.bodySmall, maxLines=1, overflow=TextOverflow.Ellipsis
+            )
+        }
+        if(!scanning) HoloBadge("ACTIVE",tone,compact=true)
     }
 }
 
@@ -2392,7 +2469,7 @@ private fun IntelligenceSettings(repo: AppRepository) {
             NumberSetting("Connect tuning budget", s.connectTuningBudgetSec, 0..20, " sec") {
                 repo.updateSettings(repo.settings.copy(connectTuningBudgetSec = it))
             }
-            NumberSetting("Methods per pass", s.connectTuningMethods, 1..5) {
+            NumberSetting("Strategies per pass", s.connectTuningMethods, 1..8) {
                 repo.updateSettings(repo.settings.copy(connectTuningMethods = it))
             }
             SettingSwitch(
@@ -3985,12 +4062,6 @@ private fun IranModeSettings(repo: AppRepository) {
         "Probe for DNS injection, SNI resets, port allowlists and UDP blocking",
         settings.iranDeepProbeEnabled
     ) { repo.updateSettings(settings.copy(iranDeepProbeEnabled = it)) }
-
-    SettingSwitch(
-        "Notify when Iran Mode engages",
-        "Post an alert naming the detected ISP",
-        settings.iranModeNotify
-    ) { repo.updateSettings(settings.copy(iranModeNotify = it)) }
 
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         HoloBadge(

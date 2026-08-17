@@ -21,6 +21,7 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     // MARBLE_LIBRARY_POWER_V10
     // MARBLE_ENGINE_RESCUE_V11
     // MARBLE_CONNECT_DISPATCH_V13
+    // MARBLE_SMART_ENGINE_V14
 
     private val store = AppStore(context)
     private val io = Executors.newFixedThreadPool(3)
@@ -139,7 +140,8 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
             scanIranMode(force = true, deep = false)
         }
         refreshIntelligenceStatus()
-        scanIranMode(force = true, deep = true)
+        // Cheap classification only at app start; deep filtering fingerprints are deferred.
+        scanIranMode(force = true, deep = false)
         if (settings.subscriptionAutoRefresh && subscriptions.isNotEmpty()) {
             val maxAgeMs = settings.subscriptionRefreshHours.coerceIn(1, 168) * 3_600_000L
             val stale = subscriptions.any {
@@ -302,7 +304,7 @@ fun resetTelemetry() {
                 // Keep the UI status and every downstream engine decision synchronized with the
                 // same Iran-underlay observation; do not wait for another connectivity callback.
                 refreshIntelligenceStatus()
-                announceIranMode(previous, next)
+                // Home owns Iran Mode status; automatic detection is intentionally silent.
             }
         }
     }
@@ -316,28 +318,6 @@ fun resetTelemetry() {
             IranModePolicy.OFF -> "Iran Mode disabled"
         }
         scanIranMode(force = true, deep = policy != IranModePolicy.OFF)
-    }
-
-    private fun announceIranMode(previous: IranModeState, next: IranModeState) {
-        if (!next.active) {
-            if (previous.active) message = "Iran Mode off • ${next.summary}"
-            return
-        }
-
-        val ispLine = next.ispLine
-        if (!previous.active || previous.ispLine != ispLine) {
-            message = "IRAN MODE ON • $ispLine • ${next.confidence}% confidence"
-            if (settings.iranModeNotify) {
-                notifier.alert(
-                    SmartNotificationKind.NETWORK,
-                    "iran-mode:${next.networkKey}:$ispLine",
-                    "Iran Mode activated",
-                    "Detected $ispLine. Anti-filtering countermeasures are active.",
-                    settings.copy(notifyNetworkChanges = settings.iranModeNotify),
-                    minIntervalOverrideMs = 60_000L
-                )
-            }
-        }
     }
 
 private fun postToMain(block: () -> Unit) {

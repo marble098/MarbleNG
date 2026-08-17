@@ -135,6 +135,7 @@ data class TuningReport(
  * material margin. Because the exit node never changes, acceleration is safe to run with
  * Identity Guard pinned.
  */
+// MARBLE_FAST_STRATEGY_RACE_V14
 class ConnectionTuner(
     private val xray: XrayManager,
     private val intelligence: MarbleIntelligence
@@ -160,103 +161,70 @@ class ConnectionTuner(
         val thermal = intelligence.thermalBudget(base)
         if (thermal < 0.40) return null
 
-        val deadline = System.currentTimeMillis() + budgetMs.coerceIn(2_000L, 60_000L)
+        // Stage 1: broad + shallow. Race every compatible strategy with one real HTTPS sample.
+        val deadline = System.currentTimeMillis() + budgetMs.coerceIn(3_000L, 15_000L)
         val methods = methodsFor(profile, base, thermal)
         if (methods.size < 2) return null
-
-        val probeTimeoutMs = (min(base.benchTimeoutSec, 6).coerceAtLeast(3)) * 1_000
-        val samples = if (measureSpeed) 3 else 2
-        val speedBytes = if (measureSpeed) SPEED_PROBE_BYTES else 0
-
-        // A throughput trial must own the link while it runs, otherwise parallel probes measure
-        // each other. Latency-only passes are cheap enough to overlap two at a time.
-        val parallelism = if (measureSpeed || thermal < 0.65) 1 else 2
-
-        val trials = Collections.synchronizedList(mutableListOf<TuningTrial>())
-        val baseline = runTrial(profile, methods.first(), base, TUNE_BASE_PORT, samples, speedBytes, probeTimeoutMs)
-        trials += baseline
-        onProgress(methods.first().label)
-
-        if (baseline.success <= 0 && !measureSpeed) {
-            // The untouched node is not carrying traffic at all. Fragmentation is the method that
-            // rescues that case, so keep going even though the baseline gave us no reference.
-            onProgress("baseline blocked • trying countermeasures")
+        val fastTimeoutMs = (min(base.benchTimeoutSec, 4).coerceAtLeast(2)) * 1_000
+        val parallelism = when {
+            thermal >= 0.82 -> min(4, methods.size)
+            thermal >= 0.62 -> min(3, methods.size)
+            else -> min(2, methods.size)
         }
-
-        val challengers = methods.drop(1)
-        if (challengers.isNotEmpty() && System.currentTimeMillis() + MIN_TRIAL_MS < deadline) {
-            val pool = Executors.newFixedThreadPool(min(parallelism, challengers.size))
-            val jobs = challengers.mapIndexed { index, plan ->
-                pool.submit {
-                    // Every method still has to fit inside the caller's budget.
-                    if (System.currentTimeMillis() + MIN_TRIAL_MS < deadline) {
-                        onProgress(plan.label)
-                        trials += runTrial(
-                            profile,
-                            plan,
-                            base,
-                            TUNE_BASE_PORT + (index + 1) * PORT_STRIDE,
-                            samples,
-                            speedBytes,
-                            probeTimeoutMs
-                        )
-                    }
+        val fastTrials = Collections.synchronizedList(mutableListOf<TuningTrial>())
+        val pool = Executors.newFixedThreadPool(parallelism)
+        val jobs = methods.mapIndexed { index, plan ->
+            pool.submit {
+                if (System.currentTimeMillis() < deadline) {
+                    onProgress("Quick race • ${plan.label}")
+                    fastTrials += runTrial(profile, plan, base, TUNE_BASE_PORT + index * PORT_STRIDE, 1, 0, fastTimeoutMs)
                 }
             }
-            val leftMs = (deadline - System.currentTimeMillis()).coerceAtLeast(0L)
-            pool.shutdown()
-            runCatching { pool.awaitTermination(leftMs + TRIAL_GRACE_MS, TimeUnit.MILLISECONDS) }
-            jobs.forEach { if (!it.isDone) it.cancel(true) }
-            pool.shutdownNow()
+        }
+        pool.shutdown()
+        val left = (deadline - System.currentTimeMillis()).coerceAtLeast(0L)
+        runCatching { pool.awaitTermination(left + TRIAL_GRACE_MS, TimeUnit.MILLISECONDS) }
+        jobs.forEach { if (!it.isDone) it.cancel(true) }
+        pool.shutdownNow()
+
+        var measured = fastTrials.toList()
+        val baselineFast = measured.firstOrNull { it.methodId == AccelerationPlan.DIRECT } ?: return null
+        val fastScored = measured.map { it.copy(score = score(it, false, base.workloadProfile)) }
+        val fastBest = fastScored.filter { it.success > 0 }.maxByOrNull { it.score }
+
+        // Stage 2: confirm only baseline + strongest challenger. Speed is optional and tiny.
+        if (fastBest != null && System.currentTimeMillis() + MIN_REFINE_MS < deadline) {
+            val winnerPlan = methods.firstOrNull { it.methodId == fastBest.methodId }
+            val refinePlans = listOfNotNull(
+                methods.firstOrNull { it.methodId == AccelerationPlan.DIRECT },
+                winnerPlan?.takeIf { it.methodId != AccelerationPlan.DIRECT }
+            ).distinctBy { it.methodId }
+            refinePlans.forEachIndexed { index, plan ->
+                if (System.currentTimeMillis() + MIN_REFINE_MS >= deadline) return@forEachIndexed
+                onProgress("Confirm • ${plan.label}")
+                val refined = runTrial(profile, plan, base, REFINE_BASE_PORT + index * PORT_STRIDE, 2, if (measureSpeed) REFINE_SPEED_BYTES else 0, fastTimeoutMs)
+                measured = measured.filterNot { it.methodId == refined.methodId } + refined
+            }
         }
 
-        val measured = trials.toList()
         val speedSeen = measured.any { it.bytesPerSecond > 0.0 }
         val scored = measured.map { it.copy(score = score(it, speedSeen, base.workloadProfile)) }
         val baselineScored = scored.firstOrNull { it.methodId == AccelerationPlan.DIRECT }
-            ?: return null
+            ?: baselineFast.copy(score = score(baselineFast, false, base.workloadProfile))
         val best = scored.filter { it.success > 0 }.maxByOrNull { it.score }
-
         val current = intelligence.acceleration(profile.id)
         if (best == null) {
-            return TuningReport(
-                profileId = profile.id,
-                networkKey = networkKey,
-                winner = AccelerationPlan(at = System.currentTimeMillis()),
-                baselineScore = baselineScored.score,
-                winnerScore = 0.0,
-                gainPercent = 0.0,
-                trials = scored,
-                summary = "Marble Turbo • ${profile.name} • no method carried traffic",
-                changed = current != null && !current.neutral
-            )
+            return TuningReport(profile.id, networkKey, AccelerationPlan(at=System.currentTimeMillis()), baselineScored.score, 0.0, 0.0, scored,
+                "Marble Turbo • ${profile.name} • no strategy carried traffic", current != null && !current.neutral)
         }
-
-        val keepBaseline = best.methodId == AccelerationPlan.DIRECT ||
-            !materialGain(best, baselineScored)
+        val keepBaseline = best.methodId == AccelerationPlan.DIRECT || !materialGain(best, baselineScored)
         val chosenTrial = if (keepBaseline) baselineScored else best
         val chosenPlan = methods.first { it.methodId == chosenTrial.methodId }
         val gain = gainPercent(chosenTrial, baselineScored)
-
-        val winner = chosenPlan.copy(
-            latencyMs = chosenTrial.latencyMs,
-            bytesPerSecond = chosenTrial.bytesPerSecond,
-            gainPercent = gain,
-            at = System.currentTimeMillis()
-        )
-
+        val winner = chosenPlan.copy(latencyMs=chosenTrial.latencyMs, bytesPerSecond=chosenTrial.bytesPerSecond, gainPercent=gain, at=System.currentTimeMillis())
         val changed = (current?.methodId ?: AccelerationPlan.DIRECT) != winner.methodId
-        return TuningReport(
-            profileId = profile.id,
-            networkKey = networkKey,
-            winner = winner,
-            baselineScore = baselineScored.score,
-            winnerScore = chosenTrial.score,
-            gainPercent = gain,
-            trials = scored,
-            summary = summarize(profile, winner, chosenTrial, baselineScored, gain, scored.size),
-            changed = changed
-        )
+        return TuningReport(profile.id, networkKey, winner, baselineScored.score, chosenTrial.score, gain, scored,
+            summarize(profile, winner, chosenTrial, baselineScored, gain, scored.size), changed)
     }
 
     /**
@@ -349,17 +317,26 @@ class ConnectionTuner(
             emptyList()
         }
 
-        val ordered = when {
-            struggling -> fragmentMethods + muxMethods + dnsMethods
-            highRtt -> muxMethods + fragmentMethods + dnsMethods
-            else -> fragmentMethods.take(1) + muxMethods + dnsMethods + fragmentMethods.drop(1)
+        val comboMethods = buildList {
+            val fragment = fragmentMethods.firstOrNull()
+            val mux = muxMethods.lastOrNull()
+            val dns = dnsMethods.firstOrNull()
+            if (fragment != null && dns != null) add(fragment.copy(methodId="fragment-dns-v4", label="TLS fragmentation + IPv4 endpoint", dnsQueryStrategy="UseIPv4"))
+            if (mux != null && dns != null) add(mux.copy(methodId="mux-dns-v4", label="Light Mux + IPv4 endpoint", dnsQueryStrategy="UseIPv4"))
+            if (fragment != null && mux != null) add(fragment.copy(methodId="fragment-mux-light", label="TLS fragmentation + light Mux", mux=true, muxConcurrency=4, muxXudpConcurrency=8))
         }
 
-        val budget = base.connectTuningMethods.coerceIn(1, 5)
+        val ordered = when {
+            struggling -> fragmentMethods + comboMethods + dnsMethods + muxMethods
+            highRtt -> muxMethods + comboMethods + dnsMethods + fragmentMethods
+            else -> dnsMethods + muxMethods + fragmentMethods + comboMethods
+        }
+
+        val budget = base.connectTuningMethods.coerceIn(1, 8)
         val thermalCap = when {
             thermal >= 0.80 -> budget
-            thermal >= 0.60 -> min(budget, 3)
-            else -> min(budget, 2)
+            thermal >= 0.60 -> min(budget, 6)
+            else -> min(budget, 3)
         }
         return listOf(AccelerationPlan(at = System.currentTimeMillis())) +
             ordered.distinctBy { it.methodId }.take(thermalCap)
@@ -500,10 +477,13 @@ class ConnectionTuner(
 
     private companion object {
         const val TUNE_BASE_PORT = 21_580
+        const val REFINE_BASE_PORT = 21_780
         const val PORT_STRIDE = 2
         const val MIN_TRIAL_MS = 1_500L
-        const val TRIAL_GRACE_MS = 4_000L
+        const val MIN_REFINE_MS = 2_200L
+        const val TRIAL_GRACE_MS = 1_500L
         const val SPEED_PROBE_BYTES = 192 * 1024
+        const val REFINE_SPEED_BYTES = 96 * 1024
         const val DEAD_LATENCY = 9_999.0
         const val LATENCY_HOST = "cp.cloudflare.com"
         const val LATENCY_PATH = "/generate_204"

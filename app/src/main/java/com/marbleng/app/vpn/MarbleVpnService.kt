@@ -40,6 +40,7 @@ class MarbleVpnService : VpnService() {
     // MARBLE_DNS_SELF_HEAL_V111
     // MARBLE_CONNECT_RESCUE_V12
     // MARBLE_CONNECT_RESCUE_V13
+    // MARBLE_FAST_DECISION_V14
     // Live optimisation may learn while connected, but it must never intentionally tear down
     // a healthy user tunnel merely to hot-apply a transport experiment.
     companion object {
@@ -990,12 +991,10 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         val settings = activeSettings ?: repo.settings
         val base = repo.tuningBaseFor(profile)
 
-        // Background passes buy speed evidence, which needs a real download per method. On a metered
-        // link that download is the user's data allowance, so it is only spent when the route is
-        // actually degraded or the user asked for a boost.
-        val budgetMs = (settings.connectTuningBudgetSec.coerceIn(2, 20) * 2_000L)
-            .coerceIn(8_000L, 40_000L)
-        val measureSpeed = urgent || !repo.intelligence.currentSnapshot().metered
+        // Broad quick-race first; deep confirmation only for the strongest strategy.
+        val budgetMs = (settings.connectTuningBudgetSec.coerceIn(2, 12) * 1_000L)
+            .coerceIn(4_000L, 12_000L)
+        val measureSpeed = urgent && !repo.intelligence.currentSnapshot().metered
 
         diag.event(
             "TURBO", "live-begin",

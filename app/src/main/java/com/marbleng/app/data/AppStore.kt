@@ -58,8 +58,23 @@ class AppStore(context: Context) {
             .apply()
     }
 
+    // MARBLE_PERFORMANCE_MIGRATION_V14
+    private fun migratePerformanceDefaultsIfNeeded() {
+        if (prefs.getInt("performanceDefaultsSchema", 0) >= 1) return
+        val edit = prefs.edit()
+        if (prefs.getInt("benchSamples", 4) == 4) edit.putInt("benchSamples", 3)
+        if (prefs.getInt("benchTimeoutSec", 8) == 8) edit.putInt("benchTimeoutSec", 6)
+        if (prefs.getInt("tcpPrecheckTimeoutMs", 1800) == 1800) edit.putInt("tcpPrecheckTimeoutMs", 1000)
+        if (prefs.getInt("connectTuningMethods", 4) == 4) edit.putInt("connectTuningMethods", 8)
+        if (prefs.getInt("raceWidth", 3) == 3) edit.putInt("raceWidth", 4)
+        edit.putBoolean("iranModeNotify", false)
+        edit.putInt("performanceDefaultsSchema", 1)
+        edit.apply()
+    }
+
     fun settings(): AppSettings {
         migrateRoutingDefaultsIfNeeded()
+        migratePerformanceDefaultsIfNeeded()
         return AppSettings(
         socksPort = prefs.getInt("socksPort", 10808),
         localProxyPort = prefs.getInt("localProxyPort", 10101),
@@ -70,10 +85,10 @@ class AppStore(context: Context) {
 
         benchMode = enumValue("benchMode", BenchMode.BALANCED),
         benchCandidates = prefs.getInt("benchCandidates", 20),
-        benchSamples = prefs.getInt("benchSamples", 4),
-        benchTimeoutSec = prefs.getInt("benchTimeoutSec", 8),
+        benchSamples = prefs.getInt("benchSamples", 3),
+        benchTimeoutSec = prefs.getInt("benchTimeoutSec", 6),
         benchBytes = prefs.getInt("benchBytes", 262144),
-        tcpPrecheckTimeoutMs = prefs.getInt("tcpPrecheckTimeoutMs", 1800),
+        tcpPrecheckTimeoutMs = prefs.getInt("tcpPrecheckTimeoutMs", 1000),
         tcpWorkers = prefs.getInt("tcpWorkers", 20),
 
         nodeSortMode = enumValue("nodeSortMode", NodeSortMode.PING),
@@ -134,14 +149,14 @@ class AppStore(context: Context) {
         iranModeCountermeasures = prefs.getBoolean("iranModeCountermeasures", true),
         iranDomesticDirect = prefs.getBoolean("iranDomesticDirect", true),
         iranDeepProbeEnabled = prefs.getBoolean("iranDeepProbeEnabled", true),
-        iranModeNotify = prefs.getBoolean("iranModeNotify", true),
+        iranModeNotify = false,
 
         intelligenceEnabled = prefs.getBoolean("intelligenceEnabled", true),
         configCompatibilityMode = prefs.getBoolean("configCompatibilityMode", true),
         verifiedPerformanceTuning = prefs.getBoolean("verifiedPerformanceTuning", true),
         connectTuningEnabled = prefs.getBoolean("connectTuningEnabled", true),
         connectTuningBudgetSec = prefs.getInt("connectTuningBudgetSec", 5).coerceIn(0, 20),
-        connectTuningMethods = prefs.getInt("connectTuningMethods", 4).coerceIn(1, 5),
+        connectTuningMethods = prefs.getInt("connectTuningMethods", 8).coerceIn(1, 8),
         liveTuningEnabled = prefs.getBoolean("liveTuningEnabled", true),
         liveTuningIntervalSec = prefs.getInt("liveTuningIntervalSec", 300).coerceIn(60, 3600),
         liveTuningPingTriggerMs = prefs.getInt("liveTuningPingTriggerMs", 220).coerceIn(80, 1200),
@@ -159,7 +174,7 @@ class AppStore(context: Context) {
         optimizerAvoidHeavyTraffic = prefs.getBoolean("optimizerAvoidHeavyTraffic", true),
         healthHistoryEnabled = prefs.getBoolean("healthHistoryEnabled", true),
         raceConnectEnabled = prefs.getBoolean("raceConnectEnabled", true),
-        raceWidth = prefs.getInt("raceWidth", 3),
+        raceWidth = prefs.getInt("raceWidth", 4).coerceIn(2, 4),
         smartFallbackEnabled = prefs.getBoolean("smartFallbackEnabled", true),
         fallbackCount = prefs.getInt("fallbackCount", 3),
         autoReconnectAfterKillSwitch = prefs.getBoolean("autoReconnectAfterKillSwitch", true),
@@ -257,14 +272,14 @@ class AppStore(context: Context) {
         .putBoolean("iranModeCountermeasures", s.iranModeCountermeasures)
         .putBoolean("iranDomesticDirect", s.iranDomesticDirect)
         .putBoolean("iranDeepProbeEnabled", s.iranDeepProbeEnabled)
-        .putBoolean("iranModeNotify", s.iranModeNotify)
+        .putBoolean("iranModeNotify", false)
 
         .putBoolean("intelligenceEnabled", s.intelligenceEnabled)
         .putBoolean("configCompatibilityMode", s.configCompatibilityMode)
         .putBoolean("verifiedPerformanceTuning", s.verifiedPerformanceTuning)
         .putBoolean("connectTuningEnabled", s.connectTuningEnabled)
         .putInt("connectTuningBudgetSec", s.connectTuningBudgetSec.coerceIn(0, 20))
-        .putInt("connectTuningMethods", s.connectTuningMethods.coerceIn(1, 5))
+        .putInt("connectTuningMethods", s.connectTuningMethods.coerceIn(1, 8))
         .putBoolean("liveTuningEnabled", s.liveTuningEnabled)
         .putInt("liveTuningIntervalSec", s.liveTuningIntervalSec.coerceIn(60, 3600))
         .putInt("liveTuningPingTriggerMs", s.liveTuningPingTriggerMs.coerceIn(80, 1200))
