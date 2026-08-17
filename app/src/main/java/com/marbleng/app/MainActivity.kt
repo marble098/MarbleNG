@@ -12,6 +12,7 @@ import com.marbleng.app.ui.MarbleApp
 
 class MainActivity : ComponentActivity() {
     // MARBLE_CONNECT_PERMISSION_V12
+    // MARBLE_CONNECT_CLICK_GUARD_V13
     private companion object {
         /** Survives the recreation that a rotation during the system VPN consent dialog causes. */
         const val KEY_PENDING_PROFILE = "pendingProfileId"
@@ -26,7 +27,14 @@ class MainActivity : ComponentActivity() {
 
         if (result.resultCode == Activity.RESULT_OK) {
             if (selected != null) {
-                app.repo.startVpn(selected)
+                runCatching {
+                    app.repo.startVpn(selected)
+                }.onFailure { error ->
+                    reportConnectFailure(
+                        "VPN permission returned but service dispatch failed",
+                        error
+                    )
+                }
             } else {
                 app.repo.setRuntimeState("DISCONNECTED", "")
                 app.repo.setRuntimeMessage(
@@ -65,27 +73,40 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun connect(p: ProxyProfile) {
-        when (app.repo.settings.connectionMode) {
-            ConnectionMode.LOCAL_PROXY -> app.repo.startLocalProxy(p)
-            ConnectionMode.FULL_TUN -> {
-                val prep = VpnService.prepare(this)
-                if (prep == null) {
-                    app.repo.startVpn(p)
-                } else {
-                    pending = p
-                    runCatching { vpnPermission.launch(prep) }
-                        .onFailure { error ->
-                            pending = null
-                            app.repo.setRuntimeState(
-                                "BLOCKED",
-                                "Could not open Android VPN permission"
-                            )
-                            app.repo.setRuntimeMessage(
-                                "Could not open Android VPN permission • ${error::class.java.simpleName}"
+        runCatching {
+            when (app.repo.settings.connectionMode) {
+                ConnectionMode.LOCAL_PROXY -> app.repo.startLocalProxy(p)
+                ConnectionMode.FULL_TUN -> {
+                    val prep = VpnService.prepare(this)
+                    if (prep == null) {
+                        app.repo.startVpn(p)
+                    } else {
+                        pending = p
+                        runCatching {
+                            vpnPermission.launch(prep)
+                        }.onFailure { error ->
+                            reportConnectFailure(
+                                "Could not open Android VPN permission",
+                                error
                             )
                         }
+                    }
                 }
             }
+        }.onFailure { error ->
+            reportConnectFailure(
+                "Connect request failed before service dispatch",
+                error
+            )
         }
+    }
+
+    private fun reportConnectFailure(prefix: String, error: Throwable) {
+        pending = null
+        app.repo.setRuntimeState("BLOCKED", prefix)
+        app.repo.setRuntimeMessage(
+            "$prefix • ${error::class.java.simpleName}: " +
+                (error.message ?: "unknown error")
+        )
     }
 }

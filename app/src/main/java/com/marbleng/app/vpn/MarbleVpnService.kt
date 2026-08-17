@@ -39,6 +39,7 @@ class MarbleVpnService : VpnService() {
     // MARBLE_ENGINE_RESCUE_V11
     // MARBLE_DNS_SELF_HEAL_V111
     // MARBLE_CONNECT_RESCUE_V12
+    // MARBLE_CONNECT_RESCUE_V13
     // Live optimisation may learn while connected, but it must never intentionally tear down
     // a healthy user tunnel merely to hot-apply a transport experiment.
     companion object {
@@ -249,13 +250,30 @@ class MarbleVpnService : VpnService() {
         }
 
         connectionWorker.execute {
-            if (!isCurrent(session)) return@execute
-            if (normalizedMode == MODE_TUN && !establishTun(profile, session, settings)) {
-                handleFailure(session, "VPN establish failed")
-                return@execute
+            runCatching {
+                if (!isCurrent(session)) return@runCatching
+                if (normalizedMode == MODE_TUN && !establishTun(profile, session, settings)) {
+                    handleFailure(session, "VPN establish failed")
+                    return@runCatching
+                }
+                if (!isCurrent(session)) return@runCatching
+                startXrayAndForward(profile, session, port, settings, recovering = false)
+            }.onFailure { error ->
+                diag.error(
+                    "VPN",
+                    "connection-worker-crash-guard",
+                    error,
+                    "session" to session,
+                    "profile" to profile.id.take(12),
+                    "mode" to normalizedMode
+                )
+                if (isCurrent(session)) {
+                    handleFailure(
+                        session,
+                        "Connection worker failed: ${safeMessage(error)}"
+                    )
+                }
             }
-            if (!isCurrent(session)) return@execute
-            startXrayAndForward(profile, session, port, settings, recovering = false)
         }
     }
 
@@ -272,7 +290,7 @@ class MarbleVpnService : VpnService() {
 
         // Marble Turbo runs before the route carries traffic: the TUN is already established and
         // fail-closed, so measuring transport methods here costs nothing but a few seconds.
-        var settings = preTune(profile, session, requestedSettings, recovering)
+        val settings = preTune(profile, session, requestedSettings, recovering)
         if (!isCurrent(session)) return
         activeSettings = settings
         activeMethodId = app.repo.intelligence.acceleration(profile.id)?.methodId
@@ -309,25 +327,37 @@ class MarbleVpnService : VpnService() {
             return
         }
 
-        // A listening localhost SOCKS port proves only that Xray started. It does not prove that
-        // the selected route can reach the internet, and a hostname-only probe cannot distinguish
-        // a broken node from a broken Xray DNS upstream.
-        val repairedSettings = verifyAndRepairStartupEgress(
-            profile = profile,
-            session = session,
-            port = port,
-            initialSettings = settings,
-            chainProfile = chainProfile
-        )
-        if (repairedSettings == null) {
-            handleFailure(
-                session,
-                "Xray SOCKS opened but the selected route could not pass verified HTTPS"
+        // Xray listener readiness is the startup gate. External HTTPS endpoints are NOT a
+        // connection prerequisite: Cloudflare/Google probes can themselves be filtered, rate
+        // limited or unsupported by a perfectly usable route. Observe them asynchronously and
+        // feed the result into diagnostics without rejecting the user's tunnel.
+        monitorWorker.execute {
+            if (!isRouteCurrent(session, generation) || !xray.isAlive) return@execute
+
+            val domainHealthy = probeDomainHttps(port)
+            val literalHealthy = domainHealthy || probeLiteralIpHttps(port)
+            val event = if (domainHealthy) {
+                "startup-observation-ok"
+            } else {
+                "startup-observation-inconclusive"
+            }
+
+            diag.event(
+                "EGRESS",
+                event,
+                "session" to session,
+                "literalIpHttps" to literalHealthy,
+                "domainHttps" to domainHealthy,
+                "profile" to profile.id.take(12)
             )
-            return
+
+            if (!domainHealthy && literalHealthy) {
+                app.repo.intelligence.setDecision(
+                    "DNS health probe inconclusive • route remains connected and monitored"
+                )
+                app.repo.refreshIntelligenceStatus()
+            }
         }
-        settings = repairedSettings
-        activeSettings = settings
 
         diag.event("XRAY", "socks-ready", "session" to session, "alive" to xray.isAlive, "port" to port)
 
@@ -1659,13 +1689,22 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         repo.resetTelemetry()
 
         // Exactly one historical failure update for one connection incident.
-        repo.intelligence
-            .recordConnect(
+        // A damaged/locked history DB must never crash the failure handler itself.
+        runCatching {
+            repo.intelligence.recordConnect(
                 failedId,
                 false,
                 elapsedConnectMs(),
                 settings
             )
+        }.onFailure { error ->
+            diag.error(
+                "VPN",
+                "failure-history-write-skipped",
+                error,
+                "profile" to failedId.take(12)
+            )
+        }
 
         updateSentinel(
             killSwitch =
@@ -1742,6 +1781,41 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             running.set(false)
             closeTun()
             repo.setRuntimeState("BLOCKED", reason)
+            runCatching { stopForeground(STOP_FOREGROUND_REMOVE) }
+            stopSelf()
+            return
+        }
+
+        val failedBeforeFirstReady = !tunReadyPublished.get()
+        if (
+            failedBeforeFirstReady &&
+            settings.identityGuardEnabled &&
+            settings.identityGuardStrictNoFailover
+        ) {
+            recoveryScheduled.set(false)
+            diag.event(
+                "IDENTITY",
+                "startup-failure-no-identity-loop",
+                "session" to activeSession,
+                "profile" to failedId.take(12),
+                "reason" to reason
+            )
+
+            if (holdTun) {
+                running.set(false)
+                repo.setRuntimeState(
+                    "BLOCKED",
+                    "Startup failed • Kill switch active • $reason"
+                )
+                promoteForeground(
+                    "BLOCKED • Startup failed • tap Retry",
+                    ongoing = true
+                )
+                return
+            }
+
+            running.set(false)
+            repo.setRuntimeState("BLOCKED", "Startup failed • $reason")
             runCatching { stopForeground(STOP_FOREGROUND_REMOVE) }
             stopSelf()
             return

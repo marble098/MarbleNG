@@ -22,6 +22,7 @@ data class HttpProbe(
 )
 
 object SocksHttpClient {
+    // MARBLE_LITERAL_SOCKS_V13
     fun get(
         port: Int,
         host: String,
@@ -116,11 +117,21 @@ object SocksHttpClient {
             output.flush()
             require(input.read() == 5 && input.read() == 0) { "SOCKS auth negotiation failed" }
 
-            // ATYP=3 sends the hostname to Xray instead of resolving it with Android/system DNS.
-            val hostBytes = host.toByteArray(Charsets.UTF_8)
-            require(hostBytes.size in 1..255) { "SOCKS hostname too long" }
-            output.write(byteArrayOf(5, 1, 0, 3, hostBytes.size.toByte()))
-            output.write(hostBytes)
+            // Use a real literal address type when the caller supplied an IPv4 literal.
+            // The previous implementation sent even "1.1.1.1" as ATYP=domain, so the so-called
+            // DNS-independent transport probe could still enter Xray's domain-resolution path.
+            val ipv4 = literalIpv4Bytes(host)
+            if (ipv4 != null) {
+                // SOCKS5 ATYP=IPv4
+                output.write(byteArrayOf(5, 1, 0, 1))
+                output.write(ipv4)
+            } else {
+                // SOCKS5 ATYP=domain keeps ordinary hostnames away from Android/system DNS.
+                val hostBytes = host.toByteArray(Charsets.UTF_8)
+                require(hostBytes.size in 1..255) { "SOCKS hostname too long" }
+                output.write(byteArrayOf(5, 1, 0, 3, hostBytes.size.toByte()))
+                output.write(hostBytes)
+            }
             output.write(byteArrayOf((targetPort ushr 8).toByte(), targetPort.toByte()))
             output.flush()
 
@@ -229,6 +240,27 @@ object SocksHttpClient {
             runCatching { ssl?.close() }
             runCatching { tcp.close() }
         }
+    }
+
+    private fun literalIpv4Bytes(host: String): ByteArray? {
+        val parts = host.trim().split('.')
+        if (parts.size != 4) return null
+
+        val values = IntArray(4)
+        for (i in parts.indices) {
+            val part = parts[i]
+            if (part.isBlank() || (part.length > 1 && part.startsWith('0'))) return null
+            val value = part.toIntOrNull() ?: return null
+            if (value !in 0..255) return null
+            values[i] = value
+        }
+
+        return byteArrayOf(
+            values[0].toByte(),
+            values[1].toByte(),
+            values[2].toByte(),
+            values[3].toByte()
+        )
     }
 
     private fun readToLimit(input: java.io.InputStream, limit: Int): ByteArray {

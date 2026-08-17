@@ -9,7 +9,6 @@ import java.io.File
 import java.net.HttpURLConnection
 import java.net.InetSocketAddress
 import java.net.ServerSocket
-import java.net.Socket
 import java.net.URL
 import java.util.concurrent.TimeUnit
 
@@ -25,6 +24,7 @@ data class RoutingAssetStatus(
 
 class XrayManager(private val context: Context) {
     // MARBLE_FAST_START_V12
+    // MARBLE_LOG_RESCUE_V13
     private companion object {
         const val ROUTING_ASSET_REFRESH_MS = 24L * 60L * 60L * 1000L
         const val ROUTING_ASSET_RETRY_MS = 6L * 60L * 60L * 1000L
@@ -427,7 +427,7 @@ class XrayManager(private val context: Context) {
         if (port !in 1..65535) return fail("Invalid local SOCKS port: $port")
 
         logFile.parentFile?.mkdirs()
-        rotateLogIfNeeded()
+        beginLiveLogSession()
         val config = runtimeConfig
 
         return runCatching {
@@ -586,73 +586,33 @@ class XrayManager(private val context: Context) {
         timeoutMs: Long,
         target: Process? = null
     ): Boolean {
-        val deadline =
-            System.currentTimeMillis() +
-                timeoutMs
+        val deadline = System.currentTimeMillis() + timeoutMs
 
-        while (
-            System.currentTimeMillis() <
-            deadline
-        ) {
-            val ready =
-                runCatching {
-                    Socket().use {
-                        socket ->
-                        socket.connect(
-                            InetSocketAddress(
-                                "127.0.0.1",
-                                port
-                            ),
-                            250
-                        )
-                        socket.soTimeout =
-                            350
+        /*
+         * Listener readiness must not create SOCKS traffic.
+         *
+         * The old probe sent only [05 01 00], read the selected auth method, then closed.
+         * Xray correctly logged that incomplete request as:
+         *   proxy/socks: failed to read request > EOF
+         *
+         * We already prove the port was free before launching Xray. Polling until the same
+         * loopback port becomes non-bindable while the spawned process remains alive is a
+         * zero-traffic readiness signal and produces no fake SOCKS failures.
+         *
+         * MARBLE: listener-bound-no-socks-handshake
+         */
+        while (System.currentTimeMillis() < deadline) {
+            if (target != null && !target.isAlive) return false
 
-                        val output =
-                            socket
-                                .getOutputStream()
-
-                        output.write(
-                            byteArrayOf(
-                                0x05,
-                                0x01,
-                                0x00
-                            )
-                        )
-                        output.flush()
-
-                        val input =
-                            socket
-                                .getInputStream()
-
-                        val version =
-                            input.read()
-                        val method =
-                            input.read()
-
-                        version == 0x05 &&
-                            method == 0x00
-                    }
-                }.getOrDefault(false)
-
-            if (ready) {
+            val listenerBound = !portAvailable(port)
+            if (listenerBound && (target == null || target.isAlive)) {
                 return true
-            }
-
-            if (
-                target != null &&
-                !target.isAlive
-            ) {
-                return false
             }
 
             try {
                 Thread.sleep(80L)
-            } catch (
-                _: InterruptedException
-            ) {
-                Thread.currentThread()
-                    .interrupt()
+            } catch (_: InterruptedException) {
+                Thread.currentThread().interrupt()
                 return false
             }
         }
@@ -671,10 +631,18 @@ class XrayManager(private val context: Context) {
     private fun sha256(text: String): String = java.security.MessageDigest.getInstance("SHA-256")
         .digest(text.toByteArray()).joinToString("") { "%02x".format(it) }
 
-    private fun rotateLogIfNeeded() {
-        if (logFile.isFile && logFile.length() > 2L * 1024L * 1024L) {
-            val previous = File(logFile.parentFile, "${logFile.name}.1")
-            runCatching { previous.delete() }
+    /**
+     * Keep the live Xray log scoped to the current connection attempt.
+     *
+     * RuntimeDiagnostics already keeps the cross-session engine history. Reusing one unbounded
+     * xray.log made Bug Finder surface warnings/failures from hours-old sessions as if they were
+     * current. Keep exactly one previous live log for manual forensics and start clean each time.
+     */
+    private fun beginLiveLogSession() {
+        val previous = File(logFile.parentFile, "${logFile.name}.1")
+        runCatching { previous.delete() }
+
+        if (logFile.isFile && logFile.length() > 0L) {
             if (!logFile.renameTo(previous)) {
                 runCatching { logFile.writeText("") }
             }

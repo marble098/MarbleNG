@@ -20,6 +20,7 @@ import kotlin.math.roundToInt
 class AppRepository(private val context: Context, val xray: XrayManager) {
     // MARBLE_LIBRARY_POWER_V10
     // MARBLE_ENGINE_RESCUE_V11
+    // MARBLE_CONNECT_DISPATCH_V13
 
     private val store = AppStore(context)
     private val io = Executors.newFixedThreadPool(3)
@@ -741,28 +742,26 @@ private fun postToMain(block: () -> Unit) {
         val last =
             lastProfile()
 
-        val predicted =
-            last?.let {
-                intelligence
-                    .predictedScore(
-                        it,
-                        settings
-                    )
-            } ?: 0.0
+        // Home Connect runs on the main thread. Intelligence history is useful evidence, but a
+        // damaged/locked SQLite history must never be allowed to crash the click path before
+        // MarbleVpnService can even receive connect-request.
+        val routeEvidence = last?.let { profile ->
+            runCatching {
+                Triple(
+                    intelligence.predictedScore(profile, settings),
+                    intelligence.historyConfidence(profile),
+                    intelligence.hasHistory(profile)
+                )
+            }.getOrElse {
+                message =
+                    "Intelligence history unavailable • connecting remembered route safely"
+                Triple(50.0, 0.0, false)
+            }
+        }
 
-        val confidence =
-            last?.let {
-                intelligence
-                    .historyConfidence(
-                        it
-                    )
-            } ?: 0.0
-
-        val lastHasHistory =
-            last?.let {
-                intelligence
-                    .hasHistory(it)
-            } == true
+        val predicted = routeEvidence?.first ?: 0.0
+        val confidence = routeEvidence?.second ?: 0.0
+        val lastHasHistory = routeEvidence?.third == true
 
         if (
             last != null &&
@@ -810,15 +809,29 @@ private fun postToMain(block: () -> Unit) {
             state = "CONNECTED"
             stateDetail = p.name
             activeProfileId = p.id
-            if (settings.rememberLast) store.setLastProfileId(p.id)
-            history += ConnectionRecord(p.id, p.name, System.currentTimeMillis(), "connected:${settings.connectionMode.name}")
+
+            if (settings.rememberLast) {
+                runCatching { store.setLastProfileId(p.id) }
+            }
+
+            history += ConnectionRecord(
+                p.id,
+                p.name,
+                System.currentTimeMillis(),
+                "connected:${settings.connectionMode.name}"
+            )
             while (history.size > MAX_HISTORY_RECORDS) history.removeAt(0)
-            store.saveHistory(history)
+
+            runCatching {
+                store.saveHistory(history)
+            }.onFailure {
+                message = "Connected • history persistence skipped"
+            }
         }
     }
 
     fun startVpn(p: ProxyProfile) {
-        scanIranMode()
+        runCatching { scanIranMode() }
         setRuntimeState("CONNECTING", p.name)
         val intent = Intent(context, MarbleVpnService::class.java)
             .setAction(MarbleVpnService.ACTION_START)
@@ -828,7 +841,7 @@ private fun postToMain(block: () -> Unit) {
     }
 
     fun startLocalProxy(p: ProxyProfile) {
-        scanIranMode()
+        runCatching { scanIranMode() }
         setRuntimeState("CONNECTING", p.name)
         val intent = Intent(context, MarbleVpnService::class.java)
             .setAction(MarbleVpnService.ACTION_START)

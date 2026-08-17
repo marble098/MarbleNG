@@ -6,6 +6,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 object XrayConfigHardener {
+    // MARBLE_CLEAN_XRAY_LOG_V13
     private val infra = setOf("freedom", "blackhole", "dns", "loopback")
     private val compatibilityDependencyProtocols = setOf(
         "freedom", "http", "shadowsocks", "socks", "trojan", "vless", "vmess", "hysteria", "wireguard"
@@ -390,7 +391,11 @@ object XrayConfigHardener {
         } ?: "AsIs"
 
         src.put("routing", JSONObject().put("domainStrategy", domainStrategy).put("rules", rules))
-        src.put("log", JSONObject().put("loglevel", "warning"))
+        // Runtime logs are for actionable failures. Xray prints compatibility/deprecation
+        // advisories for transports such as HTTPUpgrade/WebSocket even when those transports are
+        // still required by the remote server. Marble must not rewrite a client transport without
+        // matching server-side support, so keep compatibility and surface only errors here.
+        src.put("log", JSONObject().put("loglevel", "error"))
 
         /*
          * Remove unrelated runtime subsystems from imported full JSON configs. They are not needed

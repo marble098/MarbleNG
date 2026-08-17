@@ -2,6 +2,7 @@ package com.marbleng.app.core
 
 // MARBLE_BUG_FINDER_V11
 // MARBLE_CONNECT_RESCUE_V12
+// MARBLE_BUG_FINDER_V13
 
 import android.content.Context
 import com.marbleng.app.model.AppSettings
@@ -11,7 +12,6 @@ import com.marbleng.app.model.ProxyProfile
 import com.marbleng.app.nativebridge.HevTunnel
 import java.io.File
 import java.net.InetSocketAddress
-import java.net.Socket
 import java.time.Instant
 
 enum class BugSeverity { PASS, INFO, WARN, FAIL }
@@ -41,7 +41,7 @@ data class BugReport(
         }
 
     fun asText(): String = buildString {
-        appendLine("=== MarbleNG Bug Finder v11 ===")
+        appendLine("=== MarbleNG Bug Finder v13 ===")
         appendLine("generated=${Instant.ofEpochMilli(generatedAt)}")
         appendLine("state=$state")
         appendLine("result=$headline")
@@ -104,7 +104,7 @@ class BugFinder(private val context: Context, private val xray: XrayManager) {
             else -> BugCheck("Xray process", BugSeverity.INFO, "Xray is stopped while app is $appState")
         }
 
-        val listener = alive && tcpOpen(port)
+        val listener = alive && listenerBoundWithoutTraffic(port)
         out += when {
             listener -> BugCheck("Local SOCKS listener", BugSeverity.PASS, "127.0.0.1:$port accepts TCP")
             alive -> BugCheck("Local SOCKS listener", BugSeverity.FAIL, "Xray is alive but SOCKS port $port is closed", "Restart route")
@@ -248,8 +248,15 @@ class BugFinder(private val context: Context, private val xray: XrayManager) {
             else -> BugCheck("Routing assets", BugSeverity.PASS, "geoip=${assets.geoIpReady} • geosite=${assets.geoSiteReady}")
         }
 
-        (problems(runtime).takeLast(6) + problems(hevlog).takeLast(4) + problems(xlog).takeLast(6))
-            .distinct().takeLast(12).forEach { line -> evidence += sanitize(line) }
+        val incidentRuntime = latestIncident(runtime)
+        (
+            problems(incidentRuntime).takeLast(6) +
+                problems(hevlog).takeLast(4) +
+                problems(xlog).takeLast(6)
+            )
+            .distinct()
+            .takeLast(12)
+            .forEach { line -> evidence += sanitize(line) }
 
         return BugReport(
             System.currentTimeMillis(),
@@ -259,9 +266,31 @@ class BugFinder(private val context: Context, private val xray: XrayManager) {
         )
     }
 
-    private fun tcpOpen(port: Int) = runCatching {
-        Socket().use { it.connect(InetSocketAddress("127.0.0.1", port), 1200); it.isConnected }
-    }.getOrDefault(false)
+    /**
+     * Detect that Xray owns the loopback listener without sending an incomplete SOCKS request.
+     * The old connect-and-close check made Bug Finder create the exact EOF warning it then reported.
+     */
+    private fun listenerBoundWithoutTraffic(port: Int): Boolean {
+        return runCatching {
+            java.net.ServerSocket().use { socket ->
+                socket.reuseAddress = true
+                socket.bind(InetSocketAddress("127.0.0.1", port))
+            }
+            false
+        }.getOrElse {
+            true
+        }
+    }
+
+    private fun latestIncident(text: String): String {
+        if (text.isBlank()) return text
+        val markers = listOf(
+            "VPN | connect-request",
+            "VPN | service-created"
+        )
+        val start = markers.maxOf { marker -> text.lastIndexOf(marker) }
+        return if (start >= 0) text.substring(start) else text
+    }
 
     private fun tail(file: File, max: Int) = runCatching {
         if (!file.isFile) "" else file.readText().let { if (it.length <= max) it else it.takeLast(max) }
@@ -274,15 +303,24 @@ class BugFinder(private val context: Context, private val xray: XrayManager) {
                 line.contains("runningFlag=false", true) &&
                 line.contains("xrayAlive=false", true)
 
-        !cleanHevExit && (
-            line.contains("error", true) ||
-                line.contains("fail", true) ||
-                line.contains("blocked", true) ||
-                line.contains("run-exit", true) ||
-                line.contains("handshake", true) ||
-                line.contains("timeout", true) ||
-                line.contains("refused", true)
-            )
+        val benignHistoricalNoise =
+            line.contains("proxy/socks: failed to read request > EOF", true) ||
+                (
+                    line.contains("HTTPUpgrade transport", true) &&
+                        line.contains("deprecated", true)
+                    )
+
+        !cleanHevExit &&
+            !benignHistoricalNoise &&
+            (
+                line.contains("error", true) ||
+                    line.contains("fail", true) ||
+                    line.contains("blocked", true) ||
+                    line.contains("run-exit", true) ||
+                    line.contains("handshake", true) ||
+                    line.contains("timeout", true) ||
+                    line.contains("refused", true)
+                )
     }.toList().takeLast(24)
 
     private fun sanitize(s: String) = s.take(900)
