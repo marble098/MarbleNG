@@ -66,7 +66,41 @@ class XrayManager(private val context: Context) {
     }
 
     val isAlive: Boolean get() = process?.isAlive == true
-    val processPid: Long get() = runCatching { process?.pid() ?: -1L }.getOrDefault(-1L)
+    // MARBLE_ANDROID_PROCESS_PID_FIX_V15_0_1
+    /**
+     * Diagnostics-only child PID lookup. Android does not expose java.lang.Process.pid()
+     * consistently to Kotlin across the supported API surface. This executes only when Bug Finder
+     * requests process metadata, never on packet, TUN, connect, or telemetry fast paths.
+     */
+    val processPid: Long
+        get() = process?.let(::resolveChildProcessPid) ?: -1L
+
+    private fun resolveChildProcessPid(target: Process): Long {
+        val methodPid = runCatching {
+            val method = target.javaClass.methods.firstOrNull {
+                it.name == "pid" && it.parameterCount == 0
+            }
+            (method?.invoke(target) as? Number)?.toLong()
+        }.getOrNull()
+        if (methodPid != null && methodPid > 0L) return methodPid
+
+        var type: Class<*>? = target.javaClass
+        while (type != null) {
+            val current = type
+            val field = runCatching { current.getDeclaredField("pid") }.getOrNull()
+            if (field != null) {
+                val fieldPid = runCatching {
+                    field.isAccessible = true
+                    (field.get(target) as? Number)?.toLong()
+                }.getOrNull()
+                if (fieldPid != null && fieldPid > 0L) return fieldPid
+            }
+            type = current.superclass
+        }
+
+        // PID is diagnostic metadata only. Unknown PID must never affect the connection.
+        return -1L
+    }
     val logFile: File get() = File(context.filesDir, "logs/xray.log")
     private val bin: File get() = File(context.applicationInfo.nativeLibraryDir, "libxray.so")
     private val assetsDir = File(context.filesDir, "xray-assets")
