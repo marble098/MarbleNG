@@ -25,6 +25,7 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     // MARBLE_SMART_ENGINE_V14
     // MARBLE_ULTIMATE_BUG_FINDER_REPO_V15
     // MARBLE_REPO_ANR_HARDENING_V16
+    // MARBLE_LIVE_LATENCY_V17
 
     private val store = AppStore(context)
     private val io = Executors.newFixedThreadPool(3)
@@ -149,6 +150,7 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     }
 
     var livePingMs by mutableStateOf(0); private set
+    var liveJitterMs by mutableStateOf(0); private set
     var liveDownBps by mutableStateOf(0L); private set
     var liveUpBps by mutableStateOf(0L); private set
     var liveRouteScore by mutableStateOf(-1); private set
@@ -190,11 +192,17 @@ fun updateTelemetry(downBps: Long, upBps: Long) {
         }
     }
 
-fun updateRouteQuality(pingMs: Int) {
+fun updateRouteQuality(pingMs: Int, jitterMs: Int = -1) {
         if (pingMs <= 0) return
-        val rawScore = calculateLiveRouteScore(pingMs)
+        // A route with the same median RTT but violent delay variation should score lower.
+        // Keep displayed ping untouched; jitter contributes only a bounded quality penalty.
+        val jitterPenalty = if (jitterMs >= 0) {
+            (jitterMs.coerceIn(0, 1_000) * 0.55).roundToInt()
+        } else 0
+        val rawScore = calculateLiveRouteScore(pingMs + jitterPenalty)
         postToMain {
             livePingMs = pingMs
+            if (jitterMs >= 0) liveJitterMs = jitterMs.coerceIn(0, 10_000)
             liveRouteScore =
                 if (liveRouteScore < 0) rawScore
                 else ((liveRouteScore * 3 + rawScore * 2) / 5).coerceIn(0, 100)
@@ -205,6 +213,7 @@ fun updateRouteQuality(pingMs: Int) {
 fun resetTelemetry() {
         postToMain {
             livePingMs = 0
+            liveJitterMs = 0
             liveDownBps = 0
             liveUpBps = 0
             liveRouteScore = -1
@@ -230,6 +239,7 @@ fun resetTelemetry() {
             if (s != "CONNECTED") {
                 activeProfileId = ""
                 livePingMs = 0
+            liveJitterMs = 0
                 liveDownBps = 0L
                 liveUpBps = 0L
                 liveRouteScore = -1

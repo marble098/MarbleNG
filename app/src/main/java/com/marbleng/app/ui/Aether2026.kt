@@ -5,6 +5,7 @@ package com.marbleng.app.ui
 // MARBLE_BUG_FINDER_UI_V11
 // MARBLE_SMART_UI_V14
 // MARBLE_ULTIMATE_BUG_FINDER_UI_V15
+// MARBLE_HOME_LATENCY_V17
 
 import android.Manifest
 import android.content.Intent
@@ -698,8 +699,7 @@ private fun CyberDeck(
                 repo.settings.connectionMode,
                 repo.settings.localProxyPort,
                 repo.livePingMs,
-                repo.liveDownBps,
-                repo.liveUpBps
+                repo.liveJitterMs
             ) {
                 if (connected || connecting) repo.stopVpn() else repo.auto(onConnect)
             }
@@ -785,12 +785,12 @@ private fun ConnectionCore(
     mode: ConnectionMode,
     localPort: Int,
     pingMs: Int,
-    downBps: Long,
-    upBps: Long,
+    jitterMs: Int,
     onToggle: () -> Unit
 ) {
-    var detailsOpen by remember { mutableStateOf(false) }
-    // Breathing only while the tunnel is up; an idle screen should not animate forever.
+    // MARBLE_HOME_LATENCY_V17
+    // The orb is the connection control. Latency telemetry is always visible; no extra card/button
+    // has to be opened, and throughput counters stay internal for optimizer decisions only.
     val breath: Float = if (connected) {
         val transition = rememberInfiniteTransition(label = "connection-breath")
         val animated by transition.animateFloat(
@@ -813,14 +813,19 @@ private fun ConnectionCore(
         else -> Aether.InkFaint
     }
     val track = Aether.GlassBorderSoft
-    val actionShape = RoundedCornerShape(18.dp)
 
     HoloGlass(
         Modifier.fillMaxWidth(),
         contentPadding = PaddingValues(horizontal = 18.dp, vertical = 18.dp)
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Box(Modifier.size(172.dp), contentAlignment = Alignment.Center) {
+            Box(
+                modifier = Modifier
+                    .size(172.dp)
+                    .clip(CircleShape)
+                    .clickable(onClick = onToggle),
+                contentAlignment = Alignment.Center
+            ) {
                 Canvas(Modifier.matchParentSize()) {
                     val scale = if (connected) breath else 1f
                     val radius = size.minDimension * .40f
@@ -867,6 +872,7 @@ private fun ConnectionCore(
                 }
             }
 
+            Spacer(Modifier.height(10.dp))
             Text(
                 activeName,
                 color = Aether.InkMuted,
@@ -874,74 +880,46 @@ private fun ConnectionCore(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                when {
+                    connecting -> "Tap the circle to cancel"
+                    connected -> "Tap the circle to disconnect"
+                    blocked -> "Tap the circle to retry"
+                    else -> "Tap the circle to connect"
+                },
+                color = statusColor,
+                style = MaterialTheme.typography.labelSmall
+            )
+
             Spacer(Modifier.height(15.dp))
-
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(58.dp)
-                    .clip(actionShape)
-                    .background(
-                        when {
-                            connected -> Aether.GlassStrong
-                            blocked -> Aether.Danger.copy(alpha = .14f)
-                            else -> Aether.Cyan
-                        }
-                    )
-                    .clickable(onClick = onToggle),
-                contentAlignment = Alignment.Center
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Text(
-                    when {
-                        connected -> "Disconnect"
-                        connecting -> "Stop connection"
-                        blocked -> "Retry connection"
-                        else -> "Connect securely"
-                    },
-                    color = if (!connected && !blocked) Color.White else Aether.Ink,
-                    style = MaterialTheme.typography.titleMedium,
-                    maxLines = 1
+                MiniMetric(
+                    "Ping",
+                    if (pingMs > 0) "$pingMs" else "—",
+                    "ms",
+                    Modifier.weight(1f)
+                )
+                MiniMetric(
+                    "Jitter",
+                    if (pingMs > 0) jitterMs.coerceAtLeast(0).toString() else "—",
+                    "ms",
+                    Modifier.weight(1f)
                 )
             }
-
-            TextButton(onClick = { detailsOpen = !detailsOpen }) {
-                Text(
-                    if (detailsOpen) "Hide details" else "Connection details",
-                    color = Aether.InkMuted,
-                    style = MaterialTheme.typography.labelLarge
-                )
-            }
-
-            AnimatedVisibility(
-                visible = detailsOpen,
-                enter = fadeIn(tween(150)) + expandVertically(tween(220)),
-                exit = fadeOut(tween(100)) + shrinkVertically(tween(180))
-            ) {
-                Column(
-                    Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    HorizontalDivider(color = Aether.GlassBorderSoft)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        MiniMetric(
-                            "HTTPS RTT",
-                            if (pingMs > 0) "$pingMs" else "—",
-                            "ms",
-                            Modifier.weight(1f)
-                        )
-                        MiniMetric("Download", compactRate(downBps), "", Modifier.weight(1f))
-                        MiniMetric("Upload", compactRate(upBps), "", Modifier.weight(1f))
-                    }
-                    Text(
-                        if (mode == ConnectionMode.FULL_TUN)
-                            "Android VpnService captures device traffic through HEV → Xray."
-                        else
-                            "SOCKS5 is available only on 127.0.0.1:$localPort.",
-                        color = Aether.InkFaint,
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                }
-            }
+            Text(
+                if (mode == ConnectionMode.FULL_TUN)
+                    "Live end-to-end HTTPS timing through HEV → Xray."
+                else
+                    "Live end-to-end HTTPS timing through SOCKS5 127.0.0.1:$localPort.",
+                color = Aether.InkFaint,
+                style = MaterialTheme.typography.bodySmall,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
+            )
         }
     }
 }
