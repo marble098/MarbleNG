@@ -6,12 +6,14 @@ package com.marbleng.app.ui
 // MARBLE_SMART_UI_V14
 // MARBLE_ULTIMATE_BUG_FINDER_UI_V15
 // MARBLE_HOME_LATENCY_V17
+// MARBLE_MANUAL_MOTION_UI_V20
 
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.provider.Settings
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -24,6 +26,10 @@ import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.animateDpAsState
@@ -71,6 +77,8 @@ import androidx.compose.ui.unit.dp
 import com.marbleng.app.AppRepository
 import com.marbleng.app.core.BugSeverity
 import com.marbleng.app.core.IranModeState
+import com.marbleng.app.core.ManualConfigDraft
+import com.marbleng.app.core.ManualProtocol
 import com.marbleng.app.model.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -103,6 +111,8 @@ fun Aether2026App(
     var tab by remember { mutableStateOf(SpatialTab.DECK) }
     var dialog by remember { mutableStateOf<String?>(null) }
     var settingsFocus by remember { mutableStateOf<String?>(null) }
+    var detailProfile by remember { mutableStateOf<ProxyProfile?>(null) }
+    BackHandler(enabled = detailProfile != null) { detailProfile = null }
     val snackbar = remember { SnackbarHostState() }
 
     LaunchedEffect(repo.message, repo.busy) {
@@ -119,6 +129,7 @@ fun Aether2026App(
             FloatingSpatialDock(
                 selected = tab,
                 onSelect = { next ->
+                    detailProfile = null
                     settingsFocus = null
                     tab = next
                 }
@@ -137,31 +148,23 @@ fun Aether2026App(
                 targetState = tab,
                 transitionSpec = {
                     val forward = targetState.ordinal > initialState.ordinal
-                    if (forward) {
-                        (
-                            slideInHorizontally(
-                                animationSpec = tween(180, easing = FastOutSlowInEasing)
-                            ) { width -> width / 10 } +
-                                fadeIn(animationSpec = tween(110))
-                        ) togetherWith (
-                            slideOutHorizontally(
-                                animationSpec = tween(150, easing = FastOutSlowInEasing)
-                            ) { width -> -width / 12 } +
-                                fadeOut(animationSpec = tween(90))
-                        )
-                    } else {
-                        (
-                            slideInHorizontally(
-                                animationSpec = tween(180, easing = FastOutSlowInEasing)
-                            ) { width -> -width / 10 } +
-                                fadeIn(animationSpec = tween(110))
-                        ) togetherWith (
-                            slideOutHorizontally(
-                                animationSpec = tween(150, easing = FastOutSlowInEasing)
-                            ) { width -> width / 12 } +
-                                fadeOut(animationSpec = tween(90))
-                        )
-                    }
+                    val enterOffset: (Int) -> Int = { width -> if (forward) width / 9 else -width / 9 }
+                    val exitOffset: (Int) -> Int = { width -> if (forward) -width / 13 else width / 13 }
+                    (
+                        slideInHorizontally(
+                            animationSpec = tween(260, easing = FastOutSlowInEasing),
+                            initialOffsetX = enterOffset
+                        ) +
+                            fadeIn(animationSpec = tween(180)) +
+                            scaleIn(initialScale = .985f, animationSpec = tween(260, easing = FastOutSlowInEasing))
+                    ) togetherWith (
+                        slideOutHorizontally(
+                            animationSpec = tween(210, easing = FastOutSlowInEasing),
+                            targetOffsetX = exitOffset
+                        ) +
+                            fadeOut(animationSpec = tween(150)) +
+                            scaleOut(targetScale = .992f, animationSpec = tween(210, easing = FastOutSlowInEasing))
+                    )
                 },
                 label = "marble-page-transition-fast"
             ) { page ->
@@ -177,14 +180,52 @@ fun Aether2026App(
                         onRouting = {
                             settingsFocus = "Routing"
                             tab = SpatialTab.SETTINGS
+                        },
+                        onDetails = {
+                            val profile = repo.profile(repo.activeProfileId) ?: repo.lastProfile()
+                            if (profile != null) detailProfile = profile else tab = SpatialTab.LIBRARY
                         }
                     )
-                    SpatialTab.LIBRARY -> CyberLibrary(repo, onConnect, onImportFile)
+                    SpatialTab.LIBRARY -> CyberLibrary(
+                        repo = repo,
+                        onConnect = onConnect,
+                        onImportFile = onImportFile,
+                        onDetails = { detailProfile = it }
+                    )
                     SpatialTab.RADAR -> DiscoveryRadar(repo)
                     SpatialTab.SETTINGS -> SpatialSettings(
                         repo = repo,
                         onDialog = { dialog = it },
                         focusSection = settingsFocus
+                    )
+                }
+            }
+
+
+            AnimatedContent(
+                targetState = detailProfile,
+                modifier = Modifier.matchParentSize(),
+                transitionSpec = {
+                    (
+                        fadeIn(tween(180)) +
+                            scaleIn(initialScale = .965f, animationSpec = tween(280, easing = FastOutSlowInEasing)) +
+                            slideInVertically(tween(280, easing = FastOutSlowInEasing)) { height -> height / 14 }
+                    ) togetherWith (
+                        fadeOut(tween(130)) +
+                            scaleOut(targetScale = .985f, animationSpec = tween(200, easing = FastOutSlowInEasing)) +
+                            slideOutVertically(tween(200, easing = FastOutSlowInEasing)) { height -> height / 18 }
+                    )
+                },
+                label = "connection-detail-container-transform-v20"
+            ) { profile ->
+                if (profile == null) {
+                    Box(Modifier.size(0.dp))
+                } else {
+                    ConnectionDetailPage(
+                        profile = profile,
+                        repo = repo,
+                        onConnect = onConnect,
+                        onBack = { detailProfile = null }
                     )
                 }
             }
@@ -515,13 +556,15 @@ private fun SpatialHeader(
                 HoloBadge(status, statusColor, compact = true)
             }
         }
-        Text(
-            subtitle,
-            color = Aether.InkMuted,
-            style = MaterialTheme.typography.bodySmall,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis
-        )
+        if (subtitle.isNotBlank()) {
+            Text(
+                subtitle,
+                color = Aether.InkMuted,
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
     }
 }
 
@@ -657,7 +700,8 @@ private fun CyberDeck(
     onConnect: (ProxyProfile) -> Unit,
     onLibrary: () -> Unit,
     onPrivacy: () -> Unit,
-    onRouting: () -> Unit
+    onRouting: () -> Unit,
+    onDetails: () -> Unit
 ) {
     val connected = repo.state == "CONNECTED"
     val connecting = repo.state == "CONNECTING"
@@ -674,7 +718,7 @@ private fun CyberDeck(
             SpatialHeader(
                 "Privacy dashboard",
                 "MarbleNG",
-                "Private networking, quietly monitored",
+                "",
                 when {
                     connected -> "Protected"
                     connecting -> "Connecting"
@@ -692,19 +736,22 @@ private fun CyberDeck(
 
         item {
             ConnectionCore(
-                activeName,
-                connected,
-                connecting,
-                blocked,
-                repo.settings.connectionMode,
-                repo.settings.localProxyPort,
-                repo.livePingMs,
-                repo.liveJitterMs,
-                repo.liveRouteSamples,
-                repo.liveJitterSamples
-            ) {
-                if (connected || connecting) repo.stopVpn() else repo.auto(onConnect)
-            }
+                activeName = activeName,
+                connected = connected,
+                connecting = connecting,
+                blocked = blocked,
+                mode = repo.settings.connectionMode,
+                localPort = repo.settings.localProxyPort,
+                pingMs = repo.livePingMs,
+                jitterMs = repo.liveJitterMs,
+                pingSamples = repo.liveRouteSamples,
+                jitterSamples = repo.liveJitterSamples,
+                detailsAvailable = repo.profile(repo.activeProfileId) != null || repo.lastProfile() != null,
+                onDetails = onDetails,
+                onToggle = {
+                    if (connected || connecting) repo.stopVpn() else repo.auto(onConnect)
+                }
+            )
         }
 
         item {
@@ -721,7 +768,7 @@ private fun CyberDeck(
                 HoloActionPill(
                     "◔",
                     "Test nodes",
-                    if (repo.probeActive) "Testing ${repo.probeDone}/${repo.probeTotal}" else "Measure real route latency",
+                    if (repo.probeActive) "Testing ${repo.probeDone}/${repo.probeTotal}" else "",
                     Aether.Cyan,
                     Modifier.weight(1f)
                 ) {
@@ -736,11 +783,11 @@ private fun CyberDeck(
                 HoloActionPill(
                     "◇",
                     "Privacy audit",
-                    if (connected) "Check egress & DNS" else "Connect first",
+                    if (connected) "" else "Connect first",
                     Aether.Emerald,
                     Modifier.weight(1f)
                 ) { onPrivacy() }
-                HoloActionPill("⚙","Routing","Open Expert settings",Aether.InkMuted,Modifier.weight(1f)) {
+                HoloActionPill("⚙","Routing","",Aether.InkMuted,Modifier.weight(1f)) {
                     onRouting()
                 }
             }
@@ -790,6 +837,8 @@ private fun ConnectionCore(
     jitterMs: Int,
     pingSamples: Int,
     jitterSamples: Int,
+    detailsAvailable: Boolean,
+    onDetails: () -> Unit,
     onToggle: () -> Unit
 ) {
     // MARBLE_HOME_LATENCY_V17
@@ -884,6 +933,11 @@ private fun ConnectionCore(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
+            AnimatedVisibility(visible = detailsAvailable) {
+                TextButton(onClick = onDetails, contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp)) {
+                    Text("Details", color = Aether.Cyan, style = MaterialTheme.typography.labelMedium)
+                }
+            }
             Spacer(Modifier.height(4.dp))
             Text(
                 when {
@@ -916,14 +970,9 @@ private fun ConnectionCore(
             }
             Text(
                 when {
-                    pingSamples <= 0 ->
-                        "Waiting for a verified HTTPS response RTT."
-                    jitterSamples < 2 ->
-                        "Verified HTTPS RTT • $pingSamples live sample${if (pingSamples == 1) "" else "s"} • jitter warming up."
-                    mode == ConnectionMode.FULL_TUN ->
-                        "Verified HTTPS response RTT through HEV → Xray • $pingSamples-sample rolling window."
-                    else ->
-                        "Verified HTTPS response RTT through SOCKS5 127.0.0.1:$localPort • $pingSamples-sample rolling window."
+                    pingSamples <= 0 -> "RTT —"
+                    jitterSamples < 2 -> "$pingSamples RTT sample${if (pingSamples == 1) "" else "s"} • jitter warming"
+                    else -> "Verified HTTPS RTT • $pingSamples samples"
                 },
                 color = Aether.InkFaint,
                 style = MaterialTheme.typography.bodySmall,
@@ -1001,13 +1050,15 @@ private fun HoloActionPill(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
-            Text(
-                subtitle,
-                color = Aether.InkFaint,
-                style = MaterialTheme.typography.labelSmall,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
-            )
+            if (subtitle.isNotBlank()) {
+                Text(
+                    subtitle,
+                    color = Aether.InkFaint,
+                    style = MaterialTheme.typography.labelSmall,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
         }
     }
 }
@@ -1022,11 +1073,13 @@ private fun HoloActionPill(
 private fun CyberLibrary(
     repo: AppRepository,
     onConnect: (ProxyProfile) -> Unit,
-    onImportFile: () -> Unit
+    onImportFile: () -> Unit,
+    onDetails: (ProxyProfile) -> Unit
 ) {
     val clipboard = LocalClipboardManager.current
     var search by remember { mutableStateOf("") }
     var addOpen by remember { mutableStateOf(false) }
+    var addMode by remember { mutableStateOf("subscription") }
     var url by remember { mutableStateOf("") }
     var sourceName by remember { mutableStateOf("") }
     var renameTarget by remember { mutableStateOf<ProxyProfile?>(null) }
@@ -1186,11 +1239,6 @@ private fun CyberLibrary(
                             repo.refresh(target.id)
                         }
                     }
-                    Text(
-                        "Editing the URL keeps this source identity. Refresh replaces only this source's nodes.",
-                        color = Aether.InkFaint,
-                        style = MaterialTheme.typography.bodySmall
-                    )
                 }
             },
             confirmButton = {
@@ -1259,7 +1307,7 @@ private fun CyberLibrary(
             SpatialHeader(
                 eyebrow = "Connections",
                 title = "Library",
-                subtitle = "Your sources and nodes, with measured route health",
+                subtitle = "",
                 status = "${repo.profiles.size} nodes",
                 statusColor = Aether.Amethyst
             )
@@ -1328,62 +1376,73 @@ private fun CyberLibrary(
             }
         }
 
-        if (addOpen) {
-            item {
+        item {
+            AnimatedVisibility(
+                visible = addOpen,
+                enter = fadeIn(tween(140)) + expandVertically(tween(220, easing = FastOutSlowInEasing)),
+                exit = fadeOut(tween(100)) + shrinkVertically(tween(170, easing = FastOutSlowInEasing))
+            ) {
                 HoloGlass(
                     modifier = Modifier.fillMaxWidth(),
                     borderColor = Aether.Amethyst.copy(alpha = .45f)
                 ) {
-                    Text(
-                        "Add a source",
-                        color = Aether.Ink,
-                        style = MaterialTheme.typography.titleMedium
-                    )
-                    OutlinedTextField(
-                        value = url,
-                        onValueChange = { url = it },
-                        label = { Text("Subscription URL") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(18.dp)
-                    )
-                    OutlinedTextField(
-                        value = sourceName,
-                        onValueChange = { sourceName = it },
-                        label = { Text("Name (optional)") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(18.dp)
-                    )
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        CyberButton(
-                            label = "Add subscription",
-                            color = Aether.Cyan,
-                            modifier = Modifier.weight(1f),
-                            enabled = url.startsWith("http")
-                        ) {
-                            repo.addSubscription(sourceName, url)
-                            url = ""
-                            sourceName = ""
-                        }
-                        CyberButton(
-                            label = "Import file",
-                            color = Aether.Amethyst,
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            onImportFile()
+                    Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                        CyberChoiceChip("Subscription", addMode == "subscription", Aether.Cyan) { addMode = "subscription" }
+                        CyberChoiceChip("Manual config", addMode == "manual", Aether.Emerald) { addMode = "manual" }
+                    }
+                    AnimatedContent(
+                        targetState = addMode,
+                        transitionSpec = {
+                            (fadeIn(tween(150)) + slideInHorizontally(tween(180)) { it / 12 }) togetherWith
+                                (fadeOut(tween(100)) + slideOutHorizontally(tween(140)) { -it / 14 })
+                        },
+                        label = "library-add-mode-v20"
+                    ) { mode ->
+                        if (mode == "manual") {
+                            ManualConfigEditor(repo = repo, onSaved = { addOpen = false })
+                        } else {
+                            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                OutlinedTextField(
+                                    value = url,
+                                    onValueChange = { url = it },
+                                    label = { Text("Subscription URL") },
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(18.dp)
+                                )
+                                OutlinedTextField(
+                                    value = sourceName,
+                                    onValueChange = { sourceName = it },
+                                    label = { Text("Name") },
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(18.dp)
+                                )
+                                CyberButton(
+                                    label = "Add subscription",
+                                    color = Aether.Cyan,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    enabled = url.startsWith("http")
+                                ) {
+                                    repo.addSubscription(sourceName, url)
+                                    url = ""
+                                    sourceName = ""
+                                }
+                            }
                         }
                     }
+                    CyberButton(
+                        label = "Import file",
+                        color = Aether.Amethyst,
+                        modifier = Modifier.fillMaxWidth()
+                    ) { onImportFile() }
                 }
             }
         }
 
         if (repo.subscriptions.isNotEmpty()) {
             item {
-                SectionLabel(
-                    "Sources",
-                    "View, refresh, edit or delete each subscription"
-                )
+                SectionLabel("Sources")
             }
 
             items(repo.subscriptions, key = { "subscription-${it.id}" }) { sub ->
@@ -1434,11 +1493,7 @@ private fun CyberLibrary(
         item {
             SectionLabel(
                 "Nodes",
-                if (repo.profiles.isEmpty()) {
-                    "Add a subscription or import a file to get started"
-                } else {
-                    "${visible.size} shown • swipe right to test, left to rename"
-                }
+                if (repo.profiles.isEmpty()) null else "${visible.size} shown"
             )
         }
 
@@ -1528,10 +1583,340 @@ private fun CyberLibrary(
                     onEdit = {
                         renameTarget = profile
                         renameText = profile.name
-                    }
+                    },
+                    onDetails = { onDetails(profile) }
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun ManualConfigEditor(
+    repo: AppRepository,
+    onSaved: () -> Unit
+) {
+    var draft by remember { mutableStateOf(ManualConfigDraft()) }
+    val protocol = draft.protocol
+    val streamProtocols = setOf(ManualProtocol.VLESS, ManualProtocol.VMESS, ManualProtocol.TROJAN)
+
+    Column(verticalArrangement = Arrangement.spacedBy(11.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(7.dp)
+        ) {
+            ManualProtocol.entries.forEach { item ->
+                CyberChoiceChip(item.label, protocol == item, if (item == ManualProtocol.XRAY_JSON) Aether.Amethyst else Aether.Cyan) {
+                    draft = ManualConfigDraft(protocol = item).copy(
+                        name = draft.name,
+                        port = when (item) {
+                            ManualProtocol.HTTP -> "80"
+                            ManualProtocol.SOCKS5 -> "1080"
+                            else -> "443"
+                        },
+                        security = when (item) {
+                            ManualProtocol.SHADOWSOCKS,
+                            ManualProtocol.HTTP,
+                            ManualProtocol.SOCKS5,
+                            ManualProtocol.WIREGUARD -> "none"
+                            else -> "tls"
+                        }
+                    )
+                }
+            }
+        }
+
+        ManualField("Name", draft.name, { draft = draft.copy(name = it) })
+
+        if (protocol == ManualProtocol.XRAY_JSON) {
+            ManualField(
+                label = "Xray config / outbound JSON",
+                value = draft.customJson,
+                onValueChange = { draft = draft.copy(customJson = it) },
+                singleLine = false,
+                minLines = 10
+            )
+        } else {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ManualField("Host", draft.host, { draft = draft.copy(host = it) }, Modifier.weight(1.55f))
+                ManualField("Port", draft.port, { draft = draft.copy(port = it.filter(Char::isDigit).take(5)) }, Modifier.weight(.75f))
+            }
+
+            when (protocol) {
+                ManualProtocol.VLESS -> {
+                    ManualField("UUID", draft.uuid, { draft = draft.copy(uuid = it) })
+                    ManualField("VLESS encryption", draft.encryption, { draft = draft.copy(encryption = it) })
+                    ManualField("Flow", draft.flow, { draft = draft.copy(flow = it) })
+                }
+                ManualProtocol.VMESS -> {
+                    ManualField("UUID", draft.uuid, { draft = draft.copy(uuid = it) })
+                    ManualField("Cipher", draft.encryption, { draft = draft.copy(encryption = it) })
+                }
+                ManualProtocol.TROJAN ->
+                    ManualField("Password", draft.password, { draft = draft.copy(password = it) })
+                ManualProtocol.SHADOWSOCKS -> {
+                    ManualField("Method", draft.method, { draft = draft.copy(method = it) })
+                    ManualField("Password", draft.password, { draft = draft.copy(password = it) })
+                }
+                ManualProtocol.HYSTERIA2 -> {
+                    ManualField("Auth", draft.password, { draft = draft.copy(password = it) })
+                    ManualField("SNI", draft.sni, { draft = draft.copy(sni = it) })
+                    ManualField("Fingerprint", draft.fingerprint, { draft = draft.copy(fingerprint = it) })
+                    ManualField("ALPN", draft.alpn, { draft = draft.copy(alpn = it) })
+                    CyberChoiceChip("Allow insecure TLS", draft.allowInsecure, Aether.Danger) {
+                        draft = draft.copy(allowInsecure = !draft.allowInsecure)
+                    }
+                }
+                ManualProtocol.HTTP, ManualProtocol.HTTPS, ManualProtocol.SOCKS5 -> {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        ManualField("Username", draft.username, { draft = draft.copy(username = it) }, Modifier.weight(1f))
+                        ManualField("Password", draft.password, { draft = draft.copy(password = it) }, Modifier.weight(1f))
+                    }
+                    if (protocol == ManualProtocol.HTTPS) {
+                        ManualField("TLS server name", draft.sni, { draft = draft.copy(sni = it) })
+                        ManualField("Fingerprint", draft.fingerprint, { draft = draft.copy(fingerprint = it) })
+                        CyberChoiceChip("Allow insecure TLS", draft.allowInsecure, Aether.Danger) {
+                            draft = draft.copy(allowInsecure = !draft.allowInsecure)
+                        }
+                    }
+                }
+                ManualProtocol.WIREGUARD -> {
+                    ManualField("Private key", draft.wireguardSecretKey, { draft = draft.copy(wireguardSecretKey = it) })
+                    ManualField("Local address / CIDR", draft.wireguardAddress, { draft = draft.copy(wireguardAddress = it) })
+                    ManualField("Peer public key", draft.wireguardPeerPublicKey, { draft = draft.copy(wireguardPeerPublicKey = it) })
+                    ManualField("Pre-shared key", draft.wireguardPreSharedKey, { draft = draft.copy(wireguardPreSharedKey = it) })
+                    ManualField("Allowed IPs", draft.wireguardAllowedIps, { draft = draft.copy(wireguardAllowedIps = it) })
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        ManualField("Reserved", draft.wireguardReserved, { draft = draft.copy(wireguardReserved = it) }, Modifier.weight(1f))
+                        ManualField("Keepalive", draft.wireguardKeepAlive, { draft = draft.copy(wireguardKeepAlive = it) }, Modifier.weight(1f))
+                        ManualField("MTU", draft.wireguardMtu, { draft = draft.copy(wireguardMtu = it) }, Modifier.weight(1f))
+                    }
+                    CyberChoiceChip("Userspace WireGuard", draft.wireguardNoKernelTun, Aether.Emerald) {
+                        draft = draft.copy(wireguardNoKernelTun = !draft.wireguardNoKernelTun)
+                    }
+                }
+                ManualProtocol.XRAY_JSON -> Unit
+            }
+
+            if (protocol in streamProtocols) {
+                SectionLabel("Transport")
+                Row(
+                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(7.dp)
+                ) {
+                    listOf("raw", "websocket", "xhttp", "grpc", "httpupgrade", "mkcp").forEach { value ->
+                        CyberChoiceChip(value.uppercase(), draft.transport == value, Aether.Amethyst) {
+                            draft = draft.copy(
+                                transport = value,
+                                security = if (draft.security == "reality" && value !in setOf("raw", "xhttp", "grpc")) "tls" else draft.security
+                            )
+                        }
+                    }
+                }
+
+                if (draft.transport in setOf("websocket", "xhttp", "httpupgrade")) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        ManualField("Path", draft.path, { draft = draft.copy(path = it) }, Modifier.weight(1f))
+                        ManualField("Host header", draft.hostHeader, { draft = draft.copy(hostHeader = it) }, Modifier.weight(1f))
+                    }
+                }
+                if (draft.transport == "grpc") {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        ManualField("Service name", draft.serviceName, { draft = draft.copy(serviceName = it) }, Modifier.weight(1f))
+                        ManualField("Authority", draft.hostHeader, { draft = draft.copy(hostHeader = it) }, Modifier.weight(1f))
+                    }
+                }
+
+                SectionLabel("Security")
+                Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                    val realitySupported = draft.transport in setOf("raw", "xhttp", "grpc")
+                    val choices = when {
+                        protocol == ManualProtocol.TROJAN && realitySupported -> listOf("tls", "reality")
+                        protocol == ManualProtocol.TROJAN -> listOf("tls")
+                        realitySupported -> listOf("none", "tls", "reality")
+                        else -> listOf("none", "tls")
+                    }
+                    choices.forEach { value ->
+                        CyberChoiceChip(value.uppercase(), draft.security == value, if (value == "reality") Aether.Amethyst else Aether.Cyan) {
+                            draft = draft.copy(security = value)
+                        }
+                    }
+                }
+
+                if (draft.security in setOf("tls", "reality")) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        ManualField("SNI", draft.sni, { draft = draft.copy(sni = it) }, Modifier.weight(1f))
+                        ManualField("Fingerprint", draft.fingerprint, { draft = draft.copy(fingerprint = it) }, Modifier.weight(1f))
+                    }
+                }
+                if (draft.security == "tls") {
+                    ManualField("ALPN", draft.alpn, { draft = draft.copy(alpn = it) })
+                    CyberChoiceChip("Allow insecure TLS", draft.allowInsecure, Aether.Danger) {
+                        draft = draft.copy(allowInsecure = !draft.allowInsecure)
+                    }
+                }
+                if (draft.security == "reality") {
+                    ManualField("REALITY public key", draft.realityPublicKey, { draft = draft.copy(realityPublicKey = it) })
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        ManualField("Short ID", draft.realityShortId, { draft = draft.copy(realityShortId = it) }, Modifier.weight(1f))
+                        ManualField("Spider X", draft.realitySpiderX, { draft = draft.copy(realitySpiderX = it) }, Modifier.weight(1f))
+                    }
+                }
+            }
+        }
+
+        CyberButton(
+            label = "Save manual config",
+            color = Aether.Emerald,
+            modifier = Modifier.fillMaxWidth(),
+            enabled = !repo.busy && (
+                (protocol == ManualProtocol.XRAY_JSON && draft.customJson.isNotBlank()) ||
+                    (protocol != ManualProtocol.XRAY_JSON && draft.host.isNotBlank())
+                )
+        ) {
+            if (repo.addManualProfile(draft)) {
+                draft = ManualConfigDraft()
+                onSaved()
+            }
+        }
+    }
+}
+
+@Composable
+private fun ManualField(
+    label: String,
+    value: String,
+    onValueChange: (String) -> Unit,
+    modifier: Modifier = Modifier.fillMaxWidth(),
+    singleLine: Boolean = true,
+    minLines: Int = 1
+) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        label = { Text(label) },
+        singleLine = singleLine,
+        minLines = minLines,
+        maxLines = if (singleLine) 1 else 18,
+        modifier = modifier,
+        shape = RoundedCornerShape(16.dp),
+        textStyle = if (singleLine) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace)
+    )
+}
+
+@Composable
+private fun ConnectionDetailPage(
+    profile: ProxyProfile,
+    repo: AppRepository,
+    onConnect: (ProxyProfile) -> Unit,
+    onBack: () -> Unit
+) {
+    val current = repo.profile(profile.id) ?: profile
+    val result = repo.benchmarks.firstOrNull { it.profileId == current.id }?.takeIf { it.success > 0 }
+    val active = repo.isActiveProfile(current.id)
+    val clipboard = LocalClipboardManager.current
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().background(Aether.Void),
+        contentPadding = PaddingValues(horizontal = 18.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        item {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                TextButton(onClick = onBack, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)) {
+                    Text("‹ Back", color = Aether.Cyan)
+                }
+                Spacer(Modifier.width(4.dp))
+                Text(
+                    current.name,
+                    color = Aether.Ink,
+                    style = MaterialTheme.typography.headlineSmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+                if (active) HoloBadge("Active", Aether.Emerald, compact = true)
+            }
+        }
+
+        item {
+            HoloGlass(Modifier.fillMaxWidth()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(7.dp)
+                ) {
+                    HoloBadge(current.scheme.uppercase(), Aether.Cyan, compact = true)
+                    current.transport.takeIf { it.isNotBlank() && !it.equals("native", true) }
+                        ?.let { HoloBadge(it.uppercase(), Aether.Amethyst, compact = true) }
+                    current.security.takeIf { it.isNotBlank() && !it.equals("none", true) }
+                        ?.let { HoloBadge(it.uppercase(), Aether.Emerald, compact = true) }
+                }
+                DetailRow("Endpoint", listOf(current.host, current.port.takeIf { it > 0 }?.toString()).filterNotNull().joinToString(":"))
+                DetailRow("Source", current.subscriptionName)
+            }
+        }
+
+        if (result != null) {
+            item {
+                HoloGlass(Modifier.fillMaxWidth()) {
+                    SectionLabel("Measured")
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        MiniMetric("Ping", result.latencyMs.roundToInt().toString(), "ms", Modifier.weight(1f))
+                        MiniMetric("Reachable", result.success.toString(), "%", Modifier.weight(1f))
+                    }
+                    if (result.bytesPerSecond > 0) {
+                        DetailRow("Throughput", "${formatBytes(result.bytesPerSecond.toLong())}/s")
+                    }
+                }
+            }
+        }
+
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                CyberButton(
+                    label = if (active) "Disconnect" else "Connect",
+                    color = if (active) Aether.Danger else Aether.Emerald,
+                    modifier = Modifier.weight(1f),
+                    enabled = !repo.busy
+                ) {
+                    if (active) repo.stopVpn() else onConnect(current)
+                }
+                CyberButton("Test", Aether.Cyan, Modifier.weight(1f), enabled = !repo.busy) {
+                    repo.fullTest(current)
+                }
+            }
+        }
+
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                CyberButton("Copy config", Aether.Amethyst, Modifier.weight(1f)) {
+                    clipboard.setText(AnnotatedString(current.raw.trim().ifBlank { current.configJson }))
+                    repo.setRuntimeMessage("Config copied")
+                }
+                CyberButton("Copy JSON", Aether.InkMuted, Modifier.weight(1f)) {
+                    clipboard.setText(AnnotatedString(current.configJson))
+                    repo.setRuntimeMessage("Xray JSON copied")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DetailRow(label: String, value: String) {
+    if (value.isBlank()) return
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(label, color = Aether.InkFaint, style = MaterialTheme.typography.labelMedium)
+        Spacer(Modifier.width(12.dp))
+        Text(
+            value,
+            color = Aether.Ink,
+            style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+            textAlign = TextAlign.End
+        )
     }
 }
 
@@ -1792,7 +2177,8 @@ private fun SpatialServerCard(
     active: Boolean,
     probeState: ProbeState,
     onConnect: (ProxyProfile) -> Unit,
-    onEdit: () -> Unit
+    onEdit: () -> Unit,
+    onDetails: () -> Unit
 ) {
     val measured = result?.takeIf { it.success > 0 }
     val latency = measured?.latencyMs?.toInt() ?: 0
@@ -1858,7 +2244,10 @@ private fun SpatialServerCard(
         },
         contentPadding = PaddingValues(start = 14.dp, top = 12.dp, end = 8.dp, bottom = 12.dp)
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            modifier = Modifier.fillMaxWidth().clickable(onClick = onDetails),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
             HealthOrb(
                 label = countryGlyph(profile.host),
                 color = when {
@@ -1945,6 +2334,13 @@ private fun SpatialServerCard(
                     onDismissRequest = { menuOpen = false },
                     containerColor = Aether.VoidElevated
                 ) {
+                    DropdownMenuItem(
+                        text = { Text("Details") },
+                        onClick = {
+                            menuOpen = false
+                            onDetails()
+                        }
+                    )
                     DropdownMenuItem(
                         text = { Text("Copy config link") },
                         onClick = {
@@ -2035,14 +2431,6 @@ private fun SpatialServerCard(
                         "${evidence.success}% ok",
                         if (evidence.success >= 90) Aether.Emerald else Aether.Amber,
                         compact = true
-                    )
-                    Text(
-                        "${evidence.success}% reachable • measured through Xray",
-                        color = Aether.InkFaint,
-                        style = MaterialTheme.typography.labelSmall,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f)
                     )
                 }
             }
@@ -2151,7 +2539,7 @@ private fun MicroStat(
 private fun DiscoveryRadar(repo:AppRepository){
     val network=repo.networkSnapshot;val intel=repo.intelligenceStatus;val iran=repo.iranMode;val linkColor=if(network.validated)Aether.Emerald else Aether.Amber
     LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(horizontal=18.dp,vertical=10.dp),verticalArrangement=Arrangement.spacedBy(16.dp)){
-        item{SpatialHeader("Network","Environment","Physical-link context and Marble Intelligence",if(network.validated)"Healthy" else "Checking",linkColor)}
+        item{SpatialHeader("Network","Environment","",if(network.validated)"Healthy" else "Checking",linkColor)}
         item{SectionLabel("Current network");HoloGlass(Modifier.fillMaxWidth()){Row(verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f)){Text(network.label,color=Aether.Ink,style=MaterialTheme.typography.titleMedium);Text("${if(network.metered)"Metered" else "Unmetered"} • ${if(network.hasIpv4)"IPv4" else "No IPv4"} • ${if(network.hasIpv6)"IPv6" else "No IPv6"}",color=Aether.InkMuted,style=MaterialTheme.typography.bodySmall)};HoloBadge(if(network.validated)"Validated" else "Unvalidated",linkColor,true)};Text("MTU ${network.mtu.takeIf{it>0}?:0} • Downlink ${network.downstreamKbps.coerceAtLeast(0)} kbps • Uplink ${network.upstreamKbps.coerceAtLeast(0)} kbps",color=Aether.InkFaint,style=MaterialTheme.typography.bodySmall);CyberButton(if(iran.scanning)"Checking network…" else "Refresh network check",Aether.Cyan,Modifier.fillMaxWidth(),!iran.scanning){repo.scanIranMode(force=true,deep=true)}}}
         item{SectionLabel("Marble Intelligence");HoloGlass(Modifier.fillMaxWidth()){Row(verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f)){Text(if(repo.settings.intelligenceEnabled)"Adaptive engine enabled" else "Adaptive engine disabled",color=Aether.Ink,style=MaterialTheme.typography.titleMedium);Text("Effective MTU ${intel.effectiveMtu.takeIf{it>0}?:network.mtu} • Thermal budget ${intel.thermalBudgetPercent}% • History ${intel.historyRecords}",color=Aether.InkFaint,style=MaterialTheme.typography.bodySmall)};HoloBadge(if(repo.settings.intelligenceEnabled)"On" else "Off",if(repo.settings.intelligenceEnabled)Aether.Emerald else Aether.InkFaint,true)};Text(intel.lastDecision.ifBlank{"Waiting for the next network decision"},color=Aether.InkMuted,style=MaterialTheme.typography.bodyMedium)}}
         if(iran.active){item{SectionLabel("Regional protection");HoloGlass(Modifier.fillMaxWidth()){Row(verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f)){Text(iran.ispLine,color=Aether.Ink,style=MaterialTheme.typography.titleMedium);Text(iran.summary,color=Aether.InkMuted,style=MaterialTheme.typography.bodySmall)};HoloBadge("${iran.confidence}%",Aether.Emerald,true)}}}}
@@ -2201,7 +2589,7 @@ private fun SpatialSettings(
             SpatialHeader(
                 "Preferences",
                 "Settings",
-                "Simple controls first. Technical controls stay available when you need them.",
+                "",
                 if (expertMode) "Expert" else "Simple",
                 if (expertMode) Aether.Cyan else Aether.Emerald
             )
@@ -2212,11 +2600,6 @@ private fun SpatialSettings(
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text("Appearance", color = Aether.Ink, style = MaterialTheme.typography.titleMedium)
-                        Text(
-                            "Choose the interface that matches your environment.",
-                            color = Aether.InkFaint,
-                            style = MaterialTheme.typography.bodySmall
-                        )
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         CyberChoiceChip(
@@ -2262,17 +2645,6 @@ private fun SpatialSettings(
 
         item { SpatialAccordion("Bug Finder","Deep Xray + SOCKS + TUN + HEV diagnostics","Live scan",Aether.Danger){BugFinderSettings(repo)} }
 
-        item {
-            Text(
-                if (expertMode)
-                    "Expert controls change low-level Xray and tunnel behavior."
-                else
-                    "Advanced controls stay out of the way until you enable Expert mode.",
-                color = Aether.InkFaint,
-                style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.padding(vertical = 10.dp)
-            )
-        }
     }
 }
 

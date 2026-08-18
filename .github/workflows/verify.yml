@@ -103,6 +103,7 @@ jobs:
           repo=Path('app/src/main/java/com/marbleng/app/AppRepository.kt').read_text()
           vpn=Path('app/src/main/java/com/marbleng/app/vpn/MarbleVpnService.kt').read_text()
           socks=Path('app/src/main/java/com/marbleng/app/core/SocksHttpClient.kt').read_text()
+          manual=Path('app/src/main/java/com/marbleng/app/core/ManualConfigBuilder.kt').read_text()
 
           strict={
               'v9.1 marker':'Marble Product UI v9.1.0' in ui,
@@ -121,6 +122,13 @@ jobs:
               'split list not truncated':'.take(48)' not in ui,
               'old race score floor absent':'maxOf(80.0, raced.second.score)' not in repo,
               'fast page motion':'marble-page-transition-fast' in ui,
+              'structured manual configs':'MARBLE_MANUAL_CONFIGS_V20' in manual and 'ManualConfigDraft' in manual,
+              'manual protocol breadth':all(x in manual for x in ['VLESS(', 'VMESS(', 'TROJAN(', 'SHADOWSOCKS(', 'HYSTERIA2(', 'HTTP(', 'HTTPS(', 'SOCKS5(', 'WIREGUARD(', 'XRAY_JSON(']),
+              'manual repo integration':'fun addManualProfile(draft: ManualConfigDraft)' in repo,
+              'manual editor UI':'private fun ManualConfigEditor(' in ui and 'library-add-mode-v20' in ui,
+              'connection detail motion':'connection-detail-container-transform-v20' in ui and 'private fun ConnectionDetailPage(' in ui,
+              'concise optional headers':'if (subtitle.isNotBlank())' in ui,
+              'no fake native SSH':'ManualProtocol.SSH' not in manual and 'protocol\", \"ssh' not in manual,
           }
           failed=[k for k,v in strict.items() if not v]
           if failed:

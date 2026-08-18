@@ -589,6 +589,33 @@ private fun postToMain(block: () -> Unit) {
         }
     }
 
+    // MARBLE_MANUAL_IMPORT_V20
+    fun addManualProfile(draft: ManualConfigDraft): Boolean {
+        if (busy) {
+            message = "Wait for the current task before adding a manual config"
+            return false
+        }
+        val built = runCatching { ManualConfigBuilder.build(draft) }.getOrElse { error ->
+            message = "Manual config invalid • ${error.message ?: error::class.java.simpleName}"
+            return false
+        }
+        if (profiles.any { it.id == built.id }) {
+            message = "Config already exists • ${profiles.first { it.id == built.id }.name}"
+            return false
+        }
+        profiles += built
+        store.saveProfiles(profiles)
+        diagnostics.event(
+            "LIBRARY",
+            "manual-profile-added",
+            "profile" to built.id.take(12),
+            "protocol" to built.scheme,
+            "transport" to built.transport,
+            "security" to built.security
+        )
+        message = "${built.scheme.uppercase()} added • ${built.name}"
+        return true
+    }
     fun importText(text: String, name: String = "Manual") {
         task("Importing") {
             val parsed = ProxyParser.parseInput(text, "manual", name)
@@ -612,10 +639,13 @@ private fun postToMain(block: () -> Unit) {
         }
         val looksLikeJson = clean.startsWith("{") || clean.startsWith("[")
         val hasShareLinks = Regex(
-            "(?im)^(vless|vmess|trojan|ss|ssr|socks|hysteria2|hy2|tuic|wireguard)://"
+            "(?im)^(vless|vmess|trojan|ss|socks5?|hysteria2|hy2)://"
+        ).containsMatchIn(clean)
+        val hasAuthenticatedHttpProxy = Regex(
+            "(?im)^https?://[^\\s/@]+:[^\\s/@]*@"
         ).containsMatchIn(clean)
 
-        if (!allHttpUrls || looksLikeJson || hasShareLinks) {
+        if (!allHttpUrls || looksLikeJson || hasShareLinks || hasAuthenticatedHttpProxy) {
             importText(clean, "Clipboard")
             return
         }
