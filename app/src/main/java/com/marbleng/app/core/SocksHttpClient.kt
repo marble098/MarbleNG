@@ -23,6 +23,7 @@ data class HttpProbe(
 
 object SocksHttpClient {
     // MARBLE_LITERAL_SOCKS_V13
+    // MARBLE_LOW_NOISE_PROBE_V18
     fun get(
         port: Int,
         host: String,
@@ -78,6 +79,78 @@ object SocksHttpClient {
 
         require(probe.status in 200..299) { "HTTPS ${probe.status} from ${target.host}" }
         return probe.body.toString(Charsets.UTF_8)
+    }
+
+    /**
+     * Low-noise route timing for live jitter control.
+     *
+     * Measures only: local SOCKS negotiation -> remote TCP connect. It deliberately avoids DNS,
+     * TLS and HTTP so the live "jitter" number is not polluted by resolver timeouts, certificate
+     * work, CDN origin differences or response-body scheduling.
+     *
+     * Pass a literal IP (Marble currently pins one per session) to keep the sample DNS-free.
+     */
+    fun connectLatency(
+        port: Int,
+        host: String,
+        targetPort: Int = 443,
+        timeoutMs: Int = 2_000
+    ): Double {
+        require(port in 1..65535)
+        require(targetPort in 1..65535)
+        require(host.isNotBlank())
+        require(timeoutMs in 250..30_000)
+
+        val started = System.nanoTime()
+        val tcp = Socket()
+        try {
+            tcp.soTimeout = timeoutMs
+            tcp.tcpNoDelay = true
+            tcp.connect(InetSocketAddress("127.0.0.1", port), timeoutMs)
+
+            val output = BufferedOutputStream(tcp.getOutputStream())
+            val input = BufferedInputStream(tcp.getInputStream())
+
+            output.write(byteArrayOf(5, 1, 0))
+            output.flush()
+            require(input.read() == 5 && input.read() == 0) {
+                "SOCKS auth negotiation failed"
+            }
+
+            val ipv4 = literalIpv4Bytes(host)
+            if (ipv4 != null) {
+                output.write(byteArrayOf(5, 1, 0, 1))
+                output.write(ipv4)
+            } else {
+                val hostBytes = host.toByteArray(Charsets.UTF_8)
+                require(hostBytes.size in 1..255) { "SOCKS hostname too long" }
+                output.write(byteArrayOf(5, 1, 0, 3, hostBytes.size.toByte()))
+                output.write(hostBytes)
+            }
+            output.write(byteArrayOf((targetPort ushr 8).toByte(), targetPort.toByte()))
+            output.flush()
+
+            val reply = ByteArray(4)
+            readFully(input, reply)
+            require(reply[0].toInt() == 5 && reply[1].toInt() == 0) {
+                "SOCKS connect failed: ${reply[1].toInt() and 0xff}"
+            }
+            when (reply[3].toInt() and 0xff) {
+                1 -> skip(input, 4)
+                3 -> {
+                    val length = input.read()
+                    require(length >= 0)
+                    skip(input, length)
+                }
+                4 -> skip(input, 16)
+                else -> error("Invalid SOCKS address type")
+            }
+            skip(input, 2)
+
+            return (System.nanoTime() - started) / 1e6
+        } finally {
+            runCatching { tcp.close() }
+        }
     }
 
     fun request(

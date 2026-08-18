@@ -887,8 +887,11 @@ class MarbleIntelligence(private val context: Context) {
      * Userspace-tunnel sizing for the node about to carry traffic. Evidence comes from the measured
      * acceleration pass first and from long-run history second; both beat a static guess.
      */
+    // MARBLE_LATENCY_FIRST_DATAPATH_V18
     fun tunnelTuning(profileId: String, settings: AppSettings): TunnelTuning {
         val thermal = thermalBudget(settings)
+        val network = currentSnapshot()
+
         val conservative = TunnelTuning(
             maxSessions = if (thermal < 0.55) 2048 else 4096,
             tcpBufferBytes = 65_536,
@@ -899,29 +902,62 @@ class MarbleIntelligence(private val context: Context) {
 
         val measured = acceleration(profileId)?.bytesPerSecond ?: 0.0
         val historical = if (settings.healthHistoryEnabled) {
-            db.get(profileId, currentSnapshot().key())?.throughputEwma ?: 0.0
+            db.get(profileId, network.key())?.throughputEwma ?: 0.0
         } else {
             0.0
         }
-        val linkBps = snapshot.downstreamKbps.toDouble() * 1000.0 / 8.0
+        val linkBps = network.downstreamKbps.toDouble() * 1000.0 / 8.0
         val evidence = max(max(measured, historical), linkBps * 0.5)
 
-        val tuned = when {
-            evidence >= 6.0 * 1024.0 * 1024.0 -> TunnelTuning(8192, 262_144, 1_048_576, "high-bandwidth")
-            evidence >= 1.5 * 1024.0 * 1024.0 -> TunnelTuning(6144, 131_072, 786_432, "wide")
-            else -> conservative
+        val throughputTuned = when {
+            evidence >= 6.0 * 1024.0 * 1024.0 ->
+                TunnelTuning(8192, 262_144, 1_048_576, "high-bandwidth")
+            evidence >= 1.5 * 1024.0 * 1024.0 ->
+                TunnelTuning(6144, 131_072, 786_432, "wide")
+            else ->
+                conservative
+        }
+
+        /*
+         * Bufferbloat guard.
+         *
+         * Large userspace socket queues help bulk throughput but they also let a cellular burst sit
+         * in Marble/HEV longer before the kernel/radio drains it. For AUTO/INTERACTIVE/STABILITY on
+         * cellular or any explicitly INTERACTIVE/STABILITY workload, cap the userspace queues at the
+         * proven baseline. STREAMING deliberately keeps the wider throughput-tuned datapath.
+         *
+         * This does not touch kernel qdiscs or require root; it only prevents Marble from adding a
+         * second oversized queue in front of the physical link.
+         */
+        val latencyFirst =
+            settings.workloadProfile == WorkloadProfile.INTERACTIVE ||
+                settings.workloadProfile == WorkloadProfile.STABILITY ||
+                (
+                    settings.workloadProfile != WorkloadProfile.STREAMING &&
+                        (network.transport == "cellular" || network.metered)
+                )
+
+        val latencyCapped = if (latencyFirst) {
+            TunnelTuning(
+                maxSessions = min(throughputTuned.maxSessions, 4096),
+                tcpBufferBytes = min(throughputTuned.tcpBufferBytes, 65_536),
+                udpBufferBytes = min(throughputTuned.udpBufferBytes, 524_288),
+                label = "${throughputTuned.label}/latency-first"
+            )
+        } else {
+            throughputTuned
         }
 
         // Never let a bigger datapath fight the thermal governor for the same silicon.
         return if (thermal < 0.55) {
             TunnelTuning(
-                maxSessions = min(tuned.maxSessions, 2048),
-                tcpBufferBytes = min(tuned.tcpBufferBytes, 65_536),
-                udpBufferBytes = min(tuned.udpBufferBytes, 524_288),
-                label = "${tuned.label}/thermal"
+                maxSessions = min(latencyCapped.maxSessions, 2048),
+                tcpBufferBytes = min(latencyCapped.tcpBufferBytes, 65_536),
+                udpBufferBytes = min(latencyCapped.udpBufferBytes, 524_288),
+                label = "${latencyCapped.label}/thermal"
             )
         } else {
-            tuned
+            latencyCapped
         }
     }
 

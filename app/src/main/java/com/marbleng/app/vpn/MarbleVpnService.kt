@@ -45,6 +45,7 @@ class MarbleVpnService : VpnService() {
     // MARBLE_FAST_DECISION_V14
     // MARBLE_RUNTIME_HARDENING_V16
     // MARBLE_JITTER_ENGINE_V17
+    // MARBLE_JITTER_CONTROL_V18
     // Live optimisation may learn while connected, but it must never intentionally tear down
     // a healthy user tunnel merely to hot-apply a transport experiment.
     companion object {
@@ -59,11 +60,19 @@ class MarbleVpnService : VpnService() {
         const val MODE_PROXY = "proxy"
         const val CHANNEL = "marbleng-vpn"
         const val NOTIFY = 7301
-        private const val ROUTE_PROBE_INTERVAL_TICKS = 15
-        private const val ROUTE_DEGRADED_PROBE_TICKS = 5
-        private const val ROUTE_JITTER_TRIGGER_MS = 35
+        private const val ROUTE_PROBE_INTERVAL_TICKS = 20
+        private const val ROUTE_DEGRADED_PROBE_TICKS = 8
+        private const val ROUTE_HEAVY_PROBE_TICKS = 45
+        private const val ROUTE_JITTER_TRIGGER_MS = 25
+        private const val ROUTE_JITTER_RELEASE_MS = 12
         private const val ROUTE_WINDOW_SIZE = 9
-        private const val JITTER_OPTIMIZER_COOLDOWN_MS = 120_000L
+        private const val JITTER_HIGH_CONFIRMATIONS = 3
+        private const val JITTER_RELEASE_CONFIRMATIONS = 4
+        private const val JITTER_OPTIMIZER_COOLDOWN_MS = 180_000L
+        private const val TURBO_INCONCLUSIVE_BASE_BACKOFF_MS = 600_000L
+        private const val TURBO_INCONCLUSIVE_MAX_BACKOFF_MS = 1_800_000L
+        private const val JITTER_PRIMARY_HOST = "1.1.1.1"
+        private const val JITTER_SECONDARY_HOST = "8.8.8.8"
         // Synthetic endpoints are advisory. Process death is handled immediately; route failure
         // requires normally-spaced misses plus a second independent confirmation.
         private const val PROBE_FAILURES_BEFORE_RECOVERY = 4
@@ -141,10 +150,13 @@ class MarbleVpnService : VpnService() {
     private val latencyWindow = ArrayDeque<Int>()
     @Volatile private var previousLatencySampleMs = 0
     @Volatile private var liveJitterEstimateMs = 0.0
+    @Volatile private var jitterProbeHost = JITTER_PRIMARY_HOST
+    @Volatile private var jitterHighStreak = 0
+    @Volatile private var jitterLowStreak = 0
+    @Volatile private var jitterControlActive = false
     @Volatile private var lastJitterOptimizerRequestAt = 0L
-
-    // Telemetry and the proxy monitor both rotate probe endpoints from their own threads.
-    private val probeIndex = AtomicInteger(0)
+    @Volatile private var tuningInconclusiveStreak = 0
+    @Volatile private var tuningBackoffUntilMs = 0L
 
     override fun onCreate() {
         super.onCreate()
@@ -267,7 +279,13 @@ class MarbleVpnService : VpnService() {
         synchronized(latencyWindow) { latencyWindow.clear() }
         previousLatencySampleMs = 0
         liveJitterEstimateMs = 0.0
+        jitterProbeHost = JITTER_PRIMARY_HOST
+        jitterHighStreak = 0
+        jitterLowStreak = 0
+        jitterControlActive = false
         lastJitterOptimizerRequestAt = 0L
+        tuningInconclusiveStreak = 0
+        tuningBackoffUntilMs = 0L
 
         diag.event(
             "VPN", "connect-request",
@@ -389,37 +407,10 @@ class MarbleVpnService : VpnService() {
             return
         }
 
-        // Xray listener readiness is the startup gate. External HTTPS endpoints are NOT a
-        // connection prerequisite: Cloudflare/Google probes can themselves be filtered, rate
-        // limited or unsupported by a perfectly usable route. Observe them asynchronously and
-        // feed the result into diagnostics without rejecting the user's tunnel.
-        monitorWorker.execute {
-            if (!isRouteCurrent(session, generation) || !xray.isAlive) return@execute
-
-            val domainHealthy = probeDomainHttps(port)
-            val literalHealthy = domainHealthy || probeLiteralIpHttps(port)
-            val event = if (domainHealthy) {
-                "startup-observation-ok"
-            } else {
-                "startup-observation-inconclusive"
-            }
-
-            diag.event(
-                "EGRESS",
-                event,
-                "session" to session,
-                "literalIpHttps" to literalHealthy,
-                "domainHttps" to domainHealthy,
-                "profile" to profile.id.take(12)
-            )
-
-            if (!domainHealthy && literalHealthy) {
-                app.repo.intelligence.setDecision(
-                    "DNS health probe inconclusive • route remains connected and monitored"
-                )
-                app.repo.refreshIntelligenceStatus()
-            }
-        }
+        // Synthetic Internet observations are diagnostics, not startup gates. Defer them until the
+        // tunnel has had time to settle so Marble does not inject TLS/HTTP work into the exact
+        // window where interactive jitter is being established.
+        scheduleSyntheticEgressObservation(session, generation, port, profile)
 
         diag.event("XRAY", "socks-ready", "session" to session, "alive" to xray.isAlive, "port" to port)
 
@@ -439,11 +430,7 @@ class MarbleVpnService : VpnService() {
             diag.event("IDENTITY", "initial-pin-deferred", "session" to session)
         }
 
-        monitorWorker.execute {
-            if (isRouteCurrent(session, generation)) {
-                runCatching { app.repo.intelligence.probeDnsResolvers(port, settings) }
-            }
-        }
+        scheduleAdaptiveDnsObservation(session, generation, port, settings)
 
         if (activeMode == MODE_PROXY) {
             startupTimedOut.set(false)
@@ -726,7 +713,7 @@ private fun startProxyMonitor(session: String, port: Int, generation: Int) {
                     sampleRouteLatency(session, port, generation)
                 }
                 if (
-                    (tick == 3 || (tick > 0 && tick % EXIT_IDENTITY_PROBE_INTERVAL_TICKS == 0)) &&
+                    (tick == 12 || (tick > 0 && tick % EXIT_IDENTITY_PROBE_INTERVAL_TICKS == 0)) &&
                     !verifyExitIdentity(session, port, generation)
                 ) {
                     return@execute
@@ -827,7 +814,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                 }
 
                 if (
-                    (tick == 3 || (tick > 0 && tick % EXIT_IDENTITY_PROBE_INTERVAL_TICKS == 0)) &&
+                    (tick == 12 || (tick > 0 && tick % EXIT_IDENTITY_PROBE_INTERVAL_TICKS == 0)) &&
                     !verifyExitIdentity(session, port, generation)
                 ) {
                     return@execute
@@ -1028,17 +1015,14 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         if (!forced && !settings.liveTuningEnabled) return
 
         val quality = activeRouteQuality()
-        val jitterMs = liveJitterEstimateMs.roundToInt().coerceAtLeast(0)
-        val jitterDegraded = jitterMs >= maxOf(
-            ROUTE_JITTER_TRIGGER_MS,
-            (quality.latencyMs / 3).coerceAtLeast(1)
-        )
+        val jitterDegraded = jitterControlActive
         val degraded = quality.samples >= 3 && (
             quality.latencyMs >= settings.liveTuningPingTriggerMs.coerceIn(80, 1200) ||
                 jitterDegraded
         )
 
         if (!forced) {
+            if (System.currentTimeMillis() < tuningBackoffUntilMs) return
             if (quality.samples < 3) return
             if (sessionTuned && !degraded) return
             if (elapsedConnectMs() < FIRST_TUNE_DELAY_MS) return
@@ -1088,16 +1072,33 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             }
         }.onFailure {
             diag.error("TURBO", "live-failed", it, "session" to session)
-        }.getOrNull() ?: return
+        }.getOrNull()
 
         if (!isRouteCurrent(session, generation) || recoveryScheduled.get()) return
-        sessionTuned = true
 
-        if (!report.healthy) {
-            repo.intelligence.setDecision(report.summary)
-            diag.event("TURBO", "live-inconclusive", "session" to session)
+        if (report == null || !report.healthy) {
+            sessionTuned = true
+            tuningInconclusiveStreak = (tuningInconclusiveStreak + 1).coerceAtMost(8)
+            val multiplier = 1L shl (tuningInconclusiveStreak - 1).coerceIn(0, 2)
+            val backoffMs =
+                (TURBO_INCONCLUSIVE_BASE_BACKOFF_MS * multiplier)
+                    .coerceAtMost(TURBO_INCONCLUSIVE_MAX_BACKOFF_MS)
+            tuningBackoffUntilMs = System.currentTimeMillis() + backoffMs
+
+            if (report != null) repo.intelligence.setDecision(report.summary)
+            diag.event(
+                "TURBO", "live-inconclusive-backoff",
+                "session" to session,
+                "streak" to tuningInconclusiveStreak,
+                "backoffSec" to (backoffMs / 1000L),
+                "jitterControl" to jitterControlActive
+            )
             return
         }
+
+        sessionTuned = true
+        tuningInconclusiveStreak = 0
+        tuningBackoffUntilMs = 0L
 
         // Compare against the method the live process is really running, not against whatever a
         // previous held pass wrote to the store.
@@ -1304,6 +1305,66 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         return null
     }
 
+    private fun scheduleSyntheticEgressObservation(
+        session: String,
+        generation: Int,
+        port: Int,
+        profile: ProxyProfile
+    ) {
+        timerWorker.schedule({
+            if (isRouteCurrent(session, generation) && xray.isAlive) {
+                monitorWorker.execute {
+                    if (!isRouteCurrent(session, generation) || !xray.isAlive) return@execute
+                    val app = application as MarbleApplication
+                    val domainHealthy = probeDomainHttps(port)
+                    val literalHealthy = domainHealthy || probeLiteralIpHttps(port)
+                    diag.event(
+                        "EGRESS",
+                        if (domainHealthy) "startup-observation-ok" else "startup-observation-inconclusive",
+                        "session" to session,
+                        "literalIpHttps" to literalHealthy,
+                        "domainHttps" to domainHealthy,
+                        "profile" to profile.id.take(12)
+                    )
+                    if (!domainHealthy && literalHealthy) {
+                        app.repo.intelligence.setDecision(
+                            "DNS health probe inconclusive • route remains connected and monitored"
+                        )
+                        app.repo.refreshIntelligenceStatus()
+                    }
+                }
+            }
+        }, 20_000L, TimeUnit.MILLISECONDS)
+    }
+
+    private fun scheduleAdaptiveDnsObservation(
+        session: String,
+        generation: Int,
+        port: Int,
+        settings: AppSettings
+    ) {
+        timerWorker.schedule({
+            if (isRouteCurrent(session, generation) && xray.isAlive) {
+                val repo = (application as MarbleApplication).repo
+                val throughput = repo.liveDownBps + repo.liveUpBps
+                if (!jitterControlActive && throughput < HEAVY_TRAFFIC_BPS) {
+                    monitorWorker.execute {
+                        if (isRouteCurrent(session, generation) && xray.isAlive) {
+                            runCatching { repo.intelligence.probeDnsResolvers(port, settings) }
+                        }
+                    }
+                } else {
+                    diag.event(
+                        "DNS", "adaptive-observation-deferred",
+                        "session" to session,
+                        "jitterControl" to jitterControlActive,
+                        "throughputBps" to throughput
+                    )
+                }
+            }
+        }, 60_000L, TimeUnit.MILLISECONDS)
+    }
+
     private fun probeLiteralIpHttps(port: Int): Boolean =
         runCatching {
             SocksHttpClient.get(
@@ -1365,23 +1426,35 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
     }
 
     /**
-     * End-to-end active-path timing through SOCKS -> remote TCP -> TLS -> HTTP.
+     * Live route timing is deliberately different from a health check.
      *
-     * Ping uses a 9-sample rolling median so one scheduler/TLS spike does not lie to the UI.
-     * Jitter uses the RFC3550 inter-arrival variation shape: an EWMA of absolute consecutive RTT
-     * deltas. Warm-up samples arrive quickly; stable links back off to 15s and heavy traffic to 30s
-     * so Marble does not create the jitter it is trying to measure.
+     * v17 rotated Cloudflare/Google HTTPS origins and then compared consecutive RTTs. That mixes
+     * origin/TLS/DNS variance into "jitter". v18 pins one literal IP and measures only SOCKS +
+     * remote TCP connect time, so consecutive samples describe the same path and no DNS query is
+     * generated by the jitter meter.
      */
     private fun shouldSampleRoute(tick: Int): Boolean {
-        if (tick in 2..6 && tick % 2 == 0) return true
+        // Three sparse warm-up samples establish a baseline without a burst immediately on connect.
+        if (tick == 2 || tick == 5 || tick == 9) return true
+
         val repo = (application as MarbleApplication).repo
         val throughput = repo.liveDownBps + repo.liveUpBps
         val cadence = when {
-            throughput >= HEAVY_TRAFFIC_BPS -> ROUTE_PROBE_INTERVAL_TICKS * 2
-            liveJitterEstimateMs >= ROUTE_JITTER_TRIGGER_MS -> ROUTE_DEGRADED_PROBE_TICKS
+            throughput >= HEAVY_TRAFFIC_BPS -> ROUTE_HEAVY_PROBE_TICKS
+            jitterControlActive -> ROUTE_DEGRADED_PROBE_TICKS
             else -> ROUTE_PROBE_INTERVAL_TICKS
         }
         return tick > 0 && tick % cadence == 0
+    }
+
+    private fun resetJitterBaselineForProbeHost(nextHost: String) {
+        synchronized(latencyWindow) { latencyWindow.clear() }
+        previousLatencySampleMs = 0
+        liveJitterEstimateMs = 0.0
+        jitterHighStreak = 0
+        jitterLowStreak = 0
+        jitterControlActive = false
+        jitterProbeHost = nextHost
     }
 
     private fun sampleRouteLatency(
@@ -1390,19 +1463,36 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         generation: Int
     ): Boolean {
         if (!isRouteCurrent(session, generation)) return false
-        val probes = arrayOf(
-            "cp.cloudflare.com" to "/generate_204",
-            "www.gstatic.com" to "/generate_204",
-            "connectivitycheck.gstatic.com" to "/generate_204"
-        )
-        val (host, path) = probes[
-            (probeIndex.getAndIncrement() % probes.size).coerceAtLeast(0)
-        ]
 
-        val ms = runCatching {
-            val result = SocksHttpClient.get(port, host, path, 3_000, 512)
-            if (result.status in 200..399) result.elapsedMs.roundToInt() else -1
-        }.getOrDefault(-1)
+        fun measure(host: String): Int =
+            runCatching {
+                SocksHttpClient.connectLatency(
+                    port = port,
+                    host = host,
+                    targetPort = 443,
+                    timeoutMs = 1_800
+                ).roundToInt()
+            }.getOrDefault(-1)
+
+        var host = jitterProbeHost
+        var ms = measure(host)
+
+        if (ms <= 0 && isRouteCurrent(session, generation)) {
+            val alternate =
+                if (host == JITTER_PRIMARY_HOST) JITTER_SECONDARY_HOST else JITTER_PRIMARY_HOST
+            val alternateMs = measure(alternate)
+            if (alternateMs > 0) {
+                resetJitterBaselineForProbeHost(alternate)
+                host = alternate
+                ms = alternateMs
+                diag.event(
+                    "ROUTE", "jitter-probe-pivot",
+                    "session" to session,
+                    "target" to alternate,
+                    "reason" to "primary literal timing unavailable"
+                )
+            }
+        }
 
         val app = application as MarbleApplication
         val repo = app.repo
@@ -1473,7 +1563,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                 liveJitterEstimateMs = if (liveJitterEstimateMs <= 0.0) {
                     delta
                 } else {
-                    liveJitterEstimateMs + (delta - liveJitterEstimateMs) / 16.0
+                    liveJitterEstimateMs + (delta - liveJitterEstimateMs) / 8.0
                 }
             }
             previousLatencySampleMs = ms
@@ -1494,12 +1584,61 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             activeSettings ?: repo.settings
         )
 
-        val settings = activeSettings ?: repo.settings
-        val jitterHigh = quality.samples >= 4 && jitterMs >= maxOf(
+        val highThreshold = maxOf(
             ROUTE_JITTER_TRIGGER_MS,
-            (quality.latencyMs / 3).coerceAtLeast(1)
+            (quality.latencyMs / 4).coerceAtLeast(1)
         )
-        if (jitterHigh && settings.continuousOptimizerEnabled && !settings.identityGuardEnabled) {
+        val releaseThreshold = maxOf(
+            ROUTE_JITTER_RELEASE_MS,
+            (quality.latencyMs / 8).coerceAtLeast(1)
+        )
+        val instantHigh = quality.samples >= 4 && jitterMs >= highThreshold
+        val instantLow = quality.samples >= 4 && jitterMs <= releaseThreshold
+
+        when {
+            instantHigh -> {
+                jitterHighStreak = (jitterHighStreak + 1).coerceAtMost(1000)
+                jitterLowStreak = 0
+            }
+            instantLow -> {
+                jitterLowStreak = (jitterLowStreak + 1).coerceAtMost(1000)
+                jitterHighStreak = (jitterHighStreak - 1).coerceAtLeast(0)
+            }
+            else -> {
+                jitterLowStreak = 0
+                jitterHighStreak = (jitterHighStreak - 1).coerceAtLeast(0)
+            }
+        }
+
+        if (!jitterControlActive && jitterHighStreak >= JITTER_HIGH_CONFIRMATIONS) {
+            jitterControlActive = true
+            diag.event(
+                "ROUTE", "jitter-control-enter",
+                "session" to session,
+                "target" to host,
+                "pingMs" to quality.latencyMs,
+                "jitterMs" to jitterMs,
+                "highStreak" to jitterHighStreak
+            )
+        } else if (jitterControlActive && jitterLowStreak >= JITTER_RELEASE_CONFIRMATIONS) {
+            jitterControlActive = false
+            jitterHighStreak = 0
+            diag.event(
+                "ROUTE", "jitter-control-exit",
+                "session" to session,
+                "target" to host,
+                "pingMs" to quality.latencyMs,
+                "jitterMs" to jitterMs,
+                "lowStreak" to jitterLowStreak
+            )
+        }
+
+        val settings = activeSettings ?: repo.settings
+        if (
+            jitterControlActive &&
+            settings.continuousOptimizerEnabled &&
+            !settings.identityGuardEnabled
+        ) {
             val now = System.currentTimeMillis()
             if (now - lastJitterOptimizerRequestAt >= JITTER_OPTIMIZER_COOLDOWN_MS) {
                 lastJitterOptimizerRequestAt = now
@@ -1678,6 +1817,12 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             synchronized(latencyWindow) { latencyWindow.clear() }
             previousLatencySampleMs = 0
             liveJitterEstimateMs = 0.0
+            jitterProbeHost = JITTER_PRIMARY_HOST
+            jitterHighStreak = 0
+            jitterLowStreak = 0
+            jitterControlActive = false
+            tuningInconclusiveStreak = 0
+            tuningBackoffUntilMs = 0L
             routeOptimizer.reset(0L)
             optimizerScanRequested.set(
                 settings.continuousOptimizerEnabled && !settings.identityGuardEnabled

@@ -8,6 +8,7 @@ import org.json.JSONObject
 object XrayConfigHardener {
     // MARBLE_CLEAN_XRAY_LOG_V13
     // MARBLE_DNS_RESILIENCE_V16
+    // MARBLE_DNS_DEJITTER_V18
     private val infra = setOf("freedom", "blackhole", "dns", "loopback")
     private val compatibilityDependencyProtocols = setOf(
         "freedom", "http", "shadowsocks", "socks", "trojan", "vless", "vmess", "hysteria", "wireguard"
@@ -293,12 +294,18 @@ object XrayConfigHardener {
         }
 
         // Non-local DoH enters routing with xgc-dns and is forced through the selected proxy.
-        remoteDoh.forEach { address ->
+        //
+        // v18 intentionally keeps resolver attempts SERIAL. The runtime report showed both remote
+        // DoH endpoints timing out in the same bursts. Racing duplicate HTTPS DNS requests consumes
+        // two congestion-window/handshake slots at the exact moment the mobile path is unstable.
+        // A short primary deadline plus serial secondary fallback gives the preferred resolver a
+        // chance first without creating our own traffic burst.
+        remoteDoh.forEachIndexed { index, address ->
             dnsServers.put(
                 JSONObject()
                     .put("address", address)
                     .put("queryStrategy", queryStrategy)
-                    .put("timeoutMs", 4000)
+                    .put("timeoutMs", if (index == 0) 2200 else 2600)
             )
         }
 
@@ -312,10 +319,10 @@ object XrayConfigHardener {
                 // previously validated answer immediately while the cache refreshes in background.
                 // No plaintext/system-DNS fallback is introduced.
                 .put("serveStale", true)
-                .put("serveExpiredTTL", 900)
+                .put("serveExpiredTTL", 1800)
                 .put("useSystemHosts", false)
                 .put("disableFallbackIfMatch", bootstrapDomains.isNotEmpty())
-                .put("enableParallelQuery", true)
+                .put("enableParallelQuery", false)
                 .put("tag", "xgc-dns")
         )
 
