@@ -155,6 +155,7 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     var liveUpBps by mutableStateOf(0L); private set
     var liveRouteScore by mutableStateOf(-1); private set
     var liveRouteSamples by mutableStateOf(0); private set
+    var liveJitterSamples by mutableStateOf(0); private set
 
     init {
         RuntimeDiagnostics.setDebugEnabled(context, settings.debugModeEnabled)
@@ -192,21 +193,53 @@ fun updateTelemetry(downBps: Long, upBps: Long) {
         }
     }
 
-fun updateRouteQuality(pingMs: Int, jitterMs: Int = -1) {
+fun updateRouteQuality(
+        pingMs: Int,
+        jitterMs: Int = -1,
+        sampleCount: Int = -1,
+        jitterSampleCount: Int = -1
+    ) {
         if (pingMs <= 0) return
-        // A route with the same median RTT but violent delay variation should score lower.
-        // Keep displayed ping untouched; jitter contributes only a bounded quality penalty.
+
+        // Jitter is unknown until enough consecutive verified RTT deltas exist.
+        // Never punish the route or display a fabricated zero while it warms up.
         val jitterPenalty = if (jitterMs >= 0) {
             (jitterMs.coerceIn(0, 1_000) * 0.55).roundToInt()
-        } else 0
+        } else {
+            0
+        }
         val rawScore = calculateLiveRouteScore(pingMs + jitterPenalty)
+
         postToMain {
             livePingMs = pingMs
-            if (jitterMs >= 0) liveJitterMs = jitterMs.coerceIn(0, 10_000)
+            if (jitterMs >= 0) {
+                liveJitterMs = jitterMs.coerceIn(0, 10_000)
+            }
+
             liveRouteScore =
                 if (liveRouteScore < 0) rawScore
                 else ((liveRouteScore * 3 + rawScore * 2) / 5).coerceIn(0, 100)
-            liveRouteSamples = (liveRouteSamples + 1).coerceAtMost(1_000_000)
+
+            // v18 counted publications forever although ping came from a bounded window.
+            // Publish the actual current window sizes.
+            liveRouteSamples =
+                if (sampleCount >= 0) sampleCount.coerceIn(0, 10_000)
+                else (liveRouteSamples + 1).coerceAtMost(10_000)
+
+            liveJitterSamples =
+                if (jitterSampleCount >= 0) jitterSampleCount.coerceIn(0, 10_000)
+                else if (jitterMs >= 0) {
+                    (liveJitterSamples + 1).coerceAtMost(10_000)
+                } else {
+                    liveJitterSamples
+                }
+        }
+    }
+
+fun invalidateLiveJitter() {
+        postToMain {
+            liveJitterMs = 0
+            liveJitterSamples = 0
         }
     }
 
@@ -218,6 +251,7 @@ fun resetTelemetry() {
             liveUpBps = 0
             liveRouteScore = -1
             liveRouteSamples = 0
+            liveJitterSamples = 0
         }
     }
 
@@ -239,11 +273,12 @@ fun resetTelemetry() {
             if (s != "CONNECTED") {
                 activeProfileId = ""
                 livePingMs = 0
-            liveJitterMs = 0
+                liveJitterMs = 0
                 liveDownBps = 0L
                 liveUpBps = 0L
                 liveRouteScore = -1
                 liveRouteSamples = 0
+                liveJitterSamples = 0
             }
         }
     }

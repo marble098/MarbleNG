@@ -102,6 +102,7 @@ jobs:
           ui=Path('app/src/main/java/com/marbleng/app/ui/Aether2026.kt').read_text()
           repo=Path('app/src/main/java/com/marbleng/app/AppRepository.kt').read_text()
           vpn=Path('app/src/main/java/com/marbleng/app/vpn/MarbleVpnService.kt').read_text()
+          socks=Path('app/src/main/java/com/marbleng/app/core/SocksHttpClient.kt').read_text()
 
           strict={
               'v9.1 marker':'Marble Product UI v9.1.0' in ui,
@@ -113,7 +114,10 @@ jobs:
               'live score samples':'var liveRouteSamples by mutableStateOf(0)' in repo,
               'scientific decay score':'calculateLiveRouteScore' in repo and 'latencyFactor' in repo,
               'fast initial route sample':vpn.count('sampleRouteLatency(session, port, generation)') >= 3,
-              '15 second live cadence':'ROUTE_PROBE_INTERVAL_TICKS = 15' in vpn,
+              'adaptive live cadence':'ROUTE_PROBE_INTERVAL_TICKS = 20' in vpn and 'ROUTE_DEGRADED_PROBE_TICKS = 8' in vpn,
+              'verified live RTT':'httpsFirstByteLatency(' in socks and 'verified-https-ttfb' in vpn,
+              'jitter readiness model':'liveJitterSamples' in repo and 'jitterSampleCount' in vpn,
+              'bounded ping window':'ROUTE_WINDOW_SIZE = 5' in vpn and 'JITTER_WINDOW_SIZE = 6' in vpn,
               'split list not truncated':'.take(48)' not in ui,
               'old race score floor absent':'maxOf(80.0, raced.second.score)' not in repo,
               'fast page motion':'marble-page-transition-fast' in ui,

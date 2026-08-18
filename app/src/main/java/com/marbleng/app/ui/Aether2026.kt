@@ -699,7 +699,9 @@ private fun CyberDeck(
                 repo.settings.connectionMode,
                 repo.settings.localProxyPort,
                 repo.livePingMs,
-                repo.liveJitterMs
+                repo.liveJitterMs,
+                repo.liveRouteSamples,
+                repo.liveJitterSamples
             ) {
                 if (connected || connecting) repo.stopVpn() else repo.auto(onConnect)
             }
@@ -786,6 +788,8 @@ private fun ConnectionCore(
     localPort: Int,
     pingMs: Int,
     jitterMs: Int,
+    pingSamples: Int,
+    jitterSamples: Int,
     onToggle: () -> Unit
 ) {
     // MARBLE_HOME_LATENCY_V17
@@ -905,16 +909,22 @@ private fun ConnectionCore(
                 )
                 MiniMetric(
                     "Jitter",
-                    if (pingMs > 0) jitterMs.coerceAtLeast(0).toString() else "—",
+                    if (jitterSamples >= 2 && jitterMs >= 0) jitterMs.toString() else "—",
                     "ms",
                     Modifier.weight(1f)
                 )
             }
             Text(
-                if (mode == ConnectionMode.FULL_TUN)
-                    "Live end-to-end HTTPS timing through HEV → Xray."
-                else
-                    "Live end-to-end HTTPS timing through SOCKS5 127.0.0.1:$localPort.",
+                when {
+                    pingSamples <= 0 ->
+                        "Waiting for a verified HTTPS response RTT."
+                    jitterSamples < 2 ->
+                        "Verified HTTPS RTT • $pingSamples live sample${if (pingSamples == 1) "" else "s"} • jitter warming up."
+                    mode == ConnectionMode.FULL_TUN ->
+                        "Verified HTTPS response RTT through HEV → Xray • $pingSamples-sample rolling window."
+                    else ->
+                        "Verified HTTPS response RTT through SOCKS5 127.0.0.1:$localPort • $pingSamples-sample rolling window."
+                },
                 color = Aether.InkFaint,
                 style = MaterialTheme.typography.bodySmall,
                 textAlign = TextAlign.Center,

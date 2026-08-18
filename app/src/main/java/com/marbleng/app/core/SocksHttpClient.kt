@@ -24,6 +24,7 @@ data class HttpProbe(
 object SocksHttpClient {
     // MARBLE_LITERAL_SOCKS_V13
     // MARBLE_LOW_NOISE_PROBE_V18
+    // MARBLE_VERIFIED_RTT_V19
     fun get(
         port: Int,
         host: String,
@@ -149,6 +150,125 @@ object SocksHttpClient {
 
             return (System.nanoTime() - started) / 1e6
         } finally {
+            runCatching { tcp.close() }
+        }
+    }
+
+
+    /**
+     * Verified live application RTT through the already-running Xray route.
+     *
+     * connectLatency() remains available for callers that explicitly need SOCKS CONNECT setup
+     * timing, but setup timing must not be displayed as Internet ping: some transports can accept
+     * CONNECT before a complete remote application round trip has actually happened.
+     *
+     * This probe:
+     *  1. opens SOCKS5 to a literal IP (DNS-free),
+     *  2. completes certificate-verified TLS,
+     *  3. starts the latency clock only after TLS is ready,
+     *  4. sends a tiny HTTPS request,
+     *  5. stops only after the first remote response byte arrives.
+     *
+     * Thus the displayed RTT requires genuine remote response traffic while excluding DNS,
+     * TCP/TLS cold-start setup and body-download time.
+     */
+    fun httpsFirstByteLatency(
+        port: Int,
+        host: String,
+        path: String = "/cdn-cgi/trace",
+        targetPort: Int = 443,
+        timeoutMs: Int = 2_500
+    ): Double {
+        require(port in 1..65535)
+        require(targetPort in 1..65535)
+        require(host.isNotBlank())
+        require(path.startsWith('/'))
+        require(timeoutMs in 500..30_000)
+
+        val tcp = Socket()
+        var ssl: SSLSocket? = null
+        try {
+            tcp.soTimeout = timeoutMs
+            tcp.tcpNoDelay = true
+            tcp.connect(InetSocketAddress("127.0.0.1", port), timeoutMs)
+
+            val output = BufferedOutputStream(tcp.getOutputStream())
+            val input = BufferedInputStream(tcp.getInputStream())
+
+            output.write(byteArrayOf(5, 1, 0))
+            output.flush()
+            require(input.read() == 5 && input.read() == 0) {
+                "SOCKS auth negotiation failed"
+            }
+
+            val ipv4 = literalIpv4Bytes(host)
+            if (ipv4 != null) {
+                output.write(byteArrayOf(5, 1, 0, 1))
+                output.write(ipv4)
+            } else {
+                val hostBytes = host.toByteArray(Charsets.UTF_8)
+                require(hostBytes.size in 1..255) { "SOCKS hostname too long" }
+                output.write(byteArrayOf(5, 1, 0, 3, hostBytes.size.toByte()))
+                output.write(hostBytes)
+            }
+            output.write(
+                byteArrayOf(
+                    (targetPort ushr 8).toByte(),
+                    targetPort.toByte()
+                )
+            )
+            output.flush()
+
+            val reply = ByteArray(4)
+            readFully(input, reply)
+            require(reply[0].toInt() == 5 && reply[1].toInt() == 0) {
+                "SOCKS connect failed: ${reply[1].toInt() and 0xff}"
+            }
+            when (reply[3].toInt() and 0xff) {
+                1 -> skip(input, 4)
+                3 -> {
+                    val length = input.read()
+                    require(length >= 0)
+                    skip(input, length)
+                }
+                4 -> skip(input, 16)
+                else -> error("Invalid SOCKS address type")
+            }
+            skip(input, 2)
+
+            val secure = (SSLSocketFactory.getDefault() as SSLSocketFactory)
+                .createSocket(tcp, host, targetPort, true) as SSLSocket
+            ssl = secure
+            secure.soTimeout = timeoutMs
+            secure.tcpNoDelay = true
+
+            val parameters = secure.sslParameters
+            parameters.endpointIdentificationAlgorithm = "HTTPS"
+            secure.sslParameters = parameters
+            secure.startHandshake()
+
+            val sslOut = BufferedOutputStream(secure.getOutputStream())
+            val sslIn = BufferedInputStream(secure.getInputStream())
+            val hostHeader = if (targetPort == 443) host else "$host:$targetPort"
+            val request = buildString {
+                append("GET $path HTTP/1.1\r\n")
+                append("Host: $hostHeader\r\n")
+                append("User-Agent: MarbleNG/1\r\n")
+                append("Accept-Encoding: identity\r\n")
+                append("Connection: close\r\n")
+                append("\r\n")
+            }.toByteArray(Charsets.ISO_8859_1)
+
+            val started = System.nanoTime()
+            sslOut.write(request)
+            sslOut.flush()
+
+            require(sslIn.read() >= 0) {
+                "HTTPS peer closed before response"
+            }
+            return (System.nanoTime() - started) / 1e6
+        } finally {
+            runCatching { ssl?.close() }
             runCatching { tcp.close() }
         }
     }

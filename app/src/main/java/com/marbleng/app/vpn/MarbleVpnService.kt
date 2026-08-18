@@ -46,6 +46,7 @@ class MarbleVpnService : VpnService() {
     // MARBLE_RUNTIME_HARDENING_V16
     // MARBLE_JITTER_ENGINE_V17
     // MARBLE_JITTER_CONTROL_V18
+    // MARBLE_VERIFIED_LATENCY_V19
     // Live optimisation may learn while connected, but it must never intentionally tear down
     // a healthy user tunnel merely to hot-apply a transport experiment.
     companion object {
@@ -65,14 +66,15 @@ class MarbleVpnService : VpnService() {
         private const val ROUTE_HEAVY_PROBE_TICKS = 45
         private const val ROUTE_JITTER_TRIGGER_MS = 25
         private const val ROUTE_JITTER_RELEASE_MS = 12
-        private const val ROUTE_WINDOW_SIZE = 9
+        private const val ROUTE_WINDOW_SIZE = 5
+        private const val JITTER_WINDOW_SIZE = 6
         private const val JITTER_HIGH_CONFIRMATIONS = 3
         private const val JITTER_RELEASE_CONFIRMATIONS = 4
         private const val JITTER_OPTIMIZER_COOLDOWN_MS = 180_000L
         private const val TURBO_INCONCLUSIVE_BASE_BACKOFF_MS = 600_000L
         private const val TURBO_INCONCLUSIVE_MAX_BACKOFF_MS = 1_800_000L
         private const val JITTER_PRIMARY_HOST = "1.1.1.1"
-        private const val JITTER_SECONDARY_HOST = "8.8.8.8"
+        private const val JITTER_SECONDARY_HOST = "1.0.0.1"
         // Synthetic endpoints are advisory. Process death is handled immediately; route failure
         // requires normally-spaced misses plus a second independent confirmation.
         private const val PROBE_FAILURES_BEFORE_RECOVERY = 4
@@ -148,8 +150,8 @@ class MarbleVpnService : VpnService() {
 
     private val recoveryTried = linkedSetOf<String>()
     private val latencyWindow = ArrayDeque<Int>()
+    private val jitterDeltaWindow = ArrayDeque<Int>()
     @Volatile private var previousLatencySampleMs = 0
-    @Volatile private var liveJitterEstimateMs = 0.0
     @Volatile private var jitterProbeHost = JITTER_PRIMARY_HOST
     @Volatile private var jitterHighStreak = 0
     @Volatile private var jitterLowStreak = 0
@@ -276,9 +278,11 @@ class MarbleVpnService : VpnService() {
             recoveryTried.clear()
             recoveryTried += profile.id
         }
-        synchronized(latencyWindow) { latencyWindow.clear() }
+        synchronized(latencyWindow) {
+            latencyWindow.clear()
+            jitterDeltaWindow.clear()
+        }
         previousLatencySampleMs = 0
-        liveJitterEstimateMs = 0.0
         jitterProbeHost = JITTER_PRIMARY_HOST
         jitterHighStreak = 0
         jitterLowStreak = 0
@@ -738,7 +742,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             var txWithoutRxSince = 0L
 
             // The dashboard should become meaningful as soon as Xray is live. Probe the actual
-            // SOCKS/Xray path now, then keep a light 15-second health cadence.
+            // SOCKS/Xray path now, then keep an adaptive low-noise health cadence.
             sampleRouteLatency(session, port, generation)
 
             while (isRouteCurrent(session, generation) && hevActive) {
@@ -1448,9 +1452,11 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
     }
 
     private fun resetJitterBaselineForProbeHost(nextHost: String) {
-        synchronized(latencyWindow) { latencyWindow.clear() }
+        synchronized(latencyWindow) {
+            latencyWindow.clear()
+            jitterDeltaWindow.clear()
+        }
         previousLatencySampleMs = 0
-        liveJitterEstimateMs = 0.0
         jitterHighStreak = 0
         jitterLowStreak = 0
         jitterControlActive = false
@@ -1466,11 +1472,12 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
 
         fun measure(host: String): Int =
             runCatching {
-                SocksHttpClient.connectLatency(
+                SocksHttpClient.httpsFirstByteLatency(
                     port = port,
                     host = host,
+                    path = "/cdn-cgi/trace",
                     targetPort = 443,
-                    timeoutMs = 1_800
+                    timeoutMs = 2_500
                 ).roundToInt()
             }.getOrDefault(-1)
 
@@ -1498,6 +1505,14 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         val repo = app.repo
 
         if (ms <= 0 || !isRouteCurrent(session, generation)) {
+            // A missing observation breaks consecutiveness. Never compute jitter across
+            // a timeout, probe failure, long gap or route transition using a stale RTT.
+            synchronized(latencyWindow) {
+                previousLatencySampleMs = 0
+                jitterDeltaWindow.clear()
+            }
+            repo.invalidateLiveJitter()
+
             val trafficRecentlyMoved =
                 activeMode == MODE_TUN &&
                     hevActive &&
@@ -1557,26 +1572,69 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         consecutiveProbeFailures = 0
         identityRecoveryAttempts = 0
 
-        val qualityAndJitter = synchronized(latencyWindow) {
+        val qualitySnapshot = synchronized(latencyWindow) {
             if (previousLatencySampleMs > 0) {
-                val delta = abs(ms - previousLatencySampleMs).toDouble()
-                liveJitterEstimateMs = if (liveJitterEstimateMs <= 0.0) {
-                    delta
-                } else {
-                    liveJitterEstimateMs + (delta - liveJitterEstimateMs) / 8.0
+                val delta = abs(ms - previousLatencySampleMs).coerceIn(0, 10_000)
+                jitterDeltaWindow.addLast(delta)
+                while (jitterDeltaWindow.size > JITTER_WINDOW_SIZE) {
+                    jitterDeltaWindow.removeFirst()
                 }
             }
             previousLatencySampleMs = ms
+
             latencyWindow.addLast(ms)
-            while (latencyWindow.size > ROUTE_WINDOW_SIZE) latencyWindow.removeFirst()
-            val sorted = latencyWindow.sorted()
-            ActiveRouteQuality(sorted[sorted.size / 2], sorted.size) to
-                liveJitterEstimateMs.roundToInt().coerceAtLeast(0)
+            while (latencyWindow.size > ROUTE_WINDOW_SIZE) {
+                latencyWindow.removeFirst()
+            }
+
+            val sortedRtt = latencyWindow.sorted()
+            val quality = ActiveRouteQuality(
+                sortedRtt[sortedRtt.size / 2],
+                sortedRtt.size
+            )
+
+            // Jitter needs at least two consecutive deltas = three verified RTTs.
+            // Before that it is unknown, not 0 ms. With enough samples, trim one
+            // high/low outlier so one Android scheduler spike does not own the display.
+            val sortedDeltas = jitterDeltaWindow.sorted()
+            val jitter = when {
+                sortedDeltas.size < 2 -> -1
+                sortedDeltas.size >= 5 ->
+                    sortedDeltas
+                        .subList(1, sortedDeltas.size - 1)
+                        .average()
+                        .roundToInt()
+                else ->
+                    sortedDeltas
+                        .average()
+                        .roundToInt()
+            }
+
+            Triple(quality, jitter, jitterDeltaWindow.size)
         }
 
-        val quality = qualityAndJitter.first
-        val jitterMs = qualityAndJitter.second
-        repo.updateRouteQuality(quality.latencyMs, jitterMs)
+        val quality = qualitySnapshot.first
+        val jitterMs = qualitySnapshot.second
+        val jitterSampleCount = qualitySnapshot.third
+
+        repo.updateRouteQuality(
+            quality.latencyMs,
+            jitterMs,
+            quality.samples,
+            jitterSampleCount
+        )
+
+        diag.event(
+            "ROUTE", "latency-sample",
+            "session" to session,
+            "target" to host,
+            "rawMs" to ms,
+            "pingMs" to quality.latencyMs,
+            "jitterMs" to jitterMs,
+            "samples" to quality.samples,
+            "jitterSamples" to jitterSampleCount,
+            "method" to "verified-https-ttfb"
+        )
         repo.intelligence.recordLiveRoute(
             activeProfileId,
             quality.latencyMs,
@@ -1592,8 +1650,11 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             ROUTE_JITTER_RELEASE_MS,
             (quality.latencyMs / 8).coerceAtLeast(1)
         )
-        val instantHigh = quality.samples >= 4 && jitterMs >= highThreshold
-        val instantLow = quality.samples >= 4 && jitterMs <= releaseThreshold
+        val jitterReady = jitterMs >= 0 && jitterSampleCount >= 2
+        val instantHigh =
+            quality.samples >= 4 && jitterReady && jitterMs >= highThreshold
+        val instantLow =
+            quality.samples >= 4 && jitterReady && jitterMs <= releaseThreshold
 
         when {
             instantHigh -> {
@@ -1814,9 +1875,11 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             settings
                 .networkChangeRecoveryEnabled
         ) {
-            synchronized(latencyWindow) { latencyWindow.clear() }
+            synchronized(latencyWindow) {
+                latencyWindow.clear()
+                jitterDeltaWindow.clear()
+            }
             previousLatencySampleMs = 0
-            liveJitterEstimateMs = 0.0
             jitterProbeHost = JITTER_PRIMARY_HOST
             jitterHighStreak = 0
             jitterLowStreak = 0
