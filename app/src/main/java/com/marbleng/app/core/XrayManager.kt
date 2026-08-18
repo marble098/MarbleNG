@@ -11,6 +11,7 @@ import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.URL
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.locks.ReentrantLock
 
 /** Status of the two Xray geo data files used by managed routing. */
 data class RoutingAssetStatus(
@@ -26,14 +27,22 @@ class XrayManager(private val context: Context) {
     // MARBLE_FAST_START_V12
     // MARBLE_LOG_RESCUE_V13
     // MARBLE_DIAG_PROCESS_PID_V15
+    // MARBLE_RUNTIME_STARTUP_RESCUE_V21
     private companion object {
         const val ROUTING_ASSET_REFRESH_MS = 24L * 60L * 60L * 1000L
         const val ROUTING_ASSET_RETRY_MS = 6L * 60L * 60L * 1000L
     }
+    private val lifecycleLock = Any()
+    private val assetLock = ReentrantLock()
+    private var lifecycleGeneration = 0L
     @Volatile private var process: Process? = null
 
     @Volatile
     var lastStartError: String = ""
+        private set
+
+    @Volatile
+    var lastStartPhase: String = "idle"
         private set
 
     /**
@@ -63,6 +72,60 @@ class XrayManager(private val context: Context) {
                 )
             }
         }
+    }
+
+    private data class StartTicket(
+        val generation: Long,
+        val previous: Process?
+    )
+
+    private fun beginStartTicket(): StartTicket = synchronized(lifecycleLock) {
+        lifecycleGeneration += 1L
+        val previous = process
+        process = null
+        StartTicket(lifecycleGeneration, previous)
+    }
+
+    private fun startStillCurrent(generation: Long): Boolean =
+        synchronized(lifecycleLock) { lifecycleGeneration == generation }
+
+    private fun publishProcess(generation: Long, candidate: Process): Boolean =
+        synchronized(lifecycleLock) {
+            if (lifecycleGeneration != generation) {
+                false
+            } else {
+                process = candidate
+                true
+            }
+        }
+
+    private fun detachOwnedProcess(generation: Long, candidate: Process? = null): Process? =
+        synchronized(lifecycleLock) {
+            if (lifecycleGeneration != generation) return@synchronized null
+            val current = process
+            if (candidate != null && current !== candidate) return@synchronized null
+            process = null
+            current
+        }
+
+    /** Stale/cancelled starts may never overwrite diagnostics for a newer generation. */
+    private fun publishStartState(
+        generation: Long,
+        phase: String,
+        error: String? = null
+    ): Boolean = synchronized(lifecycleLock) {
+        if (lifecycleGeneration != generation) {
+            false
+        } else {
+            lastStartPhase = phase
+            if (error != null) lastStartError = error.take(1_200)
+            true
+        }
+    }
+
+    private fun failStart(generation: Long, reason: String): Boolean {
+        publishStartState(generation, "failed", reason)
+        return false
     }
 
     val isAlive: Boolean get() = process?.isAlive == true
@@ -111,24 +174,35 @@ class XrayManager(private val context: Context) {
      * once for that exact URL and then reused on every start. Changing the URL triggers one new
      * download. force=true explicitly refreshes the selected source.
      */
-    @Synchronized
-    fun prepareRoutingAssets(settings: AppSettings = AppSettings(), force: Boolean = false): RoutingAssetStatus {
-        assetsDir.mkdirs()
-        ensureAsset("geoip.dat", settings.geoIpUrl.trim(), force)
-        ensureAsset("geosite.dat", settings.geoSiteUrl.trim(), force)
-        return routingAssetStatus()
+    fun prepareRoutingAssets(
+        settings: AppSettings = AppSettings(),
+        force: Boolean = false
+    ): RoutingAssetStatus {
+        assetLock.lock()
+        try {
+            assetsDir.mkdirs()
+            ensureAsset("geoip.dat", settings.geoIpUrl.trim(), force)
+            ensureAsset("geosite.dat", settings.geoSiteUrl.trim(), force)
+            return routingAssetStatus()
+        } finally {
+            assetLock.unlock()
+        }
     }
 
-    @Synchronized
     fun deleteRoutingAssets() {
-    listOf("geoip.dat", "geosite.dat").forEach { name ->
-        File(assetsDir, name).delete()
-        sourceMarker(name).delete()
-        refreshFailureMarker(name).delete()
-        File(assetsDir, "$name.download").delete()
-        File(assetsDir, "$name.bak").delete()
+        assetLock.lock()
+        try {
+            listOf("geoip.dat", "geosite.dat").forEach { name ->
+                File(assetsDir, name).delete()
+                sourceMarker(name).delete()
+                refreshFailureMarker(name).delete()
+                File(assetsDir, "$name.download").delete()
+                File(assetsDir, "$name.bak").delete()
+            }
+        } finally {
+            assetLock.unlock()
+        }
     }
-}
 
     fun routingAssetStatus(): RoutingAssetStatus {
         val ip = File(assetsDir, "geoip.dat")
@@ -143,6 +217,53 @@ class XrayManager(private val context: Context) {
             geoSiteBytes = site.takeIf { it.isFile }?.length() ?: 0L,
             geoSiteRemote = siteSource.startsWith("http://") || siteSource.startsWith("https://")
         )
+    }
+
+    /**
+     * Connection-critical asset preparation is OFFLINE-ONLY.
+     * Remote routing-data refresh belongs to the explicit management task, never Xray start.
+     * MARBLE_CONNECT_ASSET_OFFLINE_V21
+     */
+    private fun prepareRoutingAssetsForConnect(settings: AppSettings): RoutingAssetStatus {
+        val needGeoIp = requiresGeoIp(settings)
+        val needGeoSite = requiresGeoSite(settings)
+        if (!needGeoIp && !needGeoSite) return routingAssetStatus()
+
+        val acquired = try {
+            assetLock.tryLock(250L, TimeUnit.MILLISECONDS)
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
+            false
+        }
+        check(acquired) {
+            "Routing assets are being updated; retry after preparation finishes"
+        }
+
+        try {
+            assetsDir.mkdirs()
+            var status = routingAssetStatus()
+
+            if (needGeoIp && !status.geoIpReady) {
+                val destination = File(assetsDir, "geoip.dat")
+                if (copyBundledAsset("geoip.dat", destination)) {
+                    sourceMarker("geoip.dat").writeText("apk://xray/geoip.dat")
+                    refreshFailureMarker("geoip.dat").delete()
+                }
+            }
+
+            status = routingAssetStatus()
+            if (needGeoSite && !status.geoSiteReady) {
+                val destination = File(assetsDir, "geosite.dat")
+                if (copyBundledAsset("geosite.dat", destination)) {
+                    sourceMarker("geosite.dat").writeText("apk://xray/geosite.dat")
+                    refreshFailureMarker("geosite.dat").delete()
+                }
+            }
+
+            return routingAssetStatus()
+        } finally {
+            assetLock.unlock()
+        }
     }
 
     private fun ensureAsset(name: String, remoteUrl: String, force: Boolean) {
@@ -454,79 +575,119 @@ class XrayManager(private val context: Context) {
         }
     }
 
-    @Synchronized
-    fun start(profile: ProxyProfile, port: Int, settings: AppSettings = AppSettings(), chainProfile: ProxyProfile? = null): Boolean {
-        lastStartError = ""
-        stop()
+    fun start(
+        profile: ProxyProfile,
+        port: Int,
+        settings: AppSettings = AppSettings(),
+        chainProfile: ProxyProfile? = null
+    ): Boolean {
+        val ticket = beginStartTicket()
+        publishStartState(ticket.generation, "begin", "")
+        ticket.previous?.let(::stopProcess)
 
-        if (!bin.isFile) return fail("Xray native binary is missing")
-        if (port !in 1..65535) return fail("Invalid local SOCKS port: $port")
+        if (!startStillCurrent(ticket.generation)) return false
+        if (!bin.isFile) return failStart(ticket.generation, "Xray native binary is missing")
+        if (port !in 1..65535) return failStart(ticket.generation, "Invalid local SOCKS port: $port")
 
         logFile.parentFile?.mkdirs()
         beginLiveLogSession()
         val config = runtimeConfig
 
         return runCatching {
+            publishStartState(ticket.generation, "port-check")
             if (!portAvailable(port)) {
-                return@runCatching fail("Local port $port is already in use")
+                return@runCatching failStart(ticket.generation, "Local port $port is already in use")
             }
+            if (!startStillCurrent(ticket.generation)) return@runCatching false
 
+            // Connection-critical path: local filesystem + process spawn only. Never remote HTTP.
+            publishStartState(ticket.generation, "assets-local")
             val needGeoIp = requiresGeoIp(settings)
             val needGeoSite = requiresGeoSite(settings)
-            val shouldPrepareAssets =
-                needGeoIp || needGeoSite || settings.geoIpUrl.isNotBlank() || settings.geoSiteUrl.isNotBlank()
-            val assetStatus =
-                if (shouldPrepareAssets) prepareRoutingAssets(settings, force = false) else routingAssetStatus()
+            val assetStatus = prepareRoutingAssetsForConnect(settings)
 
             if (needGeoIp && !assetStatus.geoIpReady) {
-                error("geoip.dat is required by the selected routing policy. Add a download URL in Settings → Routing.")
+                error("geoip.dat is required by the selected routing policy but no local/bundled copy is available")
             }
             if (needGeoSite && !assetStatus.geoSiteReady) {
-                error("geosite.dat is required by the selected routing policy. Add a download URL in Settings → Routing.")
+                error("geosite.dat is required by the selected routing policy but no local/bundled copy is available")
             }
+            if (!startStillCurrent(ticket.generation)) return@runCatching false
 
+            publishStartState(ticket.generation, "config")
             val sourceConfig = chainProfile
                 ?.takeIf { it.id != profile.id }
                 ?.let { XrayConfigHardener.composeChain(profile.configJson, it.configJson) }
                 ?: profile.configJson
+            config.writeText(XrayConfigHardener.harden(sourceConfig, port, settings))
 
-            val configText = XrayConfigHardener.harden(sourceConfig, port, settings)
-            config.writeText(configText)
-            // The live Xray process is the validator on the user-critical path. Invalid configs
-            // exit before the SOCKS handshake can succeed, and waitSocksPort() detects that process
-            // death immediately. The explicit Settings routing verifier still uses `xray run -test`.
-            // Avoiding a second process spawn removes up to 10 seconds from every uncached connect.
+            if (!startStillCurrent(ticket.generation)) return@runCatching false
 
+            publishStartState(ticket.generation, "spawn")
             val startedProcess = createProcessBuilder("run", "-c", config.absolutePath)
                 .redirectOutput(ProcessBuilder.Redirect.appendTo(logFile))
                 .start()
-            process = startedProcess
 
-            if (!waitSocksPort(port, 7_000L, startedProcess)) {
-                val hint = if (startedProcess.isAlive) {
-                    "SOCKS listener did not open"
-                } else {
-                    "Xray exited with code ${runCatching { startedProcess.exitValue() }.getOrDefault(-1)}"
-                }
+            if (!publishProcess(ticket.generation, startedProcess)) {
                 stopProcess(startedProcess)
-                if (process === startedProcess) process = null
-                fail("$hint: ${lastLogHint()}")
+                return@runCatching false
+            }
+
+            publishStartState(ticket.generation, "listener")
+            if (!waitSocksPort(port, 7_000L, startedProcess)) {
+                val cancelled = !startStillCurrent(ticket.generation)
+                // Capture the child's state before stopping it; otherwise diagnostics report our
+                // own termination signal instead of the process state that caused readiness to fail.
+                val aliveBeforeStop = startedProcess.isAlive
+                val exitBeforeStop = if (aliveBeforeStop) null else
+                    runCatching { startedProcess.exitValue() }.getOrNull()
+                val logHint = lastLogHint()
+
+                val owned = detachOwnedProcess(ticket.generation, startedProcess)
+                if (owned != null) {
+                    stopProcess(owned)
+                } else if (startedProcess.isAlive) {
+                    stopProcess(startedProcess)
+                }
+
+                if (cancelled) {
+                    false
+                } else {
+                    val hint = if (aliveBeforeStop) {
+                        "SOCKS listener did not open"
+                    } else {
+                        "Xray exited with code ${exitBeforeStop ?: -1}"
+                    }
+                    failStart(ticket.generation, "$hint: $logHint")
+                }
+            } else if (!startStillCurrent(ticket.generation)) {
+                detachOwnedProcess(ticket.generation, startedProcess)?.let(::stopProcess)
+                false
             } else {
-                lastStartError = ""
-                true
+                publishStartState(ticket.generation, "ready", "")
             }
         }.getOrElse { error ->
-            process?.let(::stopProcess)
-            process = null
-            fail("${error::class.java.simpleName}: ${error.message ?: "Xray startup failed"}")
+            detachOwnedProcess(ticket.generation)?.let(::stopProcess)
+            failStart(ticket.generation, "${error::class.java.simpleName}: ${error.message ?: "Xray startup failed"}")
         }
     }
 
-    @Synchronized
+    /**
+     * STOP invalidates the in-flight start before waiting for a child process to exit.
+     * No monitor is held while destroy()/destroyForcibly() waits.
+     */
     fun stop() {
-        val current = process ?: return
-        process = null
-        stopProcess(current)
+        val current = synchronized(lifecycleLock) {
+            lifecycleGeneration += 1L
+            val existing = process
+            process = null
+            existing
+        }
+        synchronized(lifecycleLock) {
+            // Only stop() owns this newest generation; cancelled older starts cannot clobber it.
+            lastStartPhase = "stopped"
+        }
+        current?.let(::stopProcess)
     }
 
     private fun stopProcess(target: Process) {

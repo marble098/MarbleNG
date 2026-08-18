@@ -1,6 +1,7 @@
 package com.marbleng.app.core
 
 // MARBLE_BUG_FINDER_ULTIMATE_V15
+// MARBLE_RUNTIME_STARTUP_RESCUE_V21
 
 import android.app.ActivityManager
 import android.app.ApplicationExitInfo
@@ -155,6 +156,51 @@ class BugFinder(private val context: Context, private val xray: XrayManager) {
             else -> BugCheck("Xray process", BugSeverity.INFO, "Xray stopped while app is $appState")
         }
 
+        val latestStartCommand = allRuntime.lastIndexOf("VPN | command | action=com.marbleng.START")
+        val latestConnectRequest = allRuntime.lastIndexOf("VPN | connect-request")
+        val latestStartupTimeout = allRuntime.lastIndexOf("VPN | startup-timeout")
+        val latestSocksReady = allRuntime.lastIndexOf("XRAY | socks-ready")
+        val latestHevReady = allRuntime.lastIndexOf("HEV | ready")
+        val latestReady = maxOf(latestSocksReady, latestHevReady)
+
+        checks += when {
+            appState == "CONNECTING" &&
+                !alive &&
+                latestStartCommand > latestStartupTimeout &&
+                latestStartupTimeout > latestConnectRequest &&
+                latestStartupTimeout > latestReady -> BugCheck(
+                "Startup command progression",
+                BugSeverity.FAIL,
+                "Queued START stalled before connect-request; previous cleanup/core start did not release promptly",
+                "Safe runtime reset, then retry"
+            )
+            appState in setOf("CONNECTING", "BLOCKED") &&
+                latestStartupTimeout > latestConnectRequest &&
+                latestStartupTimeout > latestReady -> BugCheck(
+                "Startup watchdog",
+                BugSeverity.FAIL,
+                "Latest connection attempt hit the startup timeout before Xray/HEV became ready",
+                "Inspect XRAY start-result/start phase and routing assets"
+            )
+            appState == "BLOCKED" -> BugCheck(
+                "Startup / blocked state",
+                BugSeverity.FAIL,
+                stateDetail.ifBlank { "Runtime is BLOCKED" },
+                "Inspect the connection timeline before retrying"
+            )
+            appState == "CONNECTING" && !alive -> BugCheck(
+                "Startup progression",
+                BugSeverity.WARN,
+                "CONNECTING while Xray is not alive yet; no newer ready event is retained",
+                "Re-run Bug Finder if this state persists"
+            )
+            else -> BugCheck(
+                "Startup progression",
+                BugSeverity.PASS,
+                "No unresolved startup timeout or stalled START command in the current runtime state"
+            )
+        }
+
         val listener = alive && listenerBoundWithoutTraffic(port)
         checks += when {
             listener -> BugCheck("Local SOCKS listener", BugSeverity.PASS, "127.0.0.1:$port is bound • checked without opening a SOCKS connection")
@@ -271,6 +317,8 @@ class BugFinder(private val context: Context, private val xray: XrayManager) {
                 }
                 appendLine("xrayAlive=${xray.isAlive}")
                 appendLine("xrayPid=${xray.processPid}")
+                appendLine("xrayStartPhase=${sanitize(xray.lastStartPhase)}")
+                appendLine("xrayLastStartError=${sanitize(xray.lastStartError)}")
                 appendLine("listenerBound=$listener")
                 appendLine("socksPort=$port")
                 appendLine("fragment=${settings.fragmentEnabled}")

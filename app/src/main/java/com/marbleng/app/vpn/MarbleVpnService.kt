@@ -47,6 +47,7 @@ class MarbleVpnService : VpnService() {
     // MARBLE_JITTER_ENGINE_V17
     // MARBLE_JITTER_CONTROL_V18
     // MARBLE_VERIFIED_LATENCY_V19
+    // MARBLE_RUNTIME_STARTUP_RESCUE_V21
     // Live optimisation may learn while connected, but it must never intentionally tear down
     // a healthy user tunnel merely to hot-apply a transport experiment.
     companion object {
@@ -104,6 +105,7 @@ class MarbleVpnService : VpnService() {
     private val tunReadyPublished = AtomicBoolean(false)
     private val startupTimedOut = AtomicBoolean(false)
     private val routeGeneration = AtomicInteger(0)
+    private val startCommandGeneration = AtomicInteger(0)
 
     // HEV is process-global; start/stop/recovery is serialized here.
     private val connectionWorker = Executors.newSingleThreadExecutor()
@@ -179,6 +181,7 @@ class MarbleVpnService : VpnService() {
             diag.event("VPN", "command", "action" to intent?.action, "startId" to startId, "flags" to flags)
             when (intent?.action) {
                 ACTION_STOP -> {
+                    startCommandGeneration.incrementAndGet()
                     // cleanupRuntime() can wait for the Xray child to terminate; never block
                     // MainActivity/input dispatch while Android delivers this service command.
                     controlWorker.execute {
@@ -196,6 +199,7 @@ class MarbleVpnService : VpnService() {
                         failBeforeTunnel("Missing profile id")
                     } else {
                         val requestedMode = intent.getStringExtra(EXTRA_MODE) ?: MODE_TUN
+                        val requestGeneration = startCommandGeneration.incrementAndGet()
 
                         // startForegroundService() has a strict Android deadline. Publish a small
                         // foreground notification immediately, then do DB/process/runtime cleanup
@@ -204,6 +208,17 @@ class MarbleVpnService : VpnService() {
                             failBeforeTunnel("Android rejected foreground-service startup")
                         } else {
                             controlWorker.execute {
+                                if (requestGeneration != startCommandGeneration.get()) {
+                                    diag.event(
+                                        "VPN",
+                                        "start-command-superseded",
+                                        "profile" to id.take(12),
+                                        "mode" to requestedMode,
+                                        "requestGeneration" to requestGeneration,
+                                        "latestGeneration" to startCommandGeneration.get()
+                                    )
+                                    return@execute
+                                }
                                 runCatching { startConnection(id, requestedMode) }
                                     .onFailure { error ->
                                         diag.error(
@@ -326,6 +341,13 @@ class MarbleVpnService : VpnService() {
                     "mode" to normalizedMode,
                     "timeoutMs" to CONNECT_STARTUP_TIMEOUT_MS
                 )
+                diag.event(
+                    "XRAY",
+                    "startup-cancel-request",
+                    "session" to session,
+                    "phase" to xray.lastStartPhase
+                )
+                xray.stop()
                 handleFailure(
                     session,
                     "Connection startup timed out after ${CONNECT_STARTUP_TIMEOUT_MS / 1_000}s"
@@ -397,7 +419,31 @@ class MarbleVpnService : VpnService() {
             app.repo.profile(settings.chainSecondProfileId)?.takeUnless { it.id == profile.id }
         } else null
 
-        if (!xray.start(profile, port, settings, chainProfile)) {
+        val coreStartNs = System.nanoTime()
+        val coreStarted = xray.start(profile, port, settings, chainProfile)
+        val coreStartMs = ((System.nanoTime() - coreStartNs) / 1_000_000L).coerceAtLeast(0L)
+        diag.event(
+            "XRAY",
+            "start-result",
+            "session" to session,
+            "ok" to coreStarted,
+            "elapsedMs" to coreStartMs,
+            "phase" to xray.lastStartPhase,
+            "alive" to xray.isAlive,
+            "reason" to if (coreStarted) "" else xray.lastStartError.take(500)
+        )
+        if (!coreStarted) {
+            // STOP/watchdog/new START may have invalidated this attempt while core startup was
+            // unwinding. Never record a second failure or re-block a newer user command.
+            if (!isCurrent(session)) {
+                diag.event(
+                    "XRAY",
+                    "start-result-stale",
+                    "session" to session,
+                    "phase" to xray.lastStartPhase
+                )
+                return
+            }
             handleFailure(
                 session,
                 xray.lastStartError.ifBlank {

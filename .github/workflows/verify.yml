@@ -1,4 +1,5 @@
 name: Source verification
+# MARBLE_RUNTIME_STARTUP_RESCUE_V21
 
 on:
   pull_request:
@@ -104,6 +105,12 @@ jobs:
           vpn=Path('app/src/main/java/com/marbleng/app/vpn/MarbleVpnService.kt').read_text()
           socks=Path('app/src/main/java/com/marbleng/app/core/SocksHttpClient.kt').read_text()
           manual=Path('app/src/main/java/com/marbleng/app/core/ManualConfigBuilder.kt').read_text()
+          xray=Path('app/src/main/java/com/marbleng/app/core/XrayManager.kt').read_text()
+          bugfinder=Path('app/src/main/java/com/marbleng/app/core/BugFinder.kt').read_text()
+
+          start_begin=xray.index('fun start(')
+          stop_begin=xray.index('fun stop()', start_begin)
+          xray_start=xray[start_begin:stop_begin]
 
           strict={
               'v9.1 marker':'Marble Product UI v9.1.0' in ui,
@@ -129,6 +136,16 @@ jobs:
               'connection detail motion':'connection-detail-container-transform-v20' in ui and 'private fun ConnectionDetailPage(' in ui,
               'concise optional headers':'if (subtitle.isNotBlank())' in ui,
               'no fake native SSH':'ManualProtocol.SSH' not in manual and 'protocol\", \"ssh' not in manual,
+              'v21 runtime rescue markers':all('MARBLE_RUNTIME_STARTUP_RESCUE_V21' in src for src in [xray, vpn, bugfinder]),
+              'connect path local-only assets':'prepareRoutingAssetsForConnect(settings)' in xray_start and 'prepareRoutingAssets(settings' not in xray_start and 'downloadAsset(' not in xray_start,
+              'cancellable Xray lifecycle':all(x in xray for x in ['lifecycleGeneration', 'beginStartTicket()', 'publishProcess(', 'detachOwnedProcess(']) and '@Synchronized\n    fun start(' not in xray,
+              'generation-safe Xray diagnostics':'publishStartState(' in xray and 'failStart(' in xray,
+              'bounded asset update conflict':'assetLock.tryLock(250L, TimeUnit.MILLISECONDS)' in xray,
+              'watchdog cancels core start':'startup-cancel-request' in vpn,
+              'START command supersession':'startCommandGeneration' in vpn and 'start-command-superseded' in vpn,
+              'Xray startup phase evidence':'"start-result"' in vpn and 'lastStartPhase' in xray,
+              'stale core result suppressed':'"start-result-stale"' in vpn and 'if (!isCurrent(session))' in vpn,
+              'Bug Finder startup stall detection':'Queued START stalled before connect-request' in bugfinder and 'Latest connection attempt hit the startup timeout' in bugfinder,
           }
           failed=[k for k,v in strict.items() if not v]
           if failed:
