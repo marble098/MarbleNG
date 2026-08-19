@@ -14,6 +14,7 @@ import android.os.PowerManager
 import com.marbleng.app.model.AppSettings
 import com.marbleng.app.model.BenchmarkResult
 import com.marbleng.app.model.ConnectionMode
+import com.marbleng.app.model.IranModePolicy
 import com.marbleng.app.model.ProxyProfile
 import com.marbleng.app.model.SplitTunnelMode
 import com.marbleng.app.model.WorkloadProfile
@@ -1199,13 +1200,26 @@ class MarbleIntelligence(private val context: Context) {
         iranGeoIpReady = geoIpReady
 
         when {
+            state.active &&
+                state.policy == IranModePolicy.ALWAYS_ON &&
+                (previous.policy != IranModePolicy.ALWAYS_ON || !previous.active) ->
+                setDecision(
+                    "Iran Mode forced on • detection bypassed • protection tier ${IranShield.tier(state)}"
+                )
+
             state.active && (!previous.active || previous.ispLine != state.ispLine) ->
                 setDecision(
                     "Iran underlay integrated • ${state.ispLine} • ${state.confidence}% confidence • " +
                         "tier ${IranShield.tier(state)}"
                 )
+
+            previous.active && !state.active && state.policy == IranModePolicy.OFF ->
+                setDecision("Iran Mode disabled by user policy")
+
             previous.active && !state.active ->
-                setDecision("Iran Mode returned to standby • physical underlay remains under Marble monitoring")
+                setDecision(
+                    "Iran Mode returned to standby • physical underlay remains under Marble monitoring"
+                )
         }
     }
 

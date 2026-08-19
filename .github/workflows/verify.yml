@@ -1,5 +1,6 @@
 name: Source verification
 # MARBLE_RUNTIME_STARTUP_RESCUE_V21
+# MARBLE_IRAN_JITTER_UI_V22
 
 on:
   pull_request:
@@ -125,7 +126,9 @@ jobs:
               'adaptive live cadence':'ROUTE_PROBE_INTERVAL_TICKS = 20' in vpn and 'ROUTE_DEGRADED_PROBE_TICKS = 8' in vpn,
               'verified live RTT':'httpsFirstByteLatency(' in socks and 'verified-https-ttfb' in vpn,
               'jitter readiness model':'liveJitterSamples' in repo and 'jitterSampleCount' in vpn,
-              'bounded ping window':'ROUTE_WINDOW_SIZE = 5' in vpn and 'JITTER_WINDOW_SIZE = 6' in vpn,
+              'coherent verified jitter burst':'LIVE_RTT_BURST_SAMPLES = 5' in vpn and 'verified-https-ttfb-burst' in vpn and 'zipWithNext' in vpn,
+              'forced Iran scan bypass':'MARBLE_IRAN_FORCE_RUNTIME_V22' in repo and 'MARBLE_IRAN_DETECTOR_HARDENING_V22' in Path('app/src/main/java/com/marbleng/app/core/IranModeDetector.kt').read_text(),
+              'modern home command center':'MARBLE_HOME_COMMAND_CENTER_V22' in ui and 'routeScore = repo.liveRouteScore' in ui,
               'split list not truncated':'.take(48)' not in ui,
               'old race score floor absent':'maxOf(80.0, raced.second.score)' not in repo,
               'fast page motion':'marble-page-transition-fast' in ui,

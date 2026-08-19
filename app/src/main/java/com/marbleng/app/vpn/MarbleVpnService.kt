@@ -48,6 +48,7 @@ class MarbleVpnService : VpnService() {
     // MARBLE_JITTER_CONTROL_V18
     // MARBLE_VERIFIED_LATENCY_V19
     // MARBLE_RUNTIME_STARTUP_RESCUE_V21
+    // MARBLE_VERIFIED_JITTER_BURST_V22
     // Live optimisation may learn while connected, but it must never intentionally tear down
     // a healthy user tunnel merely to hot-apply a transport experiment.
     companion object {
@@ -76,6 +77,8 @@ class MarbleVpnService : VpnService() {
         private const val TURBO_INCONCLUSIVE_MAX_BACKOFF_MS = 1_800_000L
         private const val JITTER_PRIMARY_HOST = "1.1.1.1"
         private const val JITTER_SECONDARY_HOST = "1.0.0.1"
+        private const val LIVE_RTT_BURST_SAMPLES = 5
+        private const val LIVE_RTT_BURST_GAP_MS = 55L
         // Synthetic endpoints are advisory. Process death is handled immediately; route failure
         // requires normally-spaced misses plus a second independent confirmation.
         private const val PROBE_FAILURES_BEFORE_RECOVERY = 4
@@ -1507,6 +1510,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         jitterLowStreak = 0
         jitterControlActive = false
         jitterProbeHost = nextHost
+        (application as MarbleApplication).repo.invalidateLiveJitter()
     }
 
     private fun sampleRouteLatency(
@@ -1516,7 +1520,12 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
     ): Boolean {
         if (!isRouteCurrent(session, generation)) return false
 
-        fun measure(host: String): Int =
+        /*
+         * v22 uses one compact, same-target HTTPS burst.
+         * The old implementation had independent 5-RTT and 6-delta windows, so logs could report
+         * jitterSamples=6 with samples=5. Here N RTTs always produce exactly N-1 jitter deltas.
+         */
+        fun measureOne(host: String): Int =
             runCatching {
                 SocksHttpClient.httpsFirstByteLatency(
                     port = port,
@@ -1527,22 +1536,41 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                 ).roundToInt()
             }.getOrDefault(-1)
 
-        var host = jitterProbeHost
-        var ms = measure(host)
+        fun measureBurst(host: String): List<Int> {
+            val values = ArrayList<Int>(LIVE_RTT_BURST_SAMPLES)
+            for (index in 0 until LIVE_RTT_BURST_SAMPLES) {
+                if (!isRouteCurrent(session, generation)) break
+                val value = measureOne(host)
+                if (value <= 0) break
+                values += value.coerceIn(1, 10_000)
+                if (index + 1 < LIVE_RTT_BURST_SAMPLES) {
+                    try {
+                        Thread.sleep(LIVE_RTT_BURST_GAP_MS)
+                    } catch (_: InterruptedException) {
+                        Thread.currentThread().interrupt()
+                        break
+                    }
+                }
+            }
+            return values
+        }
 
-        if (ms <= 0 && isRouteCurrent(session, generation)) {
+        var host = jitterProbeHost
+        var rttSamples = measureBurst(host)
+
+        if (rttSamples.size < 3 && isRouteCurrent(session, generation)) {
             val alternate =
                 if (host == JITTER_PRIMARY_HOST) JITTER_SECONDARY_HOST else JITTER_PRIMARY_HOST
-            val alternateMs = measure(alternate)
-            if (alternateMs > 0) {
+            val alternateSamples = measureBurst(alternate)
+            if (alternateSamples.size > rttSamples.size) {
                 resetJitterBaselineForProbeHost(alternate)
                 host = alternate
-                ms = alternateMs
+                rttSamples = alternateSamples
                 diag.event(
                     "ROUTE", "jitter-probe-pivot",
                     "session" to session,
                     "target" to alternate,
-                    "reason" to "primary literal timing unavailable"
+                    "reason" to "primary verified burst incomplete"
                 )
             }
         }
@@ -1550,19 +1578,14 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         val app = application as MarbleApplication
         val repo = app.repo
 
-        if (ms <= 0 || !isRouteCurrent(session, generation)) {
-            // A missing observation breaks consecutiveness. Never compute jitter across
-            // a timeout, probe failure, long gap or route transition using a stale RTT.
-            synchronized(latencyWindow) {
-                previousLatencySampleMs = 0
-                jitterDeltaWindow.clear()
-            }
+        if (rttSamples.isEmpty() || !isRouteCurrent(session, generation)) {
             repo.invalidateLiveJitter()
 
             val trafficRecentlyMoved =
                 activeMode == MODE_TUN &&
                     hevActive &&
-                    (System.currentTimeMillis() - lastTrafficProgressAt) in 0L..RECENT_TRAFFIC_GRACE_MS
+                    (System.currentTimeMillis() - lastTrafficProgressAt) in
+                        0L..RECENT_TRAFFIC_GRACE_MS
 
             if (trafficRecentlyMoved) {
                 consecutiveProbeFailures = 0
@@ -1618,50 +1641,32 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         consecutiveProbeFailures = 0
         identityRecoveryAttempts = 0
 
-        val qualitySnapshot = synchronized(latencyWindow) {
-            if (previousLatencySampleMs > 0) {
-                val delta = abs(ms - previousLatencySampleMs).coerceIn(0, 10_000)
-                jitterDeltaWindow.addLast(delta)
-                while (jitterDeltaWindow.size > JITTER_WINDOW_SIZE) {
-                    jitterDeltaWindow.removeFirst()
-                }
-            }
-            previousLatencySampleMs = ms
-
-            latencyWindow.addLast(ms)
-            while (latencyWindow.size > ROUTE_WINDOW_SIZE) {
-                latencyWindow.removeFirst()
-            }
-
-            val sortedRtt = latencyWindow.sorted()
-            val quality = ActiveRouteQuality(
-                sortedRtt[sortedRtt.size / 2],
-                sortedRtt.size
-            )
-
-            // Jitter needs at least two consecutive deltas = three verified RTTs.
-            // Before that it is unknown, not 0 ms. With enough samples, trim one
-            // high/low outlier so one Android scheduler spike does not own the display.
-            val sortedDeltas = jitterDeltaWindow.sorted()
-            val jitter = when {
-                sortedDeltas.size < 2 -> -1
-                sortedDeltas.size >= 5 ->
-                    sortedDeltas
-                        .subList(1, sortedDeltas.size - 1)
-                        .average()
-                        .roundToInt()
-                else ->
-                    sortedDeltas
-                        .average()
-                        .roundToInt()
-            }
-
-            Triple(quality, jitter, jitterDeltaWindow.size)
+        val sortedRtt = rttSamples.sorted()
+        val pingMs = sortedRtt[sortedRtt.size / 2]
+        val deltas = rttSamples.zipWithNext { first, second ->
+            abs(second - first).coerceIn(0, 10_000)
+        }
+        val jitterSampleCount = deltas.size
+        val jitterMs = when {
+            deltas.size < 2 -> -1
+            deltas.size >= 4 ->
+                deltas.sorted().dropLast(1).average().roundToInt()
+            else ->
+                deltas.average().roundToInt()
         }
 
-        val quality = qualitySnapshot.first
-        val jitterMs = qualitySnapshot.second
-        val jitterSampleCount = qualitySnapshot.third
+        synchronized(latencyWindow) {
+            latencyWindow.clear()
+            rttSamples.forEach { latencyWindow.addLast(it) }
+            jitterDeltaWindow.clear()
+            deltas.forEach { jitterDeltaWindow.addLast(it) }
+            previousLatencySampleMs = rttSamples.last()
+        }
+
+        val quality = ActiveRouteQuality(
+            latencyMs = pingMs,
+            samples = rttSamples.size
+        )
 
         repo.updateRouteQuality(
             quality.latencyMs,
@@ -1674,13 +1679,14 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             "ROUTE", "latency-sample",
             "session" to session,
             "target" to host,
-            "rawMs" to ms,
+            "rawMs" to rttSamples.last(),
             "pingMs" to quality.latencyMs,
             "jitterMs" to jitterMs,
             "samples" to quality.samples,
             "jitterSamples" to jitterSampleCount,
-            "method" to "verified-https-ttfb"
+            "method" to "verified-https-ttfb-burst"
         )
+
         repo.intelligence.recordLiveRoute(
             activeProfileId,
             quality.latencyMs,
@@ -1698,9 +1704,9 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         )
         val jitterReady = jitterMs >= 0 && jitterSampleCount >= 2
         val instantHigh =
-            quality.samples >= 4 && jitterReady && jitterMs >= highThreshold
+            quality.samples >= 3 && jitterReady && jitterMs >= highThreshold
         val instantLow =
-            quality.samples >= 4 && jitterReady && jitterMs <= releaseThreshold
+            quality.samples >= 3 && jitterReady && jitterMs <= releaseThreshold
 
         when {
             instantHigh -> {

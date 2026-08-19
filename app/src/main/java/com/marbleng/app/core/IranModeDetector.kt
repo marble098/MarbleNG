@@ -88,6 +88,7 @@ data class IranModeState(
  * soft evidence (timezone, IP-prefix table) can support a decision but never make one alone.
  */
 class IranModeDetector(
+    // MARBLE_IRAN_DETECTOR_HARDENING_V22
     private val context: Context,
     private val intelligence: MarbleIntelligence
 ) {
@@ -123,9 +124,24 @@ class IranModeDetector(
                 active = false,
                 policy = policy,
                 networkKey = networkKey,
+                scanning = false,
                 lastScanAt = System.currentTimeMillis(),
                 summary = "Iran Mode disabled in settings"
             )
+        }
+
+        // Force on is authoritative: skip geolocation, DNS, resolver and DPI probes completely.
+        if (policy == IranModePolicy.ALWAYS_ON) {
+            val forced = IranModeState(
+                active = true,
+                policy = IranModePolicy.ALWAYS_ON,
+                confidence = 0,
+                networkKey = networkKey,
+                scanning = false,
+                lastScanAt = System.currentTimeMillis(),
+                summary = "Iran Mode forced on • underlay detection bypassed"
+            )
+            return forced.copy(countermeasures = IranShield.countermeasures(forced))
         }
 
         val underlay = runCatching { intelligence.currentUnderlyingNetwork() }.getOrNull()
@@ -235,7 +251,7 @@ class IranModeDetector(
         }
 
         // ---- Signal 4: national block-page DNS injection ----
-        val poisoned = probeDnsPoisoning(underlay)
+        val poisoned = if (remoteAllowed) probeDnsPoisoning(underlay) else emptyList()
         if (poisoned.isNotEmpty()) {
             score += 75
             hardEvidence = true
@@ -250,7 +266,11 @@ class IranModeDetector(
         // ---- Signal 5: domestic-only resolvers ----
         // Supporting evidence only: a foreign client can sometimes complete a TCP handshake with
         // these resolvers even though they refuse to answer, so this must never activate alone.
-        val domestic = probeDomesticResolvers(underlay)
+        val domestic = if (remoteAllowed) {
+            probeDomesticResolvers(underlay)
+        } else {
+            DomesticProbe(publicReachable = 0, privateReachable = 0)
+        }
         if (domestic.publicReachable > 0) {
             val weight = if (domestic.publicReachable > 1) 40 else 30
             score += weight
@@ -339,8 +359,8 @@ class IranModeDetector(
         isp: IranIsp?,
         foreignCountry: String
     ): String = when {
-        active && policy == IranModePolicy.ALWAYS_ON && confidence < 65 ->
-            "Iran Mode forced on manually"
+        active && policy == IranModePolicy.ALWAYS_ON ->
+            "Iran Mode forced on • underlay detection bypassed"
         active && isp != null ->
             "Iran Mode active on ${isp.shortName} • ${confidence}% confidence"
         active ->
@@ -558,6 +578,7 @@ class IranModeDetector(
             tls.soTimeout = 5_000
             val params = tls.sslParameters
             params.serverNames = listOf<SNIServerName>(SNIHostName(host))
+            params.endpointIdentificationAlgorithm = "HTTPS"
             tls.sslParameters = params
             tls.startHandshake()
             TlsOutcome.OK
@@ -579,8 +600,13 @@ class IranModeDetector(
     private fun tcpReachable(network: Network?, host: String, port: Int, timeoutMs: Int): Boolean {
         var socket: Socket? = null
         return try {
+            val target = if (network != null) {
+                network.getAllByName(host).firstOrNull() ?: return false
+            } else {
+                InetAddress.getByName(host)
+            }
             socket = network?.socketFactory?.createSocket() ?: Socket()
-            socket.connect(InetSocketAddress(InetAddress.getByName(host), port), timeoutMs)
+            socket.connect(InetSocketAddress(target, port), timeoutMs)
             true
         } catch (error: Throwable) {
             false
@@ -597,14 +623,27 @@ class IranModeDetector(
     private fun udpDnsReachable(network: Network?, resolver: String): Boolean {
         var socket: DatagramSocket? = null
         return try {
-            socket = DatagramSocket()
-            network?.let { runCatching { it.bindSocket(socket) } }
-            socket.soTimeout = 2_500
+            val target = InetAddress.getByName(resolver)
+            val datagram = DatagramSocket()
+            socket = datagram
+            if (network != null) {
+                // Binding failure must fail closed; never silently probe through the VPN/default route.
+                network.bindSocket(datagram)
+            }
+            datagram.soTimeout = 2_500
+
             val query = dnsQuery("example.com")
-            socket.send(DatagramPacket(query, query.size, InetAddress.getByName(resolver), 53))
+            datagram.send(DatagramPacket(query, query.size, target, 53))
+
             val buffer = ByteArray(512)
-            socket.receive(DatagramPacket(buffer, buffer.size))
-            true
+            val response = DatagramPacket(buffer, buffer.size)
+            datagram.receive(response)
+
+            response.length >= 12 &&
+                response.address.hostAddress == target.hostAddress &&
+                (buffer[0].toInt() and 0xff) == 0x4D &&
+                (buffer[1].toInt() and 0xff) == 0x42 &&
+                (buffer[2].toInt() and 0x80) != 0
         } catch (error: Throwable) {
             false
         } finally {

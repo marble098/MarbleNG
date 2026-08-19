@@ -26,6 +26,7 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     // MARBLE_ULTIMATE_BUG_FINDER_REPO_V15
     // MARBLE_REPO_ANR_HARDENING_V16
     // MARBLE_LIVE_LATENCY_V17
+    // MARBLE_IRAN_FORCE_RUNTIME_V22
 
     private val store = AppStore(context)
     private val io = Executors.newFixedThreadPool(3)
@@ -47,6 +48,7 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     // by a user-visible task such as a subscription refresh.
     private val iranScanner = Executors.newSingleThreadExecutor()
     private val iranScanInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
+    private val iranPolicyGeneration = java.util.concurrent.atomic.AtomicLong(0L)
 
     val intelligence = MarbleIntelligence(context)
     private val notifier = SmartNotifier(context)
@@ -336,67 +338,175 @@ fun resetTelemetry() {
         val policy = settings.iranModePolicy
         val previous = iranMode
         val now = System.currentTimeMillis()
-        val networkChanged = previous.networkKey != intelligence.currentSnapshot().key()
-        val stale = now - previous.lastScanAt >= IRAN_RESCAN_INTERVAL_MS
+        val networkKey = intelligence.currentSnapshot().key()
 
+        /*
+         * ALWAYS_ON / OFF are explicit policy, not detector requests.
+         * No SCANNING state and no physical-network probes are allowed for Force on.
+         */
+        if (policy == IranModePolicy.ALWAYS_ON || policy == IranModePolicy.OFF) {
+            val generation = iranPolicyGeneration.get()
+            val baseState = if (policy == IranModePolicy.ALWAYS_ON) {
+                IranModeState(
+                    active = true,
+                    policy = IranModePolicy.ALWAYS_ON,
+                    confidence = 0,
+                    networkKey = networkKey,
+                    scanning = false,
+                    lastScanAt = now,
+                    summary = "Iran Mode forced on • underlay detection bypassed"
+                )
+            } else {
+                IranModeState(
+                    active = false,
+                    policy = IranModePolicy.OFF,
+                    confidence = 0,
+                    networkKey = networkKey,
+                    scanning = false,
+                    lastScanAt = now,
+                    summary = "Iran Mode disabled in settings"
+                )
+            }
+
+            val next = when {
+                !baseState.active -> baseState
+                !settings.iranModeCountermeasures -> baseState.copy(
+                    countermeasures = listOf(
+                        "Force on is active • countermeasures are switched off in settings"
+                    )
+                )
+                !settings.iranDomesticDirect -> baseState.copy(
+                    countermeasures = IranShield.countermeasures(baseState)
+                        .filterNot { it.startsWith("Domestic") }
+                )
+                else -> baseState.copy(
+                    countermeasures = IranShield.countermeasures(baseState)
+                )
+            }
+
+            intelligence.setIranModeState(next, geoIpReady())
+            postToMain {
+                if (
+                    settings.iranModePolicy == policy &&
+                    iranPolicyGeneration.get() == generation
+                ) {
+                    iranMode = next
+                    refreshIntelligenceStatus()
+                }
+            }
+            diagnostics.event(
+                "IRAN",
+                if (policy == IranModePolicy.ALWAYS_ON) "forced-on" else "disabled",
+                "networkKey" to networkKey,
+                "scanBypassed" to true
+            )
+            return
+        }
+
+        val networkChanged = previous.networkKey != networkKey
+        val stale = now - previous.lastScanAt >= IRAN_RESCAN_INTERVAL_MS
         if (!force && !networkChanged && !stale) return
         if (!iranScanInFlight.compareAndSet(false, true)) return
 
+        val policyGeneration = iranPolicyGeneration.get()
         val deepProbe = (deep || previous.techniques.isEmpty() || networkChanged) &&
             settings.iranDeepProbeEnabled
 
-        postToMain { iranMode = previous.copy(scanning = true) }
+        postToMain {
+            if (
+                settings.iranModePolicy == IranModePolicy.AUTO &&
+                iranPolicyGeneration.get() == policyGeneration
+            ) {
+                iranMode = previous.copy(
+                    policy = IranModePolicy.AUTO,
+                    networkKey = networkKey,
+                    scanning = true
+                )
+            }
+        }
 
         iranScanner.execute {
-            val detected = runCatching {
-                iranDetector.detect(
-                    policy = policy,
-                    tunnelActive = state != "DISCONNECTED",
-                    deepProbe = deepProbe,
-                    previous = previous
-                )
-            }.getOrElse {
-                previous.copy(
-                    scanning = false,
-                    lastScanAt = now,
-                    summary = "Iran Mode scan failed • ${it::class.java.simpleName}"
-                )
-            }
+            var rescanAfterStalePolicy = false
+            try {
+                val detected = runCatching {
+                    iranDetector.detect(
+                        policy = IranModePolicy.AUTO,
+                        tunnelActive = state != "DISCONNECTED",
+                        deepProbe = deepProbe,
+                        previous = previous
+                    )
+                }.getOrElse {
+                    previous.copy(
+                        policy = IranModePolicy.AUTO,
+                        networkKey = networkKey,
+                        scanning = false,
+                        lastScanAt = now,
+                        summary = "Iran Mode scan failed • ${it::class.java.simpleName}"
+                    )
+                }
 
-            // The countermeasure list is produced by the engine; trim it to what the user's switches
-            // actually allow so the panel never claims something that is turned off.
-            val next = when {
-                !detected.active -> detected
-                !settings.iranModeCountermeasures -> detected.copy(
-                    countermeasures = listOf("Detection only • countermeasures are switched off in settings")
-                )
-                !settings.iranDomesticDirect -> detected.copy(
-                    countermeasures = detected.countermeasures.filterNot { it.startsWith("Domestic") }
-                )
-                else -> detected
-            }
+                if (
+                    iranPolicyGeneration.get() != policyGeneration ||
+                    settings.iranModePolicy != IranModePolicy.AUTO
+                ) {
+                    diagnostics.event(
+                        "IRAN",
+                        "stale-scan-discarded",
+                        "startedPolicy" to IranModePolicy.AUTO.name,
+                        "currentPolicy" to settings.iranModePolicy.name
+                    )
+                    rescanAfterStalePolicy = true
+                    return@execute
+                }
 
-            iranScanInFlight.set(false)
-            intelligence.setIranModeState(next, geoIpReady())
-            postToMain {
-                iranMode = next
-                // Keep the UI status and every downstream engine decision synchronized with the
-                // same Iran-underlay observation; do not wait for another connectivity callback.
-                refreshIntelligenceStatus()
-                // Home owns Iran Mode status; automatic detection is intentionally silent.
+                val next = when {
+                    !detected.active -> detected
+                    !settings.iranModeCountermeasures -> detected.copy(
+                        countermeasures = listOf(
+                            "Detection only • countermeasures are switched off in settings"
+                        )
+                    )
+                    !settings.iranDomesticDirect -> detected.copy(
+                        countermeasures = detected.countermeasures
+                            .filterNot { it.startsWith("Domestic") }
+                    )
+                    else -> detected
+                }
+
+                intelligence.setIranModeState(next, geoIpReady())
+                postToMain {
+                    if (
+                        settings.iranModePolicy == IranModePolicy.AUTO &&
+                        iranPolicyGeneration.get() == policyGeneration
+                    ) {
+                        iranMode = next.copy(scanning = false)
+                        refreshIntelligenceStatus()
+                    }
+                }
+            } finally {
+                iranScanInFlight.set(false)
+                if (rescanAfterStalePolicy) {
+                    scanIranMode(force = true, deep = false)
+                }
             }
         }
     }
 
     fun setIranModePolicy(policy: IranModePolicy) {
         if (settings.iranModePolicy == policy) return
+        iranPolicyGeneration.incrementAndGet()
         updateSettings(settings.copy(iranModePolicy = policy))
+
         message = when (policy) {
             IranModePolicy.AUTO -> "Iran Mode set to automatic ISP detection"
-            IranModePolicy.ALWAYS_ON -> "Iran Mode forced on for every network"
+            IranModePolicy.ALWAYS_ON -> "Iran Mode forced on • scanning disabled"
             IranModePolicy.OFF -> "Iran Mode disabled"
         }
-        scanIranMode(force = true, deep = policy != IranModePolicy.OFF)
+
+        scanIranMode(
+            force = true,
+            deep = policy == IranModePolicy.AUTO && settings.iranDeepProbeEnabled
+        )
     }
 
 private fun postToMain(block: () -> Unit) {

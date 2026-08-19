@@ -7,6 +7,7 @@ package com.marbleng.app.ui
 // MARBLE_ULTIMATE_BUG_FINDER_UI_V15
 // MARBLE_HOME_LATENCY_V17
 // MARBLE_MANUAL_MOTION_UI_V20
+// MARBLE_HOME_COMMAND_CENTER_V22
 
 import android.Manifest
 import android.content.Intent
@@ -707,25 +708,31 @@ private fun CyberDeck(
     val connecting = repo.state == "CONNECTING"
     val blocked = repo.state == "BLOCKED"
     val activeName = repo.stateDetail.ifBlank {
-        repo.lastProfile()?.name ?: "No active connection"
+        repo.lastProfile()?.name ?: "Choose a connection"
     }
+
     LazyColumn(
         Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = 18.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(18.dp)
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         item {
             SpatialHeader(
-                "Privacy dashboard",
-                "MarbleNG",
-                "",
-                when {
+                eyebrow = "PRIVATE NETWORK",
+                title = "MarbleNG",
+                subtitle = when {
+                    connected -> activeName
+                    connecting -> "Building a verified route"
+                    blocked -> "Fail-closed protection is holding traffic"
+                    else -> "Adaptive privacy command center"
+                },
+                status = when {
                     connected -> "Protected"
                     connecting -> "Connecting"
                     blocked -> "Blocked"
-                    else -> "Idle"
+                    else -> "Ready"
                 },
-                when {
+                statusColor = when {
                     connected -> Aether.Emerald
                     connecting -> Aether.Cyan
                     blocked -> Aether.Danger
@@ -746,7 +753,9 @@ private fun CyberDeck(
                 jitterMs = repo.liveJitterMs,
                 pingSamples = repo.liveRouteSamples,
                 jitterSamples = repo.liveJitterSamples,
-                detailsAvailable = repo.profile(repo.activeProfileId) != null || repo.lastProfile() != null,
+                routeScore = repo.liveRouteScore,
+                detailsAvailable =
+                    repo.profile(repo.activeProfileId) != null || repo.lastProfile() != null,
                 onDetails = onDetails,
                 onToggle = {
                     if (connected || connecting) repo.stopVpn() else repo.auto(onConnect)
@@ -756,72 +765,151 @@ private fun CyberDeck(
 
         item {
             AnimatedVisibility(
-                visible = repo.iranMode.active || repo.iranMode.scanning,
-                enter = fadeIn(tween(160)) + expandVertically(tween(200)),
-                exit = fadeOut(tween(120)) + shrinkVertically(tween(160))
-            ) { IranModeStatusPill(repo.iranMode) }
+                visible = repo.iranMode.active ||
+                    (
+                        repo.iranMode.scanning &&
+                            repo.iranMode.policy == IranModePolicy.AUTO
+                    ),
+                enter = fadeIn(tween(140)) + expandVertically(tween(180)),
+                exit = fadeOut(tween(100)) + shrinkVertically(tween(140))
+            ) {
+                IranModeStatusPill(repo.iranMode)
+            }
         }
 
         item {
-            SectionLabel("Shortcuts")
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                SectionLabel("Quick actions")
+                Spacer(Modifier.weight(1f))
+                HoloBadge(
+                    if (connected) "LIVE" else "TOOLS",
+                    if (connected) Aether.Emerald else Aether.Cyan,
+                    compact = true
+                )
+            }
+
+            Spacer(Modifier.height(7.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                 HoloActionPill(
                     "◔",
                     "Test nodes",
-                    if (repo.probeActive) "Testing ${repo.probeDone}/${repo.probeTotal}" else "",
+                    if (repo.probeActive) "${repo.probeDone}/${repo.probeTotal} tested" else "Real-route rank",
                     Aether.Cyan,
                     Modifier.weight(1f)
-                ) {
-                    repo.smartRank()
-                }
-                HoloActionPill("▦","Library","${repo.profiles.size} connections",Aether.Cyan,Modifier.weight(1f)) {
-                    onLibrary()
-                }
+                ) { repo.smartRank() }
+                HoloActionPill(
+                    "▦",
+                    "Library",
+                    "${repo.profiles.size} connections",
+                    Aether.Amethyst,
+                    Modifier.weight(1f)
+                ) { onLibrary() }
             }
-            Spacer(Modifier.height(10.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+
+            Spacer(Modifier.height(9.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                 HoloActionPill(
                     "◇",
-                    "Privacy audit",
-                    if (connected) "" else "Connect first",
+                    "Privacy",
+                    if (connected) "Audit live route" else "Connect first",
                     Aether.Emerald,
                     Modifier.weight(1f)
                 ) { onPrivacy() }
-                HoloActionPill("⚙","Routing","",Aether.InkMuted,Modifier.weight(1f)) {
-                    onRouting()
-                }
+                HoloActionPill(
+                    "⚙",
+                    "Routing",
+                    "Traffic policy",
+                    Aether.Amber,
+                    Modifier.weight(1f)
+                ) { onRouting() }
             }
         }
-
     }
 }
 
 @Composable
 private fun IranModeStatusPill(state: IranModeState) {
-    val scanning = state.scanning
+    val forced = state.policy == IranModePolicy.ALWAYS_ON
+    val scanning = state.scanning && !forced
     val tone = if (scanning) Aether.Amber else Aether.Emerald
-    val transition = rememberInfiniteTransition(label="iran-mode-home-pulse")
+    val transition = rememberInfiniteTransition(label = "iran-mode-home-pulse")
     val pulse by transition.animateFloat(
-        initialValue=.72f, targetValue=1f,
-        animationSpec=infiniteRepeatable(animation=tween(1100,easing=FastOutSlowInEasing), repeatMode=RepeatMode.Reverse),
-        label="iran-mode-home-pulse-value"
+        initialValue = .76f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1050, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "iran-mode-home-pulse-value"
     )
-    val shape=RoundedCornerShape(16.dp)
+    val shape = RoundedCornerShape(18.dp)
+
     Row(
-        Modifier.fillMaxWidth().clip(shape)
-            .background(Brush.horizontalGradient(listOf(tone.copy(alpha=.15f),Aether.VoidElevated,tone.copy(alpha=.06f))))
-            .border(1.dp,tone.copy(alpha=.35f),shape).padding(horizontal=12.dp,vertical=9.dp),
-        verticalAlignment=Alignment.CenterVertically, horizontalArrangement=Arrangement.spacedBy(9.dp)
+        Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(
+                Brush.horizontalGradient(
+                    listOf(
+                        tone.copy(alpha = .16f),
+                        Aether.VoidElevated,
+                        tone.copy(alpha = .07f)
+                    )
+                )
+            )
+            .border(1.dp, tone.copy(alpha = .34f), shape)
+            .padding(horizontal = 13.dp, vertical = 11.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        Canvas(Modifier.size(18.dp)) { val r=size.minDimension/2f; drawCircle(tone.copy(alpha=.12f),r*pulse); drawCircle(tone.copy(alpha=.28f),r*.58f); drawCircle(tone,r*.27f) }
+        Canvas(Modifier.size(20.dp)) {
+            val r = size.minDimension / 2f
+            val outer = if (scanning) pulse else .92f
+            drawCircle(tone.copy(alpha = .11f), r * outer)
+            drawCircle(tone.copy(alpha = .24f), r * .58f)
+            drawCircle(tone, r * .25f)
+        }
+
         Column(Modifier.weight(1f)) {
-            Text(if(scanning) "IRAN MODE • SCANNING" else "IRAN MODE • ON", color=tone, style=MaterialTheme.typography.labelSmall, fontWeight=FontWeight.SemiBold)
             Text(
-                if(scanning) "Checking the physical underlay" else buildString { append(state.ispLine.ifBlank { "Restricted-network protection active" }); if(state.confidence>0) append(" • ${state.confidence}%") },
-                color=Aether.InkMuted, style=MaterialTheme.typography.bodySmall, maxLines=1, overflow=TextOverflow.Ellipsis
+                when {
+                    forced -> "IRAN MODE • FORCED ON"
+                    scanning -> "IRAN MODE • SCANNING"
+                    else -> "IRAN MODE • ACTIVE"
+                },
+                color = tone,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                when {
+                    forced -> "Always-on protection • physical detection bypassed"
+                    scanning -> "Checking the physical underlay"
+                    state.isp != null -> buildString {
+                        append(state.ispLine)
+                        if (state.confidence > 0) append(" • ${state.confidence}%")
+                    }
+                    else -> "Restricted-network protection active"
+                },
+                color = Aether.InkMuted,
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         }
-        if(!scanning) HoloBadge("ACTIVE",tone,compact=true)
+
+        HoloBadge(
+            when {
+                forced -> "LOCKED ON"
+                scanning -> "AUTO"
+                else -> "ACTIVE"
+            },
+            tone,
+            compact = true
+        )
     }
 }
 
@@ -837,163 +925,218 @@ private fun ConnectionCore(
     jitterMs: Int,
     pingSamples: Int,
     jitterSamples: Int,
+    routeScore: Int,
     detailsAvailable: Boolean,
     onDetails: () -> Unit,
     onToggle: () -> Unit
 ) {
     // MARBLE_HOME_LATENCY_V17
-    // The orb is the connection control. Latency telemetry is always visible; no extra card/button
-    // has to be opened, and throughput counters stay internal for optimizer decisions only.
-    val breath: Float = if (connected) {
-        val transition = rememberInfiniteTransition(label = "connection-breath")
-        val animated by transition.animateFloat(
-            initialValue = .975f,
-            targetValue = 1.025f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(2000, easing = FastOutSlowInEasing),
-                repeatMode = RepeatMode.Reverse
-            ),
-            label = "connection-breath-value"
-        )
-        animated
-    } else {
-        1f
-    }
+    // MARBLE_HOME_COMMAND_CENTER_V22
     val statusColor = when {
         connected -> Aether.Emerald
         connecting -> Aether.Cyan
         blocked -> Aether.Danger
-        else -> Aether.InkFaint
+        else -> Aether.Cyan
     }
-    val track = Aether.GlassBorderSoft
+    val statusTitle = when {
+        connected -> "Protected"
+        connecting -> "Connecting"
+        blocked -> "Blocked"
+        else -> "Connect"
+    }
+    val shape = RoundedCornerShape(28.dp)
 
-    HoloGlass(
-        Modifier.fillMaxWidth(),
-        contentPadding = PaddingValues(horizontal = 18.dp, vertical = 18.dp)
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(
+                Brush.verticalGradient(
+                    listOf(
+                        statusColor.copy(alpha = .12f),
+                        Aether.VoidElevated,
+                        Aether.VoidElevated
+                    )
+                )
+            )
+            .border(1.dp, statusColor.copy(alpha = .24f), shape)
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(13.dp)
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            HoloBadge(
+                when {
+                    connected -> "● PROTECTED"
+                    connecting -> "● CONNECTING"
+                    blocked -> "● FAIL-CLOSED"
+                    else -> "○ READY"
+                },
+                statusColor,
+                compact = true
+            )
+            Spacer(Modifier.weight(1f))
+            HoloBadge(
+                if (mode == ConnectionMode.FULL_TUN) "FULL TUN" else "SOCKS :$localPort",
+                Aether.InkMuted,
+                compact = true
+            )
+        }
+
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
             Box(
-                modifier = Modifier
-                    .size(172.dp)
+                Modifier
+                    .size(92.dp)
                     .clip(CircleShape)
+                    .background(statusColor.copy(alpha = .075f))
+                    .border(2.dp, statusColor.copy(alpha = .72f), CircleShape)
                     .clickable(onClick = onToggle),
                 contentAlignment = Alignment.Center
             ) {
-                Canvas(Modifier.matchParentSize()) {
-                    val scale = if (connected) breath else 1f
-                    val radius = size.minDimension * .40f
-                    if (connected) {
-                        drawCircle(
-                            statusColor.copy(alpha = .045f),
-                            size.minDimension * .49f * scale
+                Canvas(Modifier.matchParentSize().padding(8.dp)) {
+                    val r = size.minDimension / 2f
+                    drawCircle(statusColor.copy(alpha = .08f), r)
+                    if (connecting) {
+                        drawArc(
+                            color = statusColor,
+                            startAngle = -70f,
+                            sweepAngle = 235f,
+                            useCenter = false,
+                            style = Stroke(6f, cap = StrokeCap.Round)
                         )
                     }
-                    drawCircle(track, radius, style = Stroke(7f, cap = StrokeCap.Round))
-                    drawArc(
-                        color = statusColor,
-                        startAngle = -90f,
-                        sweepAngle = when {
-                            connected -> 360f
-                            connecting -> 255f
-                            blocked -> 120f
-                            else -> 48f
-                        },
-                        useCenter = false,
-                        topLeft = Offset(size.width / 2 - radius, size.height / 2 - radius),
-                        size = Size(radius * 2, radius * 2),
-                        style = Stroke(7f, cap = StrokeCap.Round)
-                    )
                 }
+                Text(
+                    when {
+                        connected -> "✓"
+                        connecting -> "…"
+                        blocked -> "!"
+                        else -> "↗"
+                    },
+                    color = statusColor,
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.Bold
+                )
+            }
 
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Column(
+                Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(5.dp)
+            ) {
+                Text(
+                    statusTitle,
+                    color = Aether.Ink,
+                    style = MaterialTheme.typography.headlineMedium,
+                    maxLines = 1
+                )
+                Text(
+                    activeName,
+                    color = Aether.InkMuted,
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         when {
-                            connected -> "Protected"
-                            connecting -> "Connecting"
-                            blocked -> "Blocked"
-                            else -> "Ready"
+                            connecting -> "Tap the orb to cancel"
+                            connected -> "Tap the orb to disconnect"
+                            blocked -> "Tap the orb to retry"
+                            else -> "Tap the orb to start"
                         },
-                        color = Aether.Ink,
-                        style = MaterialTheme.typography.headlineMedium
+                        color = statusColor,
+                        style = MaterialTheme.typography.labelSmall
                     )
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        if (mode == ConnectionMode.FULL_TUN) "Full-device tunnel" else "Local SOCKS5",
-                        color = Aether.InkFaint,
-                        style = MaterialTheme.typography.bodySmall
-                    )
+                    if (detailsAvailable) {
+                        Spacer(Modifier.width(6.dp))
+                        TextButton(
+                            onClick = onDetails,
+                            contentPadding = PaddingValues(horizontal = 7.dp, vertical = 0.dp)
+                        ) {
+                            Text(
+                                "Details",
+                                color = Aether.Cyan,
+                                style = MaterialTheme.typography.labelSmall
+                            )
+                        }
+                    }
                 }
             }
+        }
 
-            Spacer(Modifier.height(10.dp))
-            Text(
-                activeName,
-                color = Aether.InkMuted,
-                style = MaterialTheme.typography.bodyMedium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            AnimatedVisibility(visible = detailsAvailable) {
-                TextButton(onClick = onDetails, contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp)) {
-                    Text("Details", color = Aether.Cyan, style = MaterialTheme.typography.labelMedium)
-                }
-            }
-            Spacer(Modifier.height(4.dp))
-            Text(
-                when {
-                    connecting -> "Tap the circle to cancel"
-                    connected -> "Tap the circle to disconnect"
-                    blocked -> "Tap the circle to retry"
-                    else -> "Tap the circle to connect"
-                },
-                color = statusColor,
-                style = MaterialTheme.typography.labelSmall
-            )
+        HorizontalDivider(color = Aether.GlassBorderSoft.copy(alpha = .75f))
 
-            Spacer(Modifier.height(15.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                MiniMetric(
-                    "Ping",
-                    if (pingMs > 0) "$pingMs" else "—",
-                    "ms",
-                    Modifier.weight(1f)
-                )
-                MiniMetric(
-                    "Jitter",
-                    if (jitterSamples >= 2 && jitterMs >= 0) jitterMs.toString() else "—",
-                    "ms",
-                    Modifier.weight(1f)
-                )
-            }
-            Text(
-                when {
-                    pingSamples <= 0 -> "RTT —"
-                    jitterSamples < 2 -> "$pingSamples RTT sample${if (pingSamples == 1) "" else "s"} • jitter warming"
-                    else -> "Verified HTTPS RTT • $pingSamples samples"
-                },
-                color = Aether.InkFaint,
-                style = MaterialTheme.typography.bodySmall,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth()
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(7.dp)
+        ) {
+            MiniMetric(
+                "Ping",
+                if (pingMs > 0) pingMs.toString() else "—",
+                "ms",
+                Modifier.weight(1f)
+            )
+            MiniMetric(
+                "Jitter",
+                if (jitterSamples >= 2 && jitterMs >= 0) jitterMs.toString() else "—",
+                "ms",
+                Modifier.weight(1f)
+            )
+            MiniMetric(
+                "Quality",
+                if (routeScore >= 0) routeScore.toString() else "—",
+                if (routeScore >= 0) "%" else "",
+                Modifier.weight(1f)
             )
         }
+
+        Text(
+            when {
+                pingSamples <= 0 ->
+                    "Waiting for verified HTTPS RTT"
+                jitterSamples < 2 ->
+                    "Verified HTTPS RTT • $pingSamples sample${if (pingSamples == 1) "" else "s"} • jitter warming"
+                else ->
+                    "Verified HTTPS burst • $pingSamples RTT • $jitterSamples consecutive deltas"
+            },
+            color = Aether.InkFaint,
+            style = MaterialTheme.typography.bodySmall,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth()
+        )
     }
 }
 
-
 @Composable
-private fun MiniMetric(label: String, value: String, unit: String, modifier: Modifier = Modifier) {
+private fun MiniMetric(
+    label: String,
+    value: String,
+    unit: String,
+    modifier: Modifier = Modifier
+) {
     Column(
         modifier = modifier
-            .clip(RoundedCornerShape(16.dp))
-            .background(Aether.Void.copy(alpha = .60f))
-            .border(1.dp, Aether.GlassBorderSoft.copy(alpha = .75f), RoundedCornerShape(16.dp))
-            .padding(horizontal = 10.dp, vertical = 9.dp)
+            .heightIn(min = 64.dp)
+            .clip(RoundedCornerShape(17.dp))
+            .background(Aether.GlassStrong.copy(alpha = .50f))
+            .border(
+                1.dp,
+                Aether.GlassBorderSoft.copy(alpha = .72f),
+                RoundedCornerShape(17.dp)
+            )
+            .padding(horizontal = 9.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.Center
     ) {
-        Text(label, color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
+        Text(
+            label.uppercase(),
+            color = Aether.InkFaint,
+            style = MaterialTheme.typography.labelSmall,
+            maxLines = 1
+        )
+        Spacer(Modifier.height(2.dp))
         Row(verticalAlignment = Alignment.Bottom) {
             Text(
                 value,
@@ -1001,7 +1144,8 @@ private fun MiniMetric(label: String, value: String, unit: String, modifier: Mod
                 style = MaterialTheme.typography.titleMedium.copy(
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Bold
-                )
+                ),
+                maxLines = 1
             )
             if (unit.isNotBlank()) {
                 Spacer(Modifier.width(3.dp))
@@ -1010,7 +1154,6 @@ private fun MiniMetric(label: String, value: String, unit: String, modifier: Mod
         }
     }
 }
-
 
 @Composable
 private fun HoloActionPill(
@@ -1024,24 +1167,37 @@ private fun HoloActionPill(
     val shape = RoundedCornerShape(20.dp)
     Row(
         modifier = modifier
-            .heightIn(min = 72.dp)
+            .heightIn(min = 76.dp)
             .clip(shape)
-            .background(Aether.VoidElevated)
-            .border(1.dp, Aether.GlassBorderSoft, shape)
+            .background(
+                Brush.horizontalGradient(
+                    listOf(
+                        color.copy(alpha = .09f),
+                        Aether.VoidElevated,
+                        Aether.VoidElevated
+                    )
+                )
+            )
+            .border(1.dp, color.copy(alpha = .18f), shape)
             .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 11.dp),
+            .padding(horizontal = 11.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
             Modifier
-                .size(36.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .background(color.copy(alpha = .10f)),
+                .size(38.dp)
+                .clip(RoundedCornerShape(13.dp))
+                .background(color.copy(alpha = .13f)),
             contentAlignment = Alignment.Center
         ) {
-            Text(glyph, color = color, style = MaterialTheme.typography.titleMedium)
+            Text(
+                glyph,
+                color = color,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
         }
-        Spacer(Modifier.width(10.dp))
+        Spacer(Modifier.width(9.dp))
         Column(Modifier.weight(1f)) {
             Text(
                 title,
@@ -1050,15 +1206,13 @@ private fun HoloActionPill(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
-            if (subtitle.isNotBlank()) {
-                Text(
-                    subtitle,
-                    color = Aether.InkFaint,
-                    style = MaterialTheme.typography.labelSmall,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
+            Text(
+                subtitle,
+                color = Aether.InkFaint,
+                style = MaterialTheme.typography.labelSmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
         }
     }
 }
@@ -2540,9 +2694,9 @@ private fun DiscoveryRadar(repo:AppRepository){
     val network=repo.networkSnapshot;val intel=repo.intelligenceStatus;val iran=repo.iranMode;val linkColor=if(network.validated)Aether.Emerald else Aether.Amber
     LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(horizontal=18.dp,vertical=10.dp),verticalArrangement=Arrangement.spacedBy(16.dp)){
         item{SpatialHeader("Network","Environment","",if(network.validated)"Healthy" else "Checking",linkColor)}
-        item{SectionLabel("Current network");HoloGlass(Modifier.fillMaxWidth()){Row(verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f)){Text(network.label,color=Aether.Ink,style=MaterialTheme.typography.titleMedium);Text("${if(network.metered)"Metered" else "Unmetered"} • ${if(network.hasIpv4)"IPv4" else "No IPv4"} • ${if(network.hasIpv6)"IPv6" else "No IPv6"}",color=Aether.InkMuted,style=MaterialTheme.typography.bodySmall)};HoloBadge(if(network.validated)"Validated" else "Unvalidated",linkColor,true)};Text("MTU ${network.mtu.takeIf{it>0}?:0} • Downlink ${network.downstreamKbps.coerceAtLeast(0)} kbps • Uplink ${network.upstreamKbps.coerceAtLeast(0)} kbps",color=Aether.InkFaint,style=MaterialTheme.typography.bodySmall);CyberButton(if(iran.scanning)"Checking network…" else "Refresh network check",Aether.Cyan,Modifier.fillMaxWidth(),!iran.scanning){repo.scanIranMode(force=true,deep=true)}}}
+        item{SectionLabel("Current network");HoloGlass(Modifier.fillMaxWidth()){Row(verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f)){Text(network.label,color=Aether.Ink,style=MaterialTheme.typography.titleMedium);Text("${if(network.metered)"Metered" else "Unmetered"} • ${if(network.hasIpv4)"IPv4" else "No IPv4"} • ${if(network.hasIpv6)"IPv6" else "No IPv6"}",color=Aether.InkMuted,style=MaterialTheme.typography.bodySmall)};HoloBadge(if(network.validated)"Validated" else "Unvalidated",linkColor,true)};Text("MTU ${network.mtu.takeIf{it>0}?:0} • Downlink ${network.downstreamKbps.coerceAtLeast(0)} kbps • Uplink ${network.upstreamKbps.coerceAtLeast(0)} kbps",color=Aether.InkFaint,style=MaterialTheme.typography.bodySmall);CyberButton(if(iran.policy==IranModePolicy.ALWAYS_ON)"IRAN MODE FORCED ON" else if(iran.scanning)"Checking network…" else "Refresh network check",Aether.Cyan,Modifier.fillMaxWidth(),iran.policy!=IranModePolicy.ALWAYS_ON&&!iran.scanning){repo.scanIranMode(force=true,deep=true)}}}
         item{SectionLabel("Marble Intelligence");HoloGlass(Modifier.fillMaxWidth()){Row(verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f)){Text(if(repo.settings.intelligenceEnabled)"Adaptive engine enabled" else "Adaptive engine disabled",color=Aether.Ink,style=MaterialTheme.typography.titleMedium);Text("Effective MTU ${intel.effectiveMtu.takeIf{it>0}?:network.mtu} • Thermal budget ${intel.thermalBudgetPercent}% • History ${intel.historyRecords}",color=Aether.InkFaint,style=MaterialTheme.typography.bodySmall)};HoloBadge(if(repo.settings.intelligenceEnabled)"On" else "Off",if(repo.settings.intelligenceEnabled)Aether.Emerald else Aether.InkFaint,true)};Text(intel.lastDecision.ifBlank{"Waiting for the next network decision"},color=Aether.InkMuted,style=MaterialTheme.typography.bodyMedium)}}
-        if(iran.active){item{SectionLabel("Regional protection");HoloGlass(Modifier.fillMaxWidth()){Row(verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f)){Text(iran.ispLine,color=Aether.Ink,style=MaterialTheme.typography.titleMedium);Text(iran.summary,color=Aether.InkMuted,style=MaterialTheme.typography.bodySmall)};HoloBadge("${iran.confidence}%",Aether.Emerald,true)}}}}
+        if(iran.active){item{SectionLabel("Regional protection");HoloGlass(Modifier.fillMaxWidth()){Row(verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f)){Text(iran.ispLine,color=Aether.Ink,style=MaterialTheme.typography.titleMedium);Text(iran.summary,color=Aether.InkMuted,style=MaterialTheme.typography.bodySmall)};HoloBadge(if(iran.policy==IranModePolicy.ALWAYS_ON)"FORCED" else "${iran.confidence}%",Aether.Emerald,true)}}}}
         if(repo.benchmarks.isNotEmpty()){item{SectionLabel("Recent measurements","Read-only route evidence")};items(repo.benchmarks.sortedByDescending{it.score}.take(6),key={"network-memory-${it.profileId}"}){r->val c=healthColor(r.latencyMs.toInt(),r.success);HoloGlass(Modifier.fillMaxWidth(),contentPadding=PaddingValues(horizontal=14.dp,vertical=12.dp)){Row(verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f)){Text(r.name,color=Aether.Ink,style=MaterialTheme.typography.labelLarge,maxLines=1,overflow=TextOverflow.Ellipsis);Text("${r.latencyMs.toInt()} ms • success ${r.success}%",color=Aether.InkFaint,style=MaterialTheme.typography.bodySmall)};HoloBadge("${r.latencyMs.toInt()} ms",c,true)}}}}
     }
 }
