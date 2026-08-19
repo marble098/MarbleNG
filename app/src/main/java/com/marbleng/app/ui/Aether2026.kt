@@ -8,6 +8,7 @@ package com.marbleng.app.ui
 // MARBLE_HOME_LATENCY_V17
 // MARBLE_MANUAL_MOTION_UI_V20
 // MARBLE_HOME_COMMAND_CENTER_V22
+// MARBLE_LIBRARY_INTELLIGENCE_UI_V24
 
 import android.Manifest
 import android.content.Intent
@@ -95,7 +96,6 @@ import kotlin.math.sin
 private enum class SpatialTab(val label: String) {
     DECK("Home"),
     LIBRARY("Library"),
-    RADAR("Network"),
     SETTINGS("Settings")
 }
 
@@ -193,7 +193,6 @@ fun Aether2026App(
                         onImportFile = onImportFile,
                         onDetails = { detailProfile = it }
                     )
-                    SpatialTab.RADAR -> DiscoveryRadar(repo)
                     SpatialTab.SETTINGS -> SpatialSettings(
                         repo = repo,
                         onDialog = { dialog = it },
@@ -485,18 +484,6 @@ private fun MarbleTabIcon(
                         center = p,
                         style = Stroke(width = stroke, cap = StrokeCap.Round)
                     )
-                }
-            }
-            SpatialTab.RADAR -> {
-                val left = Offset(w*.23f,h*.62f)
-                val top = Offset(w*.50f,h*.27f)
-                val right = Offset(w*.77f,h*.62f)
-                drawLine(color,left,top,stroke,StrokeCap.Round)
-                drawLine(color,top,right,stroke,StrokeCap.Round)
-                drawLine(color,left,right,stroke,StrokeCap.Round)
-                listOf(left,top,right).forEach { p ->
-                    drawCircle(color,w*.075f,p)
-                    drawCircle(color.copy(alpha=.18f),w*.14f,p)
                 }
             }
             SpatialTab.SETTINGS -> {
@@ -1461,7 +1448,7 @@ private fun CyberLibrary(
             SpatialHeader(
                 eyebrow = "Connections",
                 title = "Library",
-                subtitle = "",
+                subtitle = "Quick TCP ping • verified Xray smart rank",
                 status = "${repo.profiles.size} nodes",
                 statusColor = Aether.Amethyst
             )
@@ -1616,31 +1603,40 @@ private fun CyberLibrary(
         }
 
         item {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                CyberButton(
-                    label = if (repo.refreshingSources.isNotEmpty()) {
-                        "Refreshing ${repo.refreshingSources.size}…"
-                    } else {
-                        "Refresh all"
-                    },
-                    color = Aether.Amethyst,
-                    modifier = Modifier.weight(1f),
-                    enabled = repo.subscriptions.isNotEmpty() && !repo.busy
-                ) { repo.refreshAll() }
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    CyberButton(
+                        label = if (repo.refreshingSources.isNotEmpty()) {
+                            "Refreshing ${repo.refreshingSources.size}…"
+                        } else {
+                            "Refresh all"
+                        },
+                        color = Aether.Amethyst,
+                        modifier = Modifier.weight(1f),
+                        enabled = repo.subscriptions.isNotEmpty() && !repo.busy
+                    ) { repo.refreshAll() }
+
+                    CyberButton(
+                        label = if (repo.probeActive) {
+                            "Pinging ${repo.probeDone}/${repo.probeTotal}"
+                        } else {
+                            "Quick ping"
+                        },
+                        color = Aether.Cyan,
+                        modifier = Modifier.weight(1f),
+                        enabled = repo.profiles.isNotEmpty() && !repo.busy
+                    ) { repo.testAll() }
+                }
 
                 CyberButton(
-                    label = if (repo.probeActive) {
-                        "Testing ${repo.probeDone}/${repo.probeTotal}"
-                    } else {
-                        "Test all"
-                    },
-                    color = Aether.Cyan,
-                    modifier = Modifier.weight(1f),
+                    label = "Smart Xray rank",
+                    color = Aether.Emerald,
+                    modifier = Modifier.fillMaxWidth(),
                     enabled = repo.profiles.isNotEmpty() && !repo.busy
-                ) { repo.testAll() }
+                ) { repo.smartRank() }
             }
         }
 
@@ -1720,7 +1716,7 @@ private fun CyberLibrary(
                         horizontalArrangement = if (editSide) Arrangement.End else Arrangement.Start
                     ) {
                         Text(
-                            if (editSide) "Rename" else "Test",
+                            if (editSide) "Rename" else "Full test",
                             color = if (editSide) Aether.AmethystBright else Aether.CyanBright,
                             style = MaterialTheme.typography.labelLarge
                         )
@@ -2323,6 +2319,24 @@ private fun SubscriptionManagerCard(
     }
 }
 
+private fun libraryPingQuality(ms: Int): String = when {
+    ms <= 0 -> "Unknown"
+    ms <= 80 -> "Excellent"
+    ms <= 150 -> "Fast"
+    ms <= 250 -> "Good"
+    ms <= 450 -> "Fair"
+    else -> "Slow"
+}
+
+private fun libraryPingBars(ms: Int): Int = when {
+    ms <= 0 -> 0
+    ms <= 80 -> 4
+    ms <= 150 -> 4
+    ms <= 250 -> 3
+    ms <= 450 -> 2
+    else -> 1
+}
+
 @Composable
 private fun SpatialServerCard(
     profile: ProxyProfile,
@@ -2440,22 +2454,52 @@ private fun SpatialServerCard(
             }
 
             if (latency > 0) {
+                val quality = libraryPingQuality(latency)
+                val bars = libraryPingBars(latency)
                 Column(
-                    modifier = Modifier.widthIn(min = 42.dp),
+                    modifier = Modifier
+                        .widthIn(min = 92.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(health.copy(alpha = .075f))
+                        .border(1.dp, health.copy(alpha = .20f), RoundedCornerShape(14.dp))
+                        .padding(horizontal = 8.dp, vertical = 6.dp),
                     horizontalAlignment = Alignment.End
                 ) {
+                    Row(
+                        verticalAlignment = Alignment.Bottom,
+                        horizontalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
+                        (0 until 4).forEach { index ->
+                            Box(
+                                Modifier
+                                    .width(3.dp)
+                                    .height((5 + index * 3).dp)
+                                    .clip(CircleShape)
+                                    .background(
+                                        if (index < bars) health
+                                        else Aether.GlassBorderSoft.copy(alpha = .55f)
+                                    )
+                            )
+                        }
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            "$latency ms",
+                            color = health,
+                            style = MaterialTheme.typography.labelLarge.copy(
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold
+                            ),
+                            maxLines = 1
+                        )
+                    }
                     Text(
-                        "$latency",
-                        color = health,
-                        style = MaterialTheme.typography.titleMedium.copy(
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.SemiBold
-                        ),
+                        "${measured?.probeKind ?: "PING"} • $quality",
+                        color = Aether.InkFaint,
+                        style = MaterialTheme.typography.labelSmall,
                         maxLines = 1
                     )
-                    Text("ms", color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
                 }
-                Spacer(Modifier.width(8.dp))
+                Spacer(Modifier.width(7.dp))
             }
 
             Box(
@@ -2582,6 +2626,11 @@ private fun SpatialServerCard(
                 if (active) HoloBadge("Active", Aether.Emerald, compact = true)
                 measured?.let { evidence ->
                     HoloBadge(
+                        evidence.probeKind,
+                        if (evidence.probeKind == "TUNNEL") Aether.Emerald else Aether.Cyan,
+                        compact = true
+                    )
+                    HoloBadge(
                         "${evidence.success}% ok",
                         if (evidence.success >= 90) Aether.Emerald else Aether.Amber,
                         compact = true
@@ -2684,23 +2733,6 @@ private fun MicroStat(
         )
     }
 }
-
-// =================================================================================================
-// NETWORK / ENVIRONMENT
-// =================================================================================================
-
-@Composable
-private fun DiscoveryRadar(repo:AppRepository){
-    val network=repo.networkSnapshot;val intel=repo.intelligenceStatus;val iran=repo.iranMode;val linkColor=if(network.validated)Aether.Emerald else Aether.Amber
-    LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(horizontal=18.dp,vertical=10.dp),verticalArrangement=Arrangement.spacedBy(16.dp)){
-        item{SpatialHeader("Network","Environment","",if(network.validated)"Healthy" else "Checking",linkColor)}
-        item{SectionLabel("Current network");HoloGlass(Modifier.fillMaxWidth()){Row(verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f)){Text(network.label,color=Aether.Ink,style=MaterialTheme.typography.titleMedium);Text("${if(network.metered)"Metered" else "Unmetered"} • ${if(network.hasIpv4)"IPv4" else "No IPv4"} • ${if(network.hasIpv6)"IPv6" else "No IPv6"}",color=Aether.InkMuted,style=MaterialTheme.typography.bodySmall)};HoloBadge(if(network.validated)"Validated" else "Unvalidated",linkColor,true)};Text("MTU ${network.mtu.takeIf{it>0}?:0} • Downlink ${network.downstreamKbps.coerceAtLeast(0)} kbps • Uplink ${network.upstreamKbps.coerceAtLeast(0)} kbps",color=Aether.InkFaint,style=MaterialTheme.typography.bodySmall);CyberButton(if(iran.policy==IranModePolicy.ALWAYS_ON)"IRAN MODE FORCED ON" else if(iran.scanning)"Checking network…" else "Refresh network check",Aether.Cyan,Modifier.fillMaxWidth(),iran.policy!=IranModePolicy.ALWAYS_ON&&!iran.scanning){repo.scanIranMode(force=true,deep=true)}}}
-        item{SectionLabel("Marble Intelligence");HoloGlass(Modifier.fillMaxWidth()){Row(verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f)){Text(if(repo.settings.intelligenceEnabled)"Adaptive engine enabled" else "Adaptive engine disabled",color=Aether.Ink,style=MaterialTheme.typography.titleMedium);Text("Effective MTU ${intel.effectiveMtu.takeIf{it>0}?:network.mtu} • Thermal budget ${intel.thermalBudgetPercent}% • History ${intel.historyRecords}",color=Aether.InkFaint,style=MaterialTheme.typography.bodySmall)};HoloBadge(if(repo.settings.intelligenceEnabled)"On" else "Off",if(repo.settings.intelligenceEnabled)Aether.Emerald else Aether.InkFaint,true)};Text(intel.lastDecision.ifBlank{"Waiting for the next network decision"},color=Aether.InkMuted,style=MaterialTheme.typography.bodyMedium)}}
-        if(iran.active){item{SectionLabel("Regional protection");HoloGlass(Modifier.fillMaxWidth()){Row(verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f)){Text(iran.ispLine,color=Aether.Ink,style=MaterialTheme.typography.titleMedium);Text(iran.summary,color=Aether.InkMuted,style=MaterialTheme.typography.bodySmall)};HoloBadge(if(iran.policy==IranModePolicy.ALWAYS_ON)"FORCED" else "${iran.confidence}%",Aether.Emerald,true)}}}}
-        if(repo.benchmarks.isNotEmpty()){item{SectionLabel("Recent measurements","Read-only route evidence")};items(repo.benchmarks.sortedByDescending{it.score}.take(6),key={"network-memory-${it.profileId}"}){r->val c=healthColor(r.latencyMs.toInt(),r.success);HoloGlass(Modifier.fillMaxWidth(),contentPadding=PaddingValues(horizontal=14.dp,vertical=12.dp)){Row(verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f)){Text(r.name,color=Aether.Ink,style=MaterialTheme.typography.labelLarge,maxLines=1,overflow=TextOverflow.Ellipsis);Text("${r.latencyMs.toInt()} ms • success ${r.success}%",color=Aether.InkFaint,style=MaterialTheme.typography.bodySmall)};HoloBadge("${r.latencyMs.toInt()} ms",c,true)}}}}
-    }
-}
-
 
 // =================================================================================================
 // SETTINGS / ACCORDIONS
@@ -3462,6 +3494,53 @@ private fun ChainSettings(repo: AppRepository) {
 
 @Composable
 private fun DnsSettings(repo: AppRepository) {
+    val underlay = repo.networkSnapshot
+
+    Row(
+        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(7.dp)
+    ) {
+        HoloBadge(
+            if (repo.settings.ipv6Enabled) "IPv6 ENABLED" else "IPv6 BLOCKED",
+            if (repo.settings.ipv6Enabled) Aether.Emerald else Aether.InkFaint,
+            compact = true
+        )
+        HoloBadge(
+            if (repo.settings.preferIpv6 && underlay.hasIpv6) "IPv6 PREFERRED"
+            else if (repo.settings.preferIpv6) "IPv6 PREFERENCE WAITING"
+            else "IPv4 / AUTO",
+            if (repo.settings.preferIpv6 && underlay.hasIpv6) Aether.Cyan else Aether.Amethyst,
+            compact = true
+        )
+        HoloBadge(underlay.label, Aether.InkMuted, compact = true)
+    }
+
+    SettingSwitch(
+        title = "Enable IPv6",
+        subtitle = "Keep IPv6 inside the protected TUN. When off, Xray blocks ::/0 fail-closed instead of letting Android bypass the VPN.",
+        checked = repo.settings.ipv6Enabled
+    ) {
+        repo.updateSettings(
+            repo.settings.copy(
+                ipv6Enabled = it,
+                preferIpv6 = if (it) repo.settings.preferIpv6 else false
+            )
+        )
+    }
+
+    SettingSwitch(
+        title = "Prefer IPv6",
+        subtitle = "IPv6-first endpoint dialing with IPv4 fallback; Marble suspends the preference automatically on IPv4-only networks.",
+        checked = repo.settings.ipv6Enabled && repo.settings.preferIpv6
+    ) {
+        repo.updateSettings(
+            repo.settings.copy(
+                ipv6Enabled = if (it) true else repo.settings.ipv6Enabled,
+                preferIpv6 = it
+            )
+        )
+    }
+
     SettingSwitch(
         title = "Intercept traditional DNS",
         subtitle = "Route TCP/UDP :53 to Xray dns-out → built-in encrypted DNS",
@@ -3474,7 +3553,7 @@ private fun DnsSettings(repo: AppRepository) {
     ) { repo.updateSettings(repo.settings.copy(adaptiveDnsEnabled = it)) }
     SettingSwitch(
         title = "Adaptive IPv4 / IPv6 DNS",
-        subtitle = "Use current physical reachability to choose UseIP / UseIPv4 / UseIPv6",
+        subtitle = "Use physical family reachability for DNS and suspend IPv6 preference on IPv4-only links",
         checked = repo.settings.adaptiveDualStackEnabled
     ) { repo.updateSettings(repo.settings.copy(adaptiveDualStackEnabled = it)) }
 

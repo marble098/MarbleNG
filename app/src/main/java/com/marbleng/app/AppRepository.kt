@@ -27,6 +27,7 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     // MARBLE_REPO_ANR_HARDENING_V16
     // MARBLE_LIVE_LATENCY_V17
     // MARBLE_IRAN_FORCE_RUNTIME_V22
+    // MARBLE_INTELLIGENCE_V24
 
     private val store = AppStore(context)
     private val io = Executors.newFixedThreadPool(3)
@@ -1203,20 +1204,42 @@ private fun postToMain(block: () -> Unit) {
             message = "Nothing to rank • add a subscription or import nodes first"
             return
         }
-        task("Smart rank • testing real Xray routes") {
+        task("Smart rank • TCP preflight → Xray finalists") {
+            val all = profiles.toList()
+            val deepBudget = when {
+                all.size <= 8 -> all.size
+                all.size <= 24 -> 8
+                all.size <= 60 -> 12
+                else -> 16
+            }
+            val rankSettings = settings.copy(
+                benchMode = BenchMode.CUSTOM,
+                benchCandidates = deepBudget,
+                benchSamples = settings.benchSamples.coerceIn(1, 2),
+                benchTimeoutSec = minOf(settings.benchTimeoutSec, 5),
+                tcpPrecheckTimeoutMs = minOf(settings.tcpPrecheckTimeoutMs, 750),
+                tcpWorkers = maxOf(settings.tcpWorkers, 24).coerceAtMost(32),
+                probeMethod = ProbeMethod.HYBRID,
+                probeSpeedTest = false,
+                verifiedPerformanceTuning = false,
+                udpProbeEnabled = false
+            )
             val results = BenchmarkEngine(xray, intelligence).run(
-                profiles.toList(),
-                settings,
+                all,
+                rankSettings,
                 onCandidates = ::beginProbeBatch,
                 onStart = ::markProbeStart,
                 onResult = ::markProbeResult
             ) { done, total, name ->
-                message = "Smart rank $done/$total • $name"
+                message = "Smart Xray rank $done/$total • $name"
             }
             mergeBenchmarks(results)
             val best = results.firstOrNull { it.success > 0 }
-            message = if (best == null) "Smart rank finished • no healthy route found"
-            else "Best route • ${best.name} • ${best.latencyMs.toInt()} ms • score ${best.score.toInt()}"
+            message = if (best == null) {
+                "Smart rank finished • no healthy Xray finalist"
+            } else {
+                "Best verified route • ${best.name} • ${best.latencyMs.toInt()} ms • score ${best.score.toInt()}"
+            }
         }
     }
 
@@ -1236,31 +1259,43 @@ private fun postToMain(block: () -> Unit) {
         }
     }
 
-    /** Real-tunnel tests every profile in the library, ignoring the BenchMode candidate cap. */
+    /**
+     * Fast Library-wide TCP latency sweep.
+     * Full test and Smart Xray rank remain available when actual proxy usability must be proven.
+     */
     fun testAll() {
         if (profiles.isEmpty()) {
-            message = "Nothing to test • add nodes first"
+            message = "Nothing to ping • add nodes first"
             return
         }
-        task("Testing all configs") {
+        task("Quick ping • testing all endpoints") {
             val all = profiles.toList()
-            // A full-library sweep is about reachability and latency ranking. Extra samples per
-            // node multiply the wall-clock cost of the whole batch for very little extra evidence.
-            val testSettings = settings.copy(
+            val quickSettings = settings.copy(
                 benchMode = BenchMode.CUSTOM,
                 benchCandidates = all.size,
-                benchSamples = settings.benchSamples.coerceAtMost(2)
+                benchSamples = 1,
+                benchTimeoutSec = 2,
+                tcpPrecheckTimeoutMs = minOf(settings.tcpPrecheckTimeoutMs, 750),
+                tcpWorkers = maxOf(settings.tcpWorkers, 24).coerceAtMost(32),
+                probeMethod = ProbeMethod.TCP,
+                probeSpeedTest = false,
+                verifiedPerformanceTuning = false,
+                udpProbeEnabled = false
             )
             val results = BenchmarkEngine(xray, intelligence).run(
                 all,
-                testSettings,
+                quickSettings,
+                // TCP-only is already the preflight; do not measure every endpoint twice.
+                usePrecheck = false,
                 onCandidates = ::beginProbeBatch,
                 onStart = ::markProbeStart,
                 onResult = ::markProbeResult
-            ) { a, b, n -> message = "Tunnel test $a/$b • $n" }
+            ) { done, total, name ->
+                message = "TCP ping $done/$total • $name"
+            }
             mergeBenchmarks(results)
             val passed = results.count { it.success > 0 }
-            message = "Tested ${results.size} configs • $passed reachable"
+            message = "Quick ping • ${results.size} nodes • $passed reachable"
         }
     }
 

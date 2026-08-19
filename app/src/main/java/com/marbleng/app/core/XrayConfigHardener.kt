@@ -10,6 +10,7 @@ object XrayConfigHardener {
     // MARBLE_DNS_RESILIENCE_V16
     // MARBLE_DNS_DEJITTER_V18
     // MARBLE_DNS_TRANSPORT_FALLBACK_V23
+    // MARBLE_IP_FAMILY_POLICY_V24
     private val infra = setOf("freedom", "blackhole", "dns", "loopback")
     private val compatibilityDependencyProtocols = setOf(
         "freedom", "http", "shadowsocks", "socks", "trojan", "vless", "vmess", "hysteria", "wireguard"
@@ -189,22 +190,47 @@ object XrayConfigHardener {
                             ?: JSONObject().also { outbound.put("settings", it) }
                         settingsObject.put(
                             "domainStrategy",
-                            forceDomainStrategy(settingsObject.optString("domainStrategy"), settings.dnsQueryStrategy)
+                            when {
+                                !settings.ipv6Enabled -> "ForceIPv4"
+                                settings.preferIpv6 -> "ForceIPv6v4"
+                                else -> forceDomainStrategy(
+                                    settingsObject.optString("domainStrategy"),
+                                    settings.dnsQueryStrategy
+                                )
+                            }
                         )
                     } else {
                         val stream = outbound.optJSONObject("streamSettings")
                             ?: JSONObject().also { outbound.put("streamSettings", it) }
                         val sockopt = stream.optJSONObject("sockopt")
                             ?: JSONObject().also { stream.put("sockopt", it) }
-                        val endpointStrategy = forceDomainStrategy(sockopt.optString("domainStrategy"), settings.dnsQueryStrategy)
+                        val endpointStrategy = when {
+                            !settings.ipv6Enabled -> "ForceIPv4"
+                            settings.preferIpv6 -> "ForceIPv6v4"
+                            else -> forceDomainStrategy(
+                                sockopt.optString("domainStrategy"),
+                                settings.dnsQueryStrategy
+                            )
+                        }
                         sockopt.put("domainStrategy", endpointStrategy)
                         val chained = outbound.optJSONObject("proxySettings")?.optString("tag")?.isNotBlank() == true
                         val method = stream.optString("method").lowercase()
                         val tcpTransport = method !in setOf("hysteria", "mkcp")
-                        if (settings.adaptiveDualStackEnabled && endpointStrategy == "ForceIP" && tcpTransport &&
-                            !chained && sockopt.optString("dialerProxy").isBlank()) {
-                            sockopt.put("happyEyeballs", JSONObject().put("tryDelayMs", 250)
-                                .put("prioritizeIPv6", false).put("interleave", 1).put("maxConcurrentTry", 3))
+                        if (
+                            settings.adaptiveDualStackEnabled &&
+                            endpointStrategy in setOf("ForceIP", "ForceIPv4v6", "ForceIPv6v4") &&
+                            tcpTransport &&
+                            !chained &&
+                            sockopt.optString("dialerProxy").isBlank()
+                        ) {
+                            sockopt.put(
+                                "happyEyeballs",
+                                JSONObject()
+                                    .put("tryDelayMs", 180)
+                                    .put("prioritizeIPv6", settings.ipv6Enabled && settings.preferIpv6)
+                                    .put("interleave", 1)
+                                    .put("maxConcurrentTry", 3)
+                            )
                         } else {
                             sockopt.remove("happyEyeballs")
                         }
@@ -259,9 +285,13 @@ object XrayConfigHardener {
         src.put("inbounds", JSONArray().put(inbound))
         src.put("outbounds", out)
 
-        val queryStrategy = settings.dnsQueryStrategy.takeIf {
-            it in setOf("UseIP", "UseIPv4", "UseIPv6", "UseSystem")
-        } ?: "UseIP"
+        val queryStrategy = if (!settings.ipv6Enabled) {
+            "UseIPv4"
+        } else {
+            settings.dnsQueryStrategy.takeIf {
+                it in setOf("UseIP", "UseIPv4", "UseIPv6", "UseSystem")
+            } ?: "UseIP"
+        }
 
         val bootstrapIps = listOf(settings.dnsPrimaryIp, settings.dnsSecondaryIp)
             .map { it.trim() }
@@ -365,6 +395,11 @@ object XrayConfigHardener {
                 .put("inboundTag", JSONArray().put("xgc-dns"))
                 .put("outboundTag", firstTag)
         )
+
+        // Android VPN always captures ::/0. Blocking here prevents an OS-level IPv6 bypass.
+        if (!settings.ipv6Enabled) {
+            addIpRule(rules, listOf("::/0"), "block")
+        }
 
         addDomainRule(rules, splitDomains(settings.routeBlockDomains), "block")
         addIpRule(rules, splitIps(settings.routeBlockIps), "block")

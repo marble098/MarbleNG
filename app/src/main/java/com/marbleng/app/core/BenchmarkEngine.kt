@@ -24,6 +24,7 @@ class BenchmarkEngine(
     private val xray: XrayManager,
     private val intelligence: MarbleIntelligence? = null
 ) {
+    // MARBLE_EVIDENCE_TIERS_V24
 
     fun run(
         profiles: List<ProxyProfile>,
@@ -49,7 +50,8 @@ class BenchmarkEngine(
         // Probing waits on sockets far more than on the CPU, and direct probes spawn no process at
         // all, so the old (cpu / 2) cap left most of the batch idle behind four workers.
         val nominalWorkers = if (directProbe(s)) {
-            (cpu * 3).coerceIn(8, 24)
+            // Direct probes are socket-wait bound. Honor the bounded ping-concurrency control.
+            s.tcpWorkers.coerceIn(4, 32)
         } else {
             cpu.coerceIn(4, 8)
         }
@@ -67,7 +69,11 @@ class BenchmarkEngine(
                 val measured = testCandidate(p, BASE_PORT + idx * 4, s)
                 val result = rank(listOf(measured), s).firstOrNull() ?: measured
                 results += result
-                intelligence?.recordBenchmark(p, result, s)
+                // TCP/ICMP proves endpoint reachability, not that the Xray route/account works.
+                // Never poison persistent tunnel intelligence with underlay-only measurements.
+                if (!directProbe(s)) {
+                    intelligence?.recordBenchmark(p, result, s)
+                }
                 onResult(p, result)
                 onProgress(completed.incrementAndGet(), candidates.size, p.name)
             }
@@ -76,11 +82,13 @@ class BenchmarkEngine(
         livePool.shutdown()
 
         val ranked = rank(results.toList(), s)
-        ranked.firstOrNull()?.let { top ->
-            intelligence?.setDecision(
-                "${top.name} • ${top.success}% • ${top.latencyMs.toInt()} ms • " +
-                    "${formatRate(top.bytesPerSecond)} • ${s.workloadProfile.name.lowercase()}"
-            )
+        if (!directProbe(s)) {
+            ranked.firstOrNull()?.let { top ->
+                intelligence?.setDecision(
+                    "${top.name} • ${top.success}% • ${top.latencyMs.toInt()} ms • " +
+                        "${formatRate(top.bytesPerSecond)} • ${s.workloadProfile.name.lowercase()}"
+                )
+            }
         }
         return ranked
     }
@@ -618,7 +626,8 @@ class BenchmarkEngine(
             success = sample.successPercent,
             latencyMs = sample.latencyMs,
             bytesPerSecond = 0.0,
-            score = 0.0
+            score = 0.0,
+            probeKind = if (s.probeMethod == ProbeMethod.ICMP) "ICMP" else "TCP"
         )
     }
 

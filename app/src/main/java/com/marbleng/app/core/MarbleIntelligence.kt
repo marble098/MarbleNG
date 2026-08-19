@@ -966,6 +966,7 @@ class MarbleIntelligence(private val context: Context) {
      * @param withAcceleration false returns the pre-acceleration baseline, which is what the
      *   tuner must measure against so it never re-proves its own previous conclusion.
      */
+    // MARBLE_IP_FAMILY_INTELLIGENCE_V24
     fun effectiveSettings(
         profile: ProxyProfile,
         base: AppSettings,
@@ -974,16 +975,21 @@ class MarbleIntelligence(private val context: Context) {
         startMonitoring()
 
         val n = snapshot
-        val queryStrategy =
-            if (!base.adaptiveDualStackEnabled) {
-                base.dnsQueryStrategy
-            } else {
-                when {
-                    n.hasIpv4 && !n.hasIpv6 -> "UseIPv4"
-                    n.hasIpv6 && !n.hasIpv4 -> "UseIPv6"
-                    else -> "UseIP"
-                }
-            }
+
+        // Prefer IPv6 is a preference, not a demand. Suspend it on IPv4-only links and restore it
+        // automatically when a real global IPv6 underlay becomes available.
+        val effectivePreferIpv6 =
+            base.ipv6Enabled &&
+                base.preferIpv6 &&
+                n.hasIpv6
+
+        val queryStrategy = when {
+            !base.ipv6Enabled -> "UseIPv4"
+            !base.adaptiveDualStackEnabled -> base.dnsQueryStrategy
+            n.hasIpv4 && !n.hasIpv6 -> "UseIPv4"
+            n.hasIpv6 && !n.hasIpv4 -> "UseIPv6"
+            else -> "UseIP"
+        }
 
         val dnsOrdered = preferredDnsOrder(base)
 
@@ -991,6 +997,7 @@ class MarbleIntelligence(private val context: Context) {
         // Explicit user settings remain intact, and IranShield may still apply censorship-specific changes.
         val tuned = base.copy(
             dnsQueryStrategy = queryStrategy,
+            preferIpv6 = effectivePreferIpv6,
             dnsPrimaryDoH = dnsOrdered.first,
             dnsSecondaryDoH = dnsOrdered.second
         )

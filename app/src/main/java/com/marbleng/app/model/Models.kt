@@ -68,7 +68,9 @@ data class BenchmarkResult(
     val stabilityScore: Double = 0.0,
     val resilienceScore: Double = 0.0,
     val usedFragment: Boolean = false,
-    val usedMux: Boolean = false
+    val usedMux: Boolean = false,
+    /** Evidence tier shown in Library. TCP/ICMP are endpoint reachability; TUNNEL proves Xray. */
+    val probeKind: String = "TUNNEL"
 )
 
 data class ConnectionRecord(val profileId: String, val name: String, val at: Long, val reason: String)
@@ -119,6 +121,7 @@ enum class IranModePolicy { AUTO, ALWAYS_ON, OFF }
 
 // MARBLE_SMART_DEFAULTS_V14
 // MARBLE_ULTIMATE_DEBUG_SETTING_V15
+// MARBLE_INTELLIGENCE_V24
 data class AppSettings(
     val socksPort: Int = 10808,
     val localProxyPort: Int = 10101,
@@ -178,6 +181,11 @@ data class AppSettings(
     val dnsPrimaryDoH: String = "https://1.1.1.1/dns-query",
     val dnsSecondaryDoH: String = "https://8.8.8.8/dns-query",
     val dnsQueryStrategy: String = "UseIP",
+
+    // Android TUN still captures IPv6 when disabled here. The Xray layer blocks ::/0 so turning
+    // IPv6 off can never become an operating-system bypass around the protected route.
+    val ipv6Enabled: Boolean = true,
+    val preferIpv6: Boolean = false,
 
     val fragmentEnabled: Boolean = false,
     val fragmentPackets: String = "tlshello",

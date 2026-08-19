@@ -7,6 +7,7 @@ import org.json.JSONObject
 
 class AppStore(context: Context) {
     // MARBLE_ULTIMATE_DEBUG_STORE_V15
+    // MARBLE_IP_FAMILY_STORE_V24
     private val prefs = context.getSharedPreferences("marbleng-store", Context.MODE_PRIVATE)
 
     fun loadProfiles(): MutableList<ProxyProfile> = parseArray("profiles") { ProxyProfile.fromJson(it) }
@@ -132,6 +133,8 @@ class AppStore(context: Context) {
         dnsPrimaryDoH = prefs.getString("dnsPrimaryDoH", "https://1.1.1.1/dns-query") ?: "https://1.1.1.1/dns-query",
         dnsSecondaryDoH = prefs.getString("dnsSecondaryDoH", "https://8.8.8.8/dns-query") ?: "https://8.8.8.8/dns-query",
         dnsQueryStrategy = prefs.getString("dnsQueryStrategy", "UseIP") ?: "UseIP",
+        ipv6Enabled = prefs.getBoolean("ipv6Enabled", true),
+        preferIpv6 = prefs.getBoolean("preferIpv6", false),
 
         fragmentEnabled = prefs.getBoolean("fragmentEnabled", false),
         fragmentPackets = prefs.getString("fragmentPackets", "tlshello") ?: "tlshello",
@@ -256,6 +259,8 @@ class AppStore(context: Context) {
         .putString("dnsPrimaryDoH", s.dnsPrimaryDoH)
         .putString("dnsSecondaryDoH", s.dnsSecondaryDoH)
         .putString("dnsQueryStrategy", s.dnsQueryStrategy)
+        .putBoolean("ipv6Enabled", s.ipv6Enabled)
+        .putBoolean("preferIpv6", s.preferIpv6)
 
         .putBoolean("fragmentEnabled", s.fragmentEnabled)
         .putString("fragmentPackets", s.fragmentPackets)
