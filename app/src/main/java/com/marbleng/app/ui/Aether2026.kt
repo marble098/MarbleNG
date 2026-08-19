@@ -4481,6 +4481,26 @@ private fun healthColor(latencyMs: Int, success: Int): Color = when {
     else -> Aether.Cyan
 }
 
+// MARBLE_LIBRARY_PING_HELPERS_V25_3_1
+// Keep the textual quality/bars consistent with healthColor(): green <=130 ms,
+// amber <=280 ms, red above 280 ms. The extra <=80 tier only distinguishes
+// excellent from merely fast without changing the health color semantics.
+private fun libraryPingQuality(latencyMs: Int): String = when {
+    latencyMs <= 0 -> "Waiting"
+    latencyMs <= 80 -> "Excellent"
+    latencyMs <= 130 -> "Fast"
+    latencyMs <= 280 -> "Fair"
+    else -> "Slow"
+}
+
+private fun libraryPingBars(latencyMs: Int): Int = when {
+    latencyMs <= 0 -> 0
+    latencyMs <= 80 -> 4
+    latencyMs <= 130 -> 3
+    latencyMs <= 280 -> 2
+    else -> 1
+}
+
 /** One line of evidence for a measured route; speed only appears when it was actually measured. */
 private fun routeEvidenceLine(result: BenchmarkResult): String = listOfNotNull(
     "${result.latencyMs.toInt()} ms",
