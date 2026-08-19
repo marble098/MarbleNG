@@ -13,20 +13,28 @@ data class ProxyProfile(
     val transport: String = "",
     val security: String = "",
     val subscriptionId: String = "manual",
-    val subscriptionName: String = "Manual"
+    val subscriptionName: String = "Manual",
+    /** True for nodes owned by remote subscription refresh; false for user-added nodes. */
+    val sourceManaged: Boolean = true
 ) {
     fun toJson() = JSONObject().apply {
         put("id", id); put("name", name); put("scheme", scheme); put("raw", raw)
         put("configJson", configJson); put("host", host); put("port", port)
         put("transport", transport); put("security", security)
         put("subscriptionId", subscriptionId); put("subscriptionName", subscriptionName)
+        put("sourceManaged", sourceManaged)
     }
 
     companion object {
         fun fromJson(o: JSONObject) = ProxyProfile(
             o.optString("id"), o.optString("name"), o.optString("scheme"), o.optString("raw"), o.optString("configJson"),
             o.optString("host"), o.optInt("port"), o.optString("transport"), o.optString("security"),
-            o.optString("subscriptionId", "manual"), o.optString("subscriptionName", "Manual")
+            o.optString("subscriptionId", "manual"), o.optString("subscriptionName", "Manual"),
+            if (o.has("sourceManaged")) {
+                o.optBoolean("sourceManaged", true)
+            } else {
+                o.optString("subscriptionId", "manual") != "manual"
+            }
         )
     }
 }
@@ -122,6 +130,7 @@ enum class IranModePolicy { AUTO, ALWAYS_ON, OFF }
 // MARBLE_SMART_DEFAULTS_V14
 // MARBLE_ULTIMATE_DEBUG_SETTING_V15
 // MARBLE_INTELLIGENCE_V24
+// MARBLE_SOURCE_TARGETING_V25_4
 data class AppSettings(
     val socksPort: Int = 10808,
     val localProxyPort: Int = 10101,
@@ -146,6 +155,8 @@ data class AppSettings(
     val rememberLast: Boolean = true,
     val subscriptionAutoRefresh: Boolean = true,
     val subscriptionRefreshHours: Int = 12,
+    /** Virtual Manual source is opt-in and disabled by default. */
+    val manualSourceEnabled: Boolean = false,
 
     // Optional smart alerts. Foreground-service status is managed separately while connected.
     val smartNotificationsEnabled: Boolean = true,

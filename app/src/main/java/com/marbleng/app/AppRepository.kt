@@ -29,6 +29,7 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     // MARBLE_IRAN_FORCE_RUNTIME_V22
     // MARBLE_INTELLIGENCE_V24
     // MARBLE_FAST_CONNECT_SSH_LIBRARY_V25
+    // MARBLE_SELECTED_SOURCE_V25_4
 
     private val store = AppStore(context)
     private val io = Executors.newFixedThreadPool(3)
@@ -63,6 +64,42 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     val history = mutableStateListOf<ConnectionRecord>().apply { addAll(store.loadHistory()) }
 
     var settings by mutableStateOf(store.settings()); private set
+
+    private data class LibraryTarget(val id: String, val name: String)
+
+    /** A concrete Library source can receive user imports; "all" is only a view. */
+    private fun resolveLibraryTarget(id: String): LibraryTarget? = when {
+        id == "manual" && settings.manualSourceEnabled -> LibraryTarget("manual", "Manual")
+        id == "manual" || id == "all" || id.isBlank() -> null
+        else -> subscriptions.firstOrNull { it.id == id }?.let { LibraryTarget(it.id, it.name) }
+    }
+
+    private fun profileSourceEnabled(profile: ProxyProfile): Boolean =
+        settings.manualSourceEnabled || profile.subscriptionId != "manual"
+
+    val libraryProfiles: List<ProxyProfile>
+        get() = profiles.filter(::profileSourceEnabled)
+
+    private fun enabledProfilesSnapshot(): List<ProxyProfile> =
+        profiles.filter(::profileSourceEnabled)
+
+    private fun migrateLocalSourceOwnershipIfNeeded() {
+        val localIds = subscriptions.asSequence()
+            .filter { it.url.isBlank() }
+            .mapTo(mutableSetOf()) { it.id }
+        var changed = false
+        for (index in profiles.indices) {
+            val current = profiles[index]
+            val userOwnedBucket = current.subscriptionId == "manual" ||
+                current.subscriptionId in localIds
+            if (userOwnedBucket && current.sourceManaged) {
+                profiles[index] = current.copy(sourceManaged = false)
+                changed = true
+            }
+        }
+        if (changed) store.saveProfiles(profiles)
+    }
+
     var networkSnapshot by mutableStateOf(intelligence.currentSnapshot()); private set
     var intelligenceStatus by mutableStateOf(IntelligenceStatus()); private set
     var sentinel by mutableStateOf(PrivacySentinelState()); private set
@@ -162,6 +199,7 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     var liveJitterSamples by mutableStateOf(0); private set
 
     init {
+        migrateLocalSourceOwnershipIfNeeded()
         RuntimeDiagnostics.setDebugEnabled(context, settings.debugModeEnabled)
         diagnostics.event("APP", "repository-init", "debugMode" to settings.debugModeEnabled)
         notifier.ensureChannels()
@@ -526,7 +564,7 @@ private fun postToMain(block: () -> Unit) {
     }
 
     fun recoveryCandidates(failedIds: Set<String>): List<ProxyProfile> =
-        intelligence.recoveryCandidates(profiles.toList(), failedIds, settings)
+        intelligence.recoveryCandidates(enabledProfilesSnapshot(), failedIds, settings)
 
     fun refreshIntelligenceStatus() {
         if (!statusRefreshInFlight.compareAndSet(false, true)) return
@@ -637,8 +675,16 @@ private fun postToMain(block: () -> Unit) {
                 "No supported profiles returned; previous nodes were kept"
             }
 
-            profiles.removeAll { it.subscriptionId == sub.id }
-            profiles.addAll(parsed)
+            val userOwnedIds = profiles.asSequence()
+                .filter { it.subscriptionId == sub.id && !it.sourceManaged }
+                .mapTo(mutableSetOf()) { it.id }
+            profiles.removeAll { it.subscriptionId == sub.id && it.sourceManaged }
+            profiles.addAll(
+                parsed.asSequence()
+                    .filterNot { it.id in userOwnedIds }
+                    .map { it.copy(sourceManaged = true) }
+                    .toList()
+            )
 
             val meta = parseSubscriptionUserInfo(payload.userInfo)
             val index = subscriptions.indexOfFirst { it.id == sub.id }
@@ -683,8 +729,16 @@ private fun postToMain(block: () -> Unit) {
                     val payload = httpSubscription(sub.url)
                     val parsed = ProxyParser.parseInput(payload.text, sub.id, sub.name)
                     require(parsed.isNotEmpty()) { "No supported profiles returned; previous nodes were kept" }
-                    profiles.removeAll { it.subscriptionId == sub.id }
-                    profiles.addAll(parsed)
+                    val userOwnedIds = profiles.asSequence()
+                        .filter { it.subscriptionId == sub.id && !it.sourceManaged }
+                        .mapTo(mutableSetOf()) { it.id }
+                    profiles.removeAll { it.subscriptionId == sub.id && it.sourceManaged }
+                    profiles.addAll(
+                        parsed.asSequence()
+                            .filterNot { it.id in userOwnedIds }
+                            .map { it.copy(sourceManaged = true) }
+                            .toList()
+                    )
                     val meta = parseSubscriptionUserInfo(payload.userInfo)
                     val index = subscriptions.indexOfFirst { it.id == sub.id }
                     if (index >= 0) {
@@ -739,15 +793,22 @@ private fun postToMain(block: () -> Unit) {
             message = "Manual config invalid • ${error.message ?: error::class.java.simpleName}"
             return false
         }
-        val localTarget = subscriptions.firstOrNull {
-            it.id == targetSubscriptionId && it.url.isBlank()
+        val target = resolveLibraryTarget(targetSubscriptionId)
+        if (target == null) {
+            message = if (targetSubscriptionId == "manual" && !settings.manualSourceEnabled) {
+                "Manual source is disabled • enable it in Settings → Subscriptions or select another source"
+            } else {
+                "Select one source in Library before adding a manual config"
+            }
+            return false
         }
-        val stored = if (localTarget == null) built else built.copy(
-            subscriptionId = localTarget.id,
-            subscriptionName = localTarget.name
+        val stored = built.copy(
+            subscriptionId = target.id,
+            subscriptionName = target.name,
+            sourceManaged = false
         )
-        if (profiles.any { it.id == stored.id }) {
-            message = "Config already exists • ${profiles.first { it.id == stored.id }.name}"
+        if (profiles.any { it.id == stored.id && it.subscriptionId == stored.subscriptionId }) {
+            message = "Config already exists in ${target.name}"
             return false
         }
         profiles += stored
@@ -764,17 +825,42 @@ private fun postToMain(block: () -> Unit) {
         message = "${stored.scheme.uppercase()} added • ${stored.name}"
         return true
     }
-    fun importText(text: String, name: String = "Manual") {
-        task("Importing") {
-            val parsed = ProxyParser.parseInput(text, "manual", name)
-            profiles.addAll(parsed.filter { p -> profiles.none { it.id == p.id } })
+    fun importText(
+        text: String,
+        name: String = "Manual",
+        targetSubscriptionId: String = "manual"
+    ) {
+        val target = resolveLibraryTarget(targetSubscriptionId)
+        if (target == null) {
+            message = if (targetSubscriptionId == "manual" && !settings.manualSourceEnabled) {
+                "Manual source is disabled • enable it in Settings → Subscriptions or select another source"
+            } else {
+                "Select one source in Library before importing configs"
+            }
+            return
+        }
+        task("Importing into ${target.name}") {
+            val parsed = ProxyParser.parseInput(text, target.id, target.name)
+                .map {
+                    it.copy(
+                        subscriptionId = target.id,
+                        subscriptionName = target.name,
+                        sourceManaged = false
+                    )
+                }
+            val fresh = parsed.filter { incoming ->
+                profiles.none {
+                    it.id == incoming.id && it.subscriptionId == target.id
+                }
+            }
+            profiles.addAll(fresh)
             store.saveProfiles(profiles)
-            message = "${parsed.size} profiles imported"
+            message = "${fresh.size} profile${if (fresh.size == 1) "" else "s"} imported into ${target.name}"
         }
     }
 
     /** Smart clipboard intake used by the Library magic button. */
-    fun importClipboard(text: String) {
+    fun importClipboard(text: String, targetSubscriptionId: String = "manual") {
         val clean = text.trim()
         if (clean.isBlank()) {
             message = "Clipboard is empty"
@@ -794,7 +880,7 @@ private fun postToMain(block: () -> Unit) {
         ).containsMatchIn(clean)
 
         if (!allHttpUrls || looksLikeJson || hasShareLinks || hasAuthenticatedHttpProxy) {
-            importText(clean, "Clipboard")
+            importText(clean, "Clipboard", targetSubscriptionId)
             return
         }
 
@@ -875,6 +961,10 @@ private fun postToMain(block: () -> Unit) {
             message = "Wait for the current background task before duplicating a node"
             return false
         }
+        if (!settings.manualSourceEnabled) {
+            message = "Manual source is disabled • enable it in Settings → Subscriptions first"
+            return false
+        }
         val source = profile(id) ?: run {
             message = "Node no longer exists"
             return false
@@ -890,7 +980,8 @@ private fun postToMain(block: () -> Unit) {
             id = newId,
             name = name,
             subscriptionId = "manual",
-            subscriptionName = "Manual"
+            subscriptionName = "Manual",
+            sourceManaged = false
         )
         store.saveProfiles(profiles)
         message = "Manual copy created • $name"
@@ -975,15 +1066,15 @@ private fun postToMain(block: () -> Unit) {
     fun subscriptionNodeCount(id: String): Int = profiles.count { it.subscriptionId == id }
 
     /** Reassigns a profile to another subscription bucket (or "manual") so nodes can move between library sources. */
-    fun lastProfile() = profile(store.lastProfileId())
+    fun lastProfile() = profile(store.lastProfileId())?.takeIf(::profileSourceEnabled)
     fun auto(
         onConnect: (ProxyProfile) -> Unit
     ) {
-        if (profiles.isEmpty()) {
-            message = "Add a subscription or import a node first"
+        val available = enabledProfilesSnapshot()
+        if (available.isEmpty()) {
+            message = "No enabled nodes • select a source or enable Manual source"
             return
         }
-        val available = profiles.toList()
         val remembered = lastProfile()
         val measured = benchmarks
             .asSequence()
@@ -1139,10 +1230,15 @@ private fun postToMain(block: () -> Unit) {
 
     fun smart(onBest: (ProxyProfile) -> Unit) {
         task("Marble Intelligence • selecting route") {
+            val available = enabledProfilesSnapshot()
+            if (available.isEmpty()) {
+                message = "No enabled nodes to test"
+                return@task
+            }
             val engine = BenchmarkEngine(xray, intelligence)
-            if (settings.intelligenceEnabled && settings.raceConnectEnabled && profiles.size > 1) {
+            if (settings.intelligenceEnabled && settings.raceConnectEnabled && available.size > 1) {
                 val raced = engine.race(
-                    profiles.toList(),
+                    available,
                     settings,
                     onCandidates = ::beginProbeBatch,
                     onStart = ::markProbeStart,
@@ -1157,7 +1253,7 @@ private fun postToMain(block: () -> Unit) {
                 }
             }
             val results = engine.run(
-                profiles.toList(),
+                available,
                 settings,
                 onCandidates = ::beginProbeBatch,
                 onStart = ::markProbeStart,
@@ -1171,12 +1267,13 @@ private fun postToMain(block: () -> Unit) {
     }
 
     fun smartRank() {
-        if (profiles.isEmpty()) {
-            message = "Nothing to rank • add a subscription or import nodes first"
+        val candidates = enabledProfilesSnapshot()
+        if (candidates.isEmpty()) {
+            message = "Nothing enabled to rank"
             return
         }
         task("Smart rank • TCP preflight → Xray finalists") {
-            val all = profiles.toList()
+            val all = candidates
             val deepBudget = when {
                 all.size <= 8 -> all.size
                 all.size <= 24 -> 8
@@ -1235,12 +1332,13 @@ private fun postToMain(block: () -> Unit) {
      * Full test and Smart Xray rank remain available when actual proxy usability must be proven.
      */
     fun testAll() {
-        if (profiles.isEmpty()) {
-            message = "Nothing to ping • add nodes first"
+        val candidates = enabledProfilesSnapshot()
+        if (candidates.isEmpty()) {
+            message = "Nothing enabled to ping"
             return
         }
         task("Quick ping • testing all endpoints") {
-            val all = profiles.toList()
+            val all = candidates
             val quickSettings = settings.copy(
                 benchMode = BenchMode.CUSTOM,
                 benchCandidates = all.size,
@@ -1335,7 +1433,7 @@ private fun postToMain(block: () -> Unit) {
     }
 
     fun verifyRoutingPolicy() {
-        val candidate = lastProfile() ?: profiles.firstOrNull()
+        val candidate = lastProfile() ?: enabledProfilesSnapshot().firstOrNull()
         if (candidate == null) {
             message = "Import at least one profile before verifying routing"
             return

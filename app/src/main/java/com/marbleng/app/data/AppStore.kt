@@ -8,6 +8,7 @@ import org.json.JSONObject
 class AppStore(context: Context) {
     // MARBLE_ULTIMATE_DEBUG_STORE_V15
     // MARBLE_IP_FAMILY_STORE_V24
+    // MARBLE_SOURCE_TARGETING_STORE_V25_4
     private val prefs = context.getSharedPreferences("marbleng-store", Context.MODE_PRIVATE)
 
     fun loadProfiles(): MutableList<ProxyProfile> = parseArray("profiles") { ProxyProfile.fromJson(it) }
@@ -99,6 +100,7 @@ class AppStore(context: Context) {
         rememberLast = prefs.getBoolean("rememberLast", true),
         subscriptionAutoRefresh = prefs.getBoolean("subscriptionAutoRefresh", true),
         subscriptionRefreshHours = prefs.getInt("subscriptionRefreshHours", 12),
+        manualSourceEnabled = prefs.getBoolean("manualSourceEnabled", false),
 
         smartNotificationsEnabled = prefs.getBoolean("smartNotificationsEnabled", true),
         notifyConnectionEvents = prefs.getBoolean("notifyConnectionEvents", false),
@@ -225,6 +227,7 @@ class AppStore(context: Context) {
         .putBoolean("rememberLast", s.rememberLast)
         .putBoolean("subscriptionAutoRefresh", s.subscriptionAutoRefresh)
         .putInt("subscriptionRefreshHours", s.subscriptionRefreshHours)
+        .putBoolean("manualSourceEnabled", s.manualSourceEnabled)
 
         .putBoolean("smartNotificationsEnabled", s.smartNotificationsEnabled)
         .putBoolean("notifyConnectionEvents", s.notifyConnectionEvents)

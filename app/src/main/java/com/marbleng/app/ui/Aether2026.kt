@@ -10,6 +10,7 @@ package com.marbleng.app.ui
 // MARBLE_HOME_COMMAND_CENTER_V22
 // MARBLE_LIBRARY_INTELLIGENCE_UI_V24
 // MARBLE_LIBRARY_SSH_COMPACT_V25
+// MARBLE_SELECTED_SOURCE_UI_V25_4
 
 import android.Manifest
 import android.content.Intent
@@ -792,7 +793,7 @@ private fun CyberDeck(
                 HoloActionPill(
                     "▦",
                     "Library",
-                    "${repo.profiles.size} connections",
+                    "${repo.libraryProfiles.size} connections",
                     Aether.Amethyst,
                     Modifier.weight(1f)
                 ) { onLibrary() }
@@ -1234,14 +1235,16 @@ private fun CyberLibrary(
     var deleteSubscription by remember { mutableStateOf<Subscription?>(null) }
 
     val sourceIds = repo.subscriptions.map { it.id }
-    LaunchedEffect(sourceIds, sourceFilter) {
-        if (sourceFilter != "all" && sourceFilter != "manual" && sourceFilter !in sourceIds) {
-            sourceFilter = "all"
-        }
+    LaunchedEffect(sourceIds, sourceFilter, repo.settings.manualSourceEnabled) {
+        val manualDisabled = sourceFilter == "manual" && !repo.settings.manualSourceEnabled
+        val missingSource = sourceFilter != "all" &&
+            sourceFilter != "manual" &&
+            sourceFilter !in sourceIds
+        if (manualDisabled || missingSource) sourceFilter = "all"
     }
 
     val benchmarkById = repo.benchmarks.associateBy { it.profileId }
-    val filtered = repo.profiles.filter {
+    val filtered = repo.libraryProfiles.filter {
         val sourceMatches = when (sourceFilter) {
             "all" -> true
             "manual" -> it.subscriptionId == "manual"
@@ -1456,7 +1459,7 @@ private fun CyberLibrary(
                 eyebrow = "Connections",
                 title = "Library",
                 subtitle = "Quick TCP ping • verified Xray smart rank",
-                status = "${repo.profiles.size} nodes",
+                status = "${repo.libraryProfiles.size} nodes",
                 statusColor = Aether.Amethyst
             )
         }
@@ -1478,7 +1481,10 @@ private fun CyberLibrary(
 
                 Button(
                     onClick = {
-                        repo.importClipboard(clipboard.getText()?.text.orEmpty())
+                        repo.importClipboard(
+                            clipboard.getText()?.text.orEmpty(),
+                            sourceFilter
+                        )
                     },
                     modifier = Modifier.height(56.dp),
                     shape = RoundedCornerShape(18.dp),
@@ -1547,7 +1553,11 @@ private fun CyberLibrary(
                         label = "library-add-mode-v20"
                     ) { mode ->
                         if (mode == "manual") {
-                            ManualConfigEditor(repo = repo, onSaved = { addOpen = false })
+                            ManualConfigEditor(
+                                repo = repo,
+                                targetSourceId = sourceFilter,
+                                onSaved = { addOpen = false }
+                            )
                         } else {
                             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                                 OutlinedTextField(
@@ -1647,7 +1657,7 @@ private fun CyberLibrary(
                         },
                         color = Aether.Cyan,
                         modifier = Modifier.weight(1f),
-                        enabled = repo.profiles.isNotEmpty() && !repo.busy
+                        enabled = repo.libraryProfiles.isNotEmpty() && !repo.busy
                     ) { repo.testAll() }
                 }
 
@@ -1655,7 +1665,7 @@ private fun CyberLibrary(
                     label = "Smart Xray rank",
                     color = Aether.Emerald,
                     modifier = Modifier.fillMaxWidth(),
-                    enabled = repo.profiles.isNotEmpty() && !repo.busy
+                    enabled = repo.libraryProfiles.isNotEmpty() && !repo.busy
                 ) { repo.smartRank() }
             }
         }
@@ -1663,7 +1673,7 @@ private fun CyberLibrary(
         item {
             SectionLabel(
                 "Nodes",
-                if (repo.profiles.isEmpty()) null else "${visible.size} shown"
+                if (repo.libraryProfiles.isEmpty()) null else "${visible.size} shown"
             )
         }
 
@@ -1679,12 +1689,12 @@ private fun CyberLibrary(
             item {
                 HoloGlass(modifier = Modifier.fillMaxWidth()) {
                     Text(
-                        if (repo.profiles.isEmpty()) "No connections yet" else "Nothing matches",
+                        if (repo.libraryProfiles.isEmpty()) "No connections yet" else "Nothing matches",
                         color = Aether.Ink,
                         style = MaterialTheme.typography.titleMedium
                     )
                     Text(
-                        if (repo.profiles.isEmpty()) {
+                        if (repo.libraryProfiles.isEmpty()) {
                             "Add a subscription URL above, or import a config file."
                         } else {
                             "Clear the search box or pick another source."
@@ -1764,11 +1774,16 @@ private fun CyberLibrary(
 @Composable
 private fun ManualConfigEditor(
     repo: AppRepository,
+    targetSourceId: String,
     onSaved: () -> Unit
 ) {
     var draft by remember { mutableStateOf(ManualConfigDraft()) }
-    var targetSourceId by remember { mutableStateOf("manual") }
-    val localSources = repo.subscriptions.filter { it.url.isBlank() }
+    val targetSourceName = when {
+        targetSourceId == "manual" && repo.settings.manualSourceEnabled -> "Manual"
+        targetSourceId == "manual" -> null
+        else -> repo.subscriptions.firstOrNull { it.id == targetSourceId }?.name
+    }
+    val targetReady = targetSourceName != null
     val protocol = draft.protocol
     val streamProtocols = setOf(ManualProtocol.VLESS, ManualProtocol.VMESS, ManualProtocol.TROJAN)
 
@@ -1947,21 +1962,22 @@ private fun ManualConfigEditor(
             }
         }
 
-        if (localSources.isNotEmpty()) {
-            SectionLabel("Save to", "Manual or local source")
-            Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                CyberChoiceChip("Manual", targetSourceId == "manual", Aether.Amethyst) { targetSourceId = "manual" }
-                localSources.forEach { source ->
-                    CyberChoiceChip(source.name, targetSourceId == source.id, Aether.Emerald) { targetSourceId = source.id }
-                }
-            }
-        }
+        SectionLabel("Save to", targetSourceName ?: "Select one Library source first")
+        Text(
+            if (targetReady) {
+                "This config will be added to the currently selected source and kept across refreshes."
+            } else {
+                "All sources is only a view. Select a source chip first, then add the config."
+            },
+            color = if (targetReady) Aether.Emerald else Aether.Amber,
+            style = MaterialTheme.typography.bodySmall
+        )
 
         CyberButton(
             label = if (protocol == ManualProtocol.SSH) "Save SSH connection" else "Save manual config",
             color = Aether.Emerald,
             modifier = Modifier.fillMaxWidth(),
-            enabled = !repo.busy && (
+            enabled = targetReady && !repo.busy && (
                 (protocol == ManualProtocol.XRAY_JSON && draft.customJson.isNotBlank()) ||
                     (protocol != ManualProtocol.XRAY_JSON && draft.host.isNotBlank())
                 )
@@ -2119,7 +2135,7 @@ private fun LibraryViewControls(
     sourceFilter: String,
     onSourceFilter: (String) -> Unit
 ) {
-    val manualCount = repo.profiles.count { it.subscriptionId == "manual" }
+    val manualCount = repo.libraryProfiles.count { it.subscriptionId == "manual" }
     val sourceLabel = when (sourceFilter) {
         "all" -> "All sources"
         "manual" -> "Manual"
@@ -2143,10 +2159,10 @@ private fun LibraryViewControls(
             modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(7.dp)
         ) {
-            CyberChoiceChip("All ${repo.profiles.size}", sourceFilter == "all", Aether.Cyan) {
+            CyberChoiceChip("All ${repo.libraryProfiles.size}", sourceFilter == "all", Aether.Cyan) {
                 onSourceFilter("all")
             }
-            if (manualCount > 0) {
+            if (repo.settings.manualSourceEnabled) {
                 CyberChoiceChip("Manual $manualCount", sourceFilter == "manual", Aether.Amber) {
                     onSourceFilter("manual")
                 }
@@ -2497,13 +2513,15 @@ private fun SpatialServerCard(
                             }
                         )
                     }
-                    DropdownMenuItem(
-                        text = { Text("Duplicate to Manual") },
-                        onClick = {
-                            menuOpen = false
-                            repo.duplicateProfile(profile.id)
-                        }
-                    )
+                    if (repo.settings.manualSourceEnabled) {
+                        DropdownMenuItem(
+                            text = { Text("Duplicate to Manual") },
+                            onClick = {
+                                menuOpen = false
+                                repo.duplicateProfile(profile.id)
+                            }
+                        )
+                    }
                     HorizontalDivider(color = Aether.GlassBorderSoft)
                     DropdownMenuItem(
                         text = { Text("Test this node") },
@@ -3410,7 +3428,7 @@ private fun ChainSettings(repo: AppRepository) {
                 modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(7.dp)
             ) {
-                repo.profiles.take(80).forEach { profile ->
+                repo.libraryProfiles.take(80).forEach { profile ->
                     CyberChoiceChip(
                         text = profile.name,
                         selected = repo.settings.chainSecondProfileId == profile.id,
@@ -3840,7 +3858,7 @@ private fun RoutingSettings(repo: AppRepository) {
         label = "VERIFY WITH XRAY",
         color = Aether.Cyan,
         modifier = Modifier.fillMaxWidth(),
-        enabled = repo.profiles.isNotEmpty() && !repo.busy
+        enabled = repo.libraryProfiles.isNotEmpty() && !repo.busy
     ) { repo.verifyRoutingPolicy() }
 
     HorizontalDivider(color = Aether.GlassBorderSoft)
@@ -3914,6 +3932,14 @@ private fun RoutingSettings(repo: AppRepository) {
 
 @Composable
 private fun SubscriptionSettings(repo: AppRepository) {
+    SettingSwitch(
+        title = "Manual source",
+        subtitle = "Show and enable the built-in Manual source. Off by default; stored Manual nodes stay dormant until enabled.",
+        checked = repo.settings.manualSourceEnabled
+    ) {
+        repo.updateSettings(repo.settings.copy(manualSourceEnabled = it))
+    }
+
     SettingSwitch(
         title = "Automatic refresh",
         subtitle = "Refresh stale subscriptions when MarbleNG starts",
