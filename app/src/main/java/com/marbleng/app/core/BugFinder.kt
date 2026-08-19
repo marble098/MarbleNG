@@ -2,6 +2,7 @@ package com.marbleng.app.core
 
 // MARBLE_BUG_FINDER_ULTIMATE_V15
 // MARBLE_RUNTIME_STARTUP_RESCUE_V21
+// MARBLE_EXIT_RECENCY_V23
 
 import android.app.ActivityManager
 import android.app.ApplicationExitInfo
@@ -272,7 +273,7 @@ class BugFinder(private val context: Context, private val xray: XrayManager) {
             )
         }
 
-        val exits = historicalExits()
+        val exits = historicalExits(now)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             checks += when {
                 exits.crashLike > 0 -> BugCheck(
@@ -455,7 +456,7 @@ class BugFinder(private val context: Context, private val xray: XrayManager) {
         }
     }
 
-    private fun historicalExits(): ExitEvidence {
+    private fun historicalExits(now: Long): ExitEvidence {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
             return ExitEvidence("Unavailable on Android ${Build.VERSION.SDK_INT}; requires API 30+.", 0, 0)
         }
@@ -467,16 +468,24 @@ class BugFinder(private val context: Context, private val xray: XrayManager) {
 
         var crashLike = 0
         var lowMemory = 0
+        val warningCutoff = now - 24L * 60L * 60L * 1000L
         val text = buildString {
             appendLine("records=${exits.size}")
+            appendLine("warningWindowHours=24")
             exits.forEachIndexed { index, exit ->
                 val reason = exitReason(exit.reason)
                 if (
-                    exit.reason == ApplicationExitInfo.REASON_CRASH ||
-                    exit.reason == ApplicationExitInfo.REASON_CRASH_NATIVE ||
-                    exit.reason == ApplicationExitInfo.REASON_ANR
+                    exit.timestamp >= warningCutoff &&
+                    (
+                        exit.reason == ApplicationExitInfo.REASON_CRASH ||
+                        exit.reason == ApplicationExitInfo.REASON_CRASH_NATIVE ||
+                        exit.reason == ApplicationExitInfo.REASON_ANR
+                    )
                 ) crashLike++
-                if (exit.reason == ApplicationExitInfo.REASON_LOW_MEMORY) lowMemory++
+                if (
+                    exit.timestamp >= warningCutoff &&
+                    exit.reason == ApplicationExitInfo.REASON_LOW_MEMORY
+                ) lowMemory++
 
                 appendLine()
                 appendLine("#${index + 1} ${Instant.ofEpochMilli(exit.timestamp)}")

@@ -49,6 +49,7 @@ class MarbleVpnService : VpnService() {
     // MARBLE_VERIFIED_LATENCY_V19
     // MARBLE_RUNTIME_STARTUP_RESCUE_V21
     // MARBLE_VERIFIED_JITTER_BURST_V22
+    // MARBLE_RUNTIME_EXTREME_V23
     // Live optimisation may learn while connected, but it must never intentionally tear down
     // a healthy user tunnel merely to hot-apply a transport experiment.
     companion object {
@@ -63,9 +64,9 @@ class MarbleVpnService : VpnService() {
         const val MODE_PROXY = "proxy"
         const val CHANNEL = "marbleng-vpn"
         const val NOTIFY = 7301
-        private const val ROUTE_PROBE_INTERVAL_TICKS = 20
+        private const val ROUTE_PROBE_INTERVAL_TICKS = 30
         private const val ROUTE_DEGRADED_PROBE_TICKS = 8
-        private const val ROUTE_HEAVY_PROBE_TICKS = 45
+        private const val ROUTE_HEAVY_PROBE_TICKS = 60
         private const val ROUTE_JITTER_TRIGGER_MS = 25
         private const val ROUTE_JITTER_RELEASE_MS = 12
         private const val ROUTE_WINDOW_SIZE = 5
@@ -83,9 +84,9 @@ class MarbleVpnService : VpnService() {
         // requires normally-spaced misses plus a second independent confirmation.
         private const val PROBE_FAILURES_BEFORE_RECOVERY = 4
         private const val ROUTE_CONFIRM_TIMEOUT_MS = 4_500
-        private const val RECENT_TRAFFIC_GRACE_MS = 45_000L
+        private const val RECENT_TRAFFIC_GRACE_MS = 75_000L
         private const val HEV_READY_GRACE_MS = 1_500L
-        private const val CONNECT_STARTUP_TIMEOUT_MS = 35_000L
+        private const val CONNECT_STARTUP_TIMEOUT_MS = 90_000L
         private const val HEV_STALL_MIN_MS = 20_000L
         private const val HEV_STALL_MIN_TX_BYTES = 32L * 1024L
         private const val HEV_STATS_FAILURE_LIMIT = 5
@@ -333,7 +334,7 @@ class MarbleVpnService : VpnService() {
         updateSentinel(killSwitch = normalizedMode == MODE_TUN)
 
         // One connection attempt gets a finite wall-clock budget. A scheduled watchdog does not
-        // consume a monitor thread for 35 seconds, so HEV readiness/identity/DNS workers cannot be
+        // consume a monitor thread for the full startup window, so HEV readiness/identity/DNS workers cannot be
         // starved by the watchdog whose job is to protect them.
         timerWorker.schedule({
             if (isCurrent(session) && !tunReadyPublished.get()) {

@@ -9,6 +9,7 @@ object XrayConfigHardener {
     // MARBLE_CLEAN_XRAY_LOG_V13
     // MARBLE_DNS_RESILIENCE_V16
     // MARBLE_DNS_DEJITTER_V18
+    // MARBLE_DNS_TRANSPORT_FALLBACK_V23
     private val infra = setOf("freedom", "blackhole", "dns", "loopback")
     private val compatibilityDependencyProtocols = setOf(
         "freedom", "http", "shadowsocks", "socks", "trojan", "vless", "vmess", "hysteria", "wireguard"
@@ -307,6 +308,23 @@ object XrayConfigHardener {
                     .put("queryStrategy", queryStrategy)
                     .put("timeoutMs", if (index == 0) 2200 else 2600)
             )
+        }
+
+        // V23: Runtime evidence showed repeated remote DoH/443 deadline exhaustion while
+        // Xray, SOCKS and HEV were otherwise healthy. Keep encrypted DoH as first choice, then
+        // fail over to DNS-over-TCP using the user's configured resolver IPs. These are non-local
+        // Xray DNS clients and xgc-dns is routed to firstTag below, so TCP/53 stays INSIDE the
+        // selected proxy route. Android/system DNS is never introduced as a fallback.
+        if (settings.adaptiveDnsEnabled) {
+            bootstrapIps.forEachIndexed { index, ip ->
+                dnsServers.put(
+                    JSONObject()
+                        .put("address", "tcp://$ip:53")
+                        .put("queryStrategy", queryStrategy)
+                        .put("timeoutMs", if (index == 0) 1600 else 2000)
+                        .put("finalQuery", index == bootstrapIps.lastIndex)
+                )
+            }
         }
 
         src.put(
