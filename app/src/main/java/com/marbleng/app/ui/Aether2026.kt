@@ -9,6 +9,7 @@ package com.marbleng.app.ui
 // MARBLE_MANUAL_MOTION_UI_V20
 // MARBLE_HOME_COMMAND_CENTER_V22
 // MARBLE_LIBRARY_INTELLIGENCE_UI_V24
+// MARBLE_LIBRARY_SSH_COMPACT_V25
 
 import android.Manifest
 import android.content.Intent
@@ -48,6 +49,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -1347,7 +1349,12 @@ private fun CyberLibrary(
                         modifier = Modifier.fillMaxWidth()
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                        CyberButton("Copy URL", Aether.Emerald, Modifier.weight(1f)) {
+                        CyberButton(
+                            if (target.url.isBlank()) "Local source" else "Copy URL",
+                            Aether.Emerald,
+                            Modifier.weight(1f),
+                            enabled = target.url.isNotBlank()
+                        ) {
                             clipboard.setText(AnnotatedString(target.url))
                             repo.setRuntimeMessage("Subscription URL copied")
                         }
@@ -1371,10 +1378,10 @@ private fun CyberLibrary(
                             manageSubscription = null
                         }
                         CyberButton(
-                            label = "Refresh",
+                            label = if (target.url.isBlank()) "LOCAL" else "Refresh",
                             color = Aether.Amethyst,
                             modifier = Modifier.weight(1f),
-                            enabled = !repo.busy
+                            enabled = !repo.busy && target.url.isNotBlank()
                         ) {
                             manageSubscription = null
                             repo.refresh(target.id)
@@ -1389,7 +1396,7 @@ private fun CyberLibrary(
                             manageSubscription = null
                         }
                     },
-                    enabled = !repo.busy && editSubscriptionUrl.isNotBlank()
+                    enabled = !repo.busy
                 ) { Text("SAVE", color = Aether.Cyan) }
             },
             dismissButton = {
@@ -1546,7 +1553,8 @@ private fun CyberLibrary(
                                 OutlinedTextField(
                                     value = url,
                                     onValueChange = { url = it },
-                                    label = { Text("Subscription URL") },
+                                    label = { Text("Subscription URL • optional") },
+                                    supportingText = { Text("Leave blank for a local source/folder.") },
                                     singleLine = true,
                                     modifier = Modifier.fillMaxWidth(),
                                     shape = RoundedCornerShape(18.dp)
@@ -1554,16 +1562,20 @@ private fun CyberLibrary(
                                 OutlinedTextField(
                                     value = sourceName,
                                     onValueChange = { sourceName = it },
-                                    label = { Text("Name") },
+                                    label = { Text("Name • optional") },
                                     singleLine = true,
                                     modifier = Modifier.fillMaxWidth(),
                                     shape = RoundedCornerShape(18.dp)
                                 )
                                 CyberButton(
-                                    label = "Add subscription",
+                                    label = if (url.isBlank()) "Create local source" else "Add subscription",
                                     color = Aether.Cyan,
                                     modifier = Modifier.fillMaxWidth(),
-                                    enabled = url.startsWith("http")
+                                    enabled = !repo.busy && (
+                                        url.isBlank() ||
+                                            url.startsWith("https://", true) ||
+                                            url.startsWith("http://", true)
+                                        )
                                 ) {
                                     repo.addSubscription(sourceName, url)
                                     url = ""
@@ -1583,22 +1595,30 @@ private fun CyberLibrary(
 
         if (repo.subscriptions.isNotEmpty()) {
             item {
-                SectionLabel("Sources")
+                SectionLabel("Sources", "${repo.subscriptions.size} compact")
             }
 
-            items(repo.subscriptions, key = { "subscription-${it.id}" }) { sub ->
-                SubscriptionManagerCard(
-                    sub = sub,
-                    repo = repo,
-                    selected = sourceFilter == sub.id,
-                    refreshing = sub.id in repo.refreshingSources,
-                    onView = { sourceFilter = sub.id },
-                    onManage = {
-                        editSubscriptionName = sub.name
-                        editSubscriptionUrl = sub.url
-                        manageSubscription = sub
+            item {
+                LazyRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = PaddingValues(end = 8.dp)
+                ) {
+                    items(repo.subscriptions, key = { "subscription-${it.id}" }) { sub ->
+                        SubscriptionManagerCard(
+                            sub = sub,
+                            repo = repo,
+                            selected = sourceFilter == sub.id,
+                            refreshing = sub.id in repo.refreshingSources,
+                            onView = { sourceFilter = sub.id },
+                            onManage = {
+                                editSubscriptionName = sub.name
+                                editSubscriptionUrl = sub.url
+                                manageSubscription = sub
+                            }
+                        )
                     }
-                )
+                }
             }
         }
 
@@ -1747,6 +1767,8 @@ private fun ManualConfigEditor(
     onSaved: () -> Unit
 ) {
     var draft by remember { mutableStateOf(ManualConfigDraft()) }
+    var targetSourceId by remember { mutableStateOf("manual") }
+    val localSources = repo.subscriptions.filter { it.url.isBlank() }
     val protocol = draft.protocol
     val streamProtocols = setOf(ManualProtocol.VLESS, ManualProtocol.VMESS, ManualProtocol.TROJAN)
 
@@ -1762,12 +1784,14 @@ private fun ManualConfigEditor(
                         port = when (item) {
                             ManualProtocol.HTTP -> "80"
                             ManualProtocol.SOCKS5 -> "1080"
+                            ManualProtocol.SSH -> "22"
                             else -> "443"
                         },
                         security = when (item) {
                             ManualProtocol.SHADOWSOCKS,
                             ManualProtocol.HTTP,
                             ManualProtocol.SOCKS5,
+                            ManualProtocol.SSH,
                             ManualProtocol.WIREGUARD -> "none"
                             else -> "tls"
                         }
@@ -1829,6 +1853,14 @@ private fun ManualConfigEditor(
                             draft = draft.copy(allowInsecure = !draft.allowInsecure)
                         }
                     }
+                }
+                ManualProtocol.SSH -> {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        ManualField("Username", draft.username, { draft = draft.copy(username = it) }, Modifier.weight(1f))
+                        ManualField("Password", draft.password, { draft = draft.copy(password = it) }, Modifier.weight(1f))
+                    }
+                    ManualField("Host key SHA256 • optional", draft.sshHostKeySha256, { draft = draft.copy(sshHostKeySha256 = it) })
+                    Text("SSH carries TCP through the protected loopback adapter; UDP is blocked fail-closed.", color = Aether.InkFaint, style = MaterialTheme.typography.bodySmall)
                 }
                 ManualProtocol.WIREGUARD -> {
                     ManualField("Private key", draft.wireguardSecretKey, { draft = draft.copy(wireguardSecretKey = it) })
@@ -1915,8 +1947,18 @@ private fun ManualConfigEditor(
             }
         }
 
+        if (localSources.isNotEmpty()) {
+            SectionLabel("Save to", "Manual or local source")
+            Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                CyberChoiceChip("Manual", targetSourceId == "manual", Aether.Amethyst) { targetSourceId = "manual" }
+                localSources.forEach { source ->
+                    CyberChoiceChip(source.name, targetSourceId == source.id, Aether.Emerald) { targetSourceId = source.id }
+                }
+            }
+        }
+
         CyberButton(
-            label = "Save manual config",
+            label = if (protocol == ManualProtocol.SSH) "Save SSH connection" else "Save manual config",
             color = Aether.Emerald,
             modifier = Modifier.fillMaxWidth(),
             enabled = !repo.busy && (
@@ -1924,7 +1966,7 @@ private fun ManualConfigEditor(
                     (protocol != ManualProtocol.XRAY_JSON && draft.host.isNotBlank())
                 )
         ) {
-            if (repo.addManualProfile(draft)) {
+            if (repo.addManualProfile(draft, targetSourceId)) {
                 draft = ManualConfigDraft()
                 onSaved()
             }
@@ -2179,162 +2221,52 @@ private fun SubscriptionManagerCard(
     onManage: () -> Unit
 ) {
     val count = repo.subscriptionNodeCount(sub.id)
-    val used = (sub.uploadBytes + sub.downloadBytes).coerceAtLeast(0L)
-    val fraction =
-        if (sub.totalBytes > 0L)
-            (used.toFloat() / sub.totalBytes.toFloat()).coerceIn(0f, 1f)
-        else 0f
-    val animatedFraction by animateFloatAsState(
-        targetValue = fraction,
-        animationSpec = tween(260, easing = FastOutSlowInEasing),
-        label = "subscription-quota-${sub.id}"
-    )
+    val local = sub.url.isBlank()
     val expired = sub.expireAt > 0L && sub.expireAt < System.currentTimeMillis()
-    val color = when {
+    val accent = when {
         expired -> Aether.Danger
+        refreshing -> Aether.Amethyst
         selected -> Aether.Cyan
+        local -> Aether.Emerald
         else -> Aether.InkMuted
     }
-
-    HoloGlass(
-        modifier = Modifier.fillMaxWidth().animateContentSize(tween(180)),
-        borderColor = when {
-            refreshing -> Aether.Amethyst.copy(alpha = .55f)
-            selected -> Aether.Cyan.copy(alpha = .50f)
-            else -> Aether.GlassBorderSoft
-        },
-        contentPadding = PaddingValues(horizontal = 15.dp, vertical = 14.dp)
+    val shape = RoundedCornerShape(17.dp)
+    Row(
+        modifier = Modifier
+            .widthIn(min = 210.dp, max = 270.dp)
+            .heightIn(min = 62.dp)
+            .clip(shape)
+            .background(accent.copy(alpha = if (selected) .10f else .055f))
+            .border(1.dp, accent.copy(alpha = if (selected) .42f else .20f), shape)
+            .clickable(onClick = onView)
+            .padding(start = 10.dp, top = 8.dp, bottom = 8.dp, end = 5.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                Modifier
-                    .size(40.dp)
-                    .clip(RoundedCornerShape(13.dp))
-                    .background(color.copy(alpha = .12f)),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    sub.name.trim().firstOrNull()?.uppercase() ?: "S",
-                    color = color,
-                    style = MaterialTheme.typography.titleMedium
-                )
-            }
-            Spacer(Modifier.width(11.dp))
-            Column(Modifier.weight(1f)) {
-                Text(
-                    sub.name,
-                    color = Aether.Ink,
-                    style = MaterialTheme.typography.titleMedium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    "$count nodes • ${relativeTime(sub.updatedAt)}",
-                    color = Aether.InkFaint,
-                    style = MaterialTheme.typography.labelSmall,
-                    maxLines = 1
-                )
-            }
+        Box(
+            Modifier.size(32.dp).clip(RoundedCornerShape(11.dp)).background(accent.copy(alpha = .14f)),
+            contentAlignment = Alignment.Center
+        ) {
             if (refreshing) {
-                HoloBadge("Refreshing", Aether.Amethyst, compact = true)
-            } else if (selected) {
-                HoloBadge("Selected", Aether.Cyan, compact = true)
+                CircularProgressIndicator(modifier = Modifier.size(17.dp), color = accent, strokeWidth = 2.dp)
+            } else {
+                Text(sub.name.trim().firstOrNull()?.uppercase() ?: "S", color = accent, fontWeight = FontWeight.Bold)
             }
         }
-
-        if (refreshing) {
-            LiveProgressBar(
-                fraction = null,
-                modifier = Modifier.fillMaxWidth(),
-                color = Aether.Amethyst
-            )
-        }
-
-        Text(
-            sub.url,
-            color = Aether.InkFaint,
-            style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-
-        if (sub.totalBytes > 0L) {
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .height(4.dp)
-                    .clip(CircleShape)
-                    .background(Aether.GlassBorderSoft)
-            ) {
-                Box(
-                    Modifier
-                        .fillMaxWidth(animatedFraction)
-                        .fillMaxHeight()
-                        .background(Aether.Cyan)
-                )
-            }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(
-                    "Used ${formatBytes(used)}",
-                    color = Aether.InkMuted,
-                    style = MaterialTheme.typography.labelSmall
-                )
-                Text(
-                    "Left ${formatBytes((sub.totalBytes - used).coerceAtLeast(0L))}",
-                    color = Aether.InkFaint,
-                    style = MaterialTheme.typography.labelSmall
-                )
-            }
-        } else {
+        Spacer(Modifier.width(8.dp))
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(sub.name, color = Aether.Ink, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(
-                "No quota reported by this provider",
-                color = Aether.InkFaint,
-                style = MaterialTheme.typography.bodySmall
+                "$count nodes • ${if (local) "LOCAL" else relativeTime(sub.updatedAt)}${if (selected) " • VIEWING" else ""}",
+                color = accent,
+                style = MaterialTheme.typography.labelSmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         }
-
-        if (sub.expireAt > 0L) {
-            Text(
-                "Expires ${relativeFuture(sub.expireAt)}",
-                color = if (expired) Aether.Danger else Aether.InkMuted,
-                style = MaterialTheme.typography.bodySmall
-            )
-        }
-
-        Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-            CyberButton(
-                label = if (selected) "Viewing" else "View nodes",
-                color = Aether.Cyan,
-                modifier = Modifier.weight(1f),
-                enabled = !selected
-            ) { onView() }
-            CyberButton(
-                label = if (refreshing) "Refreshing…" else "Refresh",
-                color = Aether.Emerald,
-                modifier = Modifier.weight(1f),
-                enabled = !repo.busy
-            ) { repo.refresh(sub.id) }
-            CyberButton("Manage", Aether.InkMuted, Modifier.weight(1f), enabled = !repo.busy) { onManage() }
+        Box(Modifier.size(34.dp).clip(CircleShape).clickable(enabled = !repo.busy, onClick = onManage), contentAlignment = Alignment.Center) {
+            Text("⋮", color = Aether.InkMuted, style = MaterialTheme.typography.titleMedium)
         }
     }
-}
-
-private fun libraryPingQuality(ms: Int): String = when {
-    ms <= 0 -> "Unknown"
-    ms <= 80 -> "Excellent"
-    ms <= 150 -> "Fast"
-    ms <= 250 -> "Good"
-    ms <= 450 -> "Fair"
-    else -> "Slow"
-}
-
-private fun libraryPingBars(ms: Int): Int = when {
-    ms <= 0 -> 0
-    ms <= 80 -> 4
-    ms <= 150 -> 4
-    ms <= 250 -> 3
-    ms <= 450 -> 2
-    else -> 1
 }
 
 @Composable
@@ -2555,14 +2487,16 @@ private fun SpatialServerCard(
                             repo.setRuntimeMessage("Xray JSON copied")
                         }
                     )
-                    DropdownMenuItem(
-                        text = { Text("Edit Xray JSON") },
-                        onClick = {
-                            menuOpen = false
-                            jsonText = profile.configJson
-                            jsonOpen = true
-                        }
-                    )
+                    if (!profile.scheme.equals("ssh", true)) {
+                        DropdownMenuItem(
+                            text = { Text("Edit Xray JSON") },
+                            onClick = {
+                                menuOpen = false
+                                jsonText = profile.configJson
+                                jsonOpen = true
+                            }
+                        )
+                    }
                     DropdownMenuItem(
                         text = { Text("Duplicate to Manual") },
                         onClick = {

@@ -28,6 +28,7 @@ class XrayManager(private val context: Context) {
     // MARBLE_LOG_RESCUE_V13
     // MARBLE_DIAG_PROCESS_PID_V15
     // MARBLE_RUNTIME_STARTUP_RESCUE_V21
+    // MARBLE_SSH_BRIDGE_V25
     private companion object {
         const val ROUTING_ASSET_REFRESH_MS = 24L * 60L * 60L * 1000L
         const val ROUTING_ASSET_RETRY_MS = 6L * 60L * 60L * 1000L
@@ -36,6 +37,45 @@ class XrayManager(private val context: Context) {
     private val assetLock = ReentrantLock()
     private var lifecycleGeneration = 0L
     @Volatile private var process: Process? = null
+    @Volatile private var liveSsh: SshTransportManager? = null
+
+    private fun detachLiveSsh(generation: Long? = null): SshTransportManager? =
+        synchronized(lifecycleLock) {
+            if (generation != null && lifecycleGeneration != generation) {
+                null
+            } else {
+                val current = liveSsh
+                liveSsh = null
+                current
+            }
+        }
+
+    private fun startSshBridge(generation: Long, profile: ProxyProfile): Int {
+        val candidate = SshTransportManager()
+        val port = try {
+            candidate.start(profile)
+        } catch (error: Throwable) {
+            candidate.stop()
+            throw error
+        }
+
+        var previous: SshTransportManager? = null
+        val accepted = synchronized(lifecycleLock) {
+            if (lifecycleGeneration != generation) {
+                false
+            } else {
+                previous = liveSsh
+                liveSsh = candidate
+                true
+            }
+        }
+        if (!accepted) {
+            candidate.stop()
+            error("SSH start was superseded by a newer connection attempt")
+        }
+        previous?.stop()
+        return port
+    }
 
     @Volatile
     var lastStartError: String = ""
@@ -124,6 +164,7 @@ class XrayManager(private val context: Context) {
     }
 
     private fun failStart(generation: Long, reason: String): Boolean {
+        detachLiveSsh(generation)?.stop()
         publishStartState(generation, "failed", reason)
         return false
     }
@@ -539,10 +580,18 @@ class XrayManager(private val context: Context) {
             "geosite.dat is required by this policy but is missing/invalid"
         }
 
-        val sourceConfig = chainProfile
-            ?.takeIf { it.id != profile.id }
-            ?.let { XrayConfigHardener.composeChain(profile.configJson, it.configJson) }
-            ?: profile.configJson
+        require(chainProfile?.scheme?.equals("ssh", true) != true) {
+            "SSH cannot be used as the second Xray chain hop"
+        }
+        val sourceConfig = if (profile.scheme.equals("ssh", true)) {
+            require(chainProfile == null) { "SSH + chain mode is not supported in v25" }
+            SshProfileCodec.xrayClientConfig(19090)
+        } else {
+            chainProfile
+                ?.takeIf { it.id != profile.id }
+                ?.let { XrayConfigHardener.composeChain(profile.configJson, it.configJson) }
+                ?: profile.configJson
+        }
 
         val config = File(context.cacheDir, "routing-policy-verify.json")
         val verifyLog = File(context.cacheDir, "routing-policy-verify.log")
@@ -584,6 +633,7 @@ class XrayManager(private val context: Context) {
         val ticket = beginStartTicket()
         publishStartState(ticket.generation, "begin", "")
         ticket.previous?.let(::stopProcess)
+        detachLiveSsh(ticket.generation)?.stop()
 
         if (!startStillCurrent(ticket.generation)) return false
         if (!bin.isFile) return failStart(ticket.generation, "Xray native binary is missing")
@@ -615,10 +665,18 @@ class XrayManager(private val context: Context) {
             if (!startStillCurrent(ticket.generation)) return@runCatching false
 
             publishStartState(ticket.generation, "config")
-            val sourceConfig = chainProfile
-                ?.takeIf { it.id != profile.id }
-                ?.let { XrayConfigHardener.composeChain(profile.configJson, it.configJson) }
-                ?: profile.configJson
+            require(chainProfile?.scheme?.equals("ssh", true) != true) {
+                "SSH cannot be used as the second Xray chain hop"
+            }
+            val sourceConfig = if (profile.scheme.equals("ssh", true)) {
+                require(chainProfile == null) { "SSH + chain mode is not supported in v25" }
+                SshProfileCodec.xrayClientConfig(startSshBridge(ticket.generation, profile))
+            } else {
+                chainProfile
+                    ?.takeIf { it.id != profile.id }
+                    ?.let { XrayConfigHardener.composeChain(profile.configJson, it.configJson) }
+                    ?: profile.configJson
+            }
             config.writeText(XrayConfigHardener.harden(sourceConfig, port, settings))
 
             if (!startStillCurrent(ticket.generation)) return@runCatching false
@@ -677,17 +735,17 @@ class XrayManager(private val context: Context) {
      * No monitor is held while destroy()/destroyForcibly() waits.
      */
     fun stop() {
-        val current = synchronized(lifecycleLock) {
+        val stopped = synchronized(lifecycleLock) {
             lifecycleGeneration += 1L
             val existing = process
             process = null
-            existing
-        }
-        synchronized(lifecycleLock) {
-            // Only stop() owns this newest generation; cancelled older starts cannot clobber it.
+            val ssh = liveSsh
+            liveSsh = null
             lastStartPhase = "stopped"
+            existing to ssh
         }
-        current?.let(::stopProcess)
+        stopped.first?.let(::stopProcess)
+        stopped.second?.stop()
     }
 
     private fun stopProcess(target: Process) {
@@ -742,6 +800,7 @@ class XrayManager(private val context: Context) {
         // notices the dead process immediately. Skipping it halves the process spawns per node,
         // which is the single biggest cost of testing a large library.
         val portWaitMs = (settings.benchTimeoutSec * 1000L).coerceIn(2_500L, 7_000L)
+        val sshBridge = if (profile.scheme.equals("ssh", true)) SshTransportManager() else null
 
         return runCatching {
             val benchmarkSettings = settings.copy(
@@ -756,7 +815,12 @@ class XrayManager(private val context: Context) {
                 routeBypassPrivate = false,
                 routeBlockAds = false
             )
-            val configText = XrayConfigHardener.harden(profile.configJson, port, benchmarkSettings)
+            val sourceConfig = if (sshBridge != null) {
+                SshProfileCodec.xrayClientConfig(sshBridge.start(profile))
+            } else {
+                profile.configJson
+            }
+            val configText = XrayConfigHardener.harden(sourceConfig, port, benchmarkSettings)
             config.writeText(configText)
 
             val temporaryProcess = createProcessBuilder("run", "-c", config.absolutePath)
@@ -770,9 +834,11 @@ class XrayManager(private val context: Context) {
                 }
             } finally {
                 stopProcess(temporaryProcess)
+                sshBridge?.stop()
                 runCatching { config.delete() }
             }
         }.getOrElse {
+            sshBridge?.stop()
             runCatching { config.delete() }
             false
         }
@@ -807,7 +873,7 @@ class XrayManager(private val context: Context) {
             }
 
             try {
-                Thread.sleep(80L)
+                Thread.sleep(25L)
             } catch (_: InterruptedException) {
                 Thread.currentThread().interrupt()
                 return false

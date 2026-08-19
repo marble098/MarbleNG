@@ -276,6 +276,9 @@ dependencies {
         "androidx.compose.material3:material3"
     )
 
+    // MARBLE_SSH_TRANSPORT_V25
+    implementation("com.github.mwiede:jsch:2.28.6")
+
     debugImplementation(
         "androidx.compose.ui:ui-tooling"
     )

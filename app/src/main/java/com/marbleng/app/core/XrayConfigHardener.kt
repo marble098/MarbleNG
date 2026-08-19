@@ -11,6 +11,7 @@ object XrayConfigHardener {
     // MARBLE_DNS_DEJITTER_V18
     // MARBLE_DNS_TRANSPORT_FALLBACK_V23
     // MARBLE_IP_FAMILY_POLICY_V24
+    // MARBLE_DNS_FAST_FALLBACK_V25
     private val infra = setOf("freedom", "blackhole", "dns", "loopback")
     private val compatibilityDependencyProtocols = setOf(
         "freedom", "http", "shadowsocks", "socks", "trojan", "vless", "vmess", "hysteria", "wireguard"
@@ -324,36 +325,28 @@ object XrayConfigHardener {
             }
         }
 
-        // Non-local DoH enters routing with xgc-dns and is forced through the selected proxy.
-        //
-        // v18 intentionally keeps resolver attempts SERIAL. The runtime report showed both remote
-        // DoH endpoints timing out in the same bursts. Racing duplicate HTTPS DNS requests consumes
-        // two congestion-window/handshake slots at the exact moment the mobile path is unstable.
-        // A short primary deadline plus serial secondary fallback gives the preferred resolver a
-        // chance first without creating our own traffic burst.
-        remoteDoh.forEachIndexed { index, address ->
-            dnsServers.put(
-                JSONObject()
-                    .put("address", address)
-                    .put("queryStrategy", queryStrategy)
-                    .put("timeoutMs", if (index == 0) 2200 else 2600)
-            )
-        }
-
-        // V23: Runtime evidence showed repeated remote DoH/443 deadline exhaustion while
-        // Xray, SOCKS and HEV were otherwise healthy. Keep encrypted DoH as first choice, then
-        // fail over to DNS-over-TCP using the user's configured resolver IPs. These are non-local
-        // Xray DNS clients and xgc-dns is routed to firstTag below, so TCP/53 stays INSIDE the
-        // selected proxy route. Android/system DNS is never introduced as a fallback.
-        if (settings.adaptiveDnsEnabled) {
-            bootstrapIps.forEachIndexed { index, ip ->
+        // V25: serial but transport-interleaved fallback:
+        // primary DoH -> primary DNS/TCP -> secondary DoH -> secondary DNS/TCP.
+        val resolverCount = maxOf(remoteDoh.size, bootstrapIps.size)
+        for (index in 0 until resolverCount) {
+            remoteDoh.getOrNull(index)?.let { address ->
                 dnsServers.put(
                     JSONObject()
-                        .put("address", "tcp://$ip:53")
+                        .put("address", address)
                         .put("queryStrategy", queryStrategy)
-                        .put("timeoutMs", if (index == 0) 1600 else 2000)
-                        .put("finalQuery", index == bootstrapIps.lastIndex)
+                        .put("timeoutMs", if (index == 0) 1500 else 1800)
                 )
+            }
+            if (settings.adaptiveDnsEnabled) {
+                bootstrapIps.getOrNull(index)?.let { ip ->
+                    dnsServers.put(
+                        JSONObject()
+                            .put("address", "tcp://$ip:53")
+                            .put("queryStrategy", queryStrategy)
+                            .put("timeoutMs", if (index == 0) 950 else 1200)
+                            .put("finalQuery", index == resolverCount - 1)
+                    )
+                }
             }
         }
 
@@ -399,6 +392,15 @@ object XrayConfigHardener {
         // Android VPN always captures ::/0. Blocking here prevents an OS-level IPv6 bypass.
         if (!settings.ipv6Enabled) {
             addIpRule(rules, listOf("::/0"), "block")
+        }
+
+        if (firstTag == "ssh-proxy") {
+            rules.put(
+                JSONObject()
+                    .put("type", "field")
+                    .put("network", "udp")
+                    .put("outboundTag", "block")
+            )
         }
 
         addDomainRule(rules, splitDomains(settings.routeBlockDomains), "block")

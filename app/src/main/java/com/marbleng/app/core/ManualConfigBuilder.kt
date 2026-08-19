@@ -1,6 +1,7 @@
 package com.marbleng.app.core
 
 // MARBLE_MANUAL_CONFIGS_V20
+// MARBLE_SSH_MANUAL_V25
 
 import com.marbleng.app.model.ProxyProfile
 import org.json.JSONArray
@@ -16,6 +17,7 @@ enum class ManualProtocol(val label: String, val scheme: String) {
     HTTP("HTTP", "http"),
     HTTPS("HTTPS", "https"),
     SOCKS5("SOCKS5", "socks5"),
+    SSH("SSH", "ssh"),
     WIREGUARD("WireGuard", "wireguard"),
     XRAY_JSON("Xray JSON", "json")
 }
@@ -27,6 +29,7 @@ data class ManualConfigDraft(
     val port: String = "443",
     val username: String = "",
     val password: String = "",
+    val sshHostKeySha256: String = "",
     val uuid: String = "",
     val encryption: String = "none",
     val flow: String = "",
@@ -56,9 +59,8 @@ data class ManualConfigDraft(
 )
 
 /**
- * Builds durable Manual profiles from explicit fields instead of trying to reverse-engineer a
- * share URI. SSH is deliberately not fabricated here: the embedded Xray core has no SSH outbound;
- * a real SSH feature needs a separately protected SSH-to-SOCKS transport adapter.
+ * Builds durable Manual profiles from explicit fields. SSH profiles are carried by Marble's
+ * protected loopback SSH-to-SOCKS adapter; Xray remains attached to the Android TUN.
  */
 object ManualConfigBuilder {
     fun build(draft: ManualConfigDraft): ProxyProfile {
@@ -79,6 +81,34 @@ object ManualConfigBuilder {
             ?: defaultPort(draft.protocol)
         require(port in 1..65535) { "Port must be 1-65535" }
 
+        if (draft.protocol == ManualProtocol.SSH) {
+            val username = draft.username.trim()
+            require(username.isNotBlank()) { "SSH username is required" }
+            require(draft.password.isNotBlank()) { "SSH password is required" }
+            val name = draft.name.trim().ifBlank { "SSH $host" }.take(120)
+            val raw = SshProfileCodec.encode(
+                host = host,
+                port = port,
+                username = username,
+                password = draft.password,
+                hostKeySha256 = draft.sshHostKeySha256,
+                name = name
+            )
+            return ProxyProfile(
+                id = stableId(raw),
+                name = name,
+                scheme = "ssh",
+                raw = raw,
+                configJson = SshProfileCodec.xrayClientConfig(1),
+                host = host,
+                port = port,
+                transport = "ssh",
+                security = "ssh",
+                subscriptionId = "manual",
+                subscriptionName = "Manual"
+            )
+        }
+
         val outbound = when (draft.protocol) {
             ManualProtocol.VLESS -> vless(draft, host, port)
             ManualProtocol.VMESS -> vmess(draft, host, port)
@@ -87,6 +117,7 @@ object ManualConfigBuilder {
             ManualProtocol.HYSTERIA2 -> hysteria2(draft, host, port)
             ManualProtocol.HTTP, ManualProtocol.HTTPS -> http(draft, host, port)
             ManualProtocol.SOCKS5 -> socks(draft, host, port)
+            ManualProtocol.SSH -> error("handled above")
             ManualProtocol.WIREGUARD -> wireguard(draft, host, port)
             ManualProtocol.XRAY_JSON -> error("handled above")
         }
@@ -376,6 +407,7 @@ object ManualConfigBuilder {
     private fun defaultPort(protocol: ManualProtocol): Int = when (protocol) {
         ManualProtocol.HTTP -> 80
         ManualProtocol.SOCKS5 -> 1080
+        ManualProtocol.SSH -> 22
         else -> 443
     }
 

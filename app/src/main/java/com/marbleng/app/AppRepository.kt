@@ -28,6 +28,7 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     // MARBLE_LIVE_LATENCY_V17
     // MARBLE_IRAN_FORCE_RUNTIME_V22
     // MARBLE_INTELLIGENCE_V24
+    // MARBLE_FAST_CONNECT_SSH_LIBRARY_V25
 
     private val store = AppStore(context)
     private val io = Executors.newFixedThreadPool(3)
@@ -176,9 +177,10 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         refreshIntelligenceStatus()
         // Cheap classification only at app start; deep filtering fingerprints are deferred.
         scanIranMode(force = true, deep = false)
-        if (settings.subscriptionAutoRefresh && subscriptions.isNotEmpty()) {
+        val remoteSubscriptions = subscriptions.filter { it.url.isNotBlank() }
+        if (settings.subscriptionAutoRefresh && remoteSubscriptions.isNotEmpty()) {
             val maxAgeMs = settings.subscriptionRefreshHours.coerceIn(1, 168) * 3_600_000L
-            val stale = subscriptions.any {
+            val stale = remoteSubscriptions.any {
                 it.updatedAt <= 0L || System.currentTimeMillis() - it.updatedAt >= maxAgeMs
             }
             if (stale) {
@@ -573,34 +575,60 @@ private fun postToMain(block: () -> Unit) {
         ConnectionMode.LOCAL_PROXY -> settings.localProxyPort
     }
 
+    private fun randomSourceName(): String {
+        val first = listOf("Nova", "Orbit", "Aurora", "Pulse", "Nebula", "Comet", "Vector", "Marble")
+        val second = listOf("Nest", "Vault", "Dock", "Link", "Hub", "Lab", "Cloud", "Box")
+        repeat(64) {
+            val suffix = java.util.UUID.randomUUID().toString().replace("-", "").take(4).uppercase()
+            val candidate = "${first.random()} ${second.random()} $suffix"
+            if (subscriptions.none { it.name.equals(candidate, true) }) return candidate
+        }
+        return "Local ${System.currentTimeMillis().toString(36).takeLast(6).uppercase()}"
+    }
+
     fun addSubscription(name: String, url: String) {
         val cleanUrl = url.trim()
-        if (!(cleanUrl.startsWith("https://", true) || cleanUrl.startsWith("http://", true))) {
-            message = "Subscription URL must start with http:// or https://"
+        if (cleanUrl.isNotBlank() &&
+            !(cleanUrl.startsWith("https://", true) || cleanUrl.startsWith("http://", true))) {
+            message = "Subscription URL must start with http:// or https://, or stay empty for a local source"
             return
         }
-        val duplicate = subscriptions.firstOrNull { it.url.trim().equals(cleanUrl, true) }
-        if (duplicate != null) {
-            message = "Subscription already exists • ${duplicate.name}"
-            return
+        if (cleanUrl.isNotBlank()) {
+            val duplicate = subscriptions.firstOrNull {
+                it.url.isNotBlank() && it.url.trim().equals(cleanUrl, true)
+            }
+            if (duplicate != null) {
+                message = "Subscription already exists • ${duplicate.name}"
+                return
+            }
         }
-        val baseId = sha(cleanUrl).take(12)
+        val sourceName = name.trim().ifBlank { randomSourceName() }
+        val seed = cleanUrl.ifBlank { "local:${System.nanoTime()}:${java.util.UUID.randomUUID()}" }
+        val baseId = sha(seed).take(12)
         var id = baseId
         var suffix = 1
         while (subscriptions.any { it.id == id }) id = "${baseId.take(9)}-${suffix++}"
         subscriptions += Subscription(
             id = id,
-            name = name.trim().ifBlank { "Subscription ${subscriptions.size + 1}" },
+            name = sourceName,
             url = cleanUrl,
-            updatedAt = 0L
+            updatedAt = if (cleanUrl.isBlank()) System.currentTimeMillis() else 0L
         )
         store.saveSubscriptions(subscriptions)
-        message = "Subscription added • refreshing source"
-        refresh(id)
+        if (cleanUrl.isBlank()) {
+            message = "Local source created • $sourceName"
+        } else {
+            message = "Subscription added • refreshing source"
+            refresh(id)
+        }
     }
 
     fun refresh(id: String) {
         val sub = subscriptions.firstOrNull { it.id == id } ?: return
+        if (sub.url.isBlank()) {
+            message = "${sub.name} is a local source • add Manual/SSH nodes into it"
+            return
+        }
         task("Refreshing ${sub.name}") {
             beginRefresh(listOf(sub.id))
             val payload = httpSubscription(sub.url)
@@ -639,24 +667,24 @@ private fun postToMain(block: () -> Unit) {
     }
 
     fun refreshAll() {
+        val remote = subscriptions.filter { it.url.isNotBlank() }
+        if (remote.isEmpty()) {
+            message = "No remote subscriptions to refresh • local sources were left untouched"
+            return
+        }
         task("Refreshing subscriptions") {
             var refreshed = 0
             var nodeCount = 0
             val failed = mutableListOf<String>()
-
-            val pending = subscriptions.toList()
+            val pending = remote.toList()
             beginRefresh(pending.map { it.id })
             pending.forEach { sub ->
                 val result = runCatching {
                     val payload = httpSubscription(sub.url)
                     val parsed = ProxyParser.parseInput(payload.text, sub.id, sub.name)
-                    require(parsed.isNotEmpty()) {
-                        "No supported profiles returned; previous nodes were kept"
-                    }
-
+                    require(parsed.isNotEmpty()) { "No supported profiles returned; previous nodes were kept" }
                     profiles.removeAll { it.subscriptionId == sub.id }
                     profiles.addAll(parsed)
-
                     val meta = parseSubscriptionUserInfo(payload.userInfo)
                     val index = subscriptions.indexOfFirst { it.id == sub.id }
                     if (index >= 0) {
@@ -671,7 +699,6 @@ private fun postToMain(block: () -> Unit) {
                     }
                     parsed.size
                 }
-
                 endRefresh(sub.id)
                 result.onSuccess { count ->
                     refreshed++
@@ -680,7 +707,6 @@ private fun postToMain(block: () -> Unit) {
                     failed += "${sub.name}: ${error.message ?: error::class.java.simpleName}"
                 }
             }
-
             store.saveSubscriptions(subscriptions)
             store.saveProfiles(profiles)
             val summary = when {
@@ -701,7 +727,10 @@ private fun postToMain(block: () -> Unit) {
     }
 
     // MARBLE_MANUAL_IMPORT_V20
-    fun addManualProfile(draft: ManualConfigDraft): Boolean {
+    fun addManualProfile(
+        draft: ManualConfigDraft,
+        targetSubscriptionId: String = "manual"
+    ): Boolean {
         if (busy) {
             message = "Wait for the current task before adding a manual config"
             return false
@@ -710,21 +739,29 @@ private fun postToMain(block: () -> Unit) {
             message = "Manual config invalid • ${error.message ?: error::class.java.simpleName}"
             return false
         }
-        if (profiles.any { it.id == built.id }) {
-            message = "Config already exists • ${profiles.first { it.id == built.id }.name}"
+        val localTarget = subscriptions.firstOrNull {
+            it.id == targetSubscriptionId && it.url.isBlank()
+        }
+        val stored = if (localTarget == null) built else built.copy(
+            subscriptionId = localTarget.id,
+            subscriptionName = localTarget.name
+        )
+        if (profiles.any { it.id == stored.id }) {
+            message = "Config already exists • ${profiles.first { it.id == stored.id }.name}"
             return false
         }
-        profiles += built
+        profiles += stored
         store.saveProfiles(profiles)
         diagnostics.event(
             "LIBRARY",
             "manual-profile-added",
-            "profile" to built.id.take(12),
-            "protocol" to built.scheme,
-            "transport" to built.transport,
-            "security" to built.security
+            "profile" to stored.id.take(12),
+            "protocol" to stored.scheme,
+            "transport" to stored.transport,
+            "security" to stored.security,
+            "source" to stored.subscriptionId.take(16)
         )
-        message = "${built.scheme.uppercase()} added • ${built.name}"
+        message = "${stored.scheme.uppercase()} added • ${stored.name}"
         return true
     }
     fun importText(text: String, name: String = "Manual") {
@@ -750,7 +787,7 @@ private fun postToMain(block: () -> Unit) {
         }
         val looksLikeJson = clean.startsWith("{") || clean.startsWith("[")
         val hasShareLinks = Regex(
-            "(?im)^(vless|vmess|trojan|ss|socks5?|hysteria2|hy2)://"
+            "(?im)^(vless|vmess|trojan|ss|socks5?|hysteria2|hy2|ssh)://"
         ).containsMatchIn(clean)
         val hasAuthenticatedHttpProxy = Regex(
             "(?im)^https?://[^\\s/@]+:[^\\s/@]*@"
@@ -871,12 +908,15 @@ private fun postToMain(block: () -> Unit) {
             return false
         }
         val cleanUrl = url.trim()
-        val cleanName = name.trim().ifBlank { subscriptions[index].name }
-        if (!(cleanUrl.startsWith("https://", true) || cleanUrl.startsWith("http://", true))) {
-            message = "Subscription URL must start with http:// or https://"
+        val cleanName = name.trim().ifBlank { randomSourceName() }
+        if (cleanUrl.isNotBlank() &&
+            !(cleanUrl.startsWith("https://", true) || cleanUrl.startsWith("http://", true))) {
+            message = "URL must use http(s), or stay empty for a local source"
             return false
         }
-        if (subscriptions.any { it.id != id && it.url.trim().equals(cleanUrl, true) }) {
+        if (cleanUrl.isNotBlank() && subscriptions.any {
+                it.id != id && it.url.isNotBlank() && it.url.trim().equals(cleanUrl, true)
+            }) {
             message = "Another subscription already uses this URL"
             return false
         }
@@ -886,7 +926,7 @@ private fun postToMain(block: () -> Unit) {
         }
         store.saveSubscriptions(subscriptions)
         store.saveProfiles(profiles)
-        message = "Subscription updated • $cleanName"
+        message = if (cleanUrl.isBlank()) "Local source updated • $cleanName" else "Subscription updated • $cleanName"
         return true
     }
 
@@ -943,104 +983,35 @@ private fun postToMain(block: () -> Unit) {
             message = "Add a subscription or import a node first"
             return
         }
-
         val available = profiles.toList()
-        val last = lastProfile()
-
-        // A subscription refresh is maintenance, not a reason to reject Connect. If maintenance is
-        // already active, choose the remembered route (or the first available node) immediately.
-        if (busy) {
-            val fallback = last ?: available.first()
-            diagnostics.event(
-                "APP",
-                "connect-busy-bypass",
-                "profile" to fallback.id.take(12),
-                "taskBusy" to true
+        val remembered = lastProfile()
+        val measured = benchmarks
+            .asSequence()
+            .filter { it.success > 0 }
+            .sortedWith(
+                compareByDescending<BenchmarkResult> { it.probeKind == "TUNNEL" }
+                    .thenByDescending { it.score }
+                    .thenBy { it.latencyMs }
             )
-            message = "Background maintenance active • connecting ${fallback.name} immediately"
-            onConnect(fallback)
-            return
-        }
-
-        if (last == null) {
-            smart(onConnect)
-            return
-        }
-
-        if (!connectDecisionInFlight.compareAndSet(false, true)) {
-            message = "Connection selection is already running"
-            return
-        }
-
-        val settingsSnapshot = settings
-        message = "Marble Intelligence • checking remembered route"
+            .mapNotNull { result -> available.firstOrNull { it.id == result.profileId } }
+            .firstOrNull()
+        val rememberedResult = remembered?.let { p -> benchmarks.firstOrNull { it.profileId == p.id } }
+        val rememberedUsable = remembered != null && (rememberedResult == null || rememberedResult.success > 0)
+        val candidate = when {
+            rememberedUsable -> remembered
+            measured != null -> measured
+            else -> available.first()
+        } ?: available.first()
         diagnostics.event(
             "APP",
-            "connect-decision-start",
-            "profile" to last.id.take(12)
+            "fast-connect-v25",
+            "profile" to candidate.id.take(12),
+            "remembered" to (candidate.id == remembered?.id),
+            "measured" to (candidate.id == measured?.id),
+            "taskBusy" to busy
         )
-
-        connectDecisionWorker.execute {
-            val routeEvidence = runCatching {
-                Triple(
-                    intelligence.predictedScore(last, settingsSnapshot),
-                    intelligence.historyConfidence(last),
-                    intelligence.hasHistory(last)
-                )
-            }.getOrElse { error ->
-                diagnostics.error(
-                    "APP",
-                    "connect-history-read-skipped",
-                    error,
-                    "profile" to last.id.take(12)
-                )
-                Triple(50.0, 0.0, false)
-            }
-
-            val predicted = routeEvidence.first
-            val confidence = routeEvidence.second
-            val lastHasHistory = routeEvidence.third
-            val useLast =
-                !settingsSnapshot.intelligenceEnabled ||
-                    !lastHasHistory ||
-                    confidence < 0.45 ||
-                    predicted >= 68.0
-
-            postToMain {
-                try {
-                    val liveLast = profile(last.id)
-                    when {
-                        liveLast == null -> {
-                            message = "Remembered route changed • selecting a current route"
-                            smart(onConnect)
-                        }
-                        useLast -> {
-                            message = when {
-                                !settingsSnapshot.intelligenceEnabled ->
-                                    "Connecting remembered route • ${liveLast.name}"
-                                !lastHasHistory || confidence < 0.45 ->
-                                    "Connecting last route immediately • intelligence is still building confidence"
-                                else ->
-                                    "Connecting proven route • ${liveLast.name} • score ${predicted.toInt()}"
-                            }
-                            onConnect(liveLast)
-                        }
-                        busy -> {
-                            // Maintenance started while the SQLite evidence read was in flight.
-                            // Do not feed the user's Connect tap into the global task busy gate.
-                            message = "Maintenance started • connecting remembered route immediately"
-                            onConnect(liveLast)
-                        }
-                        else -> {
-                            message = "Last route confidence dropped • selecting a healthier Xray path"
-                            smart(onConnect)
-                        }
-                    }
-                } finally {
-                    connectDecisionInFlight.set(false)
-                }
-            }
-        }
+        message = "Fast connect • ${candidate.name}"
+        onConnect(candidate)
     }
 
     fun markConnected(p: ProxyProfile) {

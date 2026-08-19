@@ -1,5 +1,7 @@
 package com.marbleng.app.core
 
+// MARBLE_SSH_PARSE_V25
+
 import android.net.Uri
 import android.util.Base64
 import com.marbleng.app.model.ProxyProfile
@@ -13,8 +15,8 @@ import java.security.MessageDigest
  * compatibility escape hatch and is preserved for XrayManager's final `xray run -test` check.
  */
 object ProxyParser {
-    private val shareSchemes = Regex("(?i)^(vless|vmess|trojan|ss|hysteria2|hy2|socks|socks5|http|https)://")
-    private val shareFinder = Regex("(?i)(?:vless|vmess|trojan|ss|hysteria2|hy2|socks5?|https?)://[^\\s]+")
+    private val shareSchemes = Regex("(?i)^(vless|vmess|trojan|ss|hysteria2|hy2|socks|socks5|http|https|ssh)://")
+    private val shareFinder = Regex("(?i)(?:vless|vmess|trojan|ss|hysteria2|hy2|socks5?|https?|ssh)://[^\\s]+")
     private val infraProtocols = setOf("freedom", "blackhole", "dns", "loopback")
 
     fun parseInput(input: String, subId: String = "manual", subName: String = "Manual"): List<ProxyProfile> {
@@ -174,7 +176,26 @@ object ProxyParser {
         "ss" -> parseSs(raw, sid, sname)
         "hysteria2", "hy2" -> parseHy2(raw, sid, sname)
         "socks", "socks5", "http", "https" -> parseBasic(raw, sid, sname)
+        "ssh" -> parseSsh(raw, sid, sname)
         else -> error("Unsupported share URI")
+    }
+
+    private fun parseSsh(raw: String, sid: String, sname: String): ProxyProfile {
+        val endpoint = SshProfileCodec.parseRaw(raw)
+        val name = endpoint.name.ifBlank { "SSH ${endpoint.host}" }.take(120)
+        return ProxyProfile(
+            id = id(raw),
+            name = name,
+            scheme = "ssh",
+            raw = raw,
+            configJson = SshProfileCodec.xrayClientConfig(1),
+            host = endpoint.host,
+            port = endpoint.port,
+            transport = "ssh",
+            security = "ssh",
+            subscriptionId = sid,
+            subscriptionName = sname
+        )
     }
 
     private fun q(uri: Uri, key: String, default: String = "") = uri.getQueryParameter(key) ?: default

@@ -50,6 +50,7 @@ class MarbleVpnService : VpnService() {
     // MARBLE_RUNTIME_STARTUP_RESCUE_V21
     // MARBLE_VERIFIED_JITTER_BURST_V22
     // MARBLE_RUNTIME_EXTREME_V23
+    // MARBLE_FAST_READY_V25
     // Live optimisation may learn while connected, but it must never intentionally tear down
     // a healthy user tunnel merely to hot-apply a transport experiment.
     companion object {
@@ -85,7 +86,7 @@ class MarbleVpnService : VpnService() {
         private const val PROBE_FAILURES_BEFORE_RECOVERY = 4
         private const val ROUTE_CONFIRM_TIMEOUT_MS = 4_500
         private const val RECENT_TRAFFIC_GRACE_MS = 75_000L
-        private const val HEV_READY_GRACE_MS = 1_500L
+        private const val HEV_READY_GRACE_MS = 650L
         private const val CONNECT_STARTUP_TIMEOUT_MS = 90_000L
         private const val HEV_STALL_MIN_MS = 20_000L
         private const val HEV_STALL_MIN_TX_BYTES = 32L * 1024L
