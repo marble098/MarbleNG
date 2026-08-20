@@ -9,6 +9,7 @@ class AppStore(context: Context) {
     // MARBLE_ULTIMATE_DEBUG_STORE_V15
     // MARBLE_IP_FAMILY_STORE_V24
     // MARBLE_SOURCE_TARGETING_STORE_V25_4
+    // MARBLE_AURORA_UI_STORE_V26
     private val prefs = context.getSharedPreferences("marbleng-store", Context.MODE_PRIVATE)
 
     fun loadProfiles(): MutableList<ProxyProfile> = parseArray("profiles") { ProxyProfile.fromJson(it) }
@@ -101,6 +102,8 @@ class AppStore(context: Context) {
         subscriptionAutoRefresh = prefs.getBoolean("subscriptionAutoRefresh", true),
         subscriptionRefreshHours = prefs.getInt("subscriptionRefreshHours", 12),
         manualSourceEnabled = prefs.getBoolean("manualSourceEnabled", false),
+        homeShowIranMode = prefs.getBoolean("homeShowIranMode", true),
+        homeShowQuickActions = prefs.getBoolean("homeShowQuickActions", true),
 
         smartNotificationsEnabled = prefs.getBoolean("smartNotificationsEnabled", true),
         notifyConnectionEvents = prefs.getBoolean("notifyConnectionEvents", false),
@@ -228,6 +231,8 @@ class AppStore(context: Context) {
         .putBoolean("subscriptionAutoRefresh", s.subscriptionAutoRefresh)
         .putInt("subscriptionRefreshHours", s.subscriptionRefreshHours)
         .putBoolean("manualSourceEnabled", s.manualSourceEnabled)
+        .putBoolean("homeShowIranMode", s.homeShowIranMode)
+        .putBoolean("homeShowQuickActions", s.homeShowQuickActions)
 
         .putBoolean("smartNotificationsEnabled", s.smartNotificationsEnabled)
         .putBoolean("notifyConnectionEvents", s.notifyConnectionEvents)

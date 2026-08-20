@@ -131,6 +131,7 @@ enum class IranModePolicy { AUTO, ALWAYS_ON, OFF }
 // MARBLE_ULTIMATE_DEBUG_SETTING_V15
 // MARBLE_INTELLIGENCE_V24
 // MARBLE_SOURCE_TARGETING_V25_4
+// MARBLE_AURORA_UI_SETTINGS_V26
 data class AppSettings(
     val socksPort: Int = 10808,
     val localProxyPort: Int = 10101,
@@ -157,6 +158,10 @@ data class AppSettings(
     val subscriptionRefreshHours: Int = 12,
     /** Virtual Manual source is opt-in and disabled by default. */
     val manualSourceEnabled: Boolean = false,
+
+    // Home composition. Hiding a card does not disable its underlying engine.
+    val homeShowIranMode: Boolean = true,
+    val homeShowQuickActions: Boolean = true,
 
     // Optional smart alerts. Foreground-service status is managed separately while connected.
     val smartNotificationsEnabled: Boolean = true,

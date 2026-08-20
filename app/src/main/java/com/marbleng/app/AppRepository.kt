@@ -30,6 +30,8 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     // MARBLE_INTELLIGENCE_V24
     // MARBLE_FAST_CONNECT_SSH_LIBRARY_V25
     // MARBLE_SELECTED_SOURCE_V25_4
+    // MARBLE_MEMORY_PRESSURE_V26
+    // MARBLE_SMART_XRAY_RANK_CAP_V26_0_2
 
     private val store = AppStore(context)
     private val io = Executors.newFixedThreadPool(3)
@@ -295,6 +297,32 @@ fun resetTelemetry() {
             liveRouteScore = -1
             liveRouteSamples = 0
             liveJitterSamples = 0
+        }
+    }
+
+    /**
+     * Release only reconstructable UI evidence under Android memory pressure.
+     * The live VPN/Xray route, profiles, subscriptions, health DB and durable history are retained.
+     * Numeric levels follow ComponentCallbacks2: 15 critical, 20 UI hidden, 40 background,
+     * 60 moderate, 80 complete.
+     */
+    fun onMemoryPressure(level: Int) {
+        diagnostics.event(
+            "MEMORY", "trim",
+            "level" to level,
+            "state" to state,
+            "benchmarks" to benchmarks.size,
+            "hasBugReport" to (bugReport != null)
+        )
+        if (level < 15) return
+        postToMain {
+            if (level >= 20) privacy = null
+            if (level >= 40) bugReport = null
+            if (level >= 60 && !probeActive && probeRunning.isEmpty()) {
+                val active = activeProfileId
+                benchmarks = if (active.isBlank()) emptyList()
+                else benchmarks.filter { it.profileId == active }.take(1)
+            }
         }
     }
 
@@ -1274,12 +1302,7 @@ private fun postToMain(block: () -> Unit) {
         }
         task("Smart rank • TCP preflight → Xray finalists") {
             val all = candidates
-            val deepBudget = when {
-                all.size <= 8 -> all.size
-                all.size <= 24 -> 8
-                all.size <= 60 -> 12
-                else -> 16
-            }
+            val deepBudget = minOf(8, all.size)
             val rankSettings = settings.copy(
                 benchMode = BenchMode.CUSTOM,
                 benchCandidates = deepBudget,

@@ -3,6 +3,7 @@ package com.marbleng.app.core
 // MARBLE_BUG_FINDER_ULTIMATE_V15
 // MARBLE_RUNTIME_STARTUP_RESCUE_V21
 // MARBLE_EXIT_RECENCY_V23
+// MARBLE_MEMORY_EXIT_CLASSIFICATION_V26
 
 import android.app.ActivityManager
 import android.app.ApplicationExitInfo
@@ -284,9 +285,10 @@ class BugFinder(private val context: Context, private val xray: XrayManager) {
                 )
                 exits.lowMemory > 0 -> BugCheck(
                     "Historical process exits",
-                    BugSeverity.WARN,
-                    "${exits.lowMemory} low-memory exit record(s) found",
-                    "Review memory/process evidence"
+                    BugSeverity.INFO,
+                    "${exits.lowMemory} historical Android LOW_MEMORY exit record(s) found • " +
+                        "system pressure evidence, not a Java/native crash; v26 trim hooks are armed",
+                    "Full process-exit evidence is preserved below"
                 )
                 else -> BugCheck("Historical process exits", BugSeverity.PASS, "No recent crash/ANR record returned by Android")
             }

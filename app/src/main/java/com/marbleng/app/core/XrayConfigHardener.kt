@@ -12,6 +12,7 @@ object XrayConfigHardener {
     // MARBLE_DNS_TRANSPORT_FALLBACK_V23
     // MARBLE_IP_FAMILY_POLICY_V24
     // MARBLE_DNS_FAST_FALLBACK_V25
+    // MARBLE_DNS_EOF_QUARANTINE_V26
     private val infra = setOf("freedom", "blackhole", "dns", "loopback")
     private val compatibilityDependencyProtocols = setOf(
         "freedom", "http", "shadowsocks", "socks", "trojan", "vless", "vmess", "hysteria", "wireguard"
@@ -325,29 +326,55 @@ object XrayConfigHardener {
             }
         }
 
-        // V25: serial but transport-interleaved fallback:
-        // primary DoH -> primary DNS/TCP -> secondary DoH -> secondary DNS/TCP.
-        val resolverCount = maxOf(remoteDoh.size, bootstrapIps.size)
-        for (index in 0 until resolverCount) {
-            remoteDoh.getOrNull(index)?.let { address ->
+        // V26: runtime evidence showed the STOCK secondary Google DoH repeatedly timing out
+        // and then returning EOF. Quarantine only that default secondary from automatic fallback.
+        // If a user deliberately makes Google DoH primary it is kept. Custom secondary DoH is kept.
+        //
+        // normal order:
+        // primary DoH -> primary proxy-routed TCP -> secondary proxy-routed TCP -> custom DoH
+        val stockGoogleDoh = "https://8.8.8.8/dns-query"
+
+        remoteDoh.firstOrNull()?.let { address ->
+            dnsServers.put(
+                JSONObject()
+                    .put("address", address)
+                    .put("queryStrategy", queryStrategy)
+                    .put("timeoutMs", 1250)
+            )
+        }
+
+        val customSecondaryDoh = remoteDoh
+            .drop(1)
+            .filterNot { it.equals(stockGoogleDoh, ignoreCase = true) }
+
+        if (settings.adaptiveDnsEnabled) {
+            bootstrapIps.getOrNull(0)?.let { ip ->
                 dnsServers.put(
                     JSONObject()
-                        .put("address", address)
+                        .put("address", "tcp://$ip:53")
                         .put("queryStrategy", queryStrategy)
-                        .put("timeoutMs", if (index == 0) 1500 else 1800)
+                        .put("timeoutMs", 850)
                 )
             }
-            if (settings.adaptiveDnsEnabled) {
-                bootstrapIps.getOrNull(index)?.let { ip ->
-                    dnsServers.put(
-                        JSONObject()
-                            .put("address", "tcp://$ip:53")
-                            .put("queryStrategy", queryStrategy)
-                            .put("timeoutMs", if (index == 0) 950 else 1200)
-                            .put("finalQuery", index == resolverCount - 1)
-                    )
-                }
+            bootstrapIps.getOrNull(1)?.let { ip ->
+                dnsServers.put(
+                    JSONObject()
+                        .put("address", "tcp://$ip:53")
+                        .put("queryStrategy", queryStrategy)
+                        .put("timeoutMs", 1050)
+                        .put("finalQuery", customSecondaryDoh.isEmpty())
+                )
             }
+        }
+
+        customSecondaryDoh.forEachIndexed { index, address ->
+            dnsServers.put(
+                JSONObject()
+                    .put("address", address)
+                    .put("queryStrategy", queryStrategy)
+                    .put("timeoutMs", 1500)
+                    .put("finalQuery", index == customSecondaryDoh.lastIndex)
+            )
         }
 
         src.put(
