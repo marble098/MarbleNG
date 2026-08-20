@@ -892,6 +892,7 @@ private fun HomeOrbitalHero(
             )
         }
 
+        val orbitalAccent = Aether.Amethyst
         Box(Modifier.size(158.dp).clickable(onClick = onToggle), contentAlignment = Alignment.Center) {
             Canvas(Modifier.matchParentSize()) {
                 val c = Offset(size.width / 2f, size.height / 2f)
@@ -905,7 +906,7 @@ private fun HomeOrbitalHero(
                     style = Stroke(5f, cap = StrokeCap.Round)
                 )
                 drawArc(
-                    Aether.Amethyst.copy(alpha = .50f), -phase * .62f, 54f, false,
+                    orbitalAccent.copy(alpha = .50f), -phase * .62f, 54f, false,
                     Offset(r * .34f, r * .34f),
                     Size(size.width - r * .68f, size.height - r * .68f),
                     style = Stroke(2.7f, cap = StrokeCap.Round)
