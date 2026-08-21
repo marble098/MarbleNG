@@ -53,6 +53,7 @@ class MarbleVpnService : VpnService() {
     // MARBLE_RUNTIME_EXTREME_V23
     // MARBLE_FAST_READY_V25
     // MARBLE_RUNTIME_POLISH_V29
+    // MARBLE_EXTREME_NETWORK_V30
     // Live optimisation may learn while connected, but it must never intentionally tear down
     // a healthy user tunnel merely to hot-apply a transport experiment.
     companion object {
@@ -88,6 +89,11 @@ class MarbleVpnService : VpnService() {
         private const val PROBE_FAILURES_BEFORE_RECOVERY = 4
         private const val ROUTE_CONFIRM_TIMEOUT_MS = 4_500
         private const val RECENT_TRAFFIC_GRACE_MS = 75_000L
+
+        // A freshly established mobile tunnel often carries real traffic before synthetic HTTPS
+        // probes have warmed TLS/DNS state. Process death is still handled immediately; only
+        // synthetic miss accounting gets this short grace.
+        private const val ROUTE_FAILURE_WARMUP_MS = 18_000L
         private const val HEV_READY_GRACE_MS = 650L
         private const val CONNECT_STARTUP_TIMEOUT_MS = 90_000L
         private const val HEV_STALL_MIN_MS = 20_000L
@@ -1402,6 +1408,22 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                         "domainHttps" to domainHealthy,
                         "profile" to profile.id.take(12)
                     )
+
+                    if (!domainHealthy && literalHealthy) {
+                        val liveSettings = activeSettings ?: app.repo.settings
+                        if (
+                            liveSettings.intelligenceEnabled &&
+                            liveSettings.connectTuningEnabled
+                        ) {
+                            tuningRequested.set(true)
+                            diag.event(
+                                "TURBO", "startup-family-tune-requested",
+                                "session" to session,
+                                "profile" to profile.id.take(12),
+                                "reason" to "literal-ip-ok-domain-inconclusive"
+                            )
+                        }
+                    }
                     if (!domainHealthy && literalHealthy) {
                         app.repo.intelligence.setDecision(
                             "DNS health probe inconclusive • route remains connected and monitored"
@@ -1561,11 +1583,16 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
 
         fun measureBurst(host: String): List<Int> {
             val values = ArrayList<Int>(LIVE_RTT_BURST_SAMPLES)
+            var transientMisses = 0
             for (index in 0 until LIVE_RTT_BURST_SAMPLES) {
                 if (!isRouteCurrent(session, generation)) break
                 val value = measureOne(host)
-                if (value <= 0) break
-                values += value.coerceIn(1, 10_000)
+                if (value <= 0) {
+                    transientMisses++
+                    if (transientMisses >= 2) break
+                } else {
+                    values += value.coerceIn(1, 10_000)
+                }
                 if (index + 1 < LIVE_RTT_BURST_SAMPLES) {
                     try {
                         Thread.sleep(LIVE_RTT_BURST_GAP_MS)
@@ -1627,6 +1654,21 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                     "ROUTE", "probe-result-stale-discarded",
                     "session" to session,
                     "generation" to generation
+                )
+                return false
+            }
+
+            val routeAgeMs = (
+                (System.nanoTime() - connectStartedNs) / 1_000_000L
+            ).coerceAtLeast(0L)
+            if (routeAgeMs < ROUTE_FAILURE_WARMUP_MS) {
+                consecutiveProbeFailures = 0
+                diag.event(
+                    "ROUTE", "probe-warmup-miss-held",
+                    "session" to session,
+                    "ageMs" to routeAgeMs,
+                    "warmupMs" to ROUTE_FAILURE_WARMUP_MS,
+                    "profile" to activeProfileId.take(12)
                 )
                 return false
             }

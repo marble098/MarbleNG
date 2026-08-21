@@ -136,6 +136,7 @@ data class TuningReport(
  * Identity Guard pinned.
  */
 // MARBLE_FAST_STRATEGY_RACE_V14
+// MARBLE_EXTREME_NETWORK_V30
 class ConnectionTuner(
     private val xray: XrayManager,
     private val intelligence: MarbleIntelligence
@@ -255,7 +256,13 @@ class ConnectionTuner(
         val udpNative = profile.scheme.equals("hysteria2", true) ||
             profile.scheme.equals("hysteria", true) ||
             profile.transport.contains("hysteria", true)
-        val muxEligible = profile.scheme.lowercase() in MUX_SCHEMES && !udpNative
+        val nativeMultiplexTransport = profile.transport.lowercase() in setOf(
+            "grpc", "xhttp", "splithttp", "http"
+        )
+        val muxEligible =
+            profile.scheme.lowercase() in MUX_SCHEMES &&
+                !udpNative &&
+                !nativeMultiplexTransport
         val highRtt = (health?.latencyEwma ?: 0.0) >= 150.0
         val struggling = (health?.failureStreak ?: 0) > 0 || (health?.successEwma ?: 100.0) < 70.0
 
@@ -305,14 +312,24 @@ class ConnectionTuner(
 
         // Forcing one address family removes a dead AAAA/A dial from every new connection, which
         // is pure connect-latency on links that advertise both but only route one.
-        val dnsMethods = if (snapshot.hasIpv4 && snapshot.hasIpv6 && base.dnsQueryStrategy == "UseIP") {
-            listOf(
-                AccelerationPlan(
-                    methodId = "dns-v4",
-                    label = "IPv4-first endpoint resolution",
-                    dnsQueryStrategy = "UseIPv4"
-                )
+        val dnsMethods = if (
+            snapshot.hasIpv4 &&
+            snapshot.hasIpv6 &&
+            base.dnsQueryStrategy == "UseIP"
+        ) {
+            val v4 = AccelerationPlan(
+                methodId = "dns-v4",
+                label = "IPv4-only endpoint resolution",
+                dnsQueryStrategy = "UseIPv4"
             )
+            val v6 = AccelerationPlan(
+                methodId = "dns-v6",
+                label = "IPv6-only endpoint resolution",
+                dnsQueryStrategy = "UseIPv6"
+            )
+            // Both candidates are measured through real Xray instances. This is family racing by
+            // evidence, not a hard-coded assumption that every dual-stack network prefers IPv4.
+            if (base.preferIpv6) listOf(v6, v4) else listOf(v4, v6)
         } else {
             emptyList()
         }

@@ -14,6 +14,7 @@ object XrayConfigHardener {
     // MARBLE_DNS_FAST_FALLBACK_V25
     // MARBLE_DNS_EOF_QUARANTINE_V26
     // MARBLE_RUNTIME_POLISH_V29
+    // MARBLE_EXTREME_NETWORK_V30
     private val infra = setOf("freedom", "blackhole", "dns", "loopback")
     private val compatibilityDependencyProtocols = setOf(
         "freedom", "http", "shadowsocks", "socks", "trojan", "vless", "vmess", "hysteria", "wireguard"
@@ -232,7 +233,7 @@ object XrayConfigHardener {
                                     .put("tryDelayMs", 180)
                                     .put("prioritizeIPv6", settings.ipv6Enabled && settings.preferIpv6)
                                     .put("interleave", 1)
-                                    .put("maxConcurrentTry", 3)
+                                    .put("maxConcurrentTry", 4)
                             )
                         } else {
                             sockopt.remove("happyEyeballs")
@@ -399,6 +400,7 @@ object XrayConfigHardener {
                 // No plaintext/system-DNS fallback is introduced.
                 .put("serveStale", true)
                 .put("serveExpiredTTL", 1800)
+                .put("enableParallelQuery", settings.adaptiveDnsEnabled)
                 .put("useSystemHosts", false)
                 .put("disableFallbackIfMatch", bootstrapDomains.isNotEmpty())
                 .put("enableParallelQuery", false)
