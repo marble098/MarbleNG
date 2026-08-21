@@ -25,6 +25,7 @@ class BenchmarkEngine(
     private val intelligence: MarbleIntelligence? = null
 ) {
     // MARBLE_EVIDENCE_TIERS_V24
+    // MARBLE_BENCHMARK_ALL_NODES_V27
 
     fun run(
         profiles: List<ProxyProfile>,
@@ -53,7 +54,8 @@ class BenchmarkEngine(
             // Direct probes are socket-wait bound. Honor the bounded ping-concurrency control.
             s.tcpWorkers.coerceIn(4, 32)
         } else {
-            cpu.coerceIn(4, 8)
+            // Real Xray tests launch temporary native processes. Bound fanout for large batches.
+            cpu.coerceIn(2, 4)
         }
         val liveWorkers = max(1, (nominalWorkers * thermal).toInt())
             .coerceAtMost(candidates.size)
@@ -66,7 +68,7 @@ class BenchmarkEngine(
                 onStart(p)
                 // Score each measurement as it lands so the caller can publish a finished node
                 // immediately instead of holding every result back until the batch ends.
-                val measured = testCandidate(p, BASE_PORT + idx * 4, s)
+                val measured = testCandidate(p, benchmarkPort(idx), s)
                 val result = rank(listOf(measured), s).firstOrNull() ?: measured
                 results += result
                 // TCP/ICMP proves endpoint reachability, not that the Xray route/account works.
@@ -315,8 +317,8 @@ class BenchmarkEngine(
                 )
 
         if (!usePrecheck) {
+            // Caller explicitly disabled candidate gating: test every distinct supplied node.
             return ordered
-                .take(maxCandidates)
         }
 
         val workers =
@@ -1034,6 +1036,13 @@ class BenchmarkEngine(
     private fun canMux(p: ProxyProfile): Boolean =
         p.scheme.lowercase() in setOf("vless", "vmess", "trojan", "ss") && !isUdpNative(p)
 
+    /**
+     * Keep temporary SOCKS listeners inside a safe non-privileged range for huge subscriptions.
+     * Real-Xray fanout is <= 4 and jobs run in index order, so a 10k-slot wrap is collision-safe.
+     */
+    private fun benchmarkPort(index: Int): Int =
+        BASE_PORT + (index.coerceAtLeast(0) % BENCHMARK_PORT_SLOTS) * 4
+
     private fun formatRate(bytesPerSecond: Double): String = when {
         bytesPerSecond >= 1024.0 * 1024.0 -> "%.1f MiB/s".format(bytesPerSecond / 1024.0 / 1024.0)
         bytesPerSecond >= 1024.0 -> "%.0f KiB/s".format(bytesPerSecond / 1024.0)
@@ -1042,6 +1051,7 @@ class BenchmarkEngine(
 
     private companion object {
         const val BASE_PORT = 18080
+        const val BENCHMARK_PORT_SLOTS = 10_000
         const val RACE_BASE_PORT = 19280
         const val OPTIMIZER_BASE_PORT = 20580
         const val DEAD_LATENCY = 99_999.0

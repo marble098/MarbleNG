@@ -31,7 +31,7 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     // MARBLE_FAST_CONNECT_SSH_LIBRARY_V25
     // MARBLE_SELECTED_SOURCE_V25_4
     // MARBLE_MEMORY_PRESSURE_V26
-    // MARBLE_SMART_XRAY_RANK_CAP_V26_0_2
+    // MARBLE_SMART_XRAY_RANK_ALL_V27
 
     private val store = AppStore(context)
     private val io = Executors.newFixedThreadPool(3)
@@ -1300,17 +1300,18 @@ private fun postToMain(block: () -> Unit) {
             message = "Nothing enabled to rank"
             return
         }
-        task("Smart rank • TCP preflight → Xray finalists") {
-            val all = candidates
-            val deepBudget = minOf(8, all.size)
+        task("Smart rank • Xray verify all enabled nodes") {
+            // Explicit Smart Rank means all distinct enabled nodes, with no finalist cap.
+            val all = candidates.distinctBy { it.id }
             val rankSettings = settings.copy(
                 benchMode = BenchMode.CUSTOM,
-                benchCandidates = deepBudget,
+                benchCandidates = all.size.coerceAtLeast(1),
                 benchSamples = settings.benchSamples.coerceIn(1, 2),
                 benchTimeoutSec = minOf(settings.benchTimeoutSec, 5),
                 tcpPrecheckTimeoutMs = minOf(settings.tcpPrecheckTimeoutMs, 750),
                 tcpWorkers = maxOf(settings.tcpWorkers, 24).coerceAtMost(32),
-                probeMethod = ProbeMethod.HYBRID,
+                // Quick Ping already owns TCP reachability. Smart Rank verifies real Xray.
+                probeMethod = ProbeMethod.TUNNEL,
                 probeSpeedTest = false,
                 verifiedPerformanceTuning = false,
                 udpProbeEnabled = false
@@ -1318,6 +1319,7 @@ private fun postToMain(block: () -> Unit) {
             val results = BenchmarkEngine(xray, intelligence).run(
                 all,
                 rankSettings,
+                usePrecheck = false,
                 onCandidates = ::beginProbeBatch,
                 onStart = ::markProbeStart,
                 onResult = ::markProbeResult
@@ -1325,11 +1327,20 @@ private fun postToMain(block: () -> Unit) {
                 message = "Smart Xray rank $done/$total • $name"
             }
             mergeBenchmarks(results)
+            val healthy = results.count { it.success > 0 }
             val best = results.firstOrNull { it.success > 0 }
+            diagnostics.event(
+                "BENCHMARK",
+                "smart-rank-all-finish",
+                "requested" to all.size,
+                "tested" to results.size,
+                "healthy" to healthy
+            )
             message = if (best == null) {
-                "Smart rank finished • no healthy Xray finalist"
+                "Xray rank finished • ${results.size}/${all.size} tested • 0 healthy"
             } else {
-                "Best verified route • ${best.name} • ${best.latencyMs.toInt()} ms • score ${best.score.toInt()}"
+                "Xray rank • ${results.size}/${all.size} tested • $healthy healthy • " +
+                    "best ${best.name} • ${best.latencyMs.toInt()} ms • score ${best.score.toInt()}"
             }
         }
     }

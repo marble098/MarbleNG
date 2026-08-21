@@ -12,6 +12,7 @@ package com.marbleng.app.ui
 // MARBLE_LIBRARY_SSH_COMPACT_V25
 // MARBLE_SELECTED_SOURCE_UI_V25_4
 // MARBLE_AURORA_UI_V26
+// MARBLE_HOME_COMMAND_DASHBOARD_V27
 
 import android.Manifest
 import android.content.Intent
@@ -762,9 +763,14 @@ private fun CyberDeck(
     ) {
         item {
             SpatialHeader(
-                eyebrow = "Command",
-                title = "Marble",
-                subtitle = if (connected) "Your private route is live" else "Fast, measured, deliberate",
+                eyebrow = "AETHER COMMAND • ${repo.libraryProfiles.size} NODES",
+                title = "MarbleNG",
+                subtitle = when {
+                    connected -> "${repo.networkSnapshot.label} • encrypted route live"
+                    connecting -> "Negotiating ${activeName} • route telemetry will appear automatically"
+                    blocked -> "Fail-closed protection is holding traffic • inspect the route or retry"
+                    else -> "${repo.networkSnapshot.label} • measured routing ready"
+                },
                 status = when {
                     connected -> "ONLINE"
                     connecting -> "LINKING"
@@ -795,6 +801,72 @@ private fun CyberDeck(
             )
         }
 
+
+        item {
+            val verifiedXray = repo.benchmarks.count {
+                it.probeKind == "TUNNEL" && it.success > 0
+            }
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(7.dp)
+            ) {
+                MiniMetric("Nodes", repo.libraryProfiles.size.toString(), "", Modifier.weight(1f))
+                MiniMetric("Xray OK", verifiedXray.toString(), "", Modifier.weight(1f))
+                MiniMetric(
+                    "Mode",
+                    if (repo.settings.connectionMode == ConnectionMode.FULL_TUN) "TUN" else "SOCKS",
+                    "",
+                    Modifier.weight(1f)
+                )
+            }
+        }
+
+        if (repo.probeActive) {
+            item {
+                HoloGlass(
+                    borderColor = Aether.Cyan.copy(alpha = .28f),
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp)
+                ) {
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                "XRAY BENCHMARK",
+                                color = Aether.Cyan,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                repo.probeCurrentName.ifBlank { "Preparing next route…" },
+                                color = Aether.Ink,
+                                style = MaterialTheme.typography.bodySmall,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        HoloBadge(
+                            "${repo.probeDone}/${repo.probeTotal}",
+                            Aether.Cyan,
+                            compact = true
+                        )
+                    }
+                    LiveProgressBar(
+                        fraction = if (repo.probeTotal > 0) {
+                            repo.probeDone.toFloat() / repo.probeTotal.toFloat()
+                        } else 0f,
+                        color = Aether.Cyan
+                    )
+                    Text(
+                        "Real Xray verification across every enabled node • no 8-node cap",
+                        color = Aether.InkFaint,
+                        style = MaterialTheme.typography.labelSmall
+                    )
+                }
+            }
+        }
+
         if (repo.settings.homeShowIranMode) {
             item {
                 AnimatedVisibility(
@@ -814,8 +886,8 @@ private fun CyberDeck(
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                         HomeActionPortal(
-                            "◎", "Rank",
-                            if (repo.probeActive) "${repo.probeDone}/${repo.probeTotal}" else "Verify routes",
+                            "◎", "Rank all",
+                            if (repo.probeActive) "${repo.probeDone}/${repo.probeTotal} Xray" else "Xray • ${repo.libraryProfiles.size} nodes",
                             Aether.Cyan, Modifier.weight(1f)
                         ) { repo.smartRank() }
                         HomeActionPortal(
