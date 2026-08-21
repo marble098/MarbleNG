@@ -2,6 +2,7 @@ package com.marbleng.app.core
 
 // MARBLE_MANUAL_CONFIGS_V20
 // MARBLE_SSH_MANUAL_V25
+// MARBLE_PATTNG_TLS_PARITY_V28
 
 import com.marbleng.app.model.ProxyProfile
 import org.json.JSONArray
@@ -38,6 +39,8 @@ data class ManualConfigDraft(
     val security: String = "tls",
     val sni: String = "",
     val fingerprint: String = "chrome",
+    /** Xray TLS cipher suite names separated by ':'; empty lets Go/Xray choose automatically. */
+    val cipherSuites: String = "",
     val path: String = "/",
     val hostHeader: String = "",
     val serviceName: String = "",
@@ -368,6 +371,9 @@ object ManualConfigBuilder {
             .put("serverName", d.sni.trim().ifBlank { host })
             .put("fingerprint", d.fingerprint.trim().ifBlank { "chrome" })
             .apply {
+                // PattNG parity: Xray accepts a colon-separated cipherSuites string.
+                d.cipherSuites.trim().takeIf(String::isNotBlank)
+                    ?.let { put("cipherSuites", it) }
                 if (d.allowInsecure) put("allowInsecure", true)
                 val values = splitList(d.alpn)
                 if (values.isNotEmpty()) put("alpn", JSONArray(values))

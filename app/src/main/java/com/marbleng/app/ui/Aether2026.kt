@@ -13,6 +13,7 @@ package com.marbleng.app.ui
 // MARBLE_SELECTED_SOURCE_UI_V25_4
 // MARBLE_AURORA_UI_V26
 // MARBLE_HOME_COMMAND_DASHBOARD_V27
+// MARBLE_PATTNG_TLS_PARITY_V28
 
 import android.Manifest
 import android.content.Intent
@@ -2042,7 +2043,15 @@ private fun ManualConfigEditor(
                     ManualField("Auth", draft.password, { draft = draft.copy(password = it) })
                     ManualField("SNI", draft.sni, { draft = draft.copy(sni = it) })
                     ManualField("Fingerprint", draft.fingerprint, { draft = draft.copy(fingerprint = it) })
+                    FingerprintPresetRow(draft.fingerprint, allowUnsafe = true) {
+                        draft = draft.copy(fingerprint = it)
+                    }
                     ManualField("ALPN", draft.alpn, { draft = draft.copy(alpn = it) })
+                    ManualField(
+                        "Cipher Suites (: separated)",
+                        draft.cipherSuites,
+                        { draft = draft.copy(cipherSuites = it) }
+                    )
                     CyberChoiceChip("Allow insecure TLS", draft.allowInsecure, Aether.Danger) {
                         draft = draft.copy(allowInsecure = !draft.allowInsecure)
                     }
@@ -2055,6 +2064,14 @@ private fun ManualConfigEditor(
                     if (protocol == ManualProtocol.HTTPS) {
                         ManualField("TLS server name", draft.sni, { draft = draft.copy(sni = it) })
                         ManualField("Fingerprint", draft.fingerprint, { draft = draft.copy(fingerprint = it) })
+                        FingerprintPresetRow(draft.fingerprint, allowUnsafe = true) {
+                            draft = draft.copy(fingerprint = it)
+                        }
+                        ManualField(
+                            "Cipher Suites (: separated)",
+                            draft.cipherSuites,
+                            { draft = draft.copy(cipherSuites = it) }
+                        )
                         CyberChoiceChip("Allow insecure TLS", draft.allowInsecure, Aether.Danger) {
                             draft = draft.copy(allowInsecure = !draft.allowInsecure)
                         }
@@ -2136,9 +2153,23 @@ private fun ManualConfigEditor(
                         ManualField("SNI", draft.sni, { draft = draft.copy(sni = it) }, Modifier.weight(1f))
                         ManualField("Fingerprint", draft.fingerprint, { draft = draft.copy(fingerprint = it) }, Modifier.weight(1f))
                     }
+                    FingerprintPresetRow(
+                        value = draft.fingerprint,
+                        allowUnsafe = draft.security == "tls"
+                    ) { draft = draft.copy(fingerprint = it) }
                 }
                 if (draft.security == "tls") {
                     ManualField("ALPN", draft.alpn, { draft = draft.copy(alpn = it) })
+                    ManualField(
+                        "Cipher Suites (: separated)",
+                        draft.cipherSuites,
+                        { draft = draft.copy(cipherSuites = it) }
+                    )
+                    Text(
+                        "PattNG/Xray TLS control • `unsafe` uses native Go TLS; leave Cipher Suites empty for automatic defaults.",
+                        color = Aether.InkFaint,
+                        style = MaterialTheme.typography.labelSmall
+                    )
                     CyberChoiceChip("Allow insecure TLS", draft.allowInsecure, Aether.Danger) {
                         draft = draft.copy(allowInsecure = !draft.allowInsecure)
                     }
@@ -2177,6 +2208,35 @@ private fun ManualConfigEditor(
                 draft = ManualConfigDraft()
                 onSaved()
             }
+        }
+    }
+}
+
+@Composable
+private fun FingerprintPresetRow(
+    value: String,
+    allowUnsafe: Boolean,
+    onSelect: (String) -> Unit
+) {
+    val presets = if (allowUnsafe) {
+        listOf("chrome", "firefox", "safari", "randomized", "unsafe")
+    } else {
+        // REALITY uses uTLS; do not suggest PattNG/Xray's native-Go-TLS `unsafe` mode here.
+        listOf("chrome", "firefox", "safari", "randomized")
+    }
+
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        presets.forEach { preset ->
+            CyberChoiceChip(
+                text = preset,
+                selected = value.equals(preset, ignoreCase = true),
+                color = if (preset == "unsafe") Aether.Amber else Aether.Cyan
+            ) { onSelect(preset) }
         }
     }
 }

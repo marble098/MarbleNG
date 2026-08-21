@@ -1,6 +1,7 @@
 package com.marbleng.app.core
 
 // MARBLE_SSH_PARSE_V25
+// MARBLE_PATTNG_TLS_PARITY_V28
 
 import android.net.Uri
 import android.util.Base64
@@ -261,6 +262,9 @@ object ProxyParser {
         if (security == "tls") stream.put("tlsSettings", JSONObject()
             .put("serverName", serverName).put("fingerprint", fingerprint).apply {
                 q(uri, "alpn").takeIf { it.isNotBlank() }?.let { put("alpn", JSONArray(it.split(','))) }
+                // PattNG share-link extension: `cs` carries Xray's colon-separated cipherSuites.
+                qa(uri, "cs", "cipherSuites").takeIf { it.isNotBlank() }
+                    ?.let { put("cipherSuites", it) }
                 if (qa(uri, "allowInsecure", "insecure") in setOf("1", "true")) put("allowInsecure", true)
                 q(uri, "pinnedPeerCertSha256").takeIf { it.isNotBlank() }?.let { put("pinnedPeerCertSha256", it) }
                 q(uri, "echConfigList").takeIf { it.isNotBlank() }?.let { put("echConfigList", it) }
@@ -302,7 +306,7 @@ object ProxyParser {
             require(port in 1..65535) { "VMess payload has no usable port" }
             val uuid = o.getString("id"); val net = o.optString("net", "tcp")
             val sec = if (o.optString("tls").lowercase() in setOf("tls", "1", "true")) "tls" else "none"
-            val fake = Uri.parse("vmess://$uuid@$host:$port?type=${Uri.encode(net)}&security=$sec&host=${Uri.encode(o.optString("host"))}&path=${Uri.encode(o.optString("path"))}&sni=${Uri.encode(o.optString("sni"))}&fp=${Uri.encode(o.optString("fp", "chrome"))}")
+            val fake = Uri.parse("vmess://$uuid@$host:$port?type=${Uri.encode(net)}&security=$sec&host=${Uri.encode(o.optString("host"))}&path=${Uri.encode(o.optString("path"))}&sni=${Uri.encode(o.optString("sni"))}&fp=${Uri.encode(o.optString("fp", "chrome"))}&cs=${Uri.encode(o.optString("cs", o.optString("cipherSuites")))}")
             val out = JSONObject().put("tag", "proxy").put("protocol", "vmess").put("settings", JSONObject()
                 .put("address", host).put("port", port).put("id", uuid).put("security", o.optString("scy", "auto")))
                 .put("streamSettings", stream(fake, host))
@@ -375,8 +379,22 @@ object ProxyParser {
         val settings = JSONObject().put("address", host).put("port", port)
         if (user.isNotBlank()) { settings.put("user", user); settings.put("pass", pass) }
         val out = JSONObject().put("tag", "proxy").put("protocol", protocol).put("settings", settings)
-        if (scheme == "https") out.put("streamSettings", JSONObject().put("method", "raw").put("security", "tls")
-            .put("tlsSettings", JSONObject().put("serverName", host)))
+        if (scheme == "https") out.put(
+            "streamSettings",
+            JSONObject()
+                .put("method", "raw")
+                .put("security", "tls")
+                .put(
+                    "tlsSettings",
+                    JSONObject()
+                        .put("serverName", qa(u, "sni", "serverName", default = host))
+                        .put("fingerprint", qa(u, "fp", "fingerprint", default = "chrome"))
+                        .apply {
+                            qa(u, "cs", "cipherSuites").takeIf { it.isNotBlank() }
+                                ?.let { put("cipherSuites", it) }
+                        }
+                )
+        )
         return prof(raw, "${protocol.uppercase()} $host", scheme, host, port, "native", if (scheme == "https") "tls" else "none", base(out), sid, sname)
     }
 
