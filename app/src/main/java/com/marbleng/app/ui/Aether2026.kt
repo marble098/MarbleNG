@@ -15,6 +15,7 @@ package com.marbleng.app.ui
 // MARBLE_HOME_COMMAND_DASHBOARD_V27
 // MARBLE_PATTNG_TLS_PARITY_V28
 // MARBLE_RUNTIME_POLISH_V29
+// MARBLE_INSTANT_QUALITY_V31
 
 import android.Manifest
 import android.content.Intent
@@ -1080,7 +1081,7 @@ private fun HomeOrbitalHero(
 
         Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
             MiniMetric("Ping", if (repo.livePingMs > 0) repo.livePingMs.toString() else "—", "ms", Modifier.weight(1f))
-            MiniMetric("Jitter", if (repo.liveJitterSamples >= 2) repo.liveJitterMs.toString() else "—", "ms", Modifier.weight(1f))
+            MiniMetric("Jitter", if (repo.liveJitterSamples >= 1) repo.liveJitterMs.toString() else "—", "ms", Modifier.weight(1f))
             MiniMetric("Quality", if (repo.liveRouteScore >= 0) repo.liveRouteScore.toString() else "—", if (repo.liveRouteScore >= 0) "%" else "", Modifier.weight(1f))
         }
     }

@@ -54,6 +54,7 @@ class MarbleVpnService : VpnService() {
     // MARBLE_FAST_READY_V25
     // MARBLE_RUNTIME_POLISH_V29
     // MARBLE_EXTREME_NETWORK_V30
+    // MARBLE_INSTANT_QUALITY_V31
     // Live optimisation may learn while connected, but it must never intentionally tear down
     // a healthy user tunnel merely to hot-apply a transport experiment.
     companion object {
@@ -73,8 +74,10 @@ class MarbleVpnService : VpnService() {
         private const val ROUTE_HEAVY_PROBE_TICKS = 60
         private const val ROUTE_JITTER_TRIGGER_MS = 25
         private const val ROUTE_JITTER_RELEASE_MS = 12
-        private const val ROUTE_WINDOW_SIZE = 5
-        private const val JITTER_WINDOW_SIZE = 6
+        // Rolling live metric window. Six RTTs produce at most five same-target IPDV deltas,
+        // so ping and jitter confidence remain mathematically aligned.
+        private const val ROUTE_WINDOW_SIZE = 6
+        private const val JITTER_WINDOW_SIZE = 5
         private const val JITTER_HIGH_CONFIRMATIONS = 3
         private const val JITTER_RELEASE_CONFIRMATIONS = 4
         private const val JITTER_OPTIMIZER_COOLDOWN_MS = 180_000L
@@ -82,8 +85,8 @@ class MarbleVpnService : VpnService() {
         private const val TURBO_INCONCLUSIVE_MAX_BACKOFF_MS = 1_800_000L
         private const val JITTER_PRIMARY_HOST = "1.1.1.1"
         private const val JITTER_SECONDARY_HOST = "1.0.0.1"
-        private const val LIVE_RTT_BURST_SAMPLES = 5
-        private const val LIVE_RTT_BURST_GAP_MS = 55L
+        private const val LIVE_RTT_BURST_SAMPLES = 4
+        private const val LIVE_RTT_BURST_GAP_MS = 45L
         // Synthetic endpoints are advisory. Process death is handled immediately; route failure
         // requires normally-spaced misses plus a second independent confirmation.
         private const val PROBE_FAILURES_BEFORE_RECOVERY = 4
@@ -94,7 +97,9 @@ class MarbleVpnService : VpnService() {
         // probes have warmed TLS/DNS state. Process death is still handled immediately; only
         // synthetic miss accounting gets this short grace.
         private const val ROUTE_FAILURE_WARMUP_MS = 18_000L
-        private const val HEV_READY_GRACE_MS = 650L
+        // HEV main_from_str() is blocking. If it is still alive after this grace, publish
+        // CONNECTED sooner; native stats keep their own later warm-up and are NOT moved earlier.
+        private const val HEV_READY_GRACE_MS = 350L
         private const val CONNECT_STARTUP_TIMEOUT_MS = 90_000L
         private const val HEV_STALL_MIN_MS = 20_000L
         private const val HEV_STALL_MIN_TX_BYTES = 32L * 1024L
@@ -1565,11 +1570,66 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
     ): Boolean {
         if (!isRouteCurrent(session, generation)) return false
 
+        val app = application as MarbleApplication
+        val repo = app.repo
+
         /*
-         * v22 uses one compact, same-target HTTPS burst.
-         * The old implementation had independent 5-RTT and 6-delta windows, so logs could report
-         * jitterSamples=6 with samples=5. Here N RTTs always produce exactly N-1 jitter deltas.
+         * v31 keeps one same-target rolling RTT/IPDV window and streams every verified result.
+         * The first valid RTT publishes Ping + Quality immediately; the second valid RTT adds
+         * the first real jitter delta. Later samples refine the same rolling metric.
+         *
+         * Jitter is mean absolute consecutive RTT variation (IPDV) on one literal-IP target.
+         * It includes real spikes instead of deleting the largest delta, while the bounded rolling
+         * window prevents one ancient spike from contaminating the value forever.
          */
+        fun publishRollingSample(host: String, sample: Int) {
+            if (!isRouteCurrent(session, generation) || host != jitterProbeHost) return
+
+            val snapshot = synchronized(latencyWindow) {
+                val previous = previousLatencySampleMs
+
+                latencyWindow.addLast(sample)
+                if (previous > 0) {
+                    jitterDeltaWindow.addLast(
+                        abs(sample - previous).coerceIn(0, 10_000)
+                    )
+                }
+                previousLatencySampleMs = sample
+
+                while (latencyWindow.size > ROUTE_WINDOW_SIZE) {
+                    latencyWindow.removeFirst()
+                    if (jitterDeltaWindow.isNotEmpty()) {
+                        jitterDeltaWindow.removeFirst()
+                    }
+                }
+                while (jitterDeltaWindow.size > JITTER_WINDOW_SIZE) {
+                    jitterDeltaWindow.removeFirst()
+                }
+
+                val rtts = latencyWindow.toList()
+                val deltas = jitterDeltaWindow.toList()
+                val sorted = rtts.sorted()
+                val rollingPing = sorted[sorted.size / 2]
+                val rollingJitter =
+                    if (deltas.isEmpty()) -1
+                    else deltas.average().roundToInt()
+
+                intArrayOf(
+                    rollingPing,
+                    rollingJitter,
+                    rtts.size,
+                    deltas.size
+                )
+            }
+
+            repo.updateRouteQuality(
+                snapshot[0],
+                snapshot[1],
+                snapshot[2],
+                snapshot[3]
+            )
+        }
+
         fun measureOne(host: String): Int =
             runCatching {
                 SocksHttpClient.httpsFirstByteLatency(
@@ -1591,7 +1651,9 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                     transientMisses++
                     if (transientMisses >= 2) break
                 } else {
-                    values += value.coerceIn(1, 10_000)
+                    val verified = value.coerceIn(1, 10_000)
+                    values += verified
+                    publishRollingSample(host, verified)
                 }
                 if (index + 1 < LIVE_RTT_BURST_SAMPLES) {
                     try {
@@ -1608,29 +1670,31 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         var host = jitterProbeHost
         var rttSamples = measureBurst(host)
 
-        if (rttSamples.size < 3 && isRouteCurrent(session, generation)) {
+        if (rttSamples.isEmpty() && isRouteCurrent(session, generation)) {
             val alternate =
                 if (host == JITTER_PRIMARY_HOST) JITTER_SECONDARY_HOST else JITTER_PRIMARY_HOST
             val alternateSamples = measureBurst(alternate)
-            if (alternateSamples.size > rttSamples.size) {
+            if (alternateSamples.isNotEmpty()) {
                 resetJitterBaselineForProbeHost(alternate)
                 host = alternate
                 rttSamples = alternateSamples
+
+                // alternate samples were intentionally not published while the old host was still
+                // pinned; replay them only after the baseline is reset to the winning target.
+                alternateSamples.forEach { publishRollingSample(alternate, it) }
+
                 diag.event(
                     "ROUTE", "jitter-probe-pivot",
                     "session" to session,
                     "target" to alternate,
-                    "reason" to "primary verified burst incomplete"
+                    "reason" to "primary produced zero verified RTTs"
                 )
             }
         }
 
-        val app = application as MarbleApplication
-        val repo = app.repo
-
         if (rttSamples.isEmpty() || !isRouteCurrent(session, generation)) {
-            repo.invalidateLiveJitter()
-
+            // Keep the last verified rolling metrics across an advisory miss. A host pivot,
+            // disconnect, generation reset, or real recovery still resets them explicitly.
             val trafficRecentlyMoved =
                 activeMode == MODE_TUN &&
                     hevActive &&
@@ -1715,31 +1779,26 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         consecutiveProbeFailures = 0
         identityRecoveryAttempts = 0
 
-        val sortedRtt = rttSamples.sorted()
-        val pingMs = sortedRtt[sortedRtt.size / 2]
-        val deltas = rttSamples.zipWithNext { first, second ->
-            abs(second - first).coerceIn(0, 10_000)
+        val rolling = synchronized(latencyWindow) {
+            latencyWindow.toList() to jitterDeltaWindow.toList()
         }
-        val jitterSampleCount = deltas.size
-        val jitterMs = when {
-            deltas.size < 2 -> -1
-            deltas.size >= 4 ->
-                deltas.sorted().dropLast(1).average().roundToInt()
-            else ->
-                deltas.average().roundToInt()
-        }
+        val rollingRtt = rolling.first
+        val rollingDeltas = rolling.second
+        if (rollingRtt.isEmpty()) return false
 
-        synchronized(latencyWindow) {
-            latencyWindow.clear()
-            rttSamples.forEach { latencyWindow.addLast(it) }
-            jitterDeltaWindow.clear()
-            deltas.forEach { jitterDeltaWindow.addLast(it) }
-            previousLatencySampleMs = rttSamples.last()
-        }
+        val sortedRtt = rollingRtt.sorted()
+        val pingMs = sortedRtt[sortedRtt.size / 2]
+        val jitterSampleCount = rollingDeltas.size
+
+        // Real rolling IPDV: mean absolute difference between consecutive verified RTTs.
+        // No maximum-delta deletion: genuine spikes belong in the jitter number.
+        val jitterMs =
+            if (rollingDeltas.isEmpty()) -1
+            else rollingDeltas.average().roundToInt()
 
         val quality = ActiveRouteQuality(
             latencyMs = pingMs,
-            samples = rttSamples.size
+            samples = rollingRtt.size
         )
 
         repo.updateRouteQuality(
@@ -1758,7 +1817,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             "jitterMs" to jitterMs,
             "samples" to quality.samples,
             "jitterSamples" to jitterSampleCount,
-            "method" to "verified-https-ttfb-burst"
+            "method" to "verified-https-ttfb-rolling-ipdv"
         )
 
         repo.intelligence.recordLiveRoute(
