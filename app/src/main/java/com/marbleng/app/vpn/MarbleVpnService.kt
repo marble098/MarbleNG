@@ -27,6 +27,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import org.json.JSONObject
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -51,6 +52,7 @@ class MarbleVpnService : VpnService() {
     // MARBLE_VERIFIED_JITTER_BURST_V22
     // MARBLE_RUNTIME_EXTREME_V23
     // MARBLE_FAST_READY_V25
+    // MARBLE_RUNTIME_POLISH_V29
     // Live optimisation may learn while connected, but it must never intentionally tear down
     // a healthy user tunnel merely to hot-apply a transport experiment.
     companion object {
@@ -269,6 +271,17 @@ class MarbleVpnService : VpnService() {
             failBeforeTunnel("Profile no longer exists")
             return
         }
+        profileCompatibilityIssue(profile)?.let { issue ->
+            diag.event(
+                "XRAY", "profile-preflight-rejected",
+                "profile" to profile.id.take(12),
+                "scheme" to profile.scheme,
+                "reason" to issue
+            )
+            failBeforeTunnel(issue)
+            return
+        }
+
         val settings = app.repo.effectiveSettingsFor(profile)
         val normalizedMode = if (mode == MODE_PROXY) MODE_PROXY else MODE_TUN
         val port = if (normalizedMode == MODE_PROXY) settings.localProxyPort else settings.socksPort
@@ -1373,6 +1386,14 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                     val app = application as MarbleApplication
                     val domainHealthy = probeDomainHttps(port)
                     val literalHealthy = domainHealthy || probeLiteralIpHttps(port)
+                    if (!isRouteCurrent(session, generation) || !xray.isAlive) {
+                        diag.event(
+                            "EGRESS", "startup-observation-stale-discarded",
+                            "session" to session,
+                            "profile" to profile.id.take(12)
+                        )
+                        return@execute
+                    }
                     diag.event(
                         "EGRESS",
                         if (domainHealthy) "startup-observation-ok" else "startup-observation-inconclusive",
@@ -1597,6 +1618,15 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                     "trafficRecent" to true,
                     "xrayAlive" to xray.isAlive,
                     "hevActive" to hevActive
+                )
+                return false
+            }
+
+            if (!isRouteCurrent(session, generation)) {
+                diag.event(
+                    "ROUTE", "probe-result-stale-discarded",
+                    "session" to session,
+                    "generation" to generation
                 )
                 return false
             }
@@ -2535,10 +2565,131 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         )
     }
 
+    /**
+     * Fail fast for a configuration Xray itself treats as permanently invalid.
+     *
+     * Recent Xray releases reject public VLESS with both stream security=none and
+     * encryption=none. Starting Android TUN first used to create a kill-switch hold and then
+     * retry the same impossible profile. Private/LAN endpoints remain allowed.
+     */
+    private fun profileCompatibilityIssue(profile: ProxyProfile): String? =
+        runCatching {
+            val root = JSONObject(profile.configJson)
+            val outbounds = root.optJSONArray("outbounds") ?: return@runCatching null
+
+            for (index in 0 until outbounds.length()) {
+                val outbound = outbounds.optJSONObject(index) ?: continue
+                if (!outbound.optString("protocol").equals("vless", ignoreCase = true)) continue
+
+                val settings = outbound.optJSONObject("settings") ?: JSONObject()
+                val stream = outbound.optJSONObject("streamSettings") ?: JSONObject()
+                val security = stream.optString("security", "none")
+                    .ifBlank { "none" }
+                    .lowercase()
+
+                val legacyUser = settings
+                    .optJSONArray("vnext")
+                    ?.optJSONObject(0)
+                    ?.optJSONArray("users")
+                    ?.optJSONObject(0)
+
+                val encryption = settings.optString("encryption")
+                    .ifBlank { legacyUser?.optString("encryption").orEmpty() }
+                    .ifBlank { "none" }
+                    .lowercase()
+
+                val host = settings.optString("address")
+                    .ifBlank {
+                        settings.optJSONArray("vnext")
+                            ?.optJSONObject(0)
+                            ?.optString("address")
+                            .orEmpty()
+                    }
+                    .trim()
+
+                if (
+                    security == "none" &&
+                    encryption == "none" &&
+                    !isPrivateEndpointHost(host)
+                ) {
+                    return@runCatching (
+                        "Unsupported VLESS • public VLESS now requires TLS/REALITY " +
+                            "or non-none VLESS encryption"
+                    )
+                }
+            }
+            null
+        }.getOrNull()
+
+    private fun isPrivateEndpointHost(raw: String): Boolean {
+        val host = raw.trim()
+            .removePrefix("[")
+            .removeSuffix("]")
+            .lowercase()
+        if (host.isBlank()) return false
+
+        if (
+            host == "localhost" ||
+            host.endsWith(".localhost") ||
+            host.endsWith(".local") ||
+            host.endsWith(".lan") ||
+            host.endsWith(".home.arpa")
+        ) return true
+
+        // Single-label DNS names are normally private search-domain hosts.
+        if (!host.contains('.') && !host.contains(':')) return true
+
+        if (
+            host == "::1" ||
+            host.startsWith("fc") ||
+            host.startsWith("fd") ||
+            host.startsWith("fe8") ||
+            host.startsWith("fe9") ||
+            host.startsWith("fea") ||
+            host.startsWith("feb")
+        ) return true
+
+        val ipv4 = host.removePrefix("::ffff:")
+        val parts = ipv4.split('.')
+        if (parts.size != 4) return false
+        val octets = parts.map { it.toIntOrNull() ?: return false }
+        if (octets.any { it !in 0..255 }) return false
+
+        val a = octets[0]
+        val b = octets[1]
+        return when {
+            a == 10 -> true
+            a == 127 -> true
+            a == 169 && b == 254 -> true
+            a == 172 && b in 16..31 -> true
+            a == 192 && b == 168 -> true
+            a == 100 && b in 64..127 -> true
+            else -> false
+        }
+    }
+
+    private fun conciseFailure(raw: String): String {
+        val compact = raw.replace(Regex("\\s+"), " ").trim()
+        val lower = compact.lowercase()
+        return when {
+            "vless without tls or other encryption is prohibited" in lower ->
+                "Unsupported VLESS • enable TLS/REALITY or non-none VLESS encryption"
+            "failed to build outbound config" in lower ->
+                "Xray rejected this node configuration • check protocol/TLS settings"
+            "failed to load config files" in lower ->
+                "Xray rejected the generated configuration"
+            compact.length > 240 -> compact.take(237) + "…"
+            else -> compact.ifBlank { "Connection could not be started" }
+        }
+    }
+
     private fun failBeforeTunnel(reason: String) {
         running.set(false)
-        (application as MarbleApplication).repo.setRuntimeState("BLOCKED", reason)
-        diag.event("VPN", "startup-failed", "reason" to reason)
+        val concise = conciseFailure(reason)
+        val repo = (application as MarbleApplication).repo
+        repo.setRuntimeState("DISCONNECTED", concise)
+        repo.setRuntimeMessage(concise)
+        diag.event("VPN", "startup-failed-before-tun", "reason" to concise)
         runCatching { stopForeground(STOP_FOREGROUND_REMOVE) }
         stopSelf()
     }

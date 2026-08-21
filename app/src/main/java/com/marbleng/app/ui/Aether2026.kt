@@ -14,6 +14,7 @@ package com.marbleng.app.ui
 // MARBLE_AURORA_UI_V26
 // MARBLE_HOME_COMMAND_DASHBOARD_V27
 // MARBLE_PATTNG_TLS_PARITY_V28
+// MARBLE_RUNTIME_POLISH_V29
 
 import android.Manifest
 import android.content.Intent
@@ -250,13 +251,15 @@ fun Aether2026App(
                 )
             }
 
+            // Bottom toast: stays above Marble's floating dock, follows the IME, and no longer
+            // covers page headers / connection controls at the top of the screen.
             MarbleSnackbarHost(
                 hostState = snackbar,
                 modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .statusBarsPadding()
-                    .padding(start = 18.dp, top = 10.dp, end = 18.dp)
-                    .widthIn(max = 460.dp)
+                    .align(Alignment.BottomCenter)
+                    .imePadding()
+                    .padding(start = 14.dp, end = 14.dp, bottom = 12.dp)
+                    .widthIn(max = 520.dp)
             )
         }
     }
@@ -333,20 +336,40 @@ fun Aether2026App(
     }
 }
 
+private fun compactInAppMessage(raw: String): String {
+    val message = raw.replace(Regex("\\s+"), " ").trim()
+    val lower = message.lowercase()
+    return when {
+        "vless without tls or other encryption is prohibited" in lower ->
+            "Unsupported VLESS • enable TLS/REALITY or non-none VLESS encryption"
+        "failed to build outbound config" in lower ->
+            "Xray rejected this node configuration • check protocol/TLS settings"
+        "context deadline exceeded" in lower && "dns-query" in lower ->
+            "DNS resolver timed out • Marble is switching to a fallback path"
+        message.length > 260 -> message.take(257) + "…"
+        else -> message
+    }
+}
+
 @Composable
 private fun MarbleSnackbarHost(
     hostState: SnackbarHostState,
     modifier: Modifier = Modifier
 ) {
     SnackbarHost(hostState = hostState, modifier = modifier) { data ->
-        val message = data.visuals.message
+        val message = compactInAppMessage(data.visuals.message)
         val lower = message.lowercase()
+
         val tone = when {
-            listOf("fail", "error", "blocked", "denied", "could not", "missing").any(lower::contains) -> Aether.Danger
-            listOf("warn", "inconclusive", "unavailable", "skipped").any(lower::contains) -> Aether.Amber
-            listOf("connected", "ready", "saved", "added", "refreshed", "verified", "best").any(lower::contains) -> Aether.Emerald
+            listOf("fail", "error", "blocked", "denied", "could not", "missing", "rejected", "unsupported")
+                .any(lower::contains) -> Aether.Danger
+            listOf("warn", "inconclusive", "unavailable", "skipped", "timeout")
+                .any(lower::contains) -> Aether.Amber
+            listOf("connected", "ready", "saved", "added", "refreshed", "verified", "best", "copied", "complete")
+                .any(lower::contains) -> Aether.Emerald
             else -> Aether.Cyan
         }
+
         val glyph = when (tone) {
             Aether.Danger -> "!"
             Aether.Amber -> "◒"
@@ -354,65 +377,114 @@ private fun MarbleSnackbarHost(
             else -> "✦"
         }
         val title = when (tone) {
-            Aether.Danger -> "ATTENTION"
-            Aether.Amber -> "NOTICE"
-            Aether.Emerald -> "DONE"
-            else -> "MARBLE"
+            Aether.Danger -> "Connection issue"
+            Aether.Amber -> "Heads up"
+            Aether.Emerald -> "Completed"
+            else -> "Marble"
         }
-        val shape = RoundedCornerShape(22.dp)
+        val shape = RoundedCornerShape(18.dp)
 
-        Row(
-            Modifier
+        Surface(
+            modifier = Modifier
                 .fillMaxWidth()
-                .clip(shape)
-                .background(
-                    Brush.horizontalGradient(
-                        listOf(
-                            tone.copy(alpha = .18f),
-                            Aether.VoidElevated.copy(alpha = .99f),
-                            Aether.VoidElevated.copy(alpha = .99f)
-                        )
-                    )
-                )
-                .border(1.dp, tone.copy(alpha = .40f), shape)
-                .padding(start = 9.dp, top = 8.dp, end = 8.dp, bottom = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(9.dp)
+                .animateContentSize(),
+            shape = shape,
+            color = Aether.VoidElevated.copy(alpha = .98f),
+            contentColor = Aether.Ink,
+            tonalElevation = 5.dp,
+            shadowElevation = 10.dp
         ) {
             Box(
-                Modifier.width(4.dp).height(40.dp).clip(CircleShape).background(tone)
-            )
-            Box(
                 Modifier
-                    .size(38.dp)
-                    .clip(RoundedCornerShape(13.dp))
-                    .background(tone.copy(alpha = .12f))
-                    .border(1.dp, tone.copy(alpha = .18f), RoundedCornerShape(13.dp)),
-                contentAlignment = Alignment.Center
+                    .fillMaxWidth()
+                    .background(
+                        Brush.horizontalGradient(
+                            listOf(
+                                tone.copy(alpha = .12f),
+                                Aether.VoidElevated.copy(alpha = .96f),
+                                Aether.VoidElevated.copy(alpha = .99f)
+                            )
+                        )
+                    )
+                    .border(1.dp, tone.copy(alpha = .30f), shape)
+                    .padding(horizontal = 10.dp, vertical = 9.dp)
             ) {
-                Text(glyph, color = tone, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            }
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                Text(title, color = tone, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
-                Text(
-                    message,
-                    color = Aether.Ink,
-                    style = MaterialTheme.typography.bodySmall,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-            data.visuals.actionLabel?.let { action ->
-                TextButton(
-                    onClick = data::performAction,
-                    contentPadding = PaddingValues(horizontal = 7.dp, vertical = 3.dp)
-                ) { Text(action, color = tone, style = MaterialTheme.typography.labelSmall) }
-            }
-            Box(
-                Modifier.size(30.dp).clip(CircleShape).clickable { data.dismiss() },
-                contentAlignment = Alignment.Center
-            ) {
-                Text("×", color = Aether.InkMuted, style = MaterialTheme.typography.titleMedium)
+                Row(
+                    Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(9.dp)
+                ) {
+                    Box(
+                        Modifier
+                            .width(3.dp)
+                            .height(34.dp)
+                            .clip(CircleShape)
+                            .background(tone)
+                    )
+
+                    Box(
+                        Modifier
+                            .size(34.dp)
+                            .clip(RoundedCornerShape(11.dp))
+                            .background(tone.copy(alpha = .12f))
+                            .border(1.dp, tone.copy(alpha = .18f), RoundedCornerShape(11.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            glyph,
+                            color = tone,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    Column(
+                        Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(1.dp)
+                    ) {
+                        Text(
+                            title,
+                            color = tone,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            message,
+                            color = Aether.Ink,
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 3,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+
+                    data.visuals.actionLabel?.let { action ->
+                        TextButton(
+                            onClick = data::performAction,
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                action,
+                                color = tone,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+
+                    Box(
+                        Modifier
+                            .size(28.dp)
+                            .clip(CircleShape)
+                            .clickable { data.dismiss() },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            "×",
+                            color = Aether.InkMuted,
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                    }
+                }
             }
         }
     }

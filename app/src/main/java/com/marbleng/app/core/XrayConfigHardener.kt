@@ -13,6 +13,7 @@ object XrayConfigHardener {
     // MARBLE_IP_FAMILY_POLICY_V24
     // MARBLE_DNS_FAST_FALLBACK_V25
     // MARBLE_DNS_EOF_QUARANTINE_V26
+    // MARBLE_RUNTIME_POLISH_V29
     private val infra = setOf("freedom", "blackhole", "dns", "loopback")
     private val compatibilityDependencyProtocols = setOf(
         "freedom", "http", "shadowsocks", "socks", "trojan", "vless", "vmess", "hysteria", "wireguard"
@@ -300,16 +301,28 @@ object XrayConfigHardener {
             .filter { it.isNotBlank() }
             .distinct()
 
-        val remoteDoh = listOf(settings.dnsPrimaryDoH, settings.dnsSecondaryDoH)
+        val stockGoogleDoh = "https://8.8.8.8/dns-query"
+        val configuredRemoteDoh = listOf(settings.dnsPrimaryDoH, settings.dnsSecondaryDoH)
             .map { it.trim() }
             .filter { it.startsWith("https://") }
             .distinct()
             .ifEmpty {
                 listOf(
                     "https://1.1.1.1/dns-query",
-                    "https://8.8.8.8/dns-query"
+                    stockGoogleDoh
                 )
             }
+
+        // Retained runtime evidence repeatedly timed out on the stock Google IP DoH endpoint.
+        // In adaptive mode, quarantine it regardless of whether an old preference made it primary;
+        // the user can still force it by disabling adaptive DNS.
+        val remoteDoh = if (settings.adaptiveDnsEnabled) {
+            configuredRemoteDoh
+                .filterNot { it.equals(stockGoogleDoh, ignoreCase = true) }
+                .ifEmpty { listOf("https://1.1.1.1/dns-query") }
+        } else {
+            configuredRemoteDoh
+        }
 
         val dnsServers = JSONArray()
 
@@ -332,8 +345,6 @@ object XrayConfigHardener {
         //
         // normal order:
         // primary DoH -> primary proxy-routed TCP -> secondary proxy-routed TCP -> custom DoH
-        val stockGoogleDoh = "https://8.8.8.8/dns-query"
-
         remoteDoh.firstOrNull()?.let { address ->
             dnsServers.put(
                 JSONObject()
