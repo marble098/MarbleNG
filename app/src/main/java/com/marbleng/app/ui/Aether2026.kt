@@ -17,6 +17,7 @@ package com.marbleng.app.ui
 // MARBLE_RUNTIME_POLISH_V29
 // MARBLE_INSTANT_QUALITY_V31
 // MARBLE_LIBRARY_SCOPE_UI_V32
+// MARBLE_LIBRARY_MEMORY_UI_V33
 
 import android.Manifest
 import android.content.Intent
@@ -1555,7 +1556,7 @@ private fun CyberLibrary(
     var sourceName by remember { mutableStateOf("") }
     var renameTarget by remember { mutableStateOf<ProxyProfile?>(null) }
     var renameText by remember { mutableStateOf("") }
-    var sourceFilter by remember { mutableStateOf("all") }
+    val sourceFilter = repo.librarySourceFilter
     var manageSubscription by remember { mutableStateOf<Subscription?>(null) }
     var editSubscriptionName by remember { mutableStateOf("") }
     var editSubscriptionUrl by remember { mutableStateOf("") }
@@ -1563,12 +1564,8 @@ private fun CyberLibrary(
     var pruneFailedTarget by remember { mutableStateOf<Pair<Subscription, String>?>(null) }
 
     val sourceIds = repo.subscriptions.map { it.id }
-    LaunchedEffect(sourceIds, sourceFilter, repo.settings.manualSourceEnabled) {
-        val manualDisabled = sourceFilter == "manual" && !repo.settings.manualSourceEnabled
-        val missingSource = sourceFilter != "all" &&
-            sourceFilter != "manual" &&
-            sourceFilter !in sourceIds
-        if (manualDisabled || missingSource) sourceFilter = "all"
+    LaunchedEffect(sourceIds, repo.settings.manualSourceEnabled) {
+        repo.ensureLibrarySourceSelectionValid()
     }
 
     val benchmarkById = repo.benchmarks.associateBy { it.profileId }
@@ -1737,7 +1734,7 @@ private fun CyberLibrary(
                             color = Aether.Cyan,
                             modifier = Modifier.weight(1f)
                         ) {
-                            sourceFilter = target.id
+                            repo.selectLibrarySource(target.id)
                             manageSubscription = null
                         }
                         CyberButton(
@@ -1824,7 +1821,7 @@ private fun CyberLibrary(
             confirmButton = {
                 TextButton(
                     onClick = {
-                        if (sourceFilter == target.id) sourceFilter = "all"
+                        if (sourceFilter == target.id) repo.selectLibrarySource("all")
                         repo.removeSubscription(target.id)
                         deleteSubscription = null
                     },
@@ -1999,7 +1996,7 @@ private fun CyberLibrary(
             LibraryControlDeck(
                 repo = repo,
                 sourceFilter = sourceFilter,
-                onSourceFilter = { sourceFilter = it },
+                onSourceFilter = { repo.selectLibrarySource(it) },
                 onManageSubscription = { sub ->
                     editSubscriptionName = sub.name
                     editSubscriptionUrl = sub.url

@@ -55,6 +55,7 @@ class MarbleVpnService : VpnService() {
     // MARBLE_RUNTIME_POLISH_V29
     // MARBLE_EXTREME_NETWORK_V30
     // MARBLE_INSTANT_QUALITY_V31
+    // MARBLE_FAST_READY_V33
     // Live optimisation may learn while connected, but it must never intentionally tear down
     // a healthy user tunnel merely to hot-apply a transport experiment.
     companion object {
@@ -99,7 +100,7 @@ class MarbleVpnService : VpnService() {
         private const val ROUTE_FAILURE_WARMUP_MS = 18_000L
         // HEV main_from_str() is blocking. If it is still alive after this grace, publish
         // CONNECTED sooner; native stats keep their own later warm-up and are NOT moved earlier.
-        private const val HEV_READY_GRACE_MS = 350L
+        private const val HEV_READY_GRACE_MS = 250L
         private const val CONNECT_STARTUP_TIMEOUT_MS = 90_000L
         private const val HEV_STALL_MIN_MS = 20_000L
         private const val HEV_STALL_MIN_TX_BYTES = 32L * 1024L

@@ -13,6 +13,7 @@ import com.marbleng.app.ui.MarbleApp
 class MainActivity : ComponentActivity() {
     // MARBLE_CONNECT_PERMISSION_V12
     // MARBLE_CONNECT_CLICK_GUARD_V13
+    // MARBLE_LIBRARY_IMPORT_TARGET_V33
     private companion object {
         /** Survives the recreation that a rotation during the system VPN consent dialog causes. */
         const val KEY_PENDING_PROFILE = "pendingProfileId"
@@ -51,7 +52,13 @@ class MainActivity : ComponentActivity() {
         uri?.let { u ->
             runCatching {
                 contentResolver.openInputStream(u)?.bufferedReader()?.use { it.readText() }
-            }.getOrNull()?.let { app.repo.importText(it, "Imported file") }
+            }.getOrNull()?.let {
+                app.repo.importText(
+                    it,
+                    "Imported file",
+                    app.repo.librarySourceFilter
+                )
+            }
         }
     }
 

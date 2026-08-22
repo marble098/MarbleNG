@@ -26,6 +26,7 @@ class BenchmarkEngine(
 ) {
     // MARBLE_EVIDENCE_TIERS_V24
     // MARBLE_BENCHMARK_ALL_NODES_V27
+    // MARBLE_DIRECT_PING_TIMEOUT_V33
 
     fun run(
         profiles: List<ProxyProfile>,
@@ -616,11 +617,20 @@ class BenchmarkEngine(
         s.probeMethod == ProbeMethod.TCP || s.probeMethod == ProbeMethod.ICMP
 
     private fun directResult(p: ProxyProfile, s: AppSettings): BenchmarkResult {
+        val directTimeoutMs =
+            if (s.probeMethod == ProbeMethod.TCP) {
+                min(
+                    (s.benchTimeoutSec * 1000).coerceIn(500, 10_000),
+                    s.tcpPrecheckTimeoutMs.coerceIn(250, 10_000)
+                )
+            } else {
+                (s.benchTimeoutSec * 1000).coerceIn(500, 10_000)
+            }
         val sample = RouteProbe.measure(
             profile = p,
             icmpMode = s.probeMethod == ProbeMethod.ICMP,
             samples = s.benchSamples.coerceIn(1, 8),
-            timeoutMs = (s.benchTimeoutSec * 1000).coerceIn(500, 10_000)
+            timeoutMs = directTimeoutMs
         )
         return BenchmarkResult(
             profileId = p.id,

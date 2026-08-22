@@ -11,6 +11,7 @@ class AppStore(context: Context) {
     // MARBLE_SOURCE_TARGETING_STORE_V25_4
     // MARBLE_AURORA_UI_STORE_V26
     // MARBLE_SYSTEM_THEME_STORE_V32
+    // MARBLE_LIBRARY_MEMORY_STORE_V33
     private val prefs = context.getSharedPreferences("marbleng-store", Context.MODE_PRIVATE)
 
     fun loadProfiles(): MutableList<ProxyProfile> = parseArray("profiles") { ProxyProfile.fromJson(it) }
@@ -28,6 +29,18 @@ class AppStore(context: Context) {
 
     fun lastProfileId(): String = prefs.getString("lastProfileId", "") ?: ""
     fun setLastProfileId(id: String) = prefs.edit().putString("lastProfileId", id).apply()
+
+    /** Selected Library source is navigation state worth preserving across tabs and restarts. */
+    fun librarySourceFilter(): String =
+        prefs.getString("librarySourceFilter", "all")
+            ?.trim()
+            .orEmpty()
+            .ifBlank { "all" }
+
+    fun setLibrarySourceFilter(id: String) =
+        prefs.edit()
+            .putString("librarySourceFilter", id.trim().ifBlank { "all" })
+            .apply()
 
     /**
      * v8.1 migration: existing installs already have old proxy-all/ads-off preferences persisted,

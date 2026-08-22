@@ -33,6 +33,7 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     // MARBLE_MEMORY_PRESSURE_V26
     // MARBLE_SMART_XRAY_RANK_ALL_V27
     // MARBLE_LIBRARY_SCOPE_V32
+    // MARBLE_LIBRARY_MEMORY_V33
 
     private val store = AppStore(context)
     private val io = Executors.newFixedThreadPool(3)
@@ -67,6 +68,41 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     val history = mutableStateListOf<ConnectionRecord>().apply { addAll(store.loadHistory()) }
 
     var settings by mutableStateOf(store.settings()); private set
+
+    private fun normalizeLibrarySourceFilter(id: String): String = when {
+        id == "all" -> "all"
+        id == "manual" && settings.manualSourceEnabled -> "manual"
+        id == "manual" -> "all"
+        subscriptions.any { it.id == id } -> id
+        else -> "all"
+    }
+
+    var librarySourceFilter by mutableStateOf(
+        normalizeLibrarySourceFilter(store.librarySourceFilter())
+    )
+        private set
+
+    fun selectLibrarySource(id: String) {
+        val normalized = normalizeLibrarySourceFilter(id)
+        if (librarySourceFilter == normalized) return
+        librarySourceFilter = normalized
+        store.setLibrarySourceFilter(normalized)
+        diagnostics.event(
+            "LIBRARY",
+            "source-selected",
+            "source" to normalized.take(24),
+            "name" to libraryScopeLabel(normalized)
+        )
+    }
+
+    fun ensureLibrarySourceSelectionValid() {
+        val normalized = normalizeLibrarySourceFilter(librarySourceFilter)
+        if (normalized != librarySourceFilter) {
+            librarySourceFilter = normalized
+            store.setLibrarySourceFilter(normalized)
+            diagnostics.event("LIBRARY", "source-selection-repaired", "source" to normalized)
+        }
+    }
 
     private data class LibraryTarget(val id: String, val name: String)
 
@@ -402,6 +438,7 @@ fun resetTelemetry() {
     fun updateSettings(v: AppSettings) {
         val debugChanged = settings.debugModeEnabled != v.debugModeEnabled
         settings = v
+        ensureLibrarySourceSelectionValid()
         store.saveSettings(v)
         if (debugChanged) {
             RuntimeDiagnostics.setDebugEnabled(context, v.debugModeEnabled)
@@ -1112,6 +1149,9 @@ private fun postToMain(block: () -> Unit) {
         if (activeBelongs) stopVpn()
         if (lastProfile()?.id?.let { it in doomedIds } == true) store.setLastProfileId("")
         doomedIds.forEach(intelligence::forgetAcceleration)
+        if (librarySourceFilter == id) {
+            selectLibrarySource("all")
+        }
         subscriptions.removeAll { it.id == id }
         profiles.removeAll { it.subscriptionId == id }
         benchmarks = benchmarks.filterNot { it.profileId in doomedIds }
@@ -1496,19 +1536,30 @@ private fun postToMain(block: () -> Unit) {
      * Fast TCP ping confined to the exact selected Library source.
      * Smart Rank remains the real Xray tunnel verifier.
      */
+    private fun quickPingEndpointKey(profile: ProxyProfile): String =
+        "${profile.host.trim().lowercase()}:${profile.port}"
+
+    /**
+     * Fast TCP ping confined to the selected Library source.
+     *
+     * TCP reachability is a host:port property. Aggregator subscriptions often contain many
+     * configs pointing at the same endpoint, so v33 probes one representative per endpoint and
+     * fans the verified result back to every matching card. TUNNEL rank remains per-config.
+     */
     fun testSource(sourceId: String) {
-        val candidates = libraryScopeSnapshot(sourceId).distinctBy { it.id }
+        val scoped = libraryScopeSnapshot(sourceId).distinctBy { it.id }
         val scope = libraryScopeLabel(sourceId)
-        if (candidates.isEmpty()) {
+        if (scoped.isEmpty()) {
             message = "Nothing enabled to ping in $scope"
             return
         }
 
         task("Quick ping • $scope") {
-            val scoped = candidates
+            val groups = scoped.groupBy(::quickPingEndpointKey)
+            val representatives = groups.values.mapNotNull { it.firstOrNull() }
             val quickSettings = settings.copy(
                 benchMode = BenchMode.CUSTOM,
-                benchCandidates = scoped.size,
+                benchCandidates = representatives.size.coerceAtLeast(1),
                 benchSamples = 1,
                 benchTimeoutSec = 2,
                 tcpPrecheckTimeoutMs = minOf(settings.tcpPrecheckTimeoutMs, 750),
@@ -1518,28 +1569,87 @@ private fun postToMain(block: () -> Unit) {
                 verifiedPerformanceTuning = false,
                 udpProbeEnabled = false
             )
-            val results = BenchmarkEngine(xray, intelligence).run(
-                scoped,
-                quickSettings,
-                usePrecheck = false,
-                onCandidates = ::beginProbeBatch,
-                onStart = ::markProbeStart,
-                onResult = ::markProbeResult
-            ) { done, total, name ->
-                message = "TCP ping • $scope • $done/$total • $name"
+
+            fun membersFor(representative: ProxyProfile): List<ProxyProfile> =
+                groups[quickPingEndpointKey(representative)].orEmpty()
+
+            fun runQuickPass(): List<BenchmarkResult> =
+                BenchmarkEngine(xray, intelligence).run(
+                    representatives,
+                    quickSettings,
+                    usePrecheck = false,
+                    onCandidates = { beginProbeBatch(scoped) },
+                    onStart = { representative ->
+                        membersFor(representative).forEach(::markProbeStart)
+                    },
+                    onResult = { representative, result ->
+                        membersFor(representative).forEach { member ->
+                            markProbeResult(
+                                member,
+                                result.copy(profileId = member.id, name = member.name)
+                            )
+                        }
+                    }
+                ) { done, total, name ->
+                    message = "TCP ping • $scope • $done/$total endpoints • $name"
+                }
+
+            val firstStartedNs = System.nanoTime()
+            var representativeResults = runQuickPass()
+            val firstElapsedMs =
+                ((System.nanoTime() - firstStartedNs) / 1_000_000L).coerceAtLeast(0L)
+
+            if (
+                representatives.size >= 4 &&
+                representativeResults.isNotEmpty() &&
+                representativeResults.none { it.success > 0 } &&
+                firstElapsedMs < 350L
+            ) {
+                diagnostics.event(
+                    "BENCHMARK",
+                    "quick-ping-fast-zero-retry",
+                    "source" to sourceId.take(24),
+                    "scope" to scope,
+                    "nodes" to scoped.size,
+                    "endpoints" to representatives.size,
+                    "firstElapsedMs" to firstElapsedMs
+                )
+                try {
+                    Thread.sleep(120L)
+                } catch (_: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                }
+                if (!Thread.currentThread().isInterrupted) {
+                    representativeResults = runQuickPass()
+                }
             }
-            mergeBenchmarks(results)
-            val passed = results.count { it.success > 0 }
+
+            val expanded = representativeResults.flatMap { result ->
+                val representative = representatives.firstOrNull { it.id == result.profileId }
+                if (representative == null) {
+                    listOf(result)
+                } else {
+                    membersFor(representative).map { member ->
+                        result.copy(profileId = member.id, name = member.name)
+                    }
+                }
+            }
+
+            mergeBenchmarks(expanded)
+            val passed = expanded.count { it.success > 0 }
             diagnostics.event(
                 "BENCHMARK",
                 "quick-ping-source-finish",
                 "source" to sourceId.take(24),
                 "scope" to scope,
                 "requested" to scoped.size,
-                "tested" to results.size,
+                "uniqueEndpoints" to representatives.size,
+                "tested" to expanded.size,
                 "reachable" to passed
             )
-            message = "Quick ping • $scope • ${results.size} nodes • $passed reachable"
+            message =
+                "Quick ping • $scope • ${expanded.size} nodes / ${representatives.size} endpoints • " +
+                    "$passed reachable"
         }
     }
 

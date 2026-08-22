@@ -14,21 +14,52 @@ import java.util.concurrent.TimeUnit
  * routes MarbleNG is about to use.
  */
 object RouteProbe {
+    // MARBLE_DIRECT_PING_RETRY_V33
 
     const val UNREACHABLE = 99_999.0
+    private const val FAST_FAILURE_RETRY_WINDOW_MS = 180L
+    private const val FAST_FAILURE_RETRY_DELAY_MS = 90L
 
     data class Sample(val successPercent: Int, val latencyMs: Double)
 
-    /** TCP connect time to host:port, the classic "tcping". */
-    fun tcp(host: String, port: Int, timeoutMs: Int): Double {
-        if (host.isBlank() || port !in 1..65535) return UNREACHABLE
+    private fun tcpOnce(host: String, port: Int, timeoutMs: Int): Double {
         val started = System.nanoTime()
         return try {
-            Socket().use { it.connect(InetSocketAddress(host, port), timeoutMs) }
+            Socket().use { socket ->
+                socket.tcpNoDelay = true
+                socket.connect(InetSocketAddress(host, port), timeoutMs)
+            }
             (System.nanoTime() - started) / 1e6
         } catch (_: Throwable) {
             UNREACHABLE
         }
+    }
+
+    /**
+     * TCP connect time to host:port. A genuine timeout stays failed.
+     * Only an abnormally fast local/resolver/link failure gets one confirmation retry.
+     */
+    fun tcp(host: String, port: Int, timeoutMs: Int): Double {
+        if (host.isBlank() || port !in 1..65535) return UNREACHABLE
+
+        val firstStarted = System.nanoTime()
+        val first = tcpOnce(host, port, timeoutMs)
+        if (first < UNREACHABLE) return first
+
+        val firstFailureElapsedMs =
+            ((System.nanoTime() - firstStarted) / 1_000_000L).coerceAtLeast(0L)
+        if (firstFailureElapsedMs > FAST_FAILURE_RETRY_WINDOW_MS) {
+            return UNREACHABLE
+        }
+
+        try {
+            Thread.sleep(FAST_FAILURE_RETRY_DELAY_MS)
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
+            return UNREACHABLE
+        }
+
+        return tcpOnce(host, port, timeoutMs)
     }
 
     /**
