@@ -16,6 +16,7 @@ package com.marbleng.app.ui
 // MARBLE_PATTNG_TLS_PARITY_V28
 // MARBLE_RUNTIME_POLISH_V29
 // MARBLE_INSTANT_QUALITY_V31
+// MARBLE_LIBRARY_SCOPE_UI_V32
 
 import android.Manifest
 import android.content.Intent
@@ -1559,6 +1560,7 @@ private fun CyberLibrary(
     var editSubscriptionName by remember { mutableStateOf("") }
     var editSubscriptionUrl by remember { mutableStateOf("") }
     var deleteSubscription by remember { mutableStateOf<Subscription?>(null) }
+    var pruneFailedTarget by remember { mutableStateOf<Pair<Subscription, String>?>(null) }
 
     val sourceIds = repo.subscriptions.map { it.id }
     LaunchedEffect(sourceIds, sourceFilter, repo.settings.manualSourceEnabled) {
@@ -1648,6 +1650,8 @@ private fun CyberLibrary(
     }
 
     manageSubscription?.let { target ->
+        val failedPingCount = repo.failedSubscriptionNodeCount(target.id, "TCP")
+        val failedTunnelCount = repo.failedSubscriptionNodeCount(target.id, "TUNNEL")
         AlertDialog(
             onDismissRequest = { manageSubscription = null },
             containerColor = Aether.VoidElevated,
@@ -1697,6 +1701,36 @@ private fun CyberLibrary(
                             repo.setRuntimeMessage("${repo.subscriptionNodeCount(target.id)} node links copied")
                         }
                     }
+                    HorizontalDivider(color = Aether.GlassBorderSoft)
+                    Text(
+                        "CLEAN FAILED TESTS",
+                        color = Aether.InkFaint,
+                        style = MaterialTheme.typography.labelSmall
+                    )
+                    CyberButton(
+                        label = "Remove failed ping ($failedPingCount)",
+                        color = Aether.Danger,
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !repo.busy && failedPingCount > 0 && repo.state == "DISCONNECTED"
+                    ) {
+                        pruneFailedTarget = target to "TCP"
+                        manageSubscription = null
+                    }
+                    CyberButton(
+                        label = "Remove failed tunnel ($failedTunnelCount)",
+                        color = Aether.Danger,
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !repo.busy && failedTunnelCount > 0 && repo.state == "DISCONNECTED"
+                    ) {
+                        pruneFailedTarget = target to "TUNNEL"
+                        manageSubscription = null
+                    }
+                    Text(
+                        "Only nodes with a stored failed result of that exact test type are removed.",
+                        color = Aether.InkFaint,
+                        style = MaterialTheme.typography.labelSmall
+                    )
+
                     Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                         CyberButton(
                             label = "VIEW NODES",
@@ -1740,6 +1774,37 @@ private fun CyberLibrary(
                     TextButton(onClick = { manageSubscription = null }) {
                         Text("CLOSE", color = Aether.InkMuted)
                     }
+                }
+            }
+        )
+    }
+
+    pruneFailedTarget?.let { request ->
+        val target = request.first
+        val kind = request.second
+        val failedCount = repo.failedSubscriptionNodeCount(target.id, kind)
+        AlertDialog(
+            onDismissRequest = { pruneFailedTarget = null },
+            containerColor = Aether.VoidElevated,
+            title = { Text("Remove failed $kind nodes?", color = Aether.Danger) },
+            text = {
+                Text(
+                    "This removes $failedCount node${if (failedCount == 1) "" else "s"} from ${target.name} whose most recent stored $kind test failed. Other sources and other test types are untouched.",
+                    color = Aether.InkMuted
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        repo.removeFailedSubscriptionNodes(target.id, kind)
+                        pruneFailedTarget = null
+                    },
+                    enabled = !repo.busy && failedCount > 0 && repo.state == "DISCONNECTED"
+                ) { Text("REMOVE FAILED", color = Aether.Danger) }
+            },
+            dismissButton = {
+                TextButton(onClick = { pruneFailedTarget = null }) {
+                    Text("CANCEL", color = Aether.InkMuted)
                 }
             }
         )
@@ -2472,6 +2537,15 @@ private fun LibraryControlDeck(
         else -> repo.subscriptionNodeCount(sourceFilter)
     }
     val remoteCount = repo.subscriptions.count { it.url.isNotBlank() }
+    val selectedRefreshing = when (sourceFilter) {
+        "all" -> repo.refreshingSources.isNotEmpty()
+        else -> sourceFilter in repo.refreshingSources
+    }
+    val canRefreshSelected = when (sourceFilter) {
+        "all" -> remoteCount > 0
+        "manual" -> false
+        else -> selectedSub?.url?.isNotBlank() == true
+    }
     val shape = RoundedCornerShape(26.dp)
 
     Column(
@@ -2547,9 +2621,29 @@ private fun LibraryControlDeck(
         }
 
         Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            LibraryMicroAction("↻", if (repo.refreshingSources.isNotEmpty()) "Syncing" else "Refresh", Aether.Amethyst, Modifier.weight(1f), remoteCount > 0 && !repo.busy) { repo.refreshAll() }
-            LibraryMicroAction("⌁", if (repo.probeActive) "${repo.probeDone}/${repo.probeTotal}" else "Ping", Aether.Cyan, Modifier.weight(1f), repo.libraryProfiles.isNotEmpty() && !repo.busy) { repo.testAll() }
-            LibraryMicroAction("◎", "Rank", Aether.Emerald, Modifier.weight(1f), repo.libraryProfiles.isNotEmpty() && !repo.busy) { repo.smartRank() }
+            LibraryMicroAction(
+                "↻",
+                if (selectedRefreshing) "Syncing" else "Refresh",
+                Aether.Amethyst,
+                Modifier.weight(1f),
+                canRefreshSelected && !repo.busy
+            ) { repo.refreshLibrarySource(sourceFilter) }
+
+            LibraryMicroAction(
+                "⌁",
+                if (repo.probeActive) "${repo.probeDone}/${repo.probeTotal}" else "Ping",
+                Aether.Cyan,
+                Modifier.weight(1f),
+                selectedCount > 0 && !repo.busy
+            ) { repo.testSource(sourceFilter) }
+
+            LibraryMicroAction(
+                "◎",
+                "Rank",
+                Aether.Emerald,
+                Modifier.weight(1f),
+                selectedCount > 0 && !repo.busy
+            ) { repo.smartRankSource(sourceFilter) }
         }
     }
 }
@@ -3227,7 +3321,17 @@ private fun SpatialSettings(
                     Column(Modifier.weight(1f)) {
                         Text("Appearance", color = Aether.Ink, style = MaterialTheme.typography.titleMedium)
                     }
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(
+                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        CyberChoiceChip(
+                            "System",
+                            repo.settings.theme.equals("system", true),
+                            Aether.Cyan
+                        ) {
+                            repo.updateSettings(repo.settings.copy(theme = "system"))
+                        }
                         CyberChoiceChip(
                             "Light",
                             repo.settings.theme.equals("light", true),
@@ -3237,7 +3341,7 @@ private fun SpatialSettings(
                         }
                         CyberChoiceChip(
                             "Dark",
-                            !repo.settings.theme.equals("light", true),
+                            repo.settings.theme.equals("dark", true),
                             Aether.Cyan
                         ) {
                             repo.updateSettings(repo.settings.copy(theme = "dark"))

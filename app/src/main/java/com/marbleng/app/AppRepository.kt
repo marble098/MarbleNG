@@ -32,6 +32,7 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     // MARBLE_SELECTED_SOURCE_V25_4
     // MARBLE_MEMORY_PRESSURE_V26
     // MARBLE_SMART_XRAY_RANK_ALL_V27
+    // MARBLE_LIBRARY_SCOPE_V32
 
     private val store = AppStore(context)
     private val io = Executors.newFixedThreadPool(3)
@@ -84,6 +85,50 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
 
     private fun enabledProfilesSnapshot(): List<ProxyProfile> =
         profiles.filter(::profileSourceEnabled)
+
+    /**
+     * Resolve the exact Library source selected by the user.
+     *
+     * Fail closed: a stale/unknown source id returns an empty set — never the whole Library.
+     * "all" is the only id allowed to expand to every enabled profile.
+     */
+    private fun libraryScopeSnapshot(sourceId: String): List<ProxyProfile> {
+        val available = enabledProfilesSnapshot()
+        return when (sourceId) {
+            "all" -> available
+            "manual" -> if (settings.manualSourceEnabled) {
+                available.filter { it.subscriptionId == "manual" }
+            } else {
+                emptyList()
+            }
+            else -> {
+                if (subscriptions.none { it.id == sourceId }) emptyList()
+                else available.filter { it.subscriptionId == sourceId }
+            }
+        }
+    }
+
+    private fun libraryScopeLabel(sourceId: String): String = when (sourceId) {
+        "all" -> "All sources"
+        "manual" -> "Manual"
+        else -> subscriptions.firstOrNull { it.id == sourceId }?.name ?: "Missing source"
+    }
+
+    /** Refresh exactly the source represented by the Library selection. */
+    fun refreshLibrarySource(sourceId: String) {
+        when (sourceId) {
+            "all" -> refreshAll()
+            "manual" -> message = "Manual source has no remote subscription to refresh"
+            else -> {
+                val sub = subscriptions.firstOrNull { it.id == sourceId }
+                when {
+                    sub == null -> message = "Selected Library source no longer exists"
+                    sub.url.isBlank() -> message = "${sub.name} is a local source • nothing remote to refresh"
+                    else -> refresh(sub.id)
+                }
+            }
+        }
+    }
 
     private fun migrateLocalSourceOwnershipIfNeeded() {
         val localIds = subscriptions.asSequence()
@@ -1093,6 +1138,77 @@ private fun postToMain(block: () -> Unit) {
 
     fun subscriptionNodeCount(id: String): Int = profiles.count { it.subscriptionId == id }
 
+    /**
+     * Count nodes in one subscription whose most recent stored benchmark explicitly failed
+     * the requested evidence type. TCP and TUNNEL stay separate.
+     */
+    fun failedSubscriptionNodeCount(id: String, probeKind: String): Int {
+        val kind = probeKind.trim().uppercase()
+        if (kind !in setOf("TCP", "TUNNEL")) return 0
+        val failedIds = benchmarks.asSequence()
+            .filter { it.success <= 0 && it.probeKind.equals(kind, ignoreCase = true) }
+            .mapTo(mutableSetOf()) { it.profileId }
+        return profiles.count { it.subscriptionId == id && it.id in failedIds }
+    }
+
+    /**
+     * Remove only failed nodes from ONE subscription and ONE evidence type.
+     * Group cleanup is disabled while connected/connecting so stale evidence cannot delete
+     * the route Android is currently using.
+     */
+    fun removeFailedSubscriptionNodes(id: String, probeKind: String): Int {
+        if (busy) {
+            message = "Wait for the current task before removing failed nodes"
+            return 0
+        }
+        if (state != "DISCONNECTED") {
+            message = "Disconnect before removing failed nodes from a subscription"
+            return 0
+        }
+
+        val sub = subscriptions.firstOrNull { it.id == id } ?: run {
+            message = "Subscription no longer exists"
+            return 0
+        }
+        val kind = probeKind.trim().uppercase()
+        if (kind !in setOf("TCP", "TUNNEL")) {
+            message = "Unsupported failed-node evidence type"
+            return 0
+        }
+
+        val failedIds = benchmarks.asSequence()
+            .filter { it.success <= 0 && it.probeKind.equals(kind, ignoreCase = true) }
+            .mapTo(mutableSetOf()) { it.profileId }
+
+        val doomedIds = profiles.asSequence()
+            .filter { it.subscriptionId == id && it.id in failedIds }
+            .mapTo(linkedSetOf()) { it.id }
+
+        if (doomedIds.isEmpty()) {
+            message = "No failed $kind nodes recorded for ${sub.name}"
+            return 0
+        }
+
+        if (lastProfile()?.id?.let { it in doomedIds } == true) {
+            store.setLastProfileId("")
+        }
+        doomedIds.forEach(intelligence::forgetAcceleration)
+        profiles.removeAll { it.id in doomedIds }
+        benchmarks = benchmarks.filterNot { it.profileId in doomedIds }
+        store.saveProfiles(profiles)
+
+        diagnostics.event(
+            "LIBRARY",
+            "failed-nodes-removed",
+            "source" to sub.id.take(16),
+            "sourceName" to sub.name,
+            "probeKind" to kind,
+            "removed" to doomedIds.size
+        )
+        message = "Removed ${doomedIds.size} failed $kind node${if (doomedIds.size == 1) "" else "s"} from ${sub.name}"
+        return doomedIds.size
+    }
+
     /** Reassigns a profile to another subscription bucket (or "manual") so nodes can move between library sources. */
     fun lastProfile() = profile(store.lastProfileId())?.takeIf(::profileSourceEnabled)
     fun auto(
@@ -1294,52 +1410,61 @@ private fun postToMain(block: () -> Unit) {
         }
     }
 
-    fun smartRank() {
-        val candidates = enabledProfilesSnapshot()
+    fun smartRank() = smartRankSource("all")
+
+    /**
+     * Real Xray ranking confined to the exact Library source selected by the user.
+     * Unknown source ids fail closed to zero candidates instead of falling back to all profiles.
+     */
+    fun smartRankSource(sourceId: String) {
+        val candidates = libraryScopeSnapshot(sourceId).distinctBy { it.id }
+        val scope = libraryScopeLabel(sourceId)
         if (candidates.isEmpty()) {
-            message = "Nothing enabled to rank"
+            message = "Nothing enabled to rank in $scope"
             return
         }
-        task("Smart rank • Xray verify all enabled nodes") {
-            // Explicit Smart Rank means all distinct enabled nodes, with no finalist cap.
-            val all = candidates.distinctBy { it.id }
+
+        task("Smart rank • $scope") {
+            val scoped = candidates
             val rankSettings = settings.copy(
                 benchMode = BenchMode.CUSTOM,
-                benchCandidates = all.size.coerceAtLeast(1),
+                benchCandidates = scoped.size.coerceAtLeast(1),
                 benchSamples = settings.benchSamples.coerceIn(1, 2),
                 benchTimeoutSec = minOf(settings.benchTimeoutSec, 5),
                 tcpPrecheckTimeoutMs = minOf(settings.tcpPrecheckTimeoutMs, 750),
                 tcpWorkers = maxOf(settings.tcpWorkers, 24).coerceAtMost(32),
-                // Quick Ping already owns TCP reachability. Smart Rank verifies real Xray.
                 probeMethod = ProbeMethod.TUNNEL,
                 probeSpeedTest = false,
                 verifiedPerformanceTuning = false,
                 udpProbeEnabled = false
             )
             val results = BenchmarkEngine(xray, intelligence).run(
-                all,
+                scoped,
                 rankSettings,
                 usePrecheck = false,
                 onCandidates = ::beginProbeBatch,
                 onStart = ::markProbeStart,
                 onResult = ::markProbeResult
             ) { done, total, name ->
-                message = "Smart Xray rank $done/$total • $name"
+                message = "Xray rank • $scope • $done/$total • $name"
             }
             mergeBenchmarks(results)
+
             val healthy = results.count { it.success > 0 }
             val best = results.firstOrNull { it.success > 0 }
             diagnostics.event(
                 "BENCHMARK",
-                "smart-rank-all-finish",
-                "requested" to all.size,
+                "smart-rank-source-finish",
+                "source" to sourceId.take(24),
+                "scope" to scope,
+                "requested" to scoped.size,
                 "tested" to results.size,
                 "healthy" to healthy
             )
             message = if (best == null) {
-                "Xray rank finished • ${results.size}/${all.size} tested • 0 healthy"
+                "Xray rank • $scope • ${results.size}/${scoped.size} tested • 0 healthy"
             } else {
-                "Xray rank • ${results.size}/${all.size} tested • $healthy healthy • " +
+                "Xray rank • $scope • ${results.size}/${scoped.size} tested • $healthy healthy • " +
                     "best ${best.name} • ${best.latencyMs.toInt()} ms • score ${best.score.toInt()}"
             }
         }
@@ -1365,17 +1490,25 @@ private fun postToMain(block: () -> Unit) {
      * Fast Library-wide TCP latency sweep.
      * Full test and Smart Xray rank remain available when actual proxy usability must be proven.
      */
-    fun testAll() {
-        val candidates = enabledProfilesSnapshot()
+    fun testAll() = testSource("all")
+
+    /**
+     * Fast TCP ping confined to the exact selected Library source.
+     * Smart Rank remains the real Xray tunnel verifier.
+     */
+    fun testSource(sourceId: String) {
+        val candidates = libraryScopeSnapshot(sourceId).distinctBy { it.id }
+        val scope = libraryScopeLabel(sourceId)
         if (candidates.isEmpty()) {
-            message = "Nothing enabled to ping"
+            message = "Nothing enabled to ping in $scope"
             return
         }
-        task("Quick ping • testing all endpoints") {
-            val all = candidates
+
+        task("Quick ping • $scope") {
+            val scoped = candidates
             val quickSettings = settings.copy(
                 benchMode = BenchMode.CUSTOM,
-                benchCandidates = all.size,
+                benchCandidates = scoped.size,
                 benchSamples = 1,
                 benchTimeoutSec = 2,
                 tcpPrecheckTimeoutMs = minOf(settings.tcpPrecheckTimeoutMs, 750),
@@ -1386,19 +1519,27 @@ private fun postToMain(block: () -> Unit) {
                 udpProbeEnabled = false
             )
             val results = BenchmarkEngine(xray, intelligence).run(
-                all,
+                scoped,
                 quickSettings,
-                // TCP-only is already the preflight; do not measure every endpoint twice.
                 usePrecheck = false,
                 onCandidates = ::beginProbeBatch,
                 onStart = ::markProbeStart,
                 onResult = ::markProbeResult
             ) { done, total, name ->
-                message = "TCP ping $done/$total • $name"
+                message = "TCP ping • $scope • $done/$total • $name"
             }
             mergeBenchmarks(results)
             val passed = results.count { it.success > 0 }
-            message = "Quick ping • ${results.size} nodes • $passed reachable"
+            diagnostics.event(
+                "BENCHMARK",
+                "quick-ping-source-finish",
+                "source" to sourceId.take(24),
+                "scope" to scope,
+                "requested" to scoped.size,
+                "tested" to results.size,
+                "reachable" to passed
+            )
+            message = "Quick ping • $scope • ${results.size} nodes • $passed reachable"
         }
     }
 

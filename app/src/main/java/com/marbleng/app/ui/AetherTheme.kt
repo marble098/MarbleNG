@@ -1,11 +1,14 @@
 package com.marbleng.app.ui
 
+// MARBLE_SYSTEM_THEME_V32
+
 import android.app.Activity
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.staticCompositionLocalOf
@@ -19,10 +22,13 @@ import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 
 /** Marble Product UI v9 — high-legibility Nordic minimal surface. */
-enum class AppTheme { DARK, LIGHT }
+enum class AppTheme { SYSTEM, DARK, LIGHT }
 
-fun parseAppTheme(id: String): AppTheme =
-    if (id.equals("light", true)) AppTheme.LIGHT else AppTheme.DARK
+fun parseAppTheme(id: String): AppTheme = when {
+    id.equals("light", true) -> AppTheme.LIGHT
+    id.equals("dark", true) -> AppTheme.DARK
+    else -> AppTheme.SYSTEM
+}
 
 private data class AetherPalette(
     val void: Color,
@@ -100,11 +106,16 @@ val AetherTypography = Typography(
 
 @Composable
 fun AetherFlowTheme(
-    themeId: String = "dark",
+    themeId: String = "system",
     content: @Composable () -> Unit
 ) {
-    val p=if(parseAppTheme(themeId)==AppTheme.LIGHT) LightPalette else DarkPalette
-    val light=p===LightPalette
+    val requested = parseAppTheme(themeId)
+    val light = when (requested) {
+        AppTheme.LIGHT -> true
+        AppTheme.DARK -> false
+        AppTheme.SYSTEM -> !isSystemInDarkTheme()
+    }
+    val p = if (light) LightPalette else DarkPalette
     val scheme=if(light) lightColorScheme(
         primary=p.cyan,onPrimary=Color.White,primaryContainer=p.cyan.copy(alpha=.10f),onPrimaryContainer=p.ink,
         secondary=p.emerald,onSecondary=Color.White,secondaryContainer=p.emerald.copy(alpha=.10f),onSecondaryContainer=p.ink,

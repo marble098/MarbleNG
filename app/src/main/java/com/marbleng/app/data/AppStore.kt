@@ -10,6 +10,7 @@ class AppStore(context: Context) {
     // MARBLE_IP_FAMILY_STORE_V24
     // MARBLE_SOURCE_TARGETING_STORE_V25_4
     // MARBLE_AURORA_UI_STORE_V26
+    // MARBLE_SYSTEM_THEME_STORE_V32
     private val prefs = context.getSharedPreferences("marbleng-store", Context.MODE_PRIVATE)
 
     fun loadProfiles(): MutableList<ProxyProfile> = parseArray("profiles") { ProxyProfile.fromJson(it) }
@@ -202,7 +203,7 @@ class AppStore(context: Context) {
         thermalAwareEnabled = prefs.getBoolean("thermalAwareEnabled", true),
         workloadProfile = enumValue("workloadProfile", WorkloadProfile.AUTO),
 
-        theme = prefs.getString("theme", "dark") ?: "dark",
+        theme = prefs.getString("theme", "system") ?: "system",
         debugModeEnabled = prefs.getBoolean("debugModeEnabled", false),
         expertMode = prefs.getBoolean("expertMode", false)
         )
