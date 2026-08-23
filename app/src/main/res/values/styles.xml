@@ -1,9 +1,10 @@
 <resources>
     <style name="Theme.MarbleNG" parent="android:style/Theme.Material.Light.NoActionBar">
         <item name="android:fontFamily">sans</item>
-        <item name="android:windowLightStatusBar">false</item>
-        <item name="android:statusBarColor">#10121E</item>
-        <item name="android:navigationBarColor">#10121E</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar">true</item>
+        <item name="android:statusBarColor">#F3F7FF</item>
+        <item name="android:navigationBarColor">#F3F7FF</item>
         <item name="android:windowActionModeOverlay">true</item>
     </style>
 </resources>

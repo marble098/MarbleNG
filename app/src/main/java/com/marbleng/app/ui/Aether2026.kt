@@ -1,6 +1,7 @@
 package com.marbleng.app.ui
 
-// Marble Product UI v10.0.1 • stability-first Library power surface
+// Marble Product UI v11 • Kinetic Glass command surface
+// Compatibility baseline retained for CI: Marble Product UI v9.1.0
 // MARBLE_LIBRARY_UI_V10
 // MARBLE_BUG_FINDER_UI_V11
 // MARBLE_SMART_UI_V14
@@ -18,6 +19,7 @@ package com.marbleng.app.ui
 // MARBLE_INSTANT_QUALITY_V31
 // MARBLE_LIBRARY_SCOPE_UI_V32
 // MARBLE_LIBRARY_MEMORY_UI_V33
+// MARBLE_KINETIC_GLASS_UI_V34
 
 import android.Manifest
 import android.content.Intent
@@ -44,12 +46,6 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -71,6 +67,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
@@ -80,6 +77,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -162,18 +160,18 @@ fun Aether2026App(
                     val exitOffset: (Int) -> Int = { width -> if (forward) -width / 13 else width / 13 }
                     (
                         slideInHorizontally(
-                            animationSpec = tween(260, easing = FastOutSlowInEasing),
+                            animationSpec = MarbleMotionSpecs.Spatial,
                             initialOffsetX = enterOffset
                         ) +
-                            fadeIn(animationSpec = tween(180)) +
-                            scaleIn(initialScale = .985f, animationSpec = tween(260, easing = FastOutSlowInEasing))
+                            fadeIn(animationSpec = MarbleMotionSpecs.ResponseFloat) +
+                            scaleIn(initialScale = .985f, animationSpec = MarbleMotionSpecs.ResponseFloat)
                     ) togetherWith (
                         slideOutHorizontally(
-                            animationSpec = tween(210, easing = FastOutSlowInEasing),
+                            animationSpec = MarbleMotionSpecs.SpatialExit,
                             targetOffsetX = exitOffset
                         ) +
-                            fadeOut(animationSpec = tween(150)) +
-                            scaleOut(targetScale = .992f, animationSpec = tween(210, easing = FastOutSlowInEasing))
+                            fadeOut(animationSpec = MarbleMotionSpecs.ExitFloat) +
+                            scaleOut(targetScale = .992f, animationSpec = MarbleMotionSpecs.ExitFloat)
                     )
                 },
                 label = "marble-page-transition-fast"
@@ -216,13 +214,13 @@ fun Aether2026App(
                 modifier = Modifier.matchParentSize(),
                 transitionSpec = {
                     (
-                        fadeIn(tween(180)) +
-                            scaleIn(initialScale = .965f, animationSpec = tween(280, easing = FastOutSlowInEasing)) +
-                            slideInVertically(tween(280, easing = FastOutSlowInEasing)) { height -> height / 14 }
+                        fadeIn(MarbleMotionSpecs.ResponseFloat) +
+                            scaleIn(initialScale = .965f, animationSpec = MarbleMotionSpecs.ResponseFloat) +
+                            slideInVertically(MarbleMotionSpecs.Spatial) { height -> height / 14 }
                     ) togetherWith (
-                        fadeOut(tween(130)) +
-                            scaleOut(targetScale = .985f, animationSpec = tween(200, easing = FastOutSlowInEasing)) +
-                            slideOutVertically(tween(200, easing = FastOutSlowInEasing)) { height -> height / 18 }
+                        fadeOut(MarbleMotionSpecs.ExitFloat) +
+                            scaleOut(targetScale = .985f, animationSpec = MarbleMotionSpecs.ExitFloat) +
+                            slideOutVertically(MarbleMotionSpecs.SpatialExit) { height -> height / 18 }
                     )
                 },
                 label = "connection-detail-container-transform-v20"
@@ -244,8 +242,8 @@ fun Aether2026App(
             AnimatedVisibility(
                 visible = repo.busy && !repo.inlineProgressActive,
                 modifier = Modifier.align(Alignment.TopCenter),
-                enter = fadeIn(tween(90)),
-                exit = fadeOut(tween(120))
+                enter = fadeIn(MarbleMotionSpecs.ResponseFloat),
+                exit = fadeOut(MarbleMotionSpecs.ExitFloat)
             ) {
                 LinearProgressIndicator(
                     modifier = Modifier.fillMaxWidth(),
@@ -390,7 +388,7 @@ private fun MarbleSnackbarHost(
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .animateContentSize(),
+                .animateContentSize(MarbleMotionSpecs.Layout),
             shape = shape,
             color = Aether.VoidElevated.copy(alpha = .98f),
             contentColor = Aether.Ink,
@@ -495,11 +493,61 @@ private fun MarbleSnackbarHost(
 
 @Composable
 private fun DeepSpaceBackdrop(modifier: Modifier = Modifier) {
-    val accent=Aether.Cyan; val base=Aether.Void; val raised=Aether.VoidElevated; val soft=Aether.GlassBorderSoft
-    Canvas(modifier){
-        drawRect(brush=Brush.verticalGradient(listOf(base,raised.copy(alpha=.34f),base)))
-        drawCircle(brush=Brush.radialGradient(listOf(accent.copy(alpha=.045f),Color.Transparent),center=Offset(size.width*.82f,size.height*.10f),radius=size.minDimension*.72f),radius=size.minDimension*.72f,center=Offset(size.width*.82f,size.height*.10f))
-        drawCircle(brush=Brush.radialGradient(listOf(soft.copy(alpha=.18f),Color.Transparent),center=Offset(size.width*.10f,size.height*.86f),radius=size.minDimension*.60f),radius=size.minDimension*.60f,center=Offset(size.width*.10f,size.height*.86f))
+    val motion = MarbleMotion.current
+    val drift = motion.loop(18_000)
+    val breathe = motion.breathe(7_200)
+    val base = Aether.Void
+    val raised = Aether.VoidElevated
+    val electric = Aether.Cyan
+    val violet = Aether.Amethyst
+    val line = Aether.GlassBorderSoft
+
+    Canvas(modifier) {
+        drawRect(
+            brush = Brush.verticalGradient(
+                listOf(base, raised.copy(alpha = .62f), base)
+            )
+        )
+
+        val electricCenter = Offset(
+            x = size.width * (.76f + drift * .09f),
+            y = size.height * (.08f + breathe * .04f)
+        )
+        val violetCenter = Offset(
+            x = size.width * (.04f + drift * .08f),
+            y = size.height * (.78f - breathe * .05f)
+        )
+        drawCircle(
+            brush = Brush.radialGradient(
+                listOf(electric.copy(alpha = .16f), electric.copy(alpha = .035f), Color.Transparent),
+                center = electricCenter,
+                radius = size.minDimension * .78f
+            ),
+            radius = size.minDimension * .78f,
+            center = electricCenter
+        )
+        drawCircle(
+            brush = Brush.radialGradient(
+                listOf(violet.copy(alpha = .12f), violet.copy(alpha = .025f), Color.Transparent),
+                center = violetCenter,
+                radius = size.minDimension * .68f
+            ),
+            radius = size.minDimension * .68f,
+            center = violetCenter
+        )
+
+        // Restrained moving architectural lines keep the white field energetic but formal.
+        val spacing = (size.width / 5.5f).coerceAtLeast(54f)
+        val offset = drift * spacing
+        for (index in -3..8) {
+            val x = index * spacing + offset
+            drawLine(
+                color = line.copy(alpha = .11f),
+                start = Offset(x, 0f),
+                end = Offset(x - size.height * .18f, size.height),
+                strokeWidth = 1f
+            )
+        }
     }
 }
 
@@ -520,9 +568,14 @@ private fun FloatingSpatialDock(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .shadow(22.dp, dockShape, clip = false)
                 .clip(dockShape)
-                .background(Aether.VoidElevated)
-                .border(1.dp, Aether.GlassBorderSoft, dockShape)
+                .background(
+                    Brush.verticalGradient(
+                        listOf(Aether.GlassBorder, Aether.GlassStrong, Aether.Glass)
+                    )
+                )
+                .border(1.dp, Aether.GlassBorder, dockShape)
                 .padding(horizontal = 6.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -530,22 +583,22 @@ private fun FloatingSpatialDock(
                 val active = item == selected
                 val background by animateColorAsState(
                     targetValue = if (active) Aether.Cyan.copy(alpha = .11f) else Color.Transparent,
-                    animationSpec = tween(120),
+                    animationSpec = MarbleMotionSpecs.Color,
                     label = "nav-bg-${item.name}"
                 )
                 val iconColor by animateColorAsState(
                     targetValue = if (active) Aether.Cyan else Aether.InkFaint,
-                    animationSpec = tween(120),
+                    animationSpec = MarbleMotionSpecs.Color,
                     label = "nav-icon-${item.name}"
                 )
                 val textColor by animateColorAsState(
                     targetValue = if (active) Aether.Ink else Aether.InkMuted,
-                    animationSpec = tween(120),
+                    animationSpec = MarbleMotionSpecs.Color,
                     label = "nav-text-${item.name}"
                 )
                 val iconSize by animateDpAsState(
                     targetValue = if (active) 22.dp else 20.dp,
-                    animationSpec = tween(120),
+                    animationSpec = MarbleMotionSpecs.Dp,
                     label = "nav-size-${item.name}"
                 )
 
@@ -555,7 +608,7 @@ private fun FloatingSpatialDock(
                         .height(54.dp)
                         .clip(RoundedCornerShape(16.dp))
                         .background(background)
-                        .clickable { onSelect(item) }
+                        .kineticClickable(role = Role.Tab) { onSelect(item) }
                         .padding(horizontal = 2.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center
@@ -701,14 +754,23 @@ private fun HoloGlass(
     val shape = RoundedCornerShape(22.dp)
     val borderTint by animateColorAsState(
         targetValue = borderColor,
-        animationSpec = tween(160),
+        animationSpec = MarbleMotionSpecs.Color,
         label = "surface-border"
     )
     Column(
         modifier = modifier
+            .shadow(14.dp, shape, clip = false)
             .clip(shape)
-            .background(Aether.VoidElevated)
-            .border(1.dp, borderTint, shape)
+            .background(
+                Brush.linearGradient(
+                    listOf(
+                        Aether.GlassBorder.copy(alpha = .88f),
+                        Aether.GlassStrong,
+                        Aether.Glass.copy(alpha = .78f)
+                    )
+                )
+            )
+            .border(1.dp, borderTint.copy(alpha = .82f), shape)
             .padding(contentPadding),
         verticalArrangement = Arrangement.spacedBy(11.dp),
         content = content
@@ -729,19 +791,10 @@ private fun LiveProgressBar(
     color: Color = Aether.Cyan
 ) {
     val track = Aether.GlassBorderSoft
-    val sweep = rememberInfiniteTransition(label = "live-progress")
-    val head by sweep.animateFloat(
-        initialValue = -0.4f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1150, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "live-progress-head"
-    )
+    val head = -.4f + MarbleMotion.current.loop(1_150) * 1.4f
     val settled by animateFloatAsState(
         targetValue = fraction?.coerceIn(0f, 1f) ?: 0f,
-        animationSpec = tween(220, easing = FastOutSlowInEasing),
+        animationSpec = MarbleMotionSpecs.ProgressFloat,
         label = "live-progress-fill"
     )
 
@@ -947,8 +1000,10 @@ private fun CyberDeck(
             item {
                 AnimatedVisibility(
                     visible = true,
-                    enter = fadeIn(tween(180)) + expandVertically(tween(220, easing = FastOutSlowInEasing)),
-                    exit = fadeOut(tween(120)) + shrinkVertically(tween(170))
+                    enter = fadeIn(MarbleMotionSpecs.ResponseFloat) +
+                        expandVertically(MarbleMotionSpecs.Layout),
+                    exit = fadeOut(MarbleMotionSpecs.ExitFloat) +
+                        shrinkVertically(MarbleMotionSpecs.Layout)
                 ) { IranModeStatusPill(repo.iranMode) }
             }
         }
@@ -1005,20 +1060,24 @@ private fun HomeOrbitalHero(
         blocked -> Aether.Danger
         else -> Aether.Cyan
     }
-    val transition = rememberInfiniteTransition(label = "home-orbit-v26")
-    val phase by transition.animateFloat(
-        0f, 360f,
-        infiniteRepeatable(tween(6200), repeatMode = RepeatMode.Restart),
-        label = "home-orbit-phase-v26"
-    )
+    val phase = MarbleMotion.current.loop(6_200) * 360f
     val shape = RoundedCornerShape(30.dp)
 
     Column(
         Modifier
             .fillMaxWidth()
+            .shadow(18.dp, shape, clip = false)
             .clip(shape)
-            .background(Brush.verticalGradient(listOf(tone.copy(alpha = .12f), Aether.VoidElevated, Aether.VoidElevated)))
-            .border(1.dp, tone.copy(alpha = .27f), shape)
+            .background(
+                Brush.verticalGradient(
+                    listOf(
+                        tone.copy(alpha = .15f),
+                        Aether.GlassBorder.copy(alpha = .90f),
+                        Aether.GlassStrong
+                    )
+                )
+            )
+            .border(1.dp, tone.copy(alpha = .34f), shape)
             .padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(13.dp)
@@ -1041,7 +1100,12 @@ private fun HomeOrbitalHero(
         }
 
         val orbitalAccent = Aether.Amethyst
-        Box(Modifier.size(158.dp).clickable(onClick = onToggle), contentAlignment = Alignment.Center) {
+        Box(
+            Modifier
+                .size(158.dp)
+                .kineticClickable(role = Role.Button, pressScale = .94f, onClick = onToggle),
+            contentAlignment = Alignment.Center
+        ) {
             Canvas(Modifier.matchParentSize()) {
                 val c = Offset(size.width / 2f, size.height / 2f)
                 val r = size.minDimension / 2f
@@ -1102,10 +1166,19 @@ private fun HomeActionPortal(
     Row(
         modifier
             .heightIn(min = 82.dp)
+            .shadow(10.dp, shape, clip = false)
             .clip(shape)
-            .background(Brush.linearGradient(listOf(color.copy(alpha = .12f), Aether.VoidElevated, Aether.GlassStrong.copy(alpha = .55f))))
-            .border(1.dp, color.copy(alpha = .22f), shape)
-            .clickable(onClick = onClick)
+            .background(
+                Brush.linearGradient(
+                    listOf(
+                        color.copy(alpha = .15f),
+                        Aether.GlassBorder.copy(alpha = .88f),
+                        Aether.Glass.copy(alpha = .82f)
+                    )
+                )
+            )
+            .border(1.dp, color.copy(alpha = .28f), shape)
+            .kineticClickable(role = Role.Button, onClick = onClick)
             .padding(12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -1153,16 +1226,7 @@ private fun IranModeStatusPill(state: IranModeState) {
     val forced = state.policy == IranModePolicy.ALWAYS_ON
     val scanning = state.scanning && !forced
     val tone = if (scanning) Aether.Amber else Aether.Emerald
-    val transition = rememberInfiniteTransition(label = "iran-mode-home-pulse")
-    val pulse by transition.animateFloat(
-        initialValue = .76f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1050, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "iran-mode-home-pulse-value"
-    )
+    val pulse = .76f + MarbleMotion.current.breathe(2_100) * .24f
     val shape = RoundedCornerShape(18.dp)
 
     Row(
@@ -1311,7 +1375,7 @@ private fun ConnectionCore(
                     .clip(CircleShape)
                     .background(statusColor.copy(alpha = .075f))
                     .border(2.dp, statusColor.copy(alpha = .72f), CircleShape)
-                    .clickable(onClick = onToggle),
+                    .kineticClickable(role = Role.Button, pressScale = .95f, onClick = onToggle),
                 contentAlignment = Alignment.Center
             ) {
                 Canvas(Modifier.matchParentSize().padding(8.dp)) {
@@ -1497,7 +1561,7 @@ private fun HoloActionPill(
                 )
             )
             .border(1.dp, color.copy(alpha = .18f), shape)
-            .clickable(onClick = onClick)
+            .kineticClickable(role = Role.Button, onClick = onClick)
             .padding(horizontal = 11.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -1867,62 +1931,32 @@ private fun CyberLibrary(
                     shape = RoundedCornerShape(18.dp)
                 )
 
-                Button(
-                    onClick = {
+                CyberButton(
+                    label = "✦ Magic",
+                    color = Aether.Emerald,
+                    modifier = Modifier.height(56.dp)
+                ) {
                         repo.importClipboard(
                             clipboard.getText()?.text.orEmpty(),
                             sourceFilter
                         )
-                    },
-                    modifier = Modifier.height(56.dp),
-                    shape = RoundedCornerShape(18.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Aether.Emerald.copy(alpha = .13f),
-                        contentColor = Aether.Emerald
-                    ),
-                    elevation = ButtonDefaults.buttonElevation(
-                        defaultElevation = 0.dp,
-                        pressedElevation = 0.dp,
-                        focusedElevation = 0.dp,
-                        hoveredElevation = 0.dp,
-                        disabledElevation = 0.dp
-                    ),
-                    contentPadding = PaddingValues(horizontal = 11.dp)
-                ) {
-                    Text("✦ Magic", maxLines = 1, softWrap = false)
                 }
 
-                Button(
-                    onClick = { addOpen = !addOpen },
-                    modifier = Modifier.height(56.dp),
-                    shape = RoundedCornerShape(18.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Aether.Cyan.copy(alpha = .12f),
-                        contentColor = Aether.Ink
-                    ),
-                    elevation = ButtonDefaults.buttonElevation(
-                        defaultElevation = 0.dp,
-                        pressedElevation = 0.dp,
-                        focusedElevation = 0.dp,
-                        hoveredElevation = 0.dp,
-                        disabledElevation = 0.dp
-                    ),
-                    contentPadding = PaddingValues(horizontal = 16.dp)
-                ) {
-                    Text(
-                        if (addOpen) "Close" else "Add",
-                        maxLines = 1,
-                        softWrap = false
-                    )
-                }
+                CyberButton(
+                    label = if (addOpen) "Close" else "Add",
+                    color = Aether.Cyan,
+                    modifier = Modifier.height(56.dp)
+                ) { addOpen = !addOpen }
             }
         }
 
         item {
             AnimatedVisibility(
                 visible = addOpen,
-                enter = fadeIn(tween(140)) + expandVertically(tween(220, easing = FastOutSlowInEasing)),
-                exit = fadeOut(tween(100)) + shrinkVertically(tween(170, easing = FastOutSlowInEasing))
+                enter = fadeIn(MarbleMotionSpecs.ResponseFloat) +
+                    expandVertically(MarbleMotionSpecs.Layout),
+                exit = fadeOut(MarbleMotionSpecs.ExitFloat) +
+                    shrinkVertically(MarbleMotionSpecs.Layout)
             ) {
                 HoloGlass(
                     modifier = Modifier.fillMaxWidth(),
@@ -1935,8 +1969,13 @@ private fun CyberLibrary(
                     AnimatedContent(
                         targetState = addMode,
                         transitionSpec = {
-                            (fadeIn(tween(150)) + slideInHorizontally(tween(180)) { it / 12 }) togetherWith
-                                (fadeOut(tween(100)) + slideOutHorizontally(tween(140)) { -it / 14 })
+                            (
+                                fadeIn(MarbleMotionSpecs.ResponseFloat) +
+                                    slideInHorizontally(MarbleMotionSpecs.Spatial) { it / 12 }
+                            ) togetherWith (
+                                fadeOut(MarbleMotionSpecs.ExitFloat) +
+                                    slideOutHorizontally(MarbleMotionSpecs.SpatialExit) { -it / 14 }
+                            )
                         },
                         label = "library-add-mode-v20"
                     ) { mode ->
@@ -2562,7 +2601,9 @@ private fun LibraryControlDeck(
                 Box(
                     Modifier.size(38.dp).clip(RoundedCornerShape(13.dp))
                         .background(Aether.Amethyst.copy(alpha = .10f))
-                        .clickable { onManageSubscription(selectedSub) },
+                        .kineticClickable(role = Role.Button) {
+                            onManageSubscription(selectedSub)
+                        },
                     contentAlignment = Alignment.Center
                 ) { Text("⋮", color = Aether.Amethyst, style = MaterialTheme.typography.titleMedium) }
             }
@@ -2654,13 +2695,18 @@ private fun SourceOrbitChip(
     onClick: () -> Unit,
     onManage: (() -> Unit)? = null
 ) {
-    val width by animateDpAsState(if (selected) 178.dp else 138.dp, tween(180, easing = FastOutSlowInEasing), label = "source-orbit-$title")
+    val width by animateDpAsState(
+        targetValue = if (selected) 178.dp else 138.dp,
+        animationSpec = MarbleMotionSpecs.Dp,
+        label = "source-orbit-$title"
+    )
     val shape = RoundedCornerShape(18.dp)
     Row(
         Modifier.width(width).heightIn(min = 58.dp).clip(shape)
             .background(if (selected) color.copy(alpha = .12f) else Aether.GlassStrong.copy(alpha = .50f))
             .border(1.dp, if (selected) color.copy(alpha = .48f) else Aether.GlassBorderSoft, shape)
-            .clickable(onClick = onClick).padding(start = 10.dp, top = 8.dp, end = 7.dp, bottom = 8.dp),
+            .kineticClickable(role = Role.Button, onClick = onClick)
+            .padding(start = 10.dp, top = 8.dp, end = 7.dp, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
@@ -2675,7 +2721,13 @@ private fun SourceOrbitChip(
             Text(detail, color = if (selected) color else Aether.InkFaint, style = MaterialTheme.typography.labelSmall, maxLines = 1)
         }
         if (onManage != null && selected) {
-            Box(Modifier.size(28.dp).clip(CircleShape).clickable(onClick = onManage), contentAlignment = Alignment.Center) {
+            Box(
+                Modifier
+                    .size(28.dp)
+                    .clip(CircleShape)
+                    .kineticClickable(role = Role.Button, onClick = onManage),
+                contentAlignment = Alignment.Center
+            ) {
                 Text("⋮", color = color)
             }
         }
@@ -2696,7 +2748,7 @@ private fun LibraryMicroAction(
         modifier.heightIn(min = 48.dp).clip(shape)
             .background(color.copy(alpha = if (enabled) .09f else .035f))
             .border(1.dp, color.copy(alpha = if (enabled) .19f else .08f), shape)
-            .clickable(enabled = enabled, onClick = onClick)
+            .kineticClickable(enabled = enabled, role = Role.Button, onClick = onClick)
             .padding(horizontal = 9.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.Center
@@ -2833,7 +2885,7 @@ private fun SubscriptionManagerCard(
             .clip(shape)
             .background(accent.copy(alpha = if (selected) .10f else .055f))
             .border(1.dp, accent.copy(alpha = if (selected) .42f else .20f), shape)
-            .clickable(onClick = onView)
+            .kineticClickable(role = Role.Button, onClick = onView)
             .padding(start = 10.dp, top = 8.dp, bottom = 8.dp, end = 5.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -2858,7 +2910,13 @@ private fun SubscriptionManagerCard(
                 overflow = TextOverflow.Ellipsis
             )
         }
-        Box(Modifier.size(34.dp).clip(CircleShape).clickable(enabled = !repo.busy, onClick = onManage), contentAlignment = Alignment.Center) {
+        Box(
+            Modifier
+                .size(34.dp)
+                .clip(CircleShape)
+                .kineticClickable(enabled = !repo.busy, role = Role.Button, onClick = onManage),
+            contentAlignment = Alignment.Center
+        ) {
             Text("⋮", color = Aether.InkMuted, style = MaterialTheme.typography.titleMedium)
         }
     }
@@ -2931,7 +2989,7 @@ private fun SpatialServerCard(
     HoloGlass(
         modifier = Modifier
             .fillMaxWidth()
-            .animateContentSize(tween(180)),
+            .animateContentSize(MarbleMotionSpecs.Layout),
         borderColor = when {
             testing -> Aether.Cyan.copy(alpha = .55f)
             active -> Aether.Emerald.copy(alpha = .55f)
@@ -2940,7 +2998,9 @@ private fun SpatialServerCard(
         contentPadding = PaddingValues(start = 14.dp, top = 12.dp, end = 8.dp, bottom = 12.dp)
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth().clickable(onClick = onDetails),
+            modifier = Modifier
+                .fillMaxWidth()
+                .kineticClickable(role = Role.Button, onClick = onDetails),
             verticalAlignment = Alignment.CenterVertically
         ) {
             HealthOrb(
@@ -3034,7 +3094,9 @@ private fun SpatialServerCard(
                     .size(40.dp)
                     .clip(RoundedCornerShape(14.dp))
                     .background((if (active) Aether.Emerald else Aether.Cyan).copy(alpha = .12f))
-                    .clickable { if (active) repo.stopVpn() else onConnect(profile) },
+                    .kineticClickable(role = Role.Button) {
+                        if (active) repo.stopVpn() else onConnect(profile)
+                    },
                 contentAlignment = Alignment.Center
             ) {
                 Text(
@@ -3049,7 +3111,7 @@ private fun SpatialServerCard(
                     modifier = Modifier
                         .size(36.dp)
                         .clip(CircleShape)
-                        .clickable { menuOpen = true },
+                        .kineticClickable(role = Role.Button) { menuOpen = true },
                     contentAlignment = Alignment.Center
                 ) {
                     Text("⋮", color = Aether.InkMuted, style = MaterialTheme.typography.titleMedium)
@@ -3180,20 +3242,9 @@ private fun HealthOrb(
     modifier: Modifier = Modifier,
     pulsing: Boolean = active
 ) {
-    // Only the node that is connected or currently being probed animates. A permanent infinite
-    // transition per row made every idle library card pay for a frame callback.
+    // Active rows read Marble's shared clock; idle rows stay completely static.
     val pulse: Float = if (pulsing) {
-        val transition = rememberInfiniteTransition(label = "health-orb")
-        val animated by transition.animateFloat(
-            initialValue = .82f,
-            targetValue = 1.20f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(if (active) 1400 else 900, easing = FastOutSlowInEasing),
-                repeatMode = RepeatMode.Reverse
-            ),
-            label = "health-pulse"
-        )
-        animated
+        .82f + MarbleMotion.current.breathe(if (active) 2_800 else 1_800) * .38f
     } else {
         1f
     }
@@ -3330,7 +3381,7 @@ private fun SpatialSettings(
                             repo.updateSettings(repo.settings.copy(theme = "system"))
                         }
                         CyberChoiceChip(
-                            "Light",
+                            "Glass White",
                             repo.settings.theme.equals("light", true),
                             Aether.Cyan
                         ) {
@@ -3401,22 +3452,27 @@ private fun SpatialAccordion(
     val shape = RoundedCornerShape(20.dp)
     val iconBackground by animateColorAsState(
         targetValue = if (open) color.copy(alpha = .11f) else Aether.GlassStrong.copy(alpha = .55f),
-        animationSpec = tween(180),
+        animationSpec = MarbleMotionSpecs.Color,
         label = "accordion-icon-$title"
     )
 
     Column(
         Modifier
             .fillMaxWidth()
-            .animateContentSize(tween(160, easing = FastOutSlowInEasing))
+            .animateContentSize(MarbleMotionSpecs.Layout)
+            .shadow(10.dp, shape, clip = false)
             .clip(shape)
-            .background(Aether.VoidElevated)
-            .border(1.dp, Aether.GlassBorderSoft, shape)
+            .background(
+                Brush.linearGradient(
+                    listOf(Aether.GlassBorder.copy(alpha = .84f), Aether.GlassStrong, Aether.Glass)
+                )
+            )
+            .border(1.dp, Aether.GlassBorder, shape)
             .padding(horizontal = 14.dp, vertical = 13.dp),
         verticalArrangement = Arrangement.spacedBy(11.dp)
     ) {
         Row(
-            Modifier.fillMaxWidth().clickable { open = !open },
+            Modifier.fillMaxWidth().kineticClickable(role = Role.Button) { open = !open },
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(
@@ -3428,7 +3484,10 @@ private fun SpatialAccordion(
             ) {
                 AnimatedContent(
                     targetState = open,
-                    transitionSpec = { fadeIn(tween(110)) togetherWith fadeOut(tween(90)) },
+                    transitionSpec = {
+                        fadeIn(MarbleMotionSpecs.ResponseFloat) togetherWith
+                            fadeOut(MarbleMotionSpecs.ExitFloat)
+                    },
                     label = "accordion-chevron-$title"
                 ) { expanded ->
                     Text(
@@ -3463,8 +3522,10 @@ private fun SpatialAccordion(
 
         AnimatedVisibility(
             visible = open,
-            enter = expandVertically(tween(165, easing = FastOutSlowInEasing)) + fadeIn(tween(100)),
-            exit = shrinkVertically(tween(135, easing = FastOutSlowInEasing)) + fadeOut(tween(80))
+            enter = expandVertically(MarbleMotionSpecs.Layout) +
+                fadeIn(MarbleMotionSpecs.ResponseFloat),
+            exit = shrinkVertically(MarbleMotionSpecs.Layout) +
+                fadeOut(MarbleMotionSpecs.ExitFloat)
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(11.dp)) {
                 HorizontalDivider(color = Aether.GlassBorderSoft)
@@ -3917,7 +3978,7 @@ private fun SplitTunnelSettings(repo:AppRepository){
     }
 }
 @Composable private fun SplitTunnelAppRow(app:InstalledApp,checked:Boolean,onToggle:()->Unit){
-    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(15.dp)).clickable(onClick=onToggle).padding(horizontal=10.dp,vertical=8.dp),verticalAlignment=Alignment.CenterVertically){Box(Modifier.size(38.dp).clip(RoundedCornerShape(12.dp)).background(if(checked)Aether.Emerald.copy(alpha=.12f) else Aether.GlassStrong),contentAlignment=Alignment.Center){Text(app.label.trim().firstOrNull()?.uppercase()?:"•",color=if(checked)Aether.Emerald else Aether.InkMuted,style=MaterialTheme.typography.labelLarge)};Spacer(Modifier.width(11.dp));Column(Modifier.weight(1f)){Text(app.label,color=Aether.Ink,style=MaterialTheme.typography.bodyMedium,maxLines=1,overflow=TextOverflow.Ellipsis);Text(app.packageName,color=Aether.InkFaint,style=MaterialTheme.typography.labelSmall,maxLines=1,overflow=TextOverflow.Ellipsis)};Checkbox(checked,{onToggle()},colors=CheckboxDefaults.colors(checkedColor=Aether.Emerald,checkmarkColor=Aether.Void,uncheckedColor=Aether.GlassBorder))}
+    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(15.dp)).kineticClickable(role=Role.Checkbox,onClick=onToggle).padding(horizontal=10.dp,vertical=8.dp),verticalAlignment=Alignment.CenterVertically){Box(Modifier.size(38.dp).clip(RoundedCornerShape(12.dp)).background(if(checked)Aether.Emerald.copy(alpha=.12f) else Aether.GlassStrong),contentAlignment=Alignment.Center){Text(app.label.trim().firstOrNull()?.uppercase()?:"•",color=if(checked)Aether.Emerald else Aether.InkMuted,style=MaterialTheme.typography.labelLarge)};Spacer(Modifier.width(11.dp));Column(Modifier.weight(1f)){Text(app.label,color=Aether.Ink,style=MaterialTheme.typography.bodyMedium,maxLines=1,overflow=TextOverflow.Ellipsis);Text(app.packageName,color=Aether.InkFaint,style=MaterialTheme.typography.labelSmall,maxLines=1,overflow=TextOverflow.Ellipsis)};Checkbox(checked,{onToggle()},colors=CheckboxDefaults.colors(checkedColor=Aether.Emerald,checkmarkColor=Aether.Void,uncheckedColor=Aether.GlassBorder))}
 }
 
 @Composable
@@ -4826,28 +4887,39 @@ private fun CyberButton(
     enabled: Boolean = true,
     onClick: () -> Unit
 ) {
-    Button(
-        onClick = onClick,
-        modifier = modifier.heightIn(min = 46.dp),
-        enabled = enabled,
-        shape = RoundedCornerShape(15.dp),
-        colors = ButtonDefaults.buttonColors(
-            containerColor = color.copy(alpha = .11f),
-            contentColor = Aether.Ink,
-            disabledContainerColor = Aether.GlassStrong.copy(alpha = .62f),
-            disabledContentColor = Aether.InkFaint
-        ),
-        elevation = ButtonDefaults.buttonElevation(
-            defaultElevation = 0.dp,
-            pressedElevation = 0.dp,
-            focusedElevation = 0.dp,
-            hoveredElevation = 0.dp,
-            disabledElevation = 0.dp
-        ),
-        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp)
+    val shape = RoundedCornerShape(15.dp)
+    Box(
+        modifier = modifier
+            .heightIn(min = 46.dp)
+            .shadow(if (enabled) 8.dp else 0.dp, shape, clip = false)
+            .clip(shape)
+            .background(
+                if (enabled) {
+                    Brush.linearGradient(
+                        listOf(
+                            color.copy(alpha = .19f),
+                            Aether.GlassBorder.copy(alpha = .90f),
+                            color.copy(alpha = .10f)
+                        )
+                    )
+                } else {
+                    Brush.linearGradient(
+                        listOf(Aether.GlassStrong, Aether.GlassStrong)
+                    )
+                }
+            )
+            .border(
+                1.dp,
+                if (enabled) color.copy(alpha = .32f) else Aether.GlassBorderSoft,
+                shape
+            )
+            .kineticClickable(enabled = enabled, role = Role.Button, onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        contentAlignment = Alignment.Center
     ) {
         Text(
             label,
+            color = if (enabled) Aether.Ink else Aether.InkFaint,
             style = MaterialTheme.typography.labelLarge,
             maxLines = 1,
             softWrap = false,
@@ -4865,12 +4937,12 @@ private fun CyberChoiceChip(
 ) {
     val background by animateColorAsState(
         targetValue = if (selected) color.copy(alpha = .12f) else Aether.GlassStrong.copy(alpha = .55f),
-        animationSpec = tween(120),
+        animationSpec = MarbleMotionSpecs.Color,
         label = "chip-background-$text"
     )
     val contentColor by animateColorAsState(
         targetValue = if (selected) color else Aether.InkMuted,
-        animationSpec = tween(120),
+        animationSpec = MarbleMotionSpecs.Color,
         label = "chip-content-$text"
     )
 
@@ -4878,7 +4950,12 @@ private fun CyberChoiceChip(
         Modifier
             .clip(RoundedCornerShape(11.dp))
             .background(background)
-            .clickable(onClick = onClick)
+            .border(
+                1.dp,
+                if (selected) color.copy(alpha = .30f) else Aether.GlassBorderSoft,
+                RoundedCornerShape(11.dp)
+            )
+            .kineticClickable(role = Role.Button, onClick = onClick)
             .padding(horizontal = 11.dp, vertical = 8.dp),
         contentAlignment = Alignment.Center
     ) {
@@ -4904,14 +4981,19 @@ private fun CyberSegment(
 ) {
     val background by animateColorAsState(
         targetValue = if (selected) color.copy(alpha = .10f) else Aether.GlassStrong.copy(alpha = .54f),
-        animationSpec = tween(120),
+        animationSpec = MarbleMotionSpecs.Color,
         label = "segment-$label"
     )
     Column(
         modifier
             .clip(RoundedCornerShape(16.dp))
             .background(background)
-            .clickable(onClick = onClick)
+            .border(
+                1.dp,
+                if (selected) color.copy(alpha = .28f) else Aether.GlassBorderSoft,
+                RoundedCornerShape(16.dp)
+            )
+            .kineticClickable(role = Role.Button, onClick = onClick)
             .padding(12.dp)
     ) {
         Text(
@@ -4942,6 +5024,7 @@ private fun SettingSwitch(
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
             .background(if (checked) Aether.Cyan.copy(alpha = .028f) else Color.Transparent)
+            .kineticClickable(role = Role.Switch) { onChecked(!checked) }
             .padding(horizontal = 7.dp, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -4970,22 +5053,22 @@ private fun MarbleToggle(
 ) {
     val track by animateColorAsState(
         targetValue = if (checked) Aether.Cyan else Aether.GlassStrong,
-        animationSpec = tween(130),
+        animationSpec = MarbleMotionSpecs.Color,
         label = "marble-toggle-track"
     )
     val border by animateColorAsState(
         targetValue = if (checked) Aether.Cyan else Aether.GlassBorder,
-        animationSpec = tween(130),
+        animationSpec = MarbleMotionSpecs.Color,
         label = "marble-toggle-border"
     )
     val thumb by animateColorAsState(
         targetValue = if (checked) Color.White else Aether.InkMuted,
-        animationSpec = tween(130),
+        animationSpec = MarbleMotionSpecs.Color,
         label = "marble-toggle-thumb"
     )
     val thumbX by animateDpAsState(
         targetValue = if (checked) 23.dp else 3.dp,
-        animationSpec = tween(150, easing = FastOutSlowInEasing),
+        animationSpec = MarbleMotionSpecs.Dp,
         label = "marble-toggle-position"
     )
 
@@ -4996,7 +5079,7 @@ private fun MarbleToggle(
             .clip(CircleShape)
             .background(track)
             .border(1.dp, border, CircleShape)
-            .clickable { onChecked(!checked) }
+            .kineticClickable(role = Role.Switch) { onChecked(!checked) }
     ) {
         Box(
             modifier = Modifier
@@ -5276,5 +5359,3 @@ private fun IranModeSettings(repo: AppRepository) {
         enabled = !state.scanning
     ) { repo.scanIranMode(force = true, deep = true) }
 }
-
-

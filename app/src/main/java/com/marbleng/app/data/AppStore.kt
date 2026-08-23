@@ -11,6 +11,7 @@ class AppStore(context: Context) {
     // MARBLE_SOURCE_TARGETING_STORE_V25_4
     // MARBLE_AURORA_UI_STORE_V26
     // MARBLE_SYSTEM_THEME_STORE_V32
+    // MARBLE_KINETIC_GLASS_DEFAULT_V34
     // MARBLE_LIBRARY_MEMORY_STORE_V33
     private val prefs = context.getSharedPreferences("marbleng-store", Context.MODE_PRIVATE)
 
@@ -216,7 +217,7 @@ class AppStore(context: Context) {
         thermalAwareEnabled = prefs.getBoolean("thermalAwareEnabled", true),
         workloadProfile = enumValue("workloadProfile", WorkloadProfile.AUTO),
 
-        theme = prefs.getString("theme", "system") ?: "system",
+        theme = prefs.getString("theme", "light") ?: "light",
         debugModeEnabled = prefs.getBoolean("debugModeEnabled", false),
         expertMode = prefs.getBoolean("expertMode", false)
         )

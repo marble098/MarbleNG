@@ -1,120 +1,105 @@
-# 🌌 Aether Flow — Main Control Deck Blueprint
+# MarbleNG Kinetic Glass UI
 
-A ground-up redesign of the MarbleNG control surface. The philosophy: a proxy
-app should feel like a fluid, invisible, advanced **network nexus**, not a
-developer debug console. We achieve this with deep OLED black (`#050505`),
-frosted glassmorphism, a context-aware amethyst→cyan accent that *breathes*
-while connected, and relentless **progressive disclosure**.
+MarbleNG's control surface is a Compose-based, white-first command interface. The visual system is
+formal and information-dense, while electric blue, violet, emerald, amber and rose are reserved for
+state, focus and motion.
 
-## Structural anatomy of the Deck
+## Runtime structure
 
-```
-┌─────────────────────────────────────────────┐
-│  TOP BAR                                      │
-│  "Aether Flow" + live status line   [pill][⚙] │  ← identity + at-a-glance state
-├─────────────────────────────────────────────┤
-│                                               │
-│              ╭───────────────╮                │
-│              │   THE  ORB    │                │  ← Hero / Nexus
-│              │   ⚡ CONNECTED │                │    breathing conic gradient,
-│              │   Amsterdam   │                │    tap → ripple → best node,
-│              │  ping down up │                │    telemetry fades in when live
-│              ╰───────────────╯                │
-│                                               │
-├─────────────────────────────────────────────┤
-│  SMART ACTION ROW  (exactly three)            │
-│  [🧭 Smart Route] [🇳🇱 Node Library] [🛡 Shield]│  ← contextual, one job each
-├─────────────────────────────────────────────┤
-│  ROUTING INTELLIGENCE  (horizontal cards)     │
-│  [Reliability][Balanced][Max Speed][Turbo]    │  ← REL/BAL/FAS decoded
-└─────────────────────────────────────────────┘
-        ▲ swipe up / tap ⚙
-┌─────────────────────────────────────────────┐
-│  ENGINE ROOM  (ModalBottomSheet)              │  ← the whole developer sandbox,
-│  Observability · Integrity · Maintenance      │    hidden until summoned
-└─────────────────────────────────────────────┘
-```
+`MarbleApp` applies `AetherFlowTheme`, which installs the Material 3 color scheme and one
+`ProvideMarbleMotion` instance. `Aether2026App` then renders the three primary destinations:
 
-### 1. Top Bar
-Brand wordmark + a single-line, live status caption. A **status pill**
-(`SECURED / LINKING / BLOCKED / OFFLINE`) gives instant state without reading
-any body text. The `⚙` handle opens the Engine Room.
+- **Home** — connection state, live route telemetry, Iran Mode and high-frequency actions.
+- **Library** — sources, node search, testing, ranking and per-node management.
+- **Settings** — simple controls first, with expert networking sections disclosed on demand.
 
-### 2. The Hero — Connection Orb (`ConnectionHero`)
-The rectangular connect buttons are gone. In their place: one massive circular
-nexus that *is* the app's state.
+All screens read observable state directly from `AppRepository`. The UI never owns VPN, benchmark
+or routing state.
 
-- **Idle** → muted slate, static, `⏻ TAP TO CONNECT`.
-- **Connecting** → amethyst, fast-spinning conic ring, `···`.
-- **Connected** → amethyst→cyan gradient that **breathes** (infinite pulse),
-  and live telemetry (**ping / down / up**) fades in beneath the glyph.
-- **Blocked** → rose/danger accent, `⚠ TAP TO RETRY`.
+## Motion engine
 
-Tapping fires a ripple ring and either connects to the best node (`repo.auto`)
-or tears the tunnel down.
+`MarbleMotion.kt` is the only motion authority.
 
-### 3. Smart Action Row (`QuickActions`)
-Only three cards ever appear — the 80% of what users actually want:
-**Smart Route** (auto-benchmark & connect), **Node Library** (opens the
-library, badged with the live node count / region flag), and **Privacy
-Shield** (leak audit). Everything else is disclosure.
+### Physics vocabulary
 
-### 4. Routing Intelligence (`RoutingIntelligence`)
-The cryptic `REL / BAL / FAS` tags become illustrated selector cards with
-human titles and micro-descriptions:
+`MarbleMotionSpecs` contains typed spring specifications for:
 
-| Old | New | Micro-description |
-|-----|-----|-------------------|
-| `REL` | 🛡 **Reliability Mode** | Locks onto the most stable, long-lived nodes |
-| `BAL` | ⚖ **Balanced** | The optimal blend of speed and stability |
-| `FAS` | ⚡ **Maximum Speed** | Chases the absolute lowest-latency egress |
-| `TUR` | 🚀 **Turbo Burst** | Aggressive parallel probing for peak throughput |
+- direct press response;
+- content response and exit;
+- color;
+- dimensions;
+- spatial page movement;
+- layout-size changes; and
+- determinate progress.
 
-### 5. Engine Room (`DiagnosticsBottomSheet`)
-Everything that made the old UI a "debug nightmare" — Logs, History, System
-Doctor, Capabilities, Core Lock, Core Update, Xray JSON import — is swept into
-a single `ModalBottomSheet` grouped into **Observability / Integrity /
-Maintenance**. Regular users never see it unless they summon it.
+UI code does not define arbitrary millisecond tweens. This keeps navigation, toggles, progress and
+expand/collapse movement coherent.
 
-## State model
+### Shared ambient clock
 
-The entire deck is a pure function of one immutable snapshot,
-`ProxyState` (see `AetherDeck.kt`), projected from the live `AppRepository`
-via `AppRepository.toProxyState()`. This keeps every composable
-(`ConnectionHero`, `QuickActions`, `RoutingIntelligence`,
-`DiagnosticsBottomSheet`) isolated, testable, and `@Preview`-able through
-`ProxyState.PreviewConnected`.
+`ProvideMarbleMotion` owns one `withFrameNanos` loop and exposes normalized `loop()` and
+`breathe()` values through `MarbleMotion.current`. The backdrop, connection orbit, active Iran
+Mode scan, indeterminate progress and active health orb all read that same clock.
 
-## Design tokens & theme
+Idle node rows do not read the clock. There is no permanent infinite transition per row.
 
-All colours and the geometric type ramp live in `AetherTheme.kt` (`Aether`
-object + `AetherFlowTheme`, an MD3 `MaterialTheme` wrapper). To adopt the
-exact "Aether Flow" voice, drop **Inter** or **Manrope** into `res/font/` and
-point `AetherFontFamily` at it — the weights and tracking are already tuned.
+### Direct manipulation
 
-## Live telemetry (implemented)
+`Modifier.kineticClickable()` combines click semantics, the current indication and spring-backed
+press scale/lift in one gesture owner. It is used for navigation, primary buttons, actionable cards,
+node controls, accordions, switches and checkboxes. Callers must not stack another clickable
+modifier on the same control.
 
-The orb's **ping / down / up** are real, not placeholders:
+### Reduced motion
 
-- **Throughput** — `MarbleVpnService.startTelemetry()` samples the native HEV
-  byte counters (`HevTunnel.stats()` → `[txPackets, txBytes, rxPackets,
-  rxBytes]`) once per second and computes per-second deltas. `txBytes` maps to
-  **upload**, `rxBytes` to **download** (hev-socks5-tunnel convention — swap
-  `s[1]`/`s[3]` if your build reports them inverted).
-- **Ping** — every ~4 s the service opens a SOCKS5 `CONNECT` handshake to
-  `www.gstatic.com:443` through the local proxy and times the reply. Because
-  the service adds `addDisallowedApplication(packageName)`, the app's own
-  sockets bypass the TUN, so this measures true egress RTT through Xray.
-- Values land in observable `AppRepository` state (`liveDownBps`, `liveUpBps`,
-  `livePingMs`); `toProxyState()` reads them, so the orb recomposes ~1×/s while
-  connected and resets to idle on disconnect/block.
+Before starting the shared frame loop, the provider reads Android's global animator duration scale.
+If animations are disabled, ambient motion freezes. Compose spring animations continue to follow
+the platform duration-scale behavior.
 
-## Cross-page consistency
+## White glass material
 
-Every screen (Library, Lab, Radar, Settings) now shares the same Aether Flow
-language via upgraded primitives in `MarbleApp.kt`: `Header`, `SectionLabel`,
-`GlassCard` (true frosted glass + hairline border), and `ActionGrid`/
-`AetherPill`. Remaining cryptic tags were decoded in place — the app ships
-exactly two themes, `Dark` and `Light` (both energetic-accent MD3 schemes,
-see `AetherFlowTheme`), and benchmark modes `REL/BAL/FAS` →
-`Reliability / Balanced / Maximum Speed` via `benchModeLabel()`.
+The light palette in `AetherTheme.kt` is the product default.
+
+| Token | Purpose |
+| --- | --- |
+| `Void` | cool-white application field |
+| `VoidElevated` | near-white elevated layer |
+| `Glass` | translucent white panel |
+| `GlassStrong` | high-legibility glass panel |
+| `GlassBorder` | white specular edge |
+| `GlassBorderSoft` | blue-slate structural line |
+| `Cyan` | electric primary action/state |
+| `Amethyst` | secondary intelligence state |
+| `Emerald / Amber / Danger` | success, caution and failure |
+
+`HoloGlass`, the floating dock, primary buttons, Home portals, the connection hero and settings
+accordions use layered gradients, a specular edge and restrained elevation. The animated background
+uses low-opacity radial light and architectural diagonal lines so the surface stays bright without
+becoming decorative noise.
+
+Dark mode remains an explicit choice and preserves the same hierarchy and accent meanings. New
+installs start in **Glass White**; users can select System or Dark in Appearance.
+
+## Performance rules
+
+- Keep exactly one ambient frame clock under `ProvideMarbleMotion`.
+- Do not add `rememberInfiniteTransition` to lists or cards.
+- Animate only active/probing node health indicators.
+- Keep continuously moving color fields behind content, not in every surface.
+- Use typed `MarbleMotionSpecs` instead of local `tween` values.
+- Keep expensive repository and file operations outside composition.
+- Preserve stable keys in lazy lists.
+
+## Functional invariants
+
+The redesign changes presentation and gesture feedback only. It does not alter:
+
+- VPN permission or service startup;
+- Xray/HEV lifecycle;
+- benchmark coverage or scoring;
+- subscription persistence;
+- routing and DNS policy;
+- Iran Mode detection;
+- diagnostics; or
+- release signing and native build preparation.
+

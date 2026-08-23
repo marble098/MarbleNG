@@ -133,6 +133,7 @@ enum class IranModePolicy { AUTO, ALWAYS_ON, OFF }
 // MARBLE_SOURCE_TARGETING_V25_4
 // MARBLE_AURORA_UI_SETTINGS_V26
 // MARBLE_SYSTEM_THEME_MODEL_V32
+// MARBLE_KINETIC_GLASS_DEFAULT_V34
 data class AppSettings(
     val socksPort: Int = 10808,
     val localProxyPort: Int = 10101,
@@ -279,7 +280,7 @@ data class AppSettings(
     val thermalAwareEnabled: Boolean = true,
     val workloadProfile: WorkloadProfile = WorkloadProfile.AUTO,
 
-    val theme: String = "system",
+    val theme: String = "light",
 
     /** Settings screen reveals the low-level Xray/tunnel controls. Persisted like any other choice. */
     val expertMode: Boolean = false,
