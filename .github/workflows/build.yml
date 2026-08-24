@@ -481,10 +481,40 @@ jobs:
             VERSION_CHANGE_LINES=0
           else
             HEAD_MESSAGE="$(git log -1 --pretty=%B "$GITHUB_SHA")"
-            VERSION_CHANGE_FILES="$(git diff --name-only "$LAST_TAG"... "$GITHUB_SHA" | awk 'NF' | wc -l | tr -d ' ')"
+            # MARBLE_SEMVER_RANGE_FIX_V361
+            # Three-dot syntax is one rev-range token: <tag>...<sha>.
+            # Splitting after `...` makes git diff exit 129.
+            if ! git rev-parse --verify --quiet "${LAST_TAG}^{commit}" >/dev/null; then
+              echo "::error::Semantic release base $LAST_TAG is not a valid commit tag."
+              exit 1
+            fi
+
+            if ! git rev-parse --verify --quiet "${GITHUB_SHA}^{commit}" >/dev/null; then
+              echo "::error::Workflow commit $GITHUB_SHA is not available in checkout."
+              exit 1
+            fi
+
+            VERSION_RANGE="${LAST_TAG}...${GITHUB_SHA}"
+
+            # Validate the merge-base/range before using it for change-volume policy.
+            if ! git merge-base "$LAST_TAG" "$GITHUB_SHA" >/dev/null 2>&1; then
+              echo "::error::No merge base between $LAST_TAG and $GITHUB_SHA."
+              exit 1
+            fi
+
+            VERSION_CHANGE_FILES="$(
+              git diff --name-only "$VERSION_RANGE" -- |
+                awk 'NF' |
+                wc -l |
+                tr -d ' '
+            )"
             VERSION_CHANGE_LINES="$(
-              git diff --numstat "$LAST_TAG"... "$GITHUB_SHA" |
-                awk '$1 ~ /^[0-9]+$/ {a+=$1} $2 ~ /^[0-9]+$/ {d+=$2} END {print a+d+0}'
+              git diff --numstat "$VERSION_RANGE" -- |
+                awk '
+                  $1 ~ /^[0-9]+$/ { a += $1 }
+                  $2 ~ /^[0-9]+$/ { d += $2 }
+                  END { print a + d + 0 }
+                '
             )"
 
             VERSION_BUMP_KIND=""
@@ -543,6 +573,9 @@ jobs:
           echo "VERSION_CHANGE_LINES=${VERSION_CHANGE_LINES:-0}" >> "$GITHUB_ENV"
 
           echo "Previous semantic release: ${LAST_VERSION:-legacy/none}"
+          if [[ -n "${LAST_TAG:-}" ]]; then
+            echo "Version diff range: ${VERSION_RANGE:-bootstrap}"
+          fi
           echo "Version bump: $VERSION_BUMP_KIND"
           echo "Changed files: ${VERSION_CHANGE_FILES:-0}"
           echo "Changed lines: ${VERSION_CHANGE_LINES:-0}"
