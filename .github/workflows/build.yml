@@ -412,12 +412,13 @@ jobs:
       # Version
       # ========================================================================
 
-      - name: Generate automatic version
+      - name: Generate MarbleNG 1.0.2 version
         shell: bash
         run: |
           set -euo pipefail
-
-          VERSION_NAME="1.0.$(date -u +%Y%m%d).${GITHUB_RUN_NUMBER}"
+          # MARBLE_RELEASE_V102
+          VERSION_NAME="1.0.2"
+          # Keep versionCode monotonic relative to prior epoch-based signed builds.
           VERSION_CODE="$(date -u +%s)"
 
           echo "VERSION_NAME=$VERSION_NAME" >> "$GITHUB_ENV"
@@ -549,9 +550,19 @@ jobs:
             "$tag" \
             dist/* \
             --title "MarbleNG $VERSION_NAME" \
-            --notes "Signed multi-ABI MarbleNG build.
+            --notes "## MarbleNG 1.0.2
 
-          Xray: $XRAY_VERSION
-          HEV SOCKS5 Tunnel: $HEV_VERSION
+          ### What changed
+          - Fixed the Kotlin release-build failure in BugFinder caused by calling the Sequence-only takeLastCompat helper on a MutableList.
+          - Cleaned the Home header so only MarbleNG remains; removed dynamic text/status around the title.
+          - Reserved a fixed-height Home title area so the main connection panel no longer shifts when status wording changes.
+          - Added smart foreground update checks against stable GitHub Releases.
+          - Added a polished in-app update popup with release notes and a direct View update action.
+          - Added Automatic app update checks in Settings; enabled by default and fully user-disableable.
+          - Kept Android versionCode monotonic for reliable upgrades from previous signed builds.
+
+          ### Native cores
+          - Xray: $XRAY_VERSION
+          - HEV SOCKS5 Tunnel: $HEV_VERSION
 
           APKs are signed with the persistent MarbleNG Android signing identity stored in repository secrets."

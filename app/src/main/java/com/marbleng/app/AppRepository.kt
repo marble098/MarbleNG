@@ -18,6 +18,15 @@ import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.exp
 import kotlin.math.roundToInt
 
+// MARBLE_APP_UPDATE_REPO_V102
+data class AppUpdateInfo(
+    val version: String,
+    val tag: String,
+    val title: String,
+    val notes: String,
+    val url: String
+)
+
 class AppRepository(private val context: Context, val xray: XrayManager) {
     // MARBLE_LIBRARY_POWER_V10
     // MARBLE_ENGINE_RESCUE_V11
@@ -210,6 +219,14 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     var privacy by mutableStateOf<PrivacyReport?>(null); private set
     var bugReport by mutableStateOf<BugReport?>(null); private set
 
+    /** Latest stable GitHub Release that is newer than this APK. */
+    var availableUpdate by mutableStateOf<AppUpdateInfo?>(null); private set
+
+    private val updateCheckInFlight = AtomicBoolean(false)
+    @Volatile private var lastUpdateCheckAt = 0L
+    @Volatile private var dismissedUpdateTag = ""
+
+
     // Live tunnel telemetry. Ping is HTTPS time-to-first-response through the selected Xray path,
     // not the localhost SOCKS handshake.
     // ------------------------------------------------------------------
@@ -308,6 +325,122 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
                 android.os.Handler(android.os.Looper.getMainLooper()).post { refreshAll() }
             }
         }
+    }
+
+    /**
+     * Checks the latest stable GitHub Release without blocking the UI.
+     *
+     * MainActivity calls this from onStart(), so returning to MarbleNG triggers a fresh check.
+     * A short throttle prevents lifecycle bounce (permission dialogs/browser return) from
+     * hammering GitHub. Dismissing a version hides that exact tag until the process restarts.
+     */
+    fun checkForAppUpdate(force: Boolean = false) {
+        if (!settings.appUpdateCheckEnabled) return
+
+        val now = System.currentTimeMillis()
+        if (!force && now - lastUpdateCheckAt < 60_000L) return
+        if (!updateCheckInFlight.compareAndSet(false, true)) return
+        lastUpdateCheckAt = now
+
+        io.execute {
+            var connection: HttpURLConnection? = null
+            try {
+                connection = (URL(
+                    "https://api.github.com/repos/marble098/MarbleNG/releases/latest"
+                ).openConnection() as HttpURLConnection).apply {
+                    requestMethod = "GET"
+                    connectTimeout = 6_000
+                    readTimeout = 8_000
+                    instanceFollowRedirects = true
+                    setRequestProperty("Accept", "application/vnd.github+json")
+                    setRequestProperty("X-GitHub-Api-Version", "2022-11-28")
+                    setRequestProperty("User-Agent", "MarbleNG/${BuildConfig.VERSION_NAME}")
+                }
+
+                val code = connection.responseCode
+                if (code !in 200..299) {
+                    diagnostics.event("UPDATE", "check-http", "code" to code)
+                    return@execute
+                }
+
+                val payload = connection.inputStream.bufferedReader(Charsets.UTF_8).use {
+                    it.readText()
+                }
+                val json = JSONObject(payload)
+                val tag = json.optString("tag_name").trim()
+                val latest = parseStableSemver(tag) ?: return@execute
+                val current = parseStableSemver(BuildConfig.VERSION_NAME) ?: return@execute
+
+                if (!isSemverNewer(latest, current)) {
+                    postToMain { availableUpdate = null }
+                    return@execute
+                }
+
+                if (tag == dismissedUpdateTag) return@execute
+
+                val htmlUrl = json.optString("html_url").trim()
+                    .takeIf { it.startsWith("https://github.com/") }
+                    ?: "https://github.com/marble098/MarbleNG/releases"
+
+                val release = AppUpdateInfo(
+                    version = "${latest.first}.${latest.second}.${latest.third}",
+                    tag = tag,
+                    title = json.optString("name").trim()
+                        .ifBlank { "MarbleNG $tag" }
+                        .take(120),
+                    notes = json.optString("body")
+                        .replace("\r\n", "\n")
+                        .replace('\r', '\n')
+                        .trim()
+                        .take(1_800),
+                    url = htmlUrl
+                )
+
+                postToMain {
+                    if (settings.appUpdateCheckEnabled && release.tag != dismissedUpdateTag) {
+                        availableUpdate = release
+                    }
+                }
+                diagnostics.event(
+                    "UPDATE",
+                    "available",
+                    "current" to BuildConfig.VERSION_NAME,
+                    "latest" to release.version
+                )
+            } catch (error: Throwable) {
+                diagnostics.event(
+                    "UPDATE",
+                    "check-failed",
+                    "type" to error::class.java.simpleName,
+                    "message" to (error.message ?: "").take(160)
+                )
+            } finally {
+                runCatching { connection?.disconnect() }
+                updateCheckInFlight.set(false)
+            }
+        }
+    }
+
+    fun dismissAppUpdate() {
+        availableUpdate?.tag?.takeIf { it.isNotBlank() }?.let { dismissedUpdateTag = it }
+        postToMain { availableUpdate = null }
+    }
+
+    private fun parseStableSemver(raw: String): Triple<Int, Int, Int>? {
+        val match = Regex("^v?(\\d+)\\.(\\d+)\\.(\\d+)$").matchEntire(raw.trim()) ?: return null
+        val major = match.groupValues[1].toIntOrNull() ?: return null
+        val minor = match.groupValues[2].toIntOrNull() ?: return null
+        val patch = match.groupValues[3].toIntOrNull() ?: return null
+        return Triple(major, minor, patch)
+    }
+
+    private fun isSemverNewer(
+        latest: Triple<Int, Int, Int>,
+        current: Triple<Int, Int, Int>
+    ): Boolean = when {
+        latest.first != current.first -> latest.first > current.first
+        latest.second != current.second -> latest.second > current.second
+        else -> latest.third > current.third
     }
 
 fun updateTelemetry(downBps: Long, upBps: Long) {
@@ -437,7 +570,13 @@ fun resetTelemetry() {
 
     fun updateSettings(v: AppSettings) {
         val debugChanged = settings.debugModeEnabled != v.debugModeEnabled
+        val updateChecksWereEnabled = settings.appUpdateCheckEnabled
         settings = v
+        if (!v.appUpdateCheckEnabled) {
+            postToMain { availableUpdate = null }
+        } else if (!updateChecksWereEnabled) {
+            dismissedUpdateTag = ""
+        }
         ensureLibrarySourceSelectionValid()
         store.saveSettings(v)
         if (debugChanged) {

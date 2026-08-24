@@ -158,6 +158,9 @@ data class AppSettings(
 
     val rememberLast: Boolean = true,
     val subscriptionAutoRefresh: Boolean = true,
+    // MARBLE_APP_UPDATE_SETTING_V102
+    /** Check GitHub Releases whenever MarbleNG returns to the foreground. */
+    val appUpdateCheckEnabled: Boolean = true,
     val subscriptionRefreshHours: Int = 12,
     /** Virtual Manual source is opt-in and disabled by default. */
     val manualSourceEnabled: Boolean = false,

@@ -612,7 +612,9 @@ class BugFinder(private val context: Context, private val xray: XrayManager) {
             }
         }
         flushRepetitiveBurst()
-        return compacted.takeLastCompat(500)
+        // MARBLE_BUGFINDER_LIST_TAIL_FIX_V102
+        // `compacted` is a MutableList; the local compatibility helper is Sequence-only.
+        return compacted.takeLast(500)
     }
 
     private fun listenerBoundWithoutTraffic(port: Int): Boolean = runCatching {

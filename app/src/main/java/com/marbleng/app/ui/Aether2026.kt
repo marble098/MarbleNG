@@ -124,6 +124,7 @@ fun Aether2026App(
     var detailProfile by remember { mutableStateOf<ProxyProfile?>(null) }
     BackHandler(enabled = detailProfile != null) { detailProfile = null }
     val snackbar = remember { SnackbarHostState() }
+    val context = LocalContext.current
 
     LaunchedEffect(repo.message, repo.busy) {
         if (!repo.busy && repo.message.isNotBlank()) {
@@ -266,6 +267,27 @@ fun Aether2026App(
         }
     }
 
+    // MARBLE_APP_UPDATE_UI_V102
+    repo.availableUpdate?.let { update ->
+        MarbleUpdateDialog(
+            update = update,
+            onLater = repo::dismissAppUpdate,
+            onUpdate = {
+                repo.dismissAppUpdate()
+                runCatching {
+                    context.startActivity(
+                        Intent(
+                            Intent.ACTION_VIEW,
+                            android.net.Uri.parse(update.url)
+                        )
+                    )
+                }.onFailure {
+                    repo.setRuntimeMessage("Could not open the MarbleNG Releases page")
+                }
+            }
+        )
+    }
+
     dialog?.let { what ->
         /*
          * Logs, doctor and core-lock read files. Doing that inline in composition ran disk I/O on
@@ -336,6 +358,111 @@ fun Aether2026App(
             }
         )
     }
+}
+
+@Composable
+private fun MarbleUpdateDialog(
+    update: com.marbleng.app.AppUpdateInfo,
+    onLater: () -> Unit,
+    onUpdate: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onLater,
+        containerColor = Aether.VoidElevated,
+        tonalElevation = 0.dp,
+        icon = {
+            Surface(
+                modifier = Modifier.size(54.dp),
+                shape = RoundedCornerShape(18.dp),
+                color = Aether.Cyan.copy(alpha = .11f),
+                tonalElevation = 0.dp
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Text(
+                        "↑",
+                        color = Aether.Cyan,
+                        style = MaterialTheme.typography.headlineMedium,
+                        fontWeight = FontWeight.Black
+                    )
+                }
+            }
+        },
+        title = {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Text(
+                    "A fresh MarbleNG build is ready",
+                    color = Aether.Ink,
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Black,
+                    textAlign = TextAlign.Center
+                )
+                Surface(
+                    shape = RoundedCornerShape(999.dp),
+                    color = Aether.Emerald.copy(alpha = .10f),
+                    tonalElevation = 0.dp
+                ) {
+                    Text(
+                        "VERSION ${update.version}",
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                        color = Aether.Emerald,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    "A newer signed release is available on GitHub.",
+                    color = Aether.InkMuted,
+                    style = MaterialTheme.typography.bodyMedium,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                if (update.notes.isNotBlank()) {
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = Aether.GlassStrong,
+                        border = androidx.compose.foundation.BorderStroke(
+                            1.dp,
+                            Aether.GlassBorderSoft
+                        ),
+                        tonalElevation = 0.dp
+                    ) {
+                        Text(
+                            update.notes,
+                            modifier = Modifier.padding(14.dp),
+                            color = Aether.InkMuted,
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 7,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onUpdate,
+                shape = RoundedCornerShape(14.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Aether.Cyan,
+                    contentColor = Aether.Void
+                )
+            ) {
+                Text("View update", fontWeight = FontWeight.Black)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onLater) {
+                Text("Later", color = Aether.InkMuted)
+            }
+        }
+    )
 }
 
 private fun compactInAppMessage(raw: String): String {
@@ -793,28 +920,22 @@ private fun CyberDeck(
         verticalArrangement = Arrangement.spacedBy(13.dp)
     ) {
         item {
-            SpatialHeader(
-                eyebrow = "AETHER COMMAND • ${repo.libraryProfiles.size} NODES",
-                title = "MarbleNG",
-                subtitle = when {
-                    connected -> "${repo.networkSnapshot.label} • encrypted route live"
-                    connecting -> "Negotiating ${activeName} • route telemetry will appear automatically"
-                    blocked -> "Fail-closed protection is holding traffic • inspect the route or retry"
-                    else -> "${repo.networkSnapshot.label} • measured routing ready"
-                },
-                status = when {
-                    connected -> "ONLINE"
-                    connecting -> "LINKING"
-                    blocked -> "HOLD"
-                    else -> "READY"
-                },
-                statusColor = when {
-                    connected -> Aether.Emerald
-                    connecting -> Aether.Cyan
-                    blocked -> Aether.Danger
-                    else -> Aether.Amethyst
-                }
-            )
+            // MARBLE_STABLE_HOME_TITLE_V102
+            // A fixed-height title prevents the connection card from moving when runtime text changes.
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(76.dp),
+                contentAlignment = Alignment.CenterStart
+            ) {
+                Text(
+                    "MarbleNG",
+                    color = Aether.Ink,
+                    style = MaterialTheme.typography.headlineLarge,
+                    fontWeight = FontWeight.Black,
+                    maxLines = 1
+                )
+            }
         }
 
         item {
@@ -3299,6 +3420,17 @@ private fun SpatialSettings(
                     "Reveal MTU, DNS, routing, fragmentation, recovery and chain settings",
                     expertMode
                 ) { repo.updateSettings(repo.settings.copy(expertMode = it)) }
+
+                HorizontalDivider(color = Aether.GlassBorderSoft)
+                Text("UPDATES", color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
+                SettingSwitch(
+                    "Automatic app update checks",
+                    "Check GitHub Releases whenever MarbleNG returns to the foreground",
+                    repo.settings.appUpdateCheckEnabled
+                ) { enabled ->
+                    repo.updateSettings(repo.settings.copy(appUpdateCheckEnabled = enabled))
+                    if (enabled) repo.checkForAppUpdate(force = true)
+                }
 
                 HorizontalDivider(color = Aether.GlassBorderSoft)
                 Text("HOME LAYOUT", color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)

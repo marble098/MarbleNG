@@ -67,6 +67,12 @@ class MainActivity : ComponentActivity() {
         pending?.let { outState.putString(KEY_PENDING_PROFILE, it.id) }
     }
 
+    // MARBLE_APP_UPDATE_FOREGROUND_V102
+    override fun onStart() {
+        super.onStart()
+        app.repo.checkForAppUpdate()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         savedInstanceState?.getString(KEY_PENDING_PROFILE)?.let { id ->

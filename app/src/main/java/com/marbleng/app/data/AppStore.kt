@@ -115,6 +115,8 @@ class AppStore(context: Context) {
 
         rememberLast = prefs.getBoolean("rememberLast", true),
         subscriptionAutoRefresh = prefs.getBoolean("subscriptionAutoRefresh", true),
+        // MARBLE_APP_UPDATE_STORE_V102
+        appUpdateCheckEnabled = prefs.getBoolean("appUpdateCheckEnabled", true),
         subscriptionRefreshHours = prefs.getInt("subscriptionRefreshHours", 12),
         manualSourceEnabled = prefs.getBoolean("manualSourceEnabled", false),
         homeShowSummaryMetrics = prefs.getBoolean("homeShowSummaryMetrics", false),
@@ -245,6 +247,7 @@ class AppStore(context: Context) {
 
         .putBoolean("rememberLast", s.rememberLast)
         .putBoolean("subscriptionAutoRefresh", s.subscriptionAutoRefresh)
+        .putBoolean("appUpdateCheckEnabled", s.appUpdateCheckEnabled)
         .putInt("subscriptionRefreshHours", s.subscriptionRefreshHours)
         .putBoolean("manualSourceEnabled", s.manualSourceEnabled)
         .putBoolean("homeShowSummaryMetrics", s.homeShowSummaryMetrics)

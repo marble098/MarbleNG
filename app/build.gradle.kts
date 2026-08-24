@@ -16,11 +16,12 @@ val versionCodeFromCi =
         ?.toIntOrNull()
         ?: 10000
 
+// MARBLE_VERSION_V102
 val versionNameFromCi =
     providers
         .gradleProperty("VERSION_NAME")
         .orNull
-        ?: "1.0.0-dev"
+        ?: "1.0.2"
 
 // ============================================================================
 // Signing
