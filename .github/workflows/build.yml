@@ -720,6 +720,17 @@ jobs:
           - Rank, Library, Privacy and Routing portals now use matching Canvas vectors.
           - Upload/download and Home status chips are font-independent.
 
+          ### UX & persistence
+          - Always persist the last successfully connected node for exact one-tap Home reconnect after app restart.
+          - Home prioritizes that exact remembered profile before automatic candidate selection.
+          - Library and Settings now use the same clean fixed-height title treatment as Home.
+          - Removed the oversized Library SOURCE SPACE summary and redundant visual counters while preserving source, sort, refresh, ping and rank controls.
+          - Clipboard import moved under Add instead of permanently occupying the search row.
+          - Removed decorative accordion category badges.
+          - Removed the heavy black shadow below in-app Snackbar notifications.
+          - Replaced remaining Library/Snackbar action glyphs with font-independent Canvas vectors.
+          - README.md was fully refreshed for the current app.
+
           ### Release system
           - Replaced fixed 1.0.2 publishing with automatic semantic releases.
           - Version jumps can follow change volume or explicit [version:*] commit hints.

@@ -1,212 +1,470 @@
-# 🪀 MarbleNG
+# MarbleNG
 
-**A private, fast and smart Xray VPN client for Android.**
-It takes your proxy links, tests them for real, picks the best one, and sends your whole phone through it — safely.
+**MarbleNG is a modern Android network client built around Xray-core, Android `VpnService`, and `hev-socks5-tunnel`.**
 
-Native Android port of the Xray Genius Termux client, powered by **Xray-core** + **hev-socks5-tunnel** and an Android `VpnService`.
+It focuses on real proxy verification, fast one-tap connection, fail-closed routing, adaptive network intelligence, and a clean Compose interface.
 
----
+## Highlights
 
-## ⚡ In one minute
+- Always remembers the **last successfully connected node**.
+- One-tap Home reconnect after app restart or process death.
+- Full-device Android TUN mode or local SOCKS proxy mode.
+- Fast TCP reachability tests and real Xray tunnel verification.
+- Smart ranking for the whole Library or one selected source.
+- Solid White, Dark, and System themes.
+- Font-independent Canvas vector icons for critical actions.
+- Smart GitHub Release update checks.
+- Signed multi-ABI APKs built by GitHub Actions.
 
-1. 📥 Add a subscription link (or import a file / paste configs).
-2. ▶️ Tap **Connect securely**.
-3. 🛡️ Your phone is protected. MarbleNG keeps checking the route and repairs it if it breaks.
+## Main navigation
 
----
+MarbleNG uses three primary tabs: **Home**, **Library**, and **Settings**.
 
-## 📱 The five screens
+### Home
 
-### 🏠 Home
-- 🔘 One big **Connect / Disconnect** button.
-- 🟢 Live status: `Protected` • `Connecting` • `Blocked` • `Ready`.
-- 📊 **Performance score** (0–100) from real latency, reliability and route evidence.
-- ⏱️ Live numbers: ping (RTT), download and upload speed.
-- 🚀 Shortcuts: measure routes, open Library, run a privacy audit, jump to Routing.
+- Connect / Disconnect / Cancel / Reset control.
+- Exact last-route one-tap reconnect.
+- Current selected route.
+- Full TUN / local proxy state.
+- Live Ping, Jitter, and Quality.
+- Optional node / Xray / mode summary metrics.
+- Iran Mode state when enabled.
+- Quick access to Rank, Library, Privacy, and Routing.
+- Physical-network label and live upload/download activity.
+- Tunnel and kill-switch state.
 
-### 📚 Library
-- ➕ Add subscriptions by URL, or 📂 import configs from a file.
-- 🔄 Refresh one source or **refresh all**.
-- ✏️ Manage a source: rename, change URL, view only its nodes, delete it (with its nodes).
-- 📈 Data quota and expiry shown when the provider sends them.
-- 🔍 Search by name, protocol, host, transport or security.
-- 🗂️ Filter by source: **All**, **Manual**, or any subscription.
-- ↕️ Sort by **Ping**, **Score**, **Name**, **Protocol**, **Source** — and reverse it.
-- 👉 Swipe a node: right = **Test**, left = **Edit name**.
-- ⋮ Menu: real tunnel test, rename, delete.
-- ▶️ Tap the node action to connect straight to it.
-- 🧪 **Test all** measures every node with the method you picked in Settings → Testing & ping.
-- 🔴 **Live progress on the cards themselves**: each node shows `Queued` → `Testing…` with its own
-  bar, and its score appears the moment that node finishes — no more waiting for one anonymous bar
-  at the top of the screen. Refreshing a source animates on that source's card.
+The Home title and main connection surface use a fixed layout so changing runtime status text does not move the Connect control.
 
-### 📊 Quality
-- 🎛️ Test modes: **Reliable**, **Balanced**, **Fast**, **Turbo**.
-- ▶️ **Run performance test** ranks your library with real tunnels, showing `Measuring 12 / 40`
-  and the node being probed right now.
-- 💍 Score ring for the active (live) route or the best measured one.
-- 📉 RTT, reliability, live sample count and the test method in use.
-- 🏆 **Measured routes** table, ranked, with a one-tap **Use** button.
+### Library
 
-### 🌐 Network
-- 📶 Your current link: Wi-Fi / cellular / ethernet, metered or not, IPv4 / IPv6, MTU, up/down estimate, validated or not.
-- 🔁 **Refresh network check** re-scans the link.
-- 🧠 **Marble Intelligence** status: effective MTU, thermal budget, stored history, last decision.
-- 🇮🇷 **Regional protection**: detected ISP and confidence when Iran Mode is on.
-- 📚 Recent measurements (read-only evidence).
+Library manages subscriptions, source buckets, and nodes.
 
-### ⚙️ Settings
-Simple controls first — everything technical hides behind **Expert controls**.
+#### Sources
 
----
+- Add remote subscription URLs.
+- Create local source buckets.
+- Paste configs from the clipboard.
+- Import config files.
+- Refresh one selected source or all remote sources.
+- Rename, edit, or delete a source.
+- Filter by All, Manual, or one subscription.
+- Source-managed and user-owned local profiles are kept distinct.
 
-## 🧰 All options
+The Library UI keeps only functional controls: source selection, sort, Refresh, Ping, and Rank. Redundant source-dashboard chrome and duplicate counters are intentionally removed.
 
-### 🎨 Appearance
-- ✨ Solid **White** by default, plus System and Dark choices.
-- 🫧 One shared spring-based motion engine with responsive press feedback and state-only ambient motion.
-- 🧩 Optional Home summary row (Nodes / Xray OK / Mode), hidden by default.
-- 🧑‍🔬 **Expert controls** switch (now remembered between visits).
+#### Nodes
 
-### 🔌 Connection
-- 📱 **Full TUN** — the whole device goes through the tunnel.
-- 🧦 **Local SOCKS5** — only apps you point at `127.0.0.1:<port>`.
-- 🔢 Local SOCKS port.
-- 💾 Remember last node and reconnect to it.
+- Search by name, protocol, host, transport, or security.
+- Sort by Ping, Name, Protocol, Source, or reverse order.
+- Connect directly to a node.
+- Run real full tests.
+- Rename or delete nodes.
+- Open connection details.
+- Copy original config/share text.
+- Copy generated Xray JSON.
+- Edit Xray JSON for supported profiles.
+- Duplicate a profile into Manual storage when enabled.
+- Swipe for quick test / rename actions.
+- See per-card queued/testing progress.
 
-### 🧪 Testing & ping
-- 🧠 **Smart** (default) — quick TCP gate to drop dead servers, then a real tunnel test on the rest.
-- 🛡️ **Real tunnel** — every node gets a real Xray process and a real HTTPS request. Slowest, and
-  the only method that proves a node truly works.
-- ⚡ **TCP ping** — TCP handshake time to the server (tcping). Very fast and light.
-- 📡 **ICMP ping** — classic system ping. Fast, but many servers and carriers drop ICMP.
-- 🔢 Pings per node, timeout per try, nodes per test run.
-- 📶 Optional download-speed measurement (off by default — it is the slowest part of a test).
+### Settings
 
-### 🧩 Split tunneling
-- 🌍 **All apps** through the tunnel.
-- ✅ **Only selected** apps.
-- 🚫 **Bypass selected** apps.
-- 🔎 Searchable list of installed apps with checkboxes.
+Common settings are visible first; advanced network controls are behind **Expert controls**.
 
-### 🔔 Notifications
-- 🔐 Grant notification permission, 🧪 send a test alert, 🎚️ open Android channels, 🧹 clear alerts.
-- 📟 Live status in the notification (ping, quality, ↓/↑ rates).
-- 🔕 Per-event switches: connection, recovery/failover, privacy warnings, network changes, subscription updates, core updates.
-- ⏲️ Alert cooldown (5–300 s).
+Main areas include:
 
-### 🔄 Subscriptions
-- 🕒 Auto-refresh stale sources at startup.
-- ⏳ Refresh cadence (1–168 h).
-- 🔄 Refresh all now.
+- Appearance
+- Connection
+- Testing & ping
+- Split tunneling
+- Notifications
+- Subscriptions
+- Regional protection / Iran Mode
+- Marble Intelligence
+- DNS
+- Routing
+- Fragmentation & Mux
+- Chain proxy
+- Bug Finder
 
-### 🇮🇷 Regional protection (Iran Mode) — *expert*
-- 🤖 **Auto** (detect ISP) • 🔒 **Always on** • ⛔ **Off**.
-- 🛠️ Apply countermeasures (fragmentation profile, resolver order, MTU ceiling, failover posture).
-- 🏠 Send domestic Iranian traffic direct (fast, less tunnel usage).
-- 🔬 Fingerprint the filtering: DNS injection, SNI resets, port allowlists, UDP blocking.
-- 📣 Notify when Iran Mode engages, 🔁 re-scan now.
+## Last-route persistence
 
-### 🧠 Marble Intelligence — *expert*
-- 🧠 Adaptive engine on/off, using network-scoped history.
-- 🧷 Maximum config compatibility (keeps outbound dependencies, verifies with `xray run -test`).
-- 🧪 Verified performance auto-tune (A/B Fragment & Mux, keep only real gains).
-- 🚀 **Marble Turbo**: when you connect, the engine *executes* real methods on the node you picked — TLS fragmentation shapes, Mux reuse, IPv4-first endpoint resolution — measures ping and speed for each, and keeps the winner. Tuning budget, methods per pass, live re-tuning interval, ping trigger, minimum gain to re-dial, adaptive tunnel datapath, and a **Boost active route now** button. The exit IP never changes, so it works with Identity Guard on.
-- 🛰️ **Continuous Autopilot**: interval, challengers per cycle, deep-speed cycle, switch cooldown, evidence confirmations, protect heavy downloads.
-- 💾 Persistent route intelligence (EWMA health per network fingerprint).
-- 🏁 **Connection race** + race width — first healthy route wins.
-- 🪂 **Smart fallback** + depth, and auto-connect after kill switch.
-- 🔁 Network-change recovery (Wi-Fi ⇄ cellular).
-- 📏 Adaptive MTU with floor and ceiling.
-- 🌡️ Thermal-aware benchmarking, 📶 adaptive throughput test, 📡 UDP/QUIC probe.
-- 🎯 Workload profile: `AUTO`, `INTERACTIVE`, `STREAMING`, `STABILITY`, `STEALTH`.
-- 🛡️ **Privacy Sentinel** badges: coverage, DNS capture, kill switch, bypassing apps.
+A successful connection is treated as durable user intent.
 
-### 🌐 DNS — *expert*
-- 🕳️ Intercept classic DNS (port 53) into Xray's encrypted DNS.
-- 🥇 Adaptive DoH ordering (measures the fastest resolver through the proxy).
-- 🔀 Adaptive IPv4 / IPv6 selection.
-- ⚡ Presets: Cloudflare, Google, Quad9.
-- ✍️ Custom TUN DNS 1/2 and primary/secondary DoH URLs.
-- 🧭 Query strategy: `UseIP`, `UseIPv4`, `UseIPv6`, `UseSystem`.
+1. When a profile reaches `CONNECTED`, MarbleNG saves that profile ID.
+2. Closing or killing the app does not erase it.
+3. On the next launch, Home resolves that profile from the current Library.
+4. Pressing **Connect** reconnects that exact profile first.
+5. If the profile was deleted, MarbleNG clears the stale reference and falls back to automatic selection.
 
-### 🧭 Routing — *expert*
-- 🇮🇷 **Restore recommended Iran policy** in one tap.
-- 🏠 Bypass Iranian traffic (`geosite:ir` + `geoip:ir` go direct).
-- 🚫 Aggressive ad blocking (`geosite:category-ads-all`).
-- 🧱 Modes: **Proxy all**, **Private direct**, **Geo direct**, **Custom**.
-- 🗃️ Geo data: bundled fallback, custom `geoip.dat` / `geosite.dat` URLs, **Prepare**, **Update now**, **Verify with Xray**.
-- 🏷️ Direct GeoIP / GeoSite tags, bypass private networks, domain strategy.
-- 📝 Exceptions: always-proxy domains, block domains, block IP/CIDR, custom direct domains and IPs.
+## Supported inputs
 
-### ✂️ Fragmentation & Mux — *expert*
-- 🧬 Adaptive Fragment (only after real TLS/REALITY interference) and adaptive Mux.
-- ✂️ TLS ClientHello fragmentation: packets, length, interval.
-- 🧵 Mux / XUDP: TCP concurrency, XUDP concurrency, UDP-443 policy (reject / allow / skip).
+### URI / subscription inputs
 
-### 🔗 Chain proxy — *expert*
-- 🪢 Two-hop route: entry node → chosen exit node, keeping the exit's transport intact.
+- VLESS
+- VMess
+- Trojan
+- Shadowsocks
+- Hysteria2 / HY2
+- SOCKS / SOCKS5
+- HTTP / HTTPS
+- SSH
+- Base64 subscription payloads
+- Plain link lists
+- Xray JSON
 
-### 🧰 Maintenance
-- 🩺 **Check the app** — runtime, native bridge and routing-asset checks.
-- 📜 **Diagnostic log** — shareable technical detail for bug reports.
-- 🕘 **Connection history** — recent connections and why they changed.
-- ♻️ **Reset all settings** back to the safe defaults.
+### Manual editor
 
----
+- VLESS
+- VMess
+- Trojan
+- Shadowsocks
+- Hysteria2
+- HTTP
+- HTTPS
+- SOCKS5
+- SSH
+- WireGuard-style manual configuration
+- Raw/custom Xray JSON
 
-## 🔐 Privacy & safety
+### Xray transports and security
 
-- 🧱 **Fail-closed kill switch** — if the core dies, the VPN interface stays up and traffic is blocked instead of leaking.
-- 🪪 **Identity Guard** — keeps one stable public exit IP for your session; no silent hopping to another IP.
-- 🚫 **No DNS leaks** — classic DNS is captured and sent through encrypted DoH inside the tunnel.
-- 🔍 **Privacy audit** — checks your exit IP, location and DNS servers *through* the tunnel.
-- 🙈 No SSID, IMSI, config secrets or passwords are ever logged.
-- 📵 The VPN app is excluded from its own tunnel, so there is no routing loop.
-- 🧯 For the strongest system-level protection, also enable Android's **Always-on VPN → Block connections without VPN**.
+Depending on the profile, MarbleNG preserves modern Xray stream settings such as:
 
----
+- TCP / raw
+- WebSocket
+- gRPC
+- HTTP/2
+- HTTPUpgrade
+- XHTTP / SplitHTTP
+- mKCP
+- TLS / REALITY-related stream settings
+- SNI
+- ALPN
+- fingerprints
+- advanced custom Xray JSON
 
-## 🔧 Supported inputs
+## Connection architecture
 
-| What | Details |
-| --- | --- |
-| 🔗 Protocols | VLESS, VMess, Trojan, Shadowsocks, Hysteria2, SOCKS, HTTP/HTTPS |
-| 📄 Configs | Full Xray JSON, JSON arrays, base64 subscriptions, plain link lists |
-| 🚇 Transports | raw/TCP, WebSocket, XHTTP/SplitHTTP, HTTPUpgrade, gRPC, HTTP/2, mKCP |
-| 🔒 Security | TLS, REALITY, uTLS fingerprints, ALPN, ECH |
-| 📲 ABIs | arm64-v8a, armeabi-v7a, x86_64, x86 |
+Full TUN mode:
 
----
-
-## 🏗️ How it works
-
-```
-Apps ➜ Android TUN ➜ hev-socks5-tunnel ➜ Xray SOCKS5 ➜ your server ➜ Internet
+```text
+Android apps
+    ↓
+Android VpnService / TUN
+    ↓
+hev-socks5-tunnel
+    ↓
+local Xray SOCKS path
+    ↓
+Xray outbound
+    ↓
+selected remote node
+    ↓
+Internet
 ```
 
-- 🧊 Xray-core is built from the exact tag pinned in `core-lock.json`.
-- 🧱 `hev-socks5-tunnel` is built from its exact tag with the official Android NDK makefiles.
-- 🆕 `scripts/update-core-lock.sh` finds newer upstream releases.
-- 🤖 GitHub Actions builds signed universal and per-ABI APKs.
+Local proxy mode exposes the configured loopback proxy without forcing the whole Android device through TUN.
 
-## 💻 Local build
+## Testing and ranking
 
-Install Android SDK 37, NDK 28.2.13676358, JDK 17, Go and Git, then:
+### Quick TCP ping
+
+- Fast host/port reachability.
+- Endpoint de-duplication for large aggregator subscriptions.
+- Per-node progress updates.
+
+### Real Xray verification
+
+- Uses a real Xray path.
+- Tests proxy usability rather than merely checking whether a TCP port accepts connections.
+- Keeps tunnel evidence separate from lightweight TCP evidence.
+
+### Smart rank
+
+- Can rank the whole Library or the currently selected source.
+- Uses healthy tunnel evidence, score, and latency.
+- Tests the enabled scope without an artificial eight-node cap.
+
+## Live telemetry
+
+While connected, MarbleNG can expose:
+
+- route RTT
+- jitter
+- route quality score
+- download rate
+- upload rate
+- physical-network information
+- active route state
+
+Unknown metrics remain unknown rather than being presented as fabricated zero-quality evidence.
+
+## Marble Intelligence
+
+Adaptive features include:
+
+- network-scoped route history
+- persistent health evidence
+- connection race
+- smart fallback
+- network-change recovery
+- adaptive MTU
+- adaptive DNS ordering
+- IPv4 / IPv6 adaptation
+- adaptive throughput testing
+- UDP / QUIC health evidence
+- thermal-aware testing
+- adaptive tunnel buffers
+- workload profiles
+- continuous route optimization
+- Marble Turbo connection tuning
+
+### Marble Turbo
+
+When enabled, MarbleNG can compare measured transport strategies on the selected route and remember the better method without arbitrarily changing the user's intended exit profile.
+
+## Privacy and fail-closed behavior
+
+- Full-device TUN fail-closed behavior.
+- Kill-switch state.
+- DNS interception.
+- Encrypted DNS / DoH configuration.
+- Identity Guard.
+- Split-tunnel visibility.
+- Privacy audit through the active proxy.
+- Exit IP and DNS observation.
+
+For stronger OS-level protection, Android's **Always-on VPN** and **Block connections without VPN** can also be enabled.
+
+## DNS
+
+Expert DNS controls include:
+
+- TCP/UDP port 53 interception
+- primary and secondary TUN DNS
+- primary and secondary DoH
+- adaptive DoH ordering
+- adaptive dual-stack behavior
+- IPv6 enable/disable
+- IPv6 preference
+- `UseIP`, `UseIPv4`, `UseIPv6`, and `UseSystem`
+- common resolver presets
+
+## Routing
+
+Routing modes:
+
+- Proxy all
+- Private direct
+- Geo direct
+- Custom
+
+Controls include:
+
+- GeoIP / GeoSite tags
+- private-network bypass
+- direct domains
+- proxy-only domains
+- blocked domains
+- direct IPs
+- blocked IPs/CIDRs
+- domain strategy
+- ad blocking
+- `geoip.dat`
+- `geosite.dat`
+- Xray routing-policy verification
+
+## Iran Mode / regional protection
+
+Policies:
+
+- Auto
+- Always on
+- Off
+
+Capabilities include:
+
+- underlay / ISP classification
+- confidence-based detection
+- filtering-technique observations
+- domestic direct-routing policy
+- routing presets
+- adaptive countermeasures
+- optional deep probing
+
+## Split tunneling
+
+- All apps through VPN
+- Only selected apps
+- Bypass selected apps
+- Installed-app picker for package-level routing
+
+## Notifications
+
+MarbleNG uses Android's foreground-service notification while its connection service is active.
+
+Optional alerts include:
+
+- connection events
+- recovery events
+- privacy warnings
+- network changes
+- subscription events
+- core updates
+- live telemetry
+- configurable cooldown
+- Android notification channel management
+
+In-app Snackbar notices use a flat surface with **no heavy black drop shadow**.
+
+## Subscription management
+
+- startup refresh for stale remote sources
+- configurable refresh cadence
+- manual selected-source refresh
+- refresh-all
+- source metadata when supplied by providers
+- safe source deletion
+- user-owned local profile preservation
+
+## SSH
+
+The manual SSH path carries TCP through the protected local adapter. Unsupported UDP behavior remains fail-closed.
+
+## WireGuard-style manual input
+
+The manual editor exposes fields for:
+
+- private key
+- local address/CIDR
+- peer public key
+- pre-shared key
+- allowed IPs
+- reserved values
+- keepalive
+- MTU
+- userspace mode
+
+## Fragmentation and Mux
+
+Expert controls include:
+
+- TLS ClientHello fragmentation
+- fragment packets
+- fragment length
+- fragment interval
+- Mux
+- TCP concurrency
+- XUDP concurrency
+- UDP/443 policy
+- adaptive Fragment
+- adaptive Mux
+
+## Chain proxy
+
+An optional two-hop route can use a selected second profile as the next hop.
+
+## Bug Finder and diagnostics
+
+Built-in diagnostics cover areas such as:
+
+- Xray runtime
+- TUN / HEV state
+- app connection state
+- active profile
+- routing assets
+- connection history
+- runtime logs
+
+Debug Mode can export technical reports for development and bug investigation.
+
+## In-app updates
+
+By default, MarbleNG checks the latest stable GitHub Release when the app returns to the foreground.
+
+When a newer semantic version exists:
+
+- a native update dialog appears;
+- version and release notes are displayed;
+- the GitHub Release can be opened;
+- automatic update checks can be disabled in Settings.
+
+## Versioning
+
+MarbleNG uses semantic release names with a monotonic Android `versionCode`.
+
+Typical patch progression:
+
+```text
+1.0.2 → 1.0.3 → ... → 1.0.9 → 1.1.0
+```
+
+Larger changes can request minor or major jumps. Published release tags are intended to be immutable.
+
+## Android ABIs
+
+Signed releases target:
+
+- `arm64-v8a`
+- `armeabi-v7a`
+- `x86_64`
+- `x86`
+
+The release pipeline can also publish a universal APK.
+
+## Native cores
+
+Pinned in `core-lock.json`:
+
+- Xray-core
+- hev-socks5-tunnel
+
+Pinning makes native-core changes explicit and reproducible.
+
+## GitHub Actions build
+
+The signed build workflow:
+
+1. checks out full history and tags;
+2. provisions JDK and Android SDK/NDK;
+3. reads pinned native-core versions;
+4. builds native dependencies;
+5. restores the persistent Android signing identity from GitHub Actions secrets;
+6. validates the keystore and private key;
+7. calculates the semantic app version;
+8. builds signed APKs;
+9. verifies APK signatures;
+10. uploads Actions artifacts;
+11. publishes a GitHub Release.
+
+No signing private key is committed to the repository.
+
+## Local build
+
+The GitHub Actions workflow is the reference build environment.
+
+Typical local flow:
 
 ```bash
 ./scripts/prepare-native.sh
 ./gradlew assembleRelease
 ```
 
-GitHub Actions is the recommended path — it pins and provisions the whole toolchain automatically.
+Check the current workflow and Gradle files for the exact SDK/NDK/toolchain versions.
 
-## ✍️ Signing
+## Repository docs
 
-No signing key lives in Git. The Termux injector creates the signing material once, stores it as GitHub Actions secrets, and never overwrites existing secrets, so the app identity stays stable across releases.
+Additional implementation notes live under `docs/`, including regional protection, Marble Intelligence, UI, routing, and runtime documentation.
 
-## 📖 More docs
+## Security notes
 
-- 🇮🇷 [Iran Mode](docs/IRAN_MODE.md) — detection model, recognised ISPs, every countermeasure.
-- 🧠 [Marble Intelligence](docs/MARBLE_INTELLIGENCE.md) — the adaptive engine.
-- 🫧 [Marble White UI](docs/AETHER_FLOW.md) — solid-white tokens, motion engine and performance rules.
+- Never commit Android signing keys.
+- Never commit subscription credentials.
+- Treat imported proxy URLs as secrets.
+- Debug output should avoid authentication material.
+- Keep Android's system VPN protection enabled when leak prevention is critical.
+
+## Project status
+
+MarbleNG is under active development. The `main` branch and latest signed GitHub Release are the authoritative sources for the current feature set.

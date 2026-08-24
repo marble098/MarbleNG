@@ -1300,6 +1300,7 @@ private fun postToMain(block: () -> Unit) {
     }
 
     fun removeProfile(id: String) {
+        if (lastProfile()?.id == id) store.setLastProfileId("")
         profiles.removeAll { it.id == id }
         benchmarks = benchmarks.filterNot { it.profileId == id }
         intelligence.forgetAcceleration(id)
@@ -1390,6 +1391,24 @@ private fun postToMain(block: () -> Unit) {
 
     /** Reassigns a profile to another subscription bucket (or "manual") so nodes can move between library sources. */
     fun lastProfile() = profile(store.lastProfileId())?.takeIf(::profileSourceEnabled)
+
+    /** Exact one-tap reconnect for Home after app/process restart. */
+    fun reconnectLastOrAuto(onConnect: (ProxyProfile) -> Unit) {
+        val remembered = lastProfile()
+        if (remembered != null) {
+            diagnostics.event(
+                "APP",
+                "one-tap-reconnect-v37",
+                "profile" to remembered.id.take(12),
+                "name" to remembered.name.take(80)
+            )
+            message = "Reconnect • ${remembered.name}"
+            onConnect(remembered)
+            return
+        }
+        auto(onConnect)
+    }
+
     fun auto(
         onConnect: (ProxyProfile) -> Unit
     ) {
@@ -1449,9 +1468,9 @@ private fun postToMain(block: () -> Unit) {
             // building the 200-record JSON string on the input thread was not.
             val historySnapshot = history.toList()
             io.execute {
-                if (settingsSnapshot.rememberLast) {
-                    runCatching { store.setLastProfileId(p.id) }
-                }
+                // MARBLE_LAST_ROUTE_V37
+                // Successful connection is durable user intent.
+                runCatching { store.setLastProfileId(p.id) }
                 runCatching {
                     store.saveHistory(historySnapshot)
                 }.onFailure {

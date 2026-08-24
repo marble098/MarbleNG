@@ -21,6 +21,7 @@ package com.marbleng.app.ui
 // MARBLE_LIBRARY_MEMORY_UI_V33
 // MARBLE_KINETIC_GLASS_UI_V34
 // MARBLE_SOLID_WHITE_UI_V35
+// MARBLE_UX_CLEANUP_V37
 
 import android.Manifest
 import android.content.Intent
@@ -499,11 +500,11 @@ private fun MarbleSnackbarHost(
             else -> Aether.Cyan
         }
 
-        val glyph = when (tone) {
-            Aether.Danger -> "!"
-            Aether.Amber -> "◒"
-            Aether.Emerald -> "✓"
-            else -> "✦"
+        val noticeIcon = when (tone) {
+            Aether.Danger -> HomeIcon.RESET
+            Aether.Amber -> HomeIcon.STATUS
+            Aether.Emerald -> HomeIcon.VERIFIED
+            else -> HomeIcon.SPARK
         }
         val title = when (tone) {
             Aether.Danger -> "Connection issue"
@@ -521,7 +522,7 @@ private fun MarbleSnackbarHost(
             color = Aether.VoidElevated,
             contentColor = Aether.Ink,
             tonalElevation = 0.dp,
-            shadowElevation = 4.dp
+            shadowElevation = 0.dp
         ) {
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
@@ -535,11 +536,10 @@ private fun MarbleSnackbarHost(
                         .background(tone.copy(alpha = .11f)),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(
-                        glyph,
-                        color = tone,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
+                    HomeVectorIcon(
+                        noticeIcon,
+                        tone,
+                        Modifier.size(20.dp)
                     )
                 }
 
@@ -575,7 +575,7 @@ private fun MarbleSnackbarHost(
                     Modifier.size(30.dp).clip(CircleShape).clickable { data.dismiss() },
                     contentAlignment = Alignment.Center
                 ) {
-                    Text("×", color = Aether.InkMuted, style = MaterialTheme.typography.titleMedium)
+                    HomeVectorIcon(HomeIcon.CANCEL, Aether.InkMuted, Modifier.size(16.dp))
                 }
             }
         }
@@ -733,6 +733,7 @@ private fun MarbleTabIcon(
     }
 }
 
+@Suppress("UNUSED_PARAMETER")
 @Composable
 private fun SpatialHeader(
     eyebrow: String,
@@ -741,41 +742,30 @@ private fun SpatialHeader(
     status: String? = null,
     statusColor: Color = Aether.Cyan
 ) {
-    Column(
+    // MARBLE_PAGE_TITLES_V37
+    val icon = when (title) {
+        "Library" -> HomeIcon.LIBRARY
+        "Settings" -> HomeIcon.MODE
+        else -> HomeIcon.DETAILS
+    }
+
+    Box(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp)
+            .height(76.dp),
+        contentAlignment = Alignment.CenterStart
     ) {
-        Text(
-            eyebrow,
-            color = Aether.InkFaint,
-            style = MaterialTheme.typography.labelSmall,
-            maxLines = 1
-        )
         Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(11.dp)
         ) {
+            HomeIconTile(icon, Aether.Cyan)
             Text(
                 title,
                 color = Aether.Ink,
-                style = MaterialTheme.typography.headlineMedium,
-                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.headlineLarge,
+                fontWeight = FontWeight.Black,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            if (!status.isNullOrBlank()) {
-                Spacer(Modifier.width(10.dp))
-                HoloBadge(status, statusColor, compact = true)
-            }
-        }
-        if (subtitle.isNotBlank()) {
-            Text(
-                subtitle,
-                color = Aether.InkMuted,
-                style = MaterialTheme.typography.bodySmall,
-                maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
         }
@@ -1206,7 +1196,7 @@ private fun CyberDeck(
                 blocked = blocked,
                 onToggle = {
                     if (connected || connecting || blocked) repo.stopVpn()
-                    else repo.auto(onConnect)
+                    else repo.reconnectLastOrAuto(onConnect)
                 },
                 onDetails = onDetails
             )
@@ -1310,7 +1300,6 @@ private fun CyberDeck(
                         HomeVectorIcon(HomeIcon.SPARK, Aether.Cyan, Modifier.size(15.dp))
                         Spacer(Modifier.width(6.dp))
                         Text("QUICK ACTIONS", color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
-                        Text("4 portals", color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                         HomeActionPortal(
@@ -2251,17 +2240,6 @@ private fun CyberLibrary(
                 )
 
                 CyberButton(
-                    label = "✦ Magic",
-                    color = Aether.Emerald,
-                    modifier = Modifier.height(56.dp)
-                ) {
-                        repo.importClipboard(
-                            clipboard.getText()?.text.orEmpty(),
-                            sourceFilter
-                        )
-                }
-
-                CyberButton(
                     label = if (addOpen) "Close" else "Add",
                     color = Aether.Cyan,
                     modifier = Modifier.height(56.dp)
@@ -2340,11 +2318,26 @@ private fun CyberLibrary(
                             }
                         }
                     }
-                    CyberButton(
-                        label = "Import file",
-                        color = Aether.Amethyst,
-                        modifier = Modifier.fillMaxWidth()
-                    ) { onImportFile() }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        CyberButton(
+                            label = "Paste clipboard",
+                            color = Aether.Emerald,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            repo.importClipboard(
+                                clipboard.getText()?.text.orEmpty(),
+                                sourceFilter
+                            )
+                        }
+                        CyberButton(
+                            label = "Import file",
+                            color = Aether.Amethyst,
+                            modifier = Modifier.weight(1f)
+                        ) { onImportFile() }
+                    }
                 }
             }
         }
@@ -2363,12 +2356,7 @@ private fun CyberLibrary(
             )
         }
 
-        item {
-            SectionLabel(
-                "Nodes",
-                if (repo.libraryProfiles.isEmpty()) null else "${visible.size} shown"
-            )
-        }
+        item { SectionLabel("Nodes") }
 
         if (visible.isEmpty()) {
             item {
@@ -2879,13 +2867,9 @@ private fun LibraryControlDeck(
     onSourceFilter: (String) -> Unit,
     onManageSubscription: (Subscription) -> Unit
 ) {
+    // MARBLE_LIBRARY_CLEANUP_V37
     val manualCount = repo.libraryProfiles.count { it.subscriptionId == "manual" }
     val selectedSub = repo.subscriptions.firstOrNull { it.id == sourceFilter }
-    val selectedName = when (sourceFilter) {
-        "all" -> "All sources"
-        "manual" -> "Manual"
-        else -> selectedSub?.name ?: "All sources"
-    }
     val selectedCount = when (sourceFilter) {
         "all" -> repo.libraryProfiles.size
         "manual" -> manualCount
@@ -2901,68 +2885,55 @@ private fun LibraryControlDeck(
         "manual" -> false
         else -> selectedSub?.url?.isNotBlank() == true
     }
-    val shape = RoundedCornerShape(26.dp)
 
     Column(
-        Modifier.fillMaxWidth().clip(shape)
-            .background(Brush.verticalGradient(listOf(Aether.Amethyst.copy(alpha = .09f), Aether.VoidElevated, Aether.VoidElevated)))
-            .border(1.dp, Aether.Amethyst.copy(alpha = .22f), shape)
-            .padding(vertical = 14.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text("SOURCE SPACE", color = Aether.Amethyst, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
-                Text(selectedName, color = Aether.Ink, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text("$selectedCount visible nodes • ${repo.subscriptions.size} saved sources", color = Aether.InkFaint, style = MaterialTheme.typography.bodySmall)
-            }
-            if (selectedSub != null) {
-                Box(
-                    Modifier.size(38.dp).clip(RoundedCornerShape(13.dp))
-                        .background(Aether.Amethyst.copy(alpha = .10f))
-                        .kineticClickable(role = Role.Button) {
-                            onManageSubscription(selectedSub)
-                        },
-                    contentAlignment = Alignment.Center
-                ) { Text("⋮", color = Aether.Amethyst, style = MaterialTheme.typography.titleMedium) }
-            }
-        }
-
         LazyRow(
             modifier = Modifier.fillMaxWidth(),
-            contentPadding = PaddingValues(horizontal = 14.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             item("source-all") {
-                SourceOrbitChip("All", "${repo.libraryProfiles.size}", sourceFilter == "all", Aether.Cyan, { onSourceFilter("all") })
+                SourceOrbitChip(
+                    "All",
+                    "${repo.libraryProfiles.size}",
+                    sourceFilter == "all",
+                    Aether.Cyan,
+                    { onSourceFilter("all") }
+                )
             }
             if (repo.settings.manualSourceEnabled) {
                 item("source-manual") {
-                    SourceOrbitChip("Manual", "$manualCount", sourceFilter == "manual", Aether.Amber, { onSourceFilter("manual") })
+                    SourceOrbitChip(
+                        "Manual",
+                        "$manualCount",
+                        sourceFilter == "manual",
+                        Aether.Amber,
+                        { onSourceFilter("manual") }
+                    )
                 }
             }
             items(repo.subscriptions, key = { "orbit-${it.id}" }) { sub ->
                 val local = sub.url.isBlank()
                 val refreshing = sub.id in repo.refreshingSources
                 SourceOrbitChip(
-                    sub.name,
-                    if (refreshing) "sync…" else if (local) "${repo.subscriptionNodeCount(sub.id)} local" else "${repo.subscriptionNodeCount(sub.id)}",
-                    sourceFilter == sub.id,
-                    if (local) Aether.Emerald else Aether.Amethyst,
-                    { onSourceFilter(sub.id) },
-                    { onManageSubscription(sub) }
+                    title = sub.name,
+                    detail = when {
+                        refreshing -> "syncing"
+                        local -> "${repo.subscriptionNodeCount(sub.id)} local"
+                        else -> "${repo.subscriptionNodeCount(sub.id)}"
+                    },
+                    selected = sourceFilter == sub.id,
+                    color = if (local) Aether.Emerald else Aether.Amethyst,
+                    onClick = { onSourceFilter(sub.id) },
+                    onManage = { onManageSubscription(sub) }
                 )
             }
         }
 
-        HorizontalDivider(Modifier.padding(horizontal = 14.dp), color = Aether.GlassBorderSoft)
-
-        Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("ORDER", color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
-            Text(if (repo.settings.nodeSortReverse) "reverse" else "best first", color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
-        }
         Row(
-            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 14.dp),
+            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(7.dp)
         ) {
             NodeSortMode.entries.filter { it != NodeSortMode.SCORE }.forEach { mode ->
@@ -2970,16 +2941,29 @@ private fun LibraryControlDeck(
                     sortModeLabel(mode),
                     repo.settings.nodeSortMode == mode,
                     if (mode == NodeSortMode.PING) Aether.Cyan else Aether.Amethyst
-                ) { repo.updateSettings(repo.settings.copy(nodeSortMode = mode, nodeSortReverse = false)) }
+                ) {
+                    repo.updateSettings(
+                        repo.settings.copy(nodeSortMode = mode, nodeSortReverse = false)
+                    )
+                }
             }
-            CyberChoiceChip("Reverse", repo.settings.nodeSortReverse, Aether.Amber) {
-                repo.updateSettings(repo.settings.copy(nodeSortReverse = !repo.settings.nodeSortReverse))
+            CyberChoiceChip(
+                if (repo.settings.nodeSortReverse) "Normal order" else "Reverse",
+                repo.settings.nodeSortReverse,
+                Aether.Amber
+            ) {
+                repo.updateSettings(
+                    repo.settings.copy(nodeSortReverse = !repo.settings.nodeSortReverse)
+                )
             }
         }
 
-        Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
             LibraryMicroAction(
-                "↻",
+                HomeIcon.RESET,
                 if (selectedRefreshing) "Syncing" else "Refresh",
                 Aether.Amethyst,
                 Modifier.weight(1f),
@@ -2987,7 +2971,7 @@ private fun LibraryControlDeck(
             ) { repo.refreshLibrarySource(sourceFilter) }
 
             LibraryMicroAction(
-                "⌁",
+                HomeIcon.PING,
                 if (repo.probeActive) "${repo.probeDone}/${repo.probeTotal}" else "Ping",
                 Aether.Cyan,
                 Modifier.weight(1f),
@@ -2995,7 +2979,7 @@ private fun LibraryControlDeck(
             ) { repo.testSource(sourceFilter) }
 
             LibraryMicroAction(
-                "◎",
+                HomeIcon.RANK,
                 "Rank",
                 Aether.Emerald,
                 Modifier.weight(1f),
@@ -3055,7 +3039,7 @@ private fun SourceOrbitChip(
 
 @Composable
 private fun LibraryMicroAction(
-    glyph: String,
+    icon: HomeIcon,
     label: String,
     color: Color,
     modifier: Modifier = Modifier,
@@ -3072,103 +3056,17 @@ private fun LibraryMicroAction(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.Center
     ) {
-        Text(glyph, color = if (enabled) color else Aether.InkFaint)
+        HomeVectorIcon(
+            icon,
+            if (enabled) color else Aether.InkFaint,
+            Modifier.size(16.dp)
+        )
         Spacer(Modifier.width(5.dp))
         Text(label, color = if (enabled) Aether.Ink else Aether.InkFaint, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
 /** Source filter and sort order, grouped on one surface instead of two loose label blocks. */
-@Composable
-private fun LibraryViewControls(
-    repo: AppRepository,
-    sourceFilter: String,
-    onSourceFilter: (String) -> Unit
-) {
-    val manualCount = repo.libraryProfiles.count { it.subscriptionId == "manual" }
-    val sourceLabel = when (sourceFilter) {
-        "all" -> "All sources"
-        "manual" -> "Manual"
-        else -> repo.subscriptions.firstOrNull { it.id == sourceFilter }?.name ?: "All sources"
-    }
-
-    HoloGlass(
-        modifier = Modifier.fillMaxWidth(),
-        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 13.dp)
-    ) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                "Source",
-                color = Aether.InkMuted,
-                style = MaterialTheme.typography.labelLarge,
-                modifier = Modifier.weight(1f)
-            )
-            HoloBadge(sourceLabel.take(18), Aether.Emerald, compact = true)
-        }
-        Row(
-            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(7.dp)
-        ) {
-            CyberChoiceChip("All ${repo.libraryProfiles.size}", sourceFilter == "all", Aether.Cyan) {
-                onSourceFilter("all")
-            }
-            if (repo.settings.manualSourceEnabled) {
-                CyberChoiceChip("Manual $manualCount", sourceFilter == "manual", Aether.Amber) {
-                    onSourceFilter("manual")
-                }
-            }
-            repo.subscriptions.forEach { sub ->
-                CyberChoiceChip(
-                    "${sub.name} ${repo.subscriptionNodeCount(sub.id)}",
-                    sourceFilter == sub.id,
-                    Aether.Amethyst
-                ) { onSourceFilter(sub.id) }
-            }
-        }
-
-        HorizontalDivider(color = Aether.GlassBorderSoft)
-
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                "Sort",
-                color = Aether.InkMuted,
-                style = MaterialTheme.typography.labelLarge,
-                modifier = Modifier.weight(1f)
-            )
-            Text(
-                if (repo.settings.nodeSortReverse) "Reversed" else "Best first",
-                color = Aether.InkFaint,
-                style = MaterialTheme.typography.labelSmall
-            )
-        }
-        Row(
-            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(7.dp)
-        ) {
-            NodeSortMode.entries.filter { it != NodeSortMode.SCORE }.forEach { mode ->
-                CyberChoiceChip(
-                    text = sortModeLabel(mode),
-                    selected = repo.settings.nodeSortMode == mode,
-                    color = if (mode == NodeSortMode.PING) Aether.Cyan else Aether.Amethyst
-                ) {
-                    repo.updateSettings(
-                        repo.settings.copy(nodeSortMode = mode, nodeSortReverse = false)
-                    )
-                }
-            }
-            CyberChoiceChip(
-                text = if (repo.settings.nodeSortReverse) "Order ↑" else "Order ↓",
-                selected = repo.settings.nodeSortReverse,
-                color = Aether.Amber
-            ) {
-                repo.updateSettings(
-                    repo.settings.copy(nodeSortReverse = !repo.settings.nodeSortReverse)
-                )
-            }
-        }
-    }
-}
-
 private fun sortModeLabel(mode: NodeSortMode): String = when (mode) {
     NodeSortMode.PING -> "Ping"
     NodeSortMode.SCORE -> "Score"
@@ -3418,10 +3316,10 @@ private fun SpatialServerCard(
                     },
                 contentAlignment = Alignment.Center
             ) {
-                Text(
-                    if (active) "■" else "▶",
-                    color = if (active) Aether.Emerald else Aether.Cyan,
-                    style = MaterialTheme.typography.labelLarge
+                HomeVectorIcon(
+                    if (active) HomeIcon.STOP else HomeIcon.POWER,
+                    if (active) Aether.Emerald else Aether.Cyan,
+                    Modifier.size(18.dp)
                 )
             }
 
@@ -3774,6 +3672,7 @@ private fun SpatialSettings(
     }
 }
 
+@Suppress("UNUSED_PARAMETER")
 @Composable
 private fun SpatialAccordion(
     title: String,
@@ -3846,8 +3745,6 @@ private fun SpatialAccordion(
                     overflow = TextOverflow.Ellipsis
                 )
             }
-            Spacer(Modifier.width(8.dp))
-            HoloBadge(badge, color, compact = true)
         }
 
         AnimatedVisibility(
@@ -3897,13 +3794,11 @@ private fun ConnectionSettings(repo: AppRepository) {
         repo.updateSettings(repo.settings.copy(localProxyPort = it))
     }
 
-    SettingSwitch(
-        title = "Remember last node",
-        subtitle = "Reconnect using the last successful route",
-        checked = repo.settings.rememberLast
-    ) {
-        repo.updateSettings(repo.settings.copy(rememberLast = it))
-    }
+    Text(
+        "Last successful route is remembered automatically for one-tap Home reconnect.",
+        color = Aether.InkFaint,
+        style = MaterialTheme.typography.bodySmall
+    )
 }
 
 @Composable
