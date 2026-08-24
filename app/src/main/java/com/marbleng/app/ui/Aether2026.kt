@@ -24,6 +24,7 @@ package com.marbleng.app.ui
 // MARBLE_UX_CLEANUP_V37
 // MARBLE_SYSTEM_INTEGRITY_UI_V38
 // MARBLE_UPDATE_DOCK_UI_V39
+// MARBLE_NODE_ENDPOINT_UI_V40
 
 import android.Manifest
 import android.content.Intent
@@ -3272,18 +3273,6 @@ private fun SpatialServerCard(
                 .kineticClickable(role = Role.Button, onClick = onDetails),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            HealthOrb(
-                label = countryGlyph(profile.host),
-                color = when {
-                    testing -> Aether.Cyan
-                    active -> Aether.Emerald
-                    else -> health
-                },
-                active = active,
-                pulsing = active || testing,
-                modifier = Modifier.size(42.dp)
-            )
-            Spacer(Modifier.width(11.dp))
             Column(Modifier.weight(1f)) {
                 Text(
                     profile.name,
@@ -3458,6 +3447,62 @@ private fun SpatialServerCard(
             }
         }
 
+        // Full-width metadata rail: the hostname may flex/ellipsis, while the port is always
+        // visible. Keeping it below the action row prevents long endpoints from moving controls.
+        val endpointShape = RoundedCornerShape(13.dp)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(endpointShape)
+                .background(Aether.Cyan.copy(alpha = .045f))
+                .border(1.dp, Aether.Cyan.copy(alpha = .11f), endpointShape)
+                .padding(horizontal = 10.dp, vertical = 7.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(7.dp)
+        ) {
+            Text(
+                "HOST",
+                color = Aether.Cyan,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1
+            )
+            Text(
+                profile.host.trim().ifBlank { "Unknown host" },
+                modifier = Modifier.weight(1f),
+                color = Aether.InkMuted,
+                style = MaterialTheme.typography.labelSmall.copy(
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.SemiBold
+                ),
+                maxLines = 1,
+                softWrap = false,
+                overflow = TextOverflow.Ellipsis
+            )
+            Box(
+                Modifier
+                    .width(1.dp)
+                    .height(14.dp)
+                    .background(Aether.GlassBorderSoft)
+            )
+            Text(
+                "PORT",
+                color = Aether.InkFaint,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1
+            )
+            Text(
+                profile.port.takeIf { it > 0 }?.toString() ?: "—",
+                color = Aether.Ink,
+                style = MaterialTheme.typography.labelSmall.copy(
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold
+                ),
+                maxLines = 1
+            )
+        }
+
         if (testing || queued) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -3502,51 +3547,6 @@ private fun SpatialServerCard(
         }
     }
 }
-
-@Composable
-private fun HealthOrb(
-    label: String,
-    color: Color,
-    active: Boolean,
-    modifier: Modifier = Modifier,
-    pulsing: Boolean = active
-) {
-    // Active rows read Marble's shared clock; idle rows stay completely static.
-    val pulse: Float = if (pulsing) {
-        .82f + MarbleMotion.current.breathe(if (active) 2_800 else 1_800) * .38f
-    } else {
-        1f
-    }
-
-    Box(modifier, contentAlignment = Alignment.Center) {
-        Canvas(Modifier.matchParentSize()) {
-            drawCircle(
-                color.copy(alpha = if (active) .06f else .025f),
-                radius = size.minDimension * .50f * pulse
-            )
-            drawCircle(
-                color.copy(alpha = if (active) .19f else .08f),
-                radius = size.minDimension * .40f
-            )
-            drawCircle(
-                color = color.copy(alpha = .72f),
-                radius = size.minDimension * .36f,
-                style = Stroke(width = 1.7f)
-            )
-            drawCircle(
-                brush = Brush.radialGradient(
-                    listOf(
-                        color.copy(alpha = .18f),
-                        Color.Transparent
-                    )
-                ),
-                radius = size.minDimension * .35f
-            )
-        }
-        Text(label, style = MaterialTheme.typography.titleMedium, color = Aether.Ink)
-    }
-}
-
 
 @Composable
 private fun MicroStat(
