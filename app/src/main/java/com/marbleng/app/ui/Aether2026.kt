@@ -23,6 +23,7 @@ package com.marbleng.app.ui
 // MARBLE_SOLID_WHITE_UI_V35
 // MARBLE_UX_CLEANUP_V37
 // MARBLE_SYSTEM_INTEGRITY_UI_V38
+// MARBLE_UPDATE_DOCK_UI_V39
 
 import android.Manifest
 import android.content.Intent
@@ -54,6 +55,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -426,23 +428,56 @@ private fun MarbleUpdateDialog(
                     modifier = Modifier.fillMaxWidth()
                 )
                 if (update.notes.isNotBlank()) {
-                    Surface(
-                        shape = RoundedCornerShape(16.dp),
-                        color = Aether.GlassStrong,
-                        border = androidx.compose.foundation.BorderStroke(
-                            1.dp,
-                            Aether.GlassBorderSoft
-                        ),
-                        tonalElevation = 0.dp
-                    ) {
+                    val notesScroll = rememberScrollState()
+                    Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
                         Text(
-                            update.notes,
-                            modifier = Modifier.padding(14.dp),
-                            color = Aether.InkMuted,
-                            style = MaterialTheme.typography.bodySmall,
-                            maxLines = 7,
-                            overflow = TextOverflow.Ellipsis
+                            "WHAT CHANGED",
+                            color = Aether.InkFaint,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold
                         )
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 120.dp, max = 260.dp),
+                            shape = RoundedCornerShape(16.dp),
+                            color = Aether.GlassStrong,
+                            border = androidx.compose.foundation.BorderStroke(
+                                1.dp,
+                                Aether.GlassBorderSoft
+                            ),
+                            tonalElevation = 0.dp
+                        ) {
+                            SelectionContainer {
+                                Text(
+                                    update.notes,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .verticalScroll(notesScroll)
+                                        .padding(horizontal = 15.dp, vertical = 14.dp),
+                                    color = Aether.InkMuted,
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+                            }
+                        }
+                        AnimatedVisibility(visible = notesScroll.maxValue > 0) {
+                            Text(
+                                if (notesScroll.value < notesScroll.maxValue) {
+                                    "Swipe up to read all changes"
+                                } else {
+                                    "All changes shown"
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                color = if (notesScroll.value < notesScroll.maxValue) {
+                                    Aether.Cyan
+                                } else {
+                                    Aether.Emerald
+                                },
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                textAlign = TextAlign.End
+                            )
+                        }
                     }
                 }
             }
@@ -605,68 +640,85 @@ private fun FloatingSpatialDock(
         modifier = Modifier
             .fillMaxWidth()
             .navigationBarsPadding()
-            .padding(horizontal = 14.dp, vertical = 7.dp),
+            .padding(horizontal = 14.dp, vertical = 8.dp),
         contentAlignment = Alignment.Center
     ) {
-        Row(
+        Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .shadow(7.dp, dockShape, clip = false)
-                .clip(dockShape)
-                .background(Aether.VoidElevated)
-                .border(1.dp, Aether.GlassBorderSoft, dockShape)
-                .padding(horizontal = 6.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically
+                .shadow(
+                    elevation = 11.dp,
+                    shape = dockShape,
+                    clip = false,
+                    ambientColor = Color.Black.copy(alpha = .055f),
+                    spotColor = Color.Black.copy(alpha = .09f)
+                ),
+            shape = dockShape,
+            color = Aether.VoidElevated,
+            border = androidx.compose.foundation.BorderStroke(
+                1.dp,
+                Aether.GlassBorderSoft.copy(alpha = .86f)
+            ),
+            tonalElevation = 0.dp,
+            shadowElevation = 0.dp
         ) {
-            SpatialTab.entries.forEach { item ->
-                val active = item == selected
-                val background by animateColorAsState(
-                    targetValue = if (active) Aether.Cyan.copy(alpha = .11f) else Color.Transparent,
-                    animationSpec = MarbleMotionSpecs.Color,
-                    label = "nav-bg-${item.name}"
-                )
-                val iconColor by animateColorAsState(
-                    targetValue = if (active) Aether.Cyan else Aether.InkFaint,
-                    animationSpec = MarbleMotionSpecs.Color,
-                    label = "nav-icon-${item.name}"
-                )
-                val textColor by animateColorAsState(
-                    targetValue = if (active) Aether.Ink else Aether.InkMuted,
-                    animationSpec = MarbleMotionSpecs.Color,
-                    label = "nav-text-${item.name}"
-                )
-                val iconSize by animateDpAsState(
-                    targetValue = if (active) 22.dp else 20.dp,
-                    animationSpec = MarbleMotionSpecs.Dp,
-                    label = "nav-size-${item.name}"
-                )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 6.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                SpatialTab.entries.forEach { item ->
+                    val active = item == selected
+                    val background by animateColorAsState(
+                        targetValue = if (active) Aether.Cyan.copy(alpha = .105f) else Color.Transparent,
+                        animationSpec = MarbleMotionSpecs.Color,
+                        label = "nav-bg-${item.name}"
+                    )
+                    val iconColor by animateColorAsState(
+                        targetValue = if (active) Aether.Cyan else Aether.InkFaint,
+                        animationSpec = MarbleMotionSpecs.Color,
+                        label = "nav-icon-${item.name}"
+                    )
+                    val textColor by animateColorAsState(
+                        targetValue = if (active) Aether.Ink else Aether.InkMuted,
+                        animationSpec = MarbleMotionSpecs.Color,
+                        label = "nav-text-${item.name}"
+                    )
+                    val iconSize by animateDpAsState(
+                        targetValue = if (active) 22.dp else 20.dp,
+                        animationSpec = MarbleMotionSpecs.Dp,
+                        label = "nav-size-${item.name}"
+                    )
 
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(54.dp)
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(background)
-                        .kineticClickable(role = Role.Tab) { onSelect(item) }
-                        .padding(horizontal = 2.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
-                ) {
-                    MarbleTabIcon(
-                        tab = item,
-                        color = iconColor,
-                        active = active,
-                        modifier = Modifier.size(iconSize)
-                    )
-                    Spacer(Modifier.height(3.dp))
-                    Text(
-                        item.label,
-                        color = textColor,
-                        style = MaterialTheme.typography.labelSmall,
-                        maxLines = 1,
-                        softWrap = false,
-                        overflow = TextOverflow.Clip
-                    )
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(54.dp)
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(background)
+                            .kineticClickable(role = Role.Tab) { onSelect(item) }
+                            .padding(horizontal = 2.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        MarbleTabIcon(
+                            tab = item,
+                            color = iconColor,
+                            active = active,
+                            modifier = Modifier.size(iconSize)
+                        )
+                        Spacer(Modifier.height(3.dp))
+                        Text(
+                            item.label,
+                            color = textColor,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = if (active) FontWeight.Bold else FontWeight.SemiBold,
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Clip
+                        )
+                    }
                 }
             }
         }
