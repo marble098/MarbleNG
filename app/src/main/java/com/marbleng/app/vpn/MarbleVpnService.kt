@@ -56,6 +56,7 @@ class MarbleVpnService : VpnService() {
     // MARBLE_EXTREME_NETWORK_V30
     // MARBLE_INSTANT_QUALITY_V31
     // MARBLE_FAST_READY_V33
+    // MARBLE_EXACT_PROFILE_SOURCE_V38
     // Live optimisation may learn while connected, but it must never intentionally tear down
     // a healthy user tunnel merely to hot-apply a transport experiment.
     companion object {
@@ -65,6 +66,7 @@ class MarbleVpnService : VpnService() {
         /** User-triggered acceleration pass on the route that is already carrying traffic. */
         const val ACTION_TUNE = "com.marbleng.TUNE"
         const val EXTRA_PROFILE = "profile"
+        const val EXTRA_PROFILE_SOURCE = "profileSource"
         const val EXTRA_MODE = "mode"
         const val MODE_TUN = "tun"
         const val MODE_PROXY = "proxy"
@@ -151,6 +153,7 @@ class MarbleVpnService : VpnService() {
     @Volatile private var activeSession = ""
     @Volatile private var activeMode = MODE_TUN
     @Volatile private var activeProfileId = ""
+    @Volatile private var activeProfileSourceId = ""
     @Volatile private var activeSettings: AppSettings? = null
     @Volatile private var hevActive = false
     @Volatile private var activeMtu = 1500
@@ -214,6 +217,7 @@ class MarbleVpnService : VpnService() {
                 }
                 ACTION_START -> {
                     val id = intent.getStringExtra(EXTRA_PROFILE)
+                    val sourceId = intent.getStringExtra(EXTRA_PROFILE_SOURCE)
                     if (id.isNullOrBlank()) {
                         failBeforeTunnel("Missing profile id")
                     } else {
@@ -238,7 +242,7 @@ class MarbleVpnService : VpnService() {
                                     )
                                     return@execute
                                 }
-                                runCatching { startConnection(id, requestedMode) }
+                                runCatching { startConnection(id, sourceId, requestedMode) }
                                     .onFailure { error ->
                                         diag.error(
                                             "VPN",
@@ -274,11 +278,11 @@ class MarbleVpnService : VpnService() {
     }
 
     @Synchronized
-    private fun startConnection(id: String, mode: String) {
+    private fun startConnection(id: String, sourceId: String?, mode: String) {
         if (running.get() || tun != null || hevActive || xray.isAlive) cleanupRuntime(setDisconnected = false)
 
         val app = application as MarbleApplication
-        val profile = app.repo.profile(id) ?: run {
+        val profile = app.repo.profile(id, sourceId) ?: run {
             diag.event("VPN", "profile-missing", "profileId" to id.take(12))
             failBeforeTunnel("Profile no longer exists")
             return
@@ -302,6 +306,7 @@ class MarbleVpnService : VpnService() {
         activeSession = session
         activeMode = normalizedMode
         activeProfileId = profile.id
+        activeProfileSourceId = profile.subscriptionId
         activeSettings = settings
         connectStartedNs = System.nanoTime()
         consecutiveProbeFailures = 0
@@ -2340,7 +2345,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             settings.identityGuardStrictNoFailover
         ) {
             val pinned =
-                repo.profile(failedId)
+                repo.profile(failedId, activeProfileSourceId)
 
             val maxRetries =
                 settings
@@ -2616,6 +2621,8 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
 
         activeProfileId =
             profile.id
+        activeProfileSourceId =
+            profile.subscriptionId
         activeSettings =
             settings
         consecutiveProbeFailures =
@@ -2817,6 +2824,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         repo.resetTelemetry()
         activeSettings = null
         activeProfileId = ""
+        activeProfileSourceId = ""
         pinnedExitV4 = ""
         pinnedExitV6 = ""
         ipv6RouteCaptured = false

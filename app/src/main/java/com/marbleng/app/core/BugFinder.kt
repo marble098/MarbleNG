@@ -275,6 +275,41 @@ class BugFinder(private val context: Context, private val xray: XrayManager) {
             )
         }
 
+        // MARBLE_RESOLVER_HEALTH_V38
+        // xray.log rotates on every live start, so this classifies current-session resolver
+        // degradation instead of silently burying it inside the raw ERROR INDEX.
+        val dohDeadlineCount = xrayLog.lineSequence().count { line ->
+            line.contains("context deadline exceeded", ignoreCase = true) &&
+                line.contains("dns-query", ignoreCase = true)
+        }
+        val dnsEofCount = xrayLog.lineSequence().count { line ->
+            line.contains(
+                "app/dns: failed to read response length > EOF",
+                ignoreCase = true
+            )
+        }
+        val resolverErrors = dohDeadlineCount + dnsEofCount
+
+        checks += when {
+            resolverErrors == 0 -> BugCheck(
+                "Resolver health",
+                BugSeverity.PASS,
+                "No current-session DoH deadline or DNS EOF burst observed"
+            )
+            connected && resolverErrors >= 8 -> BugCheck(
+                "Resolver health",
+                BugSeverity.WARN,
+                "$resolverErrors current-session resolver errors • " +
+                    "$dohDeadlineCount DoH deadlines • $dnsEofCount DNS EOF",
+                "Encrypted fallback remains active; re-run after the next route/session if it repeats"
+            )
+            else -> BugCheck(
+                "Resolver health",
+                BugSeverity.INFO,
+                "$resolverErrors transient resolver event(s) observed in the current Xray session"
+            )
+        }
+
         val exits = historicalExits(now)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             checks += when {
@@ -600,6 +635,11 @@ class BugFinder(private val context: Context, private val xray: XrayManager) {
                 line.contains("context deadline exceeded", ignoreCase = true) &&
                     line.contains("dns-query", ignoreCase = true) ->
                     "DNS DEADLINE BURST | DoH context deadline exceeded"
+                line.contains(
+                    "app/dns: failed to read response length > EOF",
+                    ignoreCase = true
+                ) ->
+                    "DNS EOF BURST | upstream DNS transport closed early"
                 else -> ""
             }
             if (nextLabel.isNotEmpty()) {

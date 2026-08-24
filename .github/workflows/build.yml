@@ -33,6 +33,12 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Marble system integrity preflight
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/system-integrity-check.py
+
       # ========================================================================
       # Java
       # ========================================================================
@@ -730,6 +736,17 @@ jobs:
           - Removed the heavy black shadow below in-app Snackbar notifications.
           - Replaced remaining Library/Snackbar action glyphs with font-independent Canvas vectors.
           - README.md was fully refreshed for the current app.
+
+          ### System integrity v38
+          - Added a permanent source-wide architecture preflight shared by verify and signed builds.
+          - SAF imports are off-main and capped at 16 MiB.
+          - Remote subscriptions are HTTPS-only, downgrade-safe and capped at 8 MiB.
+          - Active provider nodes survive subscription refresh until disconnect.
+          - Library mutations identify the exact source row, not only a shared config hash.
+          - VPN start carries source identity with the profile id.
+          - Temporary Xray listeners use one collision-safe allocator across benchmark, race, optimizer and Turbo.
+          - Ordinary Xray DNS uses encrypted DoH only; plaintext adaptive TCP/53 fallbacks were removed.
+          - Bug Finder surfaces current-session resolver degradation in the health summary.
 
           ### Release system
           - Replaced fixed 1.0.2 publishing with automatic semantic releases.

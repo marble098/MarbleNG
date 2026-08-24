@@ -29,12 +29,17 @@ class XrayManager(private val context: Context) {
     // MARBLE_DIAG_PROCESS_PID_V15
     // MARBLE_RUNTIME_STARTUP_RESCUE_V21
     // MARBLE_SSH_BRIDGE_V25
+    // MARBLE_TEMP_PORT_ALLOCATOR_V38
     private companion object {
         const val ROUTING_ASSET_REFRESH_MS = 24L * 60L * 60L * 1000L
         const val ROUTING_ASSET_RETRY_MS = 6L * 60L * 60L * 1000L
     }
     private val lifecycleLock = Any()
     private val assetLock = ReentrantLock()
+
+    /** Process-wide ownership of every throwaway local Xray listener. */
+    private val temporaryPortLock = Any()
+    private val reservedTemporaryPorts = mutableSetOf<Int>()
     private var lifecycleGeneration = 0L
     @Volatile private var process: Process? = null
     @Volatile private var liveSsh: SshTransportManager? = null
@@ -772,8 +777,11 @@ class XrayManager(private val context: Context) {
     }
 
     /**
-     * Temporary benchmark instance. Validation is cached by canonical profile + effective settings,
-     * not by the ephemeral local port, so repeated real-tunnel tests skip redundant xray -test spawns.
+     * Temporary benchmark/optimizer Xray instance.
+     *
+     * `port` is only a preferred starting point. Benchmark, race, Continuous Optimizer and Turbo
+     * may overlap, so XrayManager owns one reservation set and passes the real collision-free port
+     * back to the caller.
      */
     fun temporary(
         profile: ProxyProfile,
@@ -781,66 +789,74 @@ class XrayManager(private val context: Context) {
         settings: AppSettings = AppSettings(),
         block: (Int) -> Unit
     ): Boolean {
-        if (!bin.isFile || port !in 1..65535 || !portAvailable(port)) return false
+        if (!bin.isFile || port !in 1..65535) return false
+        val actualPort = reserveTemporaryPort(port) ?: return false
 
-        val config = File(context.cacheDir, "bench-$port.json")
-        val benchmarkLog = File(context.cacheDir, "xray-bench-$port.log")
-        if (
-            benchmarkLog.isFile &&
-            benchmarkLog.length() >
-            512L * 1024L
-        ) {
-            runCatching {
-                benchmarkLog.delete()
-            }
+        val config = File(context.cacheDir, "bench-$actualPort.json")
+        val benchmarkLog = File(context.cacheDir, "xray-bench-$actualPort.log")
+        if (benchmarkLog.isFile && benchmarkLog.length() > 512L * 1024L) {
+            runCatching { benchmarkLog.delete() }
         }
 
-        // A throwaway benchmark instance does not need the `xray run -test` dry run that the live
-        // path uses: an unusable config simply fails to open its SOCKS port, and waitSocksPort()
-        // notices the dead process immediately. Skipping it halves the process spawns per node,
-        // which is the single biggest cost of testing a large library.
         val portWaitMs = (settings.benchTimeoutSec * 1000L).coerceIn(2_500L, 7_000L)
         val sshBridge = if (profile.scheme.equals("ssh", true)) SshTransportManager() else null
 
-        return runCatching {
-            val benchmarkSettings = settings.copy(
-                routingMode = RoutingMode.PROXY_ALL,
-                routeGeoIpTags = "",
-                routeGeoSiteTags = "",
-                routeDirectDomains = "",
-                routeProxyDomains = "",
-                routeBlockDomains = "",
-                routeDirectIps = "",
-                routeBlockIps = "",
-                routeBypassPrivate = false,
-                routeBlockAds = false
-            )
-            val sourceConfig = if (sshBridge != null) {
-                SshProfileCodec.xrayClientConfig(sshBridge.start(profile))
-            } else {
-                profile.configJson
-            }
-            val configText = XrayConfigHardener.harden(sourceConfig, port, benchmarkSettings)
-            config.writeText(configText)
+        return try {
+            runCatching {
+                val benchmarkSettings = settings.copy(
+                    routingMode = RoutingMode.PROXY_ALL,
+                    routeGeoIpTags = "",
+                    routeGeoSiteTags = "",
+                    routeDirectDomains = "",
+                    routeProxyDomains = "",
+                    routeBlockDomains = "",
+                    routeDirectIps = "",
+                    routeBlockIps = "",
+                    routeBypassPrivate = false,
+                    routeBlockAds = false
+                )
 
-            val temporaryProcess = createProcessBuilder("run", "-c", config.absolutePath)
-                .redirectOutput(ProcessBuilder.Redirect.appendTo(benchmarkLog))
-                .start()
-            try {
-                if (!waitSocksPort(port, portWaitMs, temporaryProcess)) false
-                else {
-                    block(port)
-                    true
+                val sourceConfig = if (sshBridge != null) {
+                    SshProfileCodec.xrayClientConfig(sshBridge.start(profile))
+                } else {
+                    profile.configJson
                 }
-            } finally {
-                stopProcess(temporaryProcess)
+
+                config.writeText(
+                    XrayConfigHardener.harden(
+                        sourceConfig,
+                        actualPort,
+                        benchmarkSettings
+                    )
+                )
+
+                val temporaryProcess = createProcessBuilder(
+                    "run",
+                    "-c",
+                    config.absolutePath
+                )
+                    .redirectOutput(ProcessBuilder.Redirect.appendTo(benchmarkLog))
+                    .start()
+
+                try {
+                    if (!waitSocksPort(actualPort, portWaitMs, temporaryProcess)) {
+                        false
+                    } else {
+                        block(actualPort)
+                        true
+                    }
+                } finally {
+                    stopProcess(temporaryProcess)
+                    sshBridge?.stop()
+                    runCatching { config.delete() }
+                }
+            }.getOrElse {
                 sshBridge?.stop()
                 runCatching { config.delete() }
+                false
             }
-        }.getOrElse {
-            sshBridge?.stop()
-            runCatching { config.delete() }
-            false
+        } finally {
+            releaseTemporaryPort(actualPort)
         }
     }
 
@@ -881,6 +897,30 @@ class XrayManager(private val context: Context) {
         }
 
         return false
+    }
+
+    private fun reserveTemporaryPort(preferred: Int): Int? =
+        synchronized(temporaryPortLock) {
+            val minPort = 18_080
+            val maxPort = 62_000
+            val span = maxPort - minPort + 1
+            val start = preferred.coerceIn(minPort, maxPort)
+
+            for (offset in 0 until span) {
+                val candidate = minPort + ((start - minPort + offset) % span)
+                if (candidate in reservedTemporaryPorts) continue
+                if (!portAvailable(candidate)) continue
+
+                reservedTemporaryPorts += candidate
+                return@synchronized candidate
+            }
+            null
+        }
+
+    private fun releaseTemporaryPort(port: Int) {
+        synchronized(temporaryPortLock) {
+            reservedTemporaryPorts.remove(port)
+        }
     }
 
     private fun portAvailable(port: Int): Boolean = runCatching {

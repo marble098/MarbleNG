@@ -6,6 +6,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 object XrayConfigHardener {
+    // MARBLE_ENCRYPTED_DNS_ONLY_V38
     // MARBLE_CLEAN_XRAY_LOG_V13
     // MARBLE_DNS_RESILIENCE_V16
     // MARBLE_DNS_DEJITTER_V18
@@ -342,47 +343,30 @@ object XrayConfigHardener {
             }
         }
 
-        // Normal adaptive order: preferred DoH -> proxy-routed TCP bootstrap paths -> remaining
-        // encrypted providers. Parallel querying lets another provider win a transient deadline;
-        // disabling Adaptive DNS restores the user's exact resolver list and sequential behaviour.
+        // Adaptive order is encrypted-only: preferred DoH followed by independent DoH fallbacks.
+        // Parallel querying lets another encrypted provider win a transient deadline.
         remoteDoh.firstOrNull()?.let { address ->
             dnsServers.put(
                 JSONObject()
                     .put("address", address)
                     .put("queryStrategy", queryStrategy)
-                    .put("timeoutMs", 1250)
+                    .put("timeoutMs", 1800)
             )
         }
 
         val customSecondaryDoh = remoteDoh
             .drop(1)
 
-        if (settings.adaptiveDnsEnabled) {
-            bootstrapIps.getOrNull(0)?.let { ip ->
-                dnsServers.put(
-                    JSONObject()
-                        .put("address", "tcp://$ip:53")
-                        .put("queryStrategy", queryStrategy)
-                        .put("timeoutMs", 850)
-                )
-            }
-            bootstrapIps.getOrNull(1)?.let { ip ->
-                dnsServers.put(
-                    JSONObject()
-                        .put("address", "tcp://$ip:53")
-                        .put("queryStrategy", queryStrategy)
-                        .put("timeoutMs", 1050)
-                        .put("finalQuery", customSecondaryDoh.isEmpty())
-                )
-            }
-        }
+        // Ordinary app DNS is encrypted-only. Endpoint bootstrap still uses the dedicated
+        // https+local resolvers above, but normal queries never race plaintext TCP/53 upstreams.
+        // This aligns Privacy Sentinel with the actual resolver graph and removes TCP-DNS EOF noise.
 
         customSecondaryDoh.forEachIndexed { index, address ->
             dnsServers.put(
                 JSONObject()
                     .put("address", address)
                     .put("queryStrategy", queryStrategy)
-                    .put("timeoutMs", 1500)
+                    .put("timeoutMs", 2400)
                     .put("finalQuery", index == customSecondaryDoh.lastIndex)
             )
         }

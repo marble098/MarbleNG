@@ -28,8 +28,26 @@ class AppStore(context: Context) {
         JSONObject().put("profileId", it.profileId).put("name", it.name).put("at", it.at).put("reason", it.reason)
     })
 
+    // MARBLE_EXACT_LAST_PROFILE_V38
     fun lastProfileId(): String = prefs.getString("lastProfileId", "") ?: ""
-    fun setLastProfileId(id: String) = prefs.edit().putString("lastProfileId", id).apply()
+    fun lastProfileSourceId(): String = prefs.getString("lastProfileSourceId", "") ?: ""
+
+    /** Exact Library row reference: canonical config id + owner/source id. */
+    fun setLastProfileRef(id: String, sourceId: String) =
+        prefs.edit()
+            .putString("lastProfileId", id)
+            .putString("lastProfileSourceId", sourceId)
+            .apply()
+
+    /** Migration compatibility for old installs/callers. */
+    fun setLastProfileId(id: String) =
+        prefs.edit().putString("lastProfileId", id).apply()
+
+    fun clearLastProfile() =
+        prefs.edit()
+            .remove("lastProfileId")
+            .remove("lastProfileSourceId")
+            .apply()
 
     /** Selected Library source is navigation state worth preserving across tabs and restarts. */
     fun librarySourceFilter(): String =

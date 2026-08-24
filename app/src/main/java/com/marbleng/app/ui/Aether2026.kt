@@ -22,6 +22,7 @@ package com.marbleng.app.ui
 // MARBLE_KINETIC_GLASS_UI_V34
 // MARBLE_SOLID_WHITE_UI_V35
 // MARBLE_UX_CLEANUP_V37
+// MARBLE_SYSTEM_INTEGRITY_UI_V38
 
 import android.Manifest
 import android.content.Intent
@@ -193,7 +194,7 @@ fun Aether2026App(
                             tab = SpatialTab.SETTINGS
                         },
                         onDetails = {
-                            val profile = repo.profile(repo.activeProfileId) ?: repo.lastProfile()
+                            val profile = repo.profile(repo.activeProfileId, repo.activeProfileSourceId) ?: repo.lastProfile()
                             if (profile != null) detailProfile = profile else tab = SpatialTab.LIBRARY
                         }
                     )
@@ -2002,7 +2003,7 @@ private fun CyberLibrary(
             confirmButton = {
                 TextButton(
                     onClick = {
-                        repo.renameProfile(target.id, renameText)
+                        repo.renameProfile(target.id, renameText, target.subscriptionId)
                         renameTarget = null
                     },
                     enabled = renameText.isNotBlank()
@@ -2288,7 +2289,7 @@ private fun CyberLibrary(
                                     value = url,
                                     onValueChange = { url = it },
                                     label = { Text("Subscription URL • optional") },
-                                    supportingText = { Text("Leave blank for a local source/folder.") },
+                                    supportingText = { Text("HTTPS only • leave blank for a local source/folder.") },
                                     singleLine = true,
                                     modifier = Modifier.fillMaxWidth(),
                                     shape = RoundedCornerShape(18.dp)
@@ -2307,8 +2308,7 @@ private fun CyberLibrary(
                                     modifier = Modifier.fillMaxWidth(),
                                     enabled = !repo.busy && (
                                         url.isBlank() ||
-                                            url.startsWith("https://", true) ||
-                                            url.startsWith("http://", true)
+                                            url.startsWith("https://", true)
                                         )
                                 ) {
                                     repo.addSubscription(sourceName, url)
@@ -2430,7 +2430,7 @@ private fun CyberLibrary(
                     profile = profile,
                     repo = repo,
                     result = benchmarkById[profile.id],
-                    active = repo.isActiveProfile(profile.id),
+                    active = repo.isActiveProfile(profile),
                     probeState = repo.probeStateOf(profile.id),
                     onConnect = onConnect,
                     onEdit = {
@@ -2751,9 +2751,9 @@ private fun ConnectionDetailPage(
     onConnect: (ProxyProfile) -> Unit,
     onBack: () -> Unit
 ) {
-    val current = repo.profile(profile.id) ?: profile
+    val current = repo.profile(profile.id, profile.subscriptionId) ?: profile
     val result = repo.benchmarks.firstOrNull { it.profileId == current.id }?.takeIf { it.success > 0 }
-    val active = repo.isActiveProfile(current.id)
+    val active = repo.isActiveProfile(current)
     val clipboard = LocalClipboardManager.current
 
     LazyColumn(
@@ -3194,7 +3194,7 @@ private fun SpatialServerCard(
             },
             confirmButton = {
                 TextButton(onClick = {
-                    if (repo.updateProfileJson(profile.id, jsonText)) jsonOpen = false
+                    if (repo.updateProfileJson(profile.id, jsonText, profile.subscriptionId)) jsonOpen = false
                 }) { Text("SAVE JSON", color = Aether.Cyan) }
             },
             dismissButton = {
@@ -3376,7 +3376,7 @@ private fun SpatialServerCard(
                             text = { Text("Duplicate to Manual") },
                             onClick = {
                                 menuOpen = false
-                                repo.duplicateProfile(profile.id)
+                                repo.duplicateProfile(profile.id, profile.subscriptionId)
                             }
                         )
                     }
@@ -3399,7 +3399,7 @@ private fun SpatialServerCard(
                         text = { Text("Delete", color = Aether.Danger) },
                         onClick = {
                             menuOpen = false
-                            repo.removeProfile(profile.id)
+                            repo.removeProfile(profile.id, profile.subscriptionId)
                         }
                     )
                 }

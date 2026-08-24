@@ -9,6 +9,8 @@ import com.marbleng.app.data.AppStore
 import com.marbleng.app.model.*
 import com.marbleng.app.net.*
 import com.marbleng.app.vpn.MarbleVpnService
+import java.io.ByteArrayOutputStream
+import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
@@ -43,6 +45,7 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     // MARBLE_SMART_XRAY_RANK_ALL_V27
     // MARBLE_LIBRARY_SCOPE_V32
     // MARBLE_LIBRARY_MEMORY_V33
+    // MARBLE_SYSTEM_INTEGRITY_REPO_V38
 
     private val store = AppStore(context)
     private val io = Executors.newFixedThreadPool(3)
@@ -204,6 +207,7 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
      * display names are user-editable and are frequently duplicated inside one subscription.
      */
     var activeProfileId by mutableStateOf(""); private set
+    var activeProfileSourceId by mutableStateOf(""); private set
     var busy by mutableStateOf(false); private set
 
     // Background engines are allowed to publish status text, but Compose state itself is committed
@@ -540,15 +544,31 @@ fun resetTelemetry() {
         }
     }
 
-    fun profile(id: String) = profiles.firstOrNull { it.id == id }
+    /**
+     * Resolve a config. Library mutations pass sourceId so identical configs in two sources remain
+     * independent rows; engine callers may intentionally resolve by canonical config id only.
+     */
+    fun profile(id: String, sourceId: String? = null): ProxyProfile? =
+        if (!sourceId.isNullOrBlank()) {
+            profiles.firstOrNull { it.id == id && it.subscriptionId == sourceId }
+        } else {
+            profiles.firstOrNull { it.id == id }
+        }
 
-    /** True only for the node that is actually carrying traffic right now. */
-    fun isActiveProfile(id: String): Boolean {
-        if (state != "CONNECTED" || id.isBlank()) return false
-        if (activeProfileId.isNotBlank()) return activeProfileId == id
-        // Pre-connect state restored without an id: fall back to the displayed route name.
-        return stateDetail.isNotBlank() && profile(id)?.name == stateDetail
+    /** True only for the exact Library row currently carrying traffic. */
+    fun isActiveProfile(profile: ProxyProfile): Boolean {
+        if (state != "CONNECTED" || profile.id.isBlank()) return false
+        if (activeProfileId.isNotBlank()) {
+            if (activeProfileId != profile.id) return false
+            return activeProfileSourceId.isBlank() ||
+                activeProfileSourceId == profile.subscriptionId
+        }
+        return stateDetail.isNotBlank() && profile.name == stateDetail
     }
+
+    /** Compatibility helper for engine callers that intentionally identify configs by id. */
+    fun isActiveProfile(id: String): Boolean =
+        state == "CONNECTED" && id.isNotBlank() && activeProfileId == id
 
     fun setRuntimeState(s: String, d: String) {
         diagnostics.event("APP", "state", "from" to state, "to" to s, "detail" to d.take(160))
@@ -557,6 +577,7 @@ fun resetTelemetry() {
             stateDetail = d
             if (s != "CONNECTED") {
                 activeProfileId = ""
+                activeProfileSourceId = ""
                 livePingMs = 0
                 liveJitterMs = 0
                 liveDownBps = 0L
@@ -875,9 +896,8 @@ private fun postToMain(block: () -> Unit) {
 
     fun addSubscription(name: String, url: String) {
         val cleanUrl = url.trim()
-        if (cleanUrl.isNotBlank() &&
-            !(cleanUrl.startsWith("https://", true) || cleanUrl.startsWith("http://", true))) {
-            message = "Subscription URL must start with http:// or https://, or stay empty for a local source"
+        if (cleanUrl.isNotBlank() && !isHttpsSubscriptionUrl(cleanUrl)) {
+            message = "Remote subscriptions must use HTTPS • leave URL empty for a local source"
             return
         }
         if (cleanUrl.isNotBlank()) {
@@ -910,8 +930,57 @@ private fun postToMain(block: () -> Unit) {
         }
     }
 
+    /**
+     * Replace provider-managed rows atomically while preserving the live config snapshot.
+     *
+     * A provider may remove/rename the node currently carrying traffic. The running service owns a
+     * valid immutable profile snapshot; Repository must not pretend that row vanished until the
+     * active tunnel is disconnected.
+     */
+    private fun replaceManagedProfilesForSource(
+        sub: Subscription,
+        parsed: List<ProxyProfile>
+    ): Int {
+        val userOwnedIds = profiles.asSequence()
+            .filter { it.subscriptionId == sub.id && !it.sourceManaged }
+            .mapTo(mutableSetOf()) { it.id }
+
+        val activeSnapshot = profiles.firstOrNull { current ->
+            state == "CONNECTED" &&
+                current.sourceManaged &&
+                current.subscriptionId == sub.id &&
+                current.id == activeProfileId &&
+                (activeProfileSourceId.isBlank() || activeProfileSourceId == sub.id)
+        }
+
+        val incoming = parsed.asSequence()
+            .filterNot { it.id in userOwnedIds }
+            .map { it.copy(sourceManaged = true) }
+            .toList()
+
+        profiles.removeAll { it.subscriptionId == sub.id && it.sourceManaged }
+        profiles.addAll(incoming)
+
+        if (activeSnapshot != null && profiles.none {
+                it.id == activeSnapshot.id && it.subscriptionId == activeSnapshot.subscriptionId
+            }) {
+            profiles += activeSnapshot
+            diagnostics.event(
+                "LIBRARY",
+                "active-profile-preserved-on-refresh",
+                "profile" to activeSnapshot.id.take(12),
+                "source" to sub.id.take(16)
+            )
+        }
+        return incoming.size
+    }
+
     fun refresh(id: String) {
         val sub = subscriptions.firstOrNull { it.id == id } ?: return
+        if (state == "CONNECTING" || state == "BLOCKED") {
+            message = "Wait until the connection is stable or disconnected before refreshing"
+            return
+        }
         if (sub.url.isBlank()) {
             message = "${sub.name} is a local source • add Manual/SSH nodes into it"
             return
@@ -924,16 +993,7 @@ private fun postToMain(block: () -> Unit) {
                 "No supported profiles returned; previous nodes were kept"
             }
 
-            val userOwnedIds = profiles.asSequence()
-                .filter { it.subscriptionId == sub.id && !it.sourceManaged }
-                .mapTo(mutableSetOf()) { it.id }
-            profiles.removeAll { it.subscriptionId == sub.id && it.sourceManaged }
-            profiles.addAll(
-                parsed.asSequence()
-                    .filterNot { it.id in userOwnedIds }
-                    .map { it.copy(sourceManaged = true) }
-                    .toList()
-            )
+            val refreshedCount = replaceManagedProfilesForSource(sub, parsed)
 
             val meta = parseSubscriptionUserInfo(payload.userInfo)
             val index = subscriptions.indexOfFirst { it.id == sub.id }
@@ -954,14 +1014,18 @@ private fun postToMain(block: () -> Unit) {
                 SmartNotificationKind.SUBSCRIPTION,
                 "subscription:${sub.id}",
                 "Subscription refreshed",
-                "${sub.name} • ${parsed.size} nodes",
+                "${sub.name} • $refreshedCount nodes",
                 settings
             )
-            message = "${parsed.size} profiles refreshed"
+            message = "$refreshedCount profiles refreshed"
         }
     }
 
     fun refreshAll() {
+        if (state == "CONNECTING" || state == "BLOCKED") {
+            message = "Wait until the connection is stable or disconnected before refreshing"
+            return
+        }
         val remote = subscriptions.filter { it.url.isNotBlank() }
         if (remote.isEmpty()) {
             message = "No remote subscriptions to refresh • local sources were left untouched"
@@ -978,16 +1042,7 @@ private fun postToMain(block: () -> Unit) {
                     val payload = httpSubscription(sub.url)
                     val parsed = ProxyParser.parseInput(payload.text, sub.id, sub.name)
                     require(parsed.isNotEmpty()) { "No supported profiles returned; previous nodes were kept" }
-                    val userOwnedIds = profiles.asSequence()
-                        .filter { it.subscriptionId == sub.id && !it.sourceManaged }
-                        .mapTo(mutableSetOf()) { it.id }
-                    profiles.removeAll { it.subscriptionId == sub.id && it.sourceManaged }
-                    profiles.addAll(
-                        parsed.asSequence()
-                            .filterNot { it.id in userOwnedIds }
-                            .map { it.copy(sourceManaged = true) }
-                            .toList()
-                    )
+                    val refreshedCount = replaceManagedProfilesForSource(sub, parsed)
                     val meta = parseSubscriptionUserInfo(payload.userInfo)
                     val index = subscriptions.indexOfFirst { it.id == sub.id }
                     if (index >= 0) {
@@ -1000,7 +1055,7 @@ private fun postToMain(block: () -> Unit) {
                             expireAt = meta?.expireAt ?: current.expireAt
                         )
                     }
-                    parsed.size
+                    refreshedCount
                 }
                 endRefresh(sub.id)
                 result.onSuccess { count ->
@@ -1117,9 +1172,6 @@ private fun postToMain(block: () -> Unit) {
         }
 
         val lines = clean.lineSequence().map(String::trim).filter(String::isNotBlank).toList()
-        val allHttpUrls = lines.isNotEmpty() && lines.all {
-            it.startsWith("https://", ignoreCase = true) || it.startsWith("http://", ignoreCase = true)
-        }
         val looksLikeJson = clean.startsWith("{") || clean.startsWith("[")
         val hasShareLinks = Regex(
             "(?im)^(vless|vmess|trojan|ss|socks5?|hysteria2|hy2|ssh)://"
@@ -1128,8 +1180,21 @@ private fun postToMain(block: () -> Unit) {
             "(?im)^https?://[^\\s/@]+:[^\\s/@]*@"
         ).containsMatchIn(clean)
 
-        if (!allHttpUrls || looksLikeJson || hasShareLinks || hasAuthenticatedHttpProxy) {
+        if (looksLikeJson || hasShareLinks || hasAuthenticatedHttpProxy) {
             importText(clean, "Clipboard", targetSubscriptionId)
+            return
+        }
+
+        val allWebUrls = lines.isNotEmpty() && lines.all {
+            it.startsWith("https://", ignoreCase = true) ||
+                it.startsWith("http://", ignoreCase = true)
+        }
+        if (!allWebUrls) {
+            importText(clean, "Clipboard", targetSubscriptionId)
+            return
+        }
+        if (lines.any { it.startsWith("http://", ignoreCase = true) }) {
+            message = "Remote subscriptions must use HTTPS"
             return
         }
 
@@ -1170,16 +1235,23 @@ private fun postToMain(block: () -> Unit) {
             .joinToString("\n")
 
     /** Save effective Xray JSON for a node. Xray itself still validates again on connect. */
-    fun updateProfileJson(id: String, jsonText: String): Boolean {
+    fun updateProfileJson(
+        id: String,
+        jsonText: String,
+        sourceId: String? = null
+    ): Boolean {
         if (busy) {
             message = "Wait for the current background task before editing a node"
             return false
         }
-        if (isActiveProfile(id)) {
+        val target = profile(id, sourceId)
+        if (target != null && isActiveProfile(target)) {
             message = "Disconnect this node before editing its Xray JSON"
             return false
         }
-        val index = profiles.indexOfFirst { it.id == id }
+        val index = profiles.indexOfFirst {
+            it.id == id && (sourceId.isNullOrBlank() || it.subscriptionId == sourceId)
+        }
         if (index < 0) {
             message = "Node no longer exists"
             return false
@@ -1193,19 +1265,41 @@ private fun postToMain(block: () -> Unit) {
             return false
         }
         val current = profiles[index]
+        val newId = sha(normalized).take(16)
+        if (profiles.indices.any { other ->
+                other != index &&
+                    profiles[other].id == newId &&
+                    profiles[other].subscriptionId == current.subscriptionId
+            }) {
+            message = "Edited config would duplicate another node in this source"
+            return false
+        }
+
         profiles[index] = current.copy(
+            id = newId,
             configJson = normalized,
-            raw = if (current.raw.trimStart().startsWith("{")) normalized else current.raw
+            // A JSON edit becomes the effective durable source of truth.
+            raw = normalized
         )
-        benchmarks = benchmarks.filterNot { it.profileId == id }
-        intelligence.forgetAcceleration(id)
+        benchmarks = benchmarks.filterNot {
+            it.profileId == current.id || it.profileId == newId
+        }
+        intelligence.forgetAcceleration(current.id)
+        intelligence.forgetAcceleration(newId)
+
+        val remembered = lastProfile()
+        if (remembered?.id == current.id &&
+            remembered.subscriptionId == current.subscriptionId) {
+            store.setLastProfileRef(newId, current.subscriptionId)
+        }
+
         store.saveProfiles(profiles)
-        message = "Node JSON saved • learned acceleration cleared"
+        message = "Node JSON saved • identity and learned acceleration refreshed"
         return true
     }
 
     /** Make a durable Manual copy of any node, including subscription-owned nodes. */
-    fun duplicateProfile(id: String): Boolean {
+    fun duplicateProfile(id: String, sourceId: String? = null): Boolean {
         if (busy) {
             message = "Wait for the current background task before duplicating a node"
             return false
@@ -1214,7 +1308,7 @@ private fun postToMain(block: () -> Unit) {
             message = "Manual source is disabled • enable it in Settings → Subscriptions first"
             return false
         }
-        val source = profile(id) ?: run {
+        val source = profile(id, sourceId) ?: run {
             message = "Node no longer exists"
             return false
         }
@@ -1249,9 +1343,8 @@ private fun postToMain(block: () -> Unit) {
         }
         val cleanUrl = url.trim()
         val cleanName = name.trim().ifBlank { randomSourceName() }
-        if (cleanUrl.isNotBlank() &&
-            !(cleanUrl.startsWith("https://", true) || cleanUrl.startsWith("http://", true))) {
-            message = "URL must use http(s), or stay empty for a local source"
+        if (cleanUrl.isNotBlank() && !isHttpsSubscriptionUrl(cleanUrl)) {
+            message = "Remote subscription URL must use HTTPS, or stay empty for a local source"
             return false
         }
         if (cleanUrl.isNotBlank() && subscriptions.any {
@@ -1279,14 +1372,15 @@ private fun postToMain(block: () -> Unit) {
             message = "Subscription no longer exists"
             return
         }
+        if (state != "DISCONNECTED") {
+            message = "Disconnect before deleting a subscription source"
+            return
+        }
         val doomedIds = profiles.filter { it.subscriptionId == id }.map { it.id }.toSet()
-        val activeBelongs = state in setOf("CONNECTED", "CONNECTING", "BLOCKED") &&
-            (
-                activeProfileId in doomedIds ||
-                    (activeProfileId.isBlank() && profiles.any { it.subscriptionId == id && it.name == stateDetail })
-                )
-        if (activeBelongs) stopVpn()
-        if (lastProfile()?.id?.let { it in doomedIds } == true) store.setLastProfileId("")
+        val remembered = lastProfile()
+        if (remembered != null && remembered.subscriptionId == id) {
+            store.clearLastProfile()
+        }
         doomedIds.forEach(intelligence::forgetAcceleration)
         if (librarySourceFilter == id) {
             selectLibrarySource("all")
@@ -1299,18 +1393,50 @@ private fun postToMain(block: () -> Unit) {
         message = "Removed ${sub.name} • ${doomedIds.size} nodes deleted"
     }
 
-    fun removeProfile(id: String) {
-        if (lastProfile()?.id == id) store.setLastProfileId("")
-        profiles.removeAll { it.id == id }
-        benchmarks = benchmarks.filterNot { it.profileId == id }
-        intelligence.forgetAcceleration(id)
+    fun removeProfile(id: String, sourceId: String? = null) {
+        if (busy) {
+            message = "Wait for the current task before deleting a node"
+            return
+        }
+        if (state != "DISCONNECTED") {
+            message = "Disconnect before deleting Library nodes"
+            return
+        }
+
+        val index = profiles.indexOfFirst {
+            it.id == id && (sourceId.isNullOrBlank() || it.subscriptionId == sourceId)
+        }
+        if (index < 0) {
+            message = "Node no longer exists"
+            return
+        }
+
+        val target = profiles.removeAt(index)
+        val sameConfigRemains = profiles.any { it.id == target.id }
+
+        if (!sameConfigRemains) {
+            benchmarks = benchmarks.filterNot { it.profileId == target.id }
+            intelligence.forgetAcceleration(target.id)
+        }
+
+        val remembered = lastProfile()
+        if (remembered?.id == target.id &&
+            remembered.subscriptionId == target.subscriptionId) {
+            profiles.firstOrNull { it.id == target.id }?.let { surviving ->
+                store.setLastProfileRef(surviving.id, surviving.subscriptionId)
+            } ?: store.clearLastProfile()
+        }
+
         store.saveProfiles(profiles)
+        message = "Node removed • ${target.name}"
     }
 
-    fun renameProfile(id: String, name: String) {
+    fun renameProfile(id: String, name: String, sourceId: String? = null) {
         val trimmed = name.trim()
         if (trimmed.isBlank()) return
-        val idx = profiles.indexOfFirst { it.id == id }
+        val idx = profiles.indexOfFirst {
+            it.id == id && (sourceId.isNullOrBlank() || it.subscriptionId == sourceId)
+        }
         if (idx < 0) return
         profiles[idx] = profiles[idx].copy(name = trimmed)
         store.saveProfiles(profiles)
@@ -1369,8 +1495,11 @@ private fun postToMain(block: () -> Unit) {
             return 0
         }
 
-        if (lastProfile()?.id?.let { it in doomedIds } == true) {
-            store.setLastProfileId("")
+        val remembered = lastProfile()
+        if (remembered != null &&
+            remembered.subscriptionId == id &&
+            remembered.id in doomedIds) {
+            store.clearLastProfile()
         }
         doomedIds.forEach(intelligence::forgetAcceleration)
         profiles.removeAll { it.id in doomedIds }
@@ -1390,7 +1519,14 @@ private fun postToMain(block: () -> Unit) {
     }
 
     /** Reassigns a profile to another subscription bucket (or "manual") so nodes can move between library sources. */
-    fun lastProfile() = profile(store.lastProfileId())?.takeIf(::profileSourceEnabled)
+    fun lastProfile(): ProxyProfile? {
+        val id = store.lastProfileId()
+        if (id.isBlank()) return null
+
+        val sourceId = store.lastProfileSourceId()
+        val exact = profile(id, sourceId)
+        return (exact ?: profile(id))?.takeIf(::profileSourceEnabled)
+    }
 
     /** Exact one-tap reconnect for Home after app/process restart. */
     fun reconnectLastOrAuto(onConnect: (ProxyProfile) -> Unit) {
@@ -1455,6 +1591,7 @@ private fun postToMain(block: () -> Unit) {
             state = "CONNECTED"
             stateDetail = p.name
             activeProfileId = p.id
+            activeProfileSourceId = p.subscriptionId
 
             history += ConnectionRecord(
                 p.id,
@@ -1470,7 +1607,7 @@ private fun postToMain(block: () -> Unit) {
             io.execute {
                 // MARBLE_LAST_ROUTE_V37
                 // Successful connection is durable user intent.
-                runCatching { store.setLastProfileId(p.id) }
+                runCatching { store.setLastProfileRef(p.id, p.subscriptionId) }
                 runCatching {
                     store.saveHistory(historySnapshot)
                 }.onFailure {
@@ -1494,6 +1631,7 @@ private fun postToMain(block: () -> Unit) {
         val intent = Intent(context, MarbleVpnService::class.java)
             .setAction(MarbleVpnService.ACTION_START)
             .putExtra(MarbleVpnService.EXTRA_PROFILE, p.id)
+            .putExtra(MarbleVpnService.EXTRA_PROFILE_SOURCE, p.subscriptionId)
             .putExtra(MarbleVpnService.EXTRA_MODE, MarbleVpnService.MODE_TUN)
         launchConnectionService(intent, p.name)
     }
@@ -1504,6 +1642,7 @@ private fun postToMain(block: () -> Unit) {
         val intent = Intent(context, MarbleVpnService::class.java)
             .setAction(MarbleVpnService.ACTION_START)
             .putExtra(MarbleVpnService.EXTRA_PROFILE, p.id)
+            .putExtra(MarbleVpnService.EXTRA_PROFILE_SOURCE, p.subscriptionId)
             .putExtra(MarbleVpnService.EXTRA_MODE, MarbleVpnService.MODE_PROXY)
         launchConnectionService(intent, p.name)
     }
@@ -2027,33 +2166,74 @@ private fun postToMain(block: () -> Unit) {
         val expireAt: Long = 0
     )
 
+    private fun isHttpsSubscriptionUrl(url: String): Boolean =
+        url.trim().startsWith("https://", ignoreCase = true)
+
+    private fun readBoundedUtf8(input: InputStream, maxBytes: Int): String {
+        val output = ByteArrayOutputStream(minOf(maxBytes, 64 * 1024))
+        val buffer = ByteArray(16 * 1024)
+        var total = 0
+
+        while (true) {
+            val read = input.read(buffer)
+            if (read < 0) break
+            if (read == 0) continue
+
+            total += read
+            require(total <= maxBytes) {
+                "Subscription exceeds ${maxBytes / 1024 / 1024} MiB"
+            }
+            output.write(buffer, 0, read)
+        }
+        return output.toString(Charsets.UTF_8.name())
+    }
+
     private fun httpSubscription(url: String): SubscriptionPayload {
+        require(isHttpsSubscriptionUrl(url)) {
+            "Remote subscriptions must use HTTPS"
+        }
+
         if (state != "DISCONNECTED") {
             check(xray.isAlive) {
                 "Direct management request blocked while the tunnel is not healthy"
             }
 
-            // The current SOCKS helper returns the body only. Keep previously learned provider
-            // quota/expiry metadata rather than erasing it when a refresh runs through the tunnel.
-            return SubscriptionPayload(SocksHttpClient.getTextUrl(activeProxyPort(), url))
+            // Keep management traffic inside the current SOCKS route and bound the payload.
+            return SubscriptionPayload(
+                SocksHttpClient.getTextUrl(
+                    activeProxyPort(),
+                    url,
+                    maxBytes = MAX_SUBSCRIPTION_BYTES
+                )
+            )
         }
 
         val connection = URL(url).openConnection() as HttpURLConnection
         connection.connectTimeout = 12_000
         connection.readTimeout = 30_000
         connection.instanceFollowRedirects = true
-        connection.setRequestProperty("User-Agent", "MarbleNG/2 AetherFlow")
+        connection.setRequestProperty("User-Agent", "MarbleNG/3 Integrity")
 
         return try {
             val code = connection.responseCode
-            require(code in 200..299) { "HTTP $code" }
+            require(connection.url.protocol.equals("https", ignoreCase = true)) {
+                "Subscription redirect left HTTPS"
+            }
+            require(code in 200..299) { "HTTPS $code" }
+
+            val declared = connection.contentLengthLong
+            require(declared < 0 || declared <= MAX_SUBSCRIPTION_BYTES.toLong()) {
+                "Subscription exceeds ${MAX_SUBSCRIPTION_BYTES / 1024 / 1024} MiB"
+            }
 
             val userInfo = connection.getHeaderField("subscription-userinfo")
                 ?: connection.getHeaderField("Subscription-Userinfo")
                 ?: ""
 
             SubscriptionPayload(
-                text = connection.inputStream.bufferedReader().use { it.readText() },
+                text = connection.inputStream.use {
+                    readBoundedUtf8(it, MAX_SUBSCRIPTION_BYTES)
+                },
                 userInfo = userInfo
             )
         } finally {
@@ -2101,5 +2281,8 @@ private fun postToMain(block: () -> Unit) {
 
         /** Mirrors AppStore's persisted history window. */
         const val MAX_HISTORY_RECORDS = 200
+
+        /** Remote subscription payload ceiling for both direct and SOCKS management paths. */
+        const val MAX_SUBSCRIPTION_BYTES = 8 * 1024 * 1024
     }
 }

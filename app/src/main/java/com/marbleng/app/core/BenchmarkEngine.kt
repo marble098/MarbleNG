@@ -27,6 +27,7 @@ class BenchmarkEngine(
     // MARBLE_EVIDENCE_TIERS_V24
     // MARBLE_BENCHMARK_ALL_NODES_V27
     // MARBLE_DIRECT_PING_TIMEOUT_V33
+    // MARBLE_TEMP_PORT_CONSUMER_V38
 
     fun run(
         profiles: List<ProxyProfile>,
@@ -712,10 +713,10 @@ class BenchmarkEngine(
         var udpSuccess = 0
 
         runCatching {
-            xray.temporary(p, port, s) {
+            xray.temporary(p, port, s) { livePort ->
                 repeat(s.benchSamples.coerceIn(1, 8)) { sample ->
                     val r = SocksHttpClient.get(
-                        port,
+                        livePort,
                         "cp.cloudflare.com",
                         "/generate_204",
                         s.benchTimeoutSec * 1000,
@@ -729,7 +730,7 @@ class BenchmarkEngine(
                     if (includeThroughput && s.probeSpeedTest && sample == 0 && r.status > 0) {
                         var bytes = s.benchBytes.coerceIn(64 * 1024, 4 * 1024 * 1024)
                         var z = SocksHttpClient.get(
-                            port,
+                            livePort,
                             "speed.cloudflare.com",
                             "/__down?bytes=$bytes",
                             s.benchTimeoutSec * 1000 + 4_000,
@@ -747,7 +748,7 @@ class BenchmarkEngine(
                         ) {
                             bytes = max(1024 * 1024, bytes * 4).coerceAtMost(s.adaptiveThroughputMaxBytes)
                             z = SocksHttpClient.get(
-                                port,
+                                livePort,
                                 "speed.cloudflare.com",
                                 "/__down?bytes=$bytes",
                                 s.benchTimeoutSec * 1000 + 7_000,
@@ -758,7 +759,7 @@ class BenchmarkEngine(
                     }
                 }
                 if (ok > 0 && s.udpProbeEnabled) {
-                    udpSuccess = if (SocksUdpProbe.stun(port, timeoutMs = min(3500, s.benchTimeoutSec * 1000)) > 0) 100 else 0
+                    udpSuccess = if (SocksUdpProbe.stun(livePort, timeoutMs = min(3500, s.benchTimeoutSec * 1000)) > 0) 100 else 0
                 }
             }
         }
@@ -799,8 +800,8 @@ class BenchmarkEngine(
         var elapsed = 9999.0
         var ok = 0
         runCatching {
-            xray.temporary(p, port, s.copy(benchSamples = 1)) {
-                val r = SocksHttpClient.get(port, "cp.cloudflare.com", "/generate_204", s.benchTimeoutSec * 1000, 4096)
+            xray.temporary(p, port, s.copy(benchSamples = 1)) { livePort ->
+                val r = SocksHttpClient.get(livePort, "cp.cloudflare.com", "/generate_204", s.benchTimeoutSec * 1000, 4096)
                 if (r.status in 200..399) {
                     elapsed = r.elapsedMs
                     ok = 1
@@ -1047,8 +1048,8 @@ class BenchmarkEngine(
         p.scheme.lowercase() in setOf("vless", "vmess", "trojan", "ss") && !isUdpNative(p)
 
     /**
-     * Keep temporary SOCKS listeners inside a safe non-privileged range for huge subscriptions.
-     * Real-Xray fanout is <= 4 and jobs run in index order, so a 10k-slot wrap is collision-safe.
+     * Preferred ports are only hints. XrayManager owns collision-safe reservation across
+     * benchmark, race, optimizer and Turbo workers.
      */
     private fun benchmarkPort(index: Int): Int =
         BASE_PORT + (index.coerceAtLeast(0) % BENCHMARK_PORT_SLOTS) * 4

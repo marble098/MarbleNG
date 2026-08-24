@@ -41,7 +41,7 @@ Library manages subscriptions, source buckets, and nodes.
 
 #### Sources
 
-- Add remote subscription URLs.
+- Add **HTTPS** remote subscription URLs.
 - Create local source buckets.
 - Paste configs from the clipboard.
 - Import config files.
@@ -464,6 +464,17 @@ Additional implementation notes live under `docs/`, including regional protectio
 - Treat imported proxy URLs as secrets.
 - Debug output should avoid authentication material.
 - Keep Android's system VPN protection enabled when leak prevention is critical.
+
+
+## System integrity preflight
+
+`scripts/system-integrity-check.py` is a fast architecture-level regression guard that runs in
+source verification and again before the signed release build. It checks that Android lifecycle,
+persistence, exact Library identity, Xray/HEV ownership, encrypted DNS, temporary test processes,
+Marble Intelligence, diagnostics and release invariants still agree with one another.
+
+This complements — rather than replaces — Kotlin compilation, Xray config validation, JNI symbol
+verification, APK signature verification and the in-app Bug Finder runtime evidence.
 
 ## Project status
 

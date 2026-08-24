@@ -6,17 +6,27 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.lifecycle.lifecycleScope
 import com.marbleng.app.model.ConnectionMode
 import com.marbleng.app.model.ProxyProfile
 import com.marbleng.app.ui.MarbleApp
+import java.io.ByteArrayOutputStream
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
     // MARBLE_CONNECT_PERMISSION_V12
     // MARBLE_CONNECT_CLICK_GUARD_V13
     // MARBLE_LIBRARY_IMPORT_TARGET_V33
+    // MARBLE_SYSTEM_INTEGRITY_V38
     private companion object {
-        /** Survives the recreation that a rotation during the system VPN consent dialog causes. */
+        /** Survives recreation while Android's VPN consent UI is open. */
         const val KEY_PENDING_PROFILE = "pendingProfileId"
+        const val KEY_PENDING_PROFILE_SOURCE = "pendingProfileSourceId"
+
+        /** Untrusted SAF documents are bounded before parsing or Compose state mutation. */
+        const val MAX_IMPORT_BYTES = 16 * 1024 * 1024
     }
 
     private var pending: ProxyProfile? = null
@@ -49,22 +59,55 @@ class MainActivity : ComponentActivity() {
     }
 
     private val openFile = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        uri?.let { u ->
-            runCatching {
-                contentResolver.openInputStream(u)?.bufferedReader()?.use { it.readText() }
-            }.getOrNull()?.let {
-                app.repo.importText(
-                    it,
-                    "Imported file",
-                    app.repo.librarySourceFilter
+        if (uri == null) return@registerForActivityResult
+
+        // SAF providers may be remote/slow and may not expose Content-Length. Never read an
+        // arbitrary document on Android's input thread and never allocate an unbounded String.
+        lifecycleScope.launch {
+            val text = runCatching { readImportText(uri) }.getOrElse { error ->
+                app.repo.setRuntimeMessage(
+                    "Import failed • ${error.message ?: error::class.java.simpleName}"
                 )
+                return@launch
             }
+            app.repo.importText(
+                text,
+                "Imported file",
+                app.repo.librarySourceFilter
+            )
+        }
+    }
+
+    private suspend fun readImportText(uri: android.net.Uri): String = withContext(Dispatchers.IO) {
+        val input = contentResolver.openInputStream(uri)
+            ?: error("Android could not open the selected file")
+
+        input.use { stream ->
+            val output = ByteArrayOutputStream(64 * 1024)
+            val buffer = ByteArray(16 * 1024)
+            var total = 0
+
+            while (true) {
+                val read = stream.read(buffer)
+                if (read < 0) break
+                if (read == 0) continue
+
+                total += read
+                require(total <= MAX_IMPORT_BYTES) {
+                    "Import exceeds ${MAX_IMPORT_BYTES / 1024 / 1024} MiB"
+                }
+                output.write(buffer, 0, read)
+            }
+            output.toString(Charsets.UTF_8.name())
         }
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
-        pending?.let { outState.putString(KEY_PENDING_PROFILE, it.id) }
+        pending?.let {
+            outState.putString(KEY_PENDING_PROFILE, it.id)
+            outState.putString(KEY_PENDING_PROFILE_SOURCE, it.subscriptionId)
+        }
     }
 
     // MARBLE_APP_UPDATE_FOREGROUND_V102
@@ -76,7 +119,8 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         savedInstanceState?.getString(KEY_PENDING_PROFILE)?.let { id ->
-            pending = app.repo.profile(id)
+            val sourceId = savedInstanceState.getString(KEY_PENDING_PROFILE_SOURCE)
+            pending = app.repo.profile(id, sourceId)
         }
         setContent {
             MarbleApp(app.repo, ::connect) {

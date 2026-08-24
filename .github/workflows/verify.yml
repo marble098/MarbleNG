@@ -77,100 +77,11 @@ jobs:
               raise SystemExit('Routing invariant failure: ' + ', '.join(failed))
           PY
 
-      - name: Source-wide Marble regression audit
+      - name: Source-wide Marble system integrity audit
         shell: bash
         run: |
           set -euo pipefail
-          python3 - <<'PY'
-          from pathlib import Path
-          import re
-
-          root=Path('.')
-          scanned=0
-          decode_fail=[]
-          for ext in ('*.kt','*.kts','*.xml','*.yml','*.yaml','*.sh','*.pro'):
-              for path in root.rglob(ext):
-                  if any(part in {'.git','.gradle','build'} for part in path.parts):
-                      continue
-                  scanned += 1
-                  try:
-                      path.read_text(encoding='utf-8')
-                  except UnicodeDecodeError:
-                      decode_fail.append(str(path))
-
-          if decode_fail:
-              raise SystemExit('Non UTF-8 source files: '+', '.join(decode_fail))
-
-          ui=Path('app/src/main/java/com/marbleng/app/ui/Aether2026.kt').read_text()
-          repo=Path('app/src/main/java/com/marbleng/app/AppRepository.kt').read_text()
-          vpn=Path('app/src/main/java/com/marbleng/app/vpn/MarbleVpnService.kt').read_text()
-          socks=Path('app/src/main/java/com/marbleng/app/core/SocksHttpClient.kt').read_text()
-          manual=Path('app/src/main/java/com/marbleng/app/core/ManualConfigBuilder.kt').read_text()
-          xray=Path('app/src/main/java/com/marbleng/app/core/XrayManager.kt').read_text()
-          bugfinder=Path('app/src/main/java/com/marbleng/app/core/BugFinder.kt').read_text()
-
-          start_begin=xray.index('fun start(')
-          stop_begin=xray.index('fun stop()', start_begin)
-          xray_start=xray[start_begin:stop_begin]
-
-          strict={
-              'v9.1 marker':'Marble Product UI v9.1.0' in ui,
-              'no glyph-font tab icons':'val glyph: String' not in ui,
-              'Canvas tab icons':'private fun MarbleTabIcon(' in ui,
-              'no raw Material Switch':'SwitchDefaults.colors(' not in ui,
-              'custom Marble toggle':'private fun MarbleToggle(' in ui,
-              'live route score state':'var liveRouteScore by mutableStateOf(-1)' in repo,
-              'live score samples':'var liveRouteSamples by mutableStateOf(0)' in repo,
-              'scientific decay score':'calculateLiveRouteScore' in repo and 'latencyFactor' in repo,
-              'fast initial route sample':vpn.count('sampleRouteLatency(session, port, generation)') >= 3,
-              'adaptive live cadence':'ROUTE_PROBE_INTERVAL_TICKS = 20' in vpn and 'ROUTE_DEGRADED_PROBE_TICKS = 8' in vpn,
-              'verified live RTT':'httpsFirstByteLatency(' in socks and 'verified-https-ttfb' in vpn,
-              'jitter readiness model':'liveJitterSamples' in repo and 'jitterSampleCount' in vpn,
-              'coherent verified jitter burst':'LIVE_RTT_BURST_SAMPLES = 5' in vpn and 'verified-https-ttfb-burst' in vpn and 'zipWithNext' in vpn,
-              'forced Iran scan bypass':'MARBLE_IRAN_FORCE_RUNTIME_V22' in repo and 'MARBLE_IRAN_DETECTOR_HARDENING_V22' in Path('app/src/main/java/com/marbleng/app/core/IranModeDetector.kt').read_text(),
-              'modern home command center':'MARBLE_HOME_COMMAND_CENTER_V22' in ui and 'routeScore = repo.liveRouteScore' in ui,
-              'split list not truncated':'.take(48)' not in ui,
-              'old race score floor absent':'maxOf(80.0, raced.second.score)' not in repo,
-              'fast page motion':'marble-page-transition-fast' in ui,
-              'structured manual configs':'MARBLE_MANUAL_CONFIGS_V20' in manual and 'ManualConfigDraft' in manual,
-              'manual protocol breadth':all(x in manual for x in ['VLESS(', 'VMESS(', 'TROJAN(', 'SHADOWSOCKS(', 'HYSTERIA2(', 'HTTP(', 'HTTPS(', 'SOCKS5(', 'WIREGUARD(', 'XRAY_JSON(']),
-              'manual repo integration':'fun addManualProfile(draft: ManualConfigDraft)' in repo,
-              'manual editor UI':'private fun ManualConfigEditor(' in ui and 'library-add-mode-v20' in ui,
-              'connection detail motion':'connection-detail-container-transform-v20' in ui and 'private fun ConnectionDetailPage(' in ui,
-              'concise optional headers':'if (subtitle.isNotBlank())' in ui,
-              'no fake native SSH':'ManualProtocol.SSH' not in manual and 'protocol\", \"ssh' not in manual,
-              'v21 runtime rescue markers':all('MARBLE_RUNTIME_STARTUP_RESCUE_V21' in src for src in [xray, vpn, bugfinder]),
-              'connect path local-only assets':'prepareRoutingAssetsForConnect(settings)' in xray_start and 'prepareRoutingAssets(settings' not in xray_start and 'downloadAsset(' not in xray_start,
-              'cancellable Xray lifecycle':all(x in xray for x in ['lifecycleGeneration', 'beginStartTicket()', 'publishProcess(', 'detachOwnedProcess(']) and '@Synchronized\n    fun start(' not in xray,
-              'generation-safe Xray diagnostics':'publishStartState(' in xray and 'failStart(' in xray,
-              'bounded asset update conflict':'assetLock.tryLock(250L, TimeUnit.MILLISECONDS)' in xray,
-              'watchdog cancels core start':'startup-cancel-request' in vpn,
-              'START command supersession':'startCommandGeneration' in vpn and 'start-command-superseded' in vpn,
-              'Xray startup phase evidence':'"start-result"' in vpn and 'lastStartPhase' in xray,
-              'stale core result suppressed':'"start-result-stale"' in vpn and 'if (!isCurrent(session))' in vpn,
-              'Bug Finder startup stall detection':'Queued START stalled before connect-request' in bugfinder and 'Latest connection attempt hit the startup timeout' in bugfinder,
-          }
-          failed=[k for k,v in strict.items() if not v]
-          if failed:
-              raise SystemExit('Regression audit failure: '+', '.join(failed))
-
-          suspicious=[]
-          forbidden_patterns={
-              'GlobalScope':r'\bGlobalScope\.',
-              'blocking UI sleep':r'Aether2026\.kt.*Thread\.sleep',
-          }
-          all_kotlin='\n'.join(
-              p.read_text(encoding='utf-8')
-              for p in Path('app/src/main/java').rglob('*.kt')
-          )
-          if re.search(forbidden_patterns['GlobalScope'],all_kotlin):
-              suspicious.append('GlobalScope usage')
-
-          if suspicious:
-              raise SystemExit('Source-wide unsafe pattern: '+', '.join(suspicious))
-
-          print(f'[OK] source-wide audit scanned {scanned} text source files')
-          PY
+          python3 scripts/system-integrity-check.py
 
       - name: Verify Product UI v9.1 invariants
         shell: bash
