@@ -726,15 +726,26 @@ jobs:
           - Rank, Library, Privacy and Routing portals now use matching Canvas vectors.
           - Upload/download and Home status chips are font-independent.
 
+          ### Rank recovery & cleaner node interaction
+          - Fixed the 1.2.4 regression that could report 0 reachable nodes even when every configuration connected successfully.
+          - Replaced the fragile single-connection 204 sequence with independent certificate-verified, post-TLS first-byte samples.
+          - Matched Rank to connected telemetry by probing literal Cloudflare anycast IPs, removing temporary-Xray DNS failures from the result.
+          - Preserved median latency, jitter, sample loss and full real-Xray verification across every selected configuration.
+          - Moved Library test progress out of the Ping action and into a dedicated animated status panel with preparation, node name and completed/total state.
+          - Removed progress counters from action buttons, including the misleading initial 0/0 label.
+          - Removed the redundant power/stop control from every Library node card.
+          - Made the full node card the Connect target while keeping the overflow menu independent.
+          - Removed the redundant Active badge below node cards; the selected card remains visually highlighted.
+
           ### Fast, accurate Tunnel Rank
           - Replaced timeout-inflated cold HTTPS timings with verified warm-tunnel HTTP RTT samples through each exact Xray configuration.
-          - Added one uncounted warm-up followed by three tiny HTTPS 204 probes on the same certificate-verified TLS connection.
+          - Added one uncounted warm-up followed by three certificate-verified samples with median and jitter aggregation.
           - Tunnel latency now reports the median successful warm sample; timeouts remain failures and are never displayed as synthetic 5000/9999 ms pings.
           - Added tunnel delay variation (jitter) to node cards and incorporated it into interactive and stability ranking.
           - Kept every selected configuration in Rank; no TCP-only shortcut can incorrectly label an unverified proxy as healthy.
           - Reduced Rank probe deadlines and disabled unrelated speed/UDP work so large libraries finish substantially faster.
           - Shortened cleanup of throwaway benchmark Xray workers without changing the safer live-VPN shutdown path.
-          - Added an independent 204 fallback target and monotonic Android elapsed-time measurement.
+          - Added an independent DNS-free fallback target and monotonic Android elapsed-time measurement.
           - Kept progressive per-node results and source-scoped ranking, while preserving full Xray verification for every finalist.
 
           ### Latest UI & first-run setup

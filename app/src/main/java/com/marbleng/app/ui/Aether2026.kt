@@ -25,6 +25,7 @@ package com.marbleng.app.ui
 // MARBLE_SYSTEM_INTEGRITY_UI_V38
 // MARBLE_UPDATE_DOCK_UI_V39
 // MARBLE_NODE_ENDPOINT_UI_V40
+// MARBLE_RANK_RECOVERY_CARD_UX_V43
 
 import android.Manifest
 import android.content.Intent
@@ -1358,7 +1359,7 @@ private fun CyberDeck(
                     Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                         HomeActionPortal(
                             HomeIcon.RANK, "Rank all",
-                            if (repo.probeActive) "${repo.probeDone}/${repo.probeTotal} Xray" else "Xray • ${repo.libraryProfiles.size} nodes",
+                            "Xray • ${repo.libraryProfiles.size} nodes",
                             Aether.Cyan, Modifier.weight(1f)
                         ) { repo.smartRank() }
                         HomeActionPortal(
@@ -3025,7 +3026,7 @@ private fun LibraryControlDeck(
 
             LibraryMicroAction(
                 HomeIcon.PING,
-                if (repo.probeActive) "${repo.probeDone}/${repo.probeTotal}" else "Ping",
+                "Ping",
                 Aether.Cyan,
                 Modifier.weight(1f),
                 selectedCount > 0 && !repo.busy
@@ -3038,6 +3039,65 @@ private fun LibraryControlDeck(
                 Modifier.weight(1f),
                 selectedCount > 0 && !repo.busy
             ) { repo.smartRankSource(sourceFilter) }
+        }
+
+        AnimatedVisibility(
+            visible = repo.probeActive,
+            enter = fadeIn(MarbleMotionSpecs.ResponseFloat) +
+                expandVertically(MarbleMotionSpecs.Layout),
+            exit = fadeOut(MarbleMotionSpecs.ExitFloat) +
+                shrinkVertically(MarbleMotionSpecs.Layout)
+        ) {
+            HoloGlass(
+                modifier = Modifier.fillMaxWidth(),
+                borderColor = Aether.Cyan.copy(alpha = .30f),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(9.dp)
+                ) {
+                    HomeIconTile(HomeIcon.BENCHMARK, Aether.Cyan)
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            "NODE TEST IN PROGRESS",
+                            color = Aether.Cyan,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            repo.probeCurrentName.ifBlank { "Preparing selected nodes…" },
+                            color = Aether.Ink,
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    HoloBadge(
+                        if (repo.probeTotal > 0) {
+                            "${repo.probeDone.coerceAtMost(repo.probeTotal)}/${repo.probeTotal}"
+                        } else {
+                            "PREPARING"
+                        },
+                        Aether.Cyan,
+                        compact = true
+                    )
+                }
+                LiveProgressBar(
+                    fraction = if (repo.probeTotal > 0) {
+                        repo.probeDone.toFloat() / repo.probeTotal.toFloat()
+                    } else {
+                        null
+                    },
+                    color = Aether.Cyan
+                )
+                Text(
+                    "Results appear on each node as soon as its verification finishes.",
+                    color = Aether.InkFaint,
+                    style = MaterialTheme.typography.labelSmall
+                )
+            }
         }
     }
 }
@@ -3259,7 +3319,11 @@ private fun SpatialServerCard(
     HoloGlass(
         modifier = Modifier
             .fillMaxWidth()
-            .animateContentSize(MarbleMotionSpecs.Layout),
+            .animateContentSize(MarbleMotionSpecs.Layout)
+            .kineticClickable(
+                enabled = !repo.busy && !active,
+                role = Role.Button
+            ) { onConnect(profile) },
         borderColor = when {
             testing -> Aether.Cyan.copy(alpha = .55f)
             active -> Aether.Emerald.copy(alpha = .55f)
@@ -3268,9 +3332,7 @@ private fun SpatialServerCard(
         contentPadding = PaddingValues(start = 14.dp, top = 12.dp, end = 8.dp, bottom = 12.dp)
     ) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .kineticClickable(role = Role.Button, onClick = onDetails),
+            modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(Modifier.weight(1f)) {
@@ -3353,23 +3415,6 @@ private fun SpatialServerCard(
                     )
                 }
                 Spacer(Modifier.width(7.dp))
-            }
-
-            Box(
-                modifier = Modifier
-                    .size(40.dp)
-                    .clip(RoundedCornerShape(14.dp))
-                    .background((if (active) Aether.Emerald else Aether.Cyan).copy(alpha = .12f))
-                    .kineticClickable(role = Role.Button) {
-                        if (active) repo.stopVpn() else onConnect(profile)
-                    },
-                contentAlignment = Alignment.Center
-            ) {
-                HomeVectorIcon(
-                    if (active) HomeIcon.STOP else HomeIcon.POWER,
-                    if (active) Aether.Emerald else Aether.Cyan,
-                    Modifier.size(18.dp)
-                )
             }
 
             Box {
@@ -3532,14 +3577,13 @@ private fun SpatialServerCard(
             }
         }
 
-        if (active || measured != null) {
+        if (measured != null) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(7.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                if (active) HoloBadge("Active", Aether.Emerald, compact = true)
-                measured?.let { evidence ->
+                measured.let { evidence ->
                     HoloBadge(
                         evidence.probeKind,
                         if (evidence.probeKind == "TUNNEL") Aether.Emerald else Aether.Cyan,

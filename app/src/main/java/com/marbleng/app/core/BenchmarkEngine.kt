@@ -29,6 +29,7 @@ class BenchmarkEngine(
     // MARBLE_DIRECT_PING_TIMEOUT_V33
     // MARBLE_TEMP_PORT_CONSUMER_V38
     // MARBLE_WARM_TUNNEL_RANK_V42
+    // MARBLE_RANK_RECOVERY_CARD_UX_V43
 
     fun run(
         profiles: List<ProxyProfile>,
@@ -1097,9 +1098,11 @@ class BenchmarkEngine(
         const val BENCHMARK_PORT_SLOTS = 10_000
         const val RACE_BASE_PORT = 19280
         const val OPTIMIZER_BASE_PORT = 20580
+        // Match connected telemetry exactly: literal anycast IPs avoid temporary-Xray DNS
+        // dependency, while certificate-verified HTTPS still proves real response traffic.
         val TUNNEL_PROBE_TARGETS = listOf(
-            "connectivitycheck.gstatic.com" to "/generate_204",
-            "cp.cloudflare.com" to "/generate_204"
+            "1.1.1.1" to "/cdn-cgi/trace",
+            "1.0.0.1" to "/cdn-cgi/trace"
         )
         const val DEAD_LATENCY = 99_999.0
     }
