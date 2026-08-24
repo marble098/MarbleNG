@@ -726,6 +726,17 @@ jobs:
           - Rank, Library, Privacy and Routing portals now use matching Canvas vectors.
           - Upload/download and Home status chips are font-independent.
 
+          ### Smart Tunnel Rank v45
+          - Rebuilt Rank around the real-delay model used by v2rayNG 2.3.5 instead of tuning the failed v44 session heuristic.
+          - Wired the Settings Smart mode into Rank; Smart now performs a safe one-second TCP precheck only for simple TCP profiles, while complex, UDP-native and HTTP/3 profiles go directly to the real test.
+          - Every selected configuration remains visible in batch progress and receives its own final result, including TCP-gate failures.
+          - Added a dedicated lightweight Xray delay-test config that strips managed DNS, routing, stats, policy, observatory, fake DNS, Fragment and Mux state.
+          - Replaced rotating HEAD checks with two complete certificate-verified HTTPS GET attempts against the standard generate_204 endpoint and one ordered fallback.
+          - Only HTTP 200/204 counts as tunnel health; Rank keeps the minimum valid delay and never converts a timeout into a large synthetic ping.
+          - Increased isolated real-delay concurrency to a safe maximum of eight external Xray workers for substantially faster full-library completion.
+          - Cleared stale card results at batch start and added per-node failure-stage evidence to Bug Finder diagnostics.
+          - Preserved source-scoped testing, physical-network generation protection and deterministic temporary-process cleanup.
+
           ### Repeatable Tunnel Rank
           - Fixed the repeated-run regression where the same healthy library could fall from many reachable nodes to 5 and then 0.
           - Removed the synchronized warm-up plus three-new-TLS-session burst that created up to 60 proxy/server sessions for a 15-node Rank.

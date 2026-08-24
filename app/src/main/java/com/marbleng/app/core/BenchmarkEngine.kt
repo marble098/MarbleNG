@@ -31,11 +31,13 @@ class BenchmarkEngine(
     // MARBLE_WARM_TUNNEL_RANK_V42
     // MARBLE_RANK_RECOVERY_CARD_UX_V43
     // MARBLE_REPEATABLE_RANK_V44
+    // MARBLE_V2RAYNG_SMART_RANK_V45
 
     fun run(
         profiles: List<ProxyProfile>,
         settings: AppSettings,
         usePrecheck: Boolean = true,
+        v2rayStyleDelay: Boolean = false,
         onCandidates: (List<ProxyProfile>) -> Unit = {},
         onStart: (ProxyProfile) -> Unit = {},
         onResult: (ProxyProfile, BenchmarkResult) -> Unit = { _, _ -> },
@@ -46,8 +48,9 @@ class BenchmarkEngine(
         val batchNetworkKey = intelligence?.currentSnapshot()?.key()
         // TUNNEL means "test everything for real"; HYBRID keeps the cheap TCP gate in front of the
         // expensive tunnel tests, which is what makes a large library finish in reasonable time.
-        val precheck = usePrecheck && s.probeMethod != ProbeMethod.TUNNEL
-        // The same node can legitimately appear in two subscriptions; test it once.
+        // The v2rayNG-style path keeps every card in the batch and applies its safe TCP gate
+        // inside that card's worker. A gate failure is therefore visible instead of disappearing.
+        val precheck = usePrecheck && s.probeMethod != ProbeMethod.TUNNEL && !v2rayStyleDelay
         val candidates = selectCandidates(profiles, s, precheck).distinctBy { it.id }
         if (candidates.isEmpty()) return emptyList()
         onCandidates(candidates)
@@ -56,12 +59,12 @@ class BenchmarkEngine(
         val cpu = Runtime.getRuntime().availableProcessors().coerceAtLeast(2)
         // Probing waits on sockets far more than on the CPU, and direct probes spawn no process at
         // all, so the old (cpu / 2) cap left most of the batch idle behind four workers.
-        val nominalWorkers = if (directProbe(s)) {
-            // Direct probes are socket-wait bound. Honor the bounded ping-concurrency control.
-            s.tcpWorkers.coerceIn(4, 32)
-        } else {
-            // Real Xray tests launch temporary native processes. Bound fanout for large batches.
-            cpu.coerceIn(2, 4)
+        val nominalWorkers = when {
+            directProbe(s) -> s.tcpWorkers.coerceIn(4, 32)
+            // v2rayNG defaults to 16 in-process probes. MarbleNG uses external Xray children, so
+            // eight isolated lightweight workers is the equivalent safe Android bound.
+            v2rayStyleDelay -> s.tcpWorkers.coerceIn(4, 8)
+            else -> cpu.coerceIn(2, 4)
         }
         val liveWorkers = max(1, (nominalWorkers * thermal).toInt())
             .coerceAtMost(candidates.size)
@@ -74,7 +77,7 @@ class BenchmarkEngine(
                 onStart(p)
                 // Score each measurement as it lands so the caller can publish a finished node
                 // immediately instead of holding every result back until the batch ends.
-                val measured = testCandidate(p, benchmarkPort(idx), s)
+                val measured = testCandidate(p, benchmarkPort(idx), s, v2rayStyleDelay)
                 val result = rank(listOf(measured), s).firstOrNull() ?: measured
                 results += result
                 // TCP/ICMP proves endpoint reachability, not that the Xray route/account works.
@@ -620,7 +623,8 @@ class BenchmarkEngine(
         val udpSuccess: Int,
         val jitter: Double = 0.0,
         val warmup: Double = 0.0,
-        val sampleCount: Int = 0
+        val sampleCount: Int = 0,
+        val failureReason: String = ""
     )
 
     /** True when the selected method never needs a temporary Xray process. */
@@ -654,8 +658,26 @@ class BenchmarkEngine(
         )
     }
 
-    private fun testCandidate(p: ProxyProfile, port: Int, s: AppSettings): BenchmarkResult {
+    private fun testCandidate(
+        p: ProxyProfile,
+        port: Int,
+        s: AppSettings,
+        v2rayStyleDelay: Boolean = false
+    ): BenchmarkResult {
         if (directProbe(s)) return directResult(p, s)
+        if (v2rayStyleDelay) {
+            if (s.probeMethod == ProbeMethod.HYBRID && !bypassSmartTcpGate(p) &&
+                tcpLatency(p, s.tcpPrecheckTimeoutMs.coerceIn(500, 1_500)) >= DEAD_LATENCY
+            ) {
+                return benchmarkResult(
+                    p,
+                    Measurement(0, 9999.0, 0.0, 0, failureReason = "tcp-precheck"),
+                    false,
+                    false
+                )
+            }
+            return benchmarkResult(p, measure(p, port, s, false, true), false, false)
+        }
         val effective = intelligence?.effectiveSettings(p, s) ?: s
         if (!s.verifiedPerformanceTuning) {
             val direct = measure(p, port, effective, true)
@@ -697,7 +719,7 @@ class BenchmarkEngine(
         udpSuccess = m.udpSuccess, interactiveScore = 0.0, streamingScore = 0.0,
         stabilityScore = 0.0, resilienceScore = 0.0, usedFragment = usedFragment,
         usedMux = usedMux, jitterMs = m.jitter, warmupMs = m.warmup,
-        sampleCount = m.sampleCount
+        sampleCount = m.sampleCount, failureReason = m.failureReason.take(180)
     )
 
     private fun materiallyBetter(candidate: Measurement, baseline: Measurement): Boolean {
@@ -717,26 +739,38 @@ class BenchmarkEngine(
         p: ProxyProfile,
         port: Int,
         s: AppSettings,
-        includeThroughput: Boolean
+        includeThroughput: Boolean,
+        v2rayStyleDelay: Boolean = false
     ): Measurement {
-        val requested = s.benchSamples.coerceIn(1, 8)
-        val timeoutMs = (s.benchTimeoutSec * 1000).coerceIn(1_200, 2_500)
+        val requested = if (v2rayStyleDelay) 2 else s.benchSamples.coerceIn(1, 8)
+        val timeoutMs = if (v2rayStyleDelay) {
+            (s.benchTimeoutSec * 1000).coerceIn(4_000, 12_000)
+        } else {
+            (s.benchTimeoutSec * 1000).coerceIn(1_200, 2_500)
+        }
         var times = emptyList<Double>()
         var warmup = 0.0
         var speed = 0.0
         var udpSuccess = 0
+        var failureReason = "xray-start"
 
-        runCatching {
-            xray.temporary(p, port, s) { livePort ->
+        val started = runCatching {
+            xray.temporary(p, port, s, delayTest = v2rayStyleDelay) { livePort ->
                 // Official Xray HTTPing defaults to gstatic 204. Cloudflare is an independent
                 // fallback for routes where that origin is unavailable. A timeout is a failed
                 // sample, never a synthetic 5000/9999 ms latency value.
-                val start = Math.floorMod(
-                    TUNNEL_TARGET_CURSOR.getAndIncrement() + p.id.hashCode(),
-                    TUNNEL_PROBE_TARGETS.size
-                )
-                val batch = (TUNNEL_PROBE_TARGETS.indices).firstNotNullOfOrNull { offset ->
-                    val target = TUNNEL_PROBE_TARGETS[(start + offset) % TUNNEL_PROBE_TARGETS.size]
+                val targets = if (v2rayStyleDelay) {
+                    REAL_DELAY_TARGETS
+                } else {
+                    val start = Math.floorMod(
+                        TUNNEL_TARGET_CURSOR.getAndIncrement() + p.id.hashCode(),
+                        TUNNEL_PROBE_TARGETS.size
+                    )
+                    TUNNEL_PROBE_TARGETS.indices.map { offset ->
+                        TUNNEL_PROBE_TARGETS[(start + offset) % TUNNEL_PROBE_TARGETS.size]
+                    }
+                }
+                val batch = targets.firstNotNullOfOrNull { target ->
                     runCatching {
                         SocksHttpClient.tunnelRttBatch(
                             port = livePort,
@@ -745,11 +779,14 @@ class BenchmarkEngine(
                             samples = requested,
                             timeoutMs = timeoutMs
                         )
+                    }.onFailure { error ->
+                        failureReason = "https:${error::class.java.simpleName}:${error.message.orEmpty()}"
                     }.getOrNull()
                 }
                 if (batch != null) {
                     times = batch.samplesMs.filter { it.isFinite() && it > 0.0 }
                     warmup = batch.warmupMs
+                    failureReason = ""
                 }
 
                 if (includeThroughput && s.probeSpeedTest && times.isNotEmpty()) {
@@ -789,7 +826,8 @@ class BenchmarkEngine(
                     ) 100 else 0
                 }
             }
-        }
+        }.getOrDefault(false)
+        if (!started && failureReason.isBlank()) failureReason = "xray-start"
 
         fun median(values: List<Double>): Double {
             if (values.isEmpty()) return 0.0
@@ -799,11 +837,15 @@ class BenchmarkEngine(
             else (orderedValues[middle - 1] + orderedValues[middle]) / 2.0
         }
         val ordered = times.sorted()
-        val latency = if (ordered.isEmpty()) 9999.0 else median(ordered)
+        val latency = if (ordered.isEmpty()) 9999.0 else if (v2rayStyleDelay) ordered.first() else median(ordered)
         val variation = times.zipWithNext { a, b -> kotlin.math.abs(b - a) }.sorted()
         val jitter = median(variation)
-        val success = times.size * 100 / requested
-        return Measurement(success, latency, speed, udpSuccess, jitter, warmup, times.size)
+        val success = if (v2rayStyleDelay) {
+            if (times.isNotEmpty()) 100 else 0
+        } else {
+            times.size * 100 / requested
+        }
+        return Measurement(success, latency, speed, udpSuccess, jitter, warmup, times.size, failureReason)
     }
 
     private fun quickCandidate(p: ProxyProfile, port: Int, s: AppSettings): BenchmarkResult {
@@ -1084,6 +1126,15 @@ class BenchmarkEngine(
         p.scheme.equals("hysteria2", true) || p.scheme.equals("wireguard", true) ||
             p.transport.contains("hysteria", true) || p.transport.equals("mkcp", true) || p.transport.equals("kcp", true)
 
+    /** v2rayNG bypasses TCP gating for complex, UDP-native and HTTP/3 profiles. */
+    private fun bypassSmartTcpGate(p: ProxyProfile): Boolean {
+        val complex = p.scheme.lowercase() in setOf("custom", "json", "ssh", "chain") ||
+            p.configJson.count { it == '{' } > 18
+        val h3 = p.transport.contains("h3", true) || p.transport.contains("quic", true) ||
+            p.configJson.contains("\"h3", true)
+        return complex || h3 || isUdpNative(p)
+    }
+
     private fun canFragment(p: ProxyProfile): Boolean =
         !isUdpNative(p) && (p.security.contains("tls", true) || p.security.contains("reality", true))
 
@@ -1117,6 +1168,11 @@ class BenchmarkEngine(
             "1.0.0.1" to "/cdn-cgi/trace"
         )
         val TUNNEL_TARGET_CURSOR = AtomicInteger(0)
+        // v2rayNG 2.3.5 default followed by its connected-check fallback.
+        val REAL_DELAY_TARGETS = listOf(
+            "www.gstatic.com" to "/generate_204",
+            "www.google.com" to "/generate_204"
+        )
         const val DEAD_LATENCY = 99_999.0
     }
 }

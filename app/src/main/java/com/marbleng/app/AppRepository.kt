@@ -48,6 +48,7 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     // MARBLE_SYSTEM_INTEGRITY_REPO_V38
     // MARBLE_WARM_TUNNEL_RANK_V42
     // MARBLE_REPEATABLE_RANK_V44
+    // MARBLE_V2RAYNG_SMART_RANK_V45
 
     private val store = AppStore(context)
     private val io = Executors.newFixedThreadPool(3)
@@ -1695,6 +1696,10 @@ private fun postToMain(block: () -> Unit) {
      * Folds a fresh measurement set into the existing evidence table instead of replacing it.
      * Testing one node used to erase every other measured route from Library/Quality.
      */
+    private fun clearBenchmarks(ids: Set<String>) = postToMain {
+        benchmarks = benchmarks.filterNot { it.profileId in ids }
+    }
+
     private fun mergeBenchmarks(fresh: List<BenchmarkResult>) {
         if (fresh.isEmpty()) return
         val incoming = fresh.toList()
@@ -1765,16 +1770,22 @@ private fun postToMain(block: () -> Unit) {
 
         task("Smart rank • $scope") {
             val scoped = candidates
+            clearBenchmarks(scoped.mapTo(mutableSetOf()) { it.id })
+            val configuredRankMethod = when (settings.probeMethod) {
+                ProbeMethod.TUNNEL -> ProbeMethod.TUNNEL
+                else -> ProbeMethod.HYBRID
+            }
             val rankSettings = settings.copy(
                 benchMode = BenchMode.CUSTOM,
                 benchCandidates = scoped.size.coerceAtLeast(1),
                 // Three bounded application RTT samples share one verified tunnel/TLS
                 // session. The first verified response is health evidence, not a discarded warm-up.
-                benchSamples = 3,
-                benchTimeoutSec = minOf(settings.benchTimeoutSec, 3),
-                tcpPrecheckTimeoutMs = minOf(settings.tcpPrecheckTimeoutMs, 650),
-                tcpWorkers = maxOf(settings.tcpWorkers, 24).coerceAtMost(32),
-                probeMethod = ProbeMethod.TUNNEL,
+                // v2rayNG real delay: two GET attempts, 12 s ceiling, minimum valid result.
+                benchSamples = 2,
+                benchTimeoutSec = settings.benchTimeoutSec.coerceIn(6, 12),
+                tcpPrecheckTimeoutMs = settings.tcpPrecheckTimeoutMs.coerceIn(750, 1_500),
+                tcpWorkers = settings.tcpWorkers.coerceIn(4, 8),
+                probeMethod = configuredRankMethod,
                 probeSpeedTest = false,
                 verifiedPerformanceTuning = false,
                 udpProbeEnabled = false
@@ -1782,7 +1793,8 @@ private fun postToMain(block: () -> Unit) {
             fun executeRank(): List<BenchmarkResult> = BenchmarkEngine(xray, intelligence).run(
                 scoped,
                 rankSettings,
-                usePrecheck = false,
+                usePrecheck = configuredRankMethod == ProbeMethod.HYBRID,
+                v2rayStyleDelay = true,
                 onCandidates = ::beginProbeBatch,
                 onStart = ::markProbeStart,
                 onResult = ::markProbeResult
@@ -1808,6 +1820,15 @@ private fun postToMain(block: () -> Unit) {
 
             val healthy = results.count { it.success > 0 }
             val best = results.firstOrNull { it.success > 0 }
+            results.filter { it.success <= 0 }.forEach { failed ->
+                diagnostics.event(
+                    "BENCHMARK",
+                    "rank-node-failed",
+                    "profile" to failed.profileId.take(24),
+                    "name" to failed.name.take(48),
+                    "stage" to failed.failureReason.take(180)
+                )
+            }
             diagnostics.event(
                 "BENCHMARK",
                 "smart-rank-source-finish",
@@ -1815,7 +1836,9 @@ private fun postToMain(block: () -> Unit) {
                 "scope" to scope,
                 "requested" to scoped.size,
                 "tested" to results.size,
-                "healthy" to healthy
+                "healthy" to healthy,
+                "method" to configuredRankMethod.name,
+                "engine" to "isolated-xray-real-delay-v45"
             )
             message = if (best == null) {
                 "Tunnel rank • $scope • ${results.size}/${scoped.size} tested • 0 healthy"

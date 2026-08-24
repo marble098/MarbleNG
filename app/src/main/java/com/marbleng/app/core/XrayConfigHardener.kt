@@ -17,6 +17,7 @@ object XrayConfigHardener {
     // MARBLE_RUNTIME_POLISH_V29
     // MARBLE_EXTREME_NETWORK_V30
     // MARBLE_DNS_PROVIDER_FAILOVER_V35
+    // MARBLE_V2RAYNG_SMART_RANK_V45
     private val infra = setOf("freedom", "blackhole", "dns", "loopback")
     private val compatibilityDependencyProtocols = setOf(
         "freedom", "http", "shadowsocks", "socks", "trojan", "vless", "vmess", "hysteria", "wireguard"
@@ -68,6 +69,67 @@ object XrayConfigHardener {
 
         exitRoot.put("outbounds", JSONArray().put(exit).put(entry))
         return exitRoot.toString()
+    }
+
+    /**
+     * Dedicated real-delay config, modelled after v2rayNG 2.3.5 postProcessForSpeedtest().
+     * A CLI child needs one local SOCKS inbound (gomobile core.Dial does not), but everything not
+     * required to establish the selected outbound is removed so repeated Rank runs are isolated.
+     */
+    fun hardenForDelayTest(source: String, socksPort: Int): String {
+        require(socksPort in 1..65535) { "Invalid delay-test SOCKS port" }
+        val root = JSONObject(source)
+        val imported = root.optJSONArray("outbounds") ?: error("Xray JSON has no outbounds")
+        val byTag = linkedMapOf<String, JSONObject>()
+        var selectedTag = ""
+
+        for (index in 0 until imported.length()) {
+            val outbound = imported.optJSONObject(index)?.let { JSONObject(it.toString()) } ?: continue
+            val protocol = outbound.optString("protocol").lowercase()
+            val tag = outbound.optString("tag").ifBlank {
+                if (protocol !in infra && selectedTag.isBlank()) "proxy" else "delay-out-$index"
+            }
+            outbound.put("tag", tag)
+            byTag[tag] = outbound
+            if (protocol !in infra && selectedTag.isBlank()) selectedTag = tag
+        }
+        require(selectedTag.isNotBlank()) { "No proxy outbound for delay test" }
+
+        val required = linkedSetOf<String>()
+        fun keep(tag: String) {
+            val outbound = byTag[tag] ?: return
+            if (!required.add(tag)) return
+            outbound.optJSONObject("proxySettings")?.optString("tag")
+                ?.takeIf { it.isNotBlank() }?.let(::keep)
+            outbound.optJSONObject("streamSettings")?.optJSONObject("sockopt")
+                ?.optString("dialerProxy")?.takeIf { it.isNotBlank() }?.let(::keep)
+        }
+        keep(selectedTag)
+
+        val outbounds = JSONArray()
+        required.forEach { tag ->
+            byTag[tag]?.let { outbound ->
+                outbound.remove("mux")
+                outbounds.put(outbound)
+            }
+        }
+
+        val inbound = JSONObject()
+            .put("tag", "delay-socks")
+            .put("listen", "127.0.0.1")
+            .put("port", socksPort)
+            .put("protocol", "socks")
+            .put("settings", JSONObject().put("auth", "noauth").put("udp", true))
+            .put("sniffing", JSONObject().put("enabled", false))
+
+        root.put("inbounds", JSONArray().put(inbound))
+        root.put("outbounds", outbounds)
+        listOf(
+            "dns", "fakedns", "routing", "stats", "policy", "api", "reverse", "metrics",
+            "observatory", "burstObservatory"
+        ).forEach { root.remove(it) }
+        root.put("log", JSONObject().put("loglevel", "warning"))
+        return root.toString()
     }
 
     fun harden(source: String, socksPort: Int, settings: AppSettings = AppSettings()): String {

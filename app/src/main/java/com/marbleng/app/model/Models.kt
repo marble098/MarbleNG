@@ -81,9 +81,11 @@ data class BenchmarkResult(
     val probeKind: String = "TUNNEL",
     /** Median absolute difference between consecutive warm tunnel samples. */
     val jitterMs: Double = 0.0,
-    /** First verified 204 on the connection; never mixed into latencyMs. */
+    /** First verified response timing; never used as the final delay when a warmer try wins. */
     val warmupMs: Double = 0.0,
-    val sampleCount: Int = 0
+    val sampleCount: Int = 0,
+    /** Compact stage evidence retained for Bug Finder; never shown as a synthetic ping. */
+    val failureReason: String = ""
 )
 
 data class ConnectionRecord(val profileId: String, val name: String, val at: Long, val reason: String)

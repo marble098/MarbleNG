@@ -32,6 +32,7 @@ class XrayManager(private val context: Context) {
     // MARBLE_TEMP_PORT_ALLOCATOR_V38
     // MARBLE_WARM_TUNNEL_RANK_V42
     // MARBLE_REPEATABLE_RANK_V44
+    // MARBLE_V2RAYNG_SMART_RANK_V45
     private companion object {
         const val ROUTING_ASSET_REFRESH_MS = 24L * 60L * 60L * 1000L
         const val ROUTING_ASSET_RETRY_MS = 6L * 60L * 60L * 1000L
@@ -822,6 +823,7 @@ class XrayManager(private val context: Context) {
         profile: ProxyProfile,
         port: Int,
         settings: AppSettings = AppSettings(),
+        delayTest: Boolean = false,
         block: (Int) -> Unit
     ): Boolean {
         if (!bin.isFile || port !in 1..65535) return false
@@ -858,11 +860,11 @@ class XrayManager(private val context: Context) {
                 }
 
                 config.writeText(
-                    XrayConfigHardener.harden(
-                        sourceConfig,
-                        actualPort,
-                        benchmarkSettings
-                    )
+                    if (delayTest) {
+                        XrayConfigHardener.hardenForDelayTest(sourceConfig, actualPort)
+                    } else {
+                        XrayConfigHardener.harden(sourceConfig, actualPort, benchmarkSettings)
+                    }
                 )
 
                 val temporaryProcess = createProcessBuilder(
