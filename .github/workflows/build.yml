@@ -412,20 +412,142 @@ jobs:
       # Version
       # ========================================================================
 
-      - name: Generate MarbleNG 1.0.2 version
+      - name: Generate smart semantic version
         shell: bash
         run: |
           set -euo pipefail
-          # MARBLE_RELEASE_V102
-          VERSION_NAME="1.0.2"
-          # Keep versionCode monotonic relative to prior epoch-based signed builds.
+          # MARBLE_SEMVER_AUTOBUMP_V36
+
+          LAST_TAG="$(
+            git tag --list |
+              awk '/^v[0-9]+\.[0-9]+\.[0-9]+$/' |
+              sort -V |
+              tail -n 1
+          )"
+          LAST_VERSION="${LAST_TAG#v}"
+
+          version_lt() {
+            local a="$1" b="$2"
+            [[ "$a" != "$b" ]] &&
+              [[ "$(printf '%s\n%s\n' "$a" "$b" | sort -V | head -n1)" == "$a" ]]
+          }
+
+          normalize_policy() {
+            local major="$1" minor="$2" patch="$3"
+            if (( minor >= 9 )); then
+              major=$((major + 1))
+              minor=0
+              patch=0
+            fi
+            printf '%d.%d.%d\n' "$major" "$minor" "$patch"
+          }
+
+          bump_patch() {
+            local version="$1" steps="$2"
+            local major minor patch i
+            IFS=. read -r major minor patch <<< "$version"
+            for ((i=0; i<steps; i++)); do
+              patch=$((patch + 1))
+              if (( patch > 9 )); then
+                patch=0
+                minor=$((minor + 1))
+              fi
+              if (( minor >= 9 )); then
+                major=$((major + 1))
+                minor=0
+                patch=0
+              fi
+            done
+            normalize_policy "$major" "$minor" "$patch"
+          }
+
+          bump_minor() {
+            local major minor patch
+            IFS=. read -r major minor patch <<< "$1"
+            minor=$((minor + 1))
+            normalize_policy "$major" "$minor" 0
+          }
+
+          bump_major() {
+            local major minor patch
+            IFS=. read -r major minor patch <<< "$1"
+            printf '%d.0.0\n' "$((major + 1))"
+          }
+
+          if [[ -z "$LAST_VERSION" ]] || version_lt "$LAST_VERSION" "1.0.2"; then
+            VERSION_NAME="1.0.2"
+            VERSION_BUMP_KIND="bootstrap"
+            VERSION_CHANGE_FILES=0
+            VERSION_CHANGE_LINES=0
+          else
+            HEAD_MESSAGE="$(git log -1 --pretty=%B "$GITHUB_SHA")"
+            VERSION_CHANGE_FILES="$(git diff --name-only "$LAST_TAG"... "$GITHUB_SHA" | awk 'NF' | wc -l | tr -d ' ')"
+            VERSION_CHANGE_LINES="$(
+              git diff --numstat "$LAST_TAG"... "$GITHUB_SHA" |
+                awk '$1 ~ /^[0-9]+$/ {a+=$1} $2 ~ /^[0-9]+$/ {d+=$2} END {print a+d+0}'
+            )"
+
+            VERSION_BUMP_KIND=""
+            PATCH_STEPS=0
+
+            if grep -Eqi '\[version:major\]' <<< "$HEAD_MESSAGE"; then
+              VERSION_BUMP_KIND="major"
+            elif grep -Eqi '\[version:minor\]' <<< "$HEAD_MESSAGE"; then
+              VERSION_BUMP_KIND="minor"
+            elif grep -Eqi '\[version:patch\+[1-8]\]' <<< "$HEAD_MESSAGE"; then
+              VERSION_BUMP_KIND="patch"
+              PATCH_STEPS="$(sed -nE 's/.*\[version:patch\+([1-8])\].*/\1/ip' <<< "$HEAD_MESSAGE" | head -n1)"
+            elif grep -Eqi '\[version:patch\]' <<< "$HEAD_MESSAGE"; then
+              VERSION_BUMP_KIND="patch"
+              PATCH_STEPS=1
+            fi
+
+            if [[ -z "$VERSION_BUMP_KIND" ]]; then
+              if (( VERSION_CHANGE_FILES >= 25 || VERSION_CHANGE_LINES >= 3000 )); then
+                VERSION_BUMP_KIND="major"
+              elif (( VERSION_CHANGE_FILES >= 12 || VERSION_CHANGE_LINES >= 1000 )); then
+                VERSION_BUMP_KIND="minor"
+              elif (( VERSION_CHANGE_FILES >= 6 || VERSION_CHANGE_LINES >= 300 )); then
+                VERSION_BUMP_KIND="patch"
+                PATCH_STEPS=2
+              else
+                VERSION_BUMP_KIND="patch"
+                PATCH_STEPS=1
+              fi
+            fi
+
+            case "$VERSION_BUMP_KIND" in
+              major) VERSION_NAME="$(bump_major "$LAST_VERSION")" ;;
+              minor) VERSION_NAME="$(bump_minor "$LAST_VERSION")" ;;
+              patch) VERSION_NAME="$(bump_patch "$LAST_VERSION" "${PATCH_STEPS:-1}")" ;;
+              *) echo "::error::Unknown version bump class"; exit 1 ;;
+            esac
+          fi
+
           VERSION_CODE="$(date -u +%s)"
+
+          if (( VERSION_CODE <= 0 || VERSION_CODE > 2100000000 )); then
+            echo "::error::Android versionCode is outside accepted range: $VERSION_CODE"
+            exit 1
+          fi
+
+          if git rev-parse -q --verify "refs/tags/v$VERSION_NAME" >/dev/null; then
+            echo "::error::Refusing to overwrite existing tag v$VERSION_NAME"
+            exit 1
+          fi
 
           echo "VERSION_NAME=$VERSION_NAME" >> "$GITHUB_ENV"
           echo "VERSION_CODE=$VERSION_CODE" >> "$GITHUB_ENV"
+          echo "VERSION_BUMP_KIND=$VERSION_BUMP_KIND" >> "$GITHUB_ENV"
+          echo "VERSION_CHANGE_FILES=${VERSION_CHANGE_FILES:-0}" >> "$GITHUB_ENV"
+          echo "VERSION_CHANGE_LINES=${VERSION_CHANGE_LINES:-0}" >> "$GITHUB_ENV"
 
+          echo "Previous semantic release: ${LAST_VERSION:-legacy/none}"
+          echo "Version bump: $VERSION_BUMP_KIND"
+          echo "Changed files: ${VERSION_CHANGE_FILES:-0}"
+          echo "Changed lines: ${VERSION_CHANGE_LINES:-0}"
           echo "Version name: $VERSION_NAME"
-          echo "Version code: $VERSION_CODE"
+          echo "Android versionCode: $VERSION_CODE"
 
       # ========================================================================
       # Android release
@@ -537,11 +659,17 @@ jobs:
           tag="v$VERSION_NAME"
 
           if gh release view "$tag" >/dev/null 2>&1; then
-            gh release delete "$tag" -y
+            echo "::error::Release $tag already exists; refusing to replace an installed build."
+            exit 1
           fi
 
-          git tag -f "$tag" "$GITHUB_SHA"
-          git push -f origin "$tag"
+          if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+            echo "::error::Tag $tag already exists; refusing to move it."
+            exit 1
+          fi
+
+          git tag "$tag" "$GITHUB_SHA"
+          git push origin "$tag"
 
           XRAY_VERSION="$(jq -r '.xray.tag' core-lock.json)"
           HEV_VERSION="$(jq -r '.hev.tag' core-lock.json)"
@@ -550,16 +678,26 @@ jobs:
             "$tag" \
             dist/* \
             --title "MarbleNG $VERSION_NAME" \
-            --notes "## MarbleNG 1.0.2
+            --notes "## MarbleNG $VERSION_NAME
 
-          ### What changed
-          - Fixed the Kotlin release-build failure in BugFinder caused by calling the Sequence-only takeLastCompat helper on a MutableList.
-          - Cleaned the Home header so only MarbleNG remains; removed dynamic text/status around the title.
-          - Reserved a fixed-height Home title area so the main connection panel no longer shifts when status wording changes.
-          - Added smart foreground update checks against stable GitHub Releases.
-          - Added a polished in-app update popup with release notes and a direct View update action.
-          - Added Automatic app update checks in Settings; enabled by default and fully user-disableable.
-          - Kept Android versionCode monotonic for reliable upgrades from previous signed builds.
+          ### Home UI
+          - Rebuilt Home around a consistent modern vector-icon language.
+          - Removed font-dependent Unicode action glyphs, including the broken power symbol.
+          - Added vector icons to branding, connection state, tunnel mode, connect controls, route inspection, Ping, Jitter, Quality, summary metrics, benchmark, Iran Mode, Quick Actions and network traffic.
+          - Rank, Library, Privacy and Routing portals now use matching Canvas vectors.
+          - Upload/download and Home status chips are font-independent.
+
+          ### Release system
+          - Replaced fixed 1.0.2 publishing with automatic semantic releases.
+          - Version jumps can follow change volume or explicit [version:*] commit hints.
+          - Android versionCode remains epoch-based and monotonic.
+          - Existing release tags are immutable.
+
+          ### Version metadata
+          - Bump class: $VERSION_BUMP_KIND
+          - Changed files: $VERSION_CHANGE_FILES
+          - Changed lines: $VERSION_CHANGE_LINES
+          - Android versionCode: $VERSION_CODE
 
           ### Native cores
           - Xray: $XRAY_VERSION

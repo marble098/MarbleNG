@@ -895,6 +895,259 @@ private fun SectionLabel(title:String,subtitle:String?=null){
     Column(Modifier.padding(vertical=2.dp)){Text(title,color=Aether.Ink,style=MaterialTheme.typography.titleMedium);if(!subtitle.isNullOrBlank()){Spacer(Modifier.height(2.dp));Text(subtitle,color=Aether.InkFaint,style=MaterialTheme.typography.bodySmall)}}
 }
 
+
+// MARBLE_HOME_VECTOR_ICONS_V36
+private enum class HomeIcon {
+    BRAND, POWER, STOP, CANCEL, RESET, SHIELD, TUNNEL, ROUTE,
+    PING, JITTER, QUALITY, NODES, VERIFIED, MODE, BENCHMARK,
+    RANK, LIBRARY, PRIVACY, ROUTING, NETWORK, DOWNLOAD, UPLOAD,
+    DETAILS, SPARK, STATUS
+}
+
+@Composable
+private fun HomeVectorIcon(
+    icon: HomeIcon,
+    color: Color,
+    modifier: Modifier = Modifier
+) {
+    Canvas(modifier) {
+        val w = size.width
+        val h = size.height
+        val m = size.minDimension
+        val stroke = (m * .085f).coerceAtLeast(1.65f)
+        val fine = (stroke * .78f).coerceAtLeast(1.35f)
+        val line = Stroke(width = stroke, cap = StrokeCap.Round)
+        val fineLine = Stroke(width = fine, cap = StrokeCap.Round)
+
+        when (icon) {
+            HomeIcon.BRAND -> {
+                drawCircle(color, radius = m * .40f, center = Offset(w * .50f, h * .50f), style = fineLine)
+                val marble = Path().apply {
+                    moveTo(w * .27f, h * .67f)
+                    lineTo(w * .34f, h * .34f)
+                    lineTo(w * .50f, h * .55f)
+                    lineTo(w * .66f, h * .34f)
+                    lineTo(w * .73f, h * .67f)
+                }
+                drawPath(marble, color, style = line)
+            }
+
+            HomeIcon.POWER -> {
+                drawArc(
+                    color = color,
+                    startAngle = -42f,
+                    sweepAngle = 264f,
+                    useCenter = false,
+                    topLeft = Offset(w * .18f, h * .18f),
+                    size = Size(w * .64f, h * .64f),
+                    style = line
+                )
+                drawLine(color, Offset(w*.50f,h*.13f), Offset(w*.50f,h*.51f), stroke, StrokeCap.Round)
+            }
+
+            HomeIcon.STOP -> {
+                val p = Path().apply {
+                    moveTo(w*.29f,h*.29f); lineTo(w*.71f,h*.29f)
+                    lineTo(w*.71f,h*.71f); lineTo(w*.29f,h*.71f); close()
+                }
+                drawPath(p, color, style = line)
+            }
+
+            HomeIcon.CANCEL -> {
+                drawLine(color, Offset(w*.28f,h*.28f), Offset(w*.72f,h*.72f), stroke, StrokeCap.Round)
+                drawLine(color, Offset(w*.72f,h*.28f), Offset(w*.28f,h*.72f), stroke, StrokeCap.Round)
+            }
+
+            HomeIcon.RESET -> {
+                drawArc(
+                    color = color, startAngle = -65f, sweepAngle = 286f, useCenter = false,
+                    topLeft = Offset(w*.19f,h*.19f), size = Size(w*.62f,h*.62f), style = line
+                )
+                val arrow = Path().apply {
+                    moveTo(w*.29f,h*.22f); lineTo(w*.17f,h*.39f); lineTo(w*.38f,h*.40f)
+                }
+                drawPath(arrow, color, style = line)
+            }
+
+            HomeIcon.SHIELD, HomeIcon.PRIVACY -> {
+                val shield = Path().apply {
+                    moveTo(w*.50f,h*.14f); lineTo(w*.78f,h*.26f); lineTo(w*.73f,h*.61f)
+                    quadraticBezierTo(w*.68f,h*.78f,w*.50f,h*.87f)
+                    quadraticBezierTo(w*.32f,h*.78f,w*.27f,h*.61f)
+                    lineTo(w*.22f,h*.26f); close()
+                }
+                drawPath(shield, color, style = fineLine)
+                if (icon == HomeIcon.PRIVACY) {
+                    drawCircle(color, m*.075f, Offset(w*.50f,h*.44f), style = fineLine)
+                    drawLine(color, Offset(w*.50f,h*.52f), Offset(w*.50f,h*.64f), fine, StrokeCap.Round)
+                } else {
+                    val check = Path().apply {
+                        moveTo(w*.36f,h*.50f); lineTo(w*.46f,h*.60f); lineTo(w*.66f,h*.39f)
+                    }
+                    drawPath(check, color, style = line)
+                }
+            }
+
+            HomeIcon.TUNNEL -> {
+                drawCircle(color, m*.105f, Offset(w*.27f,h*.50f), style = fineLine)
+                drawCircle(color, m*.105f, Offset(w*.73f,h*.50f), style = fineLine)
+                drawLine(color, Offset(w*.37f,h*.42f), Offset(w*.63f,h*.42f), fine, StrokeCap.Round)
+                drawLine(color, Offset(w*.37f,h*.58f), Offset(w*.63f,h*.58f), fine, StrokeCap.Round)
+            }
+
+            HomeIcon.ROUTE, HomeIcon.ROUTING, HomeIcon.DETAILS -> {
+                drawCircle(color, m*.075f, Offset(w*.24f,h*.70f), style = fineLine)
+                drawCircle(color, m*.075f, Offset(w*.50f,h*.34f), style = fineLine)
+                drawCircle(color, m*.075f, Offset(w*.77f,h*.62f), style = fineLine)
+                val route = Path().apply {
+                    moveTo(w*.30f,h*.66f)
+                    cubicTo(w*.38f,h*.60f,w*.39f,h*.41f,w*.46f,h*.37f)
+                    cubicTo(w*.56f,h*.30f,w*.64f,h*.57f,w*.71f,h*.59f)
+                }
+                drawPath(route, color, style = fineLine)
+            }
+
+            HomeIcon.PING -> {
+                drawCircle(color, m*.07f, Offset(w*.50f,h*.66f))
+                drawArc(color,205f,130f,false,Offset(w*.34f,h*.43f),Size(w*.32f,h*.32f),style=fineLine)
+                drawArc(color,205f,130f,false,Offset(w*.22f,h*.27f),Size(w*.56f,h*.56f),style=fineLine)
+            }
+
+            HomeIcon.JITTER -> {
+                val p = Path().apply {
+                    moveTo(w*.16f,h*.58f); lineTo(w*.30f,h*.58f); lineTo(w*.39f,h*.31f)
+                    lineTo(w*.52f,h*.72f); lineTo(w*.62f,h*.43f); lineTo(w*.84f,h*.43f)
+                }
+                drawPath(p, color, style = line)
+            }
+
+            HomeIcon.QUALITY -> {
+                drawArc(color,150f,240f,false,Offset(w*.18f,h*.20f),Size(w*.64f,h*.64f),style=fineLine)
+                drawLine(color, Offset(w*.50f,h*.56f), Offset(w*.68f,h*.38f), stroke, StrokeCap.Round)
+                drawCircle(color, m*.055f, Offset(w*.50f,h*.56f))
+            }
+
+            HomeIcon.NODES -> {
+                val a = Offset(w*.25f,h*.68f); val b = Offset(w*.50f,h*.28f); val c = Offset(w*.77f,h*.67f)
+                drawLine(color,a,b,fine,StrokeCap.Round); drawLine(color,b,c,fine,StrokeCap.Round)
+                drawLine(color,a,c,fine,StrokeCap.Round)
+                drawCircle(color,m*.075f,a,style=fineLine); drawCircle(color,m*.075f,b,style=fineLine)
+                drawCircle(color,m*.075f,c,style=fineLine)
+            }
+
+            HomeIcon.VERIFIED -> {
+                drawCircle(color,m*.34f,Offset(w*.50f,h*.50f),style=fineLine)
+                val check = Path().apply {
+                    moveTo(w*.34f,h*.51f); lineTo(w*.45f,h*.62f); lineTo(w*.67f,h*.39f)
+                }
+                drawPath(check,color,style=line)
+            }
+
+            HomeIcon.MODE -> {
+                val frame = Path().apply {
+                    moveTo(w*.27f,h*.18f); lineTo(w*.73f,h*.18f); lineTo(w*.73f,h*.82f)
+                    lineTo(w*.27f,h*.82f); close()
+                }
+                drawPath(frame,color,style=fineLine)
+                drawCircle(color,m*.035f,Offset(w*.50f,h*.72f))
+            }
+
+            HomeIcon.BENCHMARK, HomeIcon.RANK -> {
+                val xs = listOf(.27f,.50f,.73f)
+                val tops = if (icon == HomeIcon.RANK) listOf(.61f,.43f,.24f) else listOf(.47f,.31f,.54f)
+                for (i in xs.indices) {
+                    drawLine(color,Offset(w*xs[i],h*.73f),Offset(w*xs[i],h*tops[i]),stroke*1.45f,StrokeCap.Round)
+                }
+                drawLine(color,Offset(w*.17f,h*.78f),Offset(w*.83f,h*.78f),fine,StrokeCap.Round)
+            }
+
+            HomeIcon.LIBRARY -> {
+                val box = Size(w*.22f,h*.22f)
+                drawRect(color,Offset(w*.22f,h*.22f),box,style=fineLine)
+                drawRect(color,Offset(w*.56f,h*.22f),box,style=fineLine)
+                drawRect(color,Offset(w*.22f,h*.56f),box,style=fineLine)
+                drawRect(color,Offset(w*.56f,h*.56f),box,style=fineLine)
+            }
+
+            HomeIcon.NETWORK -> {
+                val xs = listOf(.24f,.42f,.60f,.78f)
+                val tops = listOf(.66f,.54f,.40f,.25f)
+                for (i in xs.indices) {
+                    drawLine(color,Offset(w*xs[i],h*.75f),Offset(w*xs[i],h*tops[i]),stroke*1.35f,StrokeCap.Round)
+                }
+            }
+
+            HomeIcon.DOWNLOAD, HomeIcon.UPLOAD -> {
+                val down = icon == HomeIcon.DOWNLOAD
+                val y1 = if (down) h*.22f else h*.76f
+                val y2 = if (down) h*.69f else h*.29f
+                drawLine(color,Offset(w*.50f,y1),Offset(w*.50f,y2),stroke,StrokeCap.Round)
+                val p = Path().apply {
+                    if (down) {
+                        moveTo(w*.31f,h*.53f); lineTo(w*.50f,h*.72f); lineTo(w*.69f,h*.53f)
+                    } else {
+                        moveTo(w*.31f,h*.45f); lineTo(w*.50f,h*.26f); lineTo(w*.69f,h*.45f)
+                    }
+                }
+                drawPath(p,color,style=line)
+            }
+
+            HomeIcon.SPARK -> {
+                drawLine(color,Offset(w*.50f,h*.16f),Offset(w*.50f,h*.84f),fine,StrokeCap.Round)
+                drawLine(color,Offset(w*.16f,h*.50f),Offset(w*.84f,h*.50f),fine,StrokeCap.Round)
+                drawLine(color,Offset(w*.27f,h*.27f),Offset(w*.73f,h*.73f),fine,StrokeCap.Round)
+                drawLine(color,Offset(w*.73f,h*.27f),Offset(w*.27f,h*.73f),fine,StrokeCap.Round)
+                drawCircle(color,m*.08f,Offset(w*.50f,h*.50f))
+            }
+
+            HomeIcon.STATUS -> {
+                drawCircle(color,m*.31f,Offset(w*.50f,h*.50f),style=fineLine)
+                drawCircle(color,m*.08f,Offset(w*.50f,h*.50f))
+            }
+        }
+    }
+}
+
+@Composable
+private fun HomeIconTile(icon: HomeIcon, color: Color, modifier: Modifier = Modifier) {
+    Box(
+        modifier
+            .size(38.dp)
+            .clip(RoundedCornerShape(13.dp))
+            .background(color.copy(alpha = .105f)),
+        contentAlignment = Alignment.Center
+    ) {
+        HomeVectorIcon(icon, color, Modifier.size(20.dp))
+    }
+}
+
+@Composable
+private fun HomeStatusChip(
+    icon: HomeIcon,
+    text: String,
+    tone: Color,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier
+            .clip(RoundedCornerShape(999.dp))
+            .background(tone.copy(alpha = .085f))
+            .border(1.dp, tone.copy(alpha = .12f), RoundedCornerShape(999.dp))
+            .padding(horizontal = 9.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        HomeVectorIcon(icon, tone, Modifier.size(14.dp))
+        Text(
+            text,
+            color = tone,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1
+        )
+    }
+}
+
 // =================================================================================================
 // DECK
 // =================================================================================================
@@ -928,13 +1181,19 @@ private fun CyberDeck(
                     .height(76.dp),
                 contentAlignment = Alignment.CenterStart
             ) {
-                Text(
-                    "MarbleNG",
-                    color = Aether.Ink,
-                    style = MaterialTheme.typography.headlineLarge,
-                    fontWeight = FontWeight.Black,
-                    maxLines = 1
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(11.dp)
+                ) {
+                    HomeIconTile(HomeIcon.BRAND, Aether.Cyan)
+                    Text(
+                        "MarbleNG",
+                        color = Aether.Ink,
+                        style = MaterialTheme.typography.headlineLarge,
+                        fontWeight = FontWeight.Black,
+                        maxLines = 1
+                    )
+                }
             }
         }
 
@@ -965,18 +1224,20 @@ private fun CyberDeck(
                 ) {
                     MiniMetric(
                         "Nodes", repo.libraryProfiles.size.toString(), "", Modifier.weight(1f),
-                        accent = Aether.Amethyst
+                        accent = Aether.Amethyst, icon = HomeIcon.NODES
                     )
                     MiniMetric(
                         "Xray OK", verifiedXray.toString(), "", Modifier.weight(1f),
-                        accent = if (verifiedXray > 0) Aether.Emerald else Aether.Amber
+                        accent = if (verifiedXray > 0) Aether.Emerald else Aether.Amber,
+                        icon = HomeIcon.VERIFIED
                     )
                     MiniMetric(
                         "Mode",
                         if (repo.settings.connectionMode == ConnectionMode.FULL_TUN) "TUN" else "SOCKS",
                         "",
                         Modifier.weight(1f),
-                        accent = Aether.Cyan
+                        accent = Aether.Cyan,
+                        icon = HomeIcon.MODE
                     )
                 }
             }
@@ -992,6 +1253,8 @@ private fun CyberDeck(
                         Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        HomeIconTile(HomeIcon.BENCHMARK, Aether.Cyan)
+                        Spacer(Modifier.width(10.dp))
                         Column(Modifier.weight(1f)) {
                             Text(
                                 "XRAY BENCHMARK",
@@ -1044,27 +1307,29 @@ private fun CyberDeck(
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        HomeVectorIcon(HomeIcon.SPARK, Aether.Cyan, Modifier.size(15.dp))
+                        Spacer(Modifier.width(6.dp))
                         Text("QUICK ACTIONS", color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
                         Text("4 portals", color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                         HomeActionPortal(
-                            "◎", "Rank all",
+                            HomeIcon.RANK, "Rank all",
                             if (repo.probeActive) "${repo.probeDone}/${repo.probeTotal} Xray" else "Xray • ${repo.libraryProfiles.size} nodes",
                             Aether.Cyan, Modifier.weight(1f)
                         ) { repo.smartRank() }
                         HomeActionPortal(
-                            "▦", "Library", "${repo.libraryProfiles.size} nodes",
+                            HomeIcon.LIBRARY, "Library", "${repo.libraryProfiles.size} nodes",
                             Aether.Amethyst, Modifier.weight(1f), onLibrary
                         )
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                         HomeActionPortal(
-                            "◇", "Privacy", if (connected) "Audit egress" else "Connect first",
+                            HomeIcon.PRIVACY, "Privacy", if (connected) "Audit egress" else "Connect first",
                             Aether.Emerald, Modifier.weight(1f), onPrivacy
                         )
                         HomeActionPortal(
-                            "↯", "Routing", "Traffic policy",
+                            HomeIcon.ROUTING, "Routing", "Traffic policy",
                             Aether.Amber, Modifier.weight(1f), onRouting
                         )
                     }
@@ -1105,19 +1370,26 @@ private fun HomeOrbitalHero(
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            HoloBadge(
-                when {
-                    connected -> "● PROTECTED"
-                    connecting -> "● CONNECTING"
-                    blocked -> "● FAIL-CLOSED"
-                    else -> "○ STANDBY"
-                }, tone, true
+            HomeStatusChip(
+                icon = when {
+                    connected -> HomeIcon.SHIELD
+                    connecting -> HomeIcon.BENCHMARK
+                    blocked -> HomeIcon.RESET
+                    else -> HomeIcon.STATUS
+                },
+                text = when {
+                    connected -> "PROTECTED"
+                    connecting -> "CONNECTING"
+                    blocked -> "FAIL-CLOSED"
+                    else -> "STANDBY"
+                },
+                tone = tone
             )
             Spacer(Modifier.weight(1f))
-            HoloBadge(
-                if (repo.settings.connectionMode == ConnectionMode.FULL_TUN) "FULL TUN"
-                else "SOCKS :${repo.settings.localProxyPort}",
-                Aether.InkMuted, true
+            HomeStatusChip(
+                icon = if (repo.settings.connectionMode == ConnectionMode.FULL_TUN) HomeIcon.TUNNEL else HomeIcon.MODE,
+                text = if (repo.settings.connectionMode == ConnectionMode.FULL_TUN) "FULL TUN" else "SOCKS :${repo.settings.localProxyPort}",
+                tone = Aether.InkMuted
             )
         }
 
@@ -1142,11 +1414,15 @@ private fun HomeOrbitalHero(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(2.dp)
             ) {
-                Text(
-                    when { connected -> "■"; connecting -> "×"; blocked -> "↻"; else -> "⏻" },
+                HomeVectorIcon(
+                    icon = when {
+                        connected -> HomeIcon.STOP
+                        connecting -> HomeIcon.CANCEL
+                        blocked -> HomeIcon.RESET
+                        else -> HomeIcon.POWER
+                    },
                     color = Color.White,
-                    style = MaterialTheme.typography.headlineLarge,
-                    fontWeight = FontWeight.Bold
+                    modifier = Modifier.size(34.dp)
                 )
                 Text(
                     when { connected -> "DISCONNECT"; connecting -> "CANCEL"; blocked -> "RESET"; else -> "CONNECT" },
@@ -1158,8 +1434,13 @@ private fun HomeOrbitalHero(
         }
 
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(activeName, color = Aether.Ink, style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                HomeVectorIcon(HomeIcon.ROUTE, Aether.InkMuted, Modifier.size(18.dp))
+                Text(activeName, color = Aether.Ink, style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
             TextButton(onClick = onDetails, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)) {
+                HomeVectorIcon(HomeIcon.DETAILS, tone, Modifier.size(15.dp))
+                Spacer(Modifier.width(5.dp))
                 Text(if (connected) "Route details" else "Inspect selected route", color = tone, style = MaterialTheme.typography.labelSmall)
             }
         }
@@ -1188,15 +1469,16 @@ private fun HomeOrbitalHero(
         Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
             MiniMetric(
                 "Ping", if (repo.livePingMs > 0) repo.livePingMs.toString() else "—", "ms",
-                Modifier.weight(1f), accent = pingTone
+                Modifier.weight(1f), accent = pingTone, icon = HomeIcon.PING
             )
             MiniMetric(
                 "Jitter", if (repo.liveJitterSamples >= 1) repo.liveJitterMs.toString() else "—", "ms",
-                Modifier.weight(1f), accent = jitterTone
+                Modifier.weight(1f), accent = jitterTone, icon = HomeIcon.JITTER
             )
             MiniMetric(
                 "Quality", if (repo.liveRouteScore >= 0) repo.liveRouteScore.toString() else "—",
-                if (repo.liveRouteScore >= 0) "%" else "", Modifier.weight(1f), accent = qualityTone
+                if (repo.liveRouteScore >= 0) "%" else "", Modifier.weight(1f),
+                accent = qualityTone, icon = HomeIcon.QUALITY
             )
         }
     }
@@ -1204,7 +1486,7 @@ private fun HomeOrbitalHero(
 
 @Composable
 private fun HomeActionPortal(
-    glyph: String,
+    icon: HomeIcon,
     title: String,
     detail: String,
     color: Color,
@@ -1224,13 +1506,15 @@ private fun HomeActionPortal(
         Box(
             Modifier.size(42.dp).clip(RoundedCornerShape(15.dp)).background(color.copy(alpha = .13f)),
             contentAlignment = Alignment.Center
-        ) { Text(glyph, color = color, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold) }
+        ) {
+            HomeVectorIcon(icon, color, Modifier.size(22.dp))
+        }
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
             Text(title, color = Aether.Ink, style = MaterialTheme.typography.labelLarge, maxLines = 1)
             Text(detail, color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
-        Text("›", color = color.copy(alpha = .72f), style = MaterialTheme.typography.titleLarge)
+        HomeVectorIcon(HomeIcon.DETAILS, color.copy(alpha = .72f), Modifier.size(18.dp))
     }
 }
 
@@ -1243,18 +1527,29 @@ private fun HomeRouteRibbon(repo: AppRepository) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        Box(
-            Modifier.size(34.dp).clip(RoundedCornerShape(12.dp)).background(Aether.Cyan.copy(alpha = .10f)),
-            contentAlignment = Alignment.Center
-        ) { Text("⌁", color = Aether.Cyan, style = MaterialTheme.typography.titleMedium) }
+        HomeIconTile(HomeIcon.NETWORK, Aether.Cyan, Modifier.size(34.dp))
         Column(Modifier.weight(1f)) {
             Text(repo.networkSnapshot.label, color = Aether.Ink, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text("↓ ${compactRate(repo.liveDownBps)}  •  ↑ ${compactRate(repo.liveUpBps)}", color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                HomeVectorIcon(HomeIcon.DOWNLOAD, Aether.InkFaint, Modifier.size(12.dp))
+                Text(compactRate(repo.liveDownBps), color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
+                Spacer(Modifier.width(4.dp))
+                HomeVectorIcon(HomeIcon.UPLOAD, Aether.InkFaint, Modifier.size(12.dp))
+                Text(compactRate(repo.liveUpBps), color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
+            }
         }
-        HoloBadge(
-            if (repo.sentinel.killSwitchArmed) "KILL SWITCH" else if (repo.state == "CONNECTED") "TUNNEL" else "IDLE",
-            if (repo.sentinel.killSwitchArmed) Aether.Emerald else Aether.InkMuted,
-            true
+        HomeStatusChip(
+            icon = when {
+                repo.sentinel.killSwitchArmed -> HomeIcon.SHIELD
+                repo.state == "CONNECTED" -> HomeIcon.TUNNEL
+                else -> HomeIcon.STATUS
+            },
+            text = when {
+                repo.sentinel.killSwitchArmed -> "KILL SWITCH"
+                repo.state == "CONNECTED" -> "TUNNEL"
+                else -> "IDLE"
+            },
+            tone = if (repo.sentinel.killSwitchArmed) Aether.Emerald else Aether.InkMuted
         )
     }
 }
@@ -1276,12 +1571,15 @@ private fun IranModeStatusPill(state: IranModeState) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        Canvas(Modifier.size(20.dp)) {
-            val r = size.minDimension / 2f
-            val outer = if (scanning) pulse else .92f
-            drawCircle(tone.copy(alpha = .11f), r * outer)
-            drawCircle(tone.copy(alpha = .24f), r * .58f)
-            drawCircle(tone, r * .25f)
+        Box(
+            Modifier
+                .size(36.dp)
+                .alpha(if (scanning) pulse else 1f)
+                .clip(RoundedCornerShape(13.dp))
+                .background(tone.copy(alpha = .11f)),
+            contentAlignment = Alignment.Center
+        ) {
+            HomeVectorIcon(if (scanning) HomeIcon.BENCHMARK else HomeIcon.SHIELD, tone, Modifier.size(20.dp))
         }
 
         Column(Modifier.weight(1f)) {
@@ -1527,7 +1825,8 @@ private fun MiniMetric(
     value: String,
     unit: String,
     modifier: Modifier = Modifier,
-    accent: Color = Color.Unspecified
+    accent: Color = Color.Unspecified,
+    icon: HomeIcon? = null
 ) {
     val valueColor = if (accent == Color.Unspecified) Aether.Ink else accent
     Column(
@@ -1538,12 +1837,15 @@ private fun MiniMetric(
             .padding(horizontal = 9.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.Center
     ) {
-        Text(
-            label.uppercase(),
-            color = Aether.InkFaint,
-            style = MaterialTheme.typography.labelSmall,
-            maxLines = 1
-        )
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+            icon?.let { HomeVectorIcon(it, valueColor, Modifier.size(13.dp)) }
+            Text(
+                label.uppercase(),
+                color = Aether.InkFaint,
+                style = MaterialTheme.typography.labelSmall,
+                maxLines = 1
+            )
+        }
         Spacer(Modifier.height(2.dp))
         Row(verticalAlignment = Alignment.Bottom) {
             Text(
