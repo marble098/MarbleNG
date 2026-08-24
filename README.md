@@ -63,8 +63,9 @@ Simple controls first — everything technical hides behind **Expert controls**.
 ## 🧰 All options
 
 ### 🎨 Appearance
-- ✨ **Glass White** by default, plus System and Dark choices.
-- 🫧 One shared spring-based Kinetic Glass motion engine with responsive press feedback.
+- ✨ Solid **White** by default, plus System and Dark choices.
+- 🫧 One shared spring-based motion engine with responsive press feedback and state-only ambient motion.
+- 🧩 Optional Home summary row (Nodes / Xray OK / Mode), hidden by default.
 - 🧑‍🔬 **Expert controls** switch (now remembered between visits).
 
 ### 🔌 Connection
@@ -208,4 +209,4 @@ No signing key lives in Git. The Termux injector creates the signing material on
 
 - 🇮🇷 [Iran Mode](docs/IRAN_MODE.md) — detection model, recognised ISPs, every countermeasure.
 - 🧠 [Marble Intelligence](docs/MARBLE_INTELLIGENCE.md) — the adaptive engine.
-- 🫧 [Kinetic Glass UI](docs/AETHER_FLOW.md) — white-glass tokens, motion engine and performance rules.
+- 🫧 [Marble White UI](docs/AETHER_FLOW.md) — solid-white tokens, motion engine and performance rules.

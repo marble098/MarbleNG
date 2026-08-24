@@ -94,6 +94,7 @@ private data class ExitEvidence(
 )
 
 class BugFinder(private val context: Context, private val xray: XrayManager) {
+    // MARBLE_LOG_NOISE_COMPACTION_V35
     private val diag = RuntimeDiagnostics(context)
 
     fun scan(
@@ -551,7 +552,7 @@ class BugFinder(private val context: Context, private val xray: XrayManager) {
             "signal", "oom", "low_memory"
         )
 
-        return text.lineSequence()
+        val candidates = text.lineSequence()
             .filter { line ->
                 val cleanHevExit =
                     line.contains("HEV | run-exit", true) &&
@@ -564,7 +565,54 @@ class BugFinder(private val context: Context, private val xray: XrayManager) {
                 !cleanHevExit && !benignNoise && keywords.any { line.contains(it, true) }
             }
             .map(::sanitize)
-            .takeLastCompat(500)
+            .toList()
+
+        // Xray can emit hundreds of timestamp-distinct closed-pipe cancellations during a clean
+        // stop and repeated DoH deadlines during one provider outage. Keep small occurrences
+        // verbatim; compact only contiguous bursts, with their count and endpoints. The complete
+        // raw evidence remains available in the retained-tail sections below the index.
+        val compacted = mutableListOf<String>()
+        val repetitiveBurst = mutableListOf<String>()
+        var burstLabel = ""
+        fun flushRepetitiveBurst() {
+            if (repetitiveBurst.isEmpty()) return
+            if (repetitiveBurst.size <= 3) {
+                compacted += repetitiveBurst
+            } else {
+                compacted += buildString {
+                    append(burstLabel)
+                    append(" ×")
+                    append(repetitiveBurst.size)
+                    append(" | first=")
+                    append(repetitiveBurst.first())
+                    append(" | last=")
+                    append(repetitiveBurst.last())
+                }
+            }
+            repetitiveBurst.clear()
+            burstLabel = ""
+        }
+
+        candidates.forEach { line ->
+            val nextLabel = when {
+                line.contains("read/write on closed pipe", ignoreCase = true) ->
+                    "XRAY CANCELLATION BURST | read/write on closed pipe"
+                line.contains("context deadline exceeded", ignoreCase = true) &&
+                    line.contains("dns-query", ignoreCase = true) ->
+                    "DNS DEADLINE BURST | DoH context deadline exceeded"
+                else -> ""
+            }
+            if (nextLabel.isNotEmpty()) {
+                if (burstLabel.isNotEmpty() && burstLabel != nextLabel) flushRepetitiveBurst()
+                burstLabel = nextLabel
+                repetitiveBurst += line
+            } else {
+                flushRepetitiveBurst()
+                compacted += line
+            }
+        }
+        flushRepetitiveBurst()
+        return compacted.takeLastCompat(500)
     }
 
     private fun listenerBoundWithoutTraffic(port: Int): Boolean = runCatching {

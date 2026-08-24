@@ -1,6 +1,6 @@
 package com.marbleng.app.ui
 
-// Marble Product UI v11 • Kinetic Glass command surface
+// Marble Product UI v12 • Solid White command surface
 // Compatibility baseline retained for CI: Marble Product UI v9.1.0
 // MARBLE_LIBRARY_UI_V10
 // MARBLE_BUG_FINDER_UI_V11
@@ -20,6 +20,7 @@ package com.marbleng.app.ui
 // MARBLE_LIBRARY_SCOPE_UI_V32
 // MARBLE_LIBRARY_MEMORY_UI_V33
 // MARBLE_KINETIC_GLASS_UI_V34
+// MARBLE_SOLID_WHITE_UI_V35
 
 import android.Manifest
 import android.content.Intent
@@ -390,101 +391,64 @@ private fun MarbleSnackbarHost(
                 .fillMaxWidth()
                 .animateContentSize(MarbleMotionSpecs.Layout),
             shape = shape,
-            color = Aether.VoidElevated.copy(alpha = .98f),
+            color = Aether.VoidElevated,
             contentColor = Aether.Ink,
-            tonalElevation = 5.dp,
-            shadowElevation = 10.dp
+            tonalElevation = 0.dp,
+            shadowElevation = 4.dp
         ) {
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .background(
-                        Brush.horizontalGradient(
-                            listOf(
-                                tone.copy(alpha = .12f),
-                                Aether.VoidElevated.copy(alpha = .96f),
-                                Aether.VoidElevated.copy(alpha = .99f)
-                            )
-                        )
-                    )
-                    .border(1.dp, tone.copy(alpha = .30f), shape)
-                    .padding(horizontal = 10.dp, vertical = 9.dp)
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Row(
-                    Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(9.dp)
+                Box(
+                    Modifier
+                        .size(36.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(tone.copy(alpha = .11f)),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Box(
-                        Modifier
-                            .width(3.dp)
-                            .height(34.dp)
-                            .clip(CircleShape)
-                            .background(tone)
+                    Text(
+                        glyph,
+                        color = tone,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
                     )
+                }
 
-                    Box(
-                        Modifier
-                            .size(34.dp)
-                            .clip(RoundedCornerShape(11.dp))
-                            .background(tone.copy(alpha = .12f))
-                            .border(1.dp, tone.copy(alpha = .18f), RoundedCornerShape(11.dp)),
-                        contentAlignment = Alignment.Center
+                Column(
+                    Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(1.dp)
+                ) {
+                    Text(
+                        title,
+                        color = tone,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        message,
+                        color = Aether.Ink,
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                data.visuals.actionLabel?.let { action ->
+                    TextButton(
+                        onClick = data::performAction,
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
                     ) {
-                        Text(
-                            glyph,
-                            color = tone,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
-                        )
+                        Text(action, color = tone, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
                     }
+                }
 
-                    Column(
-                        Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(1.dp)
-                    ) {
-                        Text(
-                            title,
-                            color = tone,
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            message,
-                            color = Aether.Ink,
-                            style = MaterialTheme.typography.bodySmall,
-                            maxLines = 3,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-
-                    data.visuals.actionLabel?.let { action ->
-                        TextButton(
-                            onClick = data::performAction,
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
-                        ) {
-                            Text(
-                                action,
-                                color = tone,
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
-
-                    Box(
-                        Modifier
-                            .size(28.dp)
-                            .clip(CircleShape)
-                            .clickable { data.dismiss() },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            "×",
-                            color = Aether.InkMuted,
-                            style = MaterialTheme.typography.titleMedium
-                        )
-                    }
+                Box(
+                    Modifier.size(30.dp).clip(CircleShape).clickable { data.dismiss() },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("×", color = Aether.InkMuted, style = MaterialTheme.typography.titleMedium)
                 }
             }
         }
@@ -493,62 +457,13 @@ private fun MarbleSnackbarHost(
 
 @Composable
 private fun DeepSpaceBackdrop(modifier: Modifier = Modifier) {
-    val motion = MarbleMotion.current
-    val drift = motion.loop(18_000)
-    val breathe = motion.breathe(7_200)
-    val base = Aether.Void
-    val raised = Aether.VoidElevated
-    val electric = Aether.Cyan
-    val violet = Aether.Amethyst
-    val line = Aether.GlassBorderSoft
-
-    Canvas(modifier) {
-        drawRect(
-            brush = Brush.verticalGradient(
-                listOf(base, raised.copy(alpha = .62f), base)
+    Box(
+        modifier.background(
+            Brush.verticalGradient(
+                listOf(Aether.Void, Aether.VoidElevated, Aether.Void)
             )
         )
-
-        val electricCenter = Offset(
-            x = size.width * (.76f + drift * .09f),
-            y = size.height * (.08f + breathe * .04f)
-        )
-        val violetCenter = Offset(
-            x = size.width * (.04f + drift * .08f),
-            y = size.height * (.78f - breathe * .05f)
-        )
-        drawCircle(
-            brush = Brush.radialGradient(
-                listOf(electric.copy(alpha = .16f), electric.copy(alpha = .035f), Color.Transparent),
-                center = electricCenter,
-                radius = size.minDimension * .78f
-            ),
-            radius = size.minDimension * .78f,
-            center = electricCenter
-        )
-        drawCircle(
-            brush = Brush.radialGradient(
-                listOf(violet.copy(alpha = .12f), violet.copy(alpha = .025f), Color.Transparent),
-                center = violetCenter,
-                radius = size.minDimension * .68f
-            ),
-            radius = size.minDimension * .68f,
-            center = violetCenter
-        )
-
-        // Restrained moving architectural lines keep the white field energetic but formal.
-        val spacing = (size.width / 5.5f).coerceAtLeast(54f)
-        val offset = drift * spacing
-        for (index in -3..8) {
-            val x = index * spacing + offset
-            drawLine(
-                color = line.copy(alpha = .11f),
-                start = Offset(x, 0f),
-                end = Offset(x - size.height * .18f, size.height),
-                strokeWidth = 1f
-            )
-        }
-    }
+    )
 }
 
 @Composable
@@ -568,14 +483,10 @@ private fun FloatingSpatialDock(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .shadow(22.dp, dockShape, clip = false)
+                .shadow(7.dp, dockShape, clip = false)
                 .clip(dockShape)
-                .background(
-                    Brush.verticalGradient(
-                        listOf(Aether.GlassBorder, Aether.GlassStrong, Aether.Glass)
-                    )
-                )
-                .border(1.dp, Aether.GlassBorder, dockShape)
+                .background(Aether.VoidElevated)
+                .border(1.dp, Aether.GlassBorderSoft, dockShape)
                 .padding(horizontal = 6.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -759,18 +670,9 @@ private fun HoloGlass(
     )
     Column(
         modifier = modifier
-            .shadow(14.dp, shape, clip = false)
             .clip(shape)
-            .background(
-                Brush.linearGradient(
-                    listOf(
-                        Aether.GlassBorder.copy(alpha = .88f),
-                        Aether.GlassStrong,
-                        Aether.Glass.copy(alpha = .78f)
-                    )
-                )
-            )
-            .border(1.dp, borderTint.copy(alpha = .82f), shape)
+            .background(Aether.VoidElevated)
+            .border(1.dp, borderTint, shape)
             .padding(contentPadding),
         verticalArrangement = Arrangement.spacedBy(11.dp),
         content = content
@@ -931,22 +833,31 @@ private fun CyberDeck(
         }
 
 
-        item {
-            val verifiedXray = repo.benchmarks.count {
-                it.probeKind == "TUNNEL" && it.success > 0
-            }
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(7.dp)
-            ) {
-                MiniMetric("Nodes", repo.libraryProfiles.size.toString(), "", Modifier.weight(1f))
-                MiniMetric("Xray OK", verifiedXray.toString(), "", Modifier.weight(1f))
-                MiniMetric(
-                    "Mode",
-                    if (repo.settings.connectionMode == ConnectionMode.FULL_TUN) "TUN" else "SOCKS",
-                    "",
-                    Modifier.weight(1f)
-                )
+        if (repo.settings.homeShowSummaryMetrics) {
+            item {
+                val verifiedXray = repo.benchmarks.count {
+                    it.probeKind == "TUNNEL" && it.success > 0
+                }
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(7.dp)
+                ) {
+                    MiniMetric(
+                        "Nodes", repo.libraryProfiles.size.toString(), "", Modifier.weight(1f),
+                        accent = Aether.Amethyst
+                    )
+                    MiniMetric(
+                        "Xray OK", verifiedXray.toString(), "", Modifier.weight(1f),
+                        accent = if (verifiedXray > 0) Aether.Emerald else Aether.Amber
+                    )
+                    MiniMetric(
+                        "Mode",
+                        if (repo.settings.connectionMode == ConnectionMode.FULL_TUN) "TUN" else "SOCKS",
+                        "",
+                        Modifier.weight(1f),
+                        accent = Aether.Cyan
+                    )
+                }
             }
         }
 
@@ -1056,31 +967,21 @@ private fun HomeOrbitalHero(
 ) {
     val tone = when {
         connected -> Aether.Emerald
-        connecting -> Aether.Cyan
+        connecting -> Aether.Amethyst
         blocked -> Aether.Danger
         else -> Aether.Cyan
     }
-    val phase = MarbleMotion.current.loop(6_200) * 360f
-    val shape = RoundedCornerShape(30.dp)
+    val shape = RoundedCornerShape(26.dp)
 
     Column(
         Modifier
             .fillMaxWidth()
-            .shadow(18.dp, shape, clip = false)
             .clip(shape)
-            .background(
-                Brush.verticalGradient(
-                    listOf(
-                        tone.copy(alpha = .15f),
-                        Aether.GlassBorder.copy(alpha = .90f),
-                        Aether.GlassStrong
-                    )
-                )
-            )
-            .border(1.dp, tone.copy(alpha = .34f), shape)
+            .background(Aether.VoidElevated)
+            .border(1.dp, Aether.GlassBorderSoft, shape)
             .padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(13.dp)
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             HoloBadge(
@@ -1099,41 +1000,38 @@ private fun HomeOrbitalHero(
             )
         }
 
-        val orbitalAccent = Aether.Amethyst
         Box(
             Modifier
-                .size(158.dp)
+                .size(112.dp)
+                .shadow(7.dp, CircleShape, clip = false)
+                .clip(CircleShape)
+                .background(tone)
                 .kineticClickable(role = Role.Button, pressScale = .94f, onClick = onToggle),
             contentAlignment = Alignment.Center
         ) {
-            Canvas(Modifier.matchParentSize()) {
-                val c = Offset(size.width / 2f, size.height / 2f)
-                val r = size.minDimension / 2f
-                drawCircle(tone.copy(alpha = .035f), r * .98f, c)
-                drawCircle(tone.copy(alpha = .10f), r * .78f, c, style = Stroke(2.2f))
-                drawArc(
-                    tone.copy(alpha = .82f), phase, 82f, false,
-                    Offset(r * .16f, r * .16f),
-                    Size(size.width - r * .32f, size.height - r * .32f),
-                    style = Stroke(5f, cap = StrokeCap.Round)
+            if (connecting) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(92.dp),
+                    color = Color.White.copy(alpha = .82f),
+                    trackColor = Color.White.copy(alpha = .20f),
+                    strokeWidth = 3.dp
                 )
-                drawArc(
-                    orbitalAccent.copy(alpha = .50f), -phase * .62f, 54f, false,
-                    Offset(r * .34f, r * .34f),
-                    Size(size.width - r * .68f, size.height - r * .68f),
-                    style = Stroke(2.7f, cap = StrokeCap.Round)
-                )
-                drawCircle(tone.copy(alpha = .12f), r * .55f, c)
-                drawCircle(tone.copy(alpha = .28f), r * .43f, c)
             }
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
                 Text(
-                    when { connected -> "✓"; connecting -> "…"; blocked -> "!"; else -> "↗" },
-                    color = tone, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold
+                    when { connected -> "■"; connecting -> "×"; blocked -> "↻"; else -> "⏻" },
+                    color = Color.White,
+                    style = MaterialTheme.typography.headlineLarge,
+                    fontWeight = FontWeight.Bold
                 )
                 Text(
                     when { connected -> "DISCONNECT"; connecting -> "CANCEL"; blocked -> "RESET"; else -> "CONNECT" },
-                    color = Aether.InkMuted, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold
+                    color = Color.White,
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold
                 )
             }
         }
@@ -1145,10 +1043,40 @@ private fun HomeOrbitalHero(
             }
         }
 
+        val pingTone = when {
+            repo.livePingMs <= 0 -> Aether.InkMuted
+            repo.livePingMs <= 80 -> Aether.Emerald
+            repo.livePingMs <= 170 -> Aether.Cyan
+            repo.livePingMs <= 320 -> Aether.Amber
+            else -> Aether.Danger
+        }
+        val jitterTone = when {
+            repo.liveJitterSamples < 1 -> Aether.InkMuted
+            repo.liveJitterMs <= 15 -> Aether.Emerald
+            repo.liveJitterMs <= 35 -> Aether.Cyan
+            repo.liveJitterMs <= 70 -> Aether.Amber
+            else -> Aether.Danger
+        }
+        val qualityTone = when {
+            repo.liveRouteScore < 0 -> Aether.InkMuted
+            repo.liveRouteScore >= 85 -> Aether.Emerald
+            repo.liveRouteScore >= 65 -> Aether.Cyan
+            repo.liveRouteScore >= 40 -> Aether.Amber
+            else -> Aether.Danger
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-            MiniMetric("Ping", if (repo.livePingMs > 0) repo.livePingMs.toString() else "—", "ms", Modifier.weight(1f))
-            MiniMetric("Jitter", if (repo.liveJitterSamples >= 1) repo.liveJitterMs.toString() else "—", "ms", Modifier.weight(1f))
-            MiniMetric("Quality", if (repo.liveRouteScore >= 0) repo.liveRouteScore.toString() else "—", if (repo.liveRouteScore >= 0) "%" else "", Modifier.weight(1f))
+            MiniMetric(
+                "Ping", if (repo.livePingMs > 0) repo.livePingMs.toString() else "—", "ms",
+                Modifier.weight(1f), accent = pingTone
+            )
+            MiniMetric(
+                "Jitter", if (repo.liveJitterSamples >= 1) repo.liveJitterMs.toString() else "—", "ms",
+                Modifier.weight(1f), accent = jitterTone
+            )
+            MiniMetric(
+                "Quality", if (repo.liveRouteScore >= 0) repo.liveRouteScore.toString() else "—",
+                if (repo.liveRouteScore >= 0) "%" else "", Modifier.weight(1f), accent = qualityTone
+            )
         }
     }
 }
@@ -1166,25 +1094,14 @@ private fun HomeActionPortal(
     Row(
         modifier
             .heightIn(min = 82.dp)
-            .shadow(10.dp, shape, clip = false)
             .clip(shape)
-            .background(
-                Brush.linearGradient(
-                    listOf(
-                        color.copy(alpha = .15f),
-                        Aether.GlassBorder.copy(alpha = .88f),
-                        Aether.Glass.copy(alpha = .82f)
-                    )
-                )
-            )
-            .border(1.dp, color.copy(alpha = .28f), shape)
+            .background(color.copy(alpha = .075f))
             .kineticClickable(role = Role.Button, onClick = onClick)
             .padding(12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
-            Modifier.size(42.dp).clip(RoundedCornerShape(15.dp)).background(color.copy(alpha = .13f))
-                .border(1.dp, color.copy(alpha = .18f), RoundedCornerShape(15.dp)),
+            Modifier.size(42.dp).clip(RoundedCornerShape(15.dp)).background(color.copy(alpha = .13f)),
             contentAlignment = Alignment.Center
         ) { Text(glyph, color = color, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold) }
         Spacer(Modifier.width(10.dp))
@@ -1200,8 +1117,8 @@ private fun HomeActionPortal(
 private fun HomeRouteRibbon(repo: AppRepository) {
     val shape = RoundedCornerShape(20.dp)
     Row(
-        Modifier.fillMaxWidth().clip(shape).background(Aether.GlassStrong.copy(alpha = .42f))
-            .border(1.dp, Aether.GlassBorderSoft, shape).padding(horizontal = 13.dp, vertical = 11.dp),
+        Modifier.fillMaxWidth().clip(shape).background(Aether.GlassStrong)
+            .padding(horizontal = 13.dp, vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
@@ -1233,16 +1150,7 @@ private fun IranModeStatusPill(state: IranModeState) {
         Modifier
             .fillMaxWidth()
             .clip(shape)
-            .background(
-                Brush.horizontalGradient(
-                    listOf(
-                        tone.copy(alpha = .16f),
-                        Aether.VoidElevated,
-                        tone.copy(alpha = .07f)
-                    )
-                )
-            )
-            .border(1.dp, tone.copy(alpha = .34f), shape)
+            .background(tone.copy(alpha = .075f))
             .padding(horizontal = 13.dp, vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -1497,18 +1405,15 @@ private fun MiniMetric(
     label: String,
     value: String,
     unit: String,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    accent: Color = Color.Unspecified
 ) {
+    val valueColor = if (accent == Color.Unspecified) Aether.Ink else accent
     Column(
         modifier = modifier
             .heightIn(min = 64.dp)
             .clip(RoundedCornerShape(17.dp))
-            .background(Aether.GlassStrong.copy(alpha = .50f))
-            .border(
-                1.dp,
-                Aether.GlassBorderSoft.copy(alpha = .72f),
-                RoundedCornerShape(17.dp)
-            )
+            .background(valueColor.copy(alpha = .075f))
             .padding(horizontal = 9.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.Center
     ) {
@@ -1522,7 +1427,7 @@ private fun MiniMetric(
         Row(verticalAlignment = Alignment.Bottom) {
             Text(
                 value,
-                color = Aether.Ink,
+                color = valueColor,
                 style = MaterialTheme.typography.titleMedium.copy(
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Bold
@@ -1531,7 +1436,7 @@ private fun MiniMetric(
             )
             if (unit.isNotBlank()) {
                 Spacer(Modifier.width(3.dp))
-                Text(unit, color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
+                Text(unit, color = valueColor.copy(alpha = .72f), style = MaterialTheme.typography.labelSmall)
             }
         }
     }
@@ -1551,16 +1456,7 @@ private fun HoloActionPill(
         modifier = modifier
             .heightIn(min = 76.dp)
             .clip(shape)
-            .background(
-                Brush.horizontalGradient(
-                    listOf(
-                        color.copy(alpha = .09f),
-                        Aether.VoidElevated,
-                        Aether.VoidElevated
-                    )
-                )
-            )
-            .border(1.dp, color.copy(alpha = .18f), shape)
+            .background(color.copy(alpha = .065f))
             .kineticClickable(role = Role.Button, onClick = onClick)
             .padding(horizontal = 11.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -3381,7 +3277,7 @@ private fun SpatialSettings(
                             repo.updateSettings(repo.settings.copy(theme = "system"))
                         }
                         CyberChoiceChip(
-                            "Glass White",
+                            "White",
                             repo.settings.theme.equals("light", true),
                             Aether.Cyan
                         ) {
@@ -3406,6 +3302,11 @@ private fun SpatialSettings(
 
                 HorizontalDivider(color = Aether.GlassBorderSoft)
                 Text("HOME LAYOUT", color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
+                SettingSwitch(
+                    "Summary metrics on Home",
+                    "Show Nodes, Xray OK and Mode below the connection panel",
+                    repo.settings.homeShowSummaryMetrics
+                ) { repo.updateSettings(repo.settings.copy(homeShowSummaryMetrics = it)) }
                 SettingSwitch(
                     "Iran Mode card on Home",
                     "Hide only the Home card; Iran Mode protection keeps running",
@@ -3460,14 +3361,9 @@ private fun SpatialAccordion(
         Modifier
             .fillMaxWidth()
             .animateContentSize(MarbleMotionSpecs.Layout)
-            .shadow(10.dp, shape, clip = false)
             .clip(shape)
-            .background(
-                Brush.linearGradient(
-                    listOf(Aether.GlassBorder.copy(alpha = .84f), Aether.GlassStrong, Aether.Glass)
-                )
-            )
-            .border(1.dp, Aether.GlassBorder, shape)
+            .background(Aether.VoidElevated)
+            .border(1.dp, Aether.GlassBorderSoft, shape)
             .padding(horizontal = 14.dp, vertical = 13.dp),
         verticalArrangement = Arrangement.spacedBy(11.dp)
     ) {
@@ -4891,26 +4787,11 @@ private fun CyberButton(
     Box(
         modifier = modifier
             .heightIn(min = 46.dp)
-            .shadow(if (enabled) 8.dp else 0.dp, shape, clip = false)
             .clip(shape)
-            .background(
-                if (enabled) {
-                    Brush.linearGradient(
-                        listOf(
-                            color.copy(alpha = .19f),
-                            Aether.GlassBorder.copy(alpha = .90f),
-                            color.copy(alpha = .10f)
-                        )
-                    )
-                } else {
-                    Brush.linearGradient(
-                        listOf(Aether.GlassStrong, Aether.GlassStrong)
-                    )
-                }
-            )
+            .background(if (enabled) color.copy(alpha = .11f) else Aether.GlassStrong)
             .border(
                 1.dp,
-                if (enabled) color.copy(alpha = .32f) else Aether.GlassBorderSoft,
+                if (enabled) color.copy(alpha = .22f) else Aether.GlassBorderSoft,
                 shape
             )
             .kineticClickable(enabled = enabled, role = Role.Button, onClick = onClick)
@@ -4919,7 +4800,7 @@ private fun CyberButton(
     ) {
         Text(
             label,
-            color = if (enabled) Aether.Ink else Aether.InkFaint,
+            color = if (enabled) color else Aether.InkFaint,
             style = MaterialTheme.typography.labelLarge,
             maxLines = 1,
             softWrap = false,

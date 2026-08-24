@@ -117,6 +117,7 @@ class AppStore(context: Context) {
         subscriptionAutoRefresh = prefs.getBoolean("subscriptionAutoRefresh", true),
         subscriptionRefreshHours = prefs.getInt("subscriptionRefreshHours", 12),
         manualSourceEnabled = prefs.getBoolean("manualSourceEnabled", false),
+        homeShowSummaryMetrics = prefs.getBoolean("homeShowSummaryMetrics", false),
         homeShowIranMode = prefs.getBoolean("homeShowIranMode", true),
         homeShowQuickActions = prefs.getBoolean("homeShowQuickActions", true),
 
@@ -246,6 +247,7 @@ class AppStore(context: Context) {
         .putBoolean("subscriptionAutoRefresh", s.subscriptionAutoRefresh)
         .putInt("subscriptionRefreshHours", s.subscriptionRefreshHours)
         .putBoolean("manualSourceEnabled", s.manualSourceEnabled)
+        .putBoolean("homeShowSummaryMetrics", s.homeShowSummaryMetrics)
         .putBoolean("homeShowIranMode", s.homeShowIranMode)
         .putBoolean("homeShowQuickActions", s.homeShowQuickActions)
 

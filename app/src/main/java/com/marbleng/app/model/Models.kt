@@ -134,6 +134,7 @@ enum class IranModePolicy { AUTO, ALWAYS_ON, OFF }
 // MARBLE_AURORA_UI_SETTINGS_V26
 // MARBLE_SYSTEM_THEME_MODEL_V32
 // MARBLE_KINETIC_GLASS_DEFAULT_V34
+// MARBLE_HOME_SUMMARY_VISIBILITY_V35
 data class AppSettings(
     val socksPort: Int = 10808,
     val localProxyPort: Int = 10101,
@@ -162,6 +163,7 @@ data class AppSettings(
     val manualSourceEnabled: Boolean = false,
 
     // Home composition. Hiding a card does not disable its underlying engine.
+    val homeShowSummaryMetrics: Boolean = false,
     val homeShowIranMode: Boolean = true,
     val homeShowQuickActions: Boolean = true,
 

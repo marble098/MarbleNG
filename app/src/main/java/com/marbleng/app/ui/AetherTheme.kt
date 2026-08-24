@@ -1,6 +1,7 @@
 package com.marbleng.app.ui
 
 // MARBLE_KINETIC_GLASS_THEME_V34
+// MARBLE_SOLID_WHITE_THEME_V35
 
 import android.app.Activity
 import android.os.Build
@@ -22,7 +23,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 
-/** Marble Kinetic Glass — formal white glass with electric, controlled accents. */
+/** Marble White — calm solid surfaces with vivid, state-driven accents. */
 enum class AppTheme { SYSTEM, DARK, LIGHT }
 
 fun parseAppTheme(id: String): AppTheme = when {
@@ -54,39 +55,40 @@ private data class AetherPalette(
 )
 
 /*
- * White is the dominant material, not a flat paint. Slightly blue shadows and translucent layers
- * retain depth, while electric blue/violet are reserved for state and movement.
+ * Light surfaces are deliberately opaque. The previous translucent stack produced visible
+ * rectangular compositing bands on several Android GPUs and weakened the information hierarchy.
+ * Depth now comes from spacing, a single soft outline and state colour—not nested glass layers.
  */
 private val LightPalette = AetherPalette(
-    void = Color(0xFFF3F7FF),
-    voidElevated = Color(0xF2FFFFFF),
-    glass = Color(0xB8FFFFFF),
-    glassStrong = Color(0xE8FFFFFF),
-    glassBorder = Color(0xFFFFFFFF),
-    glassBorderSoft = Color(0x8FA9BAD3),
-    amethyst = Color(0xFF6C4DFF),
-    amethystBright = Color(0xFF8A74FF),
-    cyan = Color(0xFF176BFF),
-    cyanBright = Color(0xFF2F8CFF),
-    slate = Color(0xFFDCE6F5),
-    slateBright = Color(0xFF7387A5),
-    danger = Color(0xFFE14562),
-    dangerBright = Color(0xFFFF6480),
-    emerald = Color(0xFF008F78),
-    amber = Color(0xFFB56A00),
-    ink = Color(0xFF10213A),
-    inkMuted = Color(0xFF4F627D),
-    inkFaint = Color(0xFF7C8DA5)
+    void = Color(0xFFF7F9FC),
+    voidElevated = Color(0xFFFFFFFF),
+    glass = Color(0xFFFFFFFF),
+    glassStrong = Color(0xFFF2F5FA),
+    glassBorder = Color(0xFFE8EDF4),
+    glassBorderSoft = Color(0xFFD9E1EC),
+    amethyst = Color(0xFF7C3AED),
+    amethystBright = Color(0xFF9B5CFF),
+    cyan = Color(0xFF246BFD),
+    cyanBright = Color(0xFF00A6FB),
+    slate = Color(0xFFE7ECF4),
+    slateBright = Color(0xFF60728C),
+    danger = Color(0xFFEF3E5B),
+    dangerBright = Color(0xFFFF5A70),
+    emerald = Color(0xFF00A67E),
+    amber = Color(0xFFF08A00),
+    ink = Color(0xFF102033),
+    inkMuted = Color(0xFF4C6078),
+    inkFaint = Color(0xFF7B8CA2)
 )
 
 /* Dark remains an explicit accessibility/user choice and mirrors the same formal color identity. */
 private val DarkPalette = AetherPalette(
     void = Color(0xFF080E19),
-    voidElevated = Color(0xE8182232),
-    glass = Color(0xA6202C40),
-    glassStrong = Color(0xE1243044),
-    glassBorder = Color(0x805D7598),
-    glassBorderSoft = Color(0x4D6E84A5),
+    voidElevated = Color(0xFF182232),
+    glass = Color(0xFF202C40),
+    glassStrong = Color(0xFF243044),
+    glassBorder = Color(0xFF425570),
+    glassBorderSoft = Color(0xFF33445E),
     amethyst = Color(0xFF9B85FF),
     amethystBright = Color(0xFFB8A9FF),
     cyan = Color(0xFF5B9DFF),
@@ -258,4 +260,3 @@ fun AetherFlowTheme(
         }
     }
 }
-

@@ -15,6 +15,7 @@ object XrayConfigHardener {
     // MARBLE_DNS_EOF_QUARANTINE_V26
     // MARBLE_RUNTIME_POLISH_V29
     // MARBLE_EXTREME_NETWORK_V30
+    // MARBLE_DNS_PROVIDER_FAILOVER_V35
     private val infra = setOf("freedom", "blackhole", "dns", "loopback")
     private val compatibilityDependencyProtocols = setOf(
         "freedom", "http", "shadowsocks", "socks", "trojan", "vless", "vmess", "hysteria", "wireguard"
@@ -302,25 +303,26 @@ object XrayConfigHardener {
             .filter { it.isNotBlank() }
             .distinct()
 
+        val stockCloudflareDoh = "https://1.1.1.1/dns-query"
         val stockGoogleDoh = "https://8.8.8.8/dns-query"
+        val stockQuad9Doh = "https://9.9.9.9/dns-query"
         val configuredRemoteDoh = listOf(settings.dnsPrimaryDoH, settings.dnsSecondaryDoH)
             .map { it.trim() }
             .filter { it.startsWith("https://") }
             .distinct()
             .ifEmpty {
                 listOf(
-                    "https://1.1.1.1/dns-query",
+                    stockCloudflareDoh,
                     stockGoogleDoh
                 )
             }
 
-        // Retained runtime evidence repeatedly timed out on the stock Google IP DoH endpoint.
-        // In adaptive mode, quarantine it regardless of whether an old preference made it primary;
-        // the user can still force it by disabling adaptive DNS.
+        // Runtime evidence has now shown transient deadlines from both stock Cloudflare and Google
+        // endpoints on different networks. Adaptive DNS must therefore never collapse to a single
+        // provider. Preserve the user's order, then add independent encrypted fallbacks.
         val remoteDoh = if (settings.adaptiveDnsEnabled) {
-            configuredRemoteDoh
-                .filterNot { it.equals(stockGoogleDoh, ignoreCase = true) }
-                .ifEmpty { listOf("https://1.1.1.1/dns-query") }
+            (configuredRemoteDoh + listOf(stockCloudflareDoh, stockGoogleDoh, stockQuad9Doh))
+                .distinctBy { it.lowercase() }
         } else {
             configuredRemoteDoh
         }
@@ -340,12 +342,9 @@ object XrayConfigHardener {
             }
         }
 
-        // V26: runtime evidence showed the STOCK secondary Google DoH repeatedly timing out
-        // and then returning EOF. Quarantine only that default secondary from automatic fallback.
-        // If a user deliberately makes Google DoH primary it is kept. Custom secondary DoH is kept.
-        //
-        // normal order:
-        // primary DoH -> primary proxy-routed TCP -> secondary proxy-routed TCP -> custom DoH
+        // Normal adaptive order: preferred DoH -> proxy-routed TCP bootstrap paths -> remaining
+        // encrypted providers. Parallel querying lets another provider win a transient deadline;
+        // disabling Adaptive DNS restores the user's exact resolver list and sequential behaviour.
         remoteDoh.firstOrNull()?.let { address ->
             dnsServers.put(
                 JSONObject()
@@ -357,7 +356,6 @@ object XrayConfigHardener {
 
         val customSecondaryDoh = remoteDoh
             .drop(1)
-            .filterNot { it.equals(stockGoogleDoh, ignoreCase = true) }
 
         if (settings.adaptiveDnsEnabled) {
             bootstrapIps.getOrNull(0)?.let { ip ->
@@ -403,7 +401,6 @@ object XrayConfigHardener {
                 .put("enableParallelQuery", settings.adaptiveDnsEnabled)
                 .put("useSystemHosts", false)
                 .put("disableFallbackIfMatch", bootstrapDomains.isNotEmpty())
-                .put("enableParallelQuery", false)
                 .put("tag", "xgc-dns")
         )
 
