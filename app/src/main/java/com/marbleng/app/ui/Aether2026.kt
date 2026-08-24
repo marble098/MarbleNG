@@ -3337,8 +3337,16 @@ private fun SpatialServerCard(
                             maxLines = 1
                         )
                     }
+                    val variation = measured
+                        ?.takeIf { it.probeKind == "TUNNEL" && it.sampleCount >= 2 }
+                        ?.jitterMs
+                        ?.roundToInt()
                     Text(
-                        "${measured?.probeKind ?: "PING"} • $quality",
+                        listOfNotNull(
+                            measured?.probeKind ?: "PING",
+                            variation?.let { "±$it ms" },
+                            quality
+                        ).joinToString(" • "),
                         color = Aether.InkFaint,
                         style = MaterialTheme.typography.labelSmall,
                         maxLines = 1

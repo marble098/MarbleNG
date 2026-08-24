@@ -30,6 +30,7 @@ class XrayManager(private val context: Context) {
     // MARBLE_RUNTIME_STARTUP_RESCUE_V21
     // MARBLE_SSH_BRIDGE_V25
     // MARBLE_TEMP_PORT_ALLOCATOR_V38
+    // MARBLE_WARM_TUNNEL_RANK_V42
     private companion object {
         const val ROUTING_ASSET_REFRESH_MS = 24L * 60L * 60L * 1000L
         const val ROUTING_ASSET_RETRY_MS = 6L * 60L * 60L * 1000L
@@ -776,6 +777,22 @@ class XrayManager(private val context: Context) {
         }
     }
 
+    /** Short bounded shutdown for throwaway benchmark processes only. */
+    private fun stopTemporaryProcess(target: Process) {
+        runCatching { target.destroy() }
+        val gracefulDeadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(300L)
+        while (target.isAlive && System.nanoTime() < gracefulDeadline) {
+            try {
+                Thread.sleep(20L)
+            } catch (_: InterruptedException) {
+                Thread.currentThread().interrupt()
+                break
+            }
+        }
+        if (target.isAlive) runCatching { target.destroyForcibly() }
+        runCatching { target.waitFor(250L, TimeUnit.MILLISECONDS) }
+    }
+
     /**
      * Temporary benchmark/optimizer Xray instance.
      *
@@ -846,7 +863,7 @@ class XrayManager(private val context: Context) {
                         true
                     }
                 } finally {
-                    stopProcess(temporaryProcess)
+                    stopTemporaryProcess(temporaryProcess)
                     sshBridge?.stop()
                     runCatching { config.delete() }
                 }
@@ -865,7 +882,7 @@ class XrayManager(private val context: Context) {
         timeoutMs: Long,
         target: Process? = null
     ): Boolean {
-        val deadline = System.currentTimeMillis() + timeoutMs
+        val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMs)
 
         /*
          * Listener readiness must not create SOCKS traffic.
@@ -880,7 +897,7 @@ class XrayManager(private val context: Context) {
          *
          * MARBLE: listener-bound-no-socks-handshake
          */
-        while (System.currentTimeMillis() < deadline) {
+        while (System.nanoTime() < deadline) {
             if (target != null && !target.isAlive) return false
 
             val listenerBound = !portAvailable(port)

@@ -726,6 +726,17 @@ jobs:
           - Rank, Library, Privacy and Routing portals now use matching Canvas vectors.
           - Upload/download and Home status chips are font-independent.
 
+          ### Fast, accurate Tunnel Rank
+          - Replaced timeout-inflated cold HTTPS timings with verified warm-tunnel HTTP RTT samples through each exact Xray configuration.
+          - Added one uncounted warm-up followed by three tiny HTTPS 204 probes on the same certificate-verified TLS connection.
+          - Tunnel latency now reports the median successful warm sample; timeouts remain failures and are never displayed as synthetic 5000/9999 ms pings.
+          - Added tunnel delay variation (jitter) to node cards and incorporated it into interactive and stability ranking.
+          - Kept every selected configuration in Rank; no TCP-only shortcut can incorrectly label an unverified proxy as healthy.
+          - Reduced Rank probe deadlines and disabled unrelated speed/UDP work so large libraries finish substantially faster.
+          - Shortened cleanup of throwaway benchmark Xray workers without changing the safer live-VPN shutdown path.
+          - Added an independent 204 fallback target and monotonic Android elapsed-time measurement.
+          - Kept progressive per-node results and source-scoped ranking, while preserving full Xray verification for every finalist.
+
           ### Latest UI & first-run setup
           - Made in-app update changelogs fully readable with a bounded, vertically scrollable release-notes panel and clear scroll-state feedback.
           - Refined the bottom navigation shadow into a softer controlled elevation and increased tab-label weight for better readability.

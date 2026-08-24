@@ -1,5 +1,6 @@
 package com.marbleng.app.core
 
+import android.os.SystemClock
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
 import java.io.ByteArrayInputStream
@@ -13,6 +14,11 @@ import javax.net.ssl.SSLSocket
 import javax.net.ssl.SSLSocketFactory
 import kotlin.math.min
 
+data class TunnelRttBatch(
+    val samplesMs: List<Double>,
+    val warmupMs: Double
+)
+
 data class HttpProbe(
     val status: Int,
     val body: ByteArray,
@@ -25,6 +31,7 @@ object SocksHttpClient {
     // MARBLE_LITERAL_SOCKS_V13
     // MARBLE_LOW_NOISE_PROBE_V18
     // MARBLE_VERIFIED_RTT_V19
+    // MARBLE_WARM_TUNNEL_RANK_V42
     fun get(
         port: Int,
         host: String,
@@ -273,6 +280,110 @@ object SocksHttpClient {
         }
     }
 
+    /**
+     * Measures steady-state application RTT through a verified Xray tunnel.
+     *
+     * SOCKS negotiation and certificate-verified TLS complete before timing. One HTTP 204 is a
+     * warm-up and is excluded. The measured requests reuse the same TLS connection, so the result
+     * describes the user's warm tunnel instead of process startup, DNS, TCP or TLS setup.
+     */
+    fun tunnelRttBatch(
+        port: Int,
+        host: String,
+        path: String = "/generate_204",
+        samples: Int = 3,
+        timeoutMs: Int = 2_500
+    ): TunnelRttBatch {
+        require(port in 1..65535)
+        require(host.isNotBlank())
+        require(path.startsWith('/'))
+        require(samples in 1..8)
+        require(timeoutMs in 500..10_000)
+
+        val tcp = Socket()
+        var ssl: SSLSocket? = null
+        try {
+            tcp.soTimeout = timeoutMs
+            tcp.tcpNoDelay = true
+            tcp.connect(InetSocketAddress("127.0.0.1", port), timeoutMs)
+
+            val output = BufferedOutputStream(tcp.getOutputStream())
+            val input = BufferedInputStream(tcp.getInputStream())
+            output.write(byteArrayOf(5, 1, 0))
+            output.flush()
+            require(input.read() == 5 && input.read() == 0) { "SOCKS auth negotiation failed" }
+
+            val hostBytes = host.toByteArray(Charsets.UTF_8)
+            require(hostBytes.size in 1..255) { "SOCKS hostname too long" }
+            output.write(byteArrayOf(5, 1, 0, 3, hostBytes.size.toByte()))
+            output.write(hostBytes)
+            output.write(byteArrayOf(0x01, 0xbb.toByte()))
+            output.flush()
+
+            val reply = ByteArray(4)
+            readFully(input, reply)
+            require(reply[0].toInt() == 5 && reply[1].toInt() == 0) {
+                "SOCKS connect failed: ${reply[1].toInt() and 0xff}"
+            }
+            when (reply[3].toInt() and 0xff) {
+                1 -> skip(input, 4)
+                3 -> {
+                    val length = input.read()
+                    require(length >= 0)
+                    skip(input, length)
+                }
+                4 -> skip(input, 16)
+                else -> error("Invalid SOCKS address type")
+            }
+            skip(input, 2)
+
+            val secure = (SSLSocketFactory.getDefault() as SSLSocketFactory)
+                .createSocket(tcp, host, 443, true) as SSLSocket
+            ssl = secure
+            secure.soTimeout = timeoutMs
+            secure.tcpNoDelay = true
+            val parameters = secure.sslParameters
+            parameters.endpointIdentificationAlgorithm = "HTTPS"
+            secure.sslParameters = parameters
+            secure.startHandshake()
+
+            val sslOut = BufferedOutputStream(secure.getOutputStream())
+            val sslIn = BufferedInputStream(secure.getInputStream())
+            val request = buildString {
+                append("GET $path HTTP/1.1\r\n")
+                append("Host: $host\r\n")
+                append("User-Agent: MarbleNG/1\r\n")
+                append("Accept: */*\r\n")
+                append("Accept-Encoding: identity\r\n")
+                append("Cache-Control: no-cache\r\n")
+                append("Connection: keep-alive\r\n")
+                append("\r\n")
+            }.toByteArray(Charsets.ISO_8859_1)
+
+            fun probe(): Double {
+                val started = SystemClock.elapsedRealtimeNanos()
+                sslOut.write(request)
+                sslOut.flush()
+                val header = readHttpHeader(sslIn, 16 * 1024)
+                val status = header.lineSequence().firstOrNull()
+                    ?.split(' ')
+                    ?.getOrNull(1)
+                    ?.toIntOrNull()
+                    ?: 0
+                require(status == 204) { "Expected HTTPS 204, received $status" }
+                return (SystemClock.elapsedRealtimeNanos() - started) / 1e6
+            }
+
+            val warmup = probe()
+            val measured = ArrayList<Double>(samples)
+            repeat(samples) { measured += probe() }
+            return TunnelRttBatch(measured, warmup)
+        } finally {
+            runCatching { ssl?.close() }
+            runCatching { tcp.close() }
+        }
+    }
+
     fun request(
         port: Int,
         host: String,
@@ -433,6 +544,26 @@ object SocksHttpClient {
             runCatching { ssl?.close() }
             runCatching { tcp.close() }
         }
+    }
+
+    private fun readHttpHeader(input: BufferedInputStream, maxBytes: Int): String {
+        val out = ByteArrayOutputStream(min(maxBytes, 2048))
+        var state = 0
+        while (out.size() < maxBytes) {
+            val value = input.read()
+            require(value >= 0) { "HTTPS peer closed before response headers" }
+            out.write(value)
+            state = when {
+                state == 0 && value == 13 -> 1
+                state == 1 && value == 10 -> 2
+                state == 2 && value == 13 -> 3
+                state == 3 && value == 10 -> 4
+                value == 13 -> 1
+                else -> 0
+            }
+            if (state == 4) return out.toString(Charsets.ISO_8859_1.name())
+        }
+        error("HTTPS response headers exceed $maxBytes bytes")
     }
 
     private fun literalIpv4Bytes(host: String): ByteArray? {

@@ -46,6 +46,7 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     // MARBLE_LIBRARY_SCOPE_V32
     // MARBLE_LIBRARY_MEMORY_V33
     // MARBLE_SYSTEM_INTEGRITY_REPO_V38
+    // MARBLE_WARM_TUNNEL_RANK_V42
 
     private val store = AppStore(context)
     private val io = Executors.newFixedThreadPool(3)
@@ -1766,9 +1767,11 @@ private fun postToMain(block: () -> Unit) {
             val rankSettings = settings.copy(
                 benchMode = BenchMode.CUSTOM,
                 benchCandidates = scoped.size.coerceAtLeast(1),
-                benchSamples = settings.benchSamples.coerceIn(1, 2),
-                benchTimeoutSec = minOf(settings.benchTimeoutSec, 5),
-                tcpPrecheckTimeoutMs = minOf(settings.tcpPrecheckTimeoutMs, 750),
+                // Three reused samples are fast enough for Rank and robust enough for median
+                // plus consecutive delay variation. The warm-up is performed separately.
+                benchSamples = 3,
+                benchTimeoutSec = minOf(settings.benchTimeoutSec, 3),
+                tcpPrecheckTimeoutMs = minOf(settings.tcpPrecheckTimeoutMs, 650),
                 tcpWorkers = maxOf(settings.tcpWorkers, 24).coerceAtMost(32),
                 probeMethod = ProbeMethod.TUNNEL,
                 probeSpeedTest = false,
@@ -1783,7 +1786,7 @@ private fun postToMain(block: () -> Unit) {
                 onStart = ::markProbeStart,
                 onResult = ::markProbeResult
             ) { done, total, name ->
-                message = "Xray rank • $scope • $done/$total • $name"
+                message = "Tunnel rank • $scope • $done/$total • $name"
             }
             mergeBenchmarks(results)
 
@@ -1799,9 +1802,9 @@ private fun postToMain(block: () -> Unit) {
                 "healthy" to healthy
             )
             message = if (best == null) {
-                "Xray rank • $scope • ${results.size}/${scoped.size} tested • 0 healthy"
+                "Tunnel rank • $scope • ${results.size}/${scoped.size} tested • 0 healthy"
             } else {
-                "Xray rank • $scope • ${results.size}/${scoped.size} tested • $healthy healthy • " +
+                "Tunnel rank • $scope • ${results.size}/${scoped.size} tested • $healthy healthy • " +
                     "best ${best.name} • ${best.latencyMs.toInt()} ms • score ${best.score.toInt()}"
             }
         }

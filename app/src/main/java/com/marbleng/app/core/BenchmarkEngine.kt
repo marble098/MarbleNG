@@ -28,6 +28,7 @@ class BenchmarkEngine(
     // MARBLE_BENCHMARK_ALL_NODES_V27
     // MARBLE_DIRECT_PING_TIMEOUT_V33
     // MARBLE_TEMP_PORT_CONSUMER_V38
+    // MARBLE_WARM_TUNNEL_RANK_V42
 
     fun run(
         profiles: List<ProxyProfile>,
@@ -610,7 +611,10 @@ class BenchmarkEngine(
         val success: Int,
         val latency: Double,
         val speed: Double,
-        val udpSuccess: Int
+        val udpSuccess: Int,
+        val jitter: Double = 0.0,
+        val warmup: Double = 0.0,
+        val sampleCount: Int = 0
     )
 
     /** True when the selected method never needs a temporary Xray process. */
@@ -685,7 +689,9 @@ class BenchmarkEngine(
     private fun benchmarkResult(profile: ProxyProfile, m: Measurement, usedFragment: Boolean, usedMux: Boolean) = BenchmarkResult(
         profile.id, profile.name, m.success, m.latency, m.speed, 0.0,
         udpSuccess = m.udpSuccess, interactiveScore = 0.0, streamingScore = 0.0,
-        stabilityScore = 0.0, resilienceScore = 0.0, usedFragment = usedFragment, usedMux = usedMux
+        stabilityScore = 0.0, resilienceScore = 0.0, usedFragment = usedFragment,
+        usedMux = usedMux, jitterMs = m.jitter, warmupMs = m.warmup,
+        sampleCount = m.sampleCount
     )
 
     private fun materiallyBetter(candidate: Measurement, baseline: Measurement): Boolean {
@@ -707,67 +713,86 @@ class BenchmarkEngine(
         s: AppSettings,
         includeThroughput: Boolean
     ): Measurement {
-        val times = mutableListOf<Double>()
+        val requested = s.benchSamples.coerceIn(1, 8)
+        val timeoutMs = (s.benchTimeoutSec * 1000).coerceIn(1_200, 3_000)
+        var times = emptyList<Double>()
+        var warmup = 0.0
         var speed = 0.0
-        var ok = 0
         var udpSuccess = 0
 
         runCatching {
             xray.temporary(p, port, s) { livePort ->
-                repeat(s.benchSamples.coerceIn(1, 8)) { sample ->
-                    val r = SocksHttpClient.get(
-                        livePort,
-                        "cp.cloudflare.com",
-                        "/generate_204",
-                        s.benchTimeoutSec * 1000,
-                        32 * 1024
-                    )
-                    if (r.status in 200..399) {
-                        times += r.elapsedMs
-                        ok++
-                    }
+                // Official Xray HTTPing defaults to gstatic 204. Cloudflare is an independent
+                // fallback for routes where that origin is unavailable. A timeout is a failed
+                // sample, never a synthetic 5000/9999 ms latency value.
+                val batch = TUNNEL_PROBE_TARGETS.firstNotNullOfOrNull { target ->
+                    runCatching {
+                        SocksHttpClient.tunnelRttBatch(
+                            port = livePort,
+                            host = target.first,
+                            path = target.second,
+                            samples = requested,
+                            timeoutMs = timeoutMs
+                        )
+                    }.getOrNull()
+                }
+                if (batch != null) {
+                    times = batch.samplesMs.filter { it.isFinite() && it > 0.0 }
+                    warmup = batch.warmupMs
+                }
 
-                    if (includeThroughput && s.probeSpeedTest && sample == 0 && r.status > 0) {
-                        var bytes = s.benchBytes.coerceIn(64 * 1024, 4 * 1024 * 1024)
-                        var z = SocksHttpClient.get(
+                if (includeThroughput && s.probeSpeedTest && times.isNotEmpty()) {
+                    var bytes = s.benchBytes.coerceIn(64 * 1024, 4 * 1024 * 1024)
+                    var transfer = SocksHttpClient.get(
+                        livePort,
+                        "speed.cloudflare.com",
+                        "/__down?bytes=$bytes",
+                        s.benchTimeoutSec * 1000 + 4_000,
+                        bytes + 16_384
+                    )
+                    speed = max(speed, transfer.bytesPerSecond)
+                    if (
+                        s.adaptiveThroughputEnabled &&
+                        transfer.status > 0 &&
+                        transfer.bytesPerSecond > 512.0 * 1024.0 &&
+                        (intelligence?.thermalBudget(s) ?: 1.0) >= 0.60
+                    ) {
+                        bytes = max(1024 * 1024, bytes * 4)
+                            .coerceAtMost(s.adaptiveThroughputMaxBytes)
+                        transfer = SocksHttpClient.get(
                             livePort,
                             "speed.cloudflare.com",
                             "/__down?bytes=$bytes",
-                            s.benchTimeoutSec * 1000 + 4_000,
+                            s.benchTimeoutSec * 1000 + 7_000,
                             bytes + 16_384
                         )
-                        speed = max(speed, z.bytesPerSecond)
-
-                        // Expand only when the first sample is clearly moving data and thermal
-                        // budget permits it. Slow/dead nodes stop early and save quota/battery.
-                        if (
-                            s.adaptiveThroughputEnabled &&
-                            z.status > 0 &&
-                            z.bytesPerSecond > 512.0 * 1024.0 &&
-                            (intelligence?.thermalBudget(s) ?: 1.0) >= 0.60
-                        ) {
-                            bytes = max(1024 * 1024, bytes * 4).coerceAtMost(s.adaptiveThroughputMaxBytes)
-                            z = SocksHttpClient.get(
-                                livePort,
-                                "speed.cloudflare.com",
-                                "/__down?bytes=$bytes",
-                                s.benchTimeoutSec * 1000 + 7_000,
-                                bytes + 16_384
-                            )
-                            speed = max(speed, z.bytesPerSecond)
-                        }
+                        speed = max(speed, transfer.bytesPerSecond)
                     }
                 }
-                if (ok > 0 && s.udpProbeEnabled) {
-                    udpSuccess = if (SocksUdpProbe.stun(livePort, timeoutMs = min(3500, s.benchTimeoutSec * 1000)) > 0) 100 else 0
+                if (times.isNotEmpty() && s.udpProbeEnabled) {
+                    udpSuccess = if (
+                        SocksUdpProbe.stun(
+                            livePort,
+                            timeoutMs = min(3500, s.benchTimeoutSec * 1000)
+                        ) > 0
+                    ) 100 else 0
                 }
             }
         }
 
-        val sampleCount = s.benchSamples.coerceIn(1, 8)
-        val success = ok * 100 / sampleCount
-        val latency = if (times.isEmpty()) 9999.0 else times.sorted()[times.size / 2]
-        return Measurement(success, latency, speed, udpSuccess)
+        fun median(values: List<Double>): Double {
+            if (values.isEmpty()) return 0.0
+            val orderedValues = values.sorted()
+            val middle = orderedValues.size / 2
+            return if (orderedValues.size % 2 == 1) orderedValues[middle]
+            else (orderedValues[middle - 1] + orderedValues[middle]) / 2.0
+        }
+        val ordered = times.sorted()
+        val latency = if (ordered.isEmpty()) 9999.0 else median(ordered)
+        val variation = times.zipWithNext { a, b -> kotlin.math.abs(b - a) }.sorted()
+        val jitter = median(variation)
+        val success = times.size * 100 / requested
+        return Measurement(success, latency, speed, udpSuccess, jitter, warmup, times.size)
     }
 
     private fun quickCandidate(p: ProxyProfile, port: Int, s: AppSettings): BenchmarkResult {
@@ -927,18 +952,25 @@ class BenchmarkEngine(
                         )
                 }
 
+            val variation =
+                if (result.sampleCount < 2) 50.0 else
+                    100.0 * exp(-result.jitterMs.coerceAtMost(2000.0) / 65.0)
+
             val interactive =
-                reliability * 0.42 +
-                    latency * 0.58
+                reliability * 0.35 +
+                    latency * 0.50 +
+                    variation * 0.15
 
             val streaming =
-                reliability * 0.33 +
-                    speed * 0.58 +
-                    latency * 0.09
+                reliability * 0.30 +
+                    speed * 0.55 +
+                    latency * 0.10 +
+                    variation * 0.05
 
             val stability =
-                reliability * 0.66 +
-                    latency * 0.34
+                reliability * 0.55 +
+                    latency * 0.20 +
+                    variation * 0.25
 
             val resilience =
                 (
@@ -1065,6 +1097,10 @@ class BenchmarkEngine(
         const val BENCHMARK_PORT_SLOTS = 10_000
         const val RACE_BASE_PORT = 19280
         const val OPTIMIZER_BASE_PORT = 20580
+        val TUNNEL_PROBE_TARGETS = listOf(
+            "connectivitycheck.gstatic.com" to "/generate_204",
+            "cp.cloudflare.com" to "/generate_204"
+        )
         const val DEAD_LATENCY = 99_999.0
     }
 }
