@@ -726,6 +726,17 @@ jobs:
           - Rank, Library, Privacy and Routing portals now use matching Canvas vectors.
           - Upload/download and Home status chips are font-independent.
 
+          ### Latest UI & first-run setup
+          - Made in-app update changelogs fully readable with a bounded, vertically scrollable release-notes panel and clear scroll-state feedback.
+          - Refined the bottom navigation shadow into a softer controlled elevation and increased tab-label weight for better readability.
+          - Removed the repeated decorative orb from every Library node card and reclaimed its horizontal space for node identity and protocol details.
+          - Added a compact full-width Host/Port metadata rail to every node card while keeping Connect, Ping and overflow actions stable.
+          - Added a polished English first-run setup screen for VPN consent, notification permission and battery-optimization exemption.
+          - Every permission card explains why access is needed and opens the relevant Android consent flow or app-specific settings page directly.
+          - Permission state is refreshed after returning from Android settings, and entry into MarbleNG unlocks only after all three setup steps are ready.
+          - Completed onboarding is persisted so the setup screen is not shown again after a successful first run.
+          - Fixed Compose compatibility for RowScope weight and explicit edge padding in the onboarding layout.
+
           ### UX & persistence
           - Always persist the last successfully connected node for exact one-tap Home reconnect after app restart.
           - Home prioritizes that exact remembered profile before automatic candidate selection.

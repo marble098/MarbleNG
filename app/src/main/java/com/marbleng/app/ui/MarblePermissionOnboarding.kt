@@ -1,6 +1,7 @@
 package com.marbleng.app.ui
 
 // MARBLE_FIRST_RUN_PERMISSIONS_V41
+// MARBLE_FIRST_RUN_PERMISSIONS_V41_1
 
 import android.Manifest
 import android.app.Activity
@@ -33,7 +34,6 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
@@ -239,7 +239,7 @@ fun MarblePermissionOnboarding(onComplete: () -> Unit) {
             Text(
                 "You stay in control. MarbleNG only asks for access required to keep the VPN " +
                     "visible, stable and connected.",
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, bottom = 6.dp),
+                modifier = Modifier.fillMaxWidth().padding(start = 10.dp, end = 10.dp, bottom = 6.dp),
                 color = Aether.InkFaint,
                 style = MaterialTheme.typography.bodySmall,
                 textAlign = TextAlign.Center
