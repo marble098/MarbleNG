@@ -30,6 +30,7 @@ class BenchmarkEngine(
     // MARBLE_TEMP_PORT_CONSUMER_V38
     // MARBLE_WARM_TUNNEL_RANK_V42
     // MARBLE_RANK_RECOVERY_CARD_UX_V43
+    // MARBLE_REPEATABLE_RANK_V44
 
     fun run(
         profiles: List<ProxyProfile>,
@@ -42,6 +43,7 @@ class BenchmarkEngine(
     ): List<BenchmarkResult> {
         if (profiles.isEmpty()) return emptyList()
         val s = tuned(settings)
+        val batchNetworkKey = intelligence?.currentSnapshot()?.key()
         // TUNNEL means "test everything for real"; HYBRID keeps the cheap TCP gate in front of the
         // expensive tunnel tests, which is what makes a large library finish in reasonable time.
         val precheck = usePrecheck && s.probeMethod != ProbeMethod.TUNNEL
@@ -77,7 +79,10 @@ class BenchmarkEngine(
                 results += result
                 // TCP/ICMP proves endpoint reachability, not that the Xray route/account works.
                 // Never poison persistent tunnel intelligence with underlay-only measurements.
-                if (!directProbe(s)) {
+                if (
+                    !directProbe(s) &&
+                    (batchNetworkKey == null || intelligence?.currentSnapshot()?.key() == batchNetworkKey)
+                ) {
                     intelligence?.recordBenchmark(p, result, s)
                 }
                 onResult(p, result)
@@ -715,7 +720,7 @@ class BenchmarkEngine(
         includeThroughput: Boolean
     ): Measurement {
         val requested = s.benchSamples.coerceIn(1, 8)
-        val timeoutMs = (s.benchTimeoutSec * 1000).coerceIn(1_200, 3_000)
+        val timeoutMs = (s.benchTimeoutSec * 1000).coerceIn(1_200, 2_500)
         var times = emptyList<Double>()
         var warmup = 0.0
         var speed = 0.0
@@ -726,7 +731,12 @@ class BenchmarkEngine(
                 // Official Xray HTTPing defaults to gstatic 204. Cloudflare is an independent
                 // fallback for routes where that origin is unavailable. A timeout is a failed
                 // sample, never a synthetic 5000/9999 ms latency value.
-                val batch = TUNNEL_PROBE_TARGETS.firstNotNullOfOrNull { target ->
+                val start = Math.floorMod(
+                    TUNNEL_TARGET_CURSOR.getAndIncrement() + p.id.hashCode(),
+                    TUNNEL_PROBE_TARGETS.size
+                )
+                val batch = (TUNNEL_PROBE_TARGETS.indices).firstNotNullOfOrNull { offset ->
+                    val target = TUNNEL_PROBE_TARGETS[(start + offset) % TUNNEL_PROBE_TARGETS.size]
                     runCatching {
                         SocksHttpClient.tunnelRttBatch(
                             port = livePort,
@@ -1098,12 +1108,15 @@ class BenchmarkEngine(
         const val BENCHMARK_PORT_SLOTS = 10_000
         const val RACE_BASE_PORT = 19280
         const val OPTIMIZER_BASE_PORT = 20580
-        // Match connected telemetry exactly: literal anycast IPs avoid temporary-Xray DNS
-        // dependency, while certificate-verified HTTPS still proves real response traffic.
+        // Spread nodes across independent verified endpoints. Domain targets travel as SOCKS
+        // ATYP=domain (no Android resolver); literal targets remain available when proxy DNS fails.
         val TUNNEL_PROBE_TARGETS = listOf(
+            "connectivitycheck.gstatic.com" to "/generate_204",
+            "cp.cloudflare.com" to "/generate_204",
             "1.1.1.1" to "/cdn-cgi/trace",
             "1.0.0.1" to "/cdn-cgi/trace"
         )
+        val TUNNEL_TARGET_CURSOR = AtomicInteger(0)
         const val DEAD_LATENCY = 99_999.0
     }
 }

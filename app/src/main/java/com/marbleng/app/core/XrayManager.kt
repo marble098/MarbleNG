@@ -31,6 +31,7 @@ class XrayManager(private val context: Context) {
     // MARBLE_SSH_BRIDGE_V25
     // MARBLE_TEMP_PORT_ALLOCATOR_V38
     // MARBLE_WARM_TUNNEL_RANK_V42
+    // MARBLE_REPEATABLE_RANK_V44
     private companion object {
         const val ROUTING_ASSET_REFRESH_MS = 24L * 60L * 60L * 1000L
         const val ROUTING_ASSET_RETRY_MS = 6L * 60L * 60L * 1000L
@@ -777,10 +778,16 @@ class XrayManager(private val context: Context) {
         }
     }
 
-    /** Short bounded shutdown for throwaway benchmark processes only. */
+    /**
+     * Deterministic shutdown for throwaway benchmark processes.
+     *
+     * A reservation is released only after this bounded graceful/forced reap attempt. The old
+     * 300 + 250 ms window could return while a native worker was still exiting, so rapid Rank
+     * reruns accumulated processes, sockets and server sessions behind the next batch.
+     */
     private fun stopTemporaryProcess(target: Process) {
         runCatching { target.destroy() }
-        val gracefulDeadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(300L)
+        val gracefulDeadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(700L)
         while (target.isAlive && System.nanoTime() < gracefulDeadline) {
             try {
                 Thread.sleep(20L)
@@ -790,7 +797,18 @@ class XrayManager(private val context: Context) {
             }
         }
         if (target.isAlive) runCatching { target.destroyForcibly() }
-        runCatching { target.waitFor(250L, TimeUnit.MILLISECONDS) }
+        val forcedDeadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(1_300L)
+        while (target.isAlive && System.nanoTime() < forcedDeadline) {
+            try {
+                Thread.sleep(20L)
+            } catch (_: InterruptedException) {
+                Thread.currentThread().interrupt()
+                break
+            }
+        }
+        runCatching { target.inputStream.close() }
+        runCatching { target.errorStream.close() }
+        runCatching { target.outputStream.close() }
     }
 
     /**
@@ -811,9 +829,9 @@ class XrayManager(private val context: Context) {
 
         val config = File(context.cacheDir, "bench-$actualPort.json")
         val benchmarkLog = File(context.cacheDir, "xray-bench-$actualPort.log")
-        if (benchmarkLog.isFile && benchmarkLog.length() > 512L * 1024L) {
-            runCatching { benchmarkLog.delete() }
-        }
+        // One log per latest worker lifetime: stale failures from earlier Rank runs must not
+        // masquerade as the current node's failure evidence.
+        runCatching { benchmarkLog.delete() }
 
         val portWaitMs = (settings.benchTimeoutSec * 1000L).coerceIn(2_500L, 7_000L)
         val sshBridge = if (profile.scheme.equals("ssh", true)) SshTransportManager() else null

@@ -47,6 +47,7 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     // MARBLE_LIBRARY_MEMORY_V33
     // MARBLE_SYSTEM_INTEGRITY_REPO_V38
     // MARBLE_WARM_TUNNEL_RANK_V42
+    // MARBLE_REPEATABLE_RANK_V44
 
     private val store = AppStore(context)
     private val io = Executors.newFixedThreadPool(3)
@@ -1767,8 +1768,8 @@ private fun postToMain(block: () -> Unit) {
             val rankSettings = settings.copy(
                 benchMode = BenchMode.CUSTOM,
                 benchCandidates = scoped.size.coerceAtLeast(1),
-                // Three reused samples are fast enough for Rank and robust enough for median
-                // plus consecutive delay variation. The warm-up is performed separately.
+                // Three bounded application RTT samples share one verified tunnel/TLS
+                // session. The first verified response is health evidence, not a discarded warm-up.
                 benchSamples = 3,
                 benchTimeoutSec = minOf(settings.benchTimeoutSec, 3),
                 tcpPrecheckTimeoutMs = minOf(settings.tcpPrecheckTimeoutMs, 650),
@@ -1778,7 +1779,7 @@ private fun postToMain(block: () -> Unit) {
                 verifiedPerformanceTuning = false,
                 udpProbeEnabled = false
             )
-            val results = BenchmarkEngine(xray, intelligence).run(
+            fun executeRank(): List<BenchmarkResult> = BenchmarkEngine(xray, intelligence).run(
                 scoped,
                 rankSettings,
                 usePrecheck = false,
@@ -1787,6 +1788,21 @@ private fun postToMain(block: () -> Unit) {
                 onResult = ::markProbeResult
             ) { done, total, name ->
                 message = "Tunnel rank • $scope • $done/$total • $name"
+            }
+
+            val startedNetwork = intelligence.currentSnapshot().key()
+            var results = executeRank()
+            val finishedNetwork = intelligence.currentSnapshot().key()
+            if (finishedNetwork != startedNetwork) {
+                diagnostics.event(
+                    "BENCHMARK",
+                    "rank-network-changed-retry",
+                    "from" to startedNetwork,
+                    "to" to finishedNetwork
+                )
+                message = "Physical network changed • restarting tunnel Rank once"
+                Thread.sleep(750L)
+                results = executeRank()
             }
             mergeBenchmarks(results)
 

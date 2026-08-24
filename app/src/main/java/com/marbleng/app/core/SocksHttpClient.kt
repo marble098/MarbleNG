@@ -33,6 +33,7 @@ object SocksHttpClient {
     // MARBLE_VERIFIED_RTT_V19
     // MARBLE_WARM_TUNNEL_RANK_V42
     // MARBLE_RANK_RECOVERY_CARD_UX_V43
+    // MARBLE_REPEATABLE_RANK_V44
     fun get(
         port: Int,
         host: String,
@@ -282,17 +283,18 @@ object SocksHttpClient {
     }
 
     /**
-     * Verified warm-tunnel RTT burst that tolerates origins closing HTTP connections.
+     * Repeatable verified RTT sampling over one real Xray tunnel session.
      *
-     * Every call completes a real SOCKS CONNECT and certificate-verified TLS handshake, but the
-     * latency clock starts only after TLS and stops at the first response byte. Xray may still
-     * reuse its underlying transport/mux after the uncounted warm-up. Failed samples are omitted
-     * and remain loss; one closed origin connection can never erase earlier healthy evidence.
+     * The previous implementation opened warm-up + N independent SOCKS/TLS connections for every
+     * node. With many configs sharing one server egress, rapid Rank runs created a synchronized
+     * session burst and progressively collapsed healthy results. This implementation performs one
+     * SOCKS CONNECT and one certificate-verified TLS handshake, then sends bounded HEAD probes on
+     * that same application connection. A later keep-alive close preserves every earlier sample.
      */
     fun tunnelRttBatch(
         port: Int,
         host: String,
-        path: String = "/cdn-cgi/trace",
+        path: String = "/generate_204",
         samples: Int = 3,
         timeoutMs: Int = 2_500
     ): TunnelRttBatch {
@@ -302,17 +304,130 @@ object SocksHttpClient {
         require(samples in 1..8)
         require(timeoutMs in 500..10_000)
 
-        val warmup = httpsFirstByteLatency(port, host, path, 443, timeoutMs)
-        val measured = ArrayList<Double>(samples)
-        repeat(samples) {
-            runCatching {
-                httpsFirstByteLatency(port, host, path, 443, timeoutMs)
-            }.getOrNull()
-                ?.takeIf { it.isFinite() && it > 0.0 }
-                ?.let(measured::add)
+        val tcp = Socket()
+        var ssl: SSLSocket? = null
+        try {
+            tcp.soTimeout = timeoutMs
+            tcp.tcpNoDelay = true
+            tcp.connect(InetSocketAddress("127.0.0.1", port), timeoutMs)
+
+            val output = BufferedOutputStream(tcp.getOutputStream())
+            val input = BufferedInputStream(tcp.getInputStream())
+            output.write(byteArrayOf(5, 1, 0))
+            output.flush()
+            require(input.read() == 5 && input.read() == 0) {
+                "SOCKS auth negotiation failed"
+            }
+
+            val ipv4 = literalIpv4Bytes(host)
+            if (ipv4 != null) {
+                output.write(byteArrayOf(5, 1, 0, 1))
+                output.write(ipv4)
+            } else {
+                val hostBytes = host.toByteArray(Charsets.UTF_8)
+                require(hostBytes.size in 1..255) { "SOCKS hostname too long" }
+                output.write(byteArrayOf(5, 1, 0, 3, hostBytes.size.toByte()))
+                output.write(hostBytes)
+            }
+            output.write(byteArrayOf(0x01, 0xbb.toByte()))
+            output.flush()
+
+            val reply = ByteArray(4)
+            readFully(input, reply)
+            require(reply[0].toInt() == 5 && reply[1].toInt() == 0) {
+                "SOCKS connect failed: ${reply[1].toInt() and 0xff}"
+            }
+            when (reply[3].toInt() and 0xff) {
+                1 -> skip(input, 4)
+                3 -> {
+                    val length = input.read()
+                    require(length >= 0)
+                    skip(input, length)
+                }
+                4 -> skip(input, 16)
+                else -> error("Invalid SOCKS address type")
+            }
+            skip(input, 2)
+
+            val secure = (SSLSocketFactory.getDefault() as SSLSocketFactory)
+                .createSocket(tcp, host, 443, true) as SSLSocket
+            ssl = secure
+            secure.soTimeout = timeoutMs
+            secure.tcpNoDelay = true
+            val parameters = secure.sslParameters
+            parameters.endpointIdentificationAlgorithm = "HTTPS"
+            secure.sslParameters = parameters
+            secure.startHandshake()
+
+            val sslOut = BufferedOutputStream(secure.getOutputStream())
+            val sslIn = BufferedInputStream(secure.getInputStream())
+            val measured = ArrayList<Double>(samples)
+
+            fun readHeader(): Pair<Int, Boolean> {
+                val bytes = ByteArrayOutputStream()
+                var matched = 0
+                while (bytes.size() < 16 * 1024) {
+                    val next = sslIn.read()
+                    require(next >= 0) { "HTTPS peer closed before headers" }
+                    bytes.write(next)
+                    matched = when {
+                        matched == 0 && next == '\r'.code -> 1
+                        matched == 1 && next == '\n'.code -> 2
+                        matched == 2 && next == '\r'.code -> 3
+                        matched == 3 && next == '\n'.code -> 4
+                        next == '\r'.code -> 1
+                        else -> 0
+                    }
+                    if (matched == 4) break
+                }
+                require(matched == 4) { "HTTPS response headers exceed 16 KiB" }
+                val header = bytes.toString(Charsets.ISO_8859_1.name())
+                val status = header.lineSequence().firstOrNull()
+                    ?.split(' ')
+                    ?.getOrNull(1)
+                    ?.toIntOrNull()
+                    ?: 0
+                require(status in 100..599) { "Invalid HTTPS status line" }
+                val closes = header.lineSequence().any {
+                    it.trim().equals("Connection: close", ignoreCase = true)
+                }
+                return status to closes
+            }
+
+            for (index in 0 until samples) {
+                try {
+                    val separator = if ('?' in path) '&' else '?'
+                    val requestPath = "$path${separator}marble=${SystemClock.elapsedRealtimeNanos()}-$index"
+                    val request = buildString {
+                        append("HEAD $requestPath HTTP/1.1\r\n")
+                        append("Host: $host\r\n")
+                        append("User-Agent: MarbleNG/1\r\n")
+                        append("Accept: */*\r\n")
+                        append("Accept-Encoding: identity\r\n")
+                        append("Cache-Control: no-cache\r\n")
+                        append("Connection: keep-alive\r\n")
+                        append("\r\n")
+                    }.toByteArray(Charsets.ISO_8859_1)
+
+                    val started = SystemClock.elapsedRealtimeNanos()
+                    sslOut.write(request)
+                    sslOut.flush()
+                    val (_, closes) = readHeader()
+                    val elapsed = (SystemClock.elapsedRealtimeNanos() - started) / 1e6
+                    if (elapsed.isFinite() && elapsed > 0.0) measured += elapsed
+                    if (closes) break
+                } catch (error: Throwable) {
+                    if (measured.isEmpty()) throw error
+                    break
+                }
+            }
+
+            require(measured.isNotEmpty()) { "No verified HTTPS RTT sample" }
+            return TunnelRttBatch(measured, measured.first())
+        } finally {
+            runCatching { ssl?.close() }
+            runCatching { tcp.close() }
         }
-        require(measured.isNotEmpty()) { "No verified HTTPS RTT sample" }
-        return TunnelRttBatch(measured, warmup)
     }
 
     fun request(

@@ -726,9 +726,19 @@ jobs:
           - Rank, Library, Privacy and Routing portals now use matching Canvas vectors.
           - Upload/download and Home status chips are font-independent.
 
+          ### Repeatable Tunnel Rank
+          - Fixed the repeated-run regression where the same healthy library could fall from many reachable nodes to 5 and then 0.
+          - Removed the synchronized warm-up plus three-new-TLS-session burst that created up to 60 proxy/server sessions for a 15-node Rank.
+          - Each node now uses one real temporary Xray process, one SOCKS tunnel and one certificate-verified TLS session for its bounded RTT samples.
+          - The first verified response now counts as health evidence; a later keep-alive close preserves earlier samples instead of erasing the node.
+          - Rotated checks across Google connectivity, Cloudflare connectivity and two DNS-free Cloudflare anycast endpoints to avoid one-origin throttling or resolver bias.
+          - Strengthened temporary native-process cleanup and reset per-worker logs so immediate reruns do not inherit sockets, processes or stale errors.
+          - Added physical-network generation protection: history is not polluted across an underlay change, and a mid-Rank Wi-Fi/mobile switch triggers one settled retry.
+          - Preserved full source-scoped real-Xray verification for every selected configuration; TCP Quick Ping is never accepted as tunnel health.
+
           ### Rank recovery & cleaner node interaction
           - Fixed the 1.2.4 regression that could report 0 reachable nodes even when every configuration connected successfully.
-          - Replaced the fragile single-connection 204 sequence with independent certificate-verified, post-TLS first-byte samples.
+          - Preserved partial certificate-verified response evidence so one later read failure no longer erases an otherwise healthy node.
           - Matched Rank to connected telemetry by probing literal Cloudflare anycast IPs, removing temporary-Xray DNS failures from the result.
           - Preserved median latency, jitter, sample loss and full real-Xray verification across every selected configuration.
           - Moved Library test progress out of the Ping action and into a dedicated animated status panel with preparation, node name and completed/total state.
@@ -739,7 +749,7 @@ jobs:
 
           ### Fast, accurate Tunnel Rank
           - Replaced timeout-inflated cold HTTPS timings with verified warm-tunnel HTTP RTT samples through each exact Xray configuration.
-          - Added one uncounted warm-up followed by three certificate-verified samples with median and jitter aggregation.
+          - Added up to three certificate-verified application RTT samples with median and jitter aggregation.
           - Tunnel latency now reports the median successful warm sample; timeouts remain failures and are never displayed as synthetic 5000/9999 ms pings.
           - Added tunnel delay variation (jitter) to node cards and incorporated it into interactive and stability ranking.
           - Kept every selected configuration in Rank; no TCP-only shortcut can incorrectly label an unverified proxy as healthy.
