@@ -32,6 +32,7 @@ class BenchmarkEngine(
     // MARBLE_RANK_RECOVERY_CARD_UX_V43
     // MARBLE_REPEATABLE_RANK_V44
     // MARBLE_V2RAYNG_SMART_RANK_V45
+    // MARBLE_EVIDENCE_WEIGHTED_QUALITY_V46
 
     fun run(
         profiles: List<ProxyProfile>,
@@ -838,8 +839,10 @@ class BenchmarkEngine(
         }
         val ordered = times.sorted()
         val latency = if (ordered.isEmpty()) 9999.0 else if (v2rayStyleDelay) ordered.first() else median(ordered)
-        val variation = times.zipWithNext { a, b -> kotlin.math.abs(b - a) }.sorted()
-        val jitter = median(variation)
+        val variation = times.zipWithNext { a, b -> kotlin.math.abs(b - a) }
+        // Mean absolute IPDV keeps real spikes in the number and matches the live-route meter.
+        // The previous median silently discarded a single severe spike in short 2–4 sample runs.
+        val jitter = if (variation.isEmpty()) 0.0 else variation.average()
         val success = if (v2rayStyleDelay) {
             if (times.isNotEmpty()) 100 else 0
         } else {
@@ -897,22 +900,17 @@ class BenchmarkEngine(
             return raw
         }
 
-        val sampleN =
-            settings.benchSamples
-                .coerceIn(1, 8)
-                .toDouble()
-
-        val confidence =
-            (
-                sampleN /
-                    4.0
-            ).coerceIn(
-                0.25,
-                1.0
-            )
-
         return raw.map {
             result ->
+
+            // Confidence follows evidence that actually arrived. Using the requested sample count
+            // let a 1/4 partial response inherit the confidence of four verified RTTs.
+            val observedSamples =
+                result.sampleCount
+                    .coerceAtLeast(if (result.success > 0) 1 else 0)
+                    .coerceAtMost(8)
+                    .toDouble()
+            val confidence = (observedSamples / 4.0).coerceIn(0.0, 1.0)
 
             val latency =
                 if (
@@ -1006,7 +1004,7 @@ class BenchmarkEngine(
                 }
 
             val variation =
-                if (result.sampleCount < 2) 50.0 else
+                if (result.sampleCount < 2) 65.0 else
                     100.0 * exp(-result.jitterMs.coerceAtMost(2000.0) / 65.0)
 
             val interactive =
@@ -1176,4 +1174,3 @@ class BenchmarkEngine(
         const val DEAD_LATENCY = 99_999.0
     }
 }
-

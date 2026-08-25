@@ -726,6 +726,26 @@ jobs:
           - Rank, Library, Privacy and Routing portals now use matching Canvas vectors.
           - Upload/download and Home status chips are font-independent.
 
+          ### Evidence-weighted Ping, Jitter & Quality v46
+          - Audited MarbleNG against v2rayNG 2.3.5 and PattNG 2.3.5-P33: retained their safe one-second TCP gate for simple profiles and real-core delay evidence, while preserving MarbleNG's richer live jitter and quality telemetry.
+          - Replaced the success-only six-sample window with a bounded twelve-attempt evidence window that records verified HTTPS RTTs and misses.
+          - Ping is the rolling median, Jitter is mean absolute same-target IPDV, and p90 latency exposes congested tails hidden by a median alone.
+          - Quality now combines latency, jitter, verified success rate, sample confidence and p90 excess; unknown jitter is neutral instead of fabricated as zero.
+          - Removed double smoothing so Quality reacts with the same rolling window as Ping and Jitter after Wi-Fi/mobile route changes.
+          - Rank confidence now follows samples that actually succeeded instead of samples merely requested, and short partial runs no longer inherit full confidence.
+          - Benchmark jitter now includes real spikes rather than discarding them through a short-window median.
+          - Home shows verified/attempted RTT evidence, success rate and p90 next to Ping, Jitter and Quality.
+
+          ### Swipeable Settings workspaces
+          - Replaced expandable accordions with five top workspaces: General, Testing, Network, Engine and System.
+          - Tabs support both tap and horizontal swipe through Compose HorizontalPager.
+          - Every tab and section has a matching minimal vector icon, restrained accent color and glass surface aligned with the rest of MarbleNG.
+          - Preserved Simple/Expert behavior and direct Routing navigation from Home.
+
+          ### Library long-name marquee
+          - Long node names now scroll horizontally after a short delay only when they overflow.
+          - The marquee is clipped to the identity column, so ping evidence and action controls remain fixed and readable.
+
           ### Smart Tunnel Rank v45
           - Rebuilt Rank around the real-delay model used by v2rayNG 2.3.5 instead of tuning the failed v44 session heuristic.
           - Wired the Settings Smart mode into Rank; Smart now performs a safe one-second TCP precheck only for simple TCP profiles, while complex, UDP-native and HTTP/3 profiles go directly to the real test.

@@ -49,6 +49,7 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     // MARBLE_WARM_TUNNEL_RANK_V42
     // MARBLE_REPEATABLE_RANK_V44
     // MARBLE_V2RAYNG_SMART_RANK_V45
+    // MARBLE_EVIDENCE_WEIGHTED_QUALITY_V46
 
     private val store = AppStore(context)
     private val io = Executors.newFixedThreadPool(3)
@@ -303,6 +304,9 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     var liveUpBps by mutableStateOf(0L); private set
     var liveRouteScore by mutableStateOf(-1); private set
     var liveRouteSamples by mutableStateOf(0); private set
+    var liveRouteAttempts by mutableStateOf(0); private set
+    var liveRouteSuccessPercent by mutableStateOf(0); private set
+    var liveTailLatencyMs by mutableStateOf(0); private set
     var liveJitterSamples by mutableStateOf(0); private set
 
     init {
@@ -463,18 +467,23 @@ fun updateRouteQuality(
         pingMs: Int,
         jitterMs: Int = -1,
         sampleCount: Int = -1,
-        jitterSampleCount: Int = -1
+        jitterSampleCount: Int = -1,
+        attemptCount: Int = sampleCount,
+        successPercent: Int = 100,
+        tailLatencyMs: Int = -1
     ) {
         if (pingMs <= 0) return
 
-        // Jitter is unknown until enough consecutive verified RTT deltas exist.
-        // Never punish the route or display a fabricated zero while it warms up.
-        val jitterPenalty = if (jitterMs >= 0) {
-            (jitterMs.coerceIn(0, 1_000) * 0.55).roundToInt()
-        } else {
-            0
-        }
-        val rawScore = calculateLiveRouteScore(pingMs + jitterPenalty)
+        // Quality is computed from the same bounded evidence window as the displayed metrics.
+        // A timeout is reliability evidence, unknown jitter stays neutral, and p90 catches a
+        // congested tail that a median alone can hide.
+        val rawScore = calculateLiveRouteScore(
+            pingMs = pingMs,
+            jitterMs = jitterMs,
+            successPercent = successPercent,
+            attemptCount = attemptCount,
+            tailLatencyMs = tailLatencyMs
+        )
 
         postToMain {
             livePingMs = pingMs
@@ -482,9 +491,12 @@ fun updateRouteQuality(
                 liveJitterMs = jitterMs.coerceIn(0, 10_000)
             }
 
-            liveRouteScore =
-                if (liveRouteScore < 0) rawScore
-                else ((liveRouteScore * 3 + rawScore * 2) / 5).coerceIn(0, 100)
+            // The inputs are already rolling aggregates. A second EWMA here made Quality lag well
+            // behind Ping/Jitter after a network change, so publish the evidence-window score.
+            liveRouteScore = rawScore
+            liveRouteAttempts = attemptCount.coerceIn(0, 10_000)
+            liveRouteSuccessPercent = successPercent.coerceIn(0, 100)
+            if (tailLatencyMs >= 0) liveTailLatencyMs = tailLatencyMs.coerceIn(0, 10_000)
 
             // v18 counted publications forever although ping came from a bounded window.
             // Publish the actual current window sizes.
@@ -517,6 +529,9 @@ fun resetTelemetry() {
             liveUpBps = 0
             liveRouteScore = -1
             liveRouteSamples = 0
+            liveRouteAttempts = 0
+            liveRouteSuccessPercent = 0
+            liveTailLatencyMs = 0
             liveJitterSamples = 0
         }
     }
@@ -587,6 +602,9 @@ fun resetTelemetry() {
                 liveUpBps = 0L
                 liveRouteScore = -1
                 liveRouteSamples = 0
+                liveRouteAttempts = 0
+                liveRouteSuccessPercent = 0
+                liveTailLatencyMs = 0
                 liveJitterSamples = 0
             }
         }
@@ -831,9 +849,35 @@ private fun postToMain(block: () -> Unit) {
         }
     }
 
-    private fun calculateLiveRouteScore(pingMs: Int): Int {
-        val latencyFactor = exp(-pingMs.coerceIn(1, 10_000) / 360.0)
-        return (100.0 * latencyFactor).roundToInt().coerceIn(0, 100)
+    private fun calculateLiveRouteScore(
+        pingMs: Int,
+        jitterMs: Int,
+        successPercent: Int,
+        attemptCount: Int,
+        tailLatencyMs: Int
+    ): Int {
+        val attempts = attemptCount.coerceIn(0, 12)
+        val confidence = (attempts / 8.0).coerceIn(0.15, 1.0)
+        val observedReliability = successPercent.coerceIn(0, 100).toDouble()
+        val reliability = observedReliability * confidence + 72.0 * (1.0 - confidence)
+        val latency = 100.0 * exp(-pingMs.coerceIn(1, 10_000) / 260.0)
+        val variation = if (jitterMs < 0) {
+            65.0
+        } else {
+            100.0 * exp(-jitterMs.coerceIn(0, 2_000) / 45.0)
+        }
+        val tail = if (tailLatencyMs < 0) {
+            65.0
+        } else {
+            val excess = (tailLatencyMs - pingMs).coerceAtLeast(0)
+            100.0 * exp(-excess.coerceAtMost(5_000) / 100.0)
+        }
+        return (
+            latency * 0.48 +
+                variation * 0.22 +
+                reliability * 0.24 +
+                tail * 0.06
+            ).roundToInt().coerceIn(0, 100)
     }
 
     fun recoveryCandidates(failedIds: Set<String>): List<ProxyProfile> =

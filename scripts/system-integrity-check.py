@@ -121,13 +121,13 @@ normal = integer_constant(files["vpn"], "ROUTE_PROBE_INTERVAL_TICKS")
 degraded = integer_constant(files["vpn"], "ROUTE_DEGRADED_PROBE_TICKS")
 heavy = integer_constant(files["vpn"], "ROUTE_HEAVY_PROBE_TICKS")
 rtt_window = integer_constant(files["vpn"], "ROUTE_WINDOW_SIZE")
-jitter_window = integer_constant(files["vpn"], "JITTER_WINDOW_SIZE")
 burst = integer_constant(files["vpn"], "LIVE_RTT_BURST_SAMPLES")
 failures = integer_constant(files["vpn"], "PROBE_FAILURES_BEFORE_RECOVERY")
 
 check("degraded probe cadence is faster", 1 <= degraded < normal)
 check("heavy-traffic probing is slower", heavy > normal)
-check("jitter window equals RTT deltas", jitter_window == rtt_window - 1)
+check("route outcome window records misses", "routeOutcomeWindow" in files["vpn"] and "else -1" in files["vpn"])
+check("quality uses success and tail evidence", "successPercent" in files["repo"] and "tailLatencyMs" in files["repo"])
 check("RTT burst fits rolling window", 2 <= burst <= rtt_window)
 check("route recovery needs repeated failure evidence", failures >= 3)
 check(
@@ -163,6 +163,8 @@ check("diagnostics redaction exists", "fun redact" in files["diag"])
 # UI / Home.
 check("Home exact reconnect path exists", "repo.reconnectLastOrAuto(onConnect)" in files["ui"])
 check("Library exact active-row check exists", "repo.isActiveProfile(profile)" in files["ui"])
+check("Settings use swipeable pager tabs", "HorizontalPager(" in files["ui"] and "SettingsWorkspaceTab" in files["ui"])
+check("Library long names use overflow marquee", "basicMarquee(" in files["ui"])
 
 # CI/release.
 check("signed build checks out complete history", "fetch-depth: 0" in files["build"])

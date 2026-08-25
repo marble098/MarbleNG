@@ -79,7 +79,7 @@ data class BenchmarkResult(
     val usedMux: Boolean = false,
     /** Evidence tier shown in Library. TCP/ICMP are endpoint reachability; TUNNEL proves Xray. */
     val probeKind: String = "TUNNEL",
-    /** Median absolute difference between consecutive warm tunnel samples. */
+    /** Mean absolute IPDV between consecutive verified warm-tunnel samples. */
     val jitterMs: Double = 0.0,
     /** First verified response timing; never used as the final delay when a warmer try wins. */
     val warmupMs: Double = 0.0,

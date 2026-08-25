@@ -77,10 +77,9 @@ class MarbleVpnService : VpnService() {
         private const val ROUTE_HEAVY_PROBE_TICKS = 60
         private const val ROUTE_JITTER_TRIGGER_MS = 25
         private const val ROUTE_JITTER_RELEASE_MS = 12
-        // Rolling live metric window. Six RTTs produce at most five same-target IPDV deltas,
-        // so ping and jitter confidence remain mathematically aligned.
-        private const val ROUTE_WINDOW_SIZE = 6
-        private const val JITTER_WINDOW_SIZE = 5
+        // A bounded outcome window records both verified RTTs and misses. Twelve attempts remain
+        // responsive while providing enough evidence for p90, IPDV and reliability scoring.
+        private const val ROUTE_WINDOW_SIZE = 12
         private const val JITTER_HIGH_CONFIRMATIONS = 3
         private const val JITTER_RELEASE_CONFIRMATIONS = 4
         private const val JITTER_OPTIMIZER_COOLDOWN_MS = 180_000L
@@ -173,9 +172,8 @@ class MarbleVpnService : VpnService() {
     @Volatile private var activeMethodId = AccelerationPlan.DIRECT
 
     private val recoveryTried = linkedSetOf<String>()
-    private val latencyWindow = ArrayDeque<Int>()
-    private val jitterDeltaWindow = ArrayDeque<Int>()
-    @Volatile private var previousLatencySampleMs = 0
+    /** Positive values are verified HTTPS RTTs; -1 is a failed attempt. */
+    private val routeOutcomeWindow = ArrayDeque<Int>()
     @Volatile private var jitterProbeHost = JITTER_PRIMARY_HOST
     @Volatile private var jitterHighStreak = 0
     @Volatile private var jitterLowStreak = 0
@@ -328,11 +326,7 @@ class MarbleVpnService : VpnService() {
             recoveryTried.clear()
             recoveryTried += profile.id
         }
-        synchronized(latencyWindow) {
-            latencyWindow.clear()
-            jitterDeltaWindow.clear()
-        }
-        previousLatencySampleMs = 0
+        synchronized(routeOutcomeWindow) { routeOutcomeWindow.clear() }
         jitterProbeHost = JITTER_PRIMARY_HOST
         jitterHighStreak = 0
         jitterLowStreak = 0
@@ -932,7 +926,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
     }
 
     private fun activeRouteQuality(): ActiveRouteQuality {
-        val values = synchronized(latencyWindow) { latencyWindow.toList() }
+        val values = synchronized(routeOutcomeWindow) { routeOutcomeWindow.filter { it > 0 } }
         if (values.isEmpty()) return ActiveRouteQuality(0, 0)
         val sorted = values.sorted()
         return ActiveRouteQuality(sorted[sorted.size / 2], values.size)
@@ -1557,11 +1551,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
     }
 
     private fun resetJitterBaselineForProbeHost(nextHost: String) {
-        synchronized(latencyWindow) {
-            latencyWindow.clear()
-            jitterDeltaWindow.clear()
-        }
-        previousLatencySampleMs = 0
+        synchronized(routeOutcomeWindow) { routeOutcomeWindow.clear() }
         jitterHighStreak = 0
         jitterLowStreak = 0
         jitterControlActive = false
@@ -1588,51 +1578,49 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
          * It includes real spikes instead of deleting the largest delta, while the bounded rolling
          * window prevents one ancient spike from contaminating the value forever.
          */
-        fun publishRollingSample(host: String, sample: Int) {
+        fun publishRollingOutcome(host: String, sample: Int) {
             if (!isRouteCurrent(session, generation) || host != jitterProbeHost) return
 
-            val snapshot = synchronized(latencyWindow) {
-                val previous = previousLatencySampleMs
+            val snapshot = synchronized(routeOutcomeWindow) {
+                routeOutcomeWindow.addLast(if (sample > 0) sample.coerceIn(1, 10_000) else -1)
+                while (routeOutcomeWindow.size > ROUTE_WINDOW_SIZE) routeOutcomeWindow.removeFirst()
 
-                latencyWindow.addLast(sample)
-                if (previous > 0) {
-                    jitterDeltaWindow.addLast(
-                        abs(sample - previous).coerceIn(0, 10_000)
-                    )
+                val outcomes = routeOutcomeWindow.toList()
+                val rtts = outcomes.filter { it > 0 }
+                if (rtts.isEmpty()) return@synchronized intArrayOf(0, -1, 0, 0, outcomes.size, 0, 0)
+                // A miss breaks adjacency; never manufacture an IPDV delta across an unknown gap.
+                val deltas = outcomes.zipWithNext().mapNotNull { (a, b) ->
+                    if (a > 0 && b > 0) abs(b - a).coerceIn(0, 10_000) else null
                 }
-                previousLatencySampleMs = sample
-
-                while (latencyWindow.size > ROUTE_WINDOW_SIZE) {
-                    latencyWindow.removeFirst()
-                    if (jitterDeltaWindow.isNotEmpty()) {
-                        jitterDeltaWindow.removeFirst()
-                    }
-                }
-                while (jitterDeltaWindow.size > JITTER_WINDOW_SIZE) {
-                    jitterDeltaWindow.removeFirst()
-                }
-
-                val rtts = latencyWindow.toList()
-                val deltas = jitterDeltaWindow.toList()
                 val sorted = rtts.sorted()
                 val rollingPing = sorted[sorted.size / 2]
                 val rollingJitter =
                     if (deltas.isEmpty()) -1
                     else deltas.average().roundToInt()
+                val tailIndex = kotlin.math.ceil(sorted.size * 0.90).toInt().coerceIn(1, sorted.size) - 1
+                val tailLatency = sorted[tailIndex]
+                val successPercent = (rtts.size * 100.0 / outcomes.size).roundToInt()
 
                 intArrayOf(
                     rollingPing,
                     rollingJitter,
                     rtts.size,
-                    deltas.size
+                    deltas.size,
+                    outcomes.size,
+                    successPercent,
+                    tailLatency
                 )
             }
 
+            if (snapshot[0] <= 0) return
             repo.updateRouteQuality(
                 snapshot[0],
                 snapshot[1],
                 snapshot[2],
-                snapshot[3]
+                snapshot[3],
+                snapshot[4],
+                snapshot[5],
+                snapshot[6]
             )
         }
 
@@ -1654,12 +1642,13 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                 if (!isRouteCurrent(session, generation)) break
                 val value = measureOne(host)
                 if (value <= 0) {
+                    publishRollingOutcome(host, -1)
                     transientMisses++
                     if (transientMisses >= 2) break
                 } else {
                     val verified = value.coerceIn(1, 10_000)
                     values += verified
-                    publishRollingSample(host, verified)
+                    publishRollingOutcome(host, verified)
                 }
                 if (index + 1 < LIVE_RTT_BURST_SAMPLES) {
                     try {
@@ -1687,7 +1676,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
 
                 // alternate samples were intentionally not published while the old host was still
                 // pinned; replay them only after the baseline is reset to the winning target.
-                alternateSamples.forEach { publishRollingSample(alternate, it) }
+                alternateSamples.forEach { publishRollingOutcome(alternate, it) }
 
                 diag.event(
                     "ROUTE", "jitter-probe-pivot",
@@ -1785,16 +1774,20 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         consecutiveProbeFailures = 0
         identityRecoveryAttempts = 0
 
-        val rolling = synchronized(latencyWindow) {
-            latencyWindow.toList() to jitterDeltaWindow.toList()
+        val rolling = synchronized(routeOutcomeWindow) { routeOutcomeWindow.toList() }
+        val rollingRtt = rolling.filter { it > 0 }
+        val rollingDeltas = rolling.zipWithNext().mapNotNull { (a, b) ->
+            if (a > 0 && b > 0) abs(b - a).coerceIn(0, 10_000) else null
         }
-        val rollingRtt = rolling.first
-        val rollingDeltas = rolling.second
         if (rollingRtt.isEmpty()) return false
 
         val sortedRtt = rollingRtt.sorted()
         val pingMs = sortedRtt[sortedRtt.size / 2]
         val jitterSampleCount = rollingDeltas.size
+        val attemptCount = rolling.size
+        val successPercent = (rollingRtt.size * 100.0 / attemptCount).roundToInt()
+        val tailIndex = kotlin.math.ceil(sortedRtt.size * 0.90).toInt().coerceIn(1, sortedRtt.size) - 1
+        val tailLatencyMs = sortedRtt[tailIndex]
 
         // Real rolling IPDV: mean absolute difference between consecutive verified RTTs.
         // No maximum-delta deletion: genuine spikes belong in the jitter number.
@@ -1811,7 +1804,10 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             quality.latencyMs,
             jitterMs,
             quality.samples,
-            jitterSampleCount
+            jitterSampleCount,
+            attemptCount,
+            successPercent,
+            tailLatencyMs
         )
 
         diag.event(
@@ -1823,7 +1819,10 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             "jitterMs" to jitterMs,
             "samples" to quality.samples,
             "jitterSamples" to jitterSampleCount,
-            "method" to "verified-https-ttfb-rolling-ipdv"
+            "attempts" to attemptCount,
+            "successPercent" to successPercent,
+            "p90Ms" to tailLatencyMs,
+            "method" to "verified-https-ttfb-rolling-ipdv-loss-p90"
         )
 
         repo.intelligence.recordLiveRoute(
@@ -2066,11 +2065,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             settings
                 .networkChangeRecoveryEnabled
         ) {
-            synchronized(latencyWindow) {
-                latencyWindow.clear()
-                jitterDeltaWindow.clear()
-            }
-            previousLatencySampleMs = 0
+            synchronized(routeOutcomeWindow) { routeOutcomeWindow.clear() }
             jitterProbeHost = JITTER_PRIMARY_HOST
             jitterHighStreak = 0
             jitterLowStreak = 0
@@ -2628,12 +2623,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         consecutiveProbeFailures =
             0
 
-        synchronized(
-            latencyWindow
-        ) {
-            latencyWindow
-                .clear()
-        }
+        synchronized(routeOutcomeWindow) { routeOutcomeWindow.clear() }
 
         val port =
             if (
@@ -2915,4 +2905,3 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
     private fun safeMessage(t: Throwable): String =
         t.message?.take(180)?.ifBlank { t::class.java.simpleName } ?: t::class.java.simpleName
 }
-

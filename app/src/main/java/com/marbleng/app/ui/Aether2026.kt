@@ -26,6 +26,7 @@ package com.marbleng.app.ui
 // MARBLE_UPDATE_DOCK_UI_V39
 // MARBLE_NODE_ENDPOINT_UI_V40
 // MARBLE_RANK_RECOVERY_CARD_UX_V43
+// MARBLE_TABBED_SETTINGS_QUALITY_UI_V46
 
 import android.Manifest
 import android.content.Intent
@@ -53,7 +54,9 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -64,6 +67,8 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -99,6 +104,7 @@ import com.marbleng.app.core.ManualProtocol
 import com.marbleng.app.model.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.text.DateFormat
 import java.util.Date
@@ -1523,6 +1529,26 @@ private fun HomeOrbitalHero(
                 "Quality", if (repo.liveRouteScore >= 0) repo.liveRouteScore.toString() else "—",
                 if (repo.liveRouteScore >= 0) "%" else "", Modifier.weight(1f),
                 accent = qualityTone, icon = HomeIcon.QUALITY
+            )
+        }
+        if (repo.liveRouteAttempts > 0) {
+            Text(
+                buildString {
+                    append("Verified HTTPS • ")
+                    append(repo.liveRouteSamples)
+                    append('/')
+                    append(repo.liveRouteAttempts)
+                    append(" RTT • ")
+                    append(repo.liveRouteSuccessPercent)
+                    append("% success")
+                    if (repo.liveTailLatencyMs > 0) append(" • p90 ${repo.liveTailLatencyMs} ms")
+                },
+                color = Aether.InkFaint,
+                style = MaterialTheme.typography.labelSmall,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth(),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         }
     }
@@ -3252,6 +3278,7 @@ private fun SubscriptionManagerCard(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun SpatialServerCard(
     profile: ProxyProfile,
@@ -3338,10 +3365,15 @@ private fun SpatialServerCard(
             Column(Modifier.weight(1f)) {
                 Text(
                     profile.name,
+                    modifier = Modifier.basicMarquee(
+                        iterations = Int.MAX_VALUE,
+                        initialDelayMillis = 1_200
+                    ),
                     color = Aether.Ink,
                     style = MaterialTheme.typography.titleMedium,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    softWrap = false,
+                    overflow = TextOverflow.Clip
                 )
                 Spacer(Modifier.height(2.dp))
                 val connectionLine = listOfNotNull(
@@ -3638,43 +3670,49 @@ private fun MicroStat(
 }
 
 // =================================================================================================
-// SETTINGS / ACCORDIONS
+// SETTINGS / SWIPEABLE WORKSPACES
 // =================================================================================================
 
-/**
- * Position of the Routing accordion inside SpatialSettings while Expert controls are on:
- * header, appearance, connection, testing, split tunneling, notifications, subscriptions,
- * regional, intelligence, DNS, routing.
- */
-private const val ROUTING_SECTION_ITEM_INDEX = 10
+private enum class SettingsWorkspaceTab(val label: String, val icon: HomeIcon) {
+    GENERAL("General", HomeIcon.MODE),
+    TESTS("Testing", HomeIcon.PING),
+    NETWORK("Network", HomeIcon.NETWORK),
+    ENGINE("Engine", HomeIcon.TUNNEL),
+    SYSTEM("System", HomeIcon.STATUS)
+}
 
+private fun settingsTabTone(tab: SettingsWorkspaceTab): Color = when (tab) {
+    SettingsWorkspaceTab.GENERAL -> Aether.Cyan
+    SettingsWorkspaceTab.TESTS -> Aether.Amethyst
+    SettingsWorkspaceTab.NETWORK -> Aether.Emerald
+    SettingsWorkspaceTab.ENGINE -> Aether.Amber
+    SettingsWorkspaceTab.SYSTEM -> Aether.Danger
+}
+
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun SpatialSettings(
     repo: AppRepository,
     onDialog: (String) -> Unit,
     focusSection: String? = null
 ) {
-    val listState = rememberLazyListState()
-    // Expert mode is a persisted preference: leaving the tab must not silently hide the controls.
+    val tabs = SettingsWorkspaceTab.entries
     val expertMode = repo.settings.expertMode
+    val scope = rememberCoroutineScope()
+    val initialPage = if (focusSection == "Routing") SettingsWorkspaceTab.NETWORK.ordinal else 0
+    val pagerState = rememberPagerState(initialPage = initialPage) { tabs.size }
 
     LaunchedEffect(focusSection) {
         if (focusSection == "Routing") {
             if (!repo.settings.expertMode) {
                 repo.updateSettings(repo.settings.copy(expertMode = true))
             }
-            delay(80)
-            listState.animateScrollToItem(ROUTING_SECTION_ITEM_INDEX)
+            pagerState.animateScrollToPage(SettingsWorkspaceTab.NETWORK.ordinal)
         }
     }
 
-    LazyColumn(
-        state = listState,
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = 18.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(11.dp)
-    ) {
-        item {
+    Column(Modifier.fillMaxSize()) {
+        Box(Modifier.padding(horizontal = 18.dp, vertical = 10.dp)) {
             SpatialHeader(
                 "Preferences",
                 "Settings",
@@ -3684,186 +3722,215 @@ private fun SpatialSettings(
             )
         }
 
-        item {
-            HoloGlass(Modifier.fillMaxWidth()) {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text("Appearance", color = Aether.Ink, style = MaterialTheme.typography.titleMedium)
-                    }
+        ScrollableTabRow(
+            selectedTabIndex = pagerState.currentPage,
+            modifier = Modifier.fillMaxWidth(),
+            containerColor = Color.Transparent,
+            contentColor = Aether.Ink,
+            edgePadding = 18.dp,
+            indicator = {},
+            divider = {}
+        ) {
+            tabs.forEachIndexed { index, tab ->
+                val selected = pagerState.currentPage == index
+                val tone = settingsTabTone(tab)
+                Tab(
+                    selected = selected,
+                    onClick = { scope.launch { pagerState.animateScrollToPage(index) } },
+                    modifier = Modifier.padding(end = 7.dp),
+                    selectedContentColor = tone,
+                    unselectedContentColor = Aether.InkMuted
+                ) {
                     Row(
-                        modifier = Modifier.horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(15.dp))
+                            .background(if (selected) tone.copy(alpha = .10f) else Color.Transparent)
+                            .border(
+                                1.dp,
+                                if (selected) tone.copy(alpha = .22f)
+                                else Aether.GlassBorderSoft.copy(alpha = .55f),
+                                RoundedCornerShape(15.dp)
+                            )
+                            .padding(horizontal = 12.dp, vertical = 9.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(7.dp)
                     ) {
-                        CyberChoiceChip(
-                            "System",
-                            repo.settings.theme.equals("system", true),
-                            Aether.Cyan
-                        ) {
-                            repo.updateSettings(repo.settings.copy(theme = "system"))
-                        }
-                        CyberChoiceChip(
-                            "White",
-                            repo.settings.theme.equals("light", true),
-                            Aether.Cyan
-                        ) {
-                            repo.updateSettings(repo.settings.copy(theme = "light"))
-                        }
-                        CyberChoiceChip(
-                            "Dark",
-                            repo.settings.theme.equals("dark", true),
-                            Aether.Cyan
-                        ) {
-                            repo.updateSettings(repo.settings.copy(theme = "dark"))
-                        }
+                        HomeVectorIcon(tab.icon, if (selected) tone else Aether.InkMuted, Modifier.size(16.dp))
+                        Text(tab.label, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
                     }
                 }
-
-                HorizontalDivider(color = Aether.GlassBorderSoft)
-                SettingSwitch(
-                    "Expert controls",
-                    "Reveal MTU, DNS, routing, fragmentation, recovery and chain settings",
-                    expertMode
-                ) { repo.updateSettings(repo.settings.copy(expertMode = it)) }
-
-                HorizontalDivider(color = Aether.GlassBorderSoft)
-                Text("UPDATES", color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
-                SettingSwitch(
-                    "Automatic app update checks",
-                    "Check GitHub Releases whenever MarbleNG returns to the foreground",
-                    repo.settings.appUpdateCheckEnabled
-                ) { enabled ->
-                    repo.updateSettings(repo.settings.copy(appUpdateCheckEnabled = enabled))
-                    if (enabled) repo.checkForAppUpdate(force = true)
-                }
-
-                HorizontalDivider(color = Aether.GlassBorderSoft)
-                Text("HOME LAYOUT", color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
-                SettingSwitch(
-                    "Summary metrics on Home",
-                    "Show Nodes, Xray OK and Mode below the connection panel",
-                    repo.settings.homeShowSummaryMetrics
-                ) { repo.updateSettings(repo.settings.copy(homeShowSummaryMetrics = it)) }
-                SettingSwitch(
-                    "Iran Mode card on Home",
-                    "Hide only the Home card; Iran Mode protection keeps running",
-                    repo.settings.homeShowIranMode
-                ) { repo.updateSettings(repo.settings.copy(homeShowIranMode = it)) }
-                SettingSwitch(
-                    "Quick Actions on Home",
-                    "Show or hide Rank, Library, Privacy and Routing shortcuts",
-                    repo.settings.homeShowQuickActions
-                ) { repo.updateSettings(repo.settings.copy(homeShowQuickActions = it)) }
             }
         }
 
-        item { SpatialAccordion("Connection","Full-device tunnel or local SOCKS proxy","Core",Aether.Cyan,true){ConnectionSettings(repo)} }
-        item { SpatialAccordion("Testing & ping","How MarbleNG measures nodes: tunnel, TCP or ICMP","Tests",Aether.Amethyst){ProbeSettings(repo)} }
-        item { SpatialAccordion("Split tunneling","Choose exactly which apps use or bypass the tunnel","Apps",Aether.Emerald){SplitTunnelSettings(repo)} }
-        item { SpatialAccordion("Notifications","Connection, recovery and privacy alerts","Alerts",Aether.InkMuted){NotificationSettings(repo)} }
-        item { SpatialAccordion("Subscriptions","Automatic refresh cadence","Sync",Aether.Cyan){SubscriptionSettings(repo)} }
-
-        if (expertMode) {
-            item { SpatialAccordion("Regional protection","Iran Mode detection and countermeasures","Expert",Aether.Emerald){IranModeSettings(repo)} }
-            item { SpatialAccordion("Marble Intelligence","Adaptive MTU, route history, recovery and optimizer policy","Expert",Aether.Cyan){IntelligenceSettings(repo)} }
-            item { SpatialAccordion("DNS","TUN resolvers and encrypted DoH path","Expert",Aether.Cyan){DnsSettings(repo)} }
-            item { SpatialAccordion("Routing","Geo assets, direct rules and blocking policy","Expert",Aether.Emerald,focusSection=="Routing"){RoutingSettings(repo)} }
-            item { SpatialAccordion("Fragmentation & Mux","DPI resilience and connection reuse","Expert",Aether.InkMuted){FragmentMuxSettings(repo)} }
-            item { SpatialAccordion("Chain proxy","Optional two-hop route","Expert",Aether.InkMuted){ChainSettings(repo)} }
+        HorizontalPager(
+            state = pagerState,
+            modifier = Modifier.fillMaxWidth().weight(1f),
+            beyondViewportPageCount = 1
+        ) { page ->
+            SettingsWorkspacePage(
+                tab = tabs[page],
+                repo = repo,
+                expertMode = expertMode,
+                focusSection = focusSection
+            )
         }
-
-        item { SpatialAccordion("Bug Finder","Deep Xray + SOCKS + TUN + HEV diagnostics","Live scan",Aether.Danger){BugFinderSettings(repo)} }
-
     }
 }
 
-@Suppress("UNUSED_PARAMETER")
 @Composable
-private fun SpatialAccordion(
-    title: String,
-    subtitle: String,
-    badge: String,
-    color: Color,
-    initiallyOpen: Boolean = false,
-    content: @Composable ColumnScope.() -> Unit
+private fun SettingsWorkspacePage(
+    tab: SettingsWorkspaceTab,
+    repo: AppRepository,
+    expertMode: Boolean,
+    focusSection: String?
 ) {
-    var open by remember { mutableStateOf(initiallyOpen) }
-    val shape = RoundedCornerShape(20.dp)
-    val iconBackground by animateColorAsState(
-        targetValue = if (open) color.copy(alpha = .11f) else Aether.GlassStrong.copy(alpha = .55f),
-        animationSpec = MarbleMotionSpecs.Color,
-        label = "accordion-icon-$title"
-    )
-
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .animateContentSize(MarbleMotionSpecs.Layout)
-            .clip(shape)
-            .background(Aether.VoidElevated)
-            .border(1.dp, Aether.GlassBorderSoft, shape)
-            .padding(horizontal = 14.dp, vertical = 13.dp),
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 13.dp, bottom = 30.dp),
         verticalArrangement = Arrangement.spacedBy(11.dp)
     ) {
-        Row(
-            Modifier.fillMaxWidth().kineticClickable(role = Role.Button) { open = !open },
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
-                Modifier
-                    .size(36.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(iconBackground),
-                contentAlignment = Alignment.Center
-            ) {
-                AnimatedContent(
-                    targetState = open,
-                    transitionSpec = {
-                        fadeIn(MarbleMotionSpecs.ResponseFloat) togetherWith
-                            fadeOut(MarbleMotionSpecs.ExitFloat)
-                    },
-                    label = "accordion-chevron-$title"
-                ) { expanded ->
-                    Text(
-                        if (expanded) "−" else "+",
-                        color = if (expanded) color else Aether.InkMuted,
-                        style = MaterialTheme.typography.titleMedium
-                    )
+        when (tab) {
+            SettingsWorkspaceTab.GENERAL -> {
+                item { SettingsSectionCard("Appearance & layout", "Theme, expertise and Home composition", HomeIcon.MODE, Aether.Cyan) { AppearanceSettings(repo) } }
+                item { SettingsSectionCard("Connection", "Full-device tunnel or local SOCKS proxy", HomeIcon.TUNNEL, Aether.Cyan) { ConnectionSettings(repo) } }
+                item { SettingsSectionCard("Subscriptions", "Automatic refresh cadence and source behavior", HomeIcon.LIBRARY, Aether.Amethyst) { SubscriptionSettings(repo) } }
+            }
+            SettingsWorkspaceTab.TESTS -> {
+                item { SettingsSectionCard("Testing & ping", "Real tunnel, TCP and ICMP evidence policy", HomeIcon.BENCHMARK, Aether.Amethyst) { ProbeSettings(repo) } }
+                if (expertMode) {
+                    item { SettingsSectionCard("Marble Intelligence", "Adaptive route history, recovery and optimizer policy", HomeIcon.SPARK, Aether.Cyan) { IntelligenceSettings(repo) } }
+                } else {
+                    item { ExpertWorkspaceHint() }
                 }
             }
-
-            Spacer(Modifier.width(11.dp))
-            Column(Modifier.weight(1f)) {
-                Text(
-                    title,
-                    color = Aether.Ink,
-                    style = MaterialTheme.typography.titleMedium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Spacer(Modifier.height(2.dp))
-                Text(
-                    subtitle,
-                    color = Aether.InkFaint,
-                    style = MaterialTheme.typography.bodySmall,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
+            SettingsWorkspaceTab.NETWORK -> {
+                item { SettingsSectionCard("Split tunneling", "Choose exactly which apps use or bypass the tunnel", HomeIcon.PRIVACY, Aether.Emerald) { SplitTunnelSettings(repo) } }
+                if (expertMode) {
+                    if (focusSection == "Routing") {
+                        item { SettingsSectionCard("Routing", "Geo assets, direct rules and blocking policy", HomeIcon.ROUTING, Aether.Emerald) { RoutingSettings(repo) } }
+                    }
+                    item { SettingsSectionCard("Regional protection", "Iran Mode detection and countermeasures", HomeIcon.SHIELD, Aether.Emerald) { IranModeSettings(repo) } }
+                    item { SettingsSectionCard("DNS", "TUN resolvers and encrypted DoH path", HomeIcon.NETWORK, Aether.Cyan) { DnsSettings(repo) } }
+                    if (focusSection != "Routing") {
+                        item { SettingsSectionCard("Routing", "Geo assets, direct rules and blocking policy", HomeIcon.ROUTING, Aether.Emerald) { RoutingSettings(repo) } }
+                    }
+                } else {
+                    item { ExpertWorkspaceHint() }
+                }
             }
-        }
-
-        AnimatedVisibility(
-            visible = open,
-            enter = expandVertically(MarbleMotionSpecs.Layout) +
-                fadeIn(MarbleMotionSpecs.ResponseFloat),
-            exit = shrinkVertically(MarbleMotionSpecs.Layout) +
-                fadeOut(MarbleMotionSpecs.ExitFloat)
-        ) {
-            Column(verticalArrangement = Arrangement.spacedBy(11.dp)) {
-                HorizontalDivider(color = Aether.GlassBorderSoft)
-                content()
+            SettingsWorkspaceTab.ENGINE -> {
+                if (expertMode) {
+                    item { SettingsSectionCard("Fragmentation & Mux", "DPI resilience and connection reuse", HomeIcon.SPARK, Aether.Amber) { FragmentMuxSettings(repo) } }
+                    item { SettingsSectionCard("Chain proxy", "Optional two-hop route", HomeIcon.ROUTE, Aether.InkMuted) { ChainSettings(repo) } }
+                } else {
+                    item { ExpertWorkspaceHint() }
+                }
+            }
+            SettingsWorkspaceTab.SYSTEM -> {
+                item { SettingsSectionCard("Notifications", "Connection, recovery and privacy alerts", HomeIcon.STATUS, Aether.Cyan) { NotificationSettings(repo) } }
+                item { SettingsSectionCard("Bug Finder", "Deep Xray, SOCKS, TUN and HEV diagnostics", HomeIcon.DETAILS, Aether.Danger) { BugFinderSettings(repo) } }
             }
         }
     }
+}
+
+@Composable
+private fun SettingsSectionCard(
+    title: String,
+    subtitle: String,
+    icon: HomeIcon,
+    color: Color,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    val shape = RoundedCornerShape(22.dp)
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(Aether.VoidElevated)
+            .border(1.dp, color.copy(alpha = .16f), shape)
+            .padding(horizontal = 14.dp, vertical = 13.dp),
+        verticalArrangement = Arrangement.spacedBy(11.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(11.dp)) {
+            HomeIconTile(icon, color, Modifier.size(38.dp))
+            Column(Modifier.weight(1f)) {
+                Text(title, color = Aether.Ink, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(subtitle, color = Aether.InkFaint, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            }
+        }
+        HorizontalDivider(color = Aether.GlassBorderSoft)
+        content()
+    }
+}
+
+@Composable
+private fun ExpertWorkspaceHint() {
+    SettingsSectionCard(
+        title = "Expert workspace",
+        subtitle = "Enable Expert controls in General to reveal low-level routing and engine controls",
+        icon = HomeIcon.SHIELD,
+        color = Aether.InkMuted
+    ) {
+        Text(
+            "Simple mode keeps advanced controls hidden without changing their saved values.",
+            color = Aether.InkFaint,
+            style = MaterialTheme.typography.bodySmall
+        )
+    }
+}
+
+@Composable
+private fun AppearanceSettings(repo: AppRepository) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text("Theme", color = Aether.Ink, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+        Row(
+            modifier = Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            CyberChoiceChip("System", repo.settings.theme.equals("system", true), Aether.Cyan) {
+                repo.updateSettings(repo.settings.copy(theme = "system"))
+            }
+            CyberChoiceChip("White", repo.settings.theme.equals("light", true), Aether.Cyan) {
+                repo.updateSettings(repo.settings.copy(theme = "light"))
+            }
+            CyberChoiceChip("Dark", repo.settings.theme.equals("dark", true), Aether.Cyan) {
+                repo.updateSettings(repo.settings.copy(theme = "dark"))
+            }
+        }
+    }
+    HorizontalDivider(color = Aether.GlassBorderSoft)
+    SettingSwitch(
+        "Expert controls",
+        "Reveal MTU, DNS, routing, fragmentation, recovery and chain settings",
+        repo.settings.expertMode
+    ) { repo.updateSettings(repo.settings.copy(expertMode = it)) }
+    HorizontalDivider(color = Aether.GlassBorderSoft)
+    SettingSwitch(
+        "Automatic app update checks",
+        "Check GitHub Releases whenever MarbleNG returns to the foreground",
+        repo.settings.appUpdateCheckEnabled
+    ) { enabled ->
+        repo.updateSettings(repo.settings.copy(appUpdateCheckEnabled = enabled))
+        if (enabled) repo.checkForAppUpdate(force = true)
+    }
+    HorizontalDivider(color = Aether.GlassBorderSoft)
+    Text("HOME LAYOUT", color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
+    SettingSwitch(
+        "Summary metrics on Home",
+        "Show Nodes, Xray OK and Mode below the connection panel",
+        repo.settings.homeShowSummaryMetrics
+    ) { repo.updateSettings(repo.settings.copy(homeShowSummaryMetrics = it)) }
+    SettingSwitch(
+        "Iran Mode card on Home",
+        "Hide only the Home card; Iran Mode protection keeps running",
+        repo.settings.homeShowIranMode
+    ) { repo.updateSettings(repo.settings.copy(homeShowIranMode = it)) }
+    SettingSwitch(
+        "Quick Actions on Home",
+        "Show or hide Rank, Library, Privacy and Routing shortcuts",
+        repo.settings.homeShowQuickActions
+    ) { repo.updateSettings(repo.settings.copy(homeShowQuickActions = it)) }
 }
 
 @Composable
