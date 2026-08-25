@@ -4,6 +4,7 @@ package com.marbleng.app.core
 // MARBLE_RUNTIME_STARTUP_RESCUE_V21
 // MARBLE_EXIT_RECENCY_V23
 // MARBLE_MEMORY_EXIT_CLASSIFICATION_V26
+// MARBLE_VERIFIED_EVIDENCE_CLASSIFICATION_V50
 
 import android.app.ActivityManager
 import android.app.ApplicationExitInfo
@@ -165,7 +166,13 @@ class BugFinder(private val context: Context, private val xray: XrayManager) {
         val latestSocksReady = allRuntime.lastIndexOf("XRAY | socks-ready")
         val latestHevReady = allRuntime.lastIndexOf("HEV | ready")
         val latestReady = maxOf(latestSocksReady, latestHevReady)
-        val latestLatencySample = allRuntime.lastIndexOf("ROUTE | latency-sample")
+        val latestVerifiedLatencySample = allRuntime.lastIndexOf(
+            "method=verified-https-ttfb-rolling-ipdv-loss-p90"
+        )
+        // Backward-compatible diagnosis for reports produced by v47-v49.
+        val latestLegacyConnectEstimate = allRuntime.lastIndexOf(
+            "method=socks-connect-estimate-rolling-ipdv-loss-p90"
+        )
         val latestProbeFailure = maxOf(
             allRuntime.lastIndexOf("verified RTT endpoints are blocked or timing out"),
             allRuntime.lastIndexOf("ROUTE | probe-failed")
@@ -227,27 +234,36 @@ class BugFinder(private val context: Context, private val xray: XrayManager) {
         // displayable sample. Surface that distinction instead of leaving Ping/Jitter/Quality
         // silently blank while traffic works.
         checks += when {
-            latestHevReady >= 0 && latestLatencySample > latestHevReady -> BugCheck(
+            latestHevReady >= 0 && latestVerifiedLatencySample > latestHevReady -> BugCheck(
                 "Live Ping / Jitter / Quality",
                 BugSeverity.PASS,
-                "The latest healthy tunnel produced verified HTTPS RTT evidence"
+                "The latest healthy tunnel produced certificate-verified HTTPS RTT evidence"
+            )
+            latestHevReady >= 0 &&
+                latestLegacyConnectEstimate > latestHevReady &&
+                latestLegacyConnectEstimate >= latestVerifiedLatencySample -> BugCheck(
+                "Live Ping / Jitter / Quality",
+                BugSeverity.WARN,
+                "A legacy Marble build published SOCKS CONNECT setup timing as a route estimate; " +
+                    "that value is not Internet RTT evidence",
+                "Rebuild with v50; live Ping/Jitter/Quality now accept verified HTTPS only"
             )
             latestHevReady >= 0 && latestProbeFailure > latestHevReady -> BugCheck(
                 "Live Ping / Jitter / Quality",
                 BugSeverity.WARN,
-                "The latest tunnel is ready, but every certificate-verified RTT endpoint failed or timed out",
-                "Traffic can remain healthy; Marble now rotates provider-diverse literal HTTPS targets"
+                "The latest tunnel is ready, but certificate-verified RTT endpoints failed or timed out",
+                "Marble keeps metrics unknown instead of fabricating a localhost/SOCKS estimate"
             )
             connected && latestHevReady >= 0 -> BugCheck(
                 "Live Ping / Jitter / Quality",
                 BugSeverity.INFO,
-                "Tunnel is ready and the first verified RTT sample is still pending",
-                "The Home status line now exposes each measurement/failover phase"
+                "Tunnel process is ready and the first certificate-verified RTT sample is pending",
+                "Literal and domain HTTPS probes are provider-diverse, bounded and failure-backed-off"
             )
             else -> BugCheck(
                 "Live Ping / Jitter / Quality",
                 BugSeverity.INFO,
-                "No active healthy tunnel is available for a live RTT sample"
+                "No active healthy tunnel is available for a verified live RTT sample"
             )
         }
 

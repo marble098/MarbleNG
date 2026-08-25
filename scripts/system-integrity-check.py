@@ -31,6 +31,7 @@ files = {
     "tuner": read("app/src/main/java/com/marbleng/app/core/ConnectionTuner.kt"),
     "optimizer": read("app/src/main/java/com/marbleng/app/core/ContinuousRouteOptimizer.kt"),
     "identity": read("app/src/main/java/com/marbleng/app/core/IdentityGuard.kt"),
+    "shield": read("app/src/main/java/com/marbleng/app/core/IranShield.kt"),
     "intel": read("app/src/main/java/com/marbleng/app/core/MarbleIntelligence.kt"),
     "manual": read("app/src/main/java/com/marbleng/app/core/ManualConfigBuilder.kt"),
     "ssh": read("app/src/main/java/com/marbleng/app/core/SshTransportManager.kt"),
@@ -131,6 +132,21 @@ check("degraded probe cadence is faster", 1 <= degraded < normal)
 check("heavy-traffic probing is slower", heavy > normal)
 check("route outcome window records misses", "routeOutcomeWindow" in files["vpn"] and "else -1" in files["vpn"])
 check("live RTT rotates provider-diverse literal targets", "JITTER_PROBE_TARGETS" in files["vpn"] and "1.1.1.1" in files["vpn"] and "8.8.8.8" in files["vpn"] and "9.9.9.9" in files["vpn"])
+check(
+    "live RTT never publishes SOCKS CONNECT setup as ping",
+    "socks-connect-estimate" not in files["vpn"]
+    and "SocksHttpClient.connectLatency(" not in files["vpn"],
+)
+check(
+    "live RTT has certificate-verified domain fallback",
+    "LIVE_DOMAIN_RTT_TARGETS" in files["vpn"]
+    and "SocksHttpClient.tunnelRttBatch(" in files["vpn"],
+)
+check(
+    "Iran auto-fragment is transport-aware",
+    "MARBLE_TRANSPORT_AWARE_FRAGMENT_V50" in files["shield"]
+    and '"1-5"' not in files["shield"],
+)
 check("Home exposes live RTT probe state", "liveRouteProbeStatus" in files["repo"] and "liveRouteProbeStatus" in files["ui"])
 check("upload-only HEV stalls need route confirmation", "confirmRouteUnavailable" in files["vpn"] and "datapath-stall-suspected" in files["vpn"] and "datapath-stalled-confirmed" in files["vpn"])
 check("quality uses success and tail evidence", "successPercent" in files["repo"] and "tailLatencyMs" in files["repo"])
@@ -164,6 +180,10 @@ check("UDP probe validates STUN transaction", "STUN transaction mismatch" in fil
 # Diagnostics.
 check("Bug Finder classifies resolver health", "MARBLE_RESOLVER_HEALTH_V38" in files["bug"])
 check("Bug Finder detects missing live quality evidence", "MARBLE_LIVE_METRIC_OBSERVABILITY_V47" in files["bug"])
+check(
+    "Bug Finder distinguishes verified RTT from legacy estimates",
+    "MARBLE_VERIFIED_EVIDENCE_CLASSIFICATION_V50" in files["bug"],
+)
 check("privacy audit compares proxy and Android underlay", "underlayIp" in files["privacy"] and "network.openConnection" in files["privacy"])
 check("privacy audit reports separate IP and DNS scores", "ipLeakScore" in files["privacy"] and "dnsLeakScore" in files["privacy"])
 check("diagnostics queue is bounded", "ArrayBlockingQueue" in files["diag"])

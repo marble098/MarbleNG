@@ -18,6 +18,7 @@ import kotlin.math.min
  * enabled speculatively, because each countermeasure costs latency, battery or both.
  */
 object IranShield {
+    // MARBLE_TRANSPORT_AWARE_FRAGMENT_V50
 
     /** 1 = light touch, 2 = full DPI evasion, 3 = clampdown/blackout posture. */
     fun tier(state: IranModeState): Int {
@@ -46,8 +47,8 @@ object IranShield {
 
     private fun fragmentProfile(tier: Int): FragmentProfile = when (tier) {
         3 -> FragmentProfile(
-            "1-5", "5-15", "15-30",
-            "Maximum TLS record shredding • first five records split into 5-15 byte chunks"
+            "1-3", "5-15", "15-30",
+            "Maximum bounded stream slicing • first three writes split into 5-15 byte chunks"
         )
         2 -> FragmentProfile(
             "1-3", "10-30", "10-20",
@@ -75,16 +76,21 @@ object IranShield {
 
         val tier = tier(state)
         val fragment = fragmentProfile(tier)
+        val autoFragment = shouldAutoFragment(profile)
         val udpBlocked = CensorTechnique.UDP_BLOCKED in state.techniques
         val cellular = state.isp?.kind == IranIspKind.MOBILE
 
         var next = if (!base.iranModeCountermeasures) base else base.copy(
             // --- Anti-DPI transport shaping -------------------------------------------------
-            fragmentEnabled = true,
-            fragmentPackets = fragment.packets,
-            fragmentLength = fragment.length,
-            fragmentInterval = fragment.interval,
-            adaptiveFragmentEnabled = true,
+            // Clear HTTP-like transports already have their own framing. Do not mutate
+            // XHTTP/VLESS-ENC first writes merely because Iran Mode is active. Explicit user
+            // Fragment settings are still preserved via base.*.
+            fragmentEnabled = if (autoFragment) true else base.fragmentEnabled,
+            fragmentPackets = if (autoFragment) fragment.packets else base.fragmentPackets,
+            fragmentLength = if (autoFragment) fragment.length else base.fragmentLength,
+            fragmentInterval = if (autoFragment) fragment.interval else base.fragmentInterval,
+            adaptiveFragmentEnabled =
+                if (autoFragment) true else base.adaptiveFragmentEnabled,
 
             // --- Encrypted resolution ---------------------------------------------------------
             // Preserve Marble Intelligence's network-scoped measured order. Hard-coding Google
@@ -174,11 +180,16 @@ object IranShield {
         val transport = profile.transport.lowercase()
         val scheme = profile.scheme.lowercase()
         val raw = profile.raw.lowercase()
+        val vlessEncrypted =
+            scheme == "vless" &&
+                raw.contains("encryption=") &&
+                !raw.contains("encryption=none")
 
-        // REALITY defeats SNI-based classification because the handshake is indistinguishable from
-        // a real visit to the borrowed destination.
+        // REALITY/TLS keep the strongest transport-camouflage bias. VLESS Encryption protects
+        // payloads and permits public security=none, but it does not look like ordinary HTTPS.
         if (security.contains("reality")) bias += 26.0
         else if (security.contains("tls")) bias += 10.0
+        else if (vlessEncrypted) bias -= 4.0
         else bias -= 18.0
 
         if (raw.contains("flow=xtls-rprx-vision")) bias += 12.0
@@ -244,6 +255,18 @@ object IranShield {
             out += "MTU capped for mobile DPI so shredded records are not reassembled downstream"
         }
         return out
+    }
+
+    private fun shouldAutoFragment(profile: ProxyProfile?): Boolean {
+        if (profile == null) return true
+        val security = profile.security.lowercase()
+        val transport = profile.transport.lowercase()
+        val clearHttpLike =
+            security == "none" &&
+                transport in setOf(
+                    "xhttp", "splithttp", "grpc", "ws", "websocket", "httpupgrade"
+                )
+        return !clearHttpLike
     }
 
     private fun usesVisionOrReality(profile: ProxyProfile): Boolean =

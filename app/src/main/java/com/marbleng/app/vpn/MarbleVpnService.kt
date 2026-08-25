@@ -58,6 +58,7 @@ class MarbleVpnService : VpnService() {
     // MARBLE_FAST_READY_V33
     // MARBLE_EXACT_PROFILE_SOURCE_V38
     // MARBLE_RTT_RESILIENCE_V47
+    // MARBLE_REAL_RTT_XHTTP_V50
     // Live optimisation may learn while connected, but it must never intentionally tear down
     // a healthy user tunnel merely to hot-apply a transport experiment.
     companion object {
@@ -93,13 +94,19 @@ class MarbleVpnService : VpnService() {
             "9.9.9.9" to "/dns-query",
             "1.0.0.1" to "/cdn-cgi/trace"
         )
+        // Full HTTPS fallback uses SOCKS domain ATYP. Android/system DNS is never involved.
+        // Order spans Google and Cloudflare instead of retrying one provider.
+        private val LIVE_DOMAIN_RTT_TARGETS = listOf(
+            "www.gstatic.com" to "/generate_204",
+            "cp.cloudflare.com" to "/generate_204",
+            "www.google.com" to "/generate_204"
+        )
         private const val LIVE_RTT_BURST_SAMPLES = 3
         private const val LIVE_RTT_BURST_GAP_MS = 45L
-        // Keep provider failures bounded; a successful sample is normally far below this.
         private const val LIVE_RTT_TIMEOUT_MS = 1_250
-        private const val TRANSPORT_RTT_TIMEOUT_MS = 1_200
-        // If all certificate-verified public probes are blocked, do not spend several seconds
-        // repeating the same provider sweep on every telemetry tick. Re-check once per minute.
+        private const val LIVE_DOMAIN_RTT_TIMEOUT_MS = 3_500
+        // Failed XHTTP probes can leave expensive pending work inside the core. Retry slowly
+        // instead of creating a new synthetic dial every telemetry tick.
         private const val VERIFIED_RTT_BACKOFF_MS = 60_000L
         // Synthetic endpoints are advisory. Process death is handled immediately; route failure
         // requires normally-spaced misses plus a second independent confirmation.
@@ -444,6 +451,7 @@ class MarbleVpnService : VpnService() {
         activeMethodId = app.repo.intelligence.acceleration(profile.id)?.methodId
             ?: AccelerationPlan.DIRECT
         connectStartedNs = System.nanoTime()
+        verifiedRttBackoffUntilMs = 0L
         val generation = routeGeneration.incrementAndGet()
 
         diag.event(
@@ -1257,162 +1265,11 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         )
     }
 
-    /**
-     * Verify the remote route before HEV can publish CONNECTED.
-     *
-     * Phase 1 uses a literal IP whose HTTPS certificate is valid for the IP. That request does not
-     * need Xray's DNS resolver. If it fails, the proxy transport/node is unusable and changing DNS
-     * would only hide the real problem.
-     *
-     * Phase 2 uses a hostname. If literal-IP HTTPS works but hostname HTTPS fails, transport is
-     * proven alive and the failure is DNS-specific. Retry the SAME node with a small bounded set of
-     * runtime-only resolver policies. Nothing is persisted and HEV has not started yet, so device
-     * traffic remains fail-closed during the repair.
+    /*
+     * Remote egress proof is advisory, not a startup gate. XHTTP/VLESS-ENC may reject one public
+     * probe while user traffic still works; local SOCKS readiness is also not remote proof.
+     * Live metrics below therefore accept certificate-verified HTTPS evidence only.
      */
-    private fun verifyAndRepairStartupEgress(
-        profile: ProxyProfile,
-        session: String,
-        port: Int,
-        initialSettings: AppSettings,
-        chainProfile: ProxyProfile?
-    ): AppSettings? {
-        if (!isCurrent(session) || !xray.isAlive) return null
-
-        // A successful hostname HTTPS request already proves transport + DNS. Only spend a
-        // second request on literal-IP diagnosis when hostname HTTPS actually fails.
-        val domainHealthy = probeDomainHttps(port)
-        val literalHealthy = domainHealthy || probeLiteralIpHttps(port)
-
-        diag.event(
-            "EGRESS", "startup-proof",
-            "session" to session,
-            "literalIpHttps" to literalHealthy,
-            "domainHttps" to domainHealthy,
-            "dnsPrimary" to initialSettings.dnsPrimaryDoH.take(80),
-            "dnsSecondary" to initialSettings.dnsSecondaryDoH.take(80),
-            "dnsStrategy" to initialSettings.dnsQueryStrategy
-        )
-
-        if (domainHealthy) return initialSettings
-
-        if (!literalHealthy) {
-            diag.event(
-                "EGRESS", "transport-unusable",
-                "session" to session,
-                "profile" to profile.name,
-                "xrayAlive" to xray.isAlive
-            )
-            return null
-        }
-
-        val app = application as MarbleApplication
-        app.repo.intelligence.setDecision(
-            "DNS recovery • proxy transport works • repairing resolver path on ${profile.name}"
-        )
-
-        val candidates = listOf(
-            initialSettings.copy(
-                dnsQueryStrategy = "UseIPv4",
-                adaptiveDualStackEnabled = false
-            ),
-            initialSettings.copy(
-                dnsPrimaryIp = "1.1.1.1",
-                dnsSecondaryIp = "8.8.8.8",
-                dnsPrimaryDoH = "https://1.1.1.1/dns-query",
-                dnsSecondaryDoH = "https://8.8.8.8/dns-query",
-                dnsQueryStrategy = "UseIPv4",
-                adaptiveDnsEnabled = false,
-                adaptiveDualStackEnabled = false
-            ),
-            initialSettings.copy(
-                dnsPrimaryIp = "1.1.1.1",
-                dnsSecondaryIp = "1.0.0.1",
-                dnsPrimaryDoH = "https://1.1.1.1/dns-query",
-                dnsSecondaryDoH = "https://1.0.0.1/dns-query",
-                dnsQueryStrategy = "UseIPv4",
-                adaptiveDnsEnabled = false,
-                adaptiveDualStackEnabled = false
-            )
-        ).distinctBy {
-            listOf(
-                it.dnsPrimaryIp,
-                it.dnsSecondaryIp,
-                it.dnsPrimaryDoH,
-                it.dnsSecondaryDoH,
-                it.dnsQueryStrategy
-            ).joinToString("|")
-        }.filterNot {
-            it.dnsPrimaryIp == initialSettings.dnsPrimaryIp &&
-                it.dnsSecondaryIp == initialSettings.dnsSecondaryIp &&
-                it.dnsPrimaryDoH == initialSettings.dnsPrimaryDoH &&
-                it.dnsSecondaryDoH == initialSettings.dnsSecondaryDoH &&
-                it.dnsQueryStrategy == initialSettings.dnsQueryStrategy
-        }
-
-        for ((index, candidate) in candidates.withIndex()) {
-            if (!isCurrent(session)) return null
-
-            diag.event(
-                "DNS-RECOVERY", "attempt",
-                "session" to session,
-                "attempt" to (index + 1),
-                "strategy" to candidate.dnsQueryStrategy,
-                "primary" to candidate.dnsPrimaryDoH.take(80),
-                "secondary" to candidate.dnsSecondaryDoH.take(80)
-            )
-
-            if (!xray.start(profile, port, candidate, chainProfile)) {
-                diag.event(
-                    "DNS-RECOVERY", "xray-restart-failed",
-                    "session" to session,
-                    "attempt" to (index + 1),
-                    "reason" to xray.lastStartError.take(500)
-                )
-                continue
-            }
-            if (!isCurrent(session)) {
-                xray.stop()
-                return null
-            }
-
-            val transportOk = probeLiteralIpHttps(port)
-            val dnsOk = transportOk && probeDomainHttps(port)
-            diag.event(
-                "DNS-RECOVERY", "result",
-                "session" to session,
-                "attempt" to (index + 1),
-                "transport" to transportOk,
-                "dns" to dnsOk
-            )
-
-            if (dnsOk) {
-                app.repo.intelligence.setDecision(
-                    "DNS recovered • ${profile.name} • ${candidate.dnsPrimaryDoH}"
-                )
-                app.repo.refreshIntelligenceStatus()
-                diag.event(
-                    "DNS-RECOVERY", "recovered",
-                    "session" to session,
-                    "attempt" to (index + 1),
-                    "profile" to profile.name
-                )
-                return candidate
-            }
-
-            if (!transportOk) return null
-        }
-
-        app.repo.intelligence.setDecision(
-            "DNS recovery failed • proxy transport was reachable but no safe resolver path answered"
-        )
-        diag.event(
-            "DNS-RECOVERY", "exhausted",
-            "session" to session,
-            "profile" to profile.name,
-            "attempts" to candidates.size
-        )
-        return null
-    }
 
     private fun scheduleSyntheticEgressObservation(
         session: String,
@@ -1424,6 +1281,14 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             if (isRouteCurrent(session, generation) && xray.isAlive) {
                 monitorWorker.execute {
                     if (!isRouteCurrent(session, generation) || !xray.isAlive) return@execute
+                    if (System.currentTimeMillis() < verifiedRttBackoffUntilMs) {
+                        diag.event(
+                            "EGRESS", "startup-observation-held-by-rtt-backoff",
+                            "session" to session,
+                            "profile" to profile.id.take(12)
+                        )
+                        return@execute
+                    }
                     val app = application as MarbleApplication
                     val domainHealthy = probeDomainHttps(port)
                     val literalHealthy = domainHealthy || probeLiteralIpHttps(port)
@@ -1532,15 +1397,17 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
     }
 
     private fun probeDomainHttps(port: Int): Boolean =
-        runCatching {
-            SocksHttpClient.get(
-                port,
-                "cp.cloudflare.com",
-                "/generate_204",
-                4_000,
-                1_024
-            ).status in 200..399
-        }.getOrDefault(false)
+        LIVE_DOMAIN_RTT_TARGETS.take(2).any { (host, path) ->
+            runCatching {
+                SocksHttpClient.get(
+                    port,
+                    host,
+                    path,
+                    3_500,
+                    1_024
+                ).status in 200..399
+            }.getOrDefault(false)
+        }
 
     /**
      * Confirms a synthetic route failure against independent HTTPS endpoints.
@@ -1619,7 +1486,6 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
 
         val app = application as MarbleApplication
         val repo = app.repo
-        var transportEstimate = false
 
         /*
          * v31 keeps one same-target rolling RTT/IPDV window and streams every verified result.
@@ -1674,12 +1540,6 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                 snapshot[5],
                 snapshot[6]
             )
-            if (transportEstimate) {
-                repo.updateRouteProbeStatus(
-                    "Tunnel connect RTT estimate • ${snapshot[2]}/${snapshot[4]} samples • " +
-                        "${snapshot[5]}% success"
-                )
-            }
         }
 
         fun probePath(host: String): String =
@@ -1733,133 +1593,112 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             return values
         }
 
-        fun measureTransportOne(host: String): Int =
+        fun measureDomainBurst(host: String, path: String): List<Int> =
             runCatching {
-                SocksHttpClient.connectLatency(
+                SocksHttpClient.tunnelRttBatch(
                     port = port,
                     host = host,
-                    targetPort = 443,
-                    timeoutMs = TRANSPORT_RTT_TIMEOUT_MS
-                ).roundToInt()
-            }.getOrDefault(-1)
-
-        fun measureTransportBurst(host: String, firstSample: Int): List<Int> {
-            val values = ArrayList<Int>(LIVE_RTT_BURST_SAMPLES)
-
-            fun accept(value: Int): Boolean {
-                if (value <= 0) {
-                    publishRollingOutcome(host, -1)
-                    return false
-                }
-                val verified = value.coerceIn(1, 10_000)
-                values += verified
-                publishRollingOutcome(host, verified)
-                return true
-            }
-
-            if (!accept(firstSample)) return values
-            while (values.size < LIVE_RTT_BURST_SAMPLES && isRouteCurrent(session, generation)) {
-                try {
-                    Thread.sleep(LIVE_RTT_BURST_GAP_MS)
-                } catch (_: InterruptedException) {
-                    Thread.currentThread().interrupt()
-                    break
-                }
-                if (!accept(measureTransportOne(host))) break
-            }
-            return values
-        }
+                    path = path,
+                    samples = LIVE_RTT_BURST_SAMPLES,
+                    timeoutMs = LIVE_DOMAIN_RTT_TIMEOUT_MS
+                )
+            }.getOrNull()
+                ?.samplesMs
+                ?.filter { it.isFinite() && it > 0.0 }
+                ?.map { it.roundToInt().coerceIn(1, 10_000) }
+                .orEmpty()
 
         var host = jitterProbeHost
         var rttSamples = emptyList<Int>()
         val nowMs = System.currentTimeMillis()
 
-        // Prefer certificate-verified application RTT. After a full provider sweep fails, back off
-        // for a minute so Home telemetry cannot become a permanent Cloudflare/Google/Quad9 loop.
-        if (nowMs >= verifiedRttBackoffUntilMs) {
-            repo.updateRouteProbeStatus("Measuring verified RTT • ${probeLabel(host)}")
-            val primarySample = measureOne(host)
-            rttSamples = if (primarySample > 0) {
-                measurePinnedBurst(host, primarySample)
-            } else {
-                publishRollingOutcome(host, -1)
-                emptyList()
-            }
+        if (nowMs < verifiedRttBackoffUntilMs) {
+            val retrySec = ((verifiedRttBackoffUntilMs - nowMs + 999L) / 1_000L)
+                .coerceAtLeast(1L)
+            repo.updateRouteProbeStatus(
+                "Verified HTTPS RTT unavailable • retry in ${retrySec}s • no estimate substituted"
+            )
+            return false
+        }
 
-            if (rttSamples.isEmpty() && isRouteCurrent(session, generation)) {
-                val alternates = JITTER_PROBE_TARGETS.map { it.first }.filterNot { it == host }
-                for ((index, alternate) in alternates.withIndex()) {
-                    repo.updateRouteProbeStatus(
-                        "${probeLabel(host)} RTT unavailable • trying ${probeLabel(alternate)} " +
-                            "${index + 1}/${alternates.size}"
-                    )
-                    val alternateSample = measureOne(alternate)
-                    if (alternateSample <= 0) continue
+        repo.updateRouteProbeStatus("Measuring verified RTT • ${probeLabel(host)}")
+        val primarySample = measureOne(host)
+        rttSamples = if (primarySample > 0) {
+            measurePinnedBurst(host, primarySample)
+        } else {
+            publishRollingOutcome(host, -1)
+            emptyList()
+        }
 
-                    resetJitterBaselineForProbeHost(alternate)
-                    host = alternate
-                    rttSamples = measurePinnedBurst(alternate, alternateSample)
-                    diag.event(
-                        "ROUTE", "jitter-probe-pivot",
-                        "session" to session,
-                        "target" to alternate,
-                        "provider" to probeLabel(alternate),
-                        "reason" to "previous literal HTTPS target produced zero verified RTTs"
-                    )
-                    break
-                }
-            }
+        if (rttSamples.isEmpty() && isRouteCurrent(session, generation)) {
+            val alternates = JITTER_PROBE_TARGETS
+                .map { it.first }
+                .filterNot { it == host }
+                .take(2)
 
-            if (rttSamples.isNotEmpty()) {
-                verifiedRttBackoffUntilMs = 0L
-            } else {
-                verifiedRttBackoffUntilMs = nowMs + VERIFIED_RTT_BACKOFF_MS
+            for ((index, alternate) in alternates.withIndex()) {
+                repo.updateRouteProbeStatus(
+                    "${probeLabel(host)} RTT unavailable • trying ${probeLabel(alternate)} " +
+                        "${index + 1}/${alternates.size}"
+                )
+                val alternateSample = measureOne(alternate)
+                if (alternateSample <= 0) continue
+
+                resetJitterBaselineForProbeHost(alternate)
+                host = alternate
+                rttSamples = measurePinnedBurst(alternate, alternateSample)
+                diag.event(
+                    "ROUTE", "jitter-probe-pivot",
+                    "session" to session,
+                    "target" to alternate,
+                    "provider" to probeLabel(alternate),
+                    "reason" to "previous literal HTTPS target produced zero verified RTTs"
+                )
+                break
             }
         }
 
-        /*
-         * A working tunnel must not leave Home frozen just because public connectivity-check
-         * endpoints are censored, reset, or reject their certificate/IP shape. SOCKS CONNECT RTT
-         * is explicitly shown as an estimate: it proves the selected Xray outbound can establish
-         * a remote TCP route, while never pretending to be a verified HTTPS first-byte sample.
-         */
+        // If literal HTTPS is unavailable, use the same class of full HTTPS-through-SOCKS
+        // measurement used by Smart Rank. Domain ATYP stays inside Xray and does not leak to
+        // Android/system DNS.
         if (rttSamples.isEmpty() && isRouteCurrent(session, generation)) {
-            repo.updateRouteProbeStatus(
-                "Verified HTTPS RTT unavailable • measuring tunnel connect RTT"
-            )
-            val transportTargets =
-                (listOf(host) + JITTER_PROBE_TARGETS.map { it.first }).distinct()
+            val domainTargets = LIVE_DOMAIN_RTT_TARGETS.take(2)
+            for ((index, target) in domainTargets.withIndex()) {
+                repo.updateRouteProbeStatus(
+                    "Literal HTTPS RTT unavailable • verified domain probe " +
+                        "${index + 1}/${domainTargets.size}"
+                )
+                val batch = measureDomainBurst(target.first, target.second)
+                if (batch.isEmpty()) continue
 
-            for ((index, target) in transportTargets.withIndex()) {
-                val first = measureTransportOne(target)
-                if (first <= 0) {
-                    repo.updateRouteProbeStatus(
-                        "Tunnel RTT target unavailable • trying ${index + 1}/${transportTargets.size}"
-                    )
-                    continue
-                }
-
-                resetJitterBaselineForProbeHost(target)
-                transportEstimate = true
-                host = target
-                rttSamples = measureTransportBurst(target, first)
-                if (rttSamples.isNotEmpty()) {
-                    diag.event(
-                        "ROUTE", "jitter-probe-transport-fallback",
-                        "session" to session,
-                        "target" to target,
-                        "provider" to probeLabel(target),
-                        "reason" to "verified HTTPS targets unavailable; publishing labeled connect RTT estimate"
-                    )
-                    break
-                }
+                resetJitterBaselineForProbeHost(target.first)
+                host = target.first
+                batch.forEach { sample -> publishRollingOutcome(host, sample) }
+                rttSamples = batch
+                diag.event(
+                    "ROUTE", "jitter-probe-domain-fallback",
+                    "session" to session,
+                    "target" to target.first,
+                    "samples" to batch.size,
+                    "reason" to "literal providers unavailable; full HTTPS domain probe verified"
+                )
+                break
             }
+        }
+
+        if (rttSamples.isNotEmpty()) {
+            verifiedRttBackoffUntilMs = 0L
+        } else {
+            verifiedRttBackoffUntilMs = nowMs + VERIFIED_RTT_BACKOFF_MS
+            repo.updateRouteProbeStatus(
+                "Verified HTTPS RTT unavailable • retrying in 60s • no synthetic ping shown"
+            )
         }
 
         if (rttSamples.isEmpty() || !isRouteCurrent(session, generation)) {
             if (isRouteCurrent(session, generation)) {
                 repo.updateRouteProbeStatus(
-                    "Tunnel traffic is active • verified HTTPS and connect RTT probes are unavailable"
+                    "Tunnel traffic is active • verified HTTPS RTT is currently unavailable"
                 )
             }
             // Keep the last verified rolling metrics across an advisory miss. A host pivot,
@@ -1983,13 +1822,6 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             successPercent,
             tailLatencyMs
         )
-        if (transportEstimate) {
-            repo.updateRouteProbeStatus(
-                "Tunnel connect RTT estimate • ${quality.samples}/${attemptCount} samples • " +
-                    "${successPercent}% success • p90 ${tailLatencyMs} ms"
-            )
-        }
-
         diag.event(
             "ROUTE", "latency-sample",
             "session" to session,
@@ -2002,21 +1834,8 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             "attempts" to attemptCount,
             "successPercent" to successPercent,
             "p90Ms" to tailLatencyMs,
-            "method" to if (transportEstimate) {
-                "socks-connect-estimate-rolling-ipdv-loss-p90"
-            } else {
-                "verified-https-ttfb-rolling-ipdv-loss-p90"
-            }
+            "method" to "verified-https-ttfb-rolling-ipdv-loss-p90"
         )
-
-        // Connect-RTT fallback exists to keep Home telemetry useful when public HTTPS
-        // test origins are blocked. It is not application-TTFB evidence, so do not feed it into
-        // route-learning or jitter-triggered transport tuning.
-        if (transportEstimate) {
-            jitterHighStreak = 0
-            jitterLowStreak = 0
-            return true
-        }
 
         repo.intelligence.recordLiveRoute(
             activeProfileId,
