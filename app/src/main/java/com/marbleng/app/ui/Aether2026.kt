@@ -3681,6 +3681,7 @@ private enum class SettingsWorkspaceTab(val label: String, val icon: HomeIcon) {
     SYSTEM("System", HomeIcon.STATUS)
 }
 
+@Composable
 private fun settingsTabTone(tab: SettingsWorkspaceTab): Color = when (tab) {
     SettingsWorkspaceTab.GENERAL -> Aether.Cyan
     SettingsWorkspaceTab.TESTS -> Aether.Amethyst
