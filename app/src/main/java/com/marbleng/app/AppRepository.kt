@@ -308,6 +308,7 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     var liveRouteSuccessPercent by mutableStateOf(0); private set
     var liveTailLatencyMs by mutableStateOf(0); private set
     var liveJitterSamples by mutableStateOf(0); private set
+    var liveRouteProbeStatus by mutableStateOf(""); private set
 
     init {
         migrateLocalSourceOwnershipIfNeeded()
@@ -497,6 +498,16 @@ fun updateRouteQuality(
             liveRouteAttempts = attemptCount.coerceIn(0, 10_000)
             liveRouteSuccessPercent = successPercent.coerceIn(0, 100)
             if (tailLatencyMs >= 0) liveTailLatencyMs = tailLatencyMs.coerceIn(0, 10_000)
+            liveRouteProbeStatus = buildString {
+                append("Verified HTTPS • ")
+                append(sampleCount.coerceAtLeast(1))
+                append('/')
+                append(attemptCount.coerceAtLeast(1))
+                append(" RTT • ")
+                append(successPercent.coerceIn(0, 100))
+                append("% success")
+                if (tailLatencyMs > 0) append(" • p90 ${tailLatencyMs.coerceAtMost(10_000)} ms")
+            }
 
             // v18 counted publications forever although ping came from a bounded window.
             // Publish the actual current window sizes.
@@ -511,6 +522,18 @@ fun updateRouteQuality(
                 } else {
                     liveJitterSamples
                 }
+        }
+    }
+
+    fun beginRouteMeasurement() {
+        postToMain {
+            liveRouteProbeStatus = "Tunnel ready • verifying diverse HTTPS RTT targets"
+        }
+    }
+
+    fun updateRouteProbeStatus(value: String) {
+        postToMain {
+            liveRouteProbeStatus = value.trim().take(180)
         }
     }
 
@@ -533,6 +556,7 @@ fun resetTelemetry() {
             liveRouteSuccessPercent = 0
             liveTailLatencyMs = 0
             liveJitterSamples = 0
+            liveRouteProbeStatus = ""
         }
     }
 
@@ -606,6 +630,7 @@ fun resetTelemetry() {
                 liveRouteSuccessPercent = 0
                 liveTailLatencyMs = 0
                 liveJitterSamples = 0
+                liveRouteProbeStatus = ""
             }
         }
     }
@@ -2043,8 +2068,11 @@ private fun postToMain(block: () -> Unit) {
             return
         }
         privacy = null
-        task("Privacy audit • testing egress and DNS through Xray") {
-            privacy = PrivacyAuditor.audit(activeProxyPort())
+        task("Privacy audit • comparing proxy/physical egress and tunnel DNS") {
+            privacy = PrivacyAuditor.audit(
+                activeProxyPort(),
+                intelligence.currentUnderlyingNetwork()
+            )
             val report = privacy
             if (report != null) {
                 sentinel = sentinel.copy(

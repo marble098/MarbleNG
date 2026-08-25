@@ -719,6 +719,16 @@ jobs:
             --title "MarbleNG $VERSION_NAME" \
             --notes "## MarbleNG $VERSION_NAME
 
+          ### Resolver, live-metric and leak-audit hardening v47
+          - Fixed the observed state where the TUN carried traffic but Ping, Jitter and Quality stayed blank: the first verified HTTPS response now publishes immediately and Home explains every pending/failover phase.
+          - Replaced the single measurement dependency with certificate-verified, literal-IP HTTPS targets across Cloudflare, Google and Quad9; each jitter burst remains pinned to one provider so failover never contaminates IPDV.
+          - Disabled Xray parallel DNS fan-out and bounded encrypted fallbacks, preventing a blocked DoH provider from multiplying background deadlines after another resolver has already answered.
+          - Iran Mode now preserves Marble Intelligence's measured resolver order instead of forcing Google first on every connection.
+          - Adaptive DNS learning starts earlier, retries after heavy traffic and accepts only a valid RFC 8484 DNS-message response rather than a quick HTTP error page.
+          - Upload-only traffic no longer triggers byte-counter stall recovery without an independent provider-diverse route confirmation.
+          - Privacy audit now compares proxy egress against an explicitly underlay-bound physical egress, observes DNS only through SOCKS domain addressing, and reports separate Anti-IP, DNS and combined evidence scores.
+          - Bug Finder now warns about retained resolver bursts and distinguishes a healthy tunnel from a missing verified quality sample.
+
           ### Home UI
           - Rebuilt Home around a consistent modern vector-icon language.
           - Removed font-dependent Unicode action glyphs, including the broken power symbol.

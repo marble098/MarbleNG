@@ -386,8 +386,10 @@ object XrayConfigHardener {
         val remoteDoh = if (settings.adaptiveDnsEnabled) {
             (configuredRemoteDoh + listOf(stockCloudflareDoh, stockGoogleDoh, stockQuad9Doh))
                 .distinctBy { it.lowercase() }
+                .take(3)
         } else {
             configuredRemoteDoh
+                .take(2)
         }
 
         val dnsServers = JSONArray()
@@ -405,14 +407,16 @@ object XrayConfigHardener {
             }
         }
 
-        // Adaptive order is encrypted-only: preferred DoH followed by independent DoH fallbacks.
-        // Parallel querying lets another encrypted provider win a transient deadline.
+        // Adaptive order is encrypted-only: preferred DoH followed by independent fallbacks.
+        // Xray's parallel mode keeps non-winning cache queries alive for up to twice each server
+        // timeout. With a blocked provider that produced the resolver storm seen in the attached
+        // log. Bounded serial failover avoids that background fan-out while retaining encryption.
         remoteDoh.firstOrNull()?.let { address ->
             dnsServers.put(
                 JSONObject()
                     .put("address", address)
                     .put("queryStrategy", queryStrategy)
-                    .put("timeoutMs", 1800)
+                    .put("timeoutMs", 1100)
             )
         }
 
@@ -428,7 +432,7 @@ object XrayConfigHardener {
                 JSONObject()
                     .put("address", address)
                     .put("queryStrategy", queryStrategy)
-                    .put("timeoutMs", 2400)
+                    .put("timeoutMs", 1400 + index * 300)
                     .put("finalQuery", index == customSecondaryDoh.lastIndex)
             )
         }
@@ -444,7 +448,7 @@ object XrayConfigHardener {
                 // No plaintext/system-DNS fallback is introduced.
                 .put("serveStale", true)
                 .put("serveExpiredTTL", 1800)
-                .put("enableParallelQuery", settings.adaptiveDnsEnabled)
+                .put("enableParallelQuery", false)
                 .put("useSystemHosts", false)
                 .put("disableFallbackIfMatch", bootstrapDomains.isNotEmpty())
                 .put("tag", "xgc-dns")

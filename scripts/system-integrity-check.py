@@ -36,6 +36,7 @@ files = {
     "ssh": read("app/src/main/java/com/marbleng/app/core/SshTransportManager.kt"),
     "socks": read("app/src/main/java/com/marbleng/app/core/SocksHttpClient.kt"),
     "udp": read("app/src/main/java/com/marbleng/app/core/SocksUdpProbe.kt"),
+    "privacy": read("app/src/main/java/com/marbleng/app/net/PrivacyAuditor.kt"),
     "bug": read("app/src/main/java/com/marbleng/app/core/BugFinder.kt"),
     "diag": read("app/src/main/java/com/marbleng/app/core/RuntimeDiagnostics.kt"),
     "ui": read("app/src/main/java/com/marbleng/app/ui/Aether2026.kt"),
@@ -106,6 +107,8 @@ check(
 # DNS, routing and identity.
 check("endpoint bootstrap is encrypted local DoH", "https+local://$ip/dns-query" in files["hardener"])
 check("ordinary Xray DNS has no plaintext tcp53 fallback", '"tcp://$ip:53"' not in files["hardener"])
+check("Xray encrypted DNS fallback is bounded and serial", 'put("enableParallelQuery", false)' in files["hardener"])
+check("adaptive resolver test sends a real DNS wire query", 'application/dns-message' in files["intel"] and '"POST"' in files["intel"] and "dnsQuery" in files["intel"])
 check(
     "built-in DNS is routed through selected proxy",
     '.put("inboundTag", JSONArray().put("xgc-dns"))' in files["hardener"]
@@ -127,6 +130,9 @@ failures = integer_constant(files["vpn"], "PROBE_FAILURES_BEFORE_RECOVERY")
 check("degraded probe cadence is faster", 1 <= degraded < normal)
 check("heavy-traffic probing is slower", heavy > normal)
 check("route outcome window records misses", "routeOutcomeWindow" in files["vpn"] and "else -1" in files["vpn"])
+check("live RTT rotates provider-diverse literal targets", "JITTER_PROBE_TARGETS" in files["vpn"] and "1.1.1.1" in files["vpn"] and "8.8.8.8" in files["vpn"] and "9.9.9.9" in files["vpn"])
+check("Home exposes live RTT probe state", "liveRouteProbeStatus" in files["repo"] and "liveRouteProbeStatus" in files["ui"])
+check("upload-only HEV stalls need route confirmation", "confirmRouteUnavailable" in files["vpn"] and "datapath-stall-suspected" in files["vpn"] and "datapath-stalled-confirmed" in files["vpn"])
 check("quality uses success and tail evidence", "successPercent" in files["repo"] and "tailLatencyMs" in files["repo"])
 check("RTT burst fits rolling window", 2 <= burst <= rtt_window)
 check("route recovery needs repeated failure evidence", failures >= 3)
@@ -157,6 +163,9 @@ check("UDP probe validates STUN transaction", "STUN transaction mismatch" in fil
 
 # Diagnostics.
 check("Bug Finder classifies resolver health", "MARBLE_RESOLVER_HEALTH_V38" in files["bug"])
+check("Bug Finder detects missing live quality evidence", "MARBLE_LIVE_METRIC_OBSERVABILITY_V47" in files["bug"])
+check("privacy audit compares proxy and Android underlay", "underlayIp" in files["privacy"] and "network.openConnection" in files["privacy"])
+check("privacy audit reports separate IP and DNS scores", "ipLeakScore" in files["privacy"] and "dnsLeakScore" in files["privacy"])
 check("diagnostics queue is bounded", "ArrayBlockingQueue" in files["diag"])
 check("diagnostics redaction exists", "fun redact" in files["diag"])
 

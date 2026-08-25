@@ -86,9 +86,15 @@ class MarbleVpnService : VpnService() {
         private const val TURBO_INCONCLUSIVE_BASE_BACKOFF_MS = 600_000L
         private const val TURBO_INCONCLUSIVE_MAX_BACKOFF_MS = 1_800_000L
         private const val JITTER_PRIMARY_HOST = "1.1.1.1"
-        private const val JITTER_SECONDARY_HOST = "1.0.0.1"
-        private const val LIVE_RTT_BURST_SAMPLES = 4
+        private val JITTER_PROBE_TARGETS = listOf(
+            "1.1.1.1" to "/cdn-cgi/trace",
+            "8.8.8.8" to "/dns-query",
+            "9.9.9.9" to "/dns-query",
+            "1.0.0.1" to "/cdn-cgi/trace"
+        )
+        private const val LIVE_RTT_BURST_SAMPLES = 3
         private const val LIVE_RTT_BURST_GAP_MS = 45L
+        private const val LIVE_RTT_TIMEOUT_MS = 1_800
         // Synthetic endpoints are advisory. Process death is handled immediately; route failure
         // requires normally-spaced misses plus a second independent confirmation.
         private const val PROBE_FAILURES_BEFORE_RECOVERY = 4
@@ -103,8 +109,8 @@ class MarbleVpnService : VpnService() {
         // CONNECTED sooner; native stats keep their own later warm-up and are NOT moved earlier.
         private const val HEV_READY_GRACE_MS = 250L
         private const val CONNECT_STARTUP_TIMEOUT_MS = 90_000L
-        private const val HEV_STALL_MIN_MS = 20_000L
-        private const val HEV_STALL_MIN_TX_BYTES = 32L * 1024L
+        private const val HEV_STALL_MIN_MS = 35_000L
+        private const val HEV_STALL_MIN_TX_BYTES = 64L * 1024L
         private const val HEV_STATS_FAILURE_LIMIT = 5
         private const val EXIT_IDENTITY_PROBE_INTERVAL_TICKS = 180
 
@@ -775,6 +781,7 @@ class MarbleVpnService : VpnService() {
     }
 
 private fun startProxyMonitor(session: String, port: Int, generation: Int) {
+        (application as MarbleApplication).repo.beginRouteMeasurement()
         monitorWorker.execute {
             var tick = 0
 
@@ -806,6 +813,7 @@ private fun startProxyMonitor(session: String, port: Int, generation: Int) {
     }
 
 private fun startTelemetry(session: String, port: Int, generation: Int) {
+        (application as MarbleApplication).repo.beginRouteMeasurement()
         monitorWorker.execute {
             val repo = (application as MarbleApplication).repo
             var lastUp = -1L
@@ -869,14 +877,29 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                             if (txWithoutRxBytes >= HEV_STALL_MIN_TX_BYTES &&
                                 nowMs - txWithoutRxSince >= HEV_STALL_MIN_MS &&
                                 isRouteCurrent(session, generation)) {
-                                diag.event("HEV", "datapath-stalled",
+                                diag.event("HEV", "datapath-stall-suspected",
                                     "session" to session,
                                     "txWithoutRxBytes" to txWithoutRxBytes,
                                     "stallMs" to (nowMs - txWithoutRxSince),
                                     "xrayAlive" to xray.isAlive)
-                                handleFailure(session,
-                                    "HEV datapath stalled: outbound traffic moved but no inbound traffic returned")
-                                return@execute
+                                // Upload-only traffic is legitimate. Confirm the suspected stall
+                                // with independent HTTPS evidence before entering fail-closed
+                                // recovery; the old byte-only rule killed a working route after a
+                                // small one-way transfer in the attached runtime log.
+                                if (confirmRouteUnavailable(session, port, generation)) {
+                                    diag.event(
+                                        "HEV", "datapath-stalled-confirmed",
+                                        "session" to session,
+                                        "txWithoutRxBytes" to txWithoutRxBytes,
+                                        "stallMs" to (nowMs - txWithoutRxSince)
+                                    )
+                                    handleFailure(session,
+                                        "HEV datapath stalled and independent HTTPS confirmation failed")
+                                    return@execute
+                                }
+                                txWithoutRxBytes = 0L
+                                txWithoutRxSince = 0L
+                                diag.event("HEV", "datapath-stall-held", "session" to session)
                             }
                         }
 
@@ -1444,13 +1467,14 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         session: String,
         generation: Int,
         port: Int,
-        settings: AppSettings
+        settings: AppSettings,
+        delayMs: Long = 15_000L
     ) {
         timerWorker.schedule({
             if (isRouteCurrent(session, generation) && xray.isAlive) {
                 val repo = (application as MarbleApplication).repo
                 val throughput = repo.liveDownBps + repo.liveUpBps
-                if (!jitterControlActive && throughput < HEAVY_TRAFFIC_BPS) {
+                if (throughput < HEAVY_TRAFFIC_BPS) {
                     monitorWorker.execute {
                         if (isRouteCurrent(session, generation) && xray.isAlive) {
                             runCatching { repo.intelligence.probeDnsResolvers(port, settings) }
@@ -1463,21 +1487,29 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                         "jitterControl" to jitterControlActive,
                         "throughputBps" to throughput
                     )
+                    // A one-shot defer meant resolver learning never ran on long downloads. Retry
+                    // later without interrupting the active flow or restarting Xray.
+                    scheduleAdaptiveDnsObservation(session, generation, port, settings, 30_000L)
                 }
             }
-        }, 60_000L, TimeUnit.MILLISECONDS)
+        }, delayMs.coerceIn(5_000L, 60_000L), TimeUnit.MILLISECONDS)
     }
 
-    private fun probeLiteralIpHttps(port: Int): Boolean =
-        runCatching {
-            SocksHttpClient.get(
-                port,
-                "1.1.1.1",
-                "/cdn-cgi/trace",
-                3_500,
-                2_048
-            ).status in 200..399
-        }.getOrDefault(false)
+    private fun probeLiteralIpHttps(port: Int): Boolean {
+        // No single provider is authoritative. The attached log shows a healthy tunnel while one
+        // public DoH/HTTPS anycast target was unreachable, so recovery confirmation races a small
+        // provider-diverse literal set without invoking Android/system DNS.
+        return JITTER_PROBE_TARGETS.take(3).any { (host, path) ->
+            runCatching {
+                SocksHttpClient.httpsFirstByteLatency(
+                    port = port,
+                    host = host,
+                    path = path,
+                    timeoutMs = 1_500
+                ) > 0.0
+            }.getOrDefault(false)
+        }
+    }
 
     private fun probeDomainHttps(port: Int): Boolean =
         runCatching {
@@ -1531,10 +1563,9 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
     /**
      * Live route timing is deliberately different from a health check.
      *
-     * v17 rotated Cloudflare/Google HTTPS origins and then compared consecutive RTTs. That mixes
-     * origin/TLS/DNS variance into "jitter". v18 pins one literal IP and measures only SOCKS +
-     * remote TCP connect time, so consecutive samples describe the same path and no DNS query is
-     * generated by the jitter meter.
+     * The meter pins each burst to one literal HTTPS endpoint, so origin/DNS variation never gets
+     * mislabeled as jitter. Provider rotation happens only after a target produces no verified
+     * sample; the new target starts a fresh IPDV baseline.
      */
     private fun shouldSampleRoute(tick: Int): Boolean {
         // Three sparse warm-up samples establish a baseline without a burst immediately on connect.
@@ -1624,70 +1655,96 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             )
         }
 
+        fun probePath(host: String): String =
+            JITTER_PROBE_TARGETS.firstOrNull { it.first == host }?.second ?: "/dns-query"
+
+        fun probeLabel(host: String): String = when (host) {
+            "1.1.1.1", "1.0.0.1" -> "Cloudflare"
+            "8.8.8.8" -> "Google"
+            "9.9.9.9" -> "Quad9"
+            else -> "HTTPS"
+        }
+
         fun measureOne(host: String): Int =
             runCatching {
                 SocksHttpClient.httpsFirstByteLatency(
                     port = port,
                     host = host,
-                    path = "/cdn-cgi/trace",
+                    path = probePath(host),
                     targetPort = 443,
-                    timeoutMs = 2_500
+                    timeoutMs = LIVE_RTT_TIMEOUT_MS
                 ).roundToInt()
             }.getOrDefault(-1)
 
-        fun measureBurst(host: String): List<Int> {
+        fun measurePinnedBurst(host: String, firstSample: Int): List<Int> {
             val values = ArrayList<Int>(LIVE_RTT_BURST_SAMPLES)
-            var transientMisses = 0
-            for (index in 0 until LIVE_RTT_BURST_SAMPLES) {
-                if (!isRouteCurrent(session, generation)) break
-                val value = measureOne(host)
+
+            fun accept(value: Int): Boolean {
                 if (value <= 0) {
                     publishRollingOutcome(host, -1)
-                    transientMisses++
-                    if (transientMisses >= 2) break
-                } else {
-                    val verified = value.coerceIn(1, 10_000)
-                    values += verified
-                    publishRollingOutcome(host, verified)
+                    return false
                 }
-                if (index + 1 < LIVE_RTT_BURST_SAMPLES) {
-                    try {
-                        Thread.sleep(LIVE_RTT_BURST_GAP_MS)
-                    } catch (_: InterruptedException) {
-                        Thread.currentThread().interrupt()
-                        break
-                    }
+                val verified = value.coerceIn(1, 10_000)
+                values += verified
+                // Ping + Quality become visible after this first verified response; Jitter appears
+                // after the next same-target response instead of waiting for the entire burst.
+                publishRollingOutcome(host, verified)
+                return true
+            }
+
+            if (!accept(firstSample)) return values
+            while (values.size < LIVE_RTT_BURST_SAMPLES && isRouteCurrent(session, generation)) {
+                try {
+                    Thread.sleep(LIVE_RTT_BURST_GAP_MS)
+                } catch (_: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                    break
                 }
+                if (!accept(measureOne(host))) break
             }
             return values
         }
 
         var host = jitterProbeHost
-        var rttSamples = measureBurst(host)
+        repo.updateRouteProbeStatus("Measuring verified RTT • ${probeLabel(host)}")
+        val primarySample = measureOne(host)
+        var rttSamples = if (primarySample > 0) {
+            measurePinnedBurst(host, primarySample)
+        } else {
+            publishRollingOutcome(host, -1)
+            emptyList()
+        }
 
         if (rttSamples.isEmpty() && isRouteCurrent(session, generation)) {
-            val alternate =
-                if (host == JITTER_PRIMARY_HOST) JITTER_SECONDARY_HOST else JITTER_PRIMARY_HOST
-            val alternateSamples = measureBurst(alternate)
-            if (alternateSamples.isNotEmpty()) {
+            val alternates = JITTER_PROBE_TARGETS.map { it.first }.filterNot { it == host }
+            for ((index, alternate) in alternates.withIndex()) {
+                repo.updateRouteProbeStatus(
+                    "${probeLabel(host)} RTT unavailable • trying ${probeLabel(alternate)} " +
+                        "${index + 1}/${alternates.size}"
+                )
+                val alternateSample = measureOne(alternate)
+                if (alternateSample <= 0) continue
+
                 resetJitterBaselineForProbeHost(alternate)
                 host = alternate
-                rttSamples = alternateSamples
-
-                // alternate samples were intentionally not published while the old host was still
-                // pinned; replay them only after the baseline is reset to the winning target.
-                alternateSamples.forEach { publishRollingOutcome(alternate, it) }
-
+                rttSamples = measurePinnedBurst(alternate, alternateSample)
                 diag.event(
                     "ROUTE", "jitter-probe-pivot",
                     "session" to session,
                     "target" to alternate,
-                    "reason" to "primary produced zero verified RTTs"
+                    "provider" to probeLabel(alternate),
+                    "reason" to "previous literal HTTPS target produced zero verified RTTs"
                 )
+                break
             }
         }
 
         if (rttSamples.isEmpty() || !isRouteCurrent(session, generation)) {
+            if (isRouteCurrent(session, generation)) {
+                repo.updateRouteProbeStatus(
+                    "Tunnel traffic is active • verified RTT endpoints are blocked or timing out"
+                )
+            }
             // Keep the last verified rolling metrics across an advisory miss. A host pivot,
             // disconnect, generation reset, or real recovery still resets them explicitly.
             val trafficRecentlyMoved =

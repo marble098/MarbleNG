@@ -1673,6 +1673,20 @@ class MarbleIntelligence(private val context: Context) {
             return
         }
 
+        // A bare GET /dns-query can return HTTP 400 quickly even when the resolver itself cannot
+        // answer DNS. Send a real RFC 8484 wire-format query so the learned winner represents a
+        // usable encrypted resolver rather than just a reachable HTTPS socket.
+        val dnsQuery = java.io.ByteArrayOutputStream().apply {
+            write(byteArrayOf(0x4d, 0x47, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00))
+            "example.com".split('.').forEach { label ->
+                val bytes = label.toByteArray(Charsets.US_ASCII)
+                write(bytes.size)
+                write(bytes)
+            }
+            write(0)
+            write(byteArrayOf(0x00, 0x01, 0x00, 0x01))
+        }.toByteArray()
+
         val timings =
             candidates.mapNotNull { raw ->
                 runCatching {
@@ -1693,14 +1707,18 @@ class MarbleIntelligence(private val context: Context) {
                             port,
                             u.host,
                             targetPort,
-                            "GET",
+                            "POST",
                             path,
-                            null,
-                            4_000,
-                            4096
+                            dnsQuery,
+                            2_500,
+                            4096,
+                            mapOf(
+                                "Content-Type" to "application/dns-message",
+                                "Accept" to "application/dns-message"
+                            )
                         )
 
-                    if (probe.status <= 0) {
+                    if (probe.status != 200 || probe.body.size < 12) {
                         null
                     } else {
                         raw to
@@ -1712,6 +1730,7 @@ class MarbleIntelligence(private val context: Context) {
             }
 
         if (timings.isEmpty()) {
+            setDecision("Encrypted DNS audit failed • current order retained; serial fallback remains armed")
             return
         }
 

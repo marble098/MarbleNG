@@ -349,8 +349,16 @@ fun Aether2026App(
                                     report == null ->
                                         "No privacy report yet. Tap Privacy after the tunnel is healthy."
                                     else -> buildString {
-                                        append("EXIT IP\n")
+                                        append("ANTI-IP LEAK SCORE\n")
+                                        append("${report.ipLeakScore}%")
+                                        append("\n\nDNS LEAK SCORE\n")
+                                        append("${report.dnsLeakScore}%")
+                                        append("\n\nOVERALL AUDIT SCORE\n")
+                                        append("${report.overallScore}%")
+                                        append("\n\nPROXY EXIT IP\n")
                                         append(report.proxyIp.ifBlank { "unverified" })
+                                        append("\n\nPHYSICAL IP (USER-TRIGGERED COMPARISON)\n")
+                                        append(report.underlayIp.ifBlank { "unavailable" })
                                         append("\n\nLOCATION\n")
                                         append(report.cloudflareLocation.ifBlank { "unknown" })
                                         append("\n\nDNS OBSERVATION\n")
@@ -1531,23 +1539,14 @@ private fun HomeOrbitalHero(
                 accent = qualityTone, icon = HomeIcon.QUALITY
             )
         }
-        if (repo.liveRouteAttempts > 0) {
+        if (connected && repo.liveRouteProbeStatus.isNotBlank()) {
             Text(
-                buildString {
-                    append("Verified HTTPS • ")
-                    append(repo.liveRouteSamples)
-                    append('/')
-                    append(repo.liveRouteAttempts)
-                    append(" RTT • ")
-                    append(repo.liveRouteSuccessPercent)
-                    append("% success")
-                    if (repo.liveTailLatencyMs > 0) append(" • p90 ${repo.liveTailLatencyMs} ms")
-                },
-                color = Aether.InkFaint,
+                repo.liveRouteProbeStatus,
+                color = if (repo.liveRouteSamples > 0) Aether.InkFaint else Aether.Amber,
                 style = MaterialTheme.typography.labelSmall,
                 textAlign = TextAlign.Center,
                 modifier = Modifier.fillMaxWidth(),
-                maxLines = 1,
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
         }

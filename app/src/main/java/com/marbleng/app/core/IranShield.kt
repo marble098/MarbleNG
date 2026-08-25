@@ -87,14 +87,11 @@ object IranShield {
             adaptiveFragmentEnabled = true,
 
             // --- Encrypted resolution ---------------------------------------------------------
-            // Cloudflare's resolver is the single most targeted DoH endpoint on Iranian networks,
-            // so Google's is tried first and Cloudflare is kept as the fallback rather than dropped.
+            // Preserve Marble Intelligence's network-scoped measured order. Hard-coding Google
+            // first here overrode a learned healthy resolver on every Iran Mode connection and
+            // caused repeated DoH deadline bursts in the attached runtime log.
             dnsHijackEnabled = true,
             adaptiveDnsEnabled = true,
-            dnsPrimaryIp = "8.8.8.8",
-            dnsSecondaryIp = "1.1.1.1",
-            dnsPrimaryDoH = "https://8.8.8.8/dns-query",
-            dnsSecondaryDoH = "https://1.1.1.1/dns-query",
 
             // --- Failover posture -------------------------------------------------------------
             // The Marble Intelligence master switch is intentionally left to the user; only the
@@ -224,7 +221,7 @@ object IranShield {
         val out = mutableListOf<String>()
 
         out += fragmentProfile(tier).description
-        out += "Encrypted DoH resolution with Google-first ordering and Cloudflare fallback"
+        out += "Encrypted DoH resolution with measured provider order and bounded serial fallback"
         out += "Plaintext :53 hijacked into the tunnel so the ISP resolver cannot inject block pages"
         out += "Transport preference: REALITY/XTLS-Vision and CDN-frontable transports on port 443"
         out += "Endpoint hostnames resolved inside Xray only — no lookups leak to Iranian resolvers"
