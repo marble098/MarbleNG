@@ -1,5 +1,28 @@
 # MarbleNG
 
+<!-- MARBLENG_TELEGRAM_COMMUNITY_V46:START -->
+<div align="center">
+
+## 💎 Welcome to the MarbleNG Community
+
+**🐞 Found a bug? &nbsp; 💡 Have a suggestion? &nbsp; 🚀 Want to help MarbleNG improve?**
+
+The official Telegram channel is the **fastest and best place** to report problems, share ideas, follow important updates, and help shape the future of MarbleNG.
+
+<a href="https://t.me/MarbleNG">
+  <img src="https://img.shields.io/badge/Telegram-Join_%40MarbleNG-26A5E4?style=for-the-badge&logo=telegram&logoColor=white" alt="Join @MarbleNG on Telegram">
+</a>
+
+### ✨ [Join @MarbleNG on Telegram](https://t.me/MarbleNG) ✨
+
+<sub>📣 Bug reports • Feature requests • Suggestions • News • Release updates</sub>
+
+</div>
+
+<!-- MARBLENG_TELEGRAM_COMMUNITY_V46:END -->
+
+---
+
 **MarbleNG is a modern Android network client built around Xray-core, Android `VpnService`, and `hev-socks5-tunnel`.**
 
 It focuses on real proxy verification, fast one-tap connection, fail-closed routing, adaptive network intelligence, and a clean Compose interface.
