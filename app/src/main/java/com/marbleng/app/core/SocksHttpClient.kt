@@ -35,6 +35,7 @@ object SocksHttpClient {
     // MARBLE_RANK_RECOVERY_CARD_UX_V43
     // MARBLE_REPEATABLE_RANK_V44
     // MARBLE_V2RAYNG_SMART_RANK_V45
+    // MARBLE_SNI_RTT_V47
     fun get(
         port: Int,
         host: String,
@@ -187,11 +188,13 @@ object SocksHttpClient {
         host: String,
         path: String = "/cdn-cgi/trace",
         targetPort: Int = 443,
-        timeoutMs: Int = 2_500
+        timeoutMs: Int = 2_500,
+        tlsHost: String = host
     ): Double {
         require(port in 1..65535)
         require(targetPort in 1..65535)
         require(host.isNotBlank())
+        require(tlsHost.isNotBlank())
         require(path.startsWith('/'))
         require(timeoutMs in 500..30_000)
 
@@ -247,7 +250,7 @@ object SocksHttpClient {
             skip(input, 2)
 
             val secure = (SSLSocketFactory.getDefault() as SSLSocketFactory)
-                .createSocket(tcp, host, targetPort, true) as SSLSocket
+                .createSocket(tcp, tlsHost, targetPort, true) as SSLSocket
             ssl = secure
             secure.soTimeout = timeoutMs
             secure.tcpNoDelay = true
@@ -259,7 +262,7 @@ object SocksHttpClient {
 
             val sslOut = BufferedOutputStream(secure.getOutputStream())
             val sslIn = BufferedInputStream(secure.getInputStream())
-            val hostHeader = if (targetPort == 443) host else "$host:$targetPort"
+            val hostHeader = if (targetPort == 443) tlsHost else "$tlsHost:$targetPort"
             val request = buildString {
                 append("GET $path HTTP/1.1\r\n")
                 append("Host: $hostHeader\r\n")

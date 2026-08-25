@@ -33,6 +33,7 @@ class BenchmarkEngine(
     // MARBLE_REPEATABLE_RANK_V44
     // MARBLE_V2RAYNG_SMART_RANK_V45
     // MARBLE_EVIDENCE_WEIGHTED_QUALITY_V46
+    // MARBLE_BENCH_COMPAT_V47
 
     fun run(
         profiles: List<ProxyProfile>,
@@ -1124,13 +1125,22 @@ class BenchmarkEngine(
         p.scheme.equals("hysteria2", true) || p.scheme.equals("wireguard", true) ||
             p.transport.contains("hysteria", true) || p.transport.equals("mkcp", true) || p.transport.equals("kcp", true)
 
-    /** v2rayNG bypasses TCP gating for complex, UDP-native and HTTP/3 profiles. */
+    /**
+     * A raw endpoint TCP precheck is only a safe dead-node gate for simple TCP transports.
+     * XHTTP/splitHTTP/gRPC/WebSocket/HTTPUpgrade may be fronted, chained, or use transport-specific
+     * behavior that a naked connect() cannot validate. Test those with the real Xray route instead.
+     */
     private fun bypassSmartTcpGate(p: ProxyProfile): Boolean {
         val complex = p.scheme.lowercase() in setOf("custom", "json", "ssh", "chain") ||
             p.configJson.count { it == '{' } > 18
+        val transport = p.transport.lowercase()
+        val layeredHttp = transport in setOf(
+            "xhttp", "splithttp", "grpc", "ws", "websocket", "httpupgrade"
+        ) || p.configJson.contains("\"xhttpSettings\"", true) ||
+            p.configJson.contains("\"splithttpSettings\"", true)
         val h3 = p.transport.contains("h3", true) || p.transport.contains("quic", true) ||
             p.configJson.contains("\"h3", true)
-        return complex || h3 || isUdpNative(p)
+        return complex || layeredHttp || h3 || isUdpNative(p)
     }
 
     private fun canFragment(p: ProxyProfile): Boolean =
@@ -1166,10 +1176,12 @@ class BenchmarkEngine(
             "1.0.0.1" to "/cdn-cgi/trace"
         )
         val TUNNEL_TARGET_CURSOR = AtomicInteger(0)
-        // v2rayNG 2.3.5 default followed by its connected-check fallback.
+        // Keep v2rayNG-style Google targets, then add an independent Cloudflare 204.
+        // A provider-specific reset must not classify an otherwise usable node as dead.
         val REAL_DELAY_TARGETS = listOf(
             "www.gstatic.com" to "/generate_204",
-            "www.google.com" to "/generate_204"
+            "www.google.com" to "/generate_204",
+            "cp.cloudflare.com" to "/generate_204"
         )
         const val DEAD_LATENCY = 99_999.0
     }

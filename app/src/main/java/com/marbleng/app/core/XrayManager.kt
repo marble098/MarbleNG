@@ -33,6 +33,7 @@ class XrayManager(private val context: Context) {
     // MARBLE_WARM_TUNNEL_RANK_V42
     // MARBLE_REPEATABLE_RANK_V44
     // MARBLE_V2RAYNG_SMART_RANK_V45
+    // MARBLE_TEMP_CONFIG_FALLBACK_V47
     private companion object {
         const val ROUTING_ASSET_REFRESH_MS = 24L * 60L * 60L * 1000L
         const val ROUTING_ASSET_RETRY_MS = 6L * 60L * 60L * 1000L
@@ -859,31 +860,57 @@ class XrayManager(private val context: Context) {
                     profile.configJson
                 }
 
-                config.writeText(
-                    if (delayTest) {
-                        XrayConfigHardener.hardenForDelayTest(sourceConfig, actualPort)
-                    } else {
-                        XrayConfigHardener.harden(sourceConfig, actualPort, benchmarkSettings)
-                    }
-                )
+                fun runTemporaryConfig(configText: String): Boolean {
+                    config.writeText(configText)
+                    val temporaryProcess = createProcessBuilder(
+                        "run",
+                        "-c",
+                        config.absolutePath
+                    )
+                        .redirectOutput(ProcessBuilder.Redirect.appendTo(benchmarkLog))
+                        .start()
 
-                val temporaryProcess = createProcessBuilder(
-                    "run",
-                    "-c",
-                    config.absolutePath
-                )
-                    .redirectOutput(ProcessBuilder.Redirect.appendTo(benchmarkLog))
-                    .start()
+                    return try {
+                        if (!waitSocksPort(actualPort, portWaitMs, temporaryProcess)) {
+                            false
+                        } else {
+                            block(actualPort)
+                            true
+                        }
+                    } finally {
+                        stopTemporaryProcess(temporaryProcess)
+                    }
+                }
 
                 try {
-                    if (!waitSocksPort(actualPort, portWaitMs, temporaryProcess)) {
-                        false
+                    val primaryConfig =
+                        if (delayTest) {
+                            XrayConfigHardener.hardenForDelayTest(sourceConfig, actualPort)
+                        } else {
+                            XrayConfigHardener.harden(sourceConfig, actualPort, benchmarkSettings)
+                        }
+
+                    val primaryStarted = runTemporaryConfig(primaryConfig)
+                    if (!primaryStarted && delayTest) {
+                        // Some imported transports depend on runtime-compatible hardening that the
+                        // minimal delay config intentionally trims. Retry once with the exact class
+                        // of config used by a real connection before declaring the node dead.
+                        runCatching {
+                            benchmarkLog.appendText(
+                                "\n[MarbleNG] minimal delay config failed; retrying runtime-compatible config\n"
+                            )
+                        }
+                        runTemporaryConfig(
+                            XrayConfigHardener.harden(
+                                sourceConfig,
+                                actualPort,
+                                benchmarkSettings
+                            )
+                        )
                     } else {
-                        block(actualPort)
-                        true
+                        primaryStarted
                     }
                 } finally {
-                    stopTemporaryProcess(temporaryProcess)
                     sshBridge?.stop()
                     runCatching { config.delete() }
                 }

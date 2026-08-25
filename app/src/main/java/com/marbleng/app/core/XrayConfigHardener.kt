@@ -18,6 +18,7 @@ object XrayConfigHardener {
     // MARBLE_EXTREME_NETWORK_V30
     // MARBLE_DNS_PROVIDER_FAILOVER_V35
     // MARBLE_V2RAYNG_SMART_RANK_V45
+    // MARBLE_DNS_RACE_V47
     private val infra = setOf("freedom", "blackhole", "dns", "loopback")
     private val compatibilityDependencyProtocols = setOf(
         "freedom", "http", "shadowsocks", "socks", "trojan", "vless", "vmess", "hysteria", "wireguard"
@@ -407,10 +408,10 @@ object XrayConfigHardener {
             }
         }
 
-        // Adaptive order is encrypted-only: preferred DoH followed by independent fallbacks.
-        // Xray's parallel mode keeps non-winning cache queries alive for up to twice each server
-        // timeout. With a blocked provider that produced the resolver storm seen in the attached
-        // log. Bounded serial failover avoids that background fan-out while retaining encryption.
+        // Adaptive DNS remains encrypted-only. When enabled, Xray races provider-diverse DoH
+        // clients inside the selected proxy path. A blocked first provider therefore cannot add its
+        // full timeout to every application lookup; the first valid encrypted answer wins.
+        // Endpoint bootstrap keeps its dedicated https+local rules and is still leak-contained.
         remoteDoh.firstOrNull()?.let { address ->
             dnsServers.put(
                 JSONObject()
@@ -448,7 +449,7 @@ object XrayConfigHardener {
                 // No plaintext/system-DNS fallback is introduced.
                 .put("serveStale", true)
                 .put("serveExpiredTTL", 1800)
-                .put("enableParallelQuery", false)
+                .put("enableParallelQuery", settings.adaptiveDnsEnabled)
                 .put("useSystemHosts", false)
                 .put("disableFallbackIfMatch", bootstrapDomains.isNotEmpty())
                 .put("tag", "xgc-dns")
