@@ -719,6 +719,21 @@ jobs:
             --title "MarbleNG $VERSION_NAME" \
             --notes "## MarbleNG $VERSION_NAME
 
+          ### Material 3 Expressive product redesign v53
+          - Rebuilt primary product surfaces around stable Material 3 components while preserving MarbleNG's Xray runtime, routing, DNS, HEV, Identity Guard, benchmark and fail-closed invariants.
+          - System theme now uses Android 12+ Material You Dynamic Color; explicit White and Dark themes retain deterministic Marble palettes.
+          - Replaced the custom bottom dock shadow with the official Material NavigationBar and NavigationBar elevation token.
+          - Removed repeated oversized Home/Library/Settings page-title blocks in favor of compact Material TopAppBars with contextual actions.
+          - Rebuilt Home around an animated quality ring, touchable selected-server surface, explicit Route details row, asymmetric Ping/Jitter/Quality bento layout and recent verified-ping sparkline.
+          - Added real Home quick switches for Full TUN, IPv6, Adaptive MTU and kill-switch auto recovery; fail-closed Kill Switch Armed state remains observable and is never presented as a fake disable control.
+          - Moved Library source/filter/sort controls into a Material ModalBottomSheet while Refresh/Ping/Rank remain higher-emphasis FilledTonalButton actions.
+          - Added semantic node avatars, compact data-driven ping badges, connected-node halo and bidirectional swipe actions: edit right, delete-confirm left.
+          - Made Settings adaptive: fading horizontally scrollable tabs on compact windows and NavigationRail on wide windows.
+          - Replaced the hand-built MarbleToggle with official Material 3 Switch and replaced theme chips with SingleChoiceSegmentedButtonRow.
+          - Converted shared product cards to ElevatedCard/CardDefaults elevation and standardized redesigned primary surfaces on an 8dp spacing grid.
+          - Added Design System documentation and unit tests for ping <100ms green, 100-250ms amber and >250ms red, with unknown evidence remaining neutral.
+          - Updated Source verification so Debug/Release Kotlin compilation gates the Material 3 implementation instead of requiring the removed legacy toggle.
+
           ### Refined Product UI v52
           - Simplified the Solid White hierarchy around neutral tonal surfaces, restrained state accents and fewer decorative outlines.
           - Added a complete Material 3 shape and typography system with calmer light/dark brand palettes.
