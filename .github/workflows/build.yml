@@ -719,6 +719,17 @@ jobs:
             --title "MarbleNG $VERSION_NAME" \
             --notes "## MarbleNG $VERSION_NAME
 
+          ### Refined Product UI v52
+          - Simplified the Solid White hierarchy around neutral tonal surfaces, restrained state accents and fewer decorative outlines.
+          - Added a complete Material 3 shape and typography system with calmer light/dark brand palettes.
+          - Centered and width-capped primary content and bottom navigation on wide windows instead of stretching the phone layout.
+          - Reduced bottom-dock and primary-action shadow weight while keeping active-state clarity.
+          - Raised custom overflow and dismiss controls to 48dp touch targets and added semantic descriptions.
+          - Replaced remaining three-dot menu glyphs in high-frequency Library controls with a font-independent vector icon.
+          - Reserved danger red for real error/destructive states instead of using it as a normal System-tab category color.
+          - Kept active/testing outlines where they communicate state while removing nested borders from idle cards, chips, latency capsules and metadata rails.
+          - Preserved swipeable Settings, long-name marquee, Home visibility controls, Quick Tile, Host/Port metadata and all network/runtime behavior.
+
           ### Manual chains, adaptive intelligence and Quick Tile v49
           - Restored the Compose boundary on DNS Settings after removing the legacy Chain Settings block; both Debug and Release Kotlin compilation now gate promotion before main can advance.
           - Removed the old global two-hop Chain proxy switch from Settings and moved chain creation to Library → Add → Manual config → Chain proxy.

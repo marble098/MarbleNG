@@ -2,11 +2,14 @@ package com.marbleng.app.ui
 
 // MARBLE_KINETIC_GLASS_THEME_V34
 // MARBLE_SOLID_WHITE_THEME_V35
+// MARBLE_REFINED_PRODUCT_UI_V52
 
 import android.app.Activity
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Shapes
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
@@ -20,6 +23,7 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 
@@ -60,48 +64,49 @@ private data class AetherPalette(
  * Depth now comes from spacing, a single soft outline and state colour—not nested glass layers.
  */
 private val LightPalette = AetherPalette(
+    // Neutral surfaces carry hierarchy; accents are reserved for state and action.
     void = Color(0xFFF7F9FC),
     voidElevated = Color(0xFFFFFFFF),
     glass = Color(0xFFFFFFFF),
-    glassStrong = Color(0xFFF2F5FA),
-    glassBorder = Color(0xFFE8EDF4),
-    glassBorderSoft = Color(0xFFD9E1EC),
-    amethyst = Color(0xFF7C3AED),
-    amethystBright = Color(0xFF9B5CFF),
-    cyan = Color(0xFF246BFD),
-    cyanBright = Color(0xFF00A6FB),
-    slate = Color(0xFFE7ECF4),
-    slateBright = Color(0xFF60728C),
-    danger = Color(0xFFEF3E5B),
-    dangerBright = Color(0xFFFF5A70),
-    emerald = Color(0xFF00A67E),
-    amber = Color(0xFFF08A00),
-    ink = Color(0xFF102033),
-    inkMuted = Color(0xFF4C6078),
+    glassStrong = Color(0xFFF1F5FA),
+    glassBorder = Color(0xFFE5EBF2),
+    glassBorderSoft = Color(0xFFDCE4EE),
+    amethyst = Color(0xFF6F55D9),
+    amethystBright = Color(0xFF856EE5),
+    cyan = Color(0xFF1769E0),
+    cyanBright = Color(0xFF0B88EB),
+    slate = Color(0xFFE8EDF4),
+    slateBright = Color(0xFF5D7088),
+    danger = Color(0xFFD93D58),
+    dangerBright = Color(0xFFF05A70),
+    emerald = Color(0xFF008F70),
+    amber = Color(0xFFC97800),
+    ink = Color(0xFF142235),
+    inkMuted = Color(0xFF52657A),
     inkFaint = Color(0xFF7B8CA2)
 )
 
 /* Dark remains an explicit accessibility/user choice and mirrors the same formal color identity. */
 private val DarkPalette = AetherPalette(
-    void = Color(0xFF080E19),
-    voidElevated = Color(0xFF182232),
-    glass = Color(0xFF202C40),
-    glassStrong = Color(0xFF243044),
-    glassBorder = Color(0xFF425570),
-    glassBorderSoft = Color(0xFF33445E),
-    amethyst = Color(0xFF9B85FF),
-    amethystBright = Color(0xFFB8A9FF),
-    cyan = Color(0xFF5B9DFF),
-    cyanBright = Color(0xFF79B6FF),
-    slate = Color(0xFF29364B),
-    slateBright = Color(0xFF94A6C2),
-    danger = Color(0xFFFF7088),
-    dangerBright = Color(0xFFFF94A6),
-    emerald = Color(0xFF55D6B7),
-    amber = Color(0xFFF2B35D),
-    ink = Color(0xFFF7FAFF),
-    inkMuted = Color(0xFFC0CCDC),
-    inkFaint = Color(0xFF8FA0B8)
+    void = Color(0xFF0A111C),
+    voidElevated = Color(0xFF121C2A),
+    glass = Color(0xFF172334),
+    glassStrong = Color(0xFF1D2A3D),
+    glassBorder = Color(0xFF34465F),
+    glassBorderSoft = Color(0xFF2A3A50),
+    amethyst = Color(0xFFA896FF),
+    amethystBright = Color(0xFFC0B3FF),
+    cyan = Color(0xFF72A8FF),
+    cyanBright = Color(0xFF8AB9FF),
+    slate = Color(0xFF263449),
+    slateBright = Color(0xFF9AAAC0),
+    danger = Color(0xFFFF728A),
+    dangerBright = Color(0xFFFF98A9),
+    emerald = Color(0xFF58D2B4),
+    amber = Color(0xFFF1B768),
+    ink = Color(0xFFF6F9FD),
+    inkMuted = Color(0xFFC2CDDC),
+    inkFaint = Color(0xFF91A0B5)
 )
 
 private val LocalAetherPalette = staticCompositionLocalOf { LightPalette }
@@ -138,6 +143,13 @@ val AetherTypography = Typography(
         lineHeight = 44.sp,
         letterSpacing = (-.72).sp
     ),
+    headlineLarge = TextStyle(
+        fontFamily = ProductSans,
+        fontWeight = FontWeight.Bold,
+        fontSize = 29.sp,
+        lineHeight = 35.sp,
+        letterSpacing = (-.42).sp
+    ),
     headlineMedium = TextStyle(
         fontFamily = ProductSans,
         fontWeight = FontWeight.SemiBold,
@@ -145,12 +157,32 @@ val AetherTypography = Typography(
         lineHeight = 31.sp,
         letterSpacing = (-.34).sp
     ),
+    headlineSmall = TextStyle(
+        fontFamily = ProductSans,
+        fontWeight = FontWeight.SemiBold,
+        fontSize = 21.sp,
+        lineHeight = 27.sp,
+        letterSpacing = (-.20).sp
+    ),
+    titleLarge = TextStyle(
+        fontFamily = ProductSans,
+        fontWeight = FontWeight.SemiBold,
+        fontSize = 19.sp,
+        lineHeight = 25.sp,
+        letterSpacing = (-.16).sp
+    ),
     titleMedium = TextStyle(
         fontFamily = ProductSans,
         fontWeight = FontWeight.SemiBold,
         fontSize = 16.sp,
         lineHeight = 22.sp,
         letterSpacing = (-.08).sp
+    ),
+    titleSmall = TextStyle(
+        fontFamily = ProductSans,
+        fontWeight = FontWeight.SemiBold,
+        fontSize = 14.sp,
+        lineHeight = 20.sp
     ),
     bodyMedium = TextStyle(
         fontFamily = ProductSans,
@@ -170,6 +202,13 @@ val AetherTypography = Typography(
         fontSize = 14.sp,
         lineHeight = 18.sp
     ),
+    labelMedium = TextStyle(
+        fontFamily = ProductSans,
+        fontWeight = FontWeight.Medium,
+        fontSize = 12.sp,
+        lineHeight = 16.sp,
+        letterSpacing = .06.sp
+    ),
     labelSmall = TextStyle(
         fontFamily = ProductSans,
         fontWeight = FontWeight.Medium,
@@ -177,6 +216,14 @@ val AetherTypography = Typography(
         lineHeight = 15.sp,
         letterSpacing = .10.sp
     )
+)
+
+val AetherShapes = Shapes(
+    extraSmall = RoundedCornerShape(8.dp),
+    small = RoundedCornerShape(12.dp),
+    medium = RoundedCornerShape(16.dp),
+    large = RoundedCornerShape(22.dp),
+    extraLarge = RoundedCornerShape(28.dp)
 )
 
 @Composable
@@ -255,7 +302,11 @@ fun AetherFlowTheme(
     }
 
     CompositionLocalProvider(LocalAetherPalette provides palette) {
-        MaterialTheme(colorScheme = scheme, typography = AetherTypography) {
+        MaterialTheme(
+            colorScheme = scheme,
+            typography = AetherTypography,
+            shapes = AetherShapes
+        ) {
             ProvideMarbleMotion(content)
         }
     }

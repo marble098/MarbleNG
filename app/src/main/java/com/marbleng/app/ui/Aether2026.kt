@@ -27,6 +27,7 @@ package com.marbleng.app.ui
 // MARBLE_NODE_ENDPOINT_UI_V40
 // MARBLE_RANK_RECOVERY_CARD_UX_V43
 // MARBLE_TABBED_SETTINGS_QUALITY_UI_V46
+// MARBLE_REFINED_PRODUCT_UI_V52
 
 import android.Manifest
 import android.content.Intent
@@ -90,6 +91,8 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -190,7 +193,17 @@ fun Aether2026App(
                 },
                 label = "marble-page-transition-fast"
             ) { page ->
-                when (page) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.TopCenter
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .widthIn(max = 820.dp)
+                            .fillMaxWidth()
+                    ) {
+                        when (page) {
                     SpatialTab.DECK -> CyberDeck(
                         repo = repo,
                         onConnect = onConnect,
@@ -219,6 +232,8 @@ fun Aether2026App(
                         onDialog = { dialog = it },
                         focusSection = settingsFocus
                     )
+                        }
+                    }
                 }
             }
 
@@ -624,7 +639,11 @@ private fun MarbleSnackbarHost(
                 }
 
                 Box(
-                    Modifier.size(30.dp).clip(CircleShape).clickable { data.dismiss() },
+                    Modifier
+                        .size(48.dp)
+                        .clip(CircleShape)
+                        .semantics { contentDescription = "Dismiss message" }
+                        .clickable { data.dismiss() },
                     contentAlignment = Alignment.Center
                 ) {
                     HomeVectorIcon(HomeIcon.CANCEL, Aether.InkMuted, Modifier.size(16.dp))
@@ -636,13 +655,7 @@ private fun MarbleSnackbarHost(
 
 @Composable
 private fun DeepSpaceBackdrop(modifier: Modifier = Modifier) {
-    Box(
-        modifier.background(
-            Brush.verticalGradient(
-                listOf(Aether.Void, Aether.VoidElevated, Aether.Void)
-            )
-        )
-    )
+    Box(modifier.background(Aether.Void))
 }
 
 @Composable
@@ -650,31 +663,29 @@ private fun FloatingSpatialDock(
     selected: SpatialTab,
     onSelect: (SpatialTab) -> Unit
 ) {
-    val dockShape = RoundedCornerShape(24.dp)
+    val dockShape = RoundedCornerShape(22.dp)
 
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .navigationBarsPadding()
-            .padding(horizontal = 14.dp, vertical = 8.dp),
+            .padding(horizontal = 16.dp, vertical = 8.dp),
         contentAlignment = Alignment.Center
     ) {
         Surface(
             modifier = Modifier
+                .widthIn(max = 560.dp)
                 .fillMaxWidth()
                 .shadow(
-                    elevation = 11.dp,
+                    elevation = 6.dp,
                     shape = dockShape,
                     clip = false,
-                    ambientColor = Color.Black.copy(alpha = .055f),
-                    spotColor = Color.Black.copy(alpha = .09f)
+                    ambientColor = Color.Black.copy(alpha = .035f),
+                    spotColor = Color.Black.copy(alpha = .06f)
                 ),
             shape = dockShape,
             color = Aether.VoidElevated,
-            border = androidx.compose.foundation.BorderStroke(
-                1.dp,
-                Aether.GlassBorderSoft.copy(alpha = .86f)
-            ),
+            border = null,
             tonalElevation = 0.dp,
             shadowElevation = 0.dp
         ) {
@@ -844,7 +855,7 @@ private fun SpatialHeader(
 @Composable
 private fun HoloGlass(
     modifier: Modifier = Modifier,
-    borderColor: Color = Aether.GlassBorderSoft,
+    borderColor: Color = Color.Transparent,
     contentPadding: PaddingValues = PaddingValues(16.dp),
     content: @Composable ColumnScope.() -> Unit
 ) {
@@ -960,7 +971,7 @@ private enum class HomeIcon {
     BRAND, POWER, STOP, CANCEL, RESET, SHIELD, TUNNEL, ROUTE,
     PING, JITTER, QUALITY, NODES, VERIFIED, MODE, BENCHMARK,
     RANK, LIBRARY, PRIVACY, ROUTING, NETWORK, DOWNLOAD, UPLOAD,
-    DETAILS, SPARK, STATUS
+    DETAILS, SPARK, STATUS, MORE
 }
 
 @Composable
@@ -1163,6 +1174,12 @@ private fun HomeVectorIcon(
                 drawCircle(color,m*.31f,Offset(w*.50f,h*.50f),style=fineLine)
                 drawCircle(color,m*.08f,Offset(w*.50f,h*.50f))
             }
+
+            HomeIcon.MORE -> {
+                drawCircle(color, m*.075f, Offset(w*.25f,h*.50f))
+                drawCircle(color, m*.075f, Offset(w*.50f,h*.50f))
+                drawCircle(color, m*.075f, Offset(w*.75f,h*.50f))
+            }
         }
     }
 }
@@ -1191,7 +1208,6 @@ private fun HomeStatusChip(
         modifier
             .clip(RoundedCornerShape(999.dp))
             .background(tone.copy(alpha = .085f))
-            .border(1.dp, tone.copy(alpha = .12f), RoundedCornerShape(999.dp))
             .padding(horizontal = 9.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -1422,7 +1438,6 @@ private fun HomeOrbitalHero(
             .fillMaxWidth()
             .clip(shape)
             .background(Aether.VoidElevated)
-            .border(1.dp, Aether.GlassBorderSoft, shape)
             .padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -1454,7 +1469,7 @@ private fun HomeOrbitalHero(
         Box(
             Modifier
                 .size(112.dp)
-                .shadow(7.dp, CircleShape, clip = false)
+                .shadow(4.dp, CircleShape, clip = false)
                 .clip(CircleShape)
                 .background(tone)
                 .kineticClickable(role = Role.Button, pressScale = .94f, onClick = onToggle),
@@ -3239,7 +3254,7 @@ private fun SourceOrbitChip(
     Row(
         Modifier.width(width).heightIn(min = 58.dp).clip(shape)
             .background(if (selected) color.copy(alpha = .12f) else Aether.GlassStrong.copy(alpha = .50f))
-            .border(1.dp, if (selected) color.copy(alpha = .48f) else Aether.GlassBorderSoft, shape)
+            .border(1.dp, if (selected) color.copy(alpha = .34f) else Color.Transparent, shape)
             .kineticClickable(role = Role.Button, onClick = onClick)
             .padding(start = 10.dp, top = 8.dp, end = 7.dp, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -3258,12 +3273,13 @@ private fun SourceOrbitChip(
         if (onManage != null && selected) {
             Box(
                 Modifier
-                    .size(28.dp)
+                    .size(48.dp)
                     .clip(CircleShape)
+                    .semantics { contentDescription = "Manage $title" }
                     .kineticClickable(role = Role.Button, onClick = onManage),
                 contentAlignment = Alignment.Center
             ) {
-                Text("⋮", color = color)
+                HomeVectorIcon(HomeIcon.MORE, color, Modifier.size(18.dp))
             }
         }
     }
@@ -3282,7 +3298,6 @@ private fun LibraryMicroAction(
     Row(
         modifier.heightIn(min = 48.dp).clip(shape)
             .background(color.copy(alpha = if (enabled) .09f else .035f))
-            .border(1.dp, color.copy(alpha = if (enabled) .19f else .08f), shape)
             .kineticClickable(enabled = enabled, role = Role.Button, onClick = onClick)
             .padding(horizontal = 9.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -3333,7 +3348,7 @@ private fun SubscriptionManagerCard(
             .heightIn(min = 62.dp)
             .clip(shape)
             .background(accent.copy(alpha = if (selected) .10f else .055f))
-            .border(1.dp, accent.copy(alpha = if (selected) .42f else .20f), shape)
+            .border(1.dp, if (selected) accent.copy(alpha = .34f) else Color.Transparent, shape)
             .kineticClickable(role = Role.Button, onClick = onView)
             .padding(start = 10.dp, top = 8.dp, bottom = 8.dp, end = 5.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -3361,12 +3376,13 @@ private fun SubscriptionManagerCard(
         }
         Box(
             Modifier
-                .size(34.dp)
+                .size(48.dp)
                 .clip(CircleShape)
+                .semantics { contentDescription = "Manage ${sub.name}" }
                 .kineticClickable(enabled = !repo.busy, role = Role.Button, onClick = onManage),
             contentAlignment = Alignment.Center
         ) {
-            Text("⋮", color = Aether.InkMuted, style = MaterialTheme.typography.titleMedium)
+            HomeVectorIcon(HomeIcon.MORE, Aether.InkMuted, Modifier.size(18.dp))
         }
     }
 }
@@ -3493,7 +3509,6 @@ private fun SpatialServerCard(
                         .widthIn(min = 92.dp)
                         .clip(RoundedCornerShape(14.dp))
                         .background(health.copy(alpha = .075f))
-                        .border(1.dp, health.copy(alpha = .20f), RoundedCornerShape(14.dp))
                         .padding(horizontal = 8.dp, vertical = 6.dp),
                     horizontalAlignment = Alignment.End
                 ) {
@@ -3545,12 +3560,13 @@ private fun SpatialServerCard(
             Box {
                 Box(
                     modifier = Modifier
-                        .size(36.dp)
+                        .size(48.dp)
                         .clip(CircleShape)
+                        .semantics { contentDescription = "More actions for ${profile.name}" }
                         .kineticClickable(role = Role.Button) { menuOpen = true },
                     contentAlignment = Alignment.Center
                 ) {
-                    Text("⋮", color = Aether.InkMuted, style = MaterialTheme.typography.titleMedium)
+                    HomeVectorIcon(HomeIcon.MORE, Aether.InkMuted, Modifier.size(18.dp))
                 }
                 DropdownMenu(
                     expanded = menuOpen,
@@ -3632,8 +3648,7 @@ private fun SpatialServerCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(endpointShape)
-                .background(Aether.Cyan.copy(alpha = .045f))
-                .border(1.dp, Aether.Cyan.copy(alpha = .11f), endpointShape)
+                .background(Aether.Cyan.copy(alpha = .055f))
                 .padding(horizontal = 10.dp, vertical = 7.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(7.dp)
@@ -3780,7 +3795,7 @@ private fun settingsTabTone(tab: SettingsWorkspaceTab): Color = when (tab) {
     SettingsWorkspaceTab.TESTS -> Aether.Amethyst
     SettingsWorkspaceTab.NETWORK -> Aether.Emerald
     SettingsWorkspaceTab.ENGINE -> Aether.Amber
-    SettingsWorkspaceTab.SYSTEM -> Aether.Danger
+    SettingsWorkspaceTab.SYSTEM -> Aether.SlateBright
 }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -3841,8 +3856,8 @@ private fun SpatialSettings(
                             .background(if (selected) tone.copy(alpha = .10f) else Color.Transparent)
                             .border(
                                 1.dp,
-                                if (selected) tone.copy(alpha = .22f)
-                                else Aether.GlassBorderSoft.copy(alpha = .55f),
+                                if (selected) tone.copy(alpha = .20f)
+                                else Color.Transparent,
                                 RoundedCornerShape(15.dp)
                             )
                             .padding(horizontal = 12.dp, vertical = 9.dp),
@@ -3941,7 +3956,6 @@ private fun SettingsSectionCard(
             .fillMaxWidth()
             .clip(shape)
             .background(Aether.VoidElevated)
-            .border(1.dp, color.copy(alpha = .16f), shape)
             .padding(horizontal = 14.dp, vertical = 13.dp),
         verticalArrangement = Arrangement.spacedBy(11.dp)
     ) {
