@@ -280,6 +280,8 @@ dependencies {
     // MARBLE_SSH_TRANSPORT_V25
     implementation("com.github.mwiede:jsch:2.28.6")
 
+    testImplementation("junit:junit:4.13.2")
+
     debugImplementation(
         "androidx.compose.ui:ui-tooling"
     )

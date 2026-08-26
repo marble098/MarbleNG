@@ -12,6 +12,9 @@ import com.marbleng.app.core.ActiveRouteQuality
 import com.marbleng.app.core.BenchmarkEngine
 import com.marbleng.app.core.ConnectionTuner
 import com.marbleng.app.core.ContinuousRouteOptimizer
+import com.marbleng.app.core.ConnectivityDiagnosticsObserver
+import com.marbleng.app.core.DataStallGuard
+import com.marbleng.app.core.LinkQualityEstimator
 import com.marbleng.app.core.NetworkSnapshot
 import com.marbleng.app.core.RuntimeDiagnostics
 import com.marbleng.app.core.SocksHttpClient
@@ -167,6 +170,8 @@ class MarbleVpnService : VpnService() {
     private lateinit var routeOptimizer: ContinuousRouteOptimizer
     private lateinit var tuner: ConnectionTuner
     private var networkListener: Closeable? = null
+    private var connectivityDiagnostics: Closeable? = null
+    private val dataStallGuard = DataStallGuard()
 
     @Volatile private var activeSession = ""
     @Volatile private var activeMode = MODE_TUN
@@ -213,6 +218,34 @@ class MarbleVpnService : VpnService() {
         tuner = ConnectionTuner(xray, app.repo.intelligence)
         app.repo.intelligence.startMonitoring()
         networkListener = app.repo.intelligence.addNetworkListener(::onUnderlyingNetworkChanged)
+        connectivityDiagnostics = ConnectivityDiagnosticsObserver.register(this, monitorWorker) { signal ->
+            if (signal.kind == ConnectivityDiagnosticsObserver.Kind.DATA_STALL && running.get()) {
+                val now = signal.observedAtMs
+                val trafficRecent = lastTrafficProgressAt > 0L &&
+                    now - lastTrafficProgressAt <= RECENT_TRAFFIC_GRACE_MS
+                val decision = dataStallGuard.onSignal(now, trafficRecent)
+                if (decision == DataStallGuard.Decision.PROBE ||
+                    decision == DataStallGuard.Decision.CONFIRM
+                ) {
+                    routeProbeRequested.set(true)
+                }
+                if (decision == DataStallGuard.Decision.CONFIRM) {
+                    optimizerScanRequested.set(
+                        (activeSettings ?: app.repo.settings).continuousOptimizerEnabled &&
+                            !(activeSettings ?: app.repo.settings).identityGuardEnabled
+                    )
+                }
+                diag.event(
+                    "NETWORK",
+                    "android-data-stall",
+                    "session" to activeSession,
+                    "network" to signal.network.toString(),
+                    "observedAtMs" to signal.observedAtMs,
+                    "decision" to decision.name,
+                    "trafficRecent" to trafficRecent
+                )
+            }
+        }
         diag.event("VPN", "service-created", "system" to diag.systemSnapshot())
     }
 
@@ -1784,29 +1817,16 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         identityRecoveryAttempts = 0
 
         val rolling = synchronized(routeOutcomeWindow) { routeOutcomeWindow.toList() }
-        val rollingRtt = rolling.filter { it > 0 }
-        val rollingDeltas = rolling.zipWithNext().mapNotNull { (a, b) ->
-            if (a > 0 && b > 0) abs(b - a).coerceIn(0, 10_000) else null
-        }
-        if (rollingRtt.isEmpty()) return false
-
-        val sortedRtt = rollingRtt.sorted()
-        val pingMs = sortedRtt[sortedRtt.size / 2]
-        val jitterSampleCount = rollingDeltas.size
-        val attemptCount = rolling.size
-        val successPercent = (rollingRtt.size * 100.0 / attemptCount).roundToInt()
-        val tailIndex = kotlin.math.ceil(sortedRtt.size * 0.90).toInt().coerceIn(1, sortedRtt.size) - 1
-        val tailLatencyMs = sortedRtt[tailIndex]
-
-        // Real rolling IPDV: mean absolute difference between consecutive verified RTTs.
-        // No maximum-delta deletion: genuine spikes belong in the jitter number.
-        val jitterMs =
-            if (rollingDeltas.isEmpty()) -1
-            else rollingDeltas.average().roundToInt()
+        val link = LinkQualityEstimator.summarize(rolling) ?: return false
+        val jitterSampleCount = link.jitterSamples
+        val attemptCount = link.attempts
+        val successPercent = link.successPercent
+        val tailLatencyMs = link.p90RttMs
+        val jitterMs = link.meanIpdvMs
 
         val quality = ActiveRouteQuality(
-            latencyMs = pingMs,
-            samples = rollingRtt.size
+            latencyMs = link.medianRttMs,
+            samples = link.successes
         )
 
         repo.updateRouteQuality(
@@ -1829,6 +1849,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             "jitterSamples" to jitterSampleCount,
             "attempts" to attemptCount,
             "successPercent" to successPercent,
+            "successLowerBoundPercent" to link.successLowerBoundPercent,
             "p90Ms" to tailLatencyMs,
             "method" to "verified-https-ttfb-rolling-ipdv-loss-p90"
         )
@@ -2076,6 +2097,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                 .networkChangeRecoveryEnabled
         ) {
             synchronized(routeOutcomeWindow) { routeOutcomeWindow.clear() }
+            dataStallGuard.reset()
             jitterProbeHost = JITTER_PRIMARY_HOST
             jitterHighStreak = 0
             jitterLowStreak = 0
@@ -2813,6 +2835,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         startupTimedOut.set(false)
         routeProbeRequested.set(false)
         optimizerScanRequested.set(false)
+        dataStallGuard.reset()
         if (::routeOptimizer.isInitialized) routeOptimizer.reset(System.currentTimeMillis())
         if (hevActive) runCatching { HevTunnel.quit() }
         hevActive = false
@@ -2874,6 +2897,8 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
     override fun onDestroy() {
         diag.event("VPN", "service-destroy", "session" to activeSession, "running" to running.get())
         if (running.get() || tun != null || hevActive || xray.isAlive) cleanupRuntime(setDisconnected = true)
+        runCatching { connectivityDiagnostics?.close() }
+        connectivityDiagnostics = null
         runCatching { networkListener?.close() }
         networkListener = null
         timerWorker.shutdownNow()

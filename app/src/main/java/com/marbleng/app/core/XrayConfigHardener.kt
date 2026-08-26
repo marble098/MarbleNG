@@ -348,6 +348,16 @@ object XrayConfigHardener {
                         val chained = outbound.optJSONObject("proxySettings")?.optString("tag")?.isNotBlank() == true
                         val method = stream.optString("method").lowercase()
                         val tcpTransport = method !in setOf("hysteria", "mkcp")
+                        if (tcpTransport) {
+                            val liveness = SocketLivenessPolicy.forTransport(method, chained)
+                            sockopt.put("tcpKeepAliveIdle", liveness.keepAliveIdleSeconds)
+                            sockopt.put("tcpKeepAliveInterval", liveness.keepAliveIntervalSeconds)
+                            sockopt.put("tcpUserTimeout", liveness.userTimeoutMs)
+                        } else {
+                            sockopt.remove("tcpKeepAliveIdle")
+                            sockopt.remove("tcpKeepAliveInterval")
+                            sockopt.remove("tcpUserTimeout")
+                        }
                         if (
                             settings.adaptiveDualStackEnabled &&
                             endpointStrategy in setOf("ForceIP", "ForceIPv4v6", "ForceIPv6v4") &&

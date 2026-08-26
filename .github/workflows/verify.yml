@@ -129,8 +129,8 @@ jobs:
         with:
           gradle-version: '9.5.1'
 
-      - name: Compile Kotlin source
+      - name: Unit tests and Kotlin compilation
         shell: bash
         run: |
           set -euo pipefail
-          gradle --no-daemon :app:compileDebugKotlin :app:compileReleaseKotlin
+          gradle --no-daemon :app:testDebugUnitTest :app:compileDebugKotlin :app:compileReleaseKotlin
