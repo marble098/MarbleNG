@@ -465,12 +465,8 @@ class MarbleVpnService : VpnService() {
             "dnsStrategy" to settings.dnsQueryStrategy
         )
 
-        val chainProfile = if (settings.chainEnabled) {
-            app.repo.profile(settings.chainSecondProfileId)?.takeUnless { it.id == profile.id }
-        } else null
-
         val coreStartNs = System.nanoTime()
-        val coreStarted = xray.start(profile, port, settings, chainProfile)
+        val coreStarted = xray.start(profile, port, settings)
         val coreStartMs = ((System.nanoTime() - coreStartNs) / 1_000_000L).coerceAtLeast(0L)
         diag.event(
             "XRAY",
@@ -1841,6 +1837,8 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             activeProfileId,
             quality.latencyMs,
             repo.liveDownBps + repo.liveUpBps,
+            jitterMs,
+            successPercent,
             activeSettings ?: repo.settings
         )
 

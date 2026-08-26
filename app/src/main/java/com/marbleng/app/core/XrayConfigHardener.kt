@@ -39,38 +39,100 @@ object XrayConfigHardener {
 
 
     /**
-     * Compose client -> entry -> exit -> Internet.
+     * Compose an unbounded persisted Manual chain: client -> hop 1 -> ... -> exit -> Internet.
      *
-     * transportLayer=true preserves the exit outbound's REALITY/XHTTP/gRPC/etc streamSettings
-     * while Xray dials that transport through the entry outbound.
+     * Every source is namespaced before merging, including helper outbounds and internal
+     * proxySettings/dialerProxy references. The tail of each later hop is attached to the primary
+     * outbound of the preceding hop, so already-composite/custom configs remain intact. There is no
+     * arbitrary hop-count cap; practical device memory and Xray validation are the natural bounds.
      */
-    fun composeChain(entrySource: String, exitSource: String): String {
-        fun firstProxy(root: JSONObject): JSONObject {
-            val outbounds = root.optJSONArray("outbounds") ?: error("Xray JSON has no outbounds")
-            for (i in 0 until outbounds.length()) {
-                val outbound = outbounds.optJSONObject(i) ?: continue
-                if (outbound.optString("protocol") !in infra) {
-                    return JSONObject(outbound.toString())
-                }
+    fun composeChain(sources: List<String>): String {
+        require(sources.size >= 2) { "A chain needs at least two hops" }
+
+        data class Segment(
+            val primaryTag: String,
+            val byTag: LinkedHashMap<String, JSONObject>
+        )
+
+        val segments = sources.mapIndexed { segmentIndex, source ->
+            val root = JSONObject(source)
+            val imported = root.optJSONArray("outbounds") ?: error("Chain hop ${segmentIndex + 1} has no outbounds")
+            val originalTags = linkedMapOf<String, String>()
+            val clones = mutableListOf<Pair<String, JSONObject>>()
+            var primaryOriginal = ""
+
+            for (index in 0 until imported.length()) {
+                val outbound = imported.optJSONObject(index)?.let { JSONObject(it.toString()) } ?: continue
+                val protocol = outbound.optString("protocol").lowercase()
+                val oldTag = outbound.optString("tag").ifBlank { "out-$index" }
+                val uniqueOldTag = if (oldTag in originalTags) "$oldTag-$index" else oldTag
+                val newTag = "chain-$segmentIndex-$index"
+                originalTags[uniqueOldTag] = newTag
+                clones += uniqueOldTag to outbound
+                if (primaryOriginal.isBlank() && protocol !in infra) primaryOriginal = uniqueOldTag
             }
-            error("Xray JSON has no proxy outbound")
+            require(primaryOriginal.isNotBlank()) { "Chain hop ${segmentIndex + 1} has no proxy outbound" }
+
+            val namespaced = linkedMapOf<String, JSONObject>()
+            clones.forEach { (oldTag, outbound) ->
+                val newTag = originalTags.getValue(oldTag)
+                outbound.put("tag", newTag)
+                outbound.optJSONObject("proxySettings")?.let { proxy ->
+                    originalTags[proxy.optString("tag")]?.let { proxy.put("tag", it) }
+                }
+                outbound.optJSONObject("streamSettings")?.optJSONObject("sockopt")?.let { sockopt ->
+                    originalTags[sockopt.optString("dialerProxy")]?.let { sockopt.put("dialerProxy", it) }
+                }
+                namespaced[newTag] = outbound
+            }
+            Segment(originalTags.getValue(primaryOriginal), namespaced)
         }
 
-        val entry = firstProxy(JSONObject(entrySource))
-            .put("tag", "chain-entry")
+        fun tail(segment: Segment): JSONObject {
+            var tag = segment.primaryTag
+            val visited = mutableSetOf<String>()
+            while (visited.add(tag)) {
+                val outbound = segment.byTag[tag] ?: break
+                val next = outbound.optJSONObject("proxySettings")?.optString("tag").orEmpty()
+                if (next.isBlank() || next !in segment.byTag) return outbound
+                tag = next
+            }
+            error("Chain hop contains a proxySettings cycle")
+        }
 
-        val exitRoot = JSONObject(exitSource)
-        val exit = firstProxy(exitRoot)
-            .put("tag", "proxy")
-            .put(
+        for (index in 1 until segments.size) {
+            tail(segments[index]).put(
                 "proxySettings",
                 JSONObject()
-                    .put("tag", "chain-entry")
+                    .put("tag", segments[index - 1].primaryTag)
                     .put("transportLayer", true)
             )
+        }
 
-        exitRoot.put("outbounds", JSONArray().put(exit).put(entry))
-        return exitRoot.toString()
+        val exit = segments.last()
+        exit.byTag.getValue(exit.primaryTag).put("tag", "proxy")
+        val remappedExitTag = exit.primaryTag
+        segments.forEach { segment ->
+            segment.byTag.values.forEach { outbound ->
+                outbound.optJSONObject("proxySettings")?.let { proxy ->
+                    if (proxy.optString("tag") == remappedExitTag) proxy.put("tag", "proxy")
+                }
+                outbound.optJSONObject("streamSettings")?.optJSONObject("sockopt")?.let { sockopt ->
+                    if (sockopt.optString("dialerProxy") == remappedExitTag) sockopt.put("dialerProxy", "proxy")
+                }
+            }
+        }
+
+        val ordered = JSONArray().put(exit.byTag.getValue(remappedExitTag))
+        segments.asReversed().forEach { segment ->
+            segment.byTag.forEach { (tag, outbound) ->
+                if (segment !== exit || tag != remappedExitTag) ordered.put(outbound)
+            }
+        }
+
+        return JSONObject(sources.last())
+            .put("outbounds", ordered)
+            .toString()
     }
 
     /**
@@ -419,7 +481,7 @@ object XrayConfigHardener {
                 JSONObject()
                     .put("address", address)
                     .put("queryStrategy", queryStrategy)
-                    .put("timeoutMs", 1100)
+                    .put("timeoutMs", 850)
             )
         }
 
@@ -435,7 +497,7 @@ object XrayConfigHardener {
                 JSONObject()
                     .put("address", address)
                     .put("queryStrategy", queryStrategy)
-                    .put("timeoutMs", 1400 + index * 300)
+                    .put("timeoutMs", 1050 + index * 200)
                     .put("finalQuery", index == customSecondaryDoh.lastIndex)
             )
         }

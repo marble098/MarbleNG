@@ -571,8 +571,7 @@ class XrayManager(private val context: Context) {
     @Synchronized
     fun verifyRoutingPolicy(
         profile: ProxyProfile,
-        settings: AppSettings = AppSettings(),
-        chainProfile: ProxyProfile? = null
+        settings: AppSettings = AppSettings()
     ): String {
         require(bin.isFile) { "Xray native binary is missing" }
 
@@ -589,17 +588,10 @@ class XrayManager(private val context: Context) {
             "geosite.dat is required by this policy but is missing/invalid"
         }
 
-        require(chainProfile?.scheme?.equals("ssh", true) != true) {
-            "SSH cannot be used as the second Xray chain hop"
-        }
         val sourceConfig = if (profile.scheme.equals("ssh", true)) {
-            require(chainProfile == null) { "SSH + chain mode is not supported in v25" }
             SshProfileCodec.xrayClientConfig(19090)
         } else {
-            chainProfile
-                ?.takeIf { it.id != profile.id }
-                ?.let { XrayConfigHardener.composeChain(profile.configJson, it.configJson) }
-                ?: profile.configJson
+            profile.configJson
         }
 
         val config = File(context.cacheDir, "routing-policy-verify.json")
@@ -636,8 +628,7 @@ class XrayManager(private val context: Context) {
     fun start(
         profile: ProxyProfile,
         port: Int,
-        settings: AppSettings = AppSettings(),
-        chainProfile: ProxyProfile? = null
+        settings: AppSettings = AppSettings()
     ): Boolean {
         val ticket = beginStartTicket()
         publishStartState(ticket.generation, "begin", "")
@@ -674,17 +665,10 @@ class XrayManager(private val context: Context) {
             if (!startStillCurrent(ticket.generation)) return@runCatching false
 
             publishStartState(ticket.generation, "config")
-            require(chainProfile?.scheme?.equals("ssh", true) != true) {
-                "SSH cannot be used as the second Xray chain hop"
-            }
             val sourceConfig = if (profile.scheme.equals("ssh", true)) {
-                require(chainProfile == null) { "SSH + chain mode is not supported in v25" }
                 SshProfileCodec.xrayClientConfig(startSshBridge(ticket.generation, profile))
             } else {
-                chainProfile
-                    ?.takeIf { it.id != profile.id }
-                    ?.let { XrayConfigHardener.composeChain(profile.configJson, it.configJson) }
-                    ?: profile.configJson
+                profile.configJson
             }
             config.writeText(XrayConfigHardener.harden(sourceConfig, port, settings))
 

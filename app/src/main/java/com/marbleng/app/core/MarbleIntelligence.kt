@@ -27,6 +27,7 @@ import kotlin.math.exp
 import kotlin.math.ln
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.sqrt
 
 /**
  * Network state MarbleNG can observe without privileged/root-only APIs.
@@ -85,6 +86,7 @@ data class NodeHealthRecord(
     val samples: Int = 0,
     val successEwma: Double = 0.0,
     val latencyEwma: Double = 9999.0,
+    val jitterEwma: Double = 0.0,
     val throughputEwma: Double = 0.0,
     val udpEwma: Double = 0.0,
     val connectMsEwma: Double = 0.0,
@@ -148,7 +150,7 @@ data class TunnelTuning(
 /**
  * Persistent, network-scoped health store. SQLite keeps the hot path dependency-free and bounded.
  */
-private class HealthDb(context: Context) : SQLiteOpenHelper(context, "marble-intelligence.db", null, 1) {
+private class HealthDb(context: Context) : SQLiteOpenHelper(context, "marble-intelligence.db", null, 2) {
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
             """
@@ -158,6 +160,7 @@ private class HealthDb(context: Context) : SQLiteOpenHelper(context, "marble-int
                 samples INTEGER NOT NULL DEFAULT 0,
                 success_ewma REAL NOT NULL DEFAULT 0,
                 latency_ewma REAL NOT NULL DEFAULT 9999,
+                jitter_ewma REAL NOT NULL DEFAULT 0,
                 throughput_ewma REAL NOT NULL DEFAULT 0,
                 udp_ewma REAL NOT NULL DEFAULT 0,
                 connect_ms_ewma REAL NOT NULL DEFAULT 0,
@@ -173,7 +176,11 @@ private class HealthDb(context: Context) : SQLiteOpenHelper(context, "marble-int
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_health_network ON node_health(network_key, last_seen_at DESC)")
     }
 
-    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        if (oldVersion < 2) {
+            db.execSQL("ALTER TABLE node_health ADD COLUMN jitter_ewma REAL NOT NULL DEFAULT 0")
+        }
+    }
 
     @Synchronized
     fun get(profileId: String, networkKey: String): NodeHealthRecord? {
@@ -195,6 +202,35 @@ private class HealthDb(context: Context) : SQLiteOpenHelper(context, "marble-int
                 samples = c.getInt(i("samples")),
                 successEwma = c.getDouble(i("success_ewma")),
                 latencyEwma = c.getDouble(i("latency_ewma")),
+                jitterEwma = c.getDouble(i("jitter_ewma")),
+                throughputEwma = c.getDouble(i("throughput_ewma")),
+                udpEwma = c.getDouble(i("udp_ewma")),
+                connectMsEwma = c.getDouble(i("connect_ms_ewma")),
+                failureStreak = c.getInt(i("failure_streak")),
+                preferredFragment = c.getInt(i("preferred_fragment")) != 0,
+                preferredMux = c.getInt(i("preferred_mux")) != 0,
+                lastSuccessAt = c.getLong(i("last_success_at")),
+                lastSeenAt = c.getLong(i("last_seen_at"))
+            )
+        }
+    }
+
+    /** Cross-network prior used only when this physical network has no evidence yet. */
+    @Synchronized
+    fun latest(profileId: String): NodeHealthRecord? {
+        readableDatabase.query(
+            "node_health", null, "profile_id=?", arrayOf(profileId),
+            null, null, "last_seen_at DESC", "1"
+        ).use { c ->
+            if (!c.moveToFirst()) return null
+            fun i(name: String) = c.getColumnIndexOrThrow(name)
+            return NodeHealthRecord(
+                profileId = c.getString(i("profile_id")),
+                networkKey = c.getString(i("network_key")),
+                samples = c.getInt(i("samples")),
+                successEwma = c.getDouble(i("success_ewma")),
+                latencyEwma = c.getDouble(i("latency_ewma")),
+                jitterEwma = c.getDouble(i("jitter_ewma")),
                 throughputEwma = c.getDouble(i("throughput_ewma")),
                 udpEwma = c.getDouble(i("udp_ewma")),
                 connectMsEwma = c.getDouble(i("connect_ms_ewma")),
@@ -232,6 +268,7 @@ private class HealthDb(context: Context) : SQLiteOpenHelper(context, "marble-int
             val samplesIndex = c.getColumnIndexOrThrow("samples")
             val successIndex = c.getColumnIndexOrThrow("success_ewma")
             val latencyIndex = c.getColumnIndexOrThrow("latency_ewma")
+            val jitterIndex = c.getColumnIndexOrThrow("jitter_ewma")
             val throughputIndex = c.getColumnIndexOrThrow("throughput_ewma")
             val udpIndex = c.getColumnIndexOrThrow("udp_ewma")
             val connectIndex = c.getColumnIndexOrThrow("connect_ms_ewma")
@@ -248,6 +285,7 @@ private class HealthDb(context: Context) : SQLiteOpenHelper(context, "marble-int
                     samples = c.getInt(samplesIndex),
                     successEwma = c.getDouble(successIndex),
                     latencyEwma = c.getDouble(latencyIndex),
+                    jitterEwma = c.getDouble(jitterIndex),
                     throughputEwma = c.getDouble(throughputIndex),
                     udpEwma = c.getDouble(udpIndex),
                     connectMsEwma = c.getDouble(connectIndex),
@@ -256,6 +294,39 @@ private class HealthDb(context: Context) : SQLiteOpenHelper(context, "marble-int
                     preferredMux = c.getInt(muxIndex) != 0,
                     lastSuccessAt = c.getLong(lastSuccessIndex),
                     lastSeenAt = c.getLong(lastSeenIndex)
+                )
+            } while (c.moveToNext())
+        }
+        return out
+    }
+
+    /** Latest observation per profile across networks, loaded once for cold-network ranking. */
+    @Synchronized
+    fun latestAll(): Map<String, NodeHealthRecord> {
+        val out = HashMap<String, NodeHealthRecord>()
+        readableDatabase.query(
+            "node_health", null, null, null, null, null, "last_seen_at DESC", "2000"
+        ).use { c ->
+            if (!c.moveToFirst()) return out
+            fun i(name: String) = c.getColumnIndexOrThrow(name)
+            do {
+                val id = c.getString(i("profile_id")) ?: continue
+                if (id in out) continue
+                out[id] = NodeHealthRecord(
+                    profileId = id,
+                    networkKey = c.getString(i("network_key")),
+                    samples = c.getInt(i("samples")),
+                    successEwma = c.getDouble(i("success_ewma")),
+                    latencyEwma = c.getDouble(i("latency_ewma")),
+                    jitterEwma = c.getDouble(i("jitter_ewma")),
+                    throughputEwma = c.getDouble(i("throughput_ewma")),
+                    udpEwma = c.getDouble(i("udp_ewma")),
+                    connectMsEwma = c.getDouble(i("connect_ms_ewma")),
+                    failureStreak = c.getInt(i("failure_streak")),
+                    preferredFragment = c.getInt(i("preferred_fragment")) != 0,
+                    preferredMux = c.getInt(i("preferred_mux")) != 0,
+                    lastSuccessAt = c.getLong(i("last_success_at")),
+                    lastSeenAt = c.getLong(i("last_seen_at"))
                 )
             } while (c.moveToNext())
         }
@@ -285,13 +356,17 @@ private class HealthDb(context: Context) : SQLiteOpenHelper(context, "marble-int
         }
         val now = System.currentTimeMillis()
         val success = result.success.coerceIn(0, 100).toDouble()
+        val measuredLatency = result.latencyMs.takeIf { result.success > 0 && it > 0.0 }
+        val measuredJitter = result.jitterMs.takeIf { result.sampleCount >= 2 && it >= 0.0 }
+        val measuredThroughput = result.bytesPerSecond.takeIf { result.success > 0 && it > 0.0 }
         val values = ContentValues().apply {
             put("profile_id", profileId)
             put("network_key", networkKey)
             put("samples", n)
             put("success_ewma", ewma(old?.successEwma, success, 0.0))
-            put("latency_ewma", ewma(old?.latencyEwma, result.latencyMs.coerceAtMost(10_000.0), 9999.0))
-            put("throughput_ewma", ewma(old?.throughputEwma, max(0.0, result.bytesPerSecond), 0.0))
+            put("latency_ewma", measuredLatency?.let { ewma(old?.latencyEwma, it.coerceAtMost(10_000.0), 9999.0) } ?: old?.latencyEwma ?: 9999.0)
+            put("jitter_ewma", measuredJitter?.let { ewma(old?.jitterEwma, it.coerceAtMost(5_000.0), 0.0) } ?: old?.jitterEwma ?: 0.0)
+            put("throughput_ewma", measuredThroughput?.let { ewma(old?.throughputEwma, it, 0.0) } ?: old?.throughputEwma ?: 0.0)
             put("udp_ewma", ewma(old?.udpEwma, result.udpSuccess.toDouble(), 0.0))
             put("connect_ms_ewma", old?.connectMsEwma ?: 0.0)
             put("failure_streak", if (result.success > 0) 0 else (old?.failureStreak ?: 0) + 1)
@@ -362,6 +437,7 @@ private class HealthDb(context: Context) : SQLiteOpenHelper(context, "marble-int
             put("samples", n)
             put("success_ewma", successEwma)
             put("latency_ewma", old?.latencyEwma ?: 9999.0)
+            put("jitter_ewma", old?.jitterEwma ?: 0.0)
             put("throughput_ewma", old?.throughputEwma ?: 0.0)
             put("udp_ewma", old?.udpEwma ?: 0.0)
             put("connect_ms_ewma", connectEwma)
@@ -432,7 +508,9 @@ private class HealthDb(context: Context) : SQLiteOpenHelper(context, "marble-int
         profileId: String,
         networkKey: String,
         latencyMs: Int,
-        throughputBps: Long
+        throughputBps: Long,
+        jitterMs: Int,
+        successPercent: Int
     ) {
         val old = get(profileId, networkKey) ?: return
         val now = System.currentTimeMillis()
@@ -445,10 +523,15 @@ private class HealthDb(context: Context) : SQLiteOpenHelper(context, "marble-int
         val throughputNow = throughputBps.coerceAtLeast(0).toDouble()
         val throughput = if (old.throughputEwma <= 0.0 && throughputNow > 0.0) throughputNow
             else old.throughputEwma * (1.0 - alpha) + throughputNow * alpha
+        val jitterNow = jitterMs.coerceAtLeast(0).toDouble()
+        val jitter = if (old.jitterEwma <= 0.0) jitterNow
+            else old.jitterEwma * (1.0 - alpha) + jitterNow * alpha
+        val observedSuccess = successPercent.coerceIn(0, 100).toDouble()
         val values = ContentValues().apply {
             put("samples", n)
-            put("success_ewma", (old.successEwma * 0.92 + 8.0).coerceIn(0.0, 100.0))
+            put("success_ewma", (old.successEwma * (1.0 - alpha) + observedSuccess * alpha).coerceIn(0.0, 100.0))
             put("latency_ewma", latency)
+            put("jitter_ewma", jitter)
             put("throughput_ewma", throughput)
             put("failure_streak", 0)
             put("last_success_at", now)
@@ -471,6 +554,7 @@ private class HealthDb(context: Context) : SQLiteOpenHelper(context, "marble-int
             put("samples", max(1, old?.samples ?: 0))
             put("success_ewma", (old?.successEwma ?: 50.0) * 0.78)
             put("latency_ewma", old?.latencyEwma ?: 9999.0)
+            put("jitter_ewma", old?.jitterEwma ?: 0.0)
             put("throughput_ewma", old?.throughputEwma ?: 0.0)
             put("udp_ewma", old?.udpEwma ?: 0.0)
             put("connect_ms_ewma", old?.connectMsEwma ?: 0.0)
@@ -1045,14 +1129,15 @@ class MarbleIntelligence(private val context: Context) {
     fun predictedScore(
         profile: ProxyProfile,
         settings: AppSettings
-    ): Double = predictedScoreOf(
-        db.get(profile.id, currentSnapshot().key()),
-        settings
-    )
+    ): Double {
+        val current = db.get(profile.id, currentSnapshot().key())
+        return predictedScoreOf(current ?: db.latest(profile.id), settings, if (current == null) 0.35 else 1.0)
+    }
 
     private fun predictedScoreOf(
         record: NodeHealthRecord?,
-        settings: AppSettings
+        settings: AppSettings,
+        evidenceScale: Double = 1.0
     ): Double {
         if (
             !settings.intelligenceEnabled ||
@@ -1081,10 +1166,19 @@ class MarbleIntelligence(private val context: Context) {
                     )
             }
 
-        val reliability =
-            h.successEwma.coerceIn(0.0, 100.0)
+        // A conservative Wilson lower bound prevents one lucky sample from outranking proven nodes.
+        val evidenceCount = max(1, h.samples).toDouble()
+        val probability = h.successEwma.coerceIn(0.0, 100.0) / 100.0
+        val z = 1.28155 // 80% one-sided confidence: useful without over-penalising new nodes.
+        val z2 = z * z
+        val wilson = (
+            probability + z2 / (2.0 * evidenceCount) -
+                z * sqrt((probability * (1.0 - probability) + z2 / (4.0 * evidenceCount)) / evidenceCount)
+            ) / (1.0 + z2 / evidenceCount)
+        val reliability = (wilson * 100.0).coerceIn(0.0, 100.0)
         val latency =
             expScore(h.latencyEwma, 250.0)
+        val jitter = if (h.jitterEwma <= 0.0) 55.0 else expScore(h.jitterEwma, 45.0)
 
         val speed =
             if (h.throughputEwma <= 0.0) {
@@ -1119,24 +1213,16 @@ class MarbleIntelligence(private val context: Context) {
             }
 
         val interactive =
-            reliability * 0.40 +
-                latency * 0.42 +
-                connect * 0.18
+            reliability * 0.32 + latency * 0.34 + jitter * 0.22 + connect * 0.12
 
         val streaming =
-            reliability * 0.36 +
-                speed * 0.50 +
-                latency * 0.14
+            reliability * 0.34 + speed * 0.42 + latency * 0.12 + jitter * 0.12
 
         val stability =
-            reliability * 0.58 +
-                latency * 0.28 +
-                connect * 0.14
+            reliability * 0.46 + latency * 0.20 + jitter * 0.22 + connect * 0.12
 
         val resilience =
-            reliability * 0.63 +
-                udp * 0.19 +
-                latency * 0.18 +
+            reliability * 0.50 + udp * 0.18 + latency * 0.14 + jitter * 0.18 +
                 if (h.preferredFragment) 5.0 else 0.0
 
         val measured =
@@ -1158,7 +1244,7 @@ class MarbleIntelligence(private val context: Context) {
 
         // Low-sample history is shrunk toward neutral.
         val confidence =
-            (h.samples / 8.0)
+            (h.samples / 8.0 * evidenceScale)
                 .coerceIn(0.12, 1.0)
 
         val confidenceAdjusted =
@@ -1184,8 +1270,11 @@ class MarbleIntelligence(private val context: Context) {
                     ).coerceIn(0.20, 1.0)
             ) * 16.0
 
+        // Failure streaks decay one step every six quiet hours, allowing recovered nodes back in.
+        val failureAgeHours = (System.currentTimeMillis() - h.lastSeenAt).coerceAtLeast(0L) / 3_600_000.0
+        val effectiveFailureStreak = (h.failureStreak - (failureAgeHours / 6.0).toInt()).coerceAtLeast(0)
         val failurePenalty =
-            h.failureStreak
+            effectiveFailureStreak
                 .coerceAtMost(6) *
                 7.5
 
@@ -1252,10 +1341,12 @@ class MarbleIntelligence(private val context: Context) {
         health: Map<String, NodeHealthRecord> = healthSnapshot()
     ): Map<String, Double> {
         val out = HashMap<String, Double>(profiles.size * 2)
+        val priors = if (health.size < profiles.size) db.latestAll() else emptyMap()
         profiles.forEach { profile ->
             if (!out.containsKey(profile.id)) {
+                val exact = health[profile.id]
                 out[profile.id] =
-                    predictedScoreOf(health[profile.id], settings) +
+                    predictedScoreOf(exact ?: priors[profile.id], settings, if (exact == null) 0.35 else 1.0) +
                         IranShield.profileBias(profile, iranState)
             }
         }
@@ -1401,6 +1492,8 @@ class MarbleIntelligence(private val context: Context) {
         profileId: String,
         latencyMs: Int,
         throughputBps: Long,
+        jitterMs: Int,
+        successPercent: Int,
         settings: AppSettings
     ) {
         if (!settings.healthHistoryEnabled || profileId.isBlank() || latencyMs <= 0) return
@@ -1408,7 +1501,9 @@ class MarbleIntelligence(private val context: Context) {
             profileId,
             currentSnapshot().key(),
             latencyMs,
-            throughputBps
+            throughputBps,
+            jitterMs,
+            successPercent
         )
     }
 

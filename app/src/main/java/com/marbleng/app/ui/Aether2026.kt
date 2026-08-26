@@ -1492,13 +1492,8 @@ private fun HomeOrbitalHero(
         }
 
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                HomeVectorIcon(HomeIcon.ROUTE, Aether.InkMuted, Modifier.size(18.dp))
-                Text(activeName, color = Aether.Ink, style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
+            Text(activeName, color = Aether.Ink, style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
             TextButton(onClick = onDetails, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)) {
-                HomeVectorIcon(HomeIcon.DETAILS, tone, Modifier.size(15.dp))
-                Spacer(Modifier.width(5.dp))
                 Text(if (connected) "Route details" else "Inspect selected route", color = tone, style = MaterialTheme.typography.labelSmall)
             }
         }
@@ -1537,17 +1532,6 @@ private fun HomeOrbitalHero(
                 "Quality", if (repo.liveRouteScore >= 0) repo.liveRouteScore.toString() else "—",
                 if (repo.liveRouteScore >= 0) "%" else "", Modifier.weight(1f),
                 accent = qualityTone, icon = HomeIcon.QUALITY
-            )
-        }
-        if (connected && repo.liveRouteProbeStatus.isNotBlank()) {
-            Text(
-                repo.liveRouteProbeStatus,
-                color = if (repo.liveRouteSamples > 0) Aether.InkFaint else Aether.Amber,
-                style = MaterialTheme.typography.labelSmall,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth(),
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
             )
         }
     }
@@ -2357,7 +2341,7 @@ private fun CyberLibrary(
                         label = "library-add-mode-v20"
                     ) { mode ->
                         if (mode == "manual") {
-                            ManualConfigEditor(
+                            ManualAddEditor(
                                 repo = repo,
                                 targetSourceId = sourceFilter,
                                 onSaved = { addOpen = false }
@@ -2519,6 +2503,116 @@ private fun CyberLibrary(
                     onDetails = { onDetails(profile) }
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun ManualAddEditor(
+    repo: AppRepository,
+    targetSourceId: String,
+    onSaved: () -> Unit
+) {
+    var mode by remember { mutableStateOf("node") }
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+            CyberChoiceChip("Manual node", mode == "node", Aether.Emerald) { mode = "node" }
+            CyberChoiceChip("Chain proxy", mode == "chain", Aether.Amethyst) { mode = "chain" }
+        }
+        AnimatedContent(targetState = mode, label = "manual-add-kind-v49") { selectedMode ->
+            if (selectedMode == "chain") {
+                ManualChainEditor(repo, targetSourceId, onSaved)
+            } else {
+                ManualConfigEditor(repo, targetSourceId, onSaved)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ManualChainEditor(
+    repo: AppRepository,
+    targetSourceId: String,
+    onSaved: () -> Unit
+) {
+    var name by remember { mutableStateOf("") }
+    var search by remember { mutableStateOf("") }
+    var hops by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
+    val targetReady = targetSourceId == "manual" && repo.settings.manualSourceEnabled ||
+        repo.subscriptions.any { it.id == targetSourceId }
+    val selectedKeys = hops.toSet()
+    val candidates = repo.libraryProfiles.asSequence()
+        .filterNot { it.scheme.equals("ssh", true) }
+        .filter {
+            search.isBlank() || it.name.contains(search, true) ||
+                it.host.contains(search, true) || it.scheme.contains(search, true)
+        }
+        .filterNot { (it.subscriptionId to it.id) in selectedKeys }
+        .take(24)
+        .toList()
+
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text(
+            "Build a reusable route: device → hop 1 → … → exit. Add as many hops as needed; each saved chain remains an independent Library node.",
+            color = Aether.InkMuted,
+            style = MaterialTheme.typography.bodySmall
+        )
+        ManualField("Chain name • optional", name, { name = it })
+
+        Text("ORDERED HOPS • ${hops.size}", color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
+        if (hops.isEmpty()) {
+            Text("Choose at least two nodes below.", color = Aether.Amber, style = MaterialTheme.typography.bodySmall)
+        }
+        hops.forEachIndexed { index, ref ->
+            val profile = repo.profile(ref.second, ref.first)
+            Row(
+                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(15.dp))
+                    .background(Aether.Amethyst.copy(alpha = .055f))
+                    .border(1.dp, Aether.Amethyst.copy(alpha = .18f), RoundedCornerShape(15.dp))
+                    .padding(start = 11.dp, end = 4.dp, top = 5.dp, bottom = 5.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("${index + 1}. ${profile?.name ?: "Unavailable node"}", color = Aether.Ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(if (index == hops.lastIndex) "EXIT" else "HOP", color = if (index == hops.lastIndex) Aether.Emerald else Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
+                }
+                TextButton(enabled = index > 0, onClick = {
+                    hops = hops.toMutableList().also { list ->
+                        val item = list.removeAt(index); list.add(index - 1, item)
+                    }
+                }) { Text("↑") }
+                TextButton(enabled = index < hops.lastIndex, onClick = {
+                    hops = hops.toMutableList().also { list ->
+                        val item = list.removeAt(index); list.add(index + 1, item)
+                    }
+                }) { Text("↓") }
+                TextButton(onClick = { hops = hops.toMutableList().also { it.removeAt(index) } }) { Text("×", color = Aether.Danger) }
+            }
+        }
+
+        ManualField("Search nodes", search, { search = it })
+        candidates.forEach { profile ->
+            TextButton(
+                onClick = { hops = hops + (profile.subscriptionId to profile.id) },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("+ ${profile.name}", modifier = Modifier.weight(1f), textAlign = TextAlign.Start, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(profile.scheme.uppercase(), color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
+            }
+        }
+        if (search.isBlank() && candidates.size >= 24) {
+            Text("Showing 24 nodes • search to find any other node", color = Aether.InkFaint, style = MaterialTheme.typography.bodySmall)
+        }
+        CyberButton(
+            label = "SAVE ${hops.size}-HOP CHAIN",
+            color = Aether.Amethyst,
+            modifier = Modifier.fillMaxWidth(),
+            enabled = targetReady && hops.size >= 2 && !repo.busy
+        ) {
+            if (repo.addManualChain(name, hops, targetSourceId)) onSaved()
+        }
+        if (!targetReady) {
+            Text("Select one Library source first, or enable Manual source.", color = Aether.Amber, style = MaterialTheme.typography.bodySmall)
         }
     }
 }
@@ -3821,7 +3915,6 @@ private fun SettingsWorkspacePage(
             SettingsWorkspaceTab.ENGINE -> {
                 if (expertMode) {
                     item { SettingsSectionCard("Fragmentation & Mux", "DPI resilience and connection reuse", HomeIcon.SPARK, Aether.Amber) { FragmentMuxSettings(repo) } }
-                    item { SettingsSectionCard("Chain proxy", "Optional two-hop route", HomeIcon.ROUTE, Aether.InkMuted) { ChainSettings(repo) } }
                 } else {
                     item { ExpertWorkspaceHint() }
                 }
@@ -4470,40 +4563,6 @@ private fun FragmentMuxSettings(repo: AppRepository) {
     }
 }
 
-@Composable
-private fun ChainSettings(repo: AppRepository) {
-    SettingSwitch(
-        title = "Two-hop route",
-        subtitle = "Current connection node → selected exit node",
-        checked = repo.settings.chainEnabled
-    ) {
-        repo.updateSettings(repo.settings.copy(chainEnabled = it))
-    }
-
-    AnimatedVisibility(repo.settings.chainEnabled) {
-        Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
-            Text("EXIT NODE", color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
-            Row(
-                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(7.dp)
-            ) {
-                repo.libraryProfiles.take(80).forEach { profile ->
-                    CyberChoiceChip(
-                        text = profile.name,
-                        selected = repo.settings.chainSecondProfileId == profile.id,
-                        color = Aether.Amber
-                    ) {
-                        repo.updateSettings(
-                            repo.settings.copy(chainSecondProfileId = profile.id)
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
 private fun DnsSettings(repo: AppRepository) {
     val underlay = repo.networkSnapshot
 
@@ -5031,6 +5090,7 @@ private fun BugFinderSettings(repo: AppRepository) {
     val clipboard = LocalClipboardManager.current
     val report = repo.bugReport
     val debug = repo.settings.debugModeEnabled
+    var checksExpanded by remember(report?.generatedAt) { mutableStateOf(false) }
 
     HoloGlass(
         modifier = Modifier.fillMaxWidth(),
@@ -5109,26 +5169,28 @@ private fun BugFinderSettings(repo: AppRepository) {
             Text(current.headline,
                 color=if(current.failures>0)Aether.Danger else if(current.warnings>0)Aether.Amber else Aether.Emerald,
                 style=MaterialTheme.typography.titleMedium)
-            current.checks.forEach { check ->
-                val c=when(check.severity){
-                    BugSeverity.PASS->Aether.Emerald; BugSeverity.INFO->Aether.Cyan; BugSeverity.WARN->Aether.Amber; BugSeverity.FAIL->Aether.Danger
-                }
-                Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(15.dp)).background(c.copy(alpha=.055f))
-                    .border(1.dp,c.copy(alpha=.20f),RoundedCornerShape(15.dp)).padding(11.dp),verticalArrangement=Arrangement.spacedBy(4.dp)) {
-                    Row(verticalAlignment=Alignment.CenterVertically) {
-                        Text(check.title,color=Aether.Ink,style=MaterialTheme.typography.labelLarge,modifier=Modifier.weight(1f))
-                        HoloBadge(check.severity.name,c,true)
+            CyberButton(
+                if (checksExpanded) "HIDE CHECKS" else "SHOW CHECKS • ${current.checks.size}",
+                Aether.InkMuted,
+                Modifier.fillMaxWidth()
+            ) { checksExpanded = !checksExpanded }
+            if (checksExpanded) {
+                current.checks.forEach { check ->
+                    val c=when(check.severity){
+                        BugSeverity.PASS->Aether.Emerald; BugSeverity.INFO->Aether.Cyan; BugSeverity.WARN->Aether.Amber; BugSeverity.FAIL->Aether.Danger
                     }
-                    Text(check.detail,color=Aether.InkMuted,style=MaterialTheme.typography.bodySmall)
-                    if(check.action.isNotBlank()) Text("→ ${check.action}",color=c,style=MaterialTheme.typography.bodySmall)
+                    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(15.dp)).background(c.copy(alpha=.055f))
+                        .border(1.dp,c.copy(alpha=.20f),RoundedCornerShape(15.dp)).padding(11.dp),verticalArrangement=Arrangement.spacedBy(4.dp)) {
+                        Row(verticalAlignment=Alignment.CenterVertically) {
+                            Text(check.title,color=Aether.Ink,style=MaterialTheme.typography.labelLarge,modifier=Modifier.weight(1f))
+                            HoloBadge(check.severity.name,c,true)
+                        }
+                        Text(check.detail,color=Aether.InkMuted,style=MaterialTheme.typography.bodySmall)
+                        if(check.action.isNotBlank()) Text("→ ${check.action}",color=c,style=MaterialTheme.typography.bodySmall)
+                    }
                 }
             }
-            if(current.evidence.isNotEmpty()) {
-                Text("PRIORITY EVIDENCE",color=Aether.InkFaint,style=MaterialTheme.typography.labelSmall)
-                SelectionContainer { Text(current.evidence.joinToString("\n"),color=Aether.InkMuted,
-                    style=MaterialTheme.typography.bodySmall.copy(fontFamily=FontFamily.Monospace)) }
-            }
-            Text("Full process exits, thread stacks, connection history and retained logs are kept in COPY/SAVE TXT output so this screen stays responsive.",
+            Text("Raw evidence and retained historical logs stay in COPY/SAVE TXT only. They are intentionally not rendered here, keeping Settings compact and responsive.",
                 color=Aether.InkFaint,style=MaterialTheme.typography.bodySmall)
             if(current.failures>0) CyberButton("SAFE RUNTIME RESET",Aether.Danger,Modifier.fillMaxWidth(),!repo.busy) { repo.safeRuntimeResetFromBugFinder() }
         } ?: Text("Run the scan while the problem is happening. It is passive and does not open diagnostic HTTPS/DNS connections.",

@@ -227,9 +227,6 @@ data class AppSettings(
     val muxXudpConcurrency: Int = 16,
     val muxUdp443: String = "skip",
 
-    val chainEnabled: Boolean = false,
-    val chainSecondProfileId: String = "",
-
     // Iran Mode. Detection is automatic; countermeasures and domestic-direct routing can be
     // switched off independently for users who want detection reporting only.
     val iranModePolicy: IranModePolicy = IranModePolicy.AUTO,

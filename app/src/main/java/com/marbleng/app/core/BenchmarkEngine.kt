@@ -16,9 +16,9 @@ import kotlin.math.min
 /**
  * Real-tunnel benchmark and predictive route selector.
  *
- * TCP precheck is deliberately only a dead-node gate. Historical tunnel health decides which
- * survivors deserve expensive full tests. This prevents a fast SYN from being mistaken for a fast
- * REALITY/XHTTP/gRPC route.
+ * Endpoint-only TCP evidence is never allowed to reject a profile during a real Xray Rank. Some
+ * fronted, chained and provider-specific routes work through the protocol core even when a naked
+ * socket gate is blocked. Historical tunnel health still decides test order.
  */
 class BenchmarkEngine(
     private val xray: XrayManager,
@@ -48,10 +48,8 @@ class BenchmarkEngine(
         if (profiles.isEmpty()) return emptyList()
         val s = tuned(settings)
         val batchNetworkKey = intelligence?.currentSnapshot()?.key()
-        // TUNNEL means "test everything for real"; HYBRID keeps the cheap TCP gate in front of the
-        // expensive tunnel tests, which is what makes a large library finish in reasonable time.
-        // The v2rayNG-style path keeps every card in the batch and applies its safe TCP gate
-        // inside that card's worker. A gate failure is therefore visible instead of disappearing.
+        // TUNNEL means "test everything for real". The v2rayNG-style path also keeps every card
+        // and goes straight to Xray, because an underlay TCP failure cannot prove a proxy failure.
         val precheck = usePrecheck && s.probeMethod != ProbeMethod.TUNNEL && !v2rayStyleDelay
         val candidates = selectCandidates(profiles, s, precheck).distinctBy { it.id }
         if (candidates.isEmpty()) return emptyList()
@@ -668,16 +666,6 @@ class BenchmarkEngine(
     ): BenchmarkResult {
         if (directProbe(s)) return directResult(p, s)
         if (v2rayStyleDelay) {
-            if (s.probeMethod == ProbeMethod.HYBRID && !bypassSmartTcpGate(p) &&
-                tcpLatency(p, s.tcpPrecheckTimeoutMs.coerceIn(500, 1_500)) >= DEAD_LATENCY
-            ) {
-                return benchmarkResult(
-                    p,
-                    Measurement(0, 9999.0, 0.0, 0, failureReason = "tcp-precheck"),
-                    false,
-                    false
-                )
-            }
             return benchmarkResult(p, measure(p, port, s, false, true), false, false)
         }
         val effective = intelligence?.effectiveSettings(p, s) ?: s
@@ -1124,24 +1112,6 @@ class BenchmarkEngine(
     private fun isUdpNative(p: ProxyProfile): Boolean =
         p.scheme.equals("hysteria2", true) || p.scheme.equals("wireguard", true) ||
             p.transport.contains("hysteria", true) || p.transport.equals("mkcp", true) || p.transport.equals("kcp", true)
-
-    /**
-     * A raw endpoint TCP precheck is only a safe dead-node gate for simple TCP transports.
-     * XHTTP/splitHTTP/gRPC/WebSocket/HTTPUpgrade may be fronted, chained, or use transport-specific
-     * behavior that a naked connect() cannot validate. Test those with the real Xray route instead.
-     */
-    private fun bypassSmartTcpGate(p: ProxyProfile): Boolean {
-        val complex = p.scheme.lowercase() in setOf("custom", "json", "ssh", "chain") ||
-            p.configJson.count { it == '{' } > 18
-        val transport = p.transport.lowercase()
-        val layeredHttp = transport in setOf(
-            "xhttp", "splithttp", "grpc", "ws", "websocket", "httpupgrade"
-        ) || p.configJson.contains("\"xhttpSettings\"", true) ||
-            p.configJson.contains("\"splithttpSettings\"", true)
-        val h3 = p.transport.contains("h3", true) || p.transport.contains("quic", true) ||
-            p.configJson.contains("\"h3", true)
-        return complex || layeredHttp || h3 || isUdpNative(p)
-    }
 
     private fun canFragment(p: ProxyProfile): Boolean =
         !isUdpNative(p) && (p.security.contains("tls", true) || p.security.contains("reality", true))
