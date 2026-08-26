@@ -1,6 +1,7 @@
 package com.marbleng.app.ui
 
 // MARBLE_KINETIC_GLASS_ENGINE_V34
+// MARBLE_PRISM_MOTION_V54
 
 import android.provider.Settings
 import androidx.compose.animation.core.FiniteAnimationSpec
@@ -44,40 +45,44 @@ import kotlin.math.cos
  */
 object MarbleMotionSpecs {
     val InteractionFloat: FiniteAnimationSpec<Float> = spring(
-        dampingRatio = .72f,
-        stiffness = 1_050f
+        dampingRatio = .68f,
+        stiffness = 980f
     )
     val ResponseFloat: FiniteAnimationSpec<Float> = spring(
-        dampingRatio = .82f,
-        stiffness = 720f
-    )
-    val ExitFloat: FiniteAnimationSpec<Float> = spring(
-        dampingRatio = .94f,
-        stiffness = 900f
-    )
-    val ProgressFloat: FiniteAnimationSpec<Float> = spring(
-        dampingRatio = .88f,
-        stiffness = 640f
-    )
-    val Color: FiniteAnimationSpec<Color> = spring(
-        dampingRatio = .86f,
-        stiffness = 760f
-    )
-    val Dp: FiniteAnimationSpec<Dp> = spring(
-        dampingRatio = .78f,
-        stiffness = 780f
-    )
-    val Spatial: FiniteAnimationSpec<IntOffset> = spring(
-        dampingRatio = .84f,
+        dampingRatio = .76f,
         stiffness = 620f
     )
+    val ExitFloat: FiniteAnimationSpec<Float> = spring(
+        dampingRatio = .92f,
+        stiffness = 820f
+    )
+    val ProgressFloat: FiniteAnimationSpec<Float> = spring(
+        dampingRatio = .82f,
+        stiffness = 520f
+    )
+    val Color: FiniteAnimationSpec<Color> = spring(
+        dampingRatio = .90f,
+        stiffness = 560f
+    )
+    val Dp: FiniteAnimationSpec<Dp> = spring(
+        dampingRatio = .74f,
+        stiffness = 650f
+    )
+    val Spatial: FiniteAnimationSpec<IntOffset> = spring(
+        dampingRatio = .79f,
+        stiffness = 520f
+    )
     val SpatialExit: FiniteAnimationSpec<IntOffset> = spring(
-        dampingRatio = .96f,
-        stiffness = 800f
+        dampingRatio = .93f,
+        stiffness = 700f
     )
     val Layout: FiniteAnimationSpec<IntSize> = spring(
-        dampingRatio = Spring.DampingRatioNoBouncy,
-        stiffness = 700f
+        dampingRatio = .84f,
+        stiffness = 560f
+    )
+    val HeroFloat: FiniteAnimationSpec<Float> = spring(
+        dampingRatio = .70f,
+        stiffness = 430f
     )
 }
 

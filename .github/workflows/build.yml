@@ -719,6 +719,23 @@ jobs:
             --title "MarbleNG $VERSION_NAME" \
             --notes "## MarbleNG $VERSION_NAME
 
+          ### Prism Product UI v54
+          - Rebuilt MarbleNG's visual identity around the Prism design system: subtle cyan/violet/emerald ambient light, selective gradient borders, stronger depth and compact information hierarchy.
+          - Fixed the real-device oversized header gap by replacing the nested TopAppBar with a custom compact header that does not apply system-bar insets twice.
+          - Fixed Home route identity so transient runtime text such as "User disconnected" can never replace the selected node name.
+          - Added a dedicated Android VectorDrawable Marble mark plus a runtime vector device → secure core → server illustration with shared-clock packet motion.
+          - Reworked the Home hero into a focused secure-connection stage and moved live Ping/Jitter/Quality into a separate asymmetric bento with a richer verified-ping sparkline.
+          - Rebuilt Home quick controls into a compact 2×2 bordered grid while retaining official Material 3 Switch semantics and fail-closed behavior.
+          - Replaced the full-width flat bottom bar presentation with a bordered floating Material NavigationBar shell.
+          - Reworked Library source chips, search, action buttons and filter/sort sheet for higher density and clearer action hierarchy.
+          - Library avatars now use the country flag already embedded in node display names when available, while stripping the duplicate flag from the text label.
+          - Strengthened semantic ping badges and the active-node halo without changing benchmark logic or source identity.
+          - Rebuilt compact Settings navigation as auto-scrolling bordered category pills and removed the rectangular edge-fade masks visible in v53 screenshots.
+          - Settings section surfaces now use accent borders and tighter headers; each switch row receives its own subtle bounded surface instead of reading as one giant white wall.
+          - Theme selection now uses three visual preview cards for System / Prism Light / Prism Night while System mode continues to support Material You Dynamic Color.
+          - Preserved Xray, HEV, routing, DNS, Intelligence, benchmark, privacy/leak containment, Quick Tile and exact source-aware deletion behavior.
+          - Added flag/name unit tests and expanded Source verification with Prism-specific product invariants.
+
           ### Material 3 Expressive product redesign v53
           - Rebuilt primary product surfaces around stable Material 3 components while preserving MarbleNG's Xray runtime, routing, DNS, HEV, Identity Guard, benchmark and fail-closed invariants.
           - System theme now uses Android 12+ Material You Dynamic Color; explicit White and Dark themes retain deterministic Marble palettes.
