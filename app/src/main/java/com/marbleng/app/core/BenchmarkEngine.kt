@@ -752,13 +752,12 @@ class BenchmarkEngine(
                 val targets = if (v2rayStyleDelay) {
                     REAL_DELAY_TARGETS
                 } else {
-                    val start = Math.floorMod(
-                        TUNNEL_TARGET_CURSOR.getAndIncrement() + p.id.hashCode(),
-                        TUNNEL_PROBE_TARGETS.size
+                    // Every node in the same network/time epoch sees the same origin order.
+                    // Profile-id rotation biased Rank when one origin was slower or censored.
+                    RankTargetScheduler.ordered(
+                        targets = TUNNEL_PROBE_TARGETS,
+                        networkKey = intelligence?.currentSnapshot()?.key().orEmpty()
                     )
-                    TUNNEL_PROBE_TARGETS.indices.map { offset ->
-                        TUNNEL_PROBE_TARGETS[(start + offset) % TUNNEL_PROBE_TARGETS.size]
-                    }
                 }
                 val batch = targets.firstNotNullOfOrNull { target ->
                     runCatching {

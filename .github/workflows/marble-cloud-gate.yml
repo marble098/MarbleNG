@@ -1,0 +1,82 @@
+name: Marble cloud gate
+
+on:
+  push:
+    branches:
+      - 'marble-cloud-candidate-*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: marble-cloud-gate-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout candidate
+        uses: actions/checkout@v4
+
+      - name: Shell syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n scripts/*.sh
+
+      - name: Integrity audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/system-integrity-check.py
+
+      - name: Verify Network Extreme invariants
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -F 'onDataStallSuspected' app/src/main/java/com/marbleng/app/core/ConnectivityDiagnosticsObserver.kt
+          grep -F 'IGNORE_RECENT_TRAFFIC' app/src/main/java/com/marbleng/app/core/DataStallGuard.kt
+          grep -F 'wilsonLowerBound' app/src/main/java/com/marbleng/app/core/LinkQualityEstimator.kt
+          grep -F 'RankTargetScheduler.ordered' app/src/main/java/com/marbleng/app/core/BenchmarkEngine.kt
+          grep -F 'AdaptiveMtuPolicy.recommend' app/src/main/java/com/marbleng/app/core/MarbleIntelligence.kt
+          grep -F 'sockopt.put("tcpUserTimeout"' app/src/main/java/com/marbleng/app/core/XrayConfigHardener.kt
+          grep -F '"android-data-stall"' app/src/main/java/com/marbleng/app/vpn/MarbleVpnService.kt
+          # tcpNoDelay on java.net.Socket is valid. Only the removed Xray JSON
+          # sockopt field must remain absent.
+          if grep -E '\.put\([[:space:]]*"tcpNoDelay"|"tcpNoDelay"[[:space:]]*:' \
+            app/src/main/java/com/marbleng/app/core/XrayConfigHardener.kt; then
+            echo 'Unsupported Xray sockopt tcpNoDelay field must stay absent' >&2
+            exit 1
+          fi
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install compile SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.5.1'
+
+      - name: Unit tests and compilation
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle --no-daemon \
+            :app:testDebugUnitTest \
+            :app:compileDebugKotlin \
+            :app:compileReleaseKotlin

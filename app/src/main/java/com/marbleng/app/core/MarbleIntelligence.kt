@@ -857,43 +857,23 @@ class MarbleIntelligence(private val context: Context) {
         profile: ProxyProfile,
         settings: AppSettings
     ): Int {
-        val n = currentSnapshot()
-
         if (!settings.adaptiveMtuEnabled) {
-            effectiveMtu =
-                settings.mtuMax.coerceIn(1280, 9000)
+            effectiveMtu = settings.mtuMax.coerceIn(1280, 9000)
             return effectiveMtu
         }
-
-        val physical =
-            n.mtu.takeIf { it in 1280..9000 } ?: 1500
-        val configuredCeiling =
-            settings.mtuMax.coerceIn(1280, 9000)
-        val hardCeiling =
-            min(physical, configuredCeiling)
-
-        var chosen = hardCeiling
-
-        if (n.transport == "cellular") {
-            chosen = min(chosen, 1420)
-        }
-
-        if (
-            profile.scheme.equals("hysteria2", true) ||
-            profile.transport.contains("kcp", true)
-        ) {
-            chosen = min(chosen, 1380)
-        }
-
-        // A user floor can never push the TUN above the physical/transport ceiling.
-        val requestedFloor =
-            settings.mtuMin.coerceIn(1280, 1500)
-        val safeFloor =
-            min(requestedFloor, chosen)
-
-        chosen = chosen.coerceIn(safeFloor, hardCeiling)
-        effectiveMtu = chosen
-        return chosen
+        val n = currentSnapshot()
+        val recommendation = AdaptiveMtuPolicy.recommend(
+            AdaptiveMtuPolicy.Input(
+                physicalMtu = n.mtu,
+                configuredMin = settings.mtuMin,
+                configuredMax = settings.mtuMax,
+                networkTransport = n.transport,
+                proxyScheme = profile.scheme,
+                proxyTransport = profile.transport
+            )
+        )
+        effectiveMtu = recommendation.mtu
+        return effectiveMtu
     }
 
     /** Measured health for one node on the current physical network, or null when unknown. */
