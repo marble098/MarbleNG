@@ -719,6 +719,20 @@ jobs:
             --title "MarbleNG $VERSION_NAME" \
             --notes "## MarbleNG $VERSION_NAME
 
+          ### Manual chains, adaptive intelligence and Quick Tile v49
+          - Removed the old global two-hop Chain proxy switch from Settings and moved chain creation to Library → Add → Manual config → Chain proxy.
+          - Chains are saved as independent reusable Library profiles, support ordered add/move/remove controls, and have no arbitrary hop-count limit.
+          - Namespaced every hop's outbound graph and internal proxy/dialer references so custom and already-composite Xray configurations can be chained safely.
+          - Added a state-aware Android Quick Settings Tile: tap connects the exact last successfully used Library row, requests VPN consent through the app only when Android requires it, and toggles an active/connecting/blocked route off.
+          - Marble Intelligence now persists jitter, uses workload-specific latency/jitter/reliability/speed weights, applies a conservative Wilson reliability bound, decays old failure streaks and uses a low-confidence cross-network prior.
+          - Failed benchmarks no longer teach zero latency or erase previously measured throughput/jitter evidence.
+          - Removed TCP-only rejection from real Xray Rank, so fronted/provider-specific nodes that work in v2rayNG are tested through their actual protocol core; minimal delay-start failure also receives one runtime-compatible config retry.
+          - Reduced encrypted DoH failover deadlines after observed transient Cloudflare/Google timeouts while preserving bounded serial provider diversity and no system/plaintext DNS fallback.
+          - Bug Finder's synchronous drain dropped from two seconds to 400 ms; Settings now renders only a compact summary until checks are explicitly expanded, while raw evidence and retained historical logs remain available through Copy/Save TXT.
+          - Bug Finder reports passive 9-signal leak-containment coverage separately from the user-triggered external Anti-IP and DNS percentages, without creating hidden diagnostic traffic.
+          - Removed the verbose verified-RTT sentence under Home quality cards and removed decorative icons beside the selected node and Route details; the underlying evidence remains available to diagnostics.
+          - Preserved verified HTTPS Ping/Jitter/Quality, exact-source profile identity, anti-IP/DNS leak containment and safe route recovery invariants.
+
           ### Resolver, live-metric and leak-audit hardening v47
           - Fixed the observed state where the TUN carried traffic but Ping, Jitter and Quality stayed blank: the first verified HTTPS response now publishes immediately and Home explains every pending/failover phase.
           - Replaced the single measurement dependency with certificate-verified, literal-IP HTTPS targets across Cloudflare, Google and Quad9; each jitter burst remains pinned to one provider so failover never contaminates IPDV.

@@ -7,6 +7,7 @@ import androidx.compose.runtime.*
 import com.marbleng.app.core.*
 import com.marbleng.app.data.AppStore
 import com.marbleng.app.model.*
+import com.marbleng.app.quicktile.MarbleQuickTileService
 import com.marbleng.app.net.*
 import com.marbleng.app.vpn.MarbleVpnService
 import java.io.ByteArrayOutputStream
@@ -632,6 +633,7 @@ fun resetTelemetry() {
                 liveJitterSamples = 0
                 liveRouteProbeStatus = ""
             }
+            MarbleQuickTileService.requestRefresh(context)
         }
     }
 
@@ -1201,6 +1203,66 @@ private fun postToMain(block: () -> Unit) {
         message = "${stored.scheme.uppercase()} added • ${stored.name}"
         return true
     }
+
+    /** Persist an independent Manual multi-hop profile; creating another chain never replaces it. */
+    fun addManualChain(
+        requestedName: String,
+        hopRefs: List<Pair<String, String>>,
+        targetSubscriptionId: String = "manual"
+    ): Boolean {
+        if (busy) {
+            message = "Wait for the current task before adding a chain"
+            return false
+        }
+        val target = resolveLibraryTarget(targetSubscriptionId) ?: run {
+            message = "Select one Library source before saving the chain"
+            return false
+        }
+        val hops = hopRefs.mapNotNull { (sourceId, profileId) -> profile(profileId, sourceId) }
+        if (hops.size != hopRefs.size || hops.size < 2) {
+            message = "A chain needs at least two available hops"
+            return false
+        }
+        if (hops.any { it.scheme.equals("ssh", true) }) {
+            message = "SSH cannot be embedded in a persisted Xray chain"
+            return false
+        }
+
+        val config = runCatching {
+            XrayConfigHardener.composeChain(hops.map { it.configJson })
+        }.getOrElse { error ->
+            message = "Chain invalid • ${error.message ?: error::class.java.simpleName}"
+            return false
+        }
+        val exit = hops.last()
+        val name = requestedName.trim().ifBlank { "Chain • ${hops.size} hops" }.take(120)
+        val id = sha("chain:${System.nanoTime()}:${hopRefs.joinToString { "${it.first}:${it.second}" }}").take(16)
+        val stored = ProxyProfile(
+            id = id,
+            name = name,
+            scheme = "chain",
+            raw = "chain://${hopRefs.joinToString(",") { it.second }}",
+            configJson = config,
+            host = exit.host,
+            port = exit.port,
+            transport = "chain-${hops.size}",
+            security = "multi-hop",
+            subscriptionId = target.id,
+            subscriptionName = target.name,
+            sourceManaged = false
+        )
+        profiles += stored
+        store.saveProfiles(profiles)
+        diagnostics.event(
+            "LIBRARY",
+            "manual-chain-added",
+            "profile" to stored.id.take(12),
+            "hops" to hops.size,
+            "source" to target.id.take(16)
+        )
+        message = "${hops.size}-hop chain saved • $name"
+        return true
+    }
     fun importText(
         text: String,
         name: String = "Manual",
@@ -1694,10 +1756,12 @@ private fun postToMain(block: () -> Unit) {
                 "to" to "CONNECTED",
                 "detail" to p.name.take(160)
             )
+            MarbleQuickTileService.requestRefresh(context)
         }
     }
 
     fun startVpn(p: ProxyProfile) {
+        privacy = null
         runCatching { scanIranMode() }
         setRuntimeState("CONNECTING", p.name)
         val intent = Intent(context, MarbleVpnService::class.java)
@@ -1709,6 +1773,7 @@ private fun postToMain(block: () -> Unit) {
     }
 
     fun startLocalProxy(p: ProxyProfile) {
+        privacy = null
         runCatching { scanIranMode() }
         setRuntimeState("CONNECTING", p.name)
         val intent = Intent(context, MarbleVpnService::class.java)
@@ -2139,10 +2204,7 @@ private fun postToMain(block: () -> Unit) {
             return
         }
         task("Verifying routing policy with Xray") {
-            val chain = if (settings.chainEnabled) {
-                profile(settings.chainSecondProfileId)?.takeUnless { it.id == candidate.id }
-            } else null
-            message = xray.verifyRoutingPolicy(candidate, settings, chain)
+            message = xray.verifyRoutingPolicy(candidate, settings)
         }
     }
 
@@ -2156,7 +2218,9 @@ private fun postToMain(block: () -> Unit) {
                 settings = settings,
                 profiles = profiles.toList(),
                 history = history.toList(),
-                networkLabel = networkSnapshot.label
+                networkLabel = networkSnapshot.label,
+                sentinel = sentinel,
+                privacy = privacy
             )
             if (settings.debugModeEnabled) diagnostics.exportReport("bugfinder-auto", report.asText())
             diagnostics.event("BUGFINDER", "scan-finish", "failures" to report.failures, "warnings" to report.warnings, "autoExport" to settings.debugModeEnabled)

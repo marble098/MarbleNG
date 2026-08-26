@@ -41,6 +41,8 @@ files = {
     "bug": read("app/src/main/java/com/marbleng/app/core/BugFinder.kt"),
     "diag": read("app/src/main/java/com/marbleng/app/core/RuntimeDiagnostics.kt"),
     "ui": read("app/src/main/java/com/marbleng/app/ui/Aether2026.kt"),
+    "tile": read("app/src/main/java/com/marbleng/app/quicktile/MarbleQuickTileService.kt"),
+    "manifest": read("app/src/main/AndroidManifest.xml"),
     "security": read("app/src/main/res/xml/network_security_config.xml"),
     "native": read("scripts/prepare-native.sh"),
     "build": read(".github/workflows/build.yml"),
@@ -95,6 +97,7 @@ check("Xray lifecycle generation guard exists", "lifecycleGeneration" in files["
 check("temporary Xray port allocator exists", "reservedTemporaryPorts" in files["xray"])
 check("temporary callback receives allocated port", "block(actualPort)" in files["xray"])
 check("Benchmark consumes allocated live port", "{ livePort ->" in files["bench"])
+check("real Xray Rank has no TCP-only rejection", 'failureReason = "tcp-precheck"' not in files["bench"])
 check("Xray live log rotates per connection", "beginLiveLogSession()" in files["xray"])
 check(
     "native builder verifies Marble JNI symbols",
@@ -147,7 +150,7 @@ check(
     "MARBLE_TRANSPORT_AWARE_FRAGMENT_V50" in files["shield"]
     and '"1-5"' not in files["shield"],
 )
-check("Home exposes live RTT probe state", "liveRouteProbeStatus" in files["repo"] and "liveRouteProbeStatus" in files["ui"])
+check("Home hides verbose live RTT evidence", "liveRouteProbeStatus" in files["repo"] and "repo.liveRouteProbeStatus" not in files["ui"])
 check("upload-only HEV stalls need route confirmation", "confirmRouteUnavailable" in files["vpn"] and "datapath-stall-suspected" in files["vpn"] and "datapath-stalled-confirmed" in files["vpn"])
 check("quality uses success and tail evidence", "successPercent" in files["repo"] and "tailLatencyMs" in files["repo"])
 check("RTT burst fits rolling window", 2 <= burst <= rtt_window)
@@ -170,6 +173,8 @@ check("benchmark feeds persistent intelligence", "recordBenchmark" in files["ben
 check("Turbo uses Xray callback live port", "{ livePort ->" in files["tuner"])
 check("optimizer has switch cooldown", "optimizerSwitchCooldownSec" in files["optimizer"])
 check("intelligence exposes health snapshot", "healthSnapshot" in files["intel"])
+check("intelligence learns jitter with schema migration", "jitter_ewma" in files["intel"] and "oldVersion < 2" in files["intel"])
+check("intelligence applies conservative confidence", "val wilson" in files["intel"] and "effectiveFailureStreak" in files["intel"])
 check(
     "SSH is a real bridge, not fake Xray protocol",
     "ManualProtocol.SSH" in files["manual"] and "class SshTransportManager" in files["ssh"],
@@ -188,12 +193,18 @@ check("privacy audit compares proxy and Android underlay", "underlayIp" in files
 check("privacy audit reports separate IP and DNS scores", "ipLeakScore" in files["privacy"] and "dnsLeakScore" in files["privacy"])
 check("diagnostics queue is bounded", "ArrayBlockingQueue" in files["diag"])
 check("diagnostics redaction exists", "fun redact" in files["diag"])
+check("Bug Finder raw evidence stays out of Settings", "current.evidence.joinToString" not in files["ui"] and "SHOW CHECKS" in files["ui"])
+check("Bug Finder reports passive and external leak scores separately", "Passive leak containment" in files["bug"] and "External anti-leak audit" in files["bug"] and "ipLeakScore" in files["bug"])
 
 # UI / Home.
 check("Home exact reconnect path exists", "repo.reconnectLastOrAuto(onConnect)" in files["ui"])
 check("Library exact active-row check exists", "repo.isActiveProfile(profile)" in files["ui"])
 check("Settings use swipeable pager tabs", "HorizontalPager(" in files["ui"] and "SettingsWorkspaceTab" in files["ui"])
 check("Library long names use overflow marquee", "basicMarquee(" in files["ui"])
+check("legacy global chain settings are removed", "chainEnabled" not in files["models"] + files["store"] + files["ui"])
+check("Manual Library supports unbounded saved chains", "fun composeChain(sources: List<String>)" in files["hardener"] and "addManualChain" in files["repo"] and "ManualChainEditor" in files["ui"])
+check("Quick Tile reconnects exact last profile", "lastProfile()" in files["tile"] and "ACTION_CONNECT_LAST" in files["tile"] and "lastProfileSourceId" in files["store"])
+check("Quick Tile service is permission protected", "android.permission.BIND_QUICK_SETTINGS_TILE" in files["manifest"] and ".quicktile.MarbleQuickTileService" in files["manifest"])
 
 # CI/release.
 check("signed build checks out complete history", "fetch-depth: 0" in files["build"])

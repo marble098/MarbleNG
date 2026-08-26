@@ -187,9 +187,6 @@ class AppStore(context: Context) {
         muxXudpConcurrency = prefs.getInt("muxXudpConcurrency", 16),
         muxUdp443 = prefs.getString("muxUdp443", "skip") ?: "skip",
 
-        chainEnabled = prefs.getBoolean("chainEnabled", false),
-        chainSecondProfileId = prefs.getString("chainSecondProfileId", "") ?: "",
-
         iranModePolicy = enumValue("iranModePolicy", IranModePolicy.AUTO),
         iranModeCountermeasures = prefs.getBoolean("iranModeCountermeasures", true),
         iranDomesticDirect = prefs.getBoolean("iranDomesticDirect", true),
@@ -317,9 +314,6 @@ class AppStore(context: Context) {
         .putInt("muxConcurrency", s.muxConcurrency)
         .putInt("muxXudpConcurrency", s.muxXudpConcurrency)
         .putString("muxUdp443", s.muxUdp443)
-
-        .putBoolean("chainEnabled", s.chainEnabled)
-        .putString("chainSecondProfileId", s.chainSecondProfileId)
 
         .putString("iranModePolicy", s.iranModePolicy.name)
         .putBoolean("iranModeCountermeasures", s.iranModeCountermeasures)

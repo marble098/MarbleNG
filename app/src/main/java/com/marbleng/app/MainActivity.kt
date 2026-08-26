@@ -1,6 +1,7 @@
 package com.marbleng.app
 
 import android.app.Activity
+import android.content.Intent
 import android.net.VpnService
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -9,6 +10,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.lifecycle.lifecycleScope
 import com.marbleng.app.model.ConnectionMode
 import com.marbleng.app.model.ProxyProfile
+import com.marbleng.app.quicktile.MarbleQuickTileService
 import com.marbleng.app.ui.MarbleApp
 import java.io.ByteArrayOutputStream
 import kotlinx.coroutines.Dispatchers
@@ -126,6 +128,24 @@ class MainActivity : ComponentActivity() {
             MarbleApp(app.repo, ::connect) {
                 openFile.launch(arrayOf("text/*", "application/json", "application/octet-stream"))
             }
+        }
+        handleQuickTileIntent(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleQuickTileIntent(intent)
+    }
+
+    private fun handleQuickTileIntent(intent: Intent?) {
+        if (intent?.action != MarbleQuickTileService.ACTION_CONNECT_LAST) return
+        intent.action = Intent.ACTION_MAIN
+        val last = app.repo.lastProfile()
+        if (last == null) {
+            app.repo.setRuntimeMessage("Choose and connect a Library node once to arm Quick Tile")
+        } else {
+            connect(last)
         }
     }
 
