@@ -130,6 +130,38 @@ jobs:
           print('[OK] Prism Product UI v54 invariants')
           PY
 
+      - name: Verify release publishing safety
+        shell: bash
+        run: |
+          set -euo pipefail
+          # MARBLE_RELEASE_PUBLISH_VERIFY_V170
+          python3 - <<'PY'
+          from pathlib import Path
+
+          build=Path('.github/workflows/build.yml').read_text()
+          required={
+              'safe publisher marker':
+                  'MARBLE_RELEASE_PUBLISH_SAFE_V170' in build,
+              'release notes file':
+                  '--notes-file "$notes_file"' in build,
+              'release target':
+                  '--target "$GITHUB_SHA"' in build,
+              'quoted asset array':
+                  '"${assets[@]}"' in build,
+              'no manual tag push':
+                  'git push origin "$tag"' not in build,
+              'no inline multiline notes':
+                  '--notes "## MarbleNG $VERSION_NAME' not in build,
+          }
+          failed=[name for name,ok in required.items() if not ok]
+          if failed:
+              raise SystemExit(
+                  'Release publishing safety invariant failure: ' +
+                  ', '.join(failed)
+              )
+          print('[OK] release publishing is quote-safe and tag-atomic')
+          PY
+
       - name: Set up JDK 17
         uses: actions/setup-java@v5
         with:
