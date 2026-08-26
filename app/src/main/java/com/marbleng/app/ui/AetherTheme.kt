@@ -4,6 +4,7 @@ package com.marbleng.app.ui
 // MARBLE_SOLID_WHITE_THEME_V35
 // MARBLE_REFINED_PRODUCT_UI_V52
 // MARBLE_M3_EXPRESSIVE_THEME_V53
+// MARBLE_PRISM_THEME_V54
 
 import android.app.Activity
 import android.os.Build
@@ -68,49 +69,48 @@ private data class AetherPalette(
  * Depth now comes from spacing, a single soft outline and state colour—not nested glass layers.
  */
 private val LightPalette = AetherPalette(
-    // Neutral surfaces carry hierarchy; accents are reserved for state and action.
-    void = Color(0xFFF7F9FC),
+    void = Color(0xFFF4F7FC),
     voidElevated = Color(0xFFFFFFFF),
-    glass = Color(0xFFFFFFFF),
-    glassStrong = Color(0xFFF1F5FA),
-    glassBorder = Color(0xFFE5EBF2),
-    glassBorderSoft = Color(0xFFDCE4EE),
-    amethyst = Color(0xFF6F55D9),
-    amethystBright = Color(0xFF856EE5),
-    cyan = Color(0xFF1769E0),
-    cyanBright = Color(0xFF0B88EB),
-    slate = Color(0xFFE8EDF4),
-    slateBright = Color(0xFF5D7088),
-    danger = Color(0xFFD93D58),
-    dangerBright = Color(0xFFF05A70),
-    emerald = Color(0xFF008F70),
-    amber = Color(0xFFC97800),
-    ink = Color(0xFF142235),
-    inkMuted = Color(0xFF52657A),
-    inkFaint = Color(0xFF7B8CA2)
+    glass = Color(0xFFFBFCFF),
+    glassStrong = Color(0xFFEEF3FA),
+    glassBorder = Color(0xFFD4DFED),
+    glassBorderSoft = Color(0xFFE1E8F2),
+    amethyst = Color(0xFF7556F5),
+    amethystBright = Color(0xFF927BFF),
+    cyan = Color(0xFF0C6FFF),
+    cyanBright = Color(0xFF2B8CFF),
+    slate = Color(0xFFE8EEF7),
+    slateBright = Color(0xFF5A6C85),
+    danger = Color(0xFFE23D5B),
+    dangerBright = Color(0xFFF26079),
+    emerald = Color(0xFF009A74),
+    amber = Color(0xFFD98200),
+    ink = Color(0xFF0D1C31),
+    inkMuted = Color(0xFF50647E),
+    inkFaint = Color(0xFF7B8DA5)
 )
 
 /* Dark remains an explicit accessibility/user choice and mirrors the same formal color identity. */
 private val DarkPalette = AetherPalette(
-    void = Color(0xFF0A111C),
-    voidElevated = Color(0xFF121C2A),
-    glass = Color(0xFF172334),
-    glassStrong = Color(0xFF1D2A3D),
-    glassBorder = Color(0xFF34465F),
-    glassBorderSoft = Color(0xFF2A3A50),
-    amethyst = Color(0xFFA896FF),
-    amethystBright = Color(0xFFC0B3FF),
-    cyan = Color(0xFF72A8FF),
-    cyanBright = Color(0xFF8AB9FF),
-    slate = Color(0xFF263449),
-    slateBright = Color(0xFF9AAAC0),
-    danger = Color(0xFFFF728A),
-    dangerBright = Color(0xFFFF98A9),
-    emerald = Color(0xFF58D2B4),
-    amber = Color(0xFFF1B768),
-    ink = Color(0xFFF6F9FD),
-    inkMuted = Color(0xFFC2CDDC),
-    inkFaint = Color(0xFF91A0B5)
+    void = Color(0xFF060B13),
+    voidElevated = Color(0xFF0D1624),
+    glass = Color(0xFF111D2D),
+    glassStrong = Color(0xFF152338),
+    glassBorder = Color(0xFF2E415D),
+    glassBorderSoft = Color(0xFF22334A),
+    amethyst = Color(0xFFA58CFF),
+    amethystBright = Color(0xFFC0AEFF),
+    cyan = Color(0xFF6DA8FF),
+    cyanBright = Color(0xFF8FC0FF),
+    slate = Color(0xFF26364D),
+    slateBright = Color(0xFFA6B6CC),
+    danger = Color(0xFFFF718B),
+    dangerBright = Color(0xFFFF99AA),
+    emerald = Color(0xFF55D7B4),
+    amber = Color(0xFFF2B45F),
+    ink = Color(0xFFF4F7FC),
+    inkMuted = Color(0xFFC1CDDD),
+    inkFaint = Color(0xFF8D9DB3)
 )
 
 private val LocalAetherPalette = staticCompositionLocalOf { LightPalette }
@@ -143,67 +143,72 @@ val AetherTypography = Typography(
     displayLarge = TextStyle(
         fontFamily = ProductSans,
         fontWeight = FontWeight.Bold,
-        fontSize = 38.sp,
-        lineHeight = 44.sp,
-        letterSpacing = (-.72).sp
+        fontSize = 40.sp,
+        lineHeight = 46.sp,
+        letterSpacing = (-.74).sp
     ),
     headlineLarge = TextStyle(
         fontFamily = ProductSans,
         fontWeight = FontWeight.Bold,
-        fontSize = 29.sp,
-        lineHeight = 35.sp,
-        letterSpacing = (-.42).sp
+        fontSize = 28.sp,
+        lineHeight = 34.sp,
+        letterSpacing = (-.38).sp
     ),
     headlineMedium = TextStyle(
         fontFamily = ProductSans,
         fontWeight = FontWeight.SemiBold,
-        fontSize = 25.sp,
-        lineHeight = 31.sp,
-        letterSpacing = (-.34).sp
+        fontSize = 24.sp,
+        lineHeight = 30.sp,
+        letterSpacing = (-.26).sp
     ),
     headlineSmall = TextStyle(
         fontFamily = ProductSans,
         fontWeight = FontWeight.SemiBold,
-        fontSize = 21.sp,
-        lineHeight = 27.sp,
-        letterSpacing = (-.20).sp
+        fontSize = 20.sp,
+        lineHeight = 26.sp,
+        letterSpacing = (-.16).sp
     ),
     titleLarge = TextStyle(
         fontFamily = ProductSans,
         fontWeight = FontWeight.SemiBold,
-        fontSize = 19.sp,
-        lineHeight = 25.sp,
-        letterSpacing = (-.16).sp
+        fontSize = 18.sp,
+        lineHeight = 24.sp,
+        letterSpacing = (-.10).sp
     ),
     titleMedium = TextStyle(
         fontFamily = ProductSans,
         fontWeight = FontWeight.SemiBold,
-        fontSize = 16.sp,
-        lineHeight = 22.sp,
-        letterSpacing = (-.08).sp
+        fontSize = 15.5.sp,
+        lineHeight = 21.sp
     ),
     titleSmall = TextStyle(
         fontFamily = ProductSans,
         fontWeight = FontWeight.SemiBold,
-        fontSize = 14.sp,
-        lineHeight = 20.sp
+        fontSize = 13.5.sp,
+        lineHeight = 19.sp
+    ),
+    bodyLarge = TextStyle(
+        fontFamily = ProductSans,
+        fontWeight = FontWeight.Normal,
+        fontSize = 16.sp,
+        lineHeight = 23.sp
     ),
     bodyMedium = TextStyle(
         fontFamily = ProductSans,
         fontWeight = FontWeight.Normal,
-        fontSize = 15.sp,
+        fontSize = 14.5.sp,
         lineHeight = 21.sp
     ),
     bodySmall = TextStyle(
         fontFamily = ProductSans,
         fontWeight = FontWeight.Normal,
-        fontSize = 13.sp,
+        fontSize = 12.5.sp,
         lineHeight = 18.sp
     ),
     labelLarge = TextStyle(
         fontFamily = ProductSans,
         fontWeight = FontWeight.SemiBold,
-        fontSize = 14.sp,
+        fontSize = 13.5.sp,
         lineHeight = 18.sp
     ),
     labelMedium = TextStyle(
@@ -211,23 +216,23 @@ val AetherTypography = Typography(
         fontWeight = FontWeight.Medium,
         fontSize = 12.sp,
         lineHeight = 16.sp,
-        letterSpacing = .06.sp
+        letterSpacing = .04.sp
     ),
     labelSmall = TextStyle(
         fontFamily = ProductSans,
         fontWeight = FontWeight.Medium,
-        fontSize = 11.sp,
-        lineHeight = 15.sp,
-        letterSpacing = .10.sp
+        fontSize = 10.5.sp,
+        lineHeight = 14.sp,
+        letterSpacing = .08.sp
     )
 )
 
 val AetherShapes = Shapes(
-    extraSmall = RoundedCornerShape(8.dp),
-    small = RoundedCornerShape(12.dp),
-    medium = RoundedCornerShape(16.dp),
-    large = RoundedCornerShape(22.dp),
-    extraLarge = RoundedCornerShape(28.dp)
+    extraSmall = RoundedCornerShape(10.dp),
+    small = RoundedCornerShape(14.dp),
+    medium = RoundedCornerShape(18.dp),
+    large = RoundedCornerShape(24.dp),
+    extraLarge = RoundedCornerShape(30.dp)
 )
 
 @Composable

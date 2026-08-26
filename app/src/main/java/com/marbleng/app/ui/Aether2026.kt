@@ -29,6 +29,7 @@ package com.marbleng.app.ui
 // MARBLE_TABBED_SETTINGS_QUALITY_UI_V46
 // MARBLE_REFINED_PRODUCT_UI_V52
 // MARBLE_M3_EXPRESSIVE_UI_V53
+// MARBLE_PRISM_UI_V54
 
 import android.Manifest
 import android.content.Intent
@@ -91,6 +92,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -101,6 +103,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.marbleng.app.AppRepository
+import com.marbleng.app.R
 import com.marbleng.app.core.BugSeverity
 import com.marbleng.app.core.IranModeState
 import com.marbleng.app.core.ManualConfigDraft
@@ -656,7 +659,7 @@ private fun MarbleSnackbarHost(
 
 @Composable
 private fun DeepSpaceBackdrop(modifier: Modifier = Modifier) {
-    Box(modifier.background(Aether.Void))
+    PrismBackdrop(modifier)
 }
 
 @Composable
@@ -664,37 +667,70 @@ private fun FloatingSpatialDock(
     selected: SpatialTab,
     onSelect: (SpatialTab) -> Unit
 ) {
-    NavigationBar(
-        modifier=Modifier.fillMaxWidth(),
-        containerColor=MaterialTheme.colorScheme.surface,
-        tonalElevation=NavigationBarDefaults.Elevation
+    Box(
+        modifier=Modifier
+            .fillMaxWidth()
+            .navigationBarsPadding()
+            .padding(horizontal=16.dp,vertical=8.dp),
+        contentAlignment=Alignment.Center
     ) {
-        SpatialTab.entries.forEach { item ->
-            val active=item == selected
-            NavigationBarItem(
-                selected=active,
-                onClick={ onSelect(item) },
-                icon={
-                    MarbleTabIcon(
-                        tab=item,
-                        color=if(active) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
-                        active=active,
-                        modifier=Modifier.size(22.dp)
-                    )
-                },
-                label={
-                    Text(
-                        item.label,
-                        style=MaterialTheme.typography.labelMedium,
-                        fontWeight=if(active) FontWeight.Bold else FontWeight.Medium
-                    )
-                },
-                alwaysShowLabel=true
+        val shape=RoundedCornerShape(28.dp)
+        val border=Brush.linearGradient(
+            listOf(
+                Aether.Cyan.copy(alpha=.38f),
+                Aether.Amethyst.copy(alpha=.24f),
+                Aether.GlassBorderSoft.copy(alpha=.92f)
             )
+        )
+
+        Box(
+            modifier=Modifier
+                .widthIn(max=520.dp)
+                .fillMaxWidth()
+                .shadow(10.dp,shape,clip=false)
+                .border(1.dp,border,shape)
+                .clip(shape)
+                .background(Aether.VoidElevated)
+        ) {
+            NavigationBar(
+                modifier=Modifier
+                    .fillMaxWidth()
+                    .height(72.dp),
+                containerColor=Color.Transparent,
+                tonalElevation=0.dp,
+                windowInsets=WindowInsets(0,0,0,0)
+            ) {
+                SpatialTab.entries.forEach { item ->
+                    val active=item == selected
+                    NavigationBarItem(
+                        selected=active,
+                        onClick={ onSelect(item) },
+                        icon={
+                            MarbleTabIcon(
+                                tab=item,
+                                color=if(active) Aether.Cyan else Aether.InkMuted,
+                                active=active,
+                                modifier=Modifier.size(22.dp)
+                            )
+                        },
+                        label={
+                            Text(
+                                item.label,
+                                style=MaterialTheme.typography.labelMedium,
+                                fontWeight=if(active) FontWeight.Bold else FontWeight.Medium
+                            )
+                        },
+                        alwaysShowLabel=true,
+                        colors=NavigationBarItemDefaults.colors(
+                            selectedIconColor=Aether.Cyan,
+                            selectedTextColor=Aether.Cyan,
+                            indicatorColor=Aether.Cyan.copy(alpha=.105f),
+                            unselectedIconColor=Aether.InkMuted,
+                            unselectedTextColor=Aether.InkMuted
+                        )
+                    )
+                }
+            }
         }
     }
 }
@@ -707,54 +743,72 @@ private fun MarbleTabIcon(
     active: Boolean,
     modifier: Modifier = Modifier
 ) {
+    val surface=Aether.VoidElevated
     Canvas(modifier) {
-        val w = size.width
-        val h = size.height
-        val stroke = if (active) 2.35f else 1.9f
-        val line = Stroke(width = stroke, cap = StrokeCap.Round)
+        val w=size.width
+        val h=size.height
+        val stroke=if(active) 2.25.dp.toPx() else 1.75.dp.toPx()
+        val line=Stroke(width=stroke,cap=StrokeCap.Round)
 
-        when (tab) {
+        when(tab) {
             SpatialTab.DECK -> {
-                val roof = Path().apply {
-                    moveTo(w * .18f, h * .47f)
-                    lineTo(w * .50f, h * .20f)
-                    lineTo(w * .82f, h * .47f)
+                val roof=Path().apply {
+                    moveTo(w*.18f,h*.47f)
+                    lineTo(w*.50f,h*.20f)
+                    lineTo(w*.82f,h*.47f)
                 }
-                drawPath(roof, color, style = line)
-                drawLine(color, Offset(w*.27f,h*.43f), Offset(w*.27f,h*.80f), stroke, StrokeCap.Round)
-                drawLine(color, Offset(w*.73f,h*.43f), Offset(w*.73f,h*.80f), stroke, StrokeCap.Round)
-                drawLine(color, Offset(w*.27f,h*.80f), Offset(w*.73f,h*.80f), stroke, StrokeCap.Round)
-                drawLine(color, Offset(w*.47f,h*.80f), Offset(w*.47f,h*.60f), stroke, StrokeCap.Round)
+                drawPath(roof,color,style=line)
+                drawLine(color,Offset(w*.27f,h*.43f),Offset(w*.27f,h*.79f),stroke,StrokeCap.Round)
+                drawLine(color,Offset(w*.73f,h*.43f),Offset(w*.73f,h*.79f),stroke,StrokeCap.Round)
+                drawLine(color,Offset(w*.27f,h*.79f),Offset(w*.73f,h*.79f),stroke,StrokeCap.Round)
+                drawLine(color,Offset(w*.49f,h*.79f),Offset(w*.49f,h*.61f),stroke,StrokeCap.Round)
             }
+
             SpatialTab.LIBRARY -> {
-                val positions = listOf(
-                    Offset(w*.31f,h*.31f), Offset(w*.69f,h*.31f),
-                    Offset(w*.31f,h*.69f), Offset(w*.69f,h*.69f)
-                )
-                positions.forEach { p ->
+                listOf(.28f,.50f,.72f).forEachIndexed { index,y ->
+                    drawLine(
+                        color=color,
+                        start=Offset(w*.22f,h*y),
+                        end=Offset(w*.78f,h*y),
+                        strokeWidth=stroke,
+                        cap=StrokeCap.Round
+                    )
                     drawCircle(
-                        color = color,
-                        radius = w * .115f,
-                        center = p,
-                        style = Stroke(width = stroke, cap = StrokeCap.Round)
+                        color=color,
+                        radius=if(active) w*.045f else w*.038f,
+                        center=Offset(
+                            if(index%2==0) w*.30f else w*.70f,
+                            h*y
+                        )
                     )
                 }
             }
+
             SpatialTab.SETTINGS -> {
-                val center = Offset(w*.50f,h*.50f)
-                drawCircle(color,w*.25f,center,style=line)
-                drawCircle(color,w*.075f,center,style=line)
-                for (i in 0 until 8) {
-                    val angle = i * PI.toFloat() / 4f
-                    val from = Offset(
-                        center.x + cos(angle) * w*.31f,
-                        center.y + sin(angle) * h*.31f
+                val rows=listOf(
+                    .30f to .38f,
+                    .50f to .64f,
+                    .70f to .45f
+                )
+                rows.forEach { (y,knobX) ->
+                    drawLine(
+                        color=color,
+                        start=Offset(w*.20f,h*y),
+                        end=Offset(w*.80f,h*y),
+                        strokeWidth=stroke,
+                        cap=StrokeCap.Round
                     )
-                    val to = Offset(
-                        center.x + cos(angle) * w*.40f,
-                        center.y + sin(angle) * h*.40f
+                    drawCircle(
+                        color=surface,
+                        radius=w*.092f,
+                        center=Offset(w*knobX,h*y)
                     )
-                    drawLine(color,from,to,stroke,StrokeCap.Round)
+                    drawCircle(
+                        color=color,
+                        radius=w*.075f,
+                        center=Offset(w*knobX,h*y),
+                        style=Stroke(width=stroke,cap=StrokeCap.Round)
+                    )
                 }
             }
         }
@@ -807,28 +861,13 @@ private fun HoloGlass(
     contentPadding: PaddingValues = PaddingValues(16.dp),
     content: @Composable ColumnScope.() -> Unit
 ) {
-    val shape=MaterialTheme.shapes.large
-    val framed=if(borderColor != Color.Transparent) {
-        modifier.border(
-            androidx.compose.foundation.BorderStroke(1.dp,borderColor),
-            shape
-        )
-    } else modifier
-
-    ElevatedCard(
-        modifier=framed,
-        shape=shape,
-        colors=CardDefaults.elevatedCardColors(
-            containerColor=MaterialTheme.colorScheme.surface
-        ),
-        elevation=CardDefaults.elevatedCardElevation()
-    ) {
-        Column(
-            modifier=Modifier.padding(contentPadding),
-            verticalArrangement=Arrangement.spacedBy(MarbleSpacing.S),
-            content=content
-        )
-    }
+    PrismPanel(
+        modifier=modifier,
+        accent=if(borderColor == Color.Transparent) Aether.Cyan else borderColor,
+        selected=borderColor != Color.Transparent,
+        contentPadding=contentPadding,
+        content=content
+    )
 }
 
 @Composable
@@ -885,32 +924,53 @@ private fun HoloBadge(
     color: Color,
     compact: Boolean = false
 ) {
-    Row(
-        modifier = Modifier
-            .clip(RoundedCornerShape(11.dp))
-            .background(color.copy(alpha = .085f))
-            .padding(
-                horizontal = if (compact) 7.dp else 9.dp,
-                vertical = if (compact) 4.dp else 6.dp
-            ),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(5.dp)
-    ) {
-        Box(Modifier.size(5.dp).clip(CircleShape).background(color))
-        Text(
-            text,
-            color = color,
-            style = MaterialTheme.typography.labelSmall,
-            maxLines = 1,
-            softWrap = false,
-            overflow = TextOverflow.Ellipsis
-        )
-    }
+    PrismBadge(
+        text=text,
+        tone=color,
+        strong=!compact
+    )
 }
 
 @Composable
-private fun SectionLabel(title:String,subtitle:String?=null){
-    Column(Modifier.padding(vertical=2.dp)){Text(title,color=Aether.Ink,style=MaterialTheme.typography.titleMedium);if(!subtitle.isNullOrBlank()){Spacer(Modifier.height(2.dp));Text(subtitle,color=Aether.InkFaint,style=MaterialTheme.typography.bodySmall)}}
+private fun SectionLabel(
+    title: String,
+    subtitle: String? = null
+) {
+    Column(
+        modifier=Modifier.padding(vertical=3.dp),
+        verticalArrangement=Arrangement.spacedBy(3.dp)
+    ) {
+        Row(
+            verticalAlignment=Alignment.CenterVertically,
+            horizontalArrangement=Arrangement.spacedBy(8.dp)
+        ) {
+            Box(
+                Modifier
+                    .width(3.dp)
+                    .height(18.dp)
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(Aether.Cyan,Aether.Amethyst)
+                        )
+                    )
+            )
+            Text(
+                title,
+                color=Aether.Ink,
+                style=MaterialTheme.typography.titleMedium,
+                fontWeight=FontWeight.Bold
+            )
+        }
+        if(!subtitle.isNullOrBlank()) {
+            Text(
+                subtitle,
+                modifier=Modifier.padding(start=11.dp),
+                color=Aether.InkFaint,
+                style=MaterialTheme.typography.bodySmall
+            )
+        }
+    }
 }
 
 
@@ -1181,54 +1241,106 @@ private fun MarbleCompactTopBar(
     actionIcon: HomeIcon? = null,
     onAction: (() -> Unit)? = null
 ) {
-    TopAppBar(
-        title={
-            Column(verticalArrangement=Arrangement.spacedBy(2.dp)) {
+    Row(
+        modifier=Modifier
+            .fillMaxWidth()
+            .heightIn(min=66.dp)
+            .padding(vertical=5.dp),
+        verticalAlignment=Alignment.CenterVertically,
+        horizontalArrangement=Arrangement.spacedBy(12.dp)
+    ) {
+        if(title == "MarbleNG") {
+            Box(
+                modifier=Modifier
+                    .size(44.dp)
+                    .clip(RoundedCornerShape(15.dp))
+                    .background(
+                        Brush.linearGradient(
+                            listOf(Aether.Cyan,Aether.Amethyst)
+                        )
+                    )
+                    .border(
+                        1.dp,
+                        Color.White.copy(alpha=.22f),
+                        RoundedCornerShape(15.dp)
+                    ),
+                contentAlignment=Alignment.Center
+            ) {
+                Icon(
+                    painter=painterResource(R.drawable.ic_marble_prism),
+                    contentDescription=null,
+                    tint=Color.White,
+                    modifier=Modifier.size(26.dp)
+                )
+            }
+        } else {
+            val icon=when(title) {
+                "Library" -> HomeIcon.LIBRARY
+                "Settings" -> HomeIcon.MODE
+                else -> HomeIcon.DETAILS
+            }
+            HomeIconTile(icon,Aether.Cyan,Modifier.size(42.dp))
+        }
+
+        Column(
+            modifier=Modifier.weight(1f),
+            verticalArrangement=Arrangement.spacedBy(2.dp)
+        ) {
+            Text(
+                title,
+                color=Aether.Ink,
+                style=MaterialTheme.typography.headlineSmall,
+                fontWeight=FontWeight.Bold,
+                maxLines=1,
+                overflow=TextOverflow.Ellipsis
+            )
+            if(subtitle.isNotBlank()) {
                 Text(
-                    title,
-                    color=MaterialTheme.colorScheme.onSurface,
-                    style=MaterialTheme.typography.titleLarge,
-                    fontWeight=FontWeight.Bold,
+                    subtitle,
+                    color=Aether.InkMuted,
+                    style=MaterialTheme.typography.bodySmall,
                     maxLines=1,
                     overflow=TextOverflow.Ellipsis
                 )
-                if(subtitle.isNotBlank()) {
-                    Text(
-                        subtitle,
-                        color=MaterialTheme.colorScheme.onSurfaceVariant,
-                        style=MaterialTheme.typography.labelMedium,
-                        maxLines=1,
-                        overflow=TextOverflow.Ellipsis
+            }
+        }
+
+        if(onAction != null && actionLabel != null) {
+            val actionShape=RoundedCornerShape(17.dp)
+            Row(
+                modifier=Modifier
+                    .heightIn(min=48.dp)
+                    .border(
+                        1.dp,
+                        Aether.Cyan.copy(alpha=.28f),
+                        actionShape
+                    )
+                    .clip(actionShape)
+                    .background(Aether.Cyan.copy(alpha=.075f))
+                    .kineticClickable(
+                        role=Role.Button,
+                        onClick=onAction
+                    )
+                    .padding(horizontal=12.dp,vertical=9.dp),
+                verticalAlignment=Alignment.CenterVertically,
+                horizontalArrangement=Arrangement.spacedBy(7.dp)
+            ) {
+                if(actionIcon != null) {
+                    HomeVectorIcon(
+                        actionIcon,
+                        Aether.Cyan,
+                        Modifier.size(18.dp)
                     )
                 }
+                Text(
+                    actionLabel,
+                    color=Aether.Cyan,
+                    style=MaterialTheme.typography.labelLarge,
+                    fontWeight=FontWeight.Bold
+                )
             }
-        },
-        actions={
-            if(onAction != null && actionLabel != null) {
-                TextButton(
-                    onClick=onAction,
-                    contentPadding=PaddingValues(horizontal=12.dp,vertical=8.dp)
-                ) {
-                    if(actionIcon != null) {
-                        HomeVectorIcon(
-                            actionIcon,
-                            MaterialTheme.colorScheme.primary,
-                            Modifier.size(18.dp)
-                        )
-                        Spacer(Modifier.width(MarbleSpacing.S))
-                    }
-                    Text(
-                        actionLabel,
-                        style=MaterialTheme.typography.labelLarge,
-                        fontWeight=FontWeight.SemiBold
-                    )
-                }
-            }
-        },
-        colors=TopAppBarDefaults.topAppBarColors(
-            containerColor=Color.Transparent
-        )
-    )
+        }
+    }
 }
 
 @Composable
@@ -1237,28 +1349,41 @@ private fun MarbleServerAvatar(
     active: Boolean,
     modifier: Modifier = Modifier
 ) {
-    val glyph=profile?.host?.let(::countryGlyph).orEmpty()
-    val text=glyph.takeIf { it.isNotBlank() && it != "◈" }
+    val flag=profile?.name?.let(::leadingFlagGlyph)
+    val fallback=profile?.host?.let(::countryGlyph).orEmpty()
+        .takeIf { it.isNotBlank() && it != "◈" }
+    val label=flag
+        ?: fallback
         ?: profile?.scheme?.trim()?.take(1)?.uppercase()?.ifBlank { "M" }
         ?: "M"
-    val tone=if(active) Aether.Emerald else MaterialTheme.colorScheme.primary
+    val tone=if(active) Aether.Emerald else Aether.Cyan
+    val shape=RoundedCornerShape(17.dp)
 
-    Surface(
-        modifier=modifier.size(44.dp),
-        shape=CircleShape,
-        color=tone.copy(alpha=.11f),
-        border=if(active) {
-            androidx.compose.foundation.BorderStroke(1.dp,tone.copy(alpha=.55f))
-        } else null
+    Box(
+        modifier=modifier
+            .size(50.dp)
+            .border(1.dp,tone.copy(alpha=.32f),shape)
+            .clip(shape)
+            .background(
+                Brush.linearGradient(
+                    listOf(
+                        tone.copy(alpha=.13f),
+                        Aether.Amethyst.copy(alpha=.055f)
+                    )
+                )
+            ),
+        contentAlignment=Alignment.Center
     ) {
-        Box(contentAlignment=Alignment.Center) {
-            Text(
-                text,
-                color=tone,
-                style=MaterialTheme.typography.titleMedium,
-                fontWeight=FontWeight.Bold
-            )
-        }
+        Text(
+            label,
+            color=tone,
+            style=if(flag != null || fallback != null) {
+                MaterialTheme.typography.headlineSmall
+            } else {
+                MaterialTheme.typography.titleLarge
+            },
+            fontWeight=FontWeight.Bold
+        )
     }
 }
 
@@ -1269,50 +1394,74 @@ private fun HomeServerSelector(
     connected: Boolean,
     onLibrary: () -> Unit
 ) {
-    ElevatedCard(
-        onClick=onLibrary,
-        modifier=Modifier.fillMaxWidth(),
-        shape=MaterialTheme.shapes.large,
-        colors=CardDefaults.elevatedCardColors(
-            containerColor=MaterialTheme.colorScheme.surfaceVariant.copy(alpha=.62f)
-        ),
-        elevation=CardDefaults.elevatedCardElevation()
+    val displayName=stripLeadingFlag(activeName).ifBlank { "Choose a route" }
+    val shape=RoundedCornerShape(21.dp)
+
+    Row(
+        modifier=Modifier
+            .fillMaxWidth()
+            .border(
+                1.dp,
+                if(connected) {
+                    Aether.Emerald.copy(alpha=.38f)
+                } else {
+                    Aether.Cyan.copy(alpha=.24f)
+                },
+                shape
+            )
+            .clip(shape)
+            .background(
+                Brush.horizontalGradient(
+                    listOf(
+                        if(connected) {
+                            Aether.Emerald.copy(alpha=.075f)
+                        } else {
+                            Aether.Cyan.copy(alpha=.06f)
+                        },
+                        Aether.VoidElevated
+                    )
+                )
+            )
+            .kineticClickable(role=Role.Button,onClick=onLibrary)
+            .padding(12.dp),
+        verticalAlignment=Alignment.CenterVertically,
+        horizontalArrangement=Arrangement.spacedBy(12.dp)
     ) {
-        Row(
-            modifier=Modifier
-                .fillMaxWidth()
-                .padding(MarbleSpacing.M),
-            verticalAlignment=Alignment.CenterVertically,
-            horizontalArrangement=Arrangement.spacedBy(MarbleSpacing.M)
+        MarbleServerAvatar(profile=profile,active=connected)
+        Column(Modifier.weight(1f)) {
+            Text(
+                displayName,
+                color=Aether.Ink,
+                style=MaterialTheme.typography.titleMedium,
+                fontWeight=FontWeight.Bold,
+                maxLines=1,
+                overflow=TextOverflow.Ellipsis
+            )
+            Text(
+                profile?.let {
+                    listOfNotNull(
+                        it.scheme.uppercase(),
+                        it.host.takeIf(String::isNotBlank),
+                        it.port.takeIf { p -> p > 0 }?.toString()
+                    ).joinToString("  •  ")
+                }.orEmpty().ifBlank { "Open Library to select a server" },
+                color=Aether.InkMuted,
+                style=MaterialTheme.typography.bodySmall,
+                maxLines=1,
+                overflow=TextOverflow.Ellipsis
+            )
+        }
+        Box(
+            Modifier
+                .size(36.dp)
+                .clip(CircleShape)
+                .background(Aether.Cyan.copy(alpha=.09f)),
+            contentAlignment=Alignment.Center
         ) {
-            MarbleServerAvatar(profile=profile,active=connected)
-            Column(Modifier.weight(1f)) {
-                Text(
-                    activeName,
-                    color=MaterialTheme.colorScheme.onSurface,
-                    style=MaterialTheme.typography.titleMedium,
-                    fontWeight=FontWeight.SemiBold,
-                    maxLines=1,
-                    overflow=TextOverflow.Ellipsis
-                )
-                Text(
-                    profile?.let {
-                        listOfNotNull(
-                            it.scheme.uppercase(),
-                            it.host.takeIf(String::isNotBlank),
-                            it.port.takeIf { p -> p > 0 }?.toString()
-                        ).joinToString(" • ")
-                    }.orEmpty().ifBlank { "Choose from Library" },
-                    color=MaterialTheme.colorScheme.onSurfaceVariant,
-                    style=MaterialTheme.typography.bodySmall,
-                    maxLines=1,
-                    overflow=TextOverflow.Ellipsis
-                )
-            }
             HomeVectorIcon(
                 HomeIcon.DETAILS,
-                MaterialTheme.colorScheme.onSurfaceVariant,
-                Modifier.size(20.dp)
+                Aether.Cyan,
+                Modifier.size(18.dp)
             )
         }
     }
@@ -1323,38 +1472,49 @@ private fun HomeRouteDetailsRow(
     connected: Boolean,
     onDetails: () -> Unit
 ) {
-    Surface(
+    val shape=RoundedCornerShape(16.dp)
+    Row(
         modifier=Modifier
             .fillMaxWidth()
-            .clip(MaterialTheme.shapes.medium)
-            .kineticClickable(role=Role.Button,onClick=onDetails),
-        color=Color.Transparent
+            .heightIn(min=48.dp)
+            .clip(shape)
+            .kineticClickable(role=Role.Button,onClick=onDetails)
+            .padding(horizontal=8.dp),
+        verticalAlignment=Alignment.CenterVertically
     ) {
-        Row(
-            modifier=Modifier
-                .fillMaxWidth()
-                .padding(horizontal=MarbleSpacing.S,vertical=MarbleSpacing.S),
-            verticalAlignment=Alignment.CenterVertically
+        Box(
+            Modifier
+                .size(32.dp)
+                .clip(RoundedCornerShape(11.dp))
+                .background(Aether.Amethyst.copy(alpha=.09f)),
+            contentAlignment=Alignment.Center
         ) {
             HomeVectorIcon(
                 HomeIcon.ROUTE,
-                MaterialTheme.colorScheme.onSurfaceVariant,
-                Modifier.size(18.dp)
-            )
-            Spacer(Modifier.width(MarbleSpacing.S))
-            Text(
-                if(connected) "Route details" else "Inspect selected route",
-                modifier=Modifier.weight(1f),
-                color=MaterialTheme.colorScheme.onSurface,
-                style=MaterialTheme.typography.bodyMedium,
-                fontWeight=FontWeight.Medium
-            )
-            HomeVectorIcon(
-                HomeIcon.DETAILS,
-                MaterialTheme.colorScheme.onSurfaceVariant,
-                Modifier.size(18.dp)
+                Aether.Amethyst,
+                Modifier.size(17.dp)
             )
         }
+        Spacer(Modifier.width(10.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                if(connected) "Secure route details" else "Inspect selected route",
+                color=Aether.Ink,
+                style=MaterialTheme.typography.labelLarge,
+                fontWeight=FontWeight.SemiBold
+            )
+            Text(
+                if(connected) "Endpoint, source and measured performance" else "Review route before connecting",
+                color=Aether.InkFaint,
+                style=MaterialTheme.typography.labelSmall,
+                maxLines=1
+            )
+        }
+        HomeVectorIcon(
+            HomeIcon.DETAILS,
+            Aether.InkMuted,
+            Modifier.size(18.dp)
+        )
     }
 }
 
@@ -1370,107 +1530,17 @@ private fun MarbleConnectionQualityRing(
     val animatedTone by animateColorAsState(
         targetValue=tone,
         animationSpec=MarbleMotionSpecs.Color,
-        label="connection-ring-tone-v53"
+        label="prism-connection-tone-v54"
     )
-    val progress by animateFloatAsState(
-        targetValue=if(score >= 0) score.coerceIn(0,100)/100f else 0f,
-        animationSpec=MarbleMotionSpecs.ProgressFloat,
-        label="connection-ring-quality-v53"
+    PrismConnectionStage(
+        tone=animatedTone,
+        connected=connected,
+        connecting=connecting,
+        blocked=blocked,
+        qualityScore=score,
+        onToggle=onToggle,
+        modifier=Modifier.fillMaxWidth()
     )
-    val pulse=MarbleMotion.current.breathe(2200)
-    val phase=MarbleMotion.current.loop(1300)
-    val outline=MaterialTheme.colorScheme.outlineVariant
-
-    Box(
-        modifier=Modifier
-            .size(144.dp)
-            .kineticClickable(role=Role.Button,pressScale=.95f,onClick=onToggle),
-        contentAlignment=Alignment.Center
-    ) {
-        Canvas(Modifier.matchParentSize()) {
-            val inset=8.dp.toPx()
-            val diameter=size.minDimension-inset*2f
-            val stroke=8.dp.toPx()
-
-            drawCircle(
-                color=outline.copy(alpha=.38f),
-                radius=diameter/2f,
-                style=Stroke(width=stroke,cap=StrokeCap.Round)
-            )
-
-            when {
-                connected && progress > 0f -> {
-                    drawArc(
-                        color=animatedTone,
-                        startAngle=-90f,
-                        sweepAngle=360f*progress,
-                        useCenter=false,
-                        topLeft=Offset(inset,inset),
-                        size=Size(diameter,diameter),
-                        style=Stroke(width=stroke,cap=StrokeCap.Round)
-                    )
-                    drawCircle(
-                        color=animatedTone.copy(alpha=.08f+pulse*.08f),
-                        radius=diameter/2f+4.dp.toPx(),
-                        style=Stroke(width=2.dp.toPx())
-                    )
-                }
-                connecting -> drawArc(
-                    color=animatedTone,
-                    startAngle=-90f+phase*360f,
-                    sweepAngle=92f,
-                    useCenter=false,
-                    topLeft=Offset(inset,inset),
-                    size=Size(diameter,diameter),
-                    style=Stroke(width=stroke,cap=StrokeCap.Round)
-                )
-                else -> drawArc(
-                    color=animatedTone.copy(alpha=if(blocked) 1f else .72f),
-                    startAngle=-90f,
-                    sweepAngle=if(blocked) 300f else 72f,
-                    useCenter=false,
-                    topLeft=Offset(inset,inset),
-                    size=Size(diameter,diameter),
-                    style=Stroke(width=stroke,cap=StrokeCap.Round)
-                )
-            }
-        }
-
-        Column(
-            horizontalAlignment=Alignment.CenterHorizontally,
-            verticalArrangement=Arrangement.spacedBy(MarbleSpacing.Micro)
-        ) {
-            HomeVectorIcon(
-                icon=when {
-                    connected -> HomeIcon.STOP
-                    connecting -> HomeIcon.CANCEL
-                    blocked -> HomeIcon.RESET
-                    else -> HomeIcon.POWER
-                },
-                color=animatedTone,
-                modifier=Modifier.size(30.dp)
-            )
-            Text(
-                when {
-                    connected -> "DISCONNECT"
-                    connecting -> "CANCEL"
-                    blocked -> "RESET"
-                    else -> "CONNECT"
-                },
-                color=animatedTone,
-                style=MaterialTheme.typography.labelMedium,
-                fontWeight=FontWeight.Bold
-            )
-            if(connected && score >= 0) {
-                Text(
-                    "$score%",
-                    color=MaterialTheme.colorScheme.onSurfaceVariant,
-                    style=MaterialTheme.typography.labelSmall,
-                    fontFamily=FontFamily.Monospace
-                )
-            }
-        }
-    }
 }
 
 @Composable
@@ -1491,38 +1561,61 @@ private fun HomeMetricBento(repo: AppRepository) {
     )
     val qualityTone=marbleMetricTone(qualityMetricBand(repo.liveRouteScore))
 
-    Row(
-        modifier=Modifier
-            .fillMaxWidth()
-            .height(164.dp),
-        horizontalArrangement=Arrangement.spacedBy(MarbleSpacing.S)
-    ) {
-        MarbleMetricCard(
-            title="Ping",
-            value=if(repo.livePingMs > 0) repo.livePingMs.toString() else "—",
-            unit=if(repo.livePingMs > 0) "ms" else "",
-            tone=pingTone,
-            sparkline=pingHistory,
-            modifier=Modifier.weight(1.18f).fillMaxHeight()
-        )
-        Column(
-            modifier=Modifier.weight(.82f).fillMaxHeight(),
-            verticalArrangement=Arrangement.spacedBy(MarbleSpacing.S)
+    Column(verticalArrangement=Arrangement.spacedBy(8.dp)) {
+        Row(
+            modifier=Modifier.fillMaxWidth(),
+            verticalAlignment=Alignment.CenterVertically
+        ) {
+            SectionLabel("Live quality")
+            Spacer(Modifier.weight(1f))
+            if(repo.state == "CONNECTED") {
+                PrismBadge("LIVE",Aether.Emerald)
+            } else {
+                PrismBadge("WAITING",Aether.InkMuted)
+            }
+        }
+
+        Row(
+            modifier=Modifier
+                .fillMaxWidth()
+                .height(172.dp),
+            horizontalArrangement=Arrangement.spacedBy(8.dp)
         ) {
             MarbleMetricCard(
-                title="Jitter",
-                value=if(repo.liveJitterSamples > 0) repo.liveJitterMs.toString() else "—",
-                unit=if(repo.liveJitterSamples > 0) "ms" else "",
-                tone=jitterTone,
-                modifier=Modifier.weight(1f).fillMaxWidth()
+                title="Ping",
+                value=if(repo.livePingMs > 0) repo.livePingMs.toString() else "—",
+                unit=if(repo.livePingMs > 0) "ms" else "",
+                tone=pingTone,
+                sparkline=pingHistory,
+                modifier=Modifier
+                    .weight(1.16f)
+                    .fillMaxHeight()
             )
-            MarbleMetricCard(
-                title="Quality",
-                value=if(repo.liveRouteScore >= 0) repo.liveRouteScore.toString() else "—",
-                unit=if(repo.liveRouteScore >= 0) "%" else "",
-                tone=qualityTone,
-                modifier=Modifier.weight(1f).fillMaxWidth()
-            )
+            Column(
+                modifier=Modifier
+                    .weight(.84f)
+                    .fillMaxHeight(),
+                verticalArrangement=Arrangement.spacedBy(8.dp)
+            ) {
+                MarbleMetricCard(
+                    title="Jitter",
+                    value=if(repo.liveJitterSamples > 0) repo.liveJitterMs.toString() else "—",
+                    unit=if(repo.liveJitterSamples > 0) "ms" else "",
+                    tone=jitterTone,
+                    modifier=Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                )
+                MarbleMetricCard(
+                    title="Quality",
+                    value=if(repo.liveRouteScore >= 0) repo.liveRouteScore.toString() else "—",
+                    unit=if(repo.liveRouteScore >= 0) "%" else "",
+                    tone=qualityTone,
+                    modifier=Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                )
+            }
         }
     }
 }
@@ -1536,35 +1629,62 @@ private fun HomeQuickSettingRow(
     enabled: Boolean = true,
     onChecked: (Boolean) -> Unit
 ) {
-    ListItem(
-        headlineContent={
-            Text(
-                title,
-                style=MaterialTheme.typography.bodyMedium,
-                fontWeight=FontWeight.SemiBold
+    val tone=if(checked) Aether.Cyan else Aether.InkMuted
+    val shape=RoundedCornerShape(20.dp)
+
+    Column(
+        modifier=Modifier
+            .fillMaxWidth()
+            .heightIn(min=104.dp)
+            .border(
+                1.dp,
+                if(checked) tone.copy(alpha=.34f)
+                else Aether.GlassBorderSoft,
+                shape
             )
-        },
-        supportingContent={ Text(subtitle,style=MaterialTheme.typography.bodySmall) },
-        leadingContent={
-            HomeVectorIcon(
-                icon,
-                if(checked) {
-                    MaterialTheme.colorScheme.primary
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                },
-                Modifier.size(20.dp)
+            .clip(shape)
+            .background(
+                if(checked) tone.copy(alpha=.055f)
+                else Aether.VoidElevated
             )
-        },
-        trailingContent={
+            .padding(12.dp),
+        verticalArrangement=Arrangement.spacedBy(8.dp)
+    ) {
+        Row(
+            modifier=Modifier.fillMaxWidth(),
+            verticalAlignment=Alignment.CenterVertically
+        ) {
+            Box(
+                Modifier
+                    .size(36.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(tone.copy(alpha=.10f)),
+                contentAlignment=Alignment.Center
+            ) {
+                HomeVectorIcon(icon,tone,Modifier.size(19.dp))
+            }
+            Spacer(Modifier.weight(1f))
             Switch(
                 checked=checked,
                 onCheckedChange=onChecked,
                 enabled=enabled
             )
-        },
-        colors=ListItemDefaults.colors(containerColor=Color.Transparent)
-    )
+        }
+        Text(
+            title,
+            color=Aether.Ink,
+            style=MaterialTheme.typography.labelLarge,
+            fontWeight=FontWeight.Bold,
+            maxLines=1
+        )
+        Text(
+            subtitle,
+            color=Aether.InkFaint,
+            style=MaterialTheme.typography.labelSmall,
+            maxLines=1,
+            overflow=TextOverflow.Ellipsis
+        )
+    }
 }
 
 // =================================================================================================
@@ -1583,13 +1703,16 @@ private fun CyberDeck(
     val connected = repo.state == "CONNECTED"
     val connecting = repo.state == "CONNECTING"
     val blocked = repo.state == "BLOCKED"
-    val active = repo.profile(repo.activeProfileId) ?: repo.lastProfile()
-    val activeName = repo.stateDetail.ifBlank { active?.name ?: "Choose a route" }
+    val active = repo.profile(
+        repo.activeProfileId,
+        repo.activeProfileSourceId
+    ) ?: repo.lastProfile()
+    val activeName = active?.name ?: "Choose a route"
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 6.dp, bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         item {
             MarbleCompactTopBar(
@@ -1623,6 +1746,9 @@ private fun CyberDeck(
             )
         }
 
+        item {
+            HomeMetricBento(repo)
+        }
 
         if (repo.settings.homeShowSummaryMetrics) {
             item {
@@ -1767,79 +1893,75 @@ private fun HomeOrbitalHero(
         connected -> Aether.Emerald
         connecting -> Aether.Amethyst
         blocked -> Aether.Danger
-        else -> Aether.SlateBright
+        else -> Aether.Cyan
     }
 
-    ElevatedCard(
+    PrismPanel(
         modifier=Modifier.fillMaxWidth(),
-        shape=MaterialTheme.shapes.extraLarge,
-        colors=CardDefaults.elevatedCardColors(
-            containerColor=MaterialTheme.colorScheme.surface
-        ),
-        elevation=CardDefaults.elevatedCardElevation()
+        accent=tone,
+        selected=connected || connecting || blocked,
+        contentPadding=PaddingValues(14.dp)
     ) {
-        Column(
-            modifier=Modifier.padding(MarbleSpacing.M),
-            horizontalAlignment=Alignment.CenterHorizontally,
-            verticalArrangement=Arrangement.spacedBy(MarbleSpacing.M)
+        Row(
+            modifier=Modifier.fillMaxWidth(),
+            verticalAlignment=Alignment.CenterVertically
         ) {
-            Row(
-                Modifier.fillMaxWidth(),
-                verticalAlignment=Alignment.CenterVertically
-            ) {
+            Column(Modifier.weight(1f)) {
                 Text(
                     when {
                         connected -> "Protected"
-                        connecting -> "Connecting"
+                        connecting -> "Securing route"
                         blocked -> "Fail-closed"
-                        else -> "Ready"
+                        else -> "Ready to protect"
                     },
-                    color=MaterialTheme.colorScheme.onSurfaceVariant,
-                    style=MaterialTheme.typography.labelLarge,
-                    fontWeight=FontWeight.SemiBold
+                    color=Aether.Ink,
+                    style=MaterialTheme.typography.titleLarge,
+                    fontWeight=FontWeight.Bold
                 )
-                Spacer(Modifier.weight(1f))
-                Surface(
-                    shape=RoundedCornerShape(999.dp),
-                    color=MaterialTheme.colorScheme.surfaceVariant
-                ) {
-                    Text(
-                        if(repo.settings.connectionMode == ConnectionMode.FULL_TUN) {
-                            "FULL TUN"
-                        } else {
-                            "SOCKS :${repo.settings.localProxyPort}"
-                        },
-                        modifier=Modifier.padding(horizontal=10.dp,vertical=6.dp),
-                        color=MaterialTheme.colorScheme.onSurfaceVariant,
-                        style=MaterialTheme.typography.labelSmall,
-                        fontWeight=FontWeight.SemiBold
-                    )
-                }
+                Text(
+                    when {
+                        connected -> "Traffic is moving through the selected secure route"
+                        connecting -> "Xray is negotiating the route"
+                        blocked -> "Traffic stays blocked until recovery"
+                        else -> "Choose a route or use the last successful server"
+                    },
+                    color=Aether.InkMuted,
+                    style=MaterialTheme.typography.bodySmall,
+                    maxLines=1,
+                    overflow=TextOverflow.Ellipsis
+                )
             }
-
-            MarbleConnectionQualityRing(
-                score=repo.liveRouteScore,
+            PrismBadge(
+                text=if(repo.settings.connectionMode == ConnectionMode.FULL_TUN) {
+                    "FULL TUN"
+                } else {
+                    "SOCKS :${repo.settings.localProxyPort}"
+                },
                 tone=tone,
-                connecting=connecting,
-                connected=connected,
-                blocked=blocked,
-                onToggle=onToggle
+                strong=connected
             )
-
-            HomeServerSelector(
-                profile=active,
-                activeName=activeName,
-                connected=connected,
-                onLibrary=onLibrary
-            )
-
-            HomeRouteDetailsRow(
-                connected=connected,
-                onDetails=onDetails
-            )
-
-            HomeMetricBento(repo)
         }
+
+        MarbleConnectionQualityRing(
+            score=repo.liveRouteScore,
+            tone=tone,
+            connecting=connecting,
+            connected=connected,
+            blocked=blocked,
+            onToggle=onToggle
+        )
+
+        HomeServerSelector(
+            profile=active,
+            activeName=activeName,
+            connected=connected,
+            onLibrary=onLibrary
+        )
+
+        HomeRouteDetailsRow(
+            connected=connected,
+            onDetails=onDetails
+        )
     }
 }
 
@@ -1853,128 +1975,164 @@ private fun HomeActionPortal(
     modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
-    val shape = RoundedCornerShape(22.dp)
+    val shape=RoundedCornerShape(20.dp)
     Row(
         modifier
-            .heightIn(min = 82.dp)
+            .heightIn(min=78.dp)
+            .border(1.dp,color.copy(alpha=.26f),shape)
             .clip(shape)
-            .background(color.copy(alpha = .075f))
-            .kineticClickable(role = Role.Button, onClick = onClick)
-            .padding(12.dp),
-        verticalAlignment = Alignment.CenterVertically
+            .background(
+                Brush.linearGradient(
+                    listOf(
+                        color.copy(alpha=.075f),
+                        Aether.VoidElevated
+                    )
+                )
+            )
+            .kineticClickable(role=Role.Button,onClick=onClick)
+            .padding(horizontal=11.dp,vertical=10.dp),
+        verticalAlignment=Alignment.CenterVertically
     ) {
         Box(
-            Modifier.size(42.dp).clip(RoundedCornerShape(15.dp)).background(color.copy(alpha = .13f)),
-            contentAlignment = Alignment.Center
+            Modifier
+                .size(38.dp)
+                .clip(RoundedCornerShape(13.dp))
+                .background(color.copy(alpha=.12f)),
+            contentAlignment=Alignment.Center
         ) {
-            HomeVectorIcon(icon, color, Modifier.size(22.dp))
+            HomeVectorIcon(icon,color,Modifier.size(20.dp))
         }
-        Spacer(Modifier.width(10.dp))
+        Spacer(Modifier.width(9.dp))
         Column(Modifier.weight(1f)) {
-            Text(title, color = Aether.Ink, style = MaterialTheme.typography.labelLarge, maxLines = 1)
-            Text(detail, color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(
+                title,
+                color=Aether.Ink,
+                style=MaterialTheme.typography.labelLarge,
+                fontWeight=FontWeight.Bold,
+                maxLines=1
+            )
+            Text(
+                detail,
+                color=Aether.InkFaint,
+                style=MaterialTheme.typography.labelSmall,
+                maxLines=1,
+                overflow=TextOverflow.Ellipsis
+            )
         }
-        HomeVectorIcon(HomeIcon.DETAILS, color.copy(alpha = .72f), Modifier.size(18.dp))
+        HomeVectorIcon(
+            HomeIcon.DETAILS,
+            color.copy(alpha=.72f),
+            Modifier.size(16.dp)
+        )
     }
 }
 
 @Composable
 private fun HomeRouteRibbon(repo: AppRepository) {
-    ElevatedCard(
+    PrismPanel(
         modifier=Modifier.fillMaxWidth(),
-        shape=MaterialTheme.shapes.large,
-        colors=CardDefaults.elevatedCardColors(
-            containerColor=MaterialTheme.colorScheme.surface
-        ),
-        elevation=CardDefaults.elevatedCardElevation()
+        accent=if(repo.sentinel.killSwitchArmed) Aether.Emerald else Aether.Cyan,
+        contentPadding=PaddingValues(14.dp)
     ) {
-        Column(Modifier.fillMaxWidth()) {
-            ListItem(
-                headlineContent={
-                    Text(
-                        repo.networkSnapshot.label,
-                        style=MaterialTheme.typography.titleSmall,
-                        fontWeight=FontWeight.SemiBold
-                    )
-                },
-                supportingContent={
-                    Text(
-                        "↓ ${compactRate(repo.liveDownBps)}  •  ↑ ${compactRate(repo.liveUpBps)}",
-                        style=MaterialTheme.typography.bodySmall,
-                        fontFamily=FontFamily.Monospace
-                    )
-                },
-                leadingContent={
-                    HomeIconTile(HomeIcon.NETWORK,MaterialTheme.colorScheme.primary)
-                },
-                trailingContent={
-                    Surface(
-                        shape=RoundedCornerShape(999.dp),
-                        color=if(repo.sentinel.killSwitchArmed) {
-                            Aether.Emerald.copy(alpha=.10f)
-                        } else MaterialTheme.colorScheme.surfaceVariant
-                    ) {
-                        Text(
-                            if(repo.sentinel.killSwitchArmed) "KILL SWITCH ARMED" else "IDLE",
-                            modifier=Modifier.padding(horizontal=10.dp,vertical=6.dp),
-                            color=if(repo.sentinel.killSwitchArmed) {
-                                Aether.Emerald
-                            } else MaterialTheme.colorScheme.onSurfaceVariant,
-                            style=MaterialTheme.typography.labelSmall,
-                            fontWeight=FontWeight.Bold
-                        )
-                    }
-                },
-                colors=ListItemDefaults.colors(containerColor=Color.Transparent)
-            )
-
-            HorizontalDivider(
-                modifier=Modifier.padding(horizontal=MarbleSpacing.M),
-                color=MaterialTheme.colorScheme.outlineVariant
-            )
-
-            HomeQuickSettingRow(
-                icon=HomeIcon.TUNNEL,
-                title="Full-device tunnel",
-                subtitle="Route the device through VPN instead of local SOCKS only",
-                checked=repo.settings.connectionMode == ConnectionMode.FULL_TUN,
-                enabled=!repo.busy
-            ) { enabled ->
-                repo.setConnectionMode(
-                    if(enabled) ConnectionMode.FULL_TUN else ConnectionMode.LOCAL_PROXY
+        Row(
+            modifier=Modifier.fillMaxWidth(),
+            verticalAlignment=Alignment.CenterVertically
+        ) {
+            Box(
+                Modifier
+                    .size(42.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(Aether.Cyan.copy(alpha=.10f)),
+                contentAlignment=Alignment.Center
+            ) {
+                HomeVectorIcon(
+                    HomeIcon.NETWORK,
+                    Aether.Cyan,
+                    Modifier.size(22.dp)
                 )
             }
-
-            HomeQuickSettingRow(
-                icon=HomeIcon.NETWORK,
-                title="IPv6 inside tunnel",
-                subtitle="Keep IPv6 protected by the selected route",
-                checked=repo.settings.ipv6Enabled,
-                enabled=!repo.busy
-            ) { enabled ->
-                repo.updateSettings(repo.settings.copy(ipv6Enabled=enabled))
-            }
-
-            HomeQuickSettingRow(
-                icon=HomeIcon.SPARK,
-                title="Adaptive MTU",
-                subtitle="Use link and transport evidence instead of one fixed MTU",
-                checked=repo.settings.adaptiveMtuEnabled,
-                enabled=!repo.busy
-            ) { enabled ->
-                repo.updateSettings(repo.settings.copy(adaptiveMtuEnabled=enabled))
-            }
-
-            HomeQuickSettingRow(
-                icon=HomeIcon.SHIELD,
-                title="Kill-switch auto recovery",
-                subtitle="Fail-closed stays enforced; this controls automatic reconnect",
-                checked=repo.settings.autoReconnectAfterKillSwitch,
-                enabled=!repo.busy
-            ) { enabled ->
-                repo.updateSettings(
-                    repo.settings.copy(autoReconnectAfterKillSwitch=enabled)
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    repo.networkSnapshot.label,
+                    color=Aether.Ink,
+                    style=MaterialTheme.typography.titleMedium,
+                    fontWeight=FontWeight.Bold
                 )
+                Text(
+                    "↓ ${compactRate(repo.liveDownBps)}   •   ↑ ${compactRate(repo.liveUpBps)}",
+                    color=Aether.InkMuted,
+                    style=MaterialTheme.typography.bodySmall,
+                    fontFamily=FontFamily.Monospace
+                )
+            }
+            PrismBadge(
+                if(repo.sentinel.killSwitchArmed) "KILL SWITCH" else "IDLE",
+                if(repo.sentinel.killSwitchArmed) Aether.Emerald else Aether.InkMuted,
+                strong=repo.sentinel.killSwitchArmed
+            )
+        }
+
+        HorizontalDivider(color=Aether.GlassBorderSoft)
+
+        Row(
+            modifier=Modifier.fillMaxWidth(),
+            horizontalArrangement=Arrangement.spacedBy(8.dp)
+        ) {
+            Box(Modifier.weight(1f)) {
+                HomeQuickSettingRow(
+                    icon=HomeIcon.TUNNEL,
+                    title="Full TUN",
+                    subtitle="Device-wide route",
+                    checked=repo.settings.connectionMode == ConnectionMode.FULL_TUN,
+                    enabled=!repo.busy
+                ) { enabled ->
+                    repo.setConnectionMode(
+                        if(enabled) ConnectionMode.FULL_TUN
+                        else ConnectionMode.LOCAL_PROXY
+                    )
+                }
+            }
+            Box(Modifier.weight(1f)) {
+                HomeQuickSettingRow(
+                    icon=HomeIcon.NETWORK,
+                    title="IPv6",
+                    subtitle="Inside tunnel",
+                    checked=repo.settings.ipv6Enabled,
+                    enabled=!repo.busy
+                ) { enabled ->
+                    repo.updateSettings(repo.settings.copy(ipv6Enabled=enabled))
+                }
+            }
+        }
+
+        Row(
+            modifier=Modifier.fillMaxWidth(),
+            horizontalArrangement=Arrangement.spacedBy(8.dp)
+        ) {
+            Box(Modifier.weight(1f)) {
+                HomeQuickSettingRow(
+                    icon=HomeIcon.SPARK,
+                    title="Adaptive MTU",
+                    subtitle="Link-aware",
+                    checked=repo.settings.adaptiveMtuEnabled,
+                    enabled=!repo.busy
+                ) { enabled ->
+                    repo.updateSettings(repo.settings.copy(adaptiveMtuEnabled=enabled))
+                }
+            }
+            Box(Modifier.weight(1f)) {
+                HomeQuickSettingRow(
+                    icon=HomeIcon.SHIELD,
+                    title="Auto recovery",
+                    subtitle="Kill-switch reconnect",
+                    checked=repo.settings.autoReconnectAfterKillSwitch,
+                    enabled=!repo.busy
+                ) { enabled ->
+                    repo.updateSettings(
+                        repo.settings.copy(autoReconnectAfterKillSwitch=enabled)
+                    )
+                }
             }
         }
     }
@@ -2664,9 +2822,9 @@ private fun CyberLibrary(
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        // One gutter for the whole screen: titles, controls and cards share the same edge.
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        // Prism v54: compact rhythm with a shared visual gutter.
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 6.dp, bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         item {
             MarbleCompactTopBar(
@@ -2684,13 +2842,17 @@ private fun CyberLibrary(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                OutlinedTextField(
-                    value = search,
-                    onValueChange = { search = it },
-                    placeholder = { Text("Search connections") },
-                    singleLine = true,
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(18.dp)
+                PrismSearchField(
+                    value=search,
+                    onValueChange={ search=it },
+                    placeholder="Search nodes, host or protocol",
+                    modifier=Modifier
+                        .weight(1f)
+                        .border(
+                            1.dp,
+                            Aether.GlassBorderSoft,
+                            RoundedCornerShape(20.dp)
+                        )
                 )
 
                 CyberButton(
@@ -3386,109 +3548,139 @@ private fun LibraryFilterSheet(
 
     ModalBottomSheet(
         onDismissRequest=onDismiss,
-        containerColor=MaterialTheme.colorScheme.surface
+        containerColor=Aether.VoidElevated,
+        dragHandle={
+            Box(
+                Modifier
+                    .padding(top=10.dp,bottom=6.dp)
+                    .width(42.dp)
+                    .height(4.dp)
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(Aether.InkFaint.copy(alpha=.55f))
+            )
+        }
     ) {
         Column(
             modifier=Modifier
                 .fillMaxWidth()
-                .padding(horizontal=MarbleSpacing.M)
-                .padding(bottom=MarbleSpacing.L),
-            verticalArrangement=Arrangement.spacedBy(MarbleSpacing.M)
+                .padding(horizontal=16.dp)
+                .padding(bottom=22.dp),
+            verticalArrangement=Arrangement.spacedBy(14.dp)
         ) {
-            Text(
-                "Filter & sort",
-                style=MaterialTheme.typography.titleLarge,
-                fontWeight=FontWeight.Bold
-            )
-            Text(
-                "Source",
-                color=MaterialTheme.colorScheme.onSurfaceVariant,
-                style=MaterialTheme.typography.labelLarge,
-                fontWeight=FontWeight.SemiBold
-            )
-
-            LazyRow(
-                modifier=Modifier.fillMaxWidth(),
-                horizontalArrangement=Arrangement.spacedBy(MarbleSpacing.S)
-            ) {
-                item("filter-all") {
-                    SourceOrbitChip(
-                        title="All",
-                        detail="${repo.libraryProfiles.size}",
-                        selected=sourceFilter == "all",
-                        color=MaterialTheme.colorScheme.primary,
-                        onClick={ onSourceFilter("all") }
-                    )
-                }
-                if(repo.settings.manualSourceEnabled) {
-                    item("filter-manual") {
-                        SourceOrbitChip(
-                            title="Manual",
-                            detail="$manualCount",
-                            selected=sourceFilter == "manual",
-                            color=Aether.Amber,
-                            onClick={ onSourceFilter("manual") }
-                        )
-                    }
-                }
-                items(repo.subscriptions,key={ "filter-${it.id}" }) { sub ->
-                    SourceOrbitChip(
-                        title=sub.name,
-                        detail="${repo.subscriptionNodeCount(sub.id)}",
-                        selected=sourceFilter == sub.id,
-                        color=if(sub.url.isBlank()) Aether.Emerald else Aether.Amethyst,
-                        onClick={ onSourceFilter(sub.id) },
-                        onManage={ onManageSubscription(sub) }
-                    )
-                }
-            }
-
-            HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant)
-
-            Text(
-                "Sort",
-                color=MaterialTheme.colorScheme.onSurfaceVariant,
-                style=MaterialTheme.typography.labelLarge,
-                fontWeight=FontWeight.SemiBold
-            )
             Row(
-                modifier=Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement=Arrangement.spacedBy(MarbleSpacing.S)
+                modifier=Modifier.fillMaxWidth(),
+                verticalAlignment=Alignment.CenterVertically
             ) {
-                NodeSortMode.entries.forEach { mode ->
-                    CyberChoiceChip(
-                        text=sortModeLabel(mode),
-                        selected=repo.settings.nodeSortMode == mode,
-                        color=MaterialTheme.colorScheme.primary
-                    ) {
-                        repo.updateSettings(
-                            repo.settings.copy(
-                                nodeSortMode=mode,
-                                nodeSortReverse=false
-                            )
-                        )
-                    }
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        "Filter & sort",
+                        color=Aether.Ink,
+                        style=MaterialTheme.typography.headlineSmall,
+                        fontWeight=FontWeight.Bold
+                    )
+                    Text(
+                        "Focus the Library without changing any node",
+                        color=Aether.InkMuted,
+                        style=MaterialTheme.typography.bodySmall
+                    )
                 }
-                CyberChoiceChip(
-                    text=if(repo.settings.nodeSortReverse) "Normal order" else "Reverse",
-                    selected=repo.settings.nodeSortReverse,
-                    color=Aether.Amber
+                Box(
+                    Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(Aether.Cyan.copy(alpha=.085f))
+                        .kineticClickable(role=Role.Button,onClick=onDismiss),
+                    contentAlignment=Alignment.Center
                 ) {
-                    repo.updateSettings(
-                        repo.settings.copy(
-                            nodeSortReverse=!repo.settings.nodeSortReverse
-                        )
+                    HomeVectorIcon(
+                        HomeIcon.CANCEL,
+                        Aether.Cyan,
+                        Modifier.size(17.dp)
                     )
                 }
             }
 
-            TextButton(
-                onClick=onDismiss,
-                modifier=Modifier.align(Alignment.End)
+            PrismPanel(
+                modifier=Modifier.fillMaxWidth(),
+                accent=Aether.Amethyst,
+                contentPadding=PaddingValues(12.dp)
             ) {
-                Text("Done")
+                SectionLabel("Sources","Select one subscription or show everything")
+                LazyRow(
+                    modifier=Modifier.fillMaxWidth(),
+                    horizontalArrangement=Arrangement.spacedBy(8.dp)
+                ) {
+                    item("source-all") {
+                        SourceOrbitChip(
+                            title="All",
+                            detail="${repo.libraryProfiles.size} nodes",
+                            selected=sourceFilter == "all",
+                            color=Aether.Cyan,
+                            onClick={ onSourceFilter("all") }
+                        )
+                    }
+                    if(repo.settings.manualSourceEnabled) {
+                        item("source-manual") {
+                            SourceOrbitChip(
+                                title="Manual",
+                                detail="$manualCount nodes",
+                                selected=sourceFilter == "manual",
+                                color=Aether.Amber,
+                                onClick={ onSourceFilter("manual") }
+                            )
+                        }
+                    }
+                    items(repo.subscriptions,key={ "sheet-${it.id}" }) { sub ->
+                        SourceOrbitChip(
+                            title=sub.name,
+                            detail="${repo.subscriptionNodeCount(sub.id)} nodes",
+                            selected=sourceFilter == sub.id,
+                            color=if(sub.url.isBlank()) Aether.Emerald else Aether.Amethyst,
+                            onClick={ onSourceFilter(sub.id) },
+                            onManage={ onManageSubscription(sub) }
+                        )
+                    }
+                }
+            }
+
+            PrismPanel(
+                modifier=Modifier.fillMaxWidth(),
+                accent=Aether.Cyan,
+                contentPadding=PaddingValues(12.dp)
+            ) {
+                SectionLabel("Sort","Fastest, strongest or easiest to find")
+                LazyRow(
+                    modifier=Modifier.fillMaxWidth(),
+                    horizontalArrangement=Arrangement.spacedBy(7.dp)
+                ) {
+                    items(NodeSortMode.entries,key={ it.name }) { mode ->
+                        CyberChoiceChip(
+                            text=sortModeLabel(mode),
+                            selected=repo.settings.nodeSortMode == mode,
+                            color=Aether.Cyan
+                        ) {
+                            repo.updateSettings(
+                                repo.settings.copy(
+                                    nodeSortMode=mode,
+                                    nodeSortReverse=false
+                                )
+                            )
+                        }
+                    }
+                    item {
+                        CyberChoiceChip(
+                            text=if(repo.settings.nodeSortReverse) "Normal" else "Reverse",
+                            selected=repo.settings.nodeSortReverse,
+                            color=Aether.Amber
+                        ) {
+                            repo.updateSettings(
+                                repo.settings.copy(
+                                    nodeSortReverse=!repo.settings.nodeSortReverse
+                                )
+                            )
+                        }
+                    }
+                }
             }
         }
     }
@@ -3612,41 +3804,68 @@ private fun SourceOrbitChip(
     onClick: () -> Unit,
     onManage: (() -> Unit)? = null
 ) {
-    val width by animateDpAsState(
-        targetValue = if (selected) 178.dp else 138.dp,
-        animationSpec = MarbleMotionSpecs.Dp,
-        label = "source-orbit-$title"
-    )
-    val shape = RoundedCornerShape(18.dp)
+    val shape=RoundedCornerShape(18.dp)
     Row(
-        Modifier.width(width).heightIn(min = 58.dp).clip(shape)
-            .background(if (selected) color.copy(alpha = .12f) else Aether.GlassStrong.copy(alpha = .50f))
-            .border(1.dp, if (selected) color.copy(alpha = .34f) else Color.Transparent, shape)
-            .kineticClickable(role = Role.Button, onClick = onClick)
-            .padding(start = 10.dp, top = 8.dp, end = 7.dp, bottom = 8.dp),
-        verticalAlignment = Alignment.CenterVertically
+        modifier=Modifier
+            .heightIn(min=48.dp)
+            .border(
+                1.dp,
+                if(selected) color.copy(alpha=.48f) else Aether.GlassBorderSoft,
+                shape
+            )
+            .clip(shape)
+            .background(
+                if(selected) color.copy(alpha=.085f) else Aether.VoidElevated
+            )
+            .kineticClickable(role=Role.Button,onClick=onClick)
+            .padding(start=10.dp,end=if(onManage != null && selected) 4.dp else 12.dp),
+        verticalAlignment=Alignment.CenterVertically,
+        horizontalArrangement=Arrangement.spacedBy(8.dp)
     ) {
         Box(
-            Modifier.size(31.dp).clip(RoundedCornerShape(11.dp)).background(color.copy(alpha = if (selected) .18f else .08f)),
-            contentAlignment = Alignment.Center
+            Modifier
+                .size(30.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(color.copy(alpha=.11f)),
+            contentAlignment=Alignment.Center
         ) {
-            Text(title.trim().firstOrNull()?.uppercase() ?: "S", color = color, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+            Text(
+                title.trim().firstOrNull()?.uppercase() ?: "S",
+                color=color,
+                style=MaterialTheme.typography.labelLarge,
+                fontWeight=FontWeight.Bold
+            )
         }
-        Spacer(Modifier.width(8.dp))
-        Column(Modifier.weight(1f)) {
-            Text(title, color = Aether.Ink, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(detail, color = if (selected) color else Aether.InkFaint, style = MaterialTheme.typography.labelSmall, maxLines = 1)
+        Column {
+            Text(
+                title,
+                color=if(selected) color else Aether.Ink,
+                style=MaterialTheme.typography.labelMedium,
+                fontWeight=FontWeight.SemiBold,
+                maxLines=1,
+                overflow=TextOverflow.Ellipsis
+            )
+            Text(
+                detail,
+                color=Aether.InkFaint,
+                style=MaterialTheme.typography.labelSmall,
+                maxLines=1
+            )
         }
-        if (onManage != null && selected) {
+        if(onManage != null && selected) {
             Box(
                 Modifier
-                    .size(48.dp)
+                    .size(40.dp)
                     .clip(CircleShape)
-                    .semantics { contentDescription = "Manage $title" }
-                    .kineticClickable(role = Role.Button, onClick = onManage),
-                contentAlignment = Alignment.Center
+                    .semantics { contentDescription="Manage $title" }
+                    .kineticClickable(role=Role.Button,onClick=onManage),
+                contentAlignment=Alignment.Center
             ) {
-                HomeVectorIcon(HomeIcon.MORE, color, Modifier.size(18.dp))
+                HomeVectorIcon(
+                    HomeIcon.MORE,
+                    color,
+                    Modifier.size(17.dp)
+                )
             }
         }
     }
@@ -3661,28 +3880,36 @@ private fun LibraryMicroAction(
     enabled: Boolean = true,
     onClick: () -> Unit
 ) {
+    val shape=RoundedCornerShape(18.dp)
     FilledTonalButton(
         onClick=onClick,
-        modifier=modifier.heightIn(min=48.dp),
+        modifier=modifier
+            .heightIn(min=50.dp)
+            .border(
+                1.dp,
+                color.copy(alpha=if(enabled) .30f else .12f),
+                shape
+            ),
         enabled=enabled,
-        shape=MaterialTheme.shapes.medium,
+        shape=shape,
         colors=ButtonDefaults.filledTonalButtonColors(
-            containerColor=color.copy(alpha=.12f),
+            containerColor=color.copy(alpha=.09f),
             contentColor=color,
-            disabledContainerColor=MaterialTheme.colorScheme.surfaceVariant,
-            disabledContentColor=MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha=.48f)
-        )
+            disabledContainerColor=Aether.GlassStrong,
+            disabledContentColor=Aether.InkFaint
+        ),
+        contentPadding=PaddingValues(horizontal=10.dp,vertical=8.dp)
     ) {
         HomeVectorIcon(
             icon,
-            if(enabled) color else MaterialTheme.colorScheme.onSurfaceVariant,
-            Modifier.size(17.dp)
+            if(enabled) color else Aether.InkFaint,
+            Modifier.size(18.dp)
         )
-        Spacer(Modifier.width(MarbleSpacing.S))
+        Spacer(Modifier.width(7.dp))
         Text(
             label,
             style=MaterialTheme.typography.labelMedium,
-            fontWeight=FontWeight.SemiBold,
+            fontWeight=FontWeight.Bold,
             maxLines=1
         )
     }
@@ -3949,7 +4176,7 @@ private fun SpatialServerCard(
 
                 Column(Modifier.weight(1f)) {
                     Text(
-                        profile.name,
+                        stripLeadingFlag(profile.name),
                         modifier=Modifier.basicMarquee(
                             iterations=Int.MAX_VALUE,
                             initialDelayMillis=1200
@@ -3983,7 +4210,11 @@ private fun SpatialServerCard(
                 if(latency > 0) {
                     Surface(
                         shape=RoundedCornerShape(999.dp),
-                        color=health.copy(alpha=.11f)
+                        color=health.copy(alpha=.09f),
+                        border=androidx.compose.foundation.BorderStroke(
+                            1.dp,
+                            health.copy(alpha=.32f)
+                        )
                     ) {
                         Column(
                             modifier=Modifier.padding(horizontal=10.dp,vertical=6.dp),
@@ -4237,11 +4468,11 @@ private fun MicroStat(
 // =================================================================================================
 
 private enum class SettingsWorkspaceTab(val label: String, val icon: HomeIcon) {
-    GENERAL("General", HomeIcon.MODE),
+    GENERAL("General", HomeIcon.SPARK),
     TESTS("Testing", HomeIcon.PING),
     NETWORK("Network", HomeIcon.NETWORK),
     ENGINE("Engine", HomeIcon.TUNNEL),
-    SYSTEM("System", HomeIcon.STATUS)
+    SYSTEM("System", HomeIcon.SHIELD)
 }
 
 @Composable
@@ -4267,6 +4498,7 @@ private fun SpatialSettings(
         SettingsWorkspaceTab.NETWORK.ordinal
     } else 0
     val pagerState=rememberPagerState(initialPage=initialPage) { tabs.size }
+    val compactTabsState=rememberLazyListState()
 
     LaunchedEffect(focusSection) {
         if(focusSection == "Routing") {
@@ -4277,23 +4509,44 @@ private fun SpatialSettings(
         }
     }
 
+    LaunchedEffect(pagerState.currentPage) {
+        compactTabsState.animateScrollToItem(pagerState.currentPage)
+    }
+
     Column(Modifier.fillMaxSize()) {
-        MarbleCompactTopBar(
-            title="Settings",
-            subtitle=if(expertMode) "Expert controls" else "Simple controls"
-        )
+        Box(Modifier.padding(horizontal=16.dp)) {
+            MarbleCompactTopBar(
+                title="Settings",
+                subtitle=if(expertMode) "Expert controls" else "Simple controls"
+            )
+        }
 
         BoxWithConstraints(
-            modifier=Modifier.fillMaxWidth().weight(1f)
+            modifier=Modifier
+                .fillMaxWidth()
+                .weight(1f)
         ) {
             if(maxWidth >= 700.dp) {
-                Row(Modifier.fillMaxSize()) {
+                Row(
+                    modifier=Modifier
+                        .fillMaxSize()
+                        .padding(horizontal=12.dp)
+                ) {
+                    val railShape=RoundedCornerShape(24.dp)
                     NavigationRail(
-                        modifier=Modifier.fillMaxHeight(),
-                        containerColor=MaterialTheme.colorScheme.surface
+                        modifier=Modifier
+                            .fillMaxHeight()
+                            .width(94.dp)
+                            .border(
+                                1.dp,
+                                Aether.GlassBorderSoft,
+                                railShape
+                            )
+                            .clip(railShape),
+                        containerColor=Aether.VoidElevated
                     ) {
-                        Spacer(Modifier.height(MarbleSpacing.S))
-                        tabs.forEachIndexed { index, tab ->
+                        Spacer(Modifier.height(8.dp))
+                        tabs.forEachIndexed { index,tab ->
                             val selected=pagerState.currentPage == index
                             NavigationRailItem(
                                 selected=selected,
@@ -4305,29 +4558,34 @@ private fun SpatialSettings(
                                 icon={
                                     HomeVectorIcon(
                                         tab.icon,
-                                        if(selected) {
-                                            MaterialTheme.colorScheme.primary
-                                        } else {
-                                            MaterialTheme.colorScheme.onSurfaceVariant
-                                        },
+                                        if(selected) Aether.Cyan else Aether.InkMuted,
                                         Modifier.size(20.dp)
                                     )
                                 },
                                 label={
                                     Text(
                                         tab.label,
-                                        style=MaterialTheme.typography.labelMedium
+                                        style=MaterialTheme.typography.labelSmall
                                     )
-                                }
+                                },
+                                colors=NavigationRailItemDefaults.colors(
+                                    selectedIconColor=Aether.Cyan,
+                                    selectedTextColor=Aether.Cyan,
+                                    indicatorColor=Aether.Cyan.copy(alpha=.10f),
+                                    unselectedIconColor=Aether.InkMuted,
+                                    unselectedTextColor=Aether.InkMuted
+                                )
                             )
                         }
                     }
 
-                    VerticalDivider(color=MaterialTheme.colorScheme.outlineVariant)
+                    Spacer(Modifier.width(10.dp))
 
                     HorizontalPager(
                         state=pagerState,
-                        modifier=Modifier.fillMaxHeight().weight(1f),
+                        modifier=Modifier
+                            .fillMaxHeight()
+                            .weight(1f),
                         beyondViewportPageCount=1
                     ) { page ->
                         SettingsWorkspacePage(
@@ -4340,90 +4598,73 @@ private fun SpatialSettings(
                 }
             } else {
                 Column(Modifier.fillMaxSize()) {
-                    Box(
-                        modifier=Modifier.fillMaxWidth().height(58.dp)
+                    LazyRow(
+                        state=compactTabsState,
+                        modifier=Modifier
+                            .fillMaxWidth()
+                            .heightIn(min=58.dp),
+                        contentPadding=PaddingValues(
+                            start=16.dp,
+                            end=16.dp,
+                            top=5.dp,
+                            bottom=7.dp
+                        ),
+                        horizontalArrangement=Arrangement.spacedBy(8.dp),
+                        verticalAlignment=Alignment.CenterVertically
                     ) {
-                        ScrollableTabRow(
-                            selectedTabIndex=pagerState.currentPage,
-                            modifier=Modifier.fillMaxSize(),
-                            containerColor=Color.Transparent,
-                            contentColor=MaterialTheme.colorScheme.onSurface,
-                            edgePadding=MarbleSpacing.M,
-                            indicator={},
-                            divider={}
-                        ) {
-                            tabs.forEachIndexed { index, tab ->
-                                val selected=pagerState.currentPage == index
-                                Tab(
-                                    selected=selected,
-                                    onClick={
+                        itemsIndexed(
+                            tabs,
+                            key={ _,tab -> tab.name }
+                        ) { index,tab ->
+                            val selected=pagerState.currentPage == index
+                            val tone=settingsTabTone(tab)
+                            val shape=RoundedCornerShape(18.dp)
+
+                            Row(
+                                modifier=Modifier
+                                    .heightIn(min=46.dp)
+                                    .border(
+                                        1.dp,
+                                        if(selected) tone.copy(alpha=.44f)
+                                        else Aether.GlassBorderSoft,
+                                        shape
+                                    )
+                                    .clip(shape)
+                                    .background(
+                                        if(selected) tone.copy(alpha=.085f)
+                                        else Aether.VoidElevated
+                                    )
+                                    .kineticClickable(
+                                        role=Role.Button
+                                    ) {
                                         scope.launch {
                                             pagerState.animateScrollToPage(index)
                                         }
-                                    },
-                                    selectedContentColor=MaterialTheme.colorScheme.primary,
-                                    unselectedContentColor=MaterialTheme.colorScheme.onSurfaceVariant
-                                ) {
-                                    Row(
-                                        modifier=Modifier
-                                            .clip(RoundedCornerShape(999.dp))
-                                            .background(
-                                                if(selected) {
-                                                    MaterialTheme.colorScheme.secondaryContainer
-                                                } else Color.Transparent
-                                            )
-                                            .padding(horizontal=14.dp,vertical=10.dp),
-                                        verticalAlignment=Alignment.CenterVertically,
-                                        horizontalArrangement=Arrangement.spacedBy(MarbleSpacing.S)
-                                    ) {
-                                        HomeVectorIcon(
-                                            tab.icon,
-                                            if(selected) {
-                                                MaterialTheme.colorScheme.onSecondaryContainer
-                                            } else {
-                                                MaterialTheme.colorScheme.onSurfaceVariant
-                                            },
-                                            Modifier.size(17.dp)
-                                        )
-                                        Text(
-                                            tab.label,
-                                            style=MaterialTheme.typography.labelMedium,
-                                            fontWeight=if(selected) {
-                                                FontWeight.Bold
-                                            } else FontWeight.Medium
-                                        )
                                     }
-                                }
+                                    .padding(horizontal=13.dp,vertical=9.dp),
+                                verticalAlignment=Alignment.CenterVertically,
+                                horizontalArrangement=Arrangement.spacedBy(8.dp)
+                            ) {
+                                HomeVectorIcon(
+                                    tab.icon,
+                                    if(selected) tone else Aether.InkMuted,
+                                    Modifier.size(17.dp)
+                                )
+                                Text(
+                                    tab.label,
+                                    color=if(selected) tone else Aether.InkMuted,
+                                    style=MaterialTheme.typography.labelMedium,
+                                    fontWeight=if(selected) FontWeight.Bold else FontWeight.Medium
+                                )
                             }
                         }
-
-                        Box(
-                            Modifier
-                                .align(Alignment.CenterStart)
-                                .width(18.dp)
-                                .fillMaxHeight()
-                                .background(
-                                    Brush.horizontalGradient(
-                                        listOf(Aether.Void,Color.Transparent)
-                                    )
-                                )
-                        )
-                        Box(
-                            Modifier
-                                .align(Alignment.CenterEnd)
-                                .width(18.dp)
-                                .fillMaxHeight()
-                                .background(
-                                    Brush.horizontalGradient(
-                                        listOf(Color.Transparent,Aether.Void)
-                                    )
-                                )
-                        )
                     }
 
                     HorizontalPager(
                         state=pagerState,
-                        modifier=Modifier.fillMaxWidth().weight(1f),
+                        modifier=Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
                         beyondViewportPageCount=1
                     ) { page ->
                         SettingsWorkspacePage(
@@ -4449,8 +4690,8 @@ private fun SettingsWorkspacePage(
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         when (tab) {
             SettingsWorkspaceTab.GENERAL -> {
@@ -4504,44 +4745,58 @@ private fun SettingsSectionCard(
     color: Color,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    ElevatedCard(
+    PrismPanel(
         modifier=Modifier.fillMaxWidth(),
-        shape=MaterialTheme.shapes.large,
-        colors=CardDefaults.elevatedCardColors(
-            containerColor=MaterialTheme.colorScheme.surface
-        ),
-        elevation=CardDefaults.elevatedCardElevation()
+        accent=color,
+        contentPadding=PaddingValues(14.dp)
     ) {
-        Column(
-            modifier=Modifier.padding(MarbleSpacing.M),
-            verticalArrangement=Arrangement.spacedBy(MarbleSpacing.M)
+        Row(
+            modifier=Modifier.fillMaxWidth(),
+            verticalAlignment=Alignment.CenterVertically,
+            horizontalArrangement=Arrangement.spacedBy(11.dp)
         ) {
-            Row(
-                verticalAlignment=Alignment.CenterVertically,
-                horizontalArrangement=Arrangement.spacedBy(MarbleSpacing.S)
+            Box(
+                Modifier
+                    .size(42.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(color.copy(alpha=.11f))
+                    .border(
+                        1.dp,
+                        color.copy(alpha=.18f),
+                        RoundedCornerShape(14.dp)
+                    ),
+                contentAlignment=Alignment.Center
             ) {
-                HomeIconTile(icon,color,Modifier.size(38.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        title,
-                        color=MaterialTheme.colorScheme.onSurface,
-                        style=MaterialTheme.typography.titleMedium,
-                        fontWeight=FontWeight.SemiBold,
-                        maxLines=1,
-                        overflow=TextOverflow.Ellipsis
-                    )
-                    Text(
-                        subtitle,
-                        color=MaterialTheme.colorScheme.onSurfaceVariant,
-                        style=MaterialTheme.typography.bodySmall,
-                        maxLines=2,
-                        overflow=TextOverflow.Ellipsis
-                    )
-                }
+                HomeVectorIcon(
+                    icon,
+                    color,
+                    Modifier.size(21.dp)
+                )
             }
-            HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant)
-            content()
+            Column(Modifier.weight(1f)) {
+                Text(
+                    title,
+                    color=Aether.Ink,
+                    style=MaterialTheme.typography.titleMedium,
+                    fontWeight=FontWeight.Bold,
+                    maxLines=1,
+                    overflow=TextOverflow.Ellipsis
+                )
+                Text(
+                    subtitle,
+                    color=Aether.InkMuted,
+                    style=MaterialTheme.typography.bodySmall,
+                    maxLines=2,
+                    overflow=TextOverflow.Ellipsis
+                )
+            }
         }
+
+        HorizontalDivider(
+            color=color.copy(alpha=.13f)
+        )
+
+        content()
     }
 }
 
@@ -4564,110 +4819,103 @@ private fun ExpertWorkspaceHint() {
 
 @Composable
 private fun AppearanceSettings(repo: AppRepository) {
-    val options=listOf(
-        Triple("System","system",HomeIcon.STATUS),
-        Triple("White","light",HomeIcon.SPARK),
-        Triple("Dark","dark",HomeIcon.MODE)
-    )
-
     Text(
         "Theme",
-        color=MaterialTheme.colorScheme.onSurface,
+        color=Aether.Ink,
         style=MaterialTheme.typography.titleSmall,
-        fontWeight=FontWeight.SemiBold
+        fontWeight=FontWeight.Bold
     )
-
-    SingleChoiceSegmentedButtonRow(
-        modifier=Modifier.fillMaxWidth()
-    ) {
-        options.forEachIndexed { index, option ->
-            val selected=repo.settings.theme.equals(option.second,true)
-            SegmentedButton(
-                modifier=Modifier.weight(1f),
-                selected=selected,
-                onClick={
-                    repo.updateSettings(repo.settings.copy(theme=option.second))
-                },
-                shape=SegmentedButtonDefaults.itemShape(
-                    index=index,
-                    count=options.size
-                ),
-                icon={
-                    HomeVectorIcon(
-                        option.third,
-                        if(selected) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
-                        Modifier.size(16.dp)
-                    )
-                },
-                label={
-                    Text(
-                        option.first,
-                        maxLines=1,
-                        style=MaterialTheme.typography.labelMedium
-                    )
-                }
-            )
-        }
-    }
-
     Text(
-        "System follows Android light/dark mode and Material You Dynamic Color on Android 12+.",
-        color=MaterialTheme.colorScheme.onSurfaceVariant,
+        "Choose a fixed Marble palette or let Android Material You drive System mode.",
+        color=Aether.InkMuted,
         style=MaterialTheme.typography.bodySmall
     )
 
-    HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant)
+    Row(
+        modifier=Modifier.fillMaxWidth(),
+        horizontalArrangement=Arrangement.spacedBy(8.dp)
+    ) {
+        PrismThemeChoice(
+            label="System",
+            detail="Material You",
+            selected=repo.settings.theme.equals("system",true),
+            darkPreview=false,
+            accent=Aether.Amethyst,
+            modifier=Modifier.weight(1f)
+        ) {
+            repo.updateSettings(repo.settings.copy(theme="system"))
+        }
+        PrismThemeChoice(
+            label="White",
+            detail="Prism Light",
+            selected=repo.settings.theme.equals("light",true),
+            darkPreview=false,
+            accent=Aether.Cyan,
+            modifier=Modifier.weight(1f)
+        ) {
+            repo.updateSettings(repo.settings.copy(theme="light"))
+        }
+        PrismThemeChoice(
+            label="Dark",
+            detail="Prism Night",
+            selected=repo.settings.theme.equals("dark",true),
+            darkPreview=true,
+            accent=Aether.Emerald,
+            modifier=Modifier.weight(1f)
+        ) {
+            repo.updateSettings(repo.settings.copy(theme="dark"))
+        }
+    }
+
+    HorizontalDivider(color=Aether.GlassBorderSoft)
 
     SettingSwitch(
         "Expert controls",
         "Reveal MTU, DNS, routing, fragmentation, recovery and chain settings",
         repo.settings.expertMode
-    ) { repo.updateSettings(repo.settings.copy(expertMode=it)) }
+    ) {
+        repo.updateSettings(repo.settings.copy(expertMode=it))
+    }
 
     SettingSwitch(
         "Automatic app update checks",
-        "Check GitHub Releases whenever MarbleNG returns to the foreground",
+        "Check signed GitHub Releases when MarbleNG returns to the foreground",
         repo.settings.appUpdateCheckEnabled
     ) { enabled ->
-        repo.updateSettings(repo.settings.copy(appUpdateCheckEnabled=enabled))
+        repo.updateSettings(
+            repo.settings.copy(appUpdateCheckEnabled=enabled)
+        )
         if(enabled) repo.checkForAppUpdate(force=true)
     }
 
-    HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant)
-
-    Text(
+    SectionLabel(
         "Home layout",
-        color=MaterialTheme.colorScheme.onSurface,
-        style=MaterialTheme.typography.titleSmall,
-        fontWeight=FontWeight.SemiBold
-    )
-    Text(
-        "Choose optional Home surfaces without disabling their underlying engine.",
-        color=MaterialTheme.colorScheme.onSurfaceVariant,
-        style=MaterialTheme.typography.bodySmall
+        "Optional surfaces only — the underlying engine keeps running"
     )
 
     SettingSwitch(
         "Summary metrics on Home",
         "Show Nodes, Xray OK and Mode below the connection panel",
         repo.settings.homeShowSummaryMetrics
-    ) { repo.updateSettings(repo.settings.copy(homeShowSummaryMetrics=it)) }
+    ) {
+        repo.updateSettings(repo.settings.copy(homeShowSummaryMetrics=it))
+    }
 
     SettingSwitch(
         "Iran Mode card on Home",
-        "Hide only the Home card; Iran Mode protection keeps running",
+        "Hide only the Home card; Iran Mode protection stays active",
         repo.settings.homeShowIranMode
-    ) { repo.updateSettings(repo.settings.copy(homeShowIranMode=it)) }
+    ) {
+        repo.updateSettings(repo.settings.copy(homeShowIranMode=it))
+    }
 
     SettingSwitch(
         "Quick Actions on Home",
-        "Show or hide Rank, Library, Privacy and Routing shortcuts",
+        "Show Rank, Library, Privacy and Routing shortcuts",
         repo.settings.homeShowQuickActions
-    ) { repo.updateSettings(repo.settings.copy(homeShowQuickActions=it)) }
+    ) {
+        repo.updateSettings(repo.settings.copy(homeShowQuickActions=it))
+    }
 }
 
 
@@ -5991,22 +6239,29 @@ private fun CyberButton(
     enabled: Boolean = true,
     onClick: () -> Unit
 ) {
+    val shape=RoundedCornerShape(18.dp)
     FilledTonalButton(
         onClick=onClick,
-        modifier=modifier.heightIn(min=48.dp),
+        modifier=modifier
+            .heightIn(min=50.dp)
+            .border(
+                1.dp,
+                color.copy(alpha=if(enabled) .30f else .12f),
+                shape
+            ),
         enabled=enabled,
-        shape=MaterialTheme.shapes.medium,
+        shape=shape,
         colors=ButtonDefaults.filledTonalButtonColors(
-            containerColor=color.copy(alpha=.12f),
+            containerColor=color.copy(alpha=.09f),
             contentColor=color,
-            disabledContainerColor=MaterialTheme.colorScheme.surfaceVariant,
-            disabledContentColor=MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha=.45f)
+            disabledContainerColor=Aether.GlassStrong,
+            disabledContentColor=Aether.InkFaint
         )
     ) {
         Text(
             label,
             style=MaterialTheme.typography.labelLarge,
-            fontWeight=FontWeight.SemiBold,
+            fontWeight=FontWeight.Bold,
             maxLines=1,
             overflow=TextOverflow.Ellipsis
         )
@@ -6021,16 +6276,31 @@ private fun CyberChoiceChip(
     color: Color,
     onClick: () -> Unit
 ) {
+    val shape=RoundedCornerShape(999.dp)
     FilterChip(
+        modifier=Modifier.border(
+            1.dp,
+            if(selected) color.copy(alpha=.42f) else Aether.GlassBorderSoft,
+            shape
+        ),
         selected=selected,
         onClick=onClick,
+        shape=shape,
         label={
             Text(
                 text,
                 style=MaterialTheme.typography.labelMedium,
+                fontWeight=if(selected) FontWeight.Bold else FontWeight.Medium,
                 maxLines=1
             )
-        }
+        },
+        border=null,
+        colors=FilterChipDefaults.filterChipColors(
+            containerColor=Aether.VoidElevated,
+            labelColor=Aether.InkMuted,
+            selectedContainerColor=color.copy(alpha=.085f),
+            selectedLabelColor=color
+        )
     )
 }
 
@@ -6084,35 +6354,61 @@ private fun SettingSwitch(
     checked: Boolean,
     onChecked: (Boolean) -> Unit
 ) {
+    val tone=if(checked) Aether.Cyan else Aether.InkMuted
+    val border by animateColorAsState(
+        targetValue=if(checked) {
+            Aether.Cyan.copy(alpha=.28f)
+        } else {
+            Aether.GlassBorderSoft
+        },
+        animationSpec=MarbleMotionSpecs.Color,
+        label="setting-row-border"
+    )
+    val shape=RoundedCornerShape(18.dp)
+
     Row(
         modifier=Modifier
             .fillMaxWidth()
-            .padding(vertical=MarbleSpacing.S),
+            .border(1.dp,border,shape)
+            .clip(shape)
+            .background(
+                if(checked) Aether.Cyan.copy(alpha=.035f)
+                else Aether.VoidElevated
+            )
+            .padding(horizontal=12.dp,vertical=10.dp),
         verticalAlignment=Alignment.CenterVertically,
-        horizontalArrangement=Arrangement.spacedBy(MarbleSpacing.M)
+        horizontalArrangement=Arrangement.spacedBy(12.dp)
     ) {
+        Box(
+            Modifier
+                .size(8.dp)
+                .clip(CircleShape)
+                .background(tone)
+        )
         Column(Modifier.weight(1f)) {
             Text(
                 title,
-                color=MaterialTheme.colorScheme.onSurface,
+                color=Aether.Ink,
                 style=MaterialTheme.typography.bodyMedium,
                 fontWeight=FontWeight.SemiBold
             )
             Text(
                 subtitle,
-                color=MaterialTheme.colorScheme.onSurfaceVariant,
-                style=MaterialTheme.typography.bodySmall
+                color=Aether.InkMuted,
+                style=MaterialTheme.typography.bodySmall,
+                maxLines=2,
+                overflow=TextOverflow.Ellipsis
             )
         }
         Switch(
             checked=checked,
             onCheckedChange=onChecked,
             colors=SwitchDefaults.colors(
-                checkedTrackColor=MaterialTheme.colorScheme.primary,
-                checkedThumbColor=MaterialTheme.colorScheme.onPrimary,
-                uncheckedTrackColor=MaterialTheme.colorScheme.surfaceVariant,
-                uncheckedThumbColor=MaterialTheme.colorScheme.onSurfaceVariant,
-                uncheckedBorderColor=MaterialTheme.colorScheme.outline
+                checkedTrackColor=Aether.Cyan,
+                checkedThumbColor=Color.White,
+                uncheckedTrackColor=Aether.GlassStrong,
+                uncheckedThumbColor=Aether.InkMuted,
+                uncheckedBorderColor=Aether.GlassBorder
             )
         )
     }

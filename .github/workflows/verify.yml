@@ -83,7 +83,7 @@ jobs:
           set -euo pipefail
           python3 scripts/system-integrity-check.py
 
-      - name: Verify Product UI + Material 3 Expressive invariants
+      - name: Verify Prism Product UI invariants
         shell: bash
         run: |
           set -euo pipefail
@@ -98,10 +98,21 @@ jobs:
               'v9.1 marker':'Marble Product UI v9.1.0' in ui,
               'modern Canvas icons':'MarbleTabIcon(' in ui,
               'official M3 switch':'Switch(' in ui and 'SwitchDefaults.colors(' in ui and 'MarbleToggle(' not in ui,
-              'v53 marker':'MARBLE_M3_EXPRESSIVE_UI_V53' in ui,
-              'official navigation elevation':'NavigationBar(' in ui and 'NavigationBarDefaults.Elevation' in ui,
-              'official card elevation':'ElevatedCard(' in ui and 'CardDefaults.elevatedCardElevation()' in ui,
-              'segmented theme selector':'SingleChoiceSegmentedButtonRow(' in ui,
+              'v53 compatibility marker':'MARBLE_M3_EXPRESSIVE_UI_V53' in ui,
+              'v54 marker':'MARBLE_PRISM_UI_V54' in ui,
+              'v54 theme':'MARBLE_PRISM_THEME_V54' in theme,
+              'v54 design system':'MARBLE_PRISM_DESIGN_SYSTEM_V54' in design,
+              'premium vector route':'PrismConnectionStage(' in design,
+              'prism backdrop':'PrismBackdrop(' in ui,
+              'floating official navigation':'NavigationBar(' in ui and 'NavigationBarItem(' in ui,
+              'profile name not runtime detail':'val activeName = active?.name ?: "Choose a route"' in ui,
+              'flag aware node identity':'stripLeadingFlag(profile.name)' in ui and 'leadingFlagGlyph' in design,
+              'compact settings categories':'compactTabsState' in ui and 'LazyRow(' in ui,
+              'source-aware deletion preserved':'removeProfile(profile.id, profile.subscriptionId)' in ui,
+              'brand vector':'R.drawable.ic_marble_prism' in ui,
+              'official Material navigation':'NavigationBar(' in ui and 'NavigationBarItem(' in ui,
+              'layered Prism surfaces':'PrismPanel(' in ui and 'PrismPanel(' in design,
+              'visual theme previews':'PrismThemeChoice(' in ui and 'PrismThemeChoice(' in design,
               'library filter bottom sheet':'ModalBottomSheet(' in ui and 'LibraryFilterSheet(' in ui,
               'library swipe actions':'SwipeToDismissBox(' in ui,
               'adaptive settings rail':'NavigationRail(' in ui and 'maxWidth >= 700.dp' in ui,
@@ -116,7 +127,7 @@ jobs:
           failed=[k for k,v in required.items() if not v]
           if failed:
               raise SystemExit('Product UI v9.1 invariant failure: '+', '.join(failed))
-          print('[OK] Product UI + Material 3 Expressive invariants')
+          print('[OK] Prism Product UI v54 invariants')
           PY
 
       - name: Set up JDK 17

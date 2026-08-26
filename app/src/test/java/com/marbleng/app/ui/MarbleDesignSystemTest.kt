@@ -1,6 +1,7 @@
 package com.marbleng.app.ui
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Test
 
 class MarbleDesignSystemTest {
@@ -17,11 +18,11 @@ class MarbleDesignSystemTest {
 
     @Test
     fun jitterBandsKeepUnknownNeutral() {
-        assertEquals(MarbleMetricBand.UNKNOWN, jitterMetricBand(0, 0))
-        assertEquals(MarbleMetricBand.GOOD, jitterMetricBand(19, 2))
-        assertEquals(MarbleMetricBand.WARNING, jitterMetricBand(20, 2))
-        assertEquals(MarbleMetricBand.WARNING, jitterMetricBand(50, 2))
-        assertEquals(MarbleMetricBand.POOR, jitterMetricBand(51, 2))
+        assertEquals(MarbleMetricBand.UNKNOWN, jitterMetricBand(0,0))
+        assertEquals(MarbleMetricBand.GOOD, jitterMetricBand(19,2))
+        assertEquals(MarbleMetricBand.WARNING, jitterMetricBand(20,2))
+        assertEquals(MarbleMetricBand.WARNING, jitterMetricBand(50,2))
+        assertEquals(MarbleMetricBand.POOR, jitterMetricBand(51,2))
     }
 
     @Test
@@ -31,5 +32,18 @@ class MarbleDesignSystemTest {
         assertEquals(MarbleMetricBand.WARNING, qualityMetricBand(60))
         assertEquals(MarbleMetricBand.GOOD, qualityMetricBand(80))
         assertEquals(MarbleMetricBand.GOOD, qualityMetricBand(100))
+    }
+
+    @Test
+    fun leadingCountryFlagMovesIntoAvatarWithoutLosingName() {
+        assertEquals("🇫🇷",leadingFlagGlyph("🇫🇷 France"))
+        assertEquals("France",stripLeadingFlag("🇫🇷 France"))
+        assertEquals("Emirates 1",stripLeadingFlag("🇦🇪 Emirates 1"))
+    }
+
+    @Test
+    fun ordinaryNamesArePreserved() {
+        assertNull(leadingFlagGlyph("Fast node"))
+        assertEquals("Fast node",stripLeadingFlag("Fast node"))
     }
 }
