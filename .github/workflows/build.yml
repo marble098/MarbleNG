@@ -720,6 +720,7 @@ jobs:
             --notes "## MarbleNG $VERSION_NAME
 
           ### Manual chains, adaptive intelligence and Quick Tile v49
+          - Restored the Compose boundary on DNS Settings after removing the legacy Chain Settings block; both Debug and Release Kotlin compilation now gate promotion before main can advance.
           - Removed the old global two-hop Chain proxy switch from Settings and moved chain creation to Library → Add → Manual config → Chain proxy.
           - Chains are saved as independent reusable Library profiles, support ordered add/move/remove controls, and have no arbitrary hop-count limit.
           - Namespaced every hop's outbound graph and internal proxy/dialer references so custom and already-composite Xray configurations can be chained safely.

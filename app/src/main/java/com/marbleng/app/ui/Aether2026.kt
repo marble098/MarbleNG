@@ -4563,6 +4563,7 @@ private fun FragmentMuxSettings(repo: AppRepository) {
     }
 }
 
+@Composable
 private fun DnsSettings(repo: AppRepository) {
     val underlay = repo.networkSnapshot
 
