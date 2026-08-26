@@ -202,6 +202,7 @@ check("Library exact active-row check exists", "repo.isActiveProfile(profile)" i
 check("Settings use swipeable pager tabs", "HorizontalPager(" in files["ui"] and "SettingsWorkspaceTab" in files["ui"])
 check("Library long names use overflow marquee", "basicMarquee(" in files["ui"])
 check("legacy global chain settings are removed", "chainEnabled" not in files["models"] + files["store"] + files["ui"])
+check("DNS settings keep their Compose boundary", "@Composable\nprivate fun DnsSettings(" in files["ui"])
 check("Manual Library supports unbounded saved chains", "fun composeChain(sources: List<String>)" in files["hardener"] and "addManualChain" in files["repo"] and "ManualChainEditor" in files["ui"])
 check("Quick Tile reconnects exact last profile", "lastProfile()" in files["tile"] and "ACTION_CONNECT_LAST" in files["tile"] and "lastProfileSourceId" in files["store"])
 check("Quick Tile service is permission protected", "android.permission.BIND_QUICK_SETTINGS_TILE" in files["manifest"] and ".quicktile.MarbleQuickTileService" in files["manifest"])
