@@ -28,6 +28,7 @@ package com.marbleng.app.ui
 // MARBLE_RANK_RECOVERY_CARD_UX_V43
 // MARBLE_TABBED_SETTINGS_QUALITY_UI_V46
 // MARBLE_REFINED_PRODUCT_UI_V52
+// MARBLE_M3_EXPRESSIVE_UI_V53
 
 import android.Manifest
 import android.content.Intent
@@ -663,94 +664,41 @@ private fun FloatingSpatialDock(
     selected: SpatialTab,
     onSelect: (SpatialTab) -> Unit
 ) {
-    val dockShape = RoundedCornerShape(22.dp)
-
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .navigationBarsPadding()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        contentAlignment = Alignment.Center
+    NavigationBar(
+        modifier=Modifier.fillMaxWidth(),
+        containerColor=MaterialTheme.colorScheme.surface,
+        tonalElevation=NavigationBarDefaults.Elevation
     ) {
-        Surface(
-            modifier = Modifier
-                .widthIn(max = 560.dp)
-                .fillMaxWidth()
-                .shadow(
-                    elevation = 6.dp,
-                    shape = dockShape,
-                    clip = false,
-                    ambientColor = Color.Black.copy(alpha = .035f),
-                    spotColor = Color.Black.copy(alpha = .06f)
-                ),
-            shape = dockShape,
-            color = Aether.VoidElevated,
-            border = null,
-            tonalElevation = 0.dp,
-            shadowElevation = 0.dp
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 6.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                SpatialTab.entries.forEach { item ->
-                    val active = item == selected
-                    val background by animateColorAsState(
-                        targetValue = if (active) Aether.Cyan.copy(alpha = .105f) else Color.Transparent,
-                        animationSpec = MarbleMotionSpecs.Color,
-                        label = "nav-bg-${item.name}"
+        SpatialTab.entries.forEach { item ->
+            val active=item == selected
+            NavigationBarItem(
+                selected=active,
+                onClick={ onSelect(item) },
+                icon={
+                    MarbleTabIcon(
+                        tab=item,
+                        color=if(active) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        active=active,
+                        modifier=Modifier.size(22.dp)
                     )
-                    val iconColor by animateColorAsState(
-                        targetValue = if (active) Aether.Cyan else Aether.InkFaint,
-                        animationSpec = MarbleMotionSpecs.Color,
-                        label = "nav-icon-${item.name}"
+                },
+                label={
+                    Text(
+                        item.label,
+                        style=MaterialTheme.typography.labelMedium,
+                        fontWeight=if(active) FontWeight.Bold else FontWeight.Medium
                     )
-                    val textColor by animateColorAsState(
-                        targetValue = if (active) Aether.Ink else Aether.InkMuted,
-                        animationSpec = MarbleMotionSpecs.Color,
-                        label = "nav-text-${item.name}"
-                    )
-                    val iconSize by animateDpAsState(
-                        targetValue = if (active) 22.dp else 20.dp,
-                        animationSpec = MarbleMotionSpecs.Dp,
-                        label = "nav-size-${item.name}"
-                    )
-
-                    Column(
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(54.dp)
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(background)
-                            .kineticClickable(role = Role.Tab) { onSelect(item) }
-                            .padding(horizontal = 2.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
-                    ) {
-                        MarbleTabIcon(
-                            tab = item,
-                            color = iconColor,
-                            active = active,
-                            modifier = Modifier.size(iconSize)
-                        )
-                        Spacer(Modifier.height(3.dp))
-                        Text(
-                            item.label,
-                            color = textColor,
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = if (active) FontWeight.Bold else FontWeight.SemiBold,
-                            maxLines = 1,
-                            softWrap = false,
-                            overflow = TextOverflow.Clip
-                        )
-                    }
-                }
-            }
+                },
+                alwaysShowLabel=true
+            )
         }
     }
 }
+
 
 @Composable
 private fun MarbleTabIcon(
@@ -859,30 +807,30 @@ private fun HoloGlass(
     contentPadding: PaddingValues = PaddingValues(16.dp),
     content: @Composable ColumnScope.() -> Unit
 ) {
-    val shape = RoundedCornerShape(22.dp)
-    val borderTint by animateColorAsState(
-        targetValue = borderColor,
-        animationSpec = MarbleMotionSpecs.Color,
-        label = "surface-border"
-    )
-    Column(
-        modifier = modifier
-            .clip(shape)
-            .background(Aether.VoidElevated)
-            .border(1.dp, borderTint, shape)
-            .padding(contentPadding),
-        verticalArrangement = Arrangement.spacedBy(11.dp),
-        content = content
-    )
+    val shape=MaterialTheme.shapes.large
+    val framed=if(borderColor != Color.Transparent) {
+        modifier.border(
+            androidx.compose.foundation.BorderStroke(1.dp,borderColor),
+            shape
+        )
+    } else modifier
+
+    ElevatedCard(
+        modifier=framed,
+        shape=shape,
+        colors=CardDefaults.elevatedCardColors(
+            containerColor=MaterialTheme.colorScheme.surface
+        ),
+        elevation=CardDefaults.elevatedCardElevation()
+    ) {
+        Column(
+            modifier=Modifier.padding(contentPadding),
+            verticalArrangement=Arrangement.spacedBy(MarbleSpacing.S),
+            content=content
+        )
+    }
 }
 
-/**
- * Progress that belongs to one card.
- *
- * fraction == null runs an indeterminate sweep (this node is being probed right now); a value
- * renders a determinate fill. This replaces the single anonymous bar that used to sit at the top
- * of the screen for every background task.
- */
 @Composable
 private fun LiveProgressBar(
     fraction: Float?,
@@ -1223,6 +1171,402 @@ private fun HomeStatusChip(
     }
 }
 
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun MarbleCompactTopBar(
+    title: String,
+    subtitle: String = "",
+    actionLabel: String? = null,
+    actionIcon: HomeIcon? = null,
+    onAction: (() -> Unit)? = null
+) {
+    TopAppBar(
+        title={
+            Column(verticalArrangement=Arrangement.spacedBy(2.dp)) {
+                Text(
+                    title,
+                    color=MaterialTheme.colorScheme.onSurface,
+                    style=MaterialTheme.typography.titleLarge,
+                    fontWeight=FontWeight.Bold,
+                    maxLines=1,
+                    overflow=TextOverflow.Ellipsis
+                )
+                if(subtitle.isNotBlank()) {
+                    Text(
+                        subtitle,
+                        color=MaterialTheme.colorScheme.onSurfaceVariant,
+                        style=MaterialTheme.typography.labelMedium,
+                        maxLines=1,
+                        overflow=TextOverflow.Ellipsis
+                    )
+                }
+            }
+        },
+        actions={
+            if(onAction != null && actionLabel != null) {
+                TextButton(
+                    onClick=onAction,
+                    contentPadding=PaddingValues(horizontal=12.dp,vertical=8.dp)
+                ) {
+                    if(actionIcon != null) {
+                        HomeVectorIcon(
+                            actionIcon,
+                            MaterialTheme.colorScheme.primary,
+                            Modifier.size(18.dp)
+                        )
+                        Spacer(Modifier.width(MarbleSpacing.S))
+                    }
+                    Text(
+                        actionLabel,
+                        style=MaterialTheme.typography.labelLarge,
+                        fontWeight=FontWeight.SemiBold
+                    )
+                }
+            }
+        },
+        colors=TopAppBarDefaults.topAppBarColors(
+            containerColor=Color.Transparent
+        )
+    )
+}
+
+@Composable
+private fun MarbleServerAvatar(
+    profile: ProxyProfile?,
+    active: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val glyph=profile?.host?.let(::countryGlyph).orEmpty()
+    val text=glyph.takeIf { it.isNotBlank() && it != "◈" }
+        ?: profile?.scheme?.trim()?.take(1)?.uppercase()?.ifBlank { "M" }
+        ?: "M"
+    val tone=if(active) Aether.Emerald else MaterialTheme.colorScheme.primary
+
+    Surface(
+        modifier=modifier.size(44.dp),
+        shape=CircleShape,
+        color=tone.copy(alpha=.11f),
+        border=if(active) {
+            androidx.compose.foundation.BorderStroke(1.dp,tone.copy(alpha=.55f))
+        } else null
+    ) {
+        Box(contentAlignment=Alignment.Center) {
+            Text(
+                text,
+                color=tone,
+                style=MaterialTheme.typography.titleMedium,
+                fontWeight=FontWeight.Bold
+            )
+        }
+    }
+}
+
+@Composable
+private fun HomeServerSelector(
+    profile: ProxyProfile?,
+    activeName: String,
+    connected: Boolean,
+    onLibrary: () -> Unit
+) {
+    ElevatedCard(
+        onClick=onLibrary,
+        modifier=Modifier.fillMaxWidth(),
+        shape=MaterialTheme.shapes.large,
+        colors=CardDefaults.elevatedCardColors(
+            containerColor=MaterialTheme.colorScheme.surfaceVariant.copy(alpha=.62f)
+        ),
+        elevation=CardDefaults.elevatedCardElevation()
+    ) {
+        Row(
+            modifier=Modifier
+                .fillMaxWidth()
+                .padding(MarbleSpacing.M),
+            verticalAlignment=Alignment.CenterVertically,
+            horizontalArrangement=Arrangement.spacedBy(MarbleSpacing.M)
+        ) {
+            MarbleServerAvatar(profile=profile,active=connected)
+            Column(Modifier.weight(1f)) {
+                Text(
+                    activeName,
+                    color=MaterialTheme.colorScheme.onSurface,
+                    style=MaterialTheme.typography.titleMedium,
+                    fontWeight=FontWeight.SemiBold,
+                    maxLines=1,
+                    overflow=TextOverflow.Ellipsis
+                )
+                Text(
+                    profile?.let {
+                        listOfNotNull(
+                            it.scheme.uppercase(),
+                            it.host.takeIf(String::isNotBlank),
+                            it.port.takeIf { p -> p > 0 }?.toString()
+                        ).joinToString(" • ")
+                    }.orEmpty().ifBlank { "Choose from Library" },
+                    color=MaterialTheme.colorScheme.onSurfaceVariant,
+                    style=MaterialTheme.typography.bodySmall,
+                    maxLines=1,
+                    overflow=TextOverflow.Ellipsis
+                )
+            }
+            HomeVectorIcon(
+                HomeIcon.DETAILS,
+                MaterialTheme.colorScheme.onSurfaceVariant,
+                Modifier.size(20.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun HomeRouteDetailsRow(
+    connected: Boolean,
+    onDetails: () -> Unit
+) {
+    Surface(
+        modifier=Modifier
+            .fillMaxWidth()
+            .clip(MaterialTheme.shapes.medium)
+            .kineticClickable(role=Role.Button,onClick=onDetails),
+        color=Color.Transparent
+    ) {
+        Row(
+            modifier=Modifier
+                .fillMaxWidth()
+                .padding(horizontal=MarbleSpacing.S,vertical=MarbleSpacing.S),
+            verticalAlignment=Alignment.CenterVertically
+        ) {
+            HomeVectorIcon(
+                HomeIcon.ROUTE,
+                MaterialTheme.colorScheme.onSurfaceVariant,
+                Modifier.size(18.dp)
+            )
+            Spacer(Modifier.width(MarbleSpacing.S))
+            Text(
+                if(connected) "Route details" else "Inspect selected route",
+                modifier=Modifier.weight(1f),
+                color=MaterialTheme.colorScheme.onSurface,
+                style=MaterialTheme.typography.bodyMedium,
+                fontWeight=FontWeight.Medium
+            )
+            HomeVectorIcon(
+                HomeIcon.DETAILS,
+                MaterialTheme.colorScheme.onSurfaceVariant,
+                Modifier.size(18.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun MarbleConnectionQualityRing(
+    score: Int,
+    tone: Color,
+    connecting: Boolean,
+    connected: Boolean,
+    blocked: Boolean,
+    onToggle: () -> Unit
+) {
+    val animatedTone by animateColorAsState(
+        targetValue=tone,
+        animationSpec=MarbleMotionSpecs.Color,
+        label="connection-ring-tone-v53"
+    )
+    val progress by animateFloatAsState(
+        targetValue=if(score >= 0) score.coerceIn(0,100)/100f else 0f,
+        animationSpec=MarbleMotionSpecs.ProgressFloat,
+        label="connection-ring-quality-v53"
+    )
+    val pulse=MarbleMotion.current.breathe(2200)
+    val phase=MarbleMotion.current.loop(1300)
+    val outline=MaterialTheme.colorScheme.outlineVariant
+
+    Box(
+        modifier=Modifier
+            .size(144.dp)
+            .kineticClickable(role=Role.Button,pressScale=.95f,onClick=onToggle),
+        contentAlignment=Alignment.Center
+    ) {
+        Canvas(Modifier.matchParentSize()) {
+            val inset=8.dp.toPx()
+            val diameter=size.minDimension-inset*2f
+            val stroke=8.dp.toPx()
+
+            drawCircle(
+                color=outline.copy(alpha=.38f),
+                radius=diameter/2f,
+                style=Stroke(width=stroke,cap=StrokeCap.Round)
+            )
+
+            when {
+                connected && progress > 0f -> {
+                    drawArc(
+                        color=animatedTone,
+                        startAngle=-90f,
+                        sweepAngle=360f*progress,
+                        useCenter=false,
+                        topLeft=Offset(inset,inset),
+                        size=Size(diameter,diameter),
+                        style=Stroke(width=stroke,cap=StrokeCap.Round)
+                    )
+                    drawCircle(
+                        color=animatedTone.copy(alpha=.08f+pulse*.08f),
+                        radius=diameter/2f+4.dp.toPx(),
+                        style=Stroke(width=2.dp.toPx())
+                    )
+                }
+                connecting -> drawArc(
+                    color=animatedTone,
+                    startAngle=-90f+phase*360f,
+                    sweepAngle=92f,
+                    useCenter=false,
+                    topLeft=Offset(inset,inset),
+                    size=Size(diameter,diameter),
+                    style=Stroke(width=stroke,cap=StrokeCap.Round)
+                )
+                else -> drawArc(
+                    color=animatedTone.copy(alpha=if(blocked) 1f else .72f),
+                    startAngle=-90f,
+                    sweepAngle=if(blocked) 300f else 72f,
+                    useCenter=false,
+                    topLeft=Offset(inset,inset),
+                    size=Size(diameter,diameter),
+                    style=Stroke(width=stroke,cap=StrokeCap.Round)
+                )
+            }
+        }
+
+        Column(
+            horizontalAlignment=Alignment.CenterHorizontally,
+            verticalArrangement=Arrangement.spacedBy(MarbleSpacing.Micro)
+        ) {
+            HomeVectorIcon(
+                icon=when {
+                    connected -> HomeIcon.STOP
+                    connecting -> HomeIcon.CANCEL
+                    blocked -> HomeIcon.RESET
+                    else -> HomeIcon.POWER
+                },
+                color=animatedTone,
+                modifier=Modifier.size(30.dp)
+            )
+            Text(
+                when {
+                    connected -> "DISCONNECT"
+                    connecting -> "CANCEL"
+                    blocked -> "RESET"
+                    else -> "CONNECT"
+                },
+                color=animatedTone,
+                style=MaterialTheme.typography.labelMedium,
+                fontWeight=FontWeight.Bold
+            )
+            if(connected && score >= 0) {
+                Text(
+                    "$score%",
+                    color=MaterialTheme.colorScheme.onSurfaceVariant,
+                    style=MaterialTheme.typography.labelSmall,
+                    fontFamily=FontFamily.Monospace
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun HomeMetricBento(repo: AppRepository) {
+    val pingHistory=remember { mutableStateListOf<Int>() }
+
+    LaunchedEffect(repo.livePingMs) {
+        val value=repo.livePingMs
+        if(value > 0 && (pingHistory.lastOrNull() != value || pingHistory.size < 2)) {
+            pingHistory += value
+            while(pingHistory.size > 36) pingHistory.removeAt(0)
+        }
+    }
+
+    val pingTone=marbleMetricTone(pingMetricBand(repo.livePingMs))
+    val jitterTone=marbleMetricTone(
+        jitterMetricBand(repo.liveJitterMs,repo.liveJitterSamples)
+    )
+    val qualityTone=marbleMetricTone(qualityMetricBand(repo.liveRouteScore))
+
+    Row(
+        modifier=Modifier
+            .fillMaxWidth()
+            .height(164.dp),
+        horizontalArrangement=Arrangement.spacedBy(MarbleSpacing.S)
+    ) {
+        MarbleMetricCard(
+            title="Ping",
+            value=if(repo.livePingMs > 0) repo.livePingMs.toString() else "—",
+            unit=if(repo.livePingMs > 0) "ms" else "",
+            tone=pingTone,
+            sparkline=pingHistory,
+            modifier=Modifier.weight(1.18f).fillMaxHeight()
+        )
+        Column(
+            modifier=Modifier.weight(.82f).fillMaxHeight(),
+            verticalArrangement=Arrangement.spacedBy(MarbleSpacing.S)
+        ) {
+            MarbleMetricCard(
+                title="Jitter",
+                value=if(repo.liveJitterSamples > 0) repo.liveJitterMs.toString() else "—",
+                unit=if(repo.liveJitterSamples > 0) "ms" else "",
+                tone=jitterTone,
+                modifier=Modifier.weight(1f).fillMaxWidth()
+            )
+            MarbleMetricCard(
+                title="Quality",
+                value=if(repo.liveRouteScore >= 0) repo.liveRouteScore.toString() else "—",
+                unit=if(repo.liveRouteScore >= 0) "%" else "",
+                tone=qualityTone,
+                modifier=Modifier.weight(1f).fillMaxWidth()
+            )
+        }
+    }
+}
+
+@Composable
+private fun HomeQuickSettingRow(
+    icon: HomeIcon,
+    title: String,
+    subtitle: String,
+    checked: Boolean,
+    enabled: Boolean = true,
+    onChecked: (Boolean) -> Unit
+) {
+    ListItem(
+        headlineContent={
+            Text(
+                title,
+                style=MaterialTheme.typography.bodyMedium,
+                fontWeight=FontWeight.SemiBold
+            )
+        },
+        supportingContent={ Text(subtitle,style=MaterialTheme.typography.bodySmall) },
+        leadingContent={
+            HomeVectorIcon(
+                icon,
+                if(checked) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+                Modifier.size(20.dp)
+            )
+        },
+        trailingContent={
+            Switch(
+                checked=checked,
+                onCheckedChange=onChecked,
+                enabled=enabled
+            )
+        },
+        colors=ListItemDefaults.colors(containerColor=Color.Transparent)
+    )
+}
+
 // =================================================================================================
 // DECK
 // =================================================================================================
@@ -1244,37 +1588,28 @@ private fun CyberDeck(
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 11.dp, bottom = 30.dp),
-        verticalArrangement = Arrangement.spacedBy(13.dp)
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         item {
-            // MARBLE_STABLE_HOME_TITLE_V102
-            // A fixed-height title prevents the connection card from moving when runtime text changes.
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(76.dp),
-                contentAlignment = Alignment.CenterStart
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(11.dp)
-                ) {
-                    HomeIconTile(HomeIcon.BRAND, Aether.Cyan)
-                    Text(
-                        "MarbleNG",
-                        color = Aether.Ink,
-                        style = MaterialTheme.typography.headlineLarge,
-                        fontWeight = FontWeight.Black,
-                        maxLines = 1
-                    )
-                }
-            }
+            MarbleCompactTopBar(
+                title="MarbleNG",
+                subtitle=when {
+                    connected -> "Secure route active"
+                    connecting -> "Establishing encrypted route"
+                    blocked -> "Fail-closed protection"
+                    else -> "Private networking"
+                },
+                actionLabel="Servers",
+                actionIcon=HomeIcon.LIBRARY,
+                onAction=onLibrary
+            )
         }
 
         item {
             HomeOrbitalHero(
                 repo = repo,
+                active = active,
                 activeName = activeName,
                 connected = connected,
                 connecting = connecting,
@@ -1283,6 +1618,7 @@ private fun CyberDeck(
                     if (connected || connecting || blocked) repo.stopVpn()
                     else repo.reconnectLastOrAuto(onConnect)
                 },
+                onLibrary = onLibrary,
                 onDetails = onDetails
             )
         }
@@ -1418,139 +1754,95 @@ private fun CyberDeck(
 @Composable
 private fun HomeOrbitalHero(
     repo: AppRepository,
+    active: ProxyProfile?,
     activeName: String,
     connected: Boolean,
     connecting: Boolean,
     blocked: Boolean,
     onToggle: () -> Unit,
+    onLibrary: () -> Unit,
     onDetails: () -> Unit
 ) {
-    val tone = when {
+    val tone=when {
         connected -> Aether.Emerald
         connecting -> Aether.Amethyst
         blocked -> Aether.Danger
-        else -> Aether.Cyan
+        else -> Aether.SlateBright
     }
-    val shape = RoundedCornerShape(26.dp)
 
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .clip(shape)
-            .background(Aether.VoidElevated)
-            .padding(16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ElevatedCard(
+        modifier=Modifier.fillMaxWidth(),
+        shape=MaterialTheme.shapes.extraLarge,
+        colors=CardDefaults.elevatedCardColors(
+            containerColor=MaterialTheme.colorScheme.surface
+        ),
+        elevation=CardDefaults.elevatedCardElevation()
     ) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            HomeStatusChip(
-                icon = when {
-                    connected -> HomeIcon.SHIELD
-                    connecting -> HomeIcon.BENCHMARK
-                    blocked -> HomeIcon.RESET
-                    else -> HomeIcon.STATUS
-                },
-                text = when {
-                    connected -> "PROTECTED"
-                    connecting -> "CONNECTING"
-                    blocked -> "FAIL-CLOSED"
-                    else -> "STANDBY"
-                },
-                tone = tone
-            )
-            Spacer(Modifier.weight(1f))
-            HomeStatusChip(
-                icon = if (repo.settings.connectionMode == ConnectionMode.FULL_TUN) HomeIcon.TUNNEL else HomeIcon.MODE,
-                text = if (repo.settings.connectionMode == ConnectionMode.FULL_TUN) "FULL TUN" else "SOCKS :${repo.settings.localProxyPort}",
-                tone = Aether.InkMuted
-            )
-        }
-
-        Box(
-            Modifier
-                .size(112.dp)
-                .shadow(4.dp, CircleShape, clip = false)
-                .clip(CircleShape)
-                .background(tone)
-                .kineticClickable(role = Role.Button, pressScale = .94f, onClick = onToggle),
-            contentAlignment = Alignment.Center
+        Column(
+            modifier=Modifier.padding(MarbleSpacing.M),
+            horizontalAlignment=Alignment.CenterHorizontally,
+            verticalArrangement=Arrangement.spacedBy(MarbleSpacing.M)
         ) {
-            if (connecting) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(92.dp),
-                    color = Color.White.copy(alpha = .82f),
-                    trackColor = Color.White.copy(alpha = .20f),
-                    strokeWidth = 3.dp
-                )
-            }
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(2.dp)
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment=Alignment.CenterVertically
             ) {
-                HomeVectorIcon(
-                    icon = when {
-                        connected -> HomeIcon.STOP
-                        connecting -> HomeIcon.CANCEL
-                        blocked -> HomeIcon.RESET
-                        else -> HomeIcon.POWER
-                    },
-                    color = Color.White,
-                    modifier = Modifier.size(34.dp)
-                )
                 Text(
-                    when { connected -> "DISCONNECT"; connecting -> "CANCEL"; blocked -> "RESET"; else -> "CONNECT" },
-                    color = Color.White,
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.Bold
+                    when {
+                        connected -> "Protected"
+                        connecting -> "Connecting"
+                        blocked -> "Fail-closed"
+                        else -> "Ready"
+                    },
+                    color=MaterialTheme.colorScheme.onSurfaceVariant,
+                    style=MaterialTheme.typography.labelLarge,
+                    fontWeight=FontWeight.SemiBold
                 )
+                Spacer(Modifier.weight(1f))
+                Surface(
+                    shape=RoundedCornerShape(999.dp),
+                    color=MaterialTheme.colorScheme.surfaceVariant
+                ) {
+                    Text(
+                        if(repo.settings.connectionMode == ConnectionMode.FULL_TUN) {
+                            "FULL TUN"
+                        } else {
+                            "SOCKS :${repo.settings.localProxyPort}"
+                        },
+                        modifier=Modifier.padding(horizontal=10.dp,vertical=6.dp),
+                        color=MaterialTheme.colorScheme.onSurfaceVariant,
+                        style=MaterialTheme.typography.labelSmall,
+                        fontWeight=FontWeight.SemiBold
+                    )
+                }
             }
-        }
 
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(activeName, color = Aether.Ink, style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            TextButton(onClick = onDetails, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)) {
-                Text(if (connected) "Route details" else "Inspect selected route", color = tone, style = MaterialTheme.typography.labelSmall)
-            }
-        }
+            MarbleConnectionQualityRing(
+                score=repo.liveRouteScore,
+                tone=tone,
+                connecting=connecting,
+                connected=connected,
+                blocked=blocked,
+                onToggle=onToggle
+            )
 
-        val pingTone = when {
-            repo.livePingMs <= 0 -> Aether.InkMuted
-            repo.livePingMs <= 80 -> Aether.Emerald
-            repo.livePingMs <= 170 -> Aether.Cyan
-            repo.livePingMs <= 320 -> Aether.Amber
-            else -> Aether.Danger
-        }
-        val jitterTone = when {
-            repo.liveJitterSamples < 1 -> Aether.InkMuted
-            repo.liveJitterMs <= 15 -> Aether.Emerald
-            repo.liveJitterMs <= 35 -> Aether.Cyan
-            repo.liveJitterMs <= 70 -> Aether.Amber
-            else -> Aether.Danger
-        }
-        val qualityTone = when {
-            repo.liveRouteScore < 0 -> Aether.InkMuted
-            repo.liveRouteScore >= 85 -> Aether.Emerald
-            repo.liveRouteScore >= 65 -> Aether.Cyan
-            repo.liveRouteScore >= 40 -> Aether.Amber
-            else -> Aether.Danger
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-            MiniMetric(
-                "Ping", if (repo.livePingMs > 0) repo.livePingMs.toString() else "—", "ms",
-                Modifier.weight(1f), accent = pingTone, icon = HomeIcon.PING
+            HomeServerSelector(
+                profile=active,
+                activeName=activeName,
+                connected=connected,
+                onLibrary=onLibrary
             )
-            MiniMetric(
-                "Jitter", if (repo.liveJitterSamples >= 1) repo.liveJitterMs.toString() else "—", "ms",
-                Modifier.weight(1f), accent = jitterTone, icon = HomeIcon.JITTER
+
+            HomeRouteDetailsRow(
+                connected=connected,
+                onDetails=onDetails
             )
-            MiniMetric(
-                "Quality", if (repo.liveRouteScore >= 0) repo.liveRouteScore.toString() else "—",
-                if (repo.liveRouteScore >= 0) "%" else "", Modifier.weight(1f),
-                accent = qualityTone, icon = HomeIcon.QUALITY
-            )
+
+            HomeMetricBento(repo)
         }
     }
 }
+
 
 @Composable
 private fun HomeActionPortal(
@@ -1588,39 +1880,106 @@ private fun HomeActionPortal(
 
 @Composable
 private fun HomeRouteRibbon(repo: AppRepository) {
-    val shape = RoundedCornerShape(20.dp)
-    Row(
-        Modifier.fillMaxWidth().clip(shape).background(Aether.GlassStrong)
-            .padding(horizontal = 13.dp, vertical = 11.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ElevatedCard(
+        modifier=Modifier.fillMaxWidth(),
+        shape=MaterialTheme.shapes.large,
+        colors=CardDefaults.elevatedCardColors(
+            containerColor=MaterialTheme.colorScheme.surface
+        ),
+        elevation=CardDefaults.elevatedCardElevation()
     ) {
-        HomeIconTile(HomeIcon.NETWORK, Aether.Cyan, Modifier.size(34.dp))
-        Column(Modifier.weight(1f)) {
-            Text(repo.networkSnapshot.label, color = Aether.Ink, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                HomeVectorIcon(HomeIcon.DOWNLOAD, Aether.InkFaint, Modifier.size(12.dp))
-                Text(compactRate(repo.liveDownBps), color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
-                Spacer(Modifier.width(4.dp))
-                HomeVectorIcon(HomeIcon.UPLOAD, Aether.InkFaint, Modifier.size(12.dp))
-                Text(compactRate(repo.liveUpBps), color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
+        Column(Modifier.fillMaxWidth()) {
+            ListItem(
+                headlineContent={
+                    Text(
+                        repo.networkSnapshot.label,
+                        style=MaterialTheme.typography.titleSmall,
+                        fontWeight=FontWeight.SemiBold
+                    )
+                },
+                supportingContent={
+                    Text(
+                        "↓ ${compactRate(repo.liveDownBps)}  •  ↑ ${compactRate(repo.liveUpBps)}",
+                        style=MaterialTheme.typography.bodySmall,
+                        fontFamily=FontFamily.Monospace
+                    )
+                },
+                leadingContent={
+                    HomeIconTile(HomeIcon.NETWORK,MaterialTheme.colorScheme.primary)
+                },
+                trailingContent={
+                    Surface(
+                        shape=RoundedCornerShape(999.dp),
+                        color=if(repo.sentinel.killSwitchArmed) {
+                            Aether.Emerald.copy(alpha=.10f)
+                        } else MaterialTheme.colorScheme.surfaceVariant
+                    ) {
+                        Text(
+                            if(repo.sentinel.killSwitchArmed) "KILL SWITCH ARMED" else "IDLE",
+                            modifier=Modifier.padding(horizontal=10.dp,vertical=6.dp),
+                            color=if(repo.sentinel.killSwitchArmed) {
+                                Aether.Emerald
+                            } else MaterialTheme.colorScheme.onSurfaceVariant,
+                            style=MaterialTheme.typography.labelSmall,
+                            fontWeight=FontWeight.Bold
+                        )
+                    }
+                },
+                colors=ListItemDefaults.colors(containerColor=Color.Transparent)
+            )
+
+            HorizontalDivider(
+                modifier=Modifier.padding(horizontal=MarbleSpacing.M),
+                color=MaterialTheme.colorScheme.outlineVariant
+            )
+
+            HomeQuickSettingRow(
+                icon=HomeIcon.TUNNEL,
+                title="Full-device tunnel",
+                subtitle="Route the device through VPN instead of local SOCKS only",
+                checked=repo.settings.connectionMode == ConnectionMode.FULL_TUN,
+                enabled=!repo.busy
+            ) { enabled ->
+                repo.setConnectionMode(
+                    if(enabled) ConnectionMode.FULL_TUN else ConnectionMode.LOCAL_PROXY
+                )
+            }
+
+            HomeQuickSettingRow(
+                icon=HomeIcon.NETWORK,
+                title="IPv6 inside tunnel",
+                subtitle="Keep IPv6 protected by the selected route",
+                checked=repo.settings.ipv6Enabled,
+                enabled=!repo.busy
+            ) { enabled ->
+                repo.updateSettings(repo.settings.copy(ipv6Enabled=enabled))
+            }
+
+            HomeQuickSettingRow(
+                icon=HomeIcon.SPARK,
+                title="Adaptive MTU",
+                subtitle="Use link and transport evidence instead of one fixed MTU",
+                checked=repo.settings.adaptiveMtuEnabled,
+                enabled=!repo.busy
+            ) { enabled ->
+                repo.updateSettings(repo.settings.copy(adaptiveMtuEnabled=enabled))
+            }
+
+            HomeQuickSettingRow(
+                icon=HomeIcon.SHIELD,
+                title="Kill-switch auto recovery",
+                subtitle="Fail-closed stays enforced; this controls automatic reconnect",
+                checked=repo.settings.autoReconnectAfterKillSwitch,
+                enabled=!repo.busy
+            ) { enabled ->
+                repo.updateSettings(
+                    repo.settings.copy(autoReconnectAfterKillSwitch=enabled)
+                )
             }
         }
-        HomeStatusChip(
-            icon = when {
-                repo.sentinel.killSwitchArmed -> HomeIcon.SHIELD
-                repo.state == "CONNECTED" -> HomeIcon.TUNNEL
-                else -> HomeIcon.STATUS
-            },
-            text = when {
-                repo.sentinel.killSwitchArmed -> "KILL SWITCH"
-                repo.state == "CONNECTED" -> "TUNNEL"
-                else -> "IDLE"
-            },
-            tone = if (repo.sentinel.killSwitchArmed) Aether.Emerald else Aether.InkMuted
-        )
     }
 }
+
 
 @Composable
 private fun IranModeStatusPill(state: IranModeState) {
@@ -2002,6 +2361,7 @@ private fun CyberLibrary(
     val clipboard = LocalClipboardManager.current
     var search by remember { mutableStateOf("") }
     var addOpen by remember { mutableStateOf(false) }
+    var filterSheetOpen by remember { mutableStateOf(false) }
     var addMode by remember { mutableStateOf("subscription") }
     var url by remember { mutableStateOf("") }
     var sourceName by remember { mutableStateOf("") }
@@ -2287,19 +2647,34 @@ private fun CyberLibrary(
         )
     }
 
+    if(filterSheetOpen) {
+        LibraryFilterSheet(
+            repo=repo,
+            sourceFilter=sourceFilter,
+            onSourceFilter={ repo.selectLibrarySource(it) },
+            onManageSubscription={ sub ->
+                editSubscriptionName=sub.name
+                editSubscriptionUrl=sub.url
+                manageSubscription=sub
+                filterSheetOpen=false
+            },
+            onDismiss={ filterSheetOpen=false }
+        )
+    }
+
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         // One gutter for the whole screen: titles, controls and cards share the same edge.
-        contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 10.dp, bottom = 28.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         item {
-            SpatialHeader(
-                eyebrow = "Connections",
-                title = "Library",
-                subtitle = "Quick TCP ping • verified Xray smart rank",
-                status = "${repo.libraryProfiles.size} nodes",
-                statusColor = Aether.Amethyst
+            MarbleCompactTopBar(
+                title="Library",
+                subtitle="${visible.size} visible • ${repo.libraryProfiles.size} total",
+                actionLabel="Filters",
+                actionIcon=HomeIcon.MODE,
+                onAction={ filterSheetOpen=true }
             )
         }
 
@@ -2423,14 +2798,8 @@ private fun CyberLibrary(
 
         item {
             LibraryControlDeck(
-                repo = repo,
-                sourceFilter = sourceFilter,
-                onSourceFilter = { repo.selectLibrarySource(it) },
-                onManageSubscription = { sub ->
-                    editSubscriptionName = sub.name
-                    editSubscriptionUrl = sub.url
-                    manageSubscription = sub
-                }
+                repo=repo,
+                sourceFilter=sourceFilter
             )
         }
 
@@ -2457,67 +2826,22 @@ private fun CyberLibrary(
             }
         }
 
-        // Aggregator subscriptions frequently serve the same node, and the profile id is a hash of
-        // the share link, so the source has to be part of the key or LazyColumn rejects it.
-        items(visible, key = { "${it.subscriptionId}:${it.id}" }) { profile ->
-            @Suppress("DEPRECATION")
-            val swipeState = rememberSwipeToDismissBoxState(
-                confirmValueChange = { value ->
-                    when (value) {
-                        SwipeToDismissBoxValue.StartToEnd -> {
-                            repo.fullTest(profile)
-                            false
-                        }
-                        SwipeToDismissBoxValue.EndToStart -> {
-                            renameTarget = profile
-                            renameText = profile.name
-                            false
-                        }
-                        SwipeToDismissBoxValue.Settled -> false
-                    }
-                }
+        // The source remains part of the key because the same share link can exist
+        // in more than one subscription.
+        items(visible,key={ "${it.subscriptionId}:${it.id}" }) { profile ->
+            SpatialServerCard(
+                profile=profile,
+                repo=repo,
+                result=benchmarkById[profile.id],
+                active=repo.isActiveProfile(profile),
+                probeState=repo.probeStateOf(profile.id),
+                onConnect=onConnect,
+                onEdit={
+                    renameTarget=profile
+                    renameText=profile.name
+                },
+                onDetails={ onDetails(profile) }
             )
-
-            SwipeToDismissBox(
-                state = swipeState,
-                enableDismissFromStartToEnd = true,
-                enableDismissFromEndToStart = true,
-                backgroundContent = {
-                    val editSide = swipeState.targetValue == SwipeToDismissBoxValue.EndToStart
-                    val accent = if (editSide) Aether.Amethyst else Aether.Cyan
-                    val shape = RoundedCornerShape(22.dp)
-                    Row(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .clip(shape)
-                            .background(accent.copy(alpha = .12f))
-                            .border(1.dp, accent.copy(alpha = .30f), shape)
-                            .padding(horizontal = 22.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = if (editSide) Arrangement.End else Arrangement.Start
-                    ) {
-                        Text(
-                            if (editSide) "Rename" else "Full test",
-                            color = if (editSide) Aether.AmethystBright else Aether.CyanBright,
-                            style = MaterialTheme.typography.labelLarge
-                        )
-                    }
-                }
-            ) {
-                SpatialServerCard(
-                    profile = profile,
-                    repo = repo,
-                    result = benchmarkById[profile.id],
-                    active = repo.isActiveProfile(profile),
-                    probeState = repo.probeStateOf(profile.id),
-                    onConnect = onConnect,
-                    onEdit = {
-                        renameTarget = profile
-                        renameText = profile.name
-                    },
-                    onDetails = { onDetails(profile) }
-                )
-            }
         }
     }
 }
@@ -3048,193 +3372,236 @@ private fun DetailRow(label: String, value: String) {
     }
 }
 
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun LibraryControlDeck(
+private fun LibraryFilterSheet(
     repo: AppRepository,
     sourceFilter: String,
     onSourceFilter: (String) -> Unit,
-    onManageSubscription: (Subscription) -> Unit
+    onManageSubscription: (Subscription) -> Unit,
+    onDismiss: () -> Unit
 ) {
-    // MARBLE_LIBRARY_CLEANUP_V37
-    val manualCount = repo.libraryProfiles.count { it.subscriptionId == "manual" }
-    val selectedSub = repo.subscriptions.firstOrNull { it.id == sourceFilter }
-    val selectedCount = when (sourceFilter) {
+    val manualCount=repo.libraryProfiles.count { it.subscriptionId == "manual" }
+
+    ModalBottomSheet(
+        onDismissRequest=onDismiss,
+        containerColor=MaterialTheme.colorScheme.surface
+    ) {
+        Column(
+            modifier=Modifier
+                .fillMaxWidth()
+                .padding(horizontal=MarbleSpacing.M)
+                .padding(bottom=MarbleSpacing.L),
+            verticalArrangement=Arrangement.spacedBy(MarbleSpacing.M)
+        ) {
+            Text(
+                "Filter & sort",
+                style=MaterialTheme.typography.titleLarge,
+                fontWeight=FontWeight.Bold
+            )
+            Text(
+                "Source",
+                color=MaterialTheme.colorScheme.onSurfaceVariant,
+                style=MaterialTheme.typography.labelLarge,
+                fontWeight=FontWeight.SemiBold
+            )
+
+            LazyRow(
+                modifier=Modifier.fillMaxWidth(),
+                horizontalArrangement=Arrangement.spacedBy(MarbleSpacing.S)
+            ) {
+                item("filter-all") {
+                    SourceOrbitChip(
+                        title="All",
+                        detail="${repo.libraryProfiles.size}",
+                        selected=sourceFilter == "all",
+                        color=MaterialTheme.colorScheme.primary,
+                        onClick={ onSourceFilter("all") }
+                    )
+                }
+                if(repo.settings.manualSourceEnabled) {
+                    item("filter-manual") {
+                        SourceOrbitChip(
+                            title="Manual",
+                            detail="$manualCount",
+                            selected=sourceFilter == "manual",
+                            color=Aether.Amber,
+                            onClick={ onSourceFilter("manual") }
+                        )
+                    }
+                }
+                items(repo.subscriptions,key={ "filter-${it.id}" }) { sub ->
+                    SourceOrbitChip(
+                        title=sub.name,
+                        detail="${repo.subscriptionNodeCount(sub.id)}",
+                        selected=sourceFilter == sub.id,
+                        color=if(sub.url.isBlank()) Aether.Emerald else Aether.Amethyst,
+                        onClick={ onSourceFilter(sub.id) },
+                        onManage={ onManageSubscription(sub) }
+                    )
+                }
+            }
+
+            HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant)
+
+            Text(
+                "Sort",
+                color=MaterialTheme.colorScheme.onSurfaceVariant,
+                style=MaterialTheme.typography.labelLarge,
+                fontWeight=FontWeight.SemiBold
+            )
+            Row(
+                modifier=Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement=Arrangement.spacedBy(MarbleSpacing.S)
+            ) {
+                NodeSortMode.entries.forEach { mode ->
+                    CyberChoiceChip(
+                        text=sortModeLabel(mode),
+                        selected=repo.settings.nodeSortMode == mode,
+                        color=MaterialTheme.colorScheme.primary
+                    ) {
+                        repo.updateSettings(
+                            repo.settings.copy(
+                                nodeSortMode=mode,
+                                nodeSortReverse=false
+                            )
+                        )
+                    }
+                }
+                CyberChoiceChip(
+                    text=if(repo.settings.nodeSortReverse) "Normal order" else "Reverse",
+                    selected=repo.settings.nodeSortReverse,
+                    color=Aether.Amber
+                ) {
+                    repo.updateSettings(
+                        repo.settings.copy(
+                            nodeSortReverse=!repo.settings.nodeSortReverse
+                        )
+                    )
+                }
+            }
+
+            TextButton(
+                onClick=onDismiss,
+                modifier=Modifier.align(Alignment.End)
+            ) {
+                Text("Done")
+            }
+        }
+    }
+}
+
+@Composable
+private fun LibraryControlDeck(
+    repo: AppRepository,
+    sourceFilter: String
+) {
+    val manualCount=repo.libraryProfiles.count { it.subscriptionId == "manual" }
+    val selectedSub=repo.subscriptions.firstOrNull { it.id == sourceFilter }
+    val selectedCount=when(sourceFilter) {
         "all" -> repo.libraryProfiles.size
         "manual" -> manualCount
         else -> repo.subscriptionNodeCount(sourceFilter)
     }
-    val remoteCount = repo.subscriptions.count { it.url.isNotBlank() }
-    val selectedRefreshing = when (sourceFilter) {
+    val remoteCount=repo.subscriptions.count { it.url.isNotBlank() }
+    val selectedRefreshing=when(sourceFilter) {
         "all" -> repo.refreshingSources.isNotEmpty()
         else -> sourceFilter in repo.refreshingSources
     }
-    val canRefreshSelected = when (sourceFilter) {
+    val canRefreshSelected=when(sourceFilter) {
         "all" -> remoteCount > 0
         "manual" -> false
         else -> selectedSub?.url?.isNotBlank() == true
     }
 
     Column(
-        modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+        modifier=Modifier.fillMaxWidth(),
+        verticalArrangement=Arrangement.spacedBy(MarbleSpacing.S)
     ) {
-        LazyRow(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            item("source-all") {
-                SourceOrbitChip(
-                    "All",
-                    "${repo.libraryProfiles.size}",
-                    sourceFilter == "all",
-                    Aether.Cyan,
-                    { onSourceFilter("all") }
-                )
-            }
-            if (repo.settings.manualSourceEnabled) {
-                item("source-manual") {
-                    SourceOrbitChip(
-                        "Manual",
-                        "$manualCount",
-                        sourceFilter == "manual",
-                        Aether.Amber,
-                        { onSourceFilter("manual") }
-                    )
-                }
-            }
-            items(repo.subscriptions, key = { "orbit-${it.id}" }) { sub ->
-                val local = sub.url.isBlank()
-                val refreshing = sub.id in repo.refreshingSources
-                SourceOrbitChip(
-                    title = sub.name,
-                    detail = when {
-                        refreshing -> "syncing"
-                        local -> "${repo.subscriptionNodeCount(sub.id)} local"
-                        else -> "${repo.subscriptionNodeCount(sub.id)}"
-                    },
-                    selected = sourceFilter == sub.id,
-                    color = if (local) Aether.Emerald else Aether.Amethyst,
-                    onClick = { onSourceFilter(sub.id) },
-                    onManage = { onManageSubscription(sub) }
-                )
-            }
-        }
-
         Row(
-            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(7.dp)
-        ) {
-            NodeSortMode.entries.filter { it != NodeSortMode.SCORE }.forEach { mode ->
-                CyberChoiceChip(
-                    sortModeLabel(mode),
-                    repo.settings.nodeSortMode == mode,
-                    if (mode == NodeSortMode.PING) Aether.Cyan else Aether.Amethyst
-                ) {
-                    repo.updateSettings(
-                        repo.settings.copy(nodeSortMode = mode, nodeSortReverse = false)
-                    )
-                }
-            }
-            CyberChoiceChip(
-                if (repo.settings.nodeSortReverse) "Normal order" else "Reverse",
-                repo.settings.nodeSortReverse,
-                Aether.Amber
-            ) {
-                repo.updateSettings(
-                    repo.settings.copy(nodeSortReverse = !repo.settings.nodeSortReverse)
-                )
-            }
-        }
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            modifier=Modifier.fillMaxWidth(),
+            horizontalArrangement=Arrangement.spacedBy(MarbleSpacing.S)
         ) {
             LibraryMicroAction(
-                HomeIcon.RESET,
-                if (selectedRefreshing) "Syncing" else "Refresh",
-                Aether.Amethyst,
-                Modifier.weight(1f),
-                canRefreshSelected && !repo.busy
+                icon=HomeIcon.RESET,
+                label=if(selectedRefreshing) "Syncing" else "Refresh",
+                color=Aether.Amethyst,
+                modifier=Modifier.weight(1f),
+                enabled=canRefreshSelected && !repo.busy
             ) { repo.refreshLibrarySource(sourceFilter) }
 
             LibraryMicroAction(
-                HomeIcon.PING,
-                "Ping",
-                Aether.Cyan,
-                Modifier.weight(1f),
-                selectedCount > 0 && !repo.busy
+                icon=HomeIcon.PING,
+                label="Ping",
+                color=MaterialTheme.colorScheme.primary,
+                modifier=Modifier.weight(1f),
+                enabled=selectedCount > 0 && !repo.busy
             ) { repo.testSource(sourceFilter) }
 
             LibraryMicroAction(
-                HomeIcon.RANK,
-                "Rank",
-                Aether.Emerald,
-                Modifier.weight(1f),
-                selectedCount > 0 && !repo.busy
+                icon=HomeIcon.RANK,
+                label="Rank",
+                color=Aether.Emerald,
+                modifier=Modifier.weight(1f),
+                enabled=selectedCount > 0 && !repo.busy
             ) { repo.smartRankSource(sourceFilter) }
         }
 
         AnimatedVisibility(
-            visible = repo.probeActive,
-            enter = fadeIn(MarbleMotionSpecs.ResponseFloat) +
+            visible=repo.probeActive,
+            enter=fadeIn(MarbleMotionSpecs.ResponseFloat)+
                 expandVertically(MarbleMotionSpecs.Layout),
-            exit = fadeOut(MarbleMotionSpecs.ExitFloat) +
+            exit=fadeOut(MarbleMotionSpecs.ExitFloat)+
                 shrinkVertically(MarbleMotionSpecs.Layout)
         ) {
             HoloGlass(
-                modifier = Modifier.fillMaxWidth(),
-                borderColor = Aether.Cyan.copy(alpha = .30f),
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp)
+                modifier=Modifier.fillMaxWidth(),
+                borderColor=MaterialTheme.colorScheme.primary.copy(alpha=.35f),
+                contentPadding=PaddingValues(MarbleSpacing.M)
             ) {
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(9.dp)
+                    modifier=Modifier.fillMaxWidth(),
+                    verticalAlignment=Alignment.CenterVertically,
+                    horizontalArrangement=Arrangement.spacedBy(MarbleSpacing.S)
                 ) {
-                    HomeIconTile(HomeIcon.BENCHMARK, Aether.Cyan)
+                    HomeIconTile(HomeIcon.BENCHMARK,MaterialTheme.colorScheme.primary)
                     Column(Modifier.weight(1f)) {
                         Text(
                             "NODE TEST IN PROGRESS",
-                            color = Aether.Cyan,
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold
+                            color=MaterialTheme.colorScheme.primary,
+                            style=MaterialTheme.typography.labelSmall,
+                            fontWeight=FontWeight.Bold
                         )
                         Text(
                             repo.probeCurrentName.ifBlank { "Preparing selected nodes…" },
-                            color = Aether.Ink,
-                            style = MaterialTheme.typography.bodySmall,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                            color=MaterialTheme.colorScheme.onSurface,
+                            style=MaterialTheme.typography.bodySmall,
+                            maxLines=1,
+                            overflow=TextOverflow.Ellipsis
                         )
                     }
                     HoloBadge(
-                        if (repo.probeTotal > 0) {
+                        if(repo.probeTotal > 0) {
                             "${repo.probeDone.coerceAtMost(repo.probeTotal)}/${repo.probeTotal}"
-                        } else {
-                            "PREPARING"
-                        },
-                        Aether.Cyan,
-                        compact = true
+                        } else "PREPARING",
+                        MaterialTheme.colorScheme.primary,
+                        compact=true
                     )
                 }
                 LiveProgressBar(
-                    fraction = if (repo.probeTotal > 0) {
-                        repo.probeDone.toFloat() / repo.probeTotal.toFloat()
-                    } else {
-                        null
-                    },
-                    color = Aether.Cyan
-                )
-                Text(
-                    "Results appear on each node as soon as its verification finishes.",
-                    color = Aether.InkFaint,
-                    style = MaterialTheme.typography.labelSmall
+                    fraction=if(repo.probeTotal > 0) {
+                        repo.probeDone.toFloat()/repo.probeTotal.toFloat()
+                    } else null,
+                    color=MaterialTheme.colorScheme.primary
                 )
             }
         }
     }
 }
+
 
 @Composable
 private fun SourceOrbitChip(
@@ -3294,26 +3661,33 @@ private fun LibraryMicroAction(
     enabled: Boolean = true,
     onClick: () -> Unit
 ) {
-    val shape = RoundedCornerShape(16.dp)
-    Row(
-        modifier.heightIn(min = 48.dp).clip(shape)
-            .background(color.copy(alpha = if (enabled) .09f else .035f))
-            .kineticClickable(enabled = enabled, role = Role.Button, onClick = onClick)
-            .padding(horizontal = 9.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.Center
+    FilledTonalButton(
+        onClick=onClick,
+        modifier=modifier.heightIn(min=48.dp),
+        enabled=enabled,
+        shape=MaterialTheme.shapes.medium,
+        colors=ButtonDefaults.filledTonalButtonColors(
+            containerColor=color.copy(alpha=.12f),
+            contentColor=color,
+            disabledContainerColor=MaterialTheme.colorScheme.surfaceVariant,
+            disabledContentColor=MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha=.48f)
+        )
     ) {
         HomeVectorIcon(
             icon,
-            if (enabled) color else Aether.InkFaint,
-            Modifier.size(16.dp)
+            if(enabled) color else MaterialTheme.colorScheme.onSurfaceVariant,
+            Modifier.size(17.dp)
         )
-        Spacer(Modifier.width(5.dp))
-        Text(label, color = if (enabled) Aether.Ink else Aether.InkFaint, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Spacer(Modifier.width(MarbleSpacing.S))
+        Text(
+            label,
+            style=MaterialTheme.typography.labelMedium,
+            fontWeight=FontWeight.SemiBold,
+            maxLines=1
+        )
     }
 }
 
-/** Source filter and sort order, grouped on one surface instead of two loose label blocks. */
 private fun sortModeLabel(mode: NodeSortMode): String = when (mode) {
     NodeSortMode.PING -> "Ping"
     NodeSortMode.SCORE -> "Score"
@@ -3399,346 +3773,427 @@ private fun SpatialServerCard(
     onEdit: () -> Unit,
     onDetails: () -> Unit
 ) {
-    val measured = result?.takeIf { it.success > 0 }
-    val latency = measured?.latencyMs?.toInt() ?: 0
-    val health = healthColor(latency, result?.success ?: 0)
-    val testing = probeState == ProbeState.TESTING
-    val queued = probeState == ProbeState.QUEUED
-    val clipboard = LocalClipboardManager.current
+    val measured=result?.takeIf { it.success > 0 }
+    val latency=measured?.latencyMs?.toInt() ?: 0
+    val health=healthColor(latency,result?.success ?: 0)
+    val testing=probeState == ProbeState.TESTING
+    val queued=probeState == ProbeState.QUEUED
+    val clipboard=LocalClipboardManager.current
+
     var menuOpen by remember { mutableStateOf(false) }
     var jsonOpen by remember(profile.id) { mutableStateOf(false) }
-    var jsonText by remember(profile.id, profile.configJson) { mutableStateOf(profile.configJson) }
+    var jsonText by remember(profile.id,profile.configJson) {
+        mutableStateOf(profile.configJson)
+    }
+    var deleteBySwipe by remember(profile.id) { mutableStateOf(false) }
 
-    if (jsonOpen) {
+    val swipeState=rememberSwipeToDismissBoxState()
+
+    LaunchedEffect(swipeState.settledValue) {
+        when(swipeState.settledValue) {
+            SwipeToDismissBoxValue.StartToEnd -> {
+                onEdit()
+                swipeState.reset()
+            }
+            SwipeToDismissBoxValue.EndToStart -> {
+                deleteBySwipe=true
+                swipeState.reset()
+            }
+            SwipeToDismissBoxValue.Settled -> Unit
+        }
+    }
+
+    if(jsonOpen) {
         AlertDialog(
-            onDismissRequest = { jsonOpen = false },
-            containerColor = Aether.VoidElevated,
-            title = {
+            onDismissRequest={ jsonOpen=false },
+            containerColor=MaterialTheme.colorScheme.surface,
+            title={
                 Column {
-                    Text("Edit Xray JSON", color = Aether.Ink)
-                    Text(profile.name, color = Aether.InkFaint, style = MaterialTheme.typography.bodySmall,
-                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text("Edit Xray JSON")
+                    Text(
+                        profile.name,
+                        color=MaterialTheme.colorScheme.onSurfaceVariant,
+                        style=MaterialTheme.typography.bodySmall,
+                        maxLines=1,
+                        overflow=TextOverflow.Ellipsis
+                    )
                 }
             },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+            text={
+                Column(verticalArrangement=Arrangement.spacedBy(MarbleSpacing.S)) {
                     OutlinedTextField(
-                        value = jsonText,
-                        onValueChange = { jsonText = it },
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 260.dp, max = 430.dp),
-                        textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
-                        label = { Text("Effective config JSON") },
-                        minLines = 10,
-                        maxLines = 22
+                        value=jsonText,
+                        onValueChange={ jsonText=it },
+                        modifier=Modifier.fillMaxWidth().heightIn(min=260.dp,max=430.dp),
+                        textStyle=MaterialTheme.typography.bodySmall.copy(
+                            fontFamily=FontFamily.Monospace
+                        ),
+                        label={ Text("Effective config JSON") },
+                        minLines=10,
+                        maxLines=22
                     )
                     Text(
-                        if (profile.subscriptionId == "manual")
+                        if(profile.subscriptionId == "manual") {
                             "Manual node • edits are stored locally."
-                        else
-                            "Subscription node • refresh can replace this edit. Duplicate to Manual for a permanent fork.",
-                        color = Aether.InkFaint,
-                        style = MaterialTheme.typography.bodySmall
+                        } else {
+                            "Subscription node • refresh can replace this edit. " +
+                                "Duplicate to Manual for a permanent fork."
+                        },
+                        color=MaterialTheme.colorScheme.onSurfaceVariant,
+                        style=MaterialTheme.typography.bodySmall
                     )
                 }
             },
-            confirmButton = {
-                TextButton(onClick = {
-                    if (repo.updateProfileJson(profile.id, jsonText, profile.subscriptionId)) jsonOpen = false
-                }) { Text("SAVE JSON", color = Aether.Cyan) }
+            confirmButton={
+                TextButton(onClick={
+                    if(repo.updateProfileJson(
+                            profile.id,
+                            jsonText,
+                            profile.subscriptionId
+                        )
+                    ) jsonOpen=false
+                }) { Text("Save JSON") }
             },
-            dismissButton = {
-                TextButton(onClick = { jsonOpen = false }) { Text("CANCEL", color = Aether.InkMuted) }
+            dismissButton={
+                TextButton(onClick={ jsonOpen=false }) { Text("Cancel") }
             }
         )
     }
 
-    HoloGlass(
-        modifier = Modifier
-            .fillMaxWidth()
-            .animateContentSize(MarbleMotionSpecs.Layout)
-            .kineticClickable(
-                enabled = !repo.busy && !active,
-                role = Role.Button
-            ) { onConnect(profile) },
-        borderColor = when {
-            testing -> Aether.Cyan.copy(alpha = .55f)
-            active -> Aether.Emerald.copy(alpha = .55f)
-            else -> Aether.GlassBorderSoft
-        },
-        contentPadding = PaddingValues(start = 14.dp, top = 12.dp, end = 8.dp, bottom = 12.dp)
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(Modifier.weight(1f)) {
+    if(deleteBySwipe) {
+        AlertDialog(
+            onDismissRequest={ deleteBySwipe=false },
+            title={ Text("Delete node?") },
+            text={
                 Text(
-                    profile.name,
-                    modifier = Modifier.basicMarquee(
-                        iterations = Int.MAX_VALUE,
-                        initialDelayMillis = 1_200
-                    ),
-                    color = Aether.Ink,
-                    style = MaterialTheme.typography.titleMedium,
-                    maxLines = 1,
-                    softWrap = false,
-                    overflow = TextOverflow.Clip
+                    "Remove ${profile.name} from ${profile.subscriptionName}? " +
+                        "Swipe never deletes silently."
                 )
-                Spacer(Modifier.height(2.dp))
-                val connectionLine = listOfNotNull(
-                    profile.scheme.uppercase(),
-                    profile.transport.uppercase().takeIf { it.isNotBlank() && it != "NATIVE" },
-                    profile.security.uppercase().takeIf {
-                        it.isNotBlank() && !it.equals("NONE", true)
+            },
+            confirmButton={
+                TextButton(
+                    onClick={
+                        repo.removeProfile(profile.id, profile.subscriptionId)
+                        deleteBySwipe=false
                     }
-                ).joinToString(" • ")
+                ) {
+                    Text("Delete",color=Aether.Danger)
+                }
+            },
+            dismissButton={
+                TextButton(onClick={ deleteBySwipe=false }) { Text("Cancel") }
+            }
+        )
+    }
+
+    SwipeToDismissBox(
+        state=swipeState,
+        enableDismissFromStartToEnd=!repo.busy,
+        enableDismissFromEndToStart=!repo.busy,
+        backgroundContent={
+            val edit=swipeState.dismissDirection == SwipeToDismissBoxValue.StartToEnd
+            val tone=if(edit) Aether.Amethyst else Aether.Danger
+            Row(
+                modifier=Modifier
+                    .fillMaxSize()
+                    .clip(MaterialTheme.shapes.large)
+                    .background(tone.copy(alpha=.11f))
+                    .padding(horizontal=MarbleSpacing.L),
+                verticalAlignment=Alignment.CenterVertically,
+                horizontalArrangement=if(edit) Arrangement.Start else Arrangement.End
+            ) {
+                HomeVectorIcon(
+                    if(edit) HomeIcon.MODE else HomeIcon.CANCEL,
+                    tone,
+                    Modifier.size(22.dp)
+                )
+                Spacer(Modifier.width(MarbleSpacing.S))
                 Text(
-                    connectionLine,
-                    color = Aether.InkFaint,
-                    style = MaterialTheme.typography.labelSmall,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    if(edit) "Edit" else "Delete",
+                    color=tone,
+                    style=MaterialTheme.typography.labelLarge,
+                    fontWeight=FontWeight.Bold
                 )
             }
+        }
+    ) {
+        HoloGlass(
+            modifier=Modifier
+                .fillMaxWidth()
+                .animateContentSize(MarbleMotionSpecs.Layout)
+                .kineticClickable(
+                    enabled=!repo.busy && !active,
+                    role=Role.Button
+                ) { onConnect(profile) },
+            borderColor=when {
+                testing -> MaterialTheme.colorScheme.primary.copy(alpha=.62f)
+                active -> Aether.Emerald.copy(alpha=.82f)
+                else -> Color.Transparent
+            },
+            contentPadding=PaddingValues(
+                start=MarbleSpacing.M,
+                top=MarbleSpacing.M,
+                end=MarbleSpacing.S,
+                bottom=MarbleSpacing.M
+            )
+        ) {
+            Row(
+                modifier=Modifier.fillMaxWidth(),
+                verticalAlignment=Alignment.CenterVertically
+            ) {
+                MarbleServerAvatar(
+                    profile=profile,
+                    active=active
+                )
+                Spacer(Modifier.width(MarbleSpacing.M))
 
-            if (latency > 0) {
-                val quality = libraryPingQuality(latency)
-                val bars = libraryPingBars(latency)
-                Column(
-                    modifier = Modifier
-                        .widthIn(min = 92.dp)
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(health.copy(alpha = .075f))
-                        .padding(horizontal = 8.dp, vertical = 6.dp),
-                    horizontalAlignment = Alignment.End
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.Bottom,
-                        horizontalArrangement = Arrangement.spacedBy(2.dp)
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        profile.name,
+                        modifier=Modifier.basicMarquee(
+                            iterations=Int.MAX_VALUE,
+                            initialDelayMillis=1200
+                        ),
+                        color=MaterialTheme.colorScheme.onSurface,
+                        style=MaterialTheme.typography.titleMedium,
+                        fontWeight=FontWeight.SemiBold,
+                        maxLines=1,
+                        softWrap=false,
+                        overflow=TextOverflow.Clip
+                    )
+                    Spacer(Modifier.height(MarbleSpacing.Micro))
+                    val connectionLine=listOfNotNull(
+                        profile.scheme.uppercase(),
+                        profile.transport.uppercase().takeIf {
+                            it.isNotBlank() && it != "NATIVE"
+                        },
+                        profile.security.uppercase().takeIf {
+                            it.isNotBlank() && !it.equals("NONE",true)
+                        }
+                    ).joinToString(" • ")
+                    Text(
+                        connectionLine,
+                        color=MaterialTheme.colorScheme.onSurfaceVariant,
+                        style=MaterialTheme.typography.labelSmall,
+                        maxLines=1,
+                        overflow=TextOverflow.Ellipsis
+                    )
+                }
+
+                if(latency > 0) {
+                    Surface(
+                        shape=RoundedCornerShape(999.dp),
+                        color=health.copy(alpha=.11f)
                     ) {
-                        (0 until 4).forEach { index ->
-                            Box(
-                                Modifier
-                                    .width(3.dp)
-                                    .height((5 + index * 3).dp)
-                                    .clip(CircleShape)
-                                    .background(
-                                        if (index < bars) health
-                                        else Aether.GlassBorderSoft.copy(alpha = .55f)
-                                    )
+                        Column(
+                            modifier=Modifier.padding(horizontal=10.dp,vertical=6.dp),
+                            horizontalAlignment=Alignment.End
+                        ) {
+                            Text(
+                                "$latency ms",
+                                color=health,
+                                style=MaterialTheme.typography.labelLarge.copy(
+                                    fontFamily=FontFamily.Monospace,
+                                    fontWeight=FontWeight.Bold
+                                )
+                            )
+                            Text(
+                                libraryPingQuality(latency),
+                                color=health,
+                                style=MaterialTheme.typography.labelSmall
                             )
                         }
-                        Spacer(Modifier.width(4.dp))
-                        Text(
-                            "$latency ms",
-                            color = health,
-                            style = MaterialTheme.typography.labelLarge.copy(
-                                fontFamily = FontFamily.Monospace,
-                                fontWeight = FontWeight.Bold
-                            ),
-                            maxLines = 1
+                    }
+                    Spacer(Modifier.width(MarbleSpacing.S))
+                }
+
+                Box {
+                    IconButton(
+                        onClick={ menuOpen=true },
+                        modifier=Modifier.semantics {
+                            contentDescription="More actions for ${profile.name}"
+                        }
+                    ) {
+                        HomeVectorIcon(
+                            HomeIcon.MORE,
+                            MaterialTheme.colorScheme.onSurfaceVariant,
+                            Modifier.size(19.dp)
                         )
                     }
-                    val variation = measured
-                        ?.takeIf { it.probeKind == "TUNNEL" && it.sampleCount >= 2 }
-                        ?.jitterMs
-                        ?.roundToInt()
-                    Text(
-                        listOfNotNull(
-                            measured?.probeKind ?: "PING",
-                            variation?.let { "±$it ms" },
-                            quality
-                        ).joinToString(" • "),
-                        color = Aether.InkFaint,
-                        style = MaterialTheme.typography.labelSmall,
-                        maxLines = 1
-                    )
-                }
-                Spacer(Modifier.width(7.dp))
-            }
 
-            Box {
-                Box(
-                    modifier = Modifier
-                        .size(48.dp)
-                        .clip(CircleShape)
-                        .semantics { contentDescription = "More actions for ${profile.name}" }
-                        .kineticClickable(role = Role.Button) { menuOpen = true },
-                    contentAlignment = Alignment.Center
-                ) {
-                    HomeVectorIcon(HomeIcon.MORE, Aether.InkMuted, Modifier.size(18.dp))
-                }
-                DropdownMenu(
-                    expanded = menuOpen,
-                    onDismissRequest = { menuOpen = false },
-                    containerColor = Aether.VoidElevated
-                ) {
-                    DropdownMenuItem(
-                        text = { Text("Details") },
-                        onClick = {
-                            menuOpen = false
-                            onDetails()
-                        }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Copy config link") },
-                        onClick = {
-                            menuOpen = false
-                            clipboard.setText(AnnotatedString(profile.raw.trim().ifBlank { profile.configJson }))
-                            repo.setRuntimeMessage("Config copied")
-                        }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Copy Xray JSON") },
-                        onClick = {
-                            menuOpen = false
-                            clipboard.setText(AnnotatedString(profile.configJson))
-                            repo.setRuntimeMessage("Xray JSON copied")
-                        }
-                    )
-                    if (!profile.scheme.equals("ssh", true)) {
+                    DropdownMenu(
+                        expanded=menuOpen,
+                        onDismissRequest={ menuOpen=false },
+                        containerColor=MaterialTheme.colorScheme.surface
+                    ) {
                         DropdownMenuItem(
-                            text = { Text("Edit Xray JSON") },
-                            onClick = {
-                                menuOpen = false
-                                jsonText = profile.configJson
-                                jsonOpen = true
+                            text={ Text("Details") },
+                            onClick={
+                                menuOpen=false
+                                onDetails()
+                            }
+                        )
+                        DropdownMenuItem(
+                            text={ Text("Copy config link") },
+                            onClick={
+                                menuOpen=false
+                                clipboard.setText(
+                                    AnnotatedString(
+                                        profile.raw.trim().ifBlank {
+                                            profile.configJson
+                                        }
+                                    )
+                                )
+                                repo.setRuntimeMessage("Config copied")
+                            }
+                        )
+                        DropdownMenuItem(
+                            text={ Text("Copy Xray JSON") },
+                            onClick={
+                                menuOpen=false
+                                clipboard.setText(AnnotatedString(profile.configJson))
+                                repo.setRuntimeMessage("Xray JSON copied")
+                            }
+                        )
+                        if(!profile.scheme.equals("ssh",true)) {
+                            DropdownMenuItem(
+                                text={ Text("Edit Xray JSON") },
+                                onClick={
+                                    menuOpen=false
+                                    jsonText=profile.configJson
+                                    jsonOpen=true
+                                }
+                            )
+                        }
+                        if(repo.settings.manualSourceEnabled) {
+                            DropdownMenuItem(
+                                text={ Text("Duplicate to Manual") },
+                                onClick={
+                                    menuOpen=false
+                                    repo.duplicateProfile(
+                                        profile.id,
+                                        profile.subscriptionId
+                                    )
+                                }
+                            )
+                        }
+                        HorizontalDivider()
+                        DropdownMenuItem(
+                            text={ Text("Test this node") },
+                            onClick={
+                                menuOpen=false
+                                repo.fullTest(profile)
+                            }
+                        )
+                        DropdownMenuItem(
+                            text={ Text("Rename") },
+                            onClick={
+                                menuOpen=false
+                                onEdit()
+                            }
+                        )
+                        DropdownMenuItem(
+                            text={ Text("Delete",color=Aether.Danger) },
+                            onClick={
+                                menuOpen=false
+                                deleteBySwipe=true
                             }
                         )
                     }
-                    if (repo.settings.manualSourceEnabled) {
-                        DropdownMenuItem(
-                            text = { Text("Duplicate to Manual") },
-                            onClick = {
-                                menuOpen = false
-                                repo.duplicateProfile(profile.id, profile.subscriptionId)
-                            }
-                        )
-                    }
-                    HorizontalDivider(color = Aether.GlassBorderSoft)
-                    DropdownMenuItem(
-                        text = { Text("Test this node") },
-                        onClick = {
-                            menuOpen = false
-                            repo.fullTest(profile)
-                        }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Rename") },
-                        onClick = {
-                            menuOpen = false
-                            onEdit()
-                        }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Delete", color = Aether.Danger) },
-                        onClick = {
-                            menuOpen = false
-                            repo.removeProfile(profile.id, profile.subscriptionId)
-                        }
-                    )
                 }
             }
-        }
 
-        // Full-width metadata rail: the hostname may flex/ellipsis, while the port is always
-        // visible. Keeping it below the action row prevents long endpoints from moving controls.
-        val endpointShape = RoundedCornerShape(13.dp)
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(endpointShape)
-                .background(Aether.Cyan.copy(alpha = .055f))
-                .padding(horizontal = 10.dp, vertical = 7.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(7.dp)
-        ) {
-            Text(
-                "HOST",
-                color = Aether.Cyan,
-                style = MaterialTheme.typography.labelSmall,
-                fontWeight = FontWeight.Bold,
-                maxLines = 1
-            )
-            Text(
-                profile.host.trim().ifBlank { "Unknown host" },
-                modifier = Modifier.weight(1f),
-                color = Aether.InkMuted,
-                style = MaterialTheme.typography.labelSmall.copy(
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.SemiBold
-                ),
-                maxLines = 1,
-                softWrap = false,
-                overflow = TextOverflow.Ellipsis
-            )
-            Box(
-                Modifier
-                    .width(1.dp)
-                    .height(14.dp)
-                    .background(Aether.GlassBorderSoft)
-            )
-            Text(
-                "PORT",
-                color = Aether.InkFaint,
-                style = MaterialTheme.typography.labelSmall,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1
-            )
-            Text(
-                profile.port.takeIf { it > 0 }?.toString() ?: "—",
-                color = Aether.Ink,
-                style = MaterialTheme.typography.labelSmall.copy(
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold
-                ),
-                maxLines = 1
-            )
-        }
-
-        if (testing || queued) {
+            val endpointShape=RoundedCornerShape(13.dp)
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(9.dp),
-                verticalAlignment = Alignment.CenterVertically
+                modifier=Modifier
+                    .fillMaxWidth()
+                    .clip(endpointShape)
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha=.64f))
+                    .padding(horizontal=10.dp,vertical=8.dp),
+                verticalAlignment=Alignment.CenterVertically,
+                horizontalArrangement=Arrangement.spacedBy(MarbleSpacing.S)
             ) {
                 Text(
-                    if (testing) "Testing…" else "Queued",
-                    color = if (testing) Aether.Cyan else Aether.InkFaint,
-                    style = MaterialTheme.typography.labelSmall,
-                    maxLines = 1,
-                    softWrap = false
+                    "HOST",
+                    color=MaterialTheme.colorScheme.primary,
+                    style=MaterialTheme.typography.labelSmall,
+                    fontWeight=FontWeight.Bold
                 )
-                LiveProgressBar(
-                    fraction = if (testing) null else 0f,
-                    modifier = Modifier.weight(1f),
-                    color = Aether.Cyan
+                Text(
+                    profile.host.trim().ifBlank { "Unknown host" },
+                    modifier=Modifier.weight(1f),
+                    color=MaterialTheme.colorScheme.onSurfaceVariant,
+                    style=MaterialTheme.typography.labelSmall.copy(
+                        fontFamily=FontFamily.Monospace,
+                        fontWeight=FontWeight.SemiBold
+                    ),
+                    maxLines=1,
+                    overflow=TextOverflow.Ellipsis
+                )
+                VerticalDivider(Modifier.height(14.dp))
+                Text(
+                    "PORT",
+                    color=MaterialTheme.colorScheme.onSurfaceVariant,
+                    style=MaterialTheme.typography.labelSmall
+                )
+                Text(
+                    profile.port.takeIf { it > 0 }?.toString() ?: "—",
+                    color=MaterialTheme.colorScheme.onSurface,
+                    style=MaterialTheme.typography.labelSmall.copy(
+                        fontFamily=FontFamily.Monospace,
+                        fontWeight=FontWeight.Bold
+                    )
                 )
             }
-        }
 
-        if (measured != null) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(7.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                measured.let { evidence ->
+            if(testing || queued) {
+                Row(
+                    modifier=Modifier.fillMaxWidth(),
+                    horizontalArrangement=Arrangement.spacedBy(MarbleSpacing.S),
+                    verticalAlignment=Alignment.CenterVertically
+                ) {
+                    Text(
+                        if(testing) "Testing…" else "Queued",
+                        color=if(testing) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        style=MaterialTheme.typography.labelSmall
+                    )
+                    LiveProgressBar(
+                        fraction=if(testing) null else 0f,
+                        modifier=Modifier.weight(1f),
+                        color=MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+
+            if(measured != null) {
+                Row(
+                    modifier=Modifier.fillMaxWidth(),
+                    horizontalArrangement=Arrangement.spacedBy(MarbleSpacing.S)
+                ) {
                     HoloBadge(
-                        evidence.probeKind,
-                        if (evidence.probeKind == "TUNNEL") Aether.Emerald else Aether.Cyan,
-                        compact = true
+                        measured.probeKind,
+                        if(measured.probeKind == "TUNNEL") {
+                            Aether.Emerald
+                        } else {
+                            MaterialTheme.colorScheme.primary
+                        },
+                        compact=true
                     )
                     HoloBadge(
-                        "${evidence.success}% ok",
-                        if (evidence.success >= 90) Aether.Emerald else Aether.Amber,
-                        compact = true
+                        "${measured.success}% ok",
+                        if(measured.success >= 90) Aether.Emerald else Aether.Amber,
+                        compact=true
                     )
                 }
             }
         }
     }
 }
+
 
 @Composable
 private fun MicroStat(
@@ -3805,86 +4260,185 @@ private fun SpatialSettings(
     onDialog: (String) -> Unit,
     focusSection: String? = null
 ) {
-    val tabs = SettingsWorkspaceTab.entries
-    val expertMode = repo.settings.expertMode
-    val scope = rememberCoroutineScope()
-    val initialPage = if (focusSection == "Routing") SettingsWorkspaceTab.NETWORK.ordinal else 0
-    val pagerState = rememberPagerState(initialPage = initialPage) { tabs.size }
+    val tabs=SettingsWorkspaceTab.entries
+    val expertMode=repo.settings.expertMode
+    val scope=rememberCoroutineScope()
+    val initialPage=if(focusSection == "Routing") {
+        SettingsWorkspaceTab.NETWORK.ordinal
+    } else 0
+    val pagerState=rememberPagerState(initialPage=initialPage) { tabs.size }
 
     LaunchedEffect(focusSection) {
-        if (focusSection == "Routing") {
-            if (!repo.settings.expertMode) {
-                repo.updateSettings(repo.settings.copy(expertMode = true))
+        if(focusSection == "Routing") {
+            if(!repo.settings.expertMode) {
+                repo.updateSettings(repo.settings.copy(expertMode=true))
             }
             pagerState.animateScrollToPage(SettingsWorkspaceTab.NETWORK.ordinal)
         }
     }
 
     Column(Modifier.fillMaxSize()) {
-        Box(Modifier.padding(horizontal = 18.dp, vertical = 10.dp)) {
-            SpatialHeader(
-                "Preferences",
-                "Settings",
-                "",
-                if (expertMode) "Expert" else "Simple",
-                if (expertMode) Aether.Cyan else Aether.Emerald
-            )
-        }
+        MarbleCompactTopBar(
+            title="Settings",
+            subtitle=if(expertMode) "Expert controls" else "Simple controls"
+        )
 
-        ScrollableTabRow(
-            selectedTabIndex = pagerState.currentPage,
-            modifier = Modifier.fillMaxWidth(),
-            containerColor = Color.Transparent,
-            contentColor = Aether.Ink,
-            edgePadding = 18.dp,
-            indicator = {},
-            divider = {}
+        BoxWithConstraints(
+            modifier=Modifier.fillMaxWidth().weight(1f)
         ) {
-            tabs.forEachIndexed { index, tab ->
-                val selected = pagerState.currentPage == index
-                val tone = settingsTabTone(tab)
-                Tab(
-                    selected = selected,
-                    onClick = { scope.launch { pagerState.animateScrollToPage(index) } },
-                    modifier = Modifier.padding(end = 7.dp),
-                    selectedContentColor = tone,
-                    unselectedContentColor = Aether.InkMuted
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(15.dp))
-                            .background(if (selected) tone.copy(alpha = .10f) else Color.Transparent)
-                            .border(
-                                1.dp,
-                                if (selected) tone.copy(alpha = .20f)
-                                else Color.Transparent,
-                                RoundedCornerShape(15.dp)
-                            )
-                            .padding(horizontal = 12.dp, vertical = 9.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(7.dp)
+            if(maxWidth >= 700.dp) {
+                Row(Modifier.fillMaxSize()) {
+                    NavigationRail(
+                        modifier=Modifier.fillMaxHeight(),
+                        containerColor=MaterialTheme.colorScheme.surface
                     ) {
-                        HomeVectorIcon(tab.icon, if (selected) tone else Aether.InkMuted, Modifier.size(16.dp))
-                        Text(tab.label, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+                        Spacer(Modifier.height(MarbleSpacing.S))
+                        tabs.forEachIndexed { index, tab ->
+                            val selected=pagerState.currentPage == index
+                            NavigationRailItem(
+                                selected=selected,
+                                onClick={
+                                    scope.launch {
+                                        pagerState.animateScrollToPage(index)
+                                    }
+                                },
+                                icon={
+                                    HomeVectorIcon(
+                                        tab.icon,
+                                        if(selected) {
+                                            MaterialTheme.colorScheme.primary
+                                        } else {
+                                            MaterialTheme.colorScheme.onSurfaceVariant
+                                        },
+                                        Modifier.size(20.dp)
+                                    )
+                                },
+                                label={
+                                    Text(
+                                        tab.label,
+                                        style=MaterialTheme.typography.labelMedium
+                                    )
+                                }
+                            )
+                        }
+                    }
+
+                    VerticalDivider(color=MaterialTheme.colorScheme.outlineVariant)
+
+                    HorizontalPager(
+                        state=pagerState,
+                        modifier=Modifier.fillMaxHeight().weight(1f),
+                        beyondViewportPageCount=1
+                    ) { page ->
+                        SettingsWorkspacePage(
+                            tab=tabs[page],
+                            repo=repo,
+                            expertMode=expertMode,
+                            focusSection=focusSection
+                        )
+                    }
+                }
+            } else {
+                Column(Modifier.fillMaxSize()) {
+                    Box(
+                        modifier=Modifier.fillMaxWidth().height(58.dp)
+                    ) {
+                        ScrollableTabRow(
+                            selectedTabIndex=pagerState.currentPage,
+                            modifier=Modifier.fillMaxSize(),
+                            containerColor=Color.Transparent,
+                            contentColor=MaterialTheme.colorScheme.onSurface,
+                            edgePadding=MarbleSpacing.M,
+                            indicator={},
+                            divider={}
+                        ) {
+                            tabs.forEachIndexed { index, tab ->
+                                val selected=pagerState.currentPage == index
+                                Tab(
+                                    selected=selected,
+                                    onClick={
+                                        scope.launch {
+                                            pagerState.animateScrollToPage(index)
+                                        }
+                                    },
+                                    selectedContentColor=MaterialTheme.colorScheme.primary,
+                                    unselectedContentColor=MaterialTheme.colorScheme.onSurfaceVariant
+                                ) {
+                                    Row(
+                                        modifier=Modifier
+                                            .clip(RoundedCornerShape(999.dp))
+                                            .background(
+                                                if(selected) {
+                                                    MaterialTheme.colorScheme.secondaryContainer
+                                                } else Color.Transparent
+                                            )
+                                            .padding(horizontal=14.dp,vertical=10.dp),
+                                        verticalAlignment=Alignment.CenterVertically,
+                                        horizontalArrangement=Arrangement.spacedBy(MarbleSpacing.S)
+                                    ) {
+                                        HomeVectorIcon(
+                                            tab.icon,
+                                            if(selected) {
+                                                MaterialTheme.colorScheme.onSecondaryContainer
+                                            } else {
+                                                MaterialTheme.colorScheme.onSurfaceVariant
+                                            },
+                                            Modifier.size(17.dp)
+                                        )
+                                        Text(
+                                            tab.label,
+                                            style=MaterialTheme.typography.labelMedium,
+                                            fontWeight=if(selected) {
+                                                FontWeight.Bold
+                                            } else FontWeight.Medium
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        Box(
+                            Modifier
+                                .align(Alignment.CenterStart)
+                                .width(18.dp)
+                                .fillMaxHeight()
+                                .background(
+                                    Brush.horizontalGradient(
+                                        listOf(Aether.Void,Color.Transparent)
+                                    )
+                                )
+                        )
+                        Box(
+                            Modifier
+                                .align(Alignment.CenterEnd)
+                                .width(18.dp)
+                                .fillMaxHeight()
+                                .background(
+                                    Brush.horizontalGradient(
+                                        listOf(Color.Transparent,Aether.Void)
+                                    )
+                                )
+                        )
+                    }
+
+                    HorizontalPager(
+                        state=pagerState,
+                        modifier=Modifier.fillMaxWidth().weight(1f),
+                        beyondViewportPageCount=1
+                    ) { page ->
+                        SettingsWorkspacePage(
+                            tab=tabs[page],
+                            repo=repo,
+                            expertMode=expertMode,
+                            focusSection=focusSection
+                        )
                     }
                 }
             }
         }
-
-        HorizontalPager(
-            state = pagerState,
-            modifier = Modifier.fillMaxWidth().weight(1f),
-            beyondViewportPageCount = 1
-        ) { page ->
-            SettingsWorkspacePage(
-                tab = tabs[page],
-                repo = repo,
-                expertMode = expertMode,
-                focusSection = focusSection
-            )
-        }
     }
 }
+
 
 @Composable
 private fun SettingsWorkspacePage(
@@ -3895,8 +4449,8 @@ private fun SettingsWorkspacePage(
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 13.dp, bottom = 30.dp),
-        verticalArrangement = Arrangement.spacedBy(11.dp)
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         when (tab) {
             SettingsWorkspaceTab.GENERAL -> {
@@ -3950,26 +4504,47 @@ private fun SettingsSectionCard(
     color: Color,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    val shape = RoundedCornerShape(22.dp)
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .clip(shape)
-            .background(Aether.VoidElevated)
-            .padding(horizontal = 14.dp, vertical = 13.dp),
-        verticalArrangement = Arrangement.spacedBy(11.dp)
+    ElevatedCard(
+        modifier=Modifier.fillMaxWidth(),
+        shape=MaterialTheme.shapes.large,
+        colors=CardDefaults.elevatedCardColors(
+            containerColor=MaterialTheme.colorScheme.surface
+        ),
+        elevation=CardDefaults.elevatedCardElevation()
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(11.dp)) {
-            HomeIconTile(icon, color, Modifier.size(38.dp))
-            Column(Modifier.weight(1f)) {
-                Text(title, color = Aether.Ink, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(subtitle, color = Aether.InkFaint, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        Column(
+            modifier=Modifier.padding(MarbleSpacing.M),
+            verticalArrangement=Arrangement.spacedBy(MarbleSpacing.M)
+        ) {
+            Row(
+                verticalAlignment=Alignment.CenterVertically,
+                horizontalArrangement=Arrangement.spacedBy(MarbleSpacing.S)
+            ) {
+                HomeIconTile(icon,color,Modifier.size(38.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        title,
+                        color=MaterialTheme.colorScheme.onSurface,
+                        style=MaterialTheme.typography.titleMedium,
+                        fontWeight=FontWeight.SemiBold,
+                        maxLines=1,
+                        overflow=TextOverflow.Ellipsis
+                    )
+                    Text(
+                        subtitle,
+                        color=MaterialTheme.colorScheme.onSurfaceVariant,
+                        style=MaterialTheme.typography.bodySmall,
+                        maxLines=2,
+                        overflow=TextOverflow.Ellipsis
+                    )
+                }
             }
+            HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant)
+            content()
         }
-        HorizontalDivider(color = Aether.GlassBorderSoft)
-        content()
     }
 }
+
 
 @Composable
 private fun ExpertWorkspaceHint() {
@@ -3989,56 +4564,112 @@ private fun ExpertWorkspaceHint() {
 
 @Composable
 private fun AppearanceSettings(repo: AppRepository) {
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Text("Theme", color = Aether.Ink, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
-        Row(
-            modifier = Modifier.horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            CyberChoiceChip("System", repo.settings.theme.equals("system", true), Aether.Cyan) {
-                repo.updateSettings(repo.settings.copy(theme = "system"))
-            }
-            CyberChoiceChip("White", repo.settings.theme.equals("light", true), Aether.Cyan) {
-                repo.updateSettings(repo.settings.copy(theme = "light"))
-            }
-            CyberChoiceChip("Dark", repo.settings.theme.equals("dark", true), Aether.Cyan) {
-                repo.updateSettings(repo.settings.copy(theme = "dark"))
-            }
+    val options=listOf(
+        Triple("System","system",HomeIcon.STATUS),
+        Triple("White","light",HomeIcon.SPARK),
+        Triple("Dark","dark",HomeIcon.MODE)
+    )
+
+    Text(
+        "Theme",
+        color=MaterialTheme.colorScheme.onSurface,
+        style=MaterialTheme.typography.titleSmall,
+        fontWeight=FontWeight.SemiBold
+    )
+
+    SingleChoiceSegmentedButtonRow(
+        modifier=Modifier.fillMaxWidth()
+    ) {
+        options.forEachIndexed { index, option ->
+            val selected=repo.settings.theme.equals(option.second,true)
+            SegmentedButton(
+                modifier=Modifier.weight(1f),
+                selected=selected,
+                onClick={
+                    repo.updateSettings(repo.settings.copy(theme=option.second))
+                },
+                shape=SegmentedButtonDefaults.itemShape(
+                    index=index,
+                    count=options.size
+                ),
+                icon={
+                    HomeVectorIcon(
+                        option.third,
+                        if(selected) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        Modifier.size(16.dp)
+                    )
+                },
+                label={
+                    Text(
+                        option.first,
+                        maxLines=1,
+                        style=MaterialTheme.typography.labelMedium
+                    )
+                }
+            )
         }
     }
-    HorizontalDivider(color = Aether.GlassBorderSoft)
+
+    Text(
+        "System follows Android light/dark mode and Material You Dynamic Color on Android 12+.",
+        color=MaterialTheme.colorScheme.onSurfaceVariant,
+        style=MaterialTheme.typography.bodySmall
+    )
+
+    HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant)
+
     SettingSwitch(
         "Expert controls",
         "Reveal MTU, DNS, routing, fragmentation, recovery and chain settings",
         repo.settings.expertMode
-    ) { repo.updateSettings(repo.settings.copy(expertMode = it)) }
-    HorizontalDivider(color = Aether.GlassBorderSoft)
+    ) { repo.updateSettings(repo.settings.copy(expertMode=it)) }
+
     SettingSwitch(
         "Automatic app update checks",
         "Check GitHub Releases whenever MarbleNG returns to the foreground",
         repo.settings.appUpdateCheckEnabled
     ) { enabled ->
-        repo.updateSettings(repo.settings.copy(appUpdateCheckEnabled = enabled))
-        if (enabled) repo.checkForAppUpdate(force = true)
+        repo.updateSettings(repo.settings.copy(appUpdateCheckEnabled=enabled))
+        if(enabled) repo.checkForAppUpdate(force=true)
     }
-    HorizontalDivider(color = Aether.GlassBorderSoft)
-    Text("HOME LAYOUT", color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
+
+    HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant)
+
+    Text(
+        "Home layout",
+        color=MaterialTheme.colorScheme.onSurface,
+        style=MaterialTheme.typography.titleSmall,
+        fontWeight=FontWeight.SemiBold
+    )
+    Text(
+        "Choose optional Home surfaces without disabling their underlying engine.",
+        color=MaterialTheme.colorScheme.onSurfaceVariant,
+        style=MaterialTheme.typography.bodySmall
+    )
+
     SettingSwitch(
         "Summary metrics on Home",
         "Show Nodes, Xray OK and Mode below the connection panel",
         repo.settings.homeShowSummaryMetrics
-    ) { repo.updateSettings(repo.settings.copy(homeShowSummaryMetrics = it)) }
+    ) { repo.updateSettings(repo.settings.copy(homeShowSummaryMetrics=it)) }
+
     SettingSwitch(
         "Iran Mode card on Home",
         "Hide only the Home card; Iran Mode protection keeps running",
         repo.settings.homeShowIranMode
-    ) { repo.updateSettings(repo.settings.copy(homeShowIranMode = it)) }
+    ) { repo.updateSettings(repo.settings.copy(homeShowIranMode=it)) }
+
     SettingSwitch(
         "Quick Actions on Home",
         "Show or hide Rank, Library, Privacy and Routing shortcuts",
         repo.settings.homeShowQuickActions
-    ) { repo.updateSettings(repo.settings.copy(homeShowQuickActions = it)) }
+    ) { repo.updateSettings(repo.settings.copy(homeShowQuickActions=it)) }
 }
+
 
 @Composable
 private fun ConnectionSettings(repo: AppRepository) {
@@ -5360,31 +5991,28 @@ private fun CyberButton(
     enabled: Boolean = true,
     onClick: () -> Unit
 ) {
-    val shape = RoundedCornerShape(15.dp)
-    Box(
-        modifier = modifier
-            .heightIn(min = 46.dp)
-            .clip(shape)
-            .background(if (enabled) color.copy(alpha = .11f) else Aether.GlassStrong)
-            .border(
-                1.dp,
-                if (enabled) color.copy(alpha = .22f) else Aether.GlassBorderSoft,
-                shape
-            )
-            .kineticClickable(enabled = enabled, role = Role.Button, onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-        contentAlignment = Alignment.Center
+    FilledTonalButton(
+        onClick=onClick,
+        modifier=modifier.heightIn(min=48.dp),
+        enabled=enabled,
+        shape=MaterialTheme.shapes.medium,
+        colors=ButtonDefaults.filledTonalButtonColors(
+            containerColor=color.copy(alpha=.12f),
+            contentColor=color,
+            disabledContainerColor=MaterialTheme.colorScheme.surfaceVariant,
+            disabledContentColor=MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha=.45f)
+        )
     ) {
         Text(
             label,
-            color = if (enabled) color else Aether.InkFaint,
-            style = MaterialTheme.typography.labelLarge,
-            maxLines = 1,
-            softWrap = false,
-            overflow = TextOverflow.Ellipsis
+            style=MaterialTheme.typography.labelLarge,
+            fontWeight=FontWeight.SemiBold,
+            maxLines=1,
+            overflow=TextOverflow.Ellipsis
         )
     }
 }
+
 
 @Composable
 private fun CyberChoiceChip(
@@ -5393,40 +6021,19 @@ private fun CyberChoiceChip(
     color: Color,
     onClick: () -> Unit
 ) {
-    val background by animateColorAsState(
-        targetValue = if (selected) color.copy(alpha = .12f) else Aether.GlassStrong.copy(alpha = .55f),
-        animationSpec = MarbleMotionSpecs.Color,
-        label = "chip-background-$text"
-    )
-    val contentColor by animateColorAsState(
-        targetValue = if (selected) color else Aether.InkMuted,
-        animationSpec = MarbleMotionSpecs.Color,
-        label = "chip-content-$text"
-    )
-
-    Box(
-        Modifier
-            .clip(RoundedCornerShape(11.dp))
-            .background(background)
-            .border(
-                1.dp,
-                if (selected) color.copy(alpha = .30f) else Aether.GlassBorderSoft,
-                RoundedCornerShape(11.dp)
+    FilterChip(
+        selected=selected,
+        onClick=onClick,
+        label={
+            Text(
+                text,
+                style=MaterialTheme.typography.labelMedium,
+                maxLines=1
             )
-            .kineticClickable(role = Role.Button, onClick = onClick)
-            .padding(horizontal = 11.dp, vertical = 8.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(
-            text,
-            color = contentColor,
-            style = MaterialTheme.typography.labelSmall,
-            maxLines = 1,
-            softWrap = false,
-            overflow = TextOverflow.Ellipsis
-        )
-    }
+        }
+    )
 }
+
 
 @Composable
 private fun CyberSegment(
@@ -5478,76 +6085,39 @@ private fun SettingSwitch(
     onChecked: (Boolean) -> Unit
 ) {
     Row(
-        modifier = Modifier
+        modifier=Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .background(if (checked) Aether.Cyan.copy(alpha = .028f) else Color.Transparent)
-            .kineticClickable(role = Role.Switch) { onChecked(!checked) }
-            .padding(horizontal = 7.dp, vertical = 7.dp),
-        verticalAlignment = Alignment.CenterVertically
+            .padding(vertical=MarbleSpacing.S),
+        verticalAlignment=Alignment.CenterVertically,
+        horizontalArrangement=Arrangement.spacedBy(MarbleSpacing.M)
     ) {
         Column(Modifier.weight(1f)) {
             Text(
                 title,
-                color = Aether.Ink,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.SemiBold
+                color=MaterialTheme.colorScheme.onSurface,
+                style=MaterialTheme.typography.bodyMedium,
+                fontWeight=FontWeight.SemiBold
             )
             Text(
                 subtitle,
-                color = Aether.InkFaint,
-                style = MaterialTheme.typography.bodySmall
+                color=MaterialTheme.colorScheme.onSurfaceVariant,
+                style=MaterialTheme.typography.bodySmall
             )
         }
-        Spacer(Modifier.width(12.dp))
-        MarbleToggle(checked = checked, onChecked = onChecked)
-    }
-}
-
-@Composable
-private fun MarbleToggle(
-    checked: Boolean,
-    onChecked: (Boolean) -> Unit
-) {
-    val track by animateColorAsState(
-        targetValue = if (checked) Aether.Cyan else Aether.GlassStrong,
-        animationSpec = MarbleMotionSpecs.Color,
-        label = "marble-toggle-track"
-    )
-    val border by animateColorAsState(
-        targetValue = if (checked) Aether.Cyan else Aether.GlassBorder,
-        animationSpec = MarbleMotionSpecs.Color,
-        label = "marble-toggle-border"
-    )
-    val thumb by animateColorAsState(
-        targetValue = if (checked) Color.White else Aether.InkMuted,
-        animationSpec = MarbleMotionSpecs.Color,
-        label = "marble-toggle-thumb"
-    )
-    val thumbX by animateDpAsState(
-        targetValue = if (checked) 23.dp else 3.dp,
-        animationSpec = MarbleMotionSpecs.Dp,
-        label = "marble-toggle-position"
-    )
-
-    Box(
-        modifier = Modifier
-            .width(50.dp)
-            .height(30.dp)
-            .clip(CircleShape)
-            .background(track)
-            .border(1.dp, border, CircleShape)
-            .kineticClickable(role = Role.Switch) { onChecked(!checked) }
-    ) {
-        Box(
-            modifier = Modifier
-                .offset(x = thumbX, y = 3.dp)
-                .size(24.dp)
-                .clip(CircleShape)
-                .background(thumb)
+        Switch(
+            checked=checked,
+            onCheckedChange=onChecked,
+            colors=SwitchDefaults.colors(
+                checkedTrackColor=MaterialTheme.colorScheme.primary,
+                checkedThumbColor=MaterialTheme.colorScheme.onPrimary,
+                uncheckedTrackColor=MaterialTheme.colorScheme.surfaceVariant,
+                uncheckedThumbColor=MaterialTheme.colorScheme.onSurfaceVariant,
+                uncheckedBorderColor=MaterialTheme.colorScheme.outline
+            )
         )
     }
 }
+
 
 @Composable
 private fun NumberSetting(
@@ -5644,29 +6214,25 @@ private fun EmptyVisual(
 private fun healthColor(latencyMs: Int, success: Int): Color = when {
     success <= 0 -> Aether.InkFaint
     success < 50 -> Aether.Danger
-    latencyMs in 1..130 && success >= 80 -> Aether.Emerald
-    latencyMs in 1..280 -> Aether.Amber
-    latencyMs > 280 -> Aether.Danger
+    latencyMs in 1..99 && success >= 80 -> Aether.Emerald
+    latencyMs in 100..250 -> Aether.Amber
+    latencyMs > 250 -> Aether.Danger
     else -> Aether.Cyan
 }
 
 // MARBLE_LIBRARY_PING_HELPERS_V25_3_1
-// Keep the textual quality/bars consistent with healthColor(): green <=130 ms,
-// amber <=280 ms, red above 280 ms. The extra <=80 tier only distinguishes
-// excellent from merely fast without changing the health color semantics.
+// Product metric bands: green <100 ms, amber 100..250 ms, red >250 ms.
 private fun libraryPingQuality(latencyMs: Int): String = when {
     latencyMs <= 0 -> "Waiting"
-    latencyMs <= 80 -> "Excellent"
-    latencyMs <= 130 -> "Fast"
-    latencyMs <= 280 -> "Fair"
+    latencyMs < 100 -> "Fast"
+    latencyMs <= 250 -> "Fair"
     else -> "Slow"
 }
 
 private fun libraryPingBars(latencyMs: Int): Int = when {
     latencyMs <= 0 -> 0
-    latencyMs <= 80 -> 4
-    latencyMs <= 130 -> 3
-    latencyMs <= 280 -> 2
+    latencyMs < 100 -> 4
+    latencyMs <= 250 -> 2
     else -> 1
 }
 

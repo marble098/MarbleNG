@@ -3,6 +3,7 @@ package com.marbleng.app.ui
 // MARBLE_KINETIC_GLASS_THEME_V34
 // MARBLE_SOLID_WHITE_THEME_V35
 // MARBLE_REFINED_PRODUCT_UI_V52
+// MARBLE_M3_EXPRESSIVE_THEME_V53
 
 import android.app.Activity
 import android.os.Build
@@ -12,6 +13,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.dynamicDarkColorScheme
+import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -19,6 +22,7 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -231,81 +235,92 @@ fun AetherFlowTheme(
     themeId: String = "light",
     content: @Composable () -> Unit
 ) {
-    val requested = parseAppTheme(themeId)
-    val light = when (requested) {
+    val requested=parseAppTheme(themeId)
+    val light=when(requested) {
         AppTheme.LIGHT -> true
         AppTheme.DARK -> false
         AppTheme.SYSTEM -> !isSystemInDarkTheme()
     }
-    val palette = if (light) LightPalette else DarkPalette
 
-    val scheme = if (light) {
+    val palette=if(light) LightPalette else DarkPalette
+    val context=LocalContext.current
+    val dynamicColor=
+        requested == AppTheme.SYSTEM &&
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+
+    val fallback=if(light) {
         lightColorScheme(
-            primary = palette.cyan,
-            onPrimary = Color.White,
-            primaryContainer = palette.cyan.copy(alpha = .10f),
-            onPrimaryContainer = palette.ink,
-            secondary = palette.emerald,
-            onSecondary = Color.White,
-            secondaryContainer = palette.emerald.copy(alpha = .10f),
-            onSecondaryContainer = palette.ink,
-            tertiary = palette.amethyst,
-            background = palette.void,
-            onBackground = palette.ink,
-            surface = palette.voidElevated,
-            onSurface = palette.ink,
-            surfaceVariant = palette.glassStrong,
-            onSurfaceVariant = palette.inkMuted,
-            surfaceTint = Color.Transparent,
-            error = palette.danger,
-            outline = palette.glassBorderSoft,
-            outlineVariant = palette.glassBorderSoft.copy(alpha = .55f)
+            primary=palette.cyan,
+            onPrimary=Color.White,
+            primaryContainer=palette.cyan.copy(alpha=.10f),
+            onPrimaryContainer=palette.ink,
+            secondary=palette.emerald,
+            onSecondary=Color.White,
+            secondaryContainer=palette.emerald.copy(alpha=.10f),
+            onSecondaryContainer=palette.ink,
+            tertiary=palette.amethyst,
+            background=palette.void,
+            onBackground=palette.ink,
+            surface=palette.voidElevated,
+            onSurface=palette.ink,
+            surfaceVariant=palette.glassStrong,
+            onSurfaceVariant=palette.inkMuted,
+            surfaceTint=Color.Transparent,
+            error=palette.danger,
+            outline=palette.glassBorderSoft,
+            outlineVariant=palette.glassBorderSoft.copy(alpha=.55f)
         )
     } else {
         darkColorScheme(
-            primary = palette.cyan,
-            onPrimary = Color(0xFF061329),
-            primaryContainer = palette.cyan.copy(alpha = .14f),
-            onPrimaryContainer = palette.ink,
-            secondary = palette.emerald,
-            onSecondary = Color(0xFF061711),
-            secondaryContainer = palette.emerald.copy(alpha = .12f),
-            onSecondaryContainer = palette.ink,
-            tertiary = palette.amethyst,
-            background = palette.void,
-            onBackground = palette.ink,
-            surface = palette.voidElevated,
-            onSurface = palette.ink,
-            surfaceVariant = palette.glassStrong,
-            onSurfaceVariant = palette.inkMuted,
-            surfaceTint = Color.Transparent,
-            error = palette.danger,
-            outline = palette.glassBorder,
-            outlineVariant = palette.glassBorderSoft
+            primary=palette.cyan,
+            onPrimary=Color(0xFF061329),
+            primaryContainer=palette.cyan.copy(alpha=.14f),
+            onPrimaryContainer=palette.ink,
+            secondary=palette.emerald,
+            onSecondary=Color(0xFF061711),
+            secondaryContainer=palette.emerald.copy(alpha=.12f),
+            onSecondaryContainer=palette.ink,
+            tertiary=palette.amethyst,
+            background=palette.void,
+            onBackground=palette.ink,
+            surface=palette.voidElevated,
+            onSurface=palette.ink,
+            surfaceVariant=palette.glassStrong,
+            onSurfaceVariant=palette.inkMuted,
+            surfaceTint=Color.Transparent,
+            error=palette.danger,
+            outline=palette.glassBorder,
+            outlineVariant=palette.glassBorderSoft
         )
     }
 
-    val view = LocalView.current
-    if (!view.isInEditMode) {
-        val window = (view.context as Activity).window
+    val scheme=when {
+        dynamicColor && light -> dynamicLightColorScheme(context)
+        dynamicColor && !light -> dynamicDarkColorScheme(context)
+        else -> fallback
+    }
+
+    val view=LocalView.current
+    if(!view.isInEditMode) {
+        val window=(view.context as Activity).window
         SideEffect {
-            val controller = WindowCompat.getInsetsController(window, view)
-            controller.isAppearanceLightStatusBars = light
-            controller.isAppearanceLightNavigationBars = light
-            window.statusBarColor = palette.void.toArgb()
-            window.navigationBarColor = palette.void.toArgb()
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                window.isStatusBarContrastEnforced = false
-                window.isNavigationBarContrastEnforced = false
+            val controller=WindowCompat.getInsetsController(window,view)
+            controller.isAppearanceLightStatusBars=light
+            controller.isAppearanceLightNavigationBars=light
+            window.statusBarColor=scheme.background.toArgb()
+            window.navigationBarColor=scheme.background.toArgb()
+            if(Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                window.isStatusBarContrastEnforced=false
+                window.isNavigationBarContrastEnforced=false
             }
         }
     }
 
     CompositionLocalProvider(LocalAetherPalette provides palette) {
         MaterialTheme(
-            colorScheme = scheme,
-            typography = AetherTypography,
-            shapes = AetherShapes
+            colorScheme=scheme,
+            typography=AetherTypography,
+            shapes=AetherShapes
         ) {
             ProvideMarbleMotion(content)
         }

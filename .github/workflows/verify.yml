@@ -83,19 +83,30 @@ jobs:
           set -euo pipefail
           python3 scripts/system-integrity-check.py
 
-      - name: Verify Product UI v9.1 invariants
+      - name: Verify Product UI + Material 3 Expressive invariants
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
           ui=Path('app/src/main/java/com/marbleng/app/ui/Aether2026.kt').read_text()
+          theme=Path('app/src/main/java/com/marbleng/app/ui/AetherTheme.kt').read_text()
+          design=Path('app/src/main/java/com/marbleng/app/ui/MarbleDesignSystem.kt').read_text()
           repo=Path('app/src/main/java/com/marbleng/app/AppRepository.kt').read_text()
           vpn=Path('app/src/main/java/com/marbleng/app/vpn/MarbleVpnService.kt').read_text()
           required={
               'v9.1 marker':'Marble Product UI v9.1.0' in ui,
               'modern Canvas icons':'MarbleTabIcon(' in ui,
-              'custom off toggle':'MarbleToggle(' in ui and 'SwitchDefaults.colors(' not in ui,
+              'official M3 switch':'Switch(' in ui and 'SwitchDefaults.colors(' in ui and 'MarbleToggle(' not in ui,
+              'v53 marker':'MARBLE_M3_EXPRESSIVE_UI_V53' in ui,
+              'official navigation elevation':'NavigationBar(' in ui and 'NavigationBarDefaults.Elevation' in ui,
+              'official card elevation':'ElevatedCard(' in ui and 'CardDefaults.elevatedCardElevation()' in ui,
+              'segmented theme selector':'SingleChoiceSegmentedButtonRow(' in ui,
+              'library filter bottom sheet':'ModalBottomSheet(' in ui and 'LibraryFilterSheet(' in ui,
+              'library swipe actions':'SwipeToDismissBox(' in ui,
+              'adaptive settings rail':'NavigationRail(' in ui and 'maxWidth >= 700.dp' in ui,
+              'home bento + sparkline':'HomeMetricBento(' in ui and 'MarbleSparkline(' in design,
+              'dynamic system colors':'dynamicLightColorScheme(' in theme and 'dynamicDarkColorScheme(' in theme,
               'connected score prioritizes live':'repo.liveRouteScore' in ui,
               'live score model':'calculateLiveRouteScore' in repo,
               'live sample count':'liveRouteSamples' in repo,
@@ -105,7 +116,7 @@ jobs:
           failed=[k for k,v in required.items() if not v]
           if failed:
               raise SystemExit('Product UI v9.1 invariant failure: '+', '.join(failed))
-          print('[OK] Product UI v9.1 invariants')
+          print('[OK] Product UI + Material 3 Expressive invariants')
           PY
 
       - name: Set up JDK 17
