@@ -3873,7 +3873,7 @@ private fun SpatialServerCard(
             confirmButton={
                 TextButton(
                     onClick={
-                        repo.removeProfile(profile.id,profile.subscriptionId)
+                        repo.removeProfile(profile.id, profile.subscriptionId)
                         deleteBySwipe=false
                     }
                 ) {
