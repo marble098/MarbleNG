@@ -43,8 +43,11 @@ jobs:
           grep -F 'AdaptiveMtuPolicy.recommend' app/src/main/java/com/marbleng/app/core/MarbleIntelligence.kt
           grep -F 'sockopt.put("tcpUserTimeout"' app/src/main/java/com/marbleng/app/core/XrayConfigHardener.kt
           grep -F '"android-data-stall"' app/src/main/java/com/marbleng/app/vpn/MarbleVpnService.kt
-          if grep -R -F 'tcpNoDelay' app/src/main/java; then
-            echo 'Removed Xray tcpNoDelay option must stay absent' >&2
+          # tcpNoDelay on java.net.Socket is valid. Only the removed Xray JSON
+          # sockopt field must remain absent.
+          if grep -E '\.put\([[:space:]]*"tcpNoDelay"|"tcpNoDelay"[[:space:]]*:' \
+            app/src/main/java/com/marbleng/app/core/XrayConfigHardener.kt; then
+            echo 'Unsupported Xray sockopt tcpNoDelay field must stay absent' >&2
             exit 1
           fi
 
