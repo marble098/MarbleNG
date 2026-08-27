@@ -677,76 +677,90 @@ private fun FloatingSpatialDock(
     selected: SpatialTab,
     onSelect: (SpatialTab) -> Unit
 ) {
+    // MARBLE_BOTTOM_DOCK_REDESIGN_V654
+    // One restrained floating shell, no nested Material NavigationBar surface.
+    // This avoids the gray slab / white label band produced by the old stack.
     Box(
         modifier=Modifier
             .fillMaxWidth()
             .navigationBarsPadding()
-            .background(
-                Brush.verticalGradient(
-                    listOf(
-                        Color.Transparent,
-                        Aether.VoidElevated.copy(alpha=.22f)
-                    )
-                )
-            )
-            .padding(horizontal=16.dp,vertical=6.dp),
+            .padding(horizontal=14.dp,vertical=7.dp),
         contentAlignment=Alignment.Center
     ) {
-        val shape=RoundedCornerShape(24.dp)
-        val border=Brush.linearGradient(
+        val shellShape=RoundedCornerShape(27.dp)
+        val shellBorder=Brush.horizontalGradient(
             listOf(
-                Aether.Cyan.copy(alpha=.17f),
-                Aether.Amethyst.copy(alpha=.07f),
-                Aether.GlassBorderSoft.copy(alpha=.30f)
+                Aether.Cyan.copy(alpha=.15f),
+                Aether.GlassBorderSoft.copy(alpha=.26f),
+                Aether.Amethyst.copy(alpha=.08f)
+            )
+        )
+        val shellFill=Brush.verticalGradient(
+            listOf(
+                Aether.VoidElevated.copy(alpha=.86f),
+                Aether.VoidElevated.copy(alpha=.68f)
             )
         )
 
-        // MARBLE_BOTTOM_DOCK_FADE_V6532
-        Box(
+        Row(
             modifier=Modifier
                 .widthIn(max=500.dp)
                 .fillMaxWidth()
-                .shadow(3.dp,shape,clip=false)
-                .border(1.dp,border,shape)
-                .clip(shape)
-                .background(Aether.VoidElevated.copy(alpha=.62f))
+                .shadow(2.dp,shellShape,clip=false)
+                .border(1.dp,shellBorder,shellShape)
+                .clip(shellShape)
+                .background(shellFill)
+                .padding(horizontal=7.dp,vertical=7.dp),
+            horizontalArrangement=Arrangement.spacedBy(5.dp),
+            verticalAlignment=Alignment.CenterVertically
         ) {
-            NavigationBar(
-                modifier=Modifier
-                    .fillMaxWidth()
-                    .height(64.dp),
-                containerColor=Color.Transparent,
-                tonalElevation=0.dp,
-                windowInsets=WindowInsets(0,0,0,0)
-            ) {
-                SpatialTab.entries.forEach { item ->
-                    val active=item == selected
-                    NavigationBarItem(
-                        selected=active,
-                        onClick={ onSelect(item) },
-                        icon={
-                            MarbleTabIcon(
-                                tab=item,
-                                color=if(active) Aether.Cyan else Aether.InkMuted,
-                                active=active,
-                                modifier=Modifier.size(22.dp)
-                            )
-                        },
-                        label={
-                            Text(
-                                item.label,
-                                style=MaterialTheme.typography.labelMedium,
-                                fontWeight=if(active) FontWeight.Bold else FontWeight.Medium
-                            )
-                        },
-                        alwaysShowLabel=true,
-                        colors=NavigationBarItemDefaults.colors(
-                            selectedIconColor=Aether.Cyan,
-                            selectedTextColor=Aether.Cyan,
-                            indicatorColor=Aether.Cyan.copy(alpha=.105f),
-                            unselectedIconColor=Aether.InkMuted,
-                            unselectedTextColor=Aether.InkMuted
-                        )
+            SpatialTab.entries.forEach { item ->
+                val active=item == selected
+                val itemShape=RoundedCornerShape(19.dp)
+                val itemFill by animateColorAsState(
+                    targetValue=if(active) Aether.Cyan.copy(alpha=.085f) else Color.Transparent,
+                    animationSpec=MarbleMotionSpecs.Color,
+                    label="dock-fill-${item.name}"
+                )
+                val itemBorder by animateColorAsState(
+                    targetValue=if(active) Aether.Cyan.copy(alpha=.13f) else Color.Transparent,
+                    animationSpec=MarbleMotionSpecs.Color,
+                    label="dock-border-${item.name}"
+                )
+                val contentTone by animateColorAsState(
+                    targetValue=if(active) Aether.Cyan else Aether.InkMuted,
+                    animationSpec=MarbleMotionSpecs.Color,
+                    label="dock-content-${item.name}"
+                )
+
+                Column(
+                    modifier=Modifier
+                        .weight(1f)
+                        .height(55.dp)
+                        .border(1.dp,itemBorder,itemShape)
+                        .clip(itemShape)
+                        .background(itemFill)
+                        .kineticClickable(
+                            boundedShape=itemShape,
+                            role=Role.Button
+                        ) { onSelect(item) }
+                        .padding(horizontal=4.dp,vertical=5.dp),
+                    horizontalAlignment=Alignment.CenterHorizontally,
+                    verticalArrangement=Arrangement.Center
+                ) {
+                    MarbleTabIcon(
+                        tab=item,
+                        color=contentTone,
+                        active=active,
+                        modifier=Modifier.size(21.dp)
+                    )
+                    Spacer(Modifier.height(3.dp))
+                    Text(
+                        item.label,
+                        color=contentTone,
+                        style=MaterialTheme.typography.labelMedium,
+                        fontWeight=if(active) FontWeight.Bold else FontWeight.Medium,
+                        maxLines=1
                     )
                 }
             }
