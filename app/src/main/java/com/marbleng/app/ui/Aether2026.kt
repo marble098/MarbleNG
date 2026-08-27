@@ -33,6 +33,7 @@ package com.marbleng.app.ui
 // MARBLE_REAL_DEVICE_POLISH_V55
 // MARBLE_SERVER_INTEL_UI_V56
 // MARBLE_SERVER_INTEL_HOME_UI_V58
+// MARBLE_LIBRARY_MODE_POLISH_UI_V59
 
 import android.Manifest
 import android.content.Intent
@@ -2898,9 +2899,22 @@ private fun CyberLibrary(
                     modifier = Modifier.fillMaxWidth(),
                     contentPadding = PaddingValues(12.dp)
                 ) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                        CyberChoiceChip("Subscription", addMode == "subscription", Aether.Cyan) { addMode = "subscription" }
-                        CyberChoiceChip("Manual config", addMode == "manual", Aether.Emerald) { addMode = "manual" }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        LibraryModeSegment(
+                            text = "Subscription",
+                            selected = addMode == "subscription",
+                            tone = Aether.Cyan,
+                            modifier = Modifier.weight(1f)
+                        ) { addMode = "subscription" }
+                        LibraryModeSegment(
+                            text = "Manual config",
+                            selected = addMode == "manual",
+                            tone = Aether.Cyan,
+                            modifier = Modifier.weight(1f)
+                        ) { addMode = "manual" }
                     }
                     AnimatedContent(
                         targetState = addMode,
@@ -2930,7 +2944,8 @@ private fun CyberLibrary(
                                     supportingText = { Text("HTTPS only • leave blank for a local source/folder.") },
                                     singleLine = true,
                                     modifier = Modifier.fillMaxWidth(),
-                                    shape = RoundedCornerShape(18.dp)
+                                    shape = RoundedCornerShape(18.dp),
+                                    colors = marbleOutlinedTextFieldColors()
                                 )
                                 OutlinedTextField(
                                     value = sourceName,
@@ -2938,7 +2953,8 @@ private fun CyberLibrary(
                                     label = { Text("Name • optional") },
                                     singleLine = true,
                                     modifier = Modifier.fillMaxWidth(),
-                                    shape = RoundedCornerShape(18.dp)
+                                    shape = RoundedCornerShape(18.dp),
+                                    colors = marbleOutlinedTextFieldColors()
                                 )
                                 CyberButton(
                                     label = if (url.isBlank()) "Create local source" else "Add subscription",
@@ -3034,6 +3050,61 @@ private fun CyberLibrary(
 }
 
 @Composable
+private fun LibraryModeSegment(
+    text: String,
+    selected: Boolean,
+    tone: Color,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    val shape = RoundedCornerShape(17.dp)
+    val border by animateColorAsState(
+        targetValue = if (selected) tone.copy(alpha = .42f) else Aether.GlassBorderSoft,
+        animationSpec = MarbleMotionSpecs.Color,
+        label = "library-mode-border-$text"
+    )
+    val background by animateColorAsState(
+        targetValue = if (selected) tone.copy(alpha = .09f) else Aether.VoidElevated,
+        animationSpec = MarbleMotionSpecs.Color,
+        label = "library-mode-background-$text"
+    )
+
+    Box(
+        modifier = modifier
+            .heightIn(min = 50.dp)
+            .border(1.dp, border, shape)
+            .clip(shape)
+            .background(background)
+            .kineticClickable(role = Role.Button, onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text,
+            color = if (selected) tone else Aether.InkMuted,
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center
+        )
+    }
+}
+
+@Composable
+private fun marbleOutlinedTextFieldColors() = OutlinedTextFieldDefaults.colors(
+    focusedTextColor = Aether.Ink,
+    unfocusedTextColor = Aether.Ink,
+    focusedContainerColor = Aether.VoidElevated,
+    unfocusedContainerColor = Aether.VoidElevated,
+    cursorColor = Aether.Cyan,
+    focusedBorderColor = Aether.Cyan.copy(alpha = .72f),
+    unfocusedBorderColor = Aether.GlassBorder,
+    focusedLabelColor = Aether.Cyan,
+    unfocusedLabelColor = Aether.InkMuted
+)
+
+@Composable
 private fun ManualAddEditor(
     repo: AppRepository,
     targetSourceId: String,
@@ -3041,9 +3112,22 @@ private fun ManualAddEditor(
 ) {
     var mode by remember { mutableStateOf("node") }
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-            CyberChoiceChip("Manual node", mode == "node", Aether.Emerald) { mode = "node" }
-            CyberChoiceChip("Chain proxy", mode == "chain", Aether.Amethyst) { mode = "chain" }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            LibraryModeSegment(
+                text = "Manual node",
+                selected = mode == "node",
+                tone = Aether.Amethyst,
+                modifier = Modifier.weight(1f)
+            ) { mode = "node" }
+            LibraryModeSegment(
+                text = "Chain proxy",
+                selected = mode == "chain",
+                tone = Aether.Amethyst,
+                modifier = Modifier.weight(1f)
+            ) { mode = "chain" }
         }
         AnimatedContent(targetState = mode, label = "manual-add-kind-v49") { selectedMode ->
             if (selectedMode == "chain") {
@@ -3439,6 +3523,7 @@ private fun ManualField(
         maxLines = if (singleLine) 1 else 18,
         modifier = modifier,
         shape = RoundedCornerShape(16.dp),
+        colors = marbleOutlinedTextFieldColors(),
         textStyle = if (singleLine) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace)
     )
 }

@@ -20,6 +20,7 @@ object XrayConfigHardener {
     // MARBLE_V2RAYNG_SMART_RANK_V45
     // MARBLE_DNS_RACE_V47
     // MARBLE_DNS_SERIAL_FAILOVER_V49
+    // MARBLE_DNS_BURST_TOLERANCE_V59
     private val infra = setOf("freedom", "blackhole", "dns", "loopback")
     private val compatibilityDependencyProtocols = setOf(
         "freedom", "http", "shadowsocks", "socks", "trojan", "vless", "vmess", "hysteria", "wireguard"
@@ -486,12 +487,15 @@ object XrayConfigHardener {
         // uses serial failover. This prevents a blocked resolver from creating parallel background
         // fan-out while still allowing the learned healthy provider to become primary next time.
         // Endpoint bootstrap keeps its dedicated https+local rules and is still leak-contained.
+        // v59 real-device evidence: a healthy ~120 ms cellular tunnel produced deadline bursts
+        // at the previous 850/1050 ms budgets during concurrent Android DNS fan-out. Keep serial,
+        // encrypted provider failover, but give TLS/HTTP response bursts enough room before rotating.
         remoteDoh.firstOrNull()?.let { address ->
             dnsServers.put(
                 JSONObject()
                     .put("address", address)
                     .put("queryStrategy", queryStrategy)
-                    .put("timeoutMs", 850)
+                    .put("timeoutMs", 1350)
             )
         }
 
@@ -507,7 +511,7 @@ object XrayConfigHardener {
                 JSONObject()
                     .put("address", address)
                     .put("queryStrategy", queryStrategy)
-                    .put("timeoutMs", 1050 + index * 200)
+                    .put("timeoutMs", 1650 + index * 250)
                     .put("finalQuery", index == customSecondaryDoh.lastIndex)
             )
         }
