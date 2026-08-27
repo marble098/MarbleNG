@@ -22,6 +22,8 @@ import kotlin.math.exp
  * its existing CLI Xray for VPN runtime, while a tiny Go helper hosts the whole Rank batch in ONE
  * Android process and creates the per-node Xray core instances inside it.
  */
+// MARBLE_PATTRANK_CONCURRENT_MAP_KEY_FIX_V62_3
+// ConcurrentHashMap inherits Java's legacy contains(value); always use containsKey explicitly.
 class PattRankEngine(
     private val context: Context,
     private val xray: XrayManager,
@@ -162,14 +164,14 @@ class PattRankEngine(
                     reader.join(2_000L)
                 } catch (_: Throwable) {
                     nativeProfiles
-                        .filter { it.id !in results }
+                        .filter { !results.containsKey(it.id) }
                         .forEach { if (it !in legacyProfiles) legacyProfiles += it }
                 } finally {
                     runCatching { input.delete() }
                 }
 
                 nativeProfiles
-                    .filter { it.id !in results && it !in legacyProfiles }
+                    .filter { !results.containsKey(it.id) && it !in legacyProfiles }
                     .forEach { profile ->
                         publish(
                             profile,
@@ -193,7 +195,7 @@ class PattRankEngine(
         // SSH needs Marble's Java SSH bridge. Keep the old isolated-Xray path only there
         // (and as an emergency helper-packaging fallback), never as normal multi-node Rank.
         if (legacyProfiles.isNotEmpty()) {
-            val pendingLegacy = legacyProfiles.distinctBy { it.id }.filter { it.id !in results }
+            val pendingLegacy = legacyProfiles.distinctBy { it.id }.filter { !results.containsKey(it.id) }
             if (pendingLegacy.isNotEmpty()) {
                 val legacySettings = settings.copy(
                     benchMode = BenchMode.CUSTOM,
