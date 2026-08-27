@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+
 package com.marbleng.app.ui
 
 // Marble Product UI v12 • Solid White command surface
@@ -34,6 +36,7 @@ package com.marbleng.app.ui
 // MARBLE_SERVER_INTEL_UI_V56
 // MARBLE_SERVER_INTEL_HOME_UI_V58
 // MARBLE_LIBRARY_MODE_POLISH_UI_V59
+// MARBLE_GLOBAL_CONTROL_POLISH_UI_V60
 
 import android.Manifest
 import android.content.Intent
@@ -2623,7 +2626,8 @@ private fun CyberLibrary(
                     onValueChange = { renameText = it },
                     label = { Text("Display name") },
                     singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = marbleOutlinedTextFieldColors(),
                 )
             },
             confirmButton = {
@@ -2668,14 +2672,16 @@ private fun CyberLibrary(
                         onValueChange = { editSubscriptionName = it },
                         label = { Text("Source name") },
                         singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = marbleOutlinedTextFieldColors(),
                     )
                     OutlinedTextField(
                         value = editSubscriptionUrl,
                         onValueChange = { editSubscriptionUrl = it },
                         label = { Text("Subscription URL") },
                         singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = marbleOutlinedTextFieldColors(),
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                         CyberButton(
@@ -3057,14 +3063,15 @@ private fun LibraryModeSegment(
     modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
+    val selectionTone = Aether.Cyan
     val shape = RoundedCornerShape(17.dp)
     val border by animateColorAsState(
-        targetValue = if (selected) tone.copy(alpha = .42f) else Aether.GlassBorderSoft,
+        targetValue = if (selected) selectionTone.copy(alpha = .42f) else Aether.GlassBorderSoft,
         animationSpec = MarbleMotionSpecs.Color,
         label = "library-mode-border-$text"
     )
     val background by animateColorAsState(
-        targetValue = if (selected) tone.copy(alpha = .09f) else Aether.VoidElevated,
+        targetValue = if (selected) selectionTone.copy(alpha = .075f) else Aether.VoidElevated,
         animationSpec = MarbleMotionSpecs.Color,
         label = "library-mode-background-$text"
     )
@@ -3081,7 +3088,7 @@ private fun LibraryModeSegment(
     ) {
         Text(
             text,
-            color = if (selected) tone else Aether.InkMuted,
+            color = if (selected) selectionTone else Aether.InkMuted,
             style = MaterialTheme.typography.labelMedium,
             fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
             maxLines = 1,
@@ -3190,12 +3197,12 @@ private fun ManualChainEditor(
                     hops = hops.toMutableList().also { list ->
                         val item = list.removeAt(index); list.add(index - 1, item)
                     }
-                }) { Text("↑") }
+                }) { Text("↑", color = if (index > 0) Aether.Cyan else Aether.InkFaint) }
                 TextButton(enabled = index < hops.lastIndex, onClick = {
                     hops = hops.toMutableList().also { list ->
                         val item = list.removeAt(index); list.add(index + 1, item)
                     }
-                }) { Text("↓") }
+                }) { Text("↓", color = if (index < hops.lastIndex) Aether.Cyan else Aether.InkFaint) }
                 TextButton(onClick = { hops = hops.toMutableList().also { it.removeAt(index) } }) { Text("×", color = Aether.Danger) }
             }
         }
@@ -3206,7 +3213,7 @@ private fun ManualChainEditor(
                 onClick = { hops = hops + (profile.subscriptionId to profile.id) },
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text("+ ${profile.name}", modifier = Modifier.weight(1f), textAlign = TextAlign.Start, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text("+ ${profile.name}", color = Aether.Ink, modifier = Modifier.weight(1f), textAlign = TextAlign.Start, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(profile.scheme.uppercase(), color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
             }
         }
@@ -3244,9 +3251,10 @@ private fun ManualConfigEditor(
     val streamProtocols = setOf(ManualProtocol.VLESS, ManualProtocol.VMESS, ManualProtocol.TROJAN)
 
     Column(verticalArrangement = Arrangement.spacedBy(11.dp)) {
-        Row(
-            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(7.dp)
+        FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(7.dp),
+            verticalArrangement = Arrangement.spacedBy(7.dp)
         ) {
             ManualProtocol.entries.forEach { item ->
                 CyberChoiceChip(item.label, protocol == item, if (item == ManualProtocol.XRAY_JSON) Aether.Amethyst else Aether.Cyan) {
@@ -3316,7 +3324,7 @@ private fun ManualConfigEditor(
                         draft.cipherSuites,
                         { draft = draft.copy(cipherSuites = it) }
                     )
-                    CyberChoiceChip("Allow insecure TLS", draft.allowInsecure, Aether.Danger) {
+                    CyberChoiceChip("Allow insecure TLS", draft.allowInsecure, Aether.Danger, selectionTone = Aether.Danger) {
                         draft = draft.copy(allowInsecure = !draft.allowInsecure)
                     }
                 }
@@ -3336,7 +3344,7 @@ private fun ManualConfigEditor(
                             draft.cipherSuites,
                             { draft = draft.copy(cipherSuites = it) }
                         )
-                        CyberChoiceChip("Allow insecure TLS", draft.allowInsecure, Aether.Danger) {
+                        CyberChoiceChip("Allow insecure TLS", draft.allowInsecure, Aether.Danger, selectionTone = Aether.Danger) {
                             draft = draft.copy(allowInsecure = !draft.allowInsecure)
                         }
                     }
@@ -3369,9 +3377,10 @@ private fun ManualConfigEditor(
 
             if (protocol in streamProtocols) {
                 SectionLabel("Transport")
-                Row(
-                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(7.dp)
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(7.dp),
+                    verticalArrangement = Arrangement.spacedBy(7.dp)
                 ) {
                     listOf("raw", "websocket", "xhttp", "grpc", "httpupgrade", "mkcp").forEach { value ->
                         CyberChoiceChip(value.uppercase(), draft.transport == value, Aether.Amethyst) {
@@ -3397,7 +3406,11 @@ private fun ManualConfigEditor(
                 }
 
                 SectionLabel("Security")
-                Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(7.dp),
+                    verticalArrangement = Arrangement.spacedBy(7.dp)
+                ) {
                     val realitySupported = draft.transport in setOf("raw", "xhttp", "grpc")
                     val choices = when {
                         protocol == ManualProtocol.TROJAN && realitySupported -> listOf("tls", "reality")
@@ -3434,7 +3447,7 @@ private fun ManualConfigEditor(
                         color = Aether.InkFaint,
                         style = MaterialTheme.typography.labelSmall
                     )
-                    CyberChoiceChip("Allow insecure TLS", draft.allowInsecure, Aether.Danger) {
+                    CyberChoiceChip("Allow insecure TLS", draft.allowInsecure, Aether.Danger, selectionTone = Aether.Danger) {
                         draft = draft.copy(allowInsecure = !draft.allowInsecure)
                     }
                 }
@@ -3489,17 +3502,17 @@ private fun FingerprintPresetRow(
         listOf("chrome", "firefox", "safari", "randomized")
     }
 
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    FlowRow(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         presets.forEach { preset ->
             CyberChoiceChip(
                 text = preset,
                 selected = value.equals(preset, ignoreCase = true),
-                color = if (preset == "unsafe") Aether.Amber else Aether.Cyan
+                color = if (preset == "unsafe") Aether.Amber else Aether.Cyan,
+                selectionTone = if (preset == "unsafe") Aether.Amber else Aether.Cyan
             ) { onSelect(preset) }
         }
     }
@@ -3817,8 +3830,8 @@ private fun LibrarySortChoice(
         modifier=modifier
             .heightIn(min=48.dp)
             .clip(shape)
-            .background(if(selected) color.copy(alpha=.095f) else Aether.GlassStrong.copy(alpha=.34f))
-            .border(1.dp,if(selected) color.copy(alpha=.36f) else Color.Transparent,shape)
+            .background(if(selected) Aether.Cyan.copy(alpha=.075f) else Aether.VoidElevated)
+            .border(1.dp,if(selected) Aether.Cyan.copy(alpha=.38f) else Aether.GlassBorderSoft,shape)
             .kineticClickable(role=Role.Button,onClick=onClick)
             .padding(horizontal=10.dp,vertical=8.dp),
         verticalAlignment=Alignment.CenterVertically,
@@ -3826,7 +3839,7 @@ private fun LibrarySortChoice(
     ) {
         Text(
             text,
-            color=if(selected) color else Aether.InkMuted,
+            color=if(selected) Aether.Cyan else Aether.InkMuted,
             style=MaterialTheme.typography.labelMedium,
             fontWeight=if(selected) FontWeight.Bold else FontWeight.Medium,
             maxLines=1,
@@ -3960,12 +3973,12 @@ private fun SourceOrbitChip(
             .heightIn(min=48.dp)
             .border(
                 1.dp,
-                if(selected) color.copy(alpha=.40f) else Color.Transparent,
+                if(selected) Aether.Cyan.copy(alpha=.40f) else Aether.GlassBorderSoft,
                 shape
             )
             .clip(shape)
             .background(
-                if(selected) color.copy(alpha=.075f) else Aether.GlassStrong.copy(alpha=.34f)
+                if(selected) Aether.Cyan.copy(alpha=.075f) else Aether.VoidElevated
             )
             .kineticClickable(role=Role.Button,onClick=onClick)
             .padding(start=10.dp,end=if(onManage != null && selected) 4.dp else 12.dp),
@@ -3989,7 +4002,7 @@ private fun SourceOrbitChip(
         Column {
             Text(
                 title,
-                color=if(selected) color else Aether.Ink,
+                color=if(selected) Aether.Cyan else Aether.Ink,
                 style=MaterialTheme.typography.labelMedium,
                 fontWeight=FontWeight.SemiBold,
                 maxLines=1,
@@ -4013,7 +4026,7 @@ private fun SourceOrbitChip(
             ) {
                 HomeVectorIcon(
                     HomeIcon.MORE,
-                    color,
+                    if(selected) Aether.Cyan else color,
                     Modifier.size(17.dp)
                 )
             }
@@ -4197,6 +4210,7 @@ private fun SpatialServerCard(
                         value=jsonText,
                         onValueChange={ jsonText=it },
                         modifier=Modifier.fillMaxWidth().heightIn(min=260.dp,max=430.dp),
+                        colors=marbleOutlinedTextFieldColors(),
                         textStyle=MaterialTheme.typography.bodySmall.copy(
                             fontFamily=FontFamily.Monospace
                         ),
@@ -4224,10 +4238,10 @@ private fun SpatialServerCard(
                             profile.subscriptionId
                         )
                     ) jsonOpen=false
-                }) { Text("Save JSON") }
+                }) { Text("Save JSON", color = Aether.Cyan) }
             },
             dismissButton={
-                TextButton(onClick={ jsonOpen=false }) { Text("Cancel") }
+                TextButton(onClick={ jsonOpen=false }) { Text("Cancel", color = Aether.InkMuted) }
             }
         )
     }
@@ -4253,7 +4267,7 @@ private fun SpatialServerCard(
                 }
             },
             dismissButton={
-                TextButton(onClick={ deleteBySwipe=false }) { Text("Cancel") }
+                TextButton(onClick={ deleteBySwipe=false }) { Text("Cancel", color = Aether.InkMuted) }
             }
         )
     }
@@ -4629,13 +4643,7 @@ private enum class SettingsWorkspaceTab(val label: String, val icon: HomeIcon) {
 }
 
 @Composable
-private fun settingsTabTone(tab: SettingsWorkspaceTab): Color = when (tab) {
-    SettingsWorkspaceTab.GENERAL -> Aether.Cyan
-    SettingsWorkspaceTab.TESTS -> Aether.Amethyst
-    SettingsWorkspaceTab.NETWORK -> Aether.Emerald
-    SettingsWorkspaceTab.ENGINE -> Aether.Amber
-    SettingsWorkspaceTab.SYSTEM -> Aether.SlateBright
-}
+private fun settingsTabTone(tab: SettingsWorkspaceTab): Color = Aether.Cyan
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -5324,9 +5332,10 @@ private fun IntelligenceSettings(repo: AppRepository) {
     ) { repo.updateSettings(s.copy(udpProbeEnabled = it)) }
 
     Text("WORKLOAD", color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
-    Row(
-        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(7.dp)
+    FlowRow(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(7.dp),
+        verticalArrangement = Arrangement.spacedBy(7.dp)
     ) {
         WorkloadProfile.entries.forEach { mode ->
             CyberChoiceChip(
@@ -5786,13 +5795,13 @@ private fun SplitTunnelModeSelector(repo: AppRepository) {
                     .heightIn(min=48.dp)
                     .border(
                         1.dp,
-                        if(selected) Aether.Emerald.copy(alpha=.38f)
+                        if(selected) Aether.Cyan.copy(alpha=.38f)
                         else Aether.GlassBorderSoft,
                         shape
                     )
                     .clip(shape)
                     .background(
-                        if(selected) Aether.Emerald.copy(alpha=.075f)
+                        if(selected) Aether.Cyan.copy(alpha=.075f)
                         else Aether.VoidElevated
                     )
                     .kineticClickable(role=Role.Button) {
@@ -5805,7 +5814,7 @@ private fun SplitTunnelModeSelector(repo: AppRepository) {
             ) {
                 Text(
                     label,
-                    color=if(selected) Aether.Emerald else Aether.InkMuted,
+                    color=if(selected) Aether.Cyan else Aether.InkMuted,
                     style=MaterialTheme.typography.labelMedium,
                     fontWeight=if(selected) FontWeight.Bold else FontWeight.Medium,
                     textAlign=TextAlign.Center,
@@ -5840,7 +5849,7 @@ private fun SplitTunnelSettings(repo:AppRepository){
     fun toggle(pkg:String){val n=selected.toMutableSet();if(!n.add(pkg))n.remove(pkg);repo.updateSettings(repo.settings.copy(splitTunnelPackages=n.sorted().joinToString(",")))}
     SplitTunnelModeSelector(repo)
     if(repo.settings.splitTunnelMode!=SplitTunnelMode.ALL_APPS){
-        TextField(search,{search=it},placeholder={Text("Search installed apps")},singleLine=true,modifier=Modifier.fillMaxWidth(),shape=RoundedCornerShape(18.dp),colors=TextFieldDefaults.colors(focusedContainerColor=Aether.GlassStrong,unfocusedContainerColor=Aether.GlassStrong,disabledContainerColor=Aether.GlassStrong,focusedIndicatorColor=Color.Transparent,unfocusedIndicatorColor=Color.Transparent))
+        TextField(search,{search=it},placeholder={Text("Search installed apps")},singleLine=true,modifier=Modifier.fillMaxWidth(),shape=RoundedCornerShape(18.dp),colors=TextFieldDefaults.colors(focusedTextColor=Aether.Ink,unfocusedTextColor=Aether.Ink,cursorColor=Aether.Cyan,focusedContainerColor=Aether.GlassStrong,unfocusedContainerColor=Aether.GlassStrong,disabledContainerColor=Aether.GlassStrong,focusedIndicatorColor=Color.Transparent,unfocusedIndicatorColor=Color.Transparent))
         Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=Alignment.CenterVertically){Text(if(apps.isEmpty())"Loading installed apps…" else "${visibleApps.size} apps",color=Aether.InkFaint,style=MaterialTheme.typography.bodySmall);HoloBadge("${selected.size} selected",Aether.Emerald,true)}
         LazyColumn(Modifier.fillMaxWidth().height(360.dp).clip(RoundedCornerShape(18.dp)).background(Aether.Glass.copy(alpha=.70f)),contentPadding=PaddingValues(vertical=6.dp),verticalArrangement=Arrangement.spacedBy(2.dp),userScrollEnabled=true){items(visibleApps,key={it.packageName}){app->SplitTunnelAppRow(app,app.packageName in selected){toggle(app.packageName)}}}
         Text("Changes apply on the next Full TUN connection.",color=Aether.InkFaint,style=MaterialTheme.typography.bodySmall)
@@ -5925,9 +5934,10 @@ private fun FragmentMuxSettings(repo: AppRepository) {
                 repo.updateSettings(repo.settings.copy(muxXudpConcurrency = it))
             }
 
-            Row(
-                modifier = Modifier.horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(7.dp)
+            FlowRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(7.dp),
+                verticalArrangement = Arrangement.spacedBy(7.dp)
             ) {
                 listOf("reject", "allow", "skip").forEach { value ->
                     CyberChoiceChip(
@@ -6010,9 +6020,10 @@ private fun DnsSettings(repo: AppRepository) {
 
     Text("QUICK RESOLVERS", color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
 
-    Row(
-        modifier = Modifier.horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(7.dp)
+    FlowRow(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(7.dp),
+        verticalArrangement = Arrangement.spacedBy(7.dp)
     ) {
         DnsPreset(
             "CLOUDFLARE",
@@ -6056,9 +6067,10 @@ private fun DnsSettings(repo: AppRepository) {
         repo.updateSettings(repo.settings.copy(dnsSecondaryDoH = it))
     }
 
-    Row(
-        modifier = Modifier.horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(7.dp)
+    FlowRow(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(7.dp),
+        verticalArrangement = Arrangement.spacedBy(7.dp)
     ) {
         listOf("UseIP", "UseIPv4", "UseIPv6", "UseSystem").forEach { strategy ->
             CyberChoiceChip(
@@ -6259,9 +6271,10 @@ private fun RoutingSettings(repo: AppRepository) {
     }
 
     Text("Routing mode", color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
-    Row(
-        modifier = Modifier.horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(7.dp)
+    FlowRow(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(7.dp),
+        verticalArrangement = Arrangement.spacedBy(7.dp)
     ) {
         RoutingMode.entries.forEach { mode ->
             CyberChoiceChip(
@@ -6377,9 +6390,10 @@ private fun RoutingSettings(repo: AppRepository) {
     ) { repo.updateSettings(repo.settings.copy(routeBypassPrivate = it)) }
 
     Text("Domain strategy", color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
-    Row(
-        modifier = Modifier.horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(7.dp)
+    FlowRow(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(7.dp),
+        verticalArrangement = Arrangement.spacedBy(7.dp)
     ) {
         listOf("IPIfNonMatch", "AsIs", "IPOnDemand").forEach { strategy ->
             CyberChoiceChip(
@@ -6630,9 +6644,10 @@ private fun ProbeSettings(repo: AppRepository) {
         style = MaterialTheme.typography.bodySmall
     )
 
-    Row(
-        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(7.dp)
+    FlowRow(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(7.dp),
+        verticalArrangement = Arrangement.spacedBy(7.dp)
     ) {
         ProbeMethod.entries.forEach { method ->
             CyberSegment(
@@ -6761,36 +6776,44 @@ private fun CyberChoiceChip(
     text: String,
     selected: Boolean,
     color: Color,
+    selectionTone: Color = Aether.Cyan,
     onClick: () -> Unit
 ) {
-    val shape=RoundedCornerShape(999.dp)
-    FilterChip(
-        modifier=Modifier.border(
-            1.dp,
-            if(selected) color.copy(alpha=.42f) else Aether.GlassBorderSoft,
-            shape
-        ),
-        selected=selected,
-        onClick=onClick,
-        shape=shape,
-        label={
-            Text(
-                text,
-                style=MaterialTheme.typography.labelMedium,
-                fontWeight=if(selected) FontWeight.Bold else FontWeight.Medium,
-                maxLines=1
-            )
-        },
-        border=null,
-        colors=FilterChipDefaults.filterChipColors(
-            containerColor=Aether.VoidElevated,
-            labelColor=Aether.InkMuted,
-            selectedContainerColor=color.copy(alpha=.085f),
-            selectedLabelColor=color
-        )
+    val tone = if (selectionTone == Color.Unspecified) color else selectionTone
+    val shape = RoundedCornerShape(16.dp)
+    val border by animateColorAsState(
+        targetValue = if (selected) tone.copy(alpha = .44f) else Aether.GlassBorderSoft,
+        animationSpec = MarbleMotionSpecs.Color,
+        label = "choice-border-$text"
     )
-}
+    val background by animateColorAsState(
+        targetValue = if (selected) tone.copy(alpha = .075f) else Aether.VoidElevated,
+        animationSpec = MarbleMotionSpecs.Color,
+        label = "choice-background-$text"
+    )
 
+    Box(
+        modifier = Modifier
+            .heightIn(min = 44.dp)
+            .widthIn(min = 82.dp)
+            .border(1.dp, border, shape)
+            .clip(shape)
+            .background(background)
+            .kineticClickable(role = Role.Button, onClick = onClick)
+            .padding(horizontal = 13.dp, vertical = 9.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text,
+            color = if (selected) tone else Aether.InkMuted,
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center
+        )
+    }
+}
 
 @Composable
 private fun CyberSegment(
@@ -6799,34 +6822,43 @@ private fun CyberSegment(
     selected: Boolean,
     color: Color,
     modifier: Modifier = Modifier,
+    selectionTone: Color = Aether.Cyan,
     onClick: () -> Unit
 ) {
+    val tone = selectionTone
+    val shape = RoundedCornerShape(16.dp)
     val background by animateColorAsState(
-        targetValue = if (selected) color.copy(alpha = .10f) else Aether.GlassStrong.copy(alpha = .54f),
+        targetValue = if (selected) tone.copy(alpha = .075f) else Aether.VoidElevated,
         animationSpec = MarbleMotionSpecs.Color,
         label = "segment-$label"
     )
+    val border by animateColorAsState(
+        targetValue = if (selected) tone.copy(alpha = .38f) else Aether.GlassBorderSoft,
+        animationSpec = MarbleMotionSpecs.Color,
+        label = "segment-border-$label"
+    )
+
     Column(
         modifier
-            .clip(RoundedCornerShape(16.dp))
+            .heightIn(min = 62.dp)
+            .border(1.dp, border, shape)
+            .clip(shape)
             .background(background)
-            .border(
-                1.dp,
-                if (selected) color.copy(alpha = .28f) else Aether.GlassBorderSoft,
-                RoundedCornerShape(16.dp)
-            )
             .kineticClickable(role = Role.Button, onClick = onClick)
-            .padding(12.dp)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.Center
     ) {
         Text(
             label,
-            color = if (selected) color else Aether.Ink,
+            color = if (selected) tone else Aether.Ink,
             style = MaterialTheme.typography.labelLarge,
-            maxLines = 1
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
         )
         Text(
             detail,
-            color = Aether.InkFaint,
+            color = if (selected) color.copy(alpha = .82f) else Aether.InkFaint,
             style = MaterialTheme.typography.labelSmall,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
@@ -6953,7 +6985,8 @@ private fun TinyField(
         label = { Text(label) },
         singleLine = true,
         modifier = modifier,
-        shape = RoundedCornerShape(17.dp)
+        shape = RoundedCornerShape(17.dp),
+        colors = marbleOutlinedTextFieldColors()
     )
 }
 

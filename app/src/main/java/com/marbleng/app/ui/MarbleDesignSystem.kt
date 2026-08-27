@@ -3,6 +3,7 @@ package com.marbleng.app.ui
 // MARBLE_M3_EXPRESSIVE_DESIGN_SYSTEM_V53
 // MARBLE_PRISM_DESIGN_SYSTEM_V54
 // MARBLE_PRISM_POLISH_V55
+// MARBLE_GLOBAL_CONTROL_POLISH_DS_V60
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.border
@@ -689,6 +690,9 @@ internal fun PrismSearchField(
         singleLine=true,
         shape=shape,
         colors=TextFieldDefaults.colors(
+            focusedTextColor=Aether.Ink,
+            unfocusedTextColor=Aether.Ink,
+            cursorColor=Aether.Cyan,
             focusedContainerColor=Aether.VoidElevated,
             unfocusedContainerColor=Aether.VoidElevated,
             disabledContainerColor=Aether.GlassStrong,
@@ -712,7 +716,8 @@ internal fun PrismThemeChoice(
     val previewBg=if(darkPreview) Color(0xFF0B1320) else Color(0xFFF6F9FD)
     val previewSurface=if(darkPreview) Color(0xFF172337) else Color.White
     val previewText=if(darkPreview) Color(0xFFEAF1FB) else Color(0xFF152339)
-    val border=if(selected) accent.copy(alpha=.62f) else Aether.GlassBorderSoft
+    val selectionTone=Aether.Cyan
+    val border=if(selected) selectionTone.copy(alpha=.52f) else Aether.GlassBorderSoft
 
     Column(
         modifier=modifier
@@ -720,7 +725,7 @@ internal fun PrismThemeChoice(
             .border(1.dp,border,shape)
             .clip(shape)
             .background(
-                if(selected) accent.copy(alpha=.075f)
+                if(selected) selectionTone.copy(alpha=.065f)
                 else Aether.VoidElevated
             )
             .kineticClickable(role=Role.Button,onClick=onClick)
@@ -766,7 +771,7 @@ internal fun PrismThemeChoice(
         }
         Text(
             label,
-            color=if(selected) accent else Aether.Ink,
+            color=if(selected) selectionTone else Aether.Ink,
             style=MaterialTheme.typography.labelLarge,
             fontWeight=FontWeight.Bold
         )
