@@ -212,9 +212,15 @@ check("signed build checks out complete history", "fetch-depth: 0" in files["bui
 check("verify invokes central integrity audit", "scripts/system-integrity-check.py" in files["verify"])
 check("signed build invokes central integrity audit", "scripts/system-integrity-check.py" in files["build"])
 check(
-    "release/tag immutability checks remain",
-    "refusing to replace an installed build" in files["build"]
-    and "refusing to move it" in files["build"],
+    "release publishing is immutable and tag-atomic",
+    "MARBLE_RELEASE_PUBLISH_SAFE_V170" in files["build"]
+    and '--notes-file "$notes_file"' in files["build"]
+    and '--target "$GITHUB_SHA"' in files["build"]
+    and '"${assets[@]}"' in files["build"]
+    and 'git rev-parse -q --verify "refs/tags/$tag"' in files["build"]
+    and 'gh release view "$tag"' in files["build"]
+    and 'git push origin "$tag"' not in files["build"]
+    and '--notes "## MarbleNG $VERSION_NAME' not in files["build"],
 )
 
 # Global concurrency smells.
