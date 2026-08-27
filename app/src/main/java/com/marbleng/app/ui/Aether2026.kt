@@ -677,53 +677,42 @@ private fun FloatingSpatialDock(
     selected: SpatialTab,
     onSelect: (SpatialTab) -> Unit
 ) {
-    // MARBLE_BOTTOM_DOCK_SHELL_BG_REMOVED_V6552
-    // MARBLE_BOTTOM_DOCK_STRIPLESS_V6551
-    // Purpose: remove the thin wide white strip behind all three bottom tabs
-    // while keeping the dock clean, compact and bounded.
+    // MARBLE_BOTTOM_DOCK_MODERN_REBUILD_V66
+    // Root redesign goals:
+    // 1) no giant slab behind all tabs
+    // 2) no thin inner strip / accidental extra layer
+    // 3) clear hierarchy: active tab reads instantly
+    // 4) each tab is its own bounded tactile control
+    // 5) spacing and proportions stay balanced on narrow screens
     Box(
         modifier=Modifier
             .fillMaxWidth()
             .navigationBarsPadding()
-            .padding(horizontal=16.dp,vertical=8.dp),
+            .padding(horizontal=18.dp,vertical=8.dp),
         contentAlignment=Alignment.Center
     ) {
-        val shellShape=RoundedCornerShape(26.dp)
-        val shellBorder=Brush.horizontalGradient(
-            listOf(
-                Aether.Cyan.copy(alpha=.10f),
-                Aether.GlassBorderSoft.copy(alpha=.20f),
-                Aether.Amethyst.copy(alpha=.05f)
-            )
-        )
-
         Row(
             modifier=Modifier
-                .widthIn(max=500.dp)
-                .fillMaxWidth()
-                .shadow(2.dp,shellShape,clip=false)
-                .border(1.dp,shellBorder,shellShape)
-                .clip(shellShape)
-                .background(Color.Transparent)
-                .padding(horizontal=8.dp,vertical=8.dp),
-            horizontalArrangement=Arrangement.spacedBy(6.dp),
+                .widthIn(max=520.dp)
+                .fillMaxWidth(),
+            horizontalArrangement=Arrangement.spacedBy(10.dp),
             verticalAlignment=Alignment.CenterVertically
         ) {
             SpatialTab.entries.forEach { item ->
                 val active=item == selected
-                val itemShape=RoundedCornerShape(18.dp)
-                val itemTint by animateColorAsState(
-                    targetValue=if(active) Aether.Cyan.copy(alpha=.08f) else Color.Transparent,
+                val cardShape=RoundedCornerShape(22.dp)
+                val cardBorder by animateColorAsState(
+                    targetValue=if(active) Aether.Cyan.copy(alpha=.18f) else Aether.GlassBorderSoft.copy(alpha=.22f),
                     animationSpec=MarbleMotionSpecs.Color,
-                    label="dock-item-tint-${item.name}"
+                    label="dock-border-${item.name}"
                 )
-                val itemBorder by animateColorAsState(
-                    targetValue=if(active) Aether.Cyan.copy(alpha=.14f) else Color.Transparent,
+                val cardFill by animateColorAsState(
+                    targetValue=if(active) Aether.Cyan.copy(alpha=.10f) else Aether.VoidElevated.copy(alpha=.66f),
                     animationSpec=MarbleMotionSpecs.Color,
-                    label="dock-item-border-${item.name}"
+                    label="dock-fill-${item.name}"
                 )
-                val chipTint by animateColorAsState(
-                    targetValue=if(active) Aether.Cyan.copy(alpha=.14f) else Color.Transparent,
+                val iconChipFill by animateColorAsState(
+                    targetValue=if(active) Aether.Cyan.copy(alpha=.18f) else Color.Transparent,
                     animationSpec=MarbleMotionSpecs.Color,
                     label="dock-chip-${item.name}"
                 )
@@ -736,23 +725,24 @@ private fun FloatingSpatialDock(
                 Column(
                     modifier=Modifier
                         .weight(1f)
-                        .height(60.dp)
-                        .border(1.dp,itemBorder,itemShape)
-                        .clip(itemShape)
-                        .background(itemTint)
+                        .height(64.dp)
+                        .shadow(if(active) 2.dp else 1.dp,cardShape,clip=false)
+                        .border(1.dp,cardBorder,cardShape)
+                        .clip(cardShape)
+                        .background(cardFill)
                         .kineticClickable(
-                            boundedShape=itemShape,
+                            boundedShape=cardShape,
                             role=Role.Button
                         ) { onSelect(item) }
-                        .padding(horizontal=6.dp,vertical=4.dp),
+                        .padding(horizontal=8.dp,vertical=6.dp),
                     horizontalAlignment=Alignment.CenterHorizontally,
                     verticalArrangement=Arrangement.Center
                 ) {
                     Box(
                         modifier=Modifier
-                            .size(32.dp)
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(chipTint),
+                            .size(30.dp)
+                            .clip(RoundedCornerShape(15.dp))
+                            .background(iconChipFill),
                         contentAlignment=Alignment.Center
                     ) {
                         MarbleTabIcon(
