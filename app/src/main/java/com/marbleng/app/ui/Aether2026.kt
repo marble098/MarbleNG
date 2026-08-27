@@ -677,83 +677,62 @@ private fun FloatingSpatialDock(
     selected: SpatialTab,
     onSelect: (SpatialTab) -> Unit
 ) {
-    // MARBLE_BOTTOM_DOCK_MODERN_REBUILD_V66
-    // Root redesign goals:
-    // 1) no giant slab behind all tabs
-    // 2) no thin inner strip / accidental extra layer
-    // 3) clear hierarchy: active tab reads instantly
-    // 4) each tab is its own bounded tactile control
-    // 5) spacing and proportions stay balanced on narrow screens
+    // MARBLE_BOTTOM_DOCK_UNIFIED_FLOATING_V661
+    // Design intent:
+    // - one unified floating navigation system
+    // - no giant background slab
+    // - no per-tab filled cards
+    // - no inner shadow band
+    // - active state shown by tone + minimal underline only
     Box(
         modifier=Modifier
             .fillMaxWidth()
             .navigationBarsPadding()
-            .padding(horizontal=18.dp,vertical=8.dp),
+            .padding(horizontal=18.dp,vertical=10.dp),
         contentAlignment=Alignment.Center
     ) {
         Row(
             modifier=Modifier
                 .widthIn(max=520.dp)
                 .fillMaxWidth(),
-            horizontalArrangement=Arrangement.spacedBy(10.dp),
+            horizontalArrangement=Arrangement.SpaceEvenly,
             verticalAlignment=Alignment.CenterVertically
         ) {
             SpatialTab.entries.forEach { item ->
                 val active=item == selected
-                val cardShape=RoundedCornerShape(22.dp)
-                val cardBorder by animateColorAsState(
-                    targetValue=if(active) Aether.Cyan.copy(alpha=.18f) else Aether.GlassBorderSoft.copy(alpha=.22f),
-                    animationSpec=MarbleMotionSpecs.Color,
-                    label="dock-border-${item.name}"
-                )
-                val cardFill by animateColorAsState(
-                    targetValue=if(active) Aether.Cyan.copy(alpha=.10f) else Aether.VoidElevated.copy(alpha=.66f),
-                    animationSpec=MarbleMotionSpecs.Color,
-                    label="dock-fill-${item.name}"
-                )
-                val iconChipFill by animateColorAsState(
-                    targetValue=if(active) Aether.Cyan.copy(alpha=.18f) else Color.Transparent,
-                    animationSpec=MarbleMotionSpecs.Color,
-                    label="dock-chip-${item.name}"
-                )
+                val itemShape=RoundedCornerShape(18.dp)
                 val contentTone by animateColorAsState(
                     targetValue=if(active) Aether.Cyan else Aether.InkMuted,
                     animationSpec=MarbleMotionSpecs.Color,
                     label="dock-tone-${item.name}"
                 )
+                val indicatorTone by animateColorAsState(
+                    targetValue=if(active) Aether.Cyan.copy(alpha=.92f) else Color.Transparent,
+                    animationSpec=MarbleMotionSpecs.Color,
+                    label="dock-indicator-${item.name}"
+                )
 
                 Column(
                     modifier=Modifier
                         .weight(1f)
-                        .height(64.dp)
-                        .shadow(if(active) 2.dp else 1.dp,cardShape,clip=false)
-                        .border(1.dp,cardBorder,cardShape)
-                        .clip(cardShape)
-                        .background(cardFill)
+                        .height(60.dp)
+                        .clip(itemShape)
                         .kineticClickable(
-                            boundedShape=cardShape,
+                            boundedShape=itemShape,
                             role=Role.Button
                         ) { onSelect(item) }
-                        .padding(horizontal=8.dp,vertical=6.dp),
+                        .padding(horizontal=8.dp,vertical=4.dp),
                     horizontalAlignment=Alignment.CenterHorizontally,
                     verticalArrangement=Arrangement.Center
                 ) {
-                    Box(
-                        modifier=Modifier
-                            .size(30.dp)
-                            .clip(RoundedCornerShape(15.dp))
-                            .background(iconChipFill),
-                        contentAlignment=Alignment.Center
-                    ) {
-                        MarbleTabIcon(
-                            tab=item,
-                            color=contentTone,
-                            active=active,
-                            modifier=Modifier.size(20.dp)
-                        )
-                    }
+                    MarbleTabIcon(
+                        tab=item,
+                        color=contentTone,
+                        active=active,
+                        modifier=Modifier.size(21.dp)
+                    )
 
-                    Spacer(Modifier.height(4.dp))
+                    Spacer(Modifier.height(5.dp))
 
                     Text(
                         item.label,
@@ -761,6 +740,16 @@ private fun FloatingSpatialDock(
                         style=MaterialTheme.typography.labelMedium,
                         fontWeight=if(active) FontWeight.SemiBold else FontWeight.Medium,
                         maxLines=1
+                    )
+
+                    Spacer(Modifier.height(5.dp))
+
+                    Box(
+                        modifier=Modifier
+                            .width(22.dp)
+                            .height(3.dp)
+                            .clip(RoundedCornerShape(2.dp))
+                            .background(indicatorTone)
                     )
                 }
             }
