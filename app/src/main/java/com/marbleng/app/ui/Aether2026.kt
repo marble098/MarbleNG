@@ -30,6 +30,7 @@ package com.marbleng.app.ui
 // MARBLE_REFINED_PRODUCT_UI_V52
 // MARBLE_M3_EXPRESSIVE_UI_V53
 // MARBLE_PRISM_UI_V54
+// MARBLE_REAL_DEVICE_POLISH_V55
 
 import android.Manifest
 import android.content.Intent
@@ -671,23 +672,23 @@ private fun FloatingSpatialDock(
         modifier=Modifier
             .fillMaxWidth()
             .navigationBarsPadding()
-            .padding(horizontal=16.dp,vertical=8.dp),
+            .padding(horizontal=16.dp,vertical=6.dp),
         contentAlignment=Alignment.Center
     ) {
-        val shape=RoundedCornerShape(28.dp)
+        val shape=RoundedCornerShape(24.dp)
         val border=Brush.linearGradient(
             listOf(
-                Aether.Cyan.copy(alpha=.38f),
-                Aether.Amethyst.copy(alpha=.24f),
-                Aether.GlassBorderSoft.copy(alpha=.92f)
+                Aether.Cyan.copy(alpha=.24f),
+                Aether.Amethyst.copy(alpha=.14f),
+                Aether.GlassBorderSoft.copy(alpha=.70f)
             )
         )
 
         Box(
             modifier=Modifier
-                .widthIn(max=520.dp)
+                .widthIn(max=500.dp)
                 .fillMaxWidth()
-                .shadow(10.dp,shape,clip=false)
+                .shadow(5.dp,shape,clip=false)
                 .border(1.dp,border,shape)
                 .clip(shape)
                 .background(Aether.VoidElevated)
@@ -695,7 +696,7 @@ private fun FloatingSpatialDock(
             NavigationBar(
                 modifier=Modifier
                     .fillMaxWidth()
-                    .height(72.dp),
+                    .height(64.dp),
                 containerColor=Color.Transparent,
                 tonalElevation=0.dp,
                 windowInsets=WindowInsets(0,0,0,0)
@@ -1312,7 +1313,7 @@ private fun MarbleCompactTopBar(
                     .heightIn(min=48.dp)
                     .border(
                         1.dp,
-                        Aether.Cyan.copy(alpha=.28f),
+                        Aether.Cyan.copy(alpha=.18f),
                         actionShape
                     )
                     .clip(actionShape)
@@ -1321,7 +1322,7 @@ private fun MarbleCompactTopBar(
                         role=Role.Button,
                         onClick=onAction
                     )
-                    .padding(horizontal=12.dp,vertical=9.dp),
+                    .padding(horizontal=10.dp,vertical=8.dp),
                 verticalAlignment=Alignment.CenterVertically,
                 horizontalArrangement=Arrangement.spacedBy(7.dp)
             ) {
@@ -1510,11 +1511,6 @@ private fun HomeRouteDetailsRow(
                 maxLines=1
             )
         }
-        HomeVectorIcon(
-            HomeIcon.DETAILS,
-            Aether.InkMuted,
-            Modifier.size(18.dp)
-        )
     }
 }
 
@@ -1578,7 +1574,7 @@ private fun HomeMetricBento(repo: AppRepository) {
         Row(
             modifier=Modifier
                 .fillMaxWidth()
-                .height(172.dp),
+                .height(158.dp),
             horizontalArrangement=Arrangement.spacedBy(8.dp)
         ) {
             MarbleMetricCard(
@@ -1588,12 +1584,12 @@ private fun HomeMetricBento(repo: AppRepository) {
                 tone=pingTone,
                 sparkline=pingHistory,
                 modifier=Modifier
-                    .weight(1.16f)
+                    .weight(1.08f)
                     .fillMaxHeight()
             )
             Column(
                 modifier=Modifier
-                    .weight(.84f)
+                    .weight(.92f)
                     .fillMaxHeight(),
                 verticalArrangement=Arrangement.spacedBy(8.dp)
             ) {
@@ -1920,14 +1916,14 @@ private fun HomeOrbitalHero(
                 )
                 Text(
                     when {
-                        connected -> "Traffic is moving through the selected secure route"
+                        connected -> "Selected route is carrying traffic securely"
                         connecting -> "Xray is negotiating the route"
                         blocked -> "Traffic stays blocked until recovery"
                         else -> "Choose a route or use the last successful server"
                     },
                     color=Aether.InkMuted,
                     style=MaterialTheme.typography.bodySmall,
-                    maxLines=1,
+                    maxLines=2,
                     overflow=TextOverflow.Ellipsis
                 )
             }
@@ -2846,19 +2842,13 @@ private fun CyberLibrary(
                     value=search,
                     onValueChange={ search=it },
                     placeholder="Search nodes, host or protocol",
-                    modifier=Modifier
-                        .weight(1f)
-                        .border(
-                            1.dp,
-                            Aether.GlassBorderSoft,
-                            RoundedCornerShape(20.dp)
-                        )
+                    modifier=Modifier.weight(1f)
                 )
 
                 CyberButton(
                     label = if (addOpen) "Close" else "Add",
                     color = Aether.Cyan,
-                    modifier = Modifier.height(56.dp)
+                    modifier = Modifier.height(52.dp).widthIn(min = 88.dp)
                 ) { addOpen = !addOpen }
             }
         }
@@ -2873,7 +2863,7 @@ private fun CyberLibrary(
             ) {
                 HoloGlass(
                     modifier = Modifier.fillMaxWidth(),
-                    borderColor = Aether.Amethyst.copy(alpha = .45f)
+                    contentPadding = PaddingValues(12.dp)
                 ) {
                     Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                         CyberChoiceChip("Subscription", addMode == "subscription", Aether.Cyan) { addMode = "subscription" }
@@ -2937,8 +2927,9 @@ private fun CyberLibrary(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        CyberButton(
-                            label = "Paste clipboard",
+                        LibraryMicroAction(
+                            icon = HomeIcon.SPARK,
+                            label = "Paste",
                             color = Aether.Emerald,
                             modifier = Modifier.weight(1f)
                         ) {
@@ -2947,8 +2938,9 @@ private fun CyberLibrary(
                                 sourceFilter
                             )
                         }
-                        CyberButton(
-                            label = "Import file",
+                        LibraryMicroAction(
+                            icon = HomeIcon.DOWNLOAD,
+                            label = "Import",
                             color = Aether.Amethyst,
                             modifier = Modifier.weight(1f)
                         ) { onImportFile() }
@@ -3649,35 +3641,43 @@ private fun LibraryFilterSheet(
                 contentPadding=PaddingValues(12.dp)
             ) {
                 SectionLabel("Sort","Fastest, strongest or easiest to find")
-                LazyRow(
-                    modifier=Modifier.fillMaxWidth(),
-                    horizontalArrangement=Arrangement.spacedBy(7.dp)
-                ) {
-                    items(NodeSortMode.entries,key={ it.name }) { mode ->
-                        CyberChoiceChip(
-                            text=sortModeLabel(mode),
-                            selected=repo.settings.nodeSortMode == mode,
-                            color=Aether.Cyan
-                        ) {
-                            repo.updateSettings(
-                                repo.settings.copy(
-                                    nodeSortMode=mode,
-                                    nodeSortReverse=false
-                                )
-                            )
+                Column(verticalArrangement=Arrangement.spacedBy(7.dp)) {
+                    Row(
+                        modifier=Modifier.fillMaxWidth(),
+                        horizontalArrangement=Arrangement.spacedBy(7.dp)
+                    ) {
+                        listOf(NodeSortMode.PING,NodeSortMode.SCORE,NodeSortMode.NAME).forEach { mode ->
+                            LibrarySortChoice(
+                                text=sortModeLabel(mode),
+                                selected=repo.settings.nodeSortMode == mode,
+                                color=Aether.Cyan,
+                                modifier=Modifier.weight(1f)
+                            ) {
+                                repo.updateSettings(repo.settings.copy(nodeSortMode=mode,nodeSortReverse=false))
+                            }
                         }
                     }
-                    item {
-                        CyberChoiceChip(
-                            text=if(repo.settings.nodeSortReverse) "Normal" else "Reverse",
+                    Row(
+                        modifier=Modifier.fillMaxWidth(),
+                        horizontalArrangement=Arrangement.spacedBy(7.dp)
+                    ) {
+                        listOf(NodeSortMode.PROTOCOL,NodeSortMode.SOURCE).forEach { mode ->
+                            LibrarySortChoice(
+                                text=sortModeLabel(mode),
+                                selected=repo.settings.nodeSortMode == mode,
+                                color=Aether.Cyan,
+                                modifier=Modifier.weight(1f)
+                            ) {
+                                repo.updateSettings(repo.settings.copy(nodeSortMode=mode,nodeSortReverse=false))
+                            }
+                        }
+                        LibrarySortChoice(
+                            text="Reverse",
                             selected=repo.settings.nodeSortReverse,
-                            color=Aether.Amber
+                            color=Aether.Amber,
+                            modifier=Modifier.weight(1f)
                         ) {
-                            repo.updateSettings(
-                                repo.settings.copy(
-                                    nodeSortReverse=!repo.settings.nodeSortReverse
-                                )
-                            )
+                            repo.updateSettings(repo.settings.copy(nodeSortReverse=!repo.settings.nodeSortReverse))
                         }
                     }
                 }
@@ -3685,6 +3685,38 @@ private fun LibraryFilterSheet(
         }
     }
 }
+
+@Composable
+private fun LibrarySortChoice(
+    text: String,
+    selected: Boolean,
+    color: Color,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    val shape=RoundedCornerShape(16.dp)
+    Row(
+        modifier=modifier
+            .heightIn(min=48.dp)
+            .clip(shape)
+            .background(if(selected) color.copy(alpha=.095f) else Aether.GlassStrong.copy(alpha=.34f))
+            .border(1.dp,if(selected) color.copy(alpha=.36f) else Color.Transparent,shape)
+            .kineticClickable(role=Role.Button,onClick=onClick)
+            .padding(horizontal=10.dp,vertical=8.dp),
+        verticalAlignment=Alignment.CenterVertically,
+        horizontalArrangement=Arrangement.Center
+    ) {
+        Text(
+            text,
+            color=if(selected) color else Aether.InkMuted,
+            style=MaterialTheme.typography.labelMedium,
+            fontWeight=if(selected) FontWeight.Bold else FontWeight.Medium,
+            maxLines=1,
+            overflow=TextOverflow.Ellipsis
+        )
+    }
+}
+
 
 @Composable
 private fun LibraryControlDeck(
@@ -3810,12 +3842,12 @@ private fun SourceOrbitChip(
             .heightIn(min=48.dp)
             .border(
                 1.dp,
-                if(selected) color.copy(alpha=.48f) else Aether.GlassBorderSoft,
+                if(selected) color.copy(alpha=.40f) else Color.Transparent,
                 shape
             )
             .clip(shape)
             .background(
-                if(selected) color.copy(alpha=.085f) else Aether.VoidElevated
+                if(selected) color.copy(alpha=.075f) else Aether.GlassStrong.copy(alpha=.34f)
             )
             .kineticClickable(role=Role.Button,onClick=onClick)
             .padding(start=10.dp,end=if(onManage != null && selected) 4.dp else 12.dp),
@@ -3884,12 +3916,7 @@ private fun LibraryMicroAction(
     FilledTonalButton(
         onClick=onClick,
         modifier=modifier
-            .heightIn(min=50.dp)
-            .border(
-                1.dp,
-                color.copy(alpha=if(enabled) .30f else .12f),
-                shape
-            ),
+            .heightIn(min=50.dp),
         enabled=enabled,
         shape=shape,
         colors=ButtonDefaults.filledTonalButtonColors(

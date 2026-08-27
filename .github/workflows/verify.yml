@@ -102,6 +102,10 @@ jobs:
               'v54 marker':'MARBLE_PRISM_UI_V54' in ui,
               'v54 theme':'MARBLE_PRISM_THEME_V54' in theme,
               'v54 design system':'MARBLE_PRISM_DESIGN_SYSTEM_V54' in design,
+              'v55 real-device UI':'MARBLE_REAL_DEVICE_POLISH_V55' in ui,
+              'v55 design polish':'MARBLE_PRISM_POLISH_V55' in design,
+              'v55 fixed sort grid':'LibrarySortChoice(' in ui and 'text="Reverse"' in ui,
+              'v55 sparkline confidence':'if(sparkline.size>=3)' in design,
               'premium vector route':'PrismConnectionStage(' in design,
               'prism backdrop':'PrismBackdrop(' in ui,
               'floating official navigation':'NavigationBar(' in ui and 'NavigationBarItem(' in ui,
@@ -128,6 +132,29 @@ jobs:
           if failed:
               raise SystemExit('Product UI v9.1 invariant failure: '+', '.join(failed))
           print('[OK] Prism Product UI v54 invariants')
+          PY
+
+      - name: Verify release publishing safety
+        shell: bash
+        run: |
+          set -euo pipefail
+          # MARBLE_RELEASE_PUBLISH_VERIFY_V170
+          python3 - <<'PY'
+          from pathlib import Path
+          build=Path('.github/workflows/build.yml').read_text()
+          required={
+              'safe marker':'MARBLE_RELEASE_PUBLISH_SAFE_V170' in build,
+              'notes file':'--notes-file "$notes_file"' in build,
+              'target':'--target "$GITHUB_SHA"' in build,
+              'assets':'"${assets[@]}"' in build,
+              'tag guard':'git rev-parse -q --verify "refs/tags/$tag"' in build,
+              'release guard':'gh release view "$tag"' in build,
+              'no tag push':'git push origin "$tag"' not in build,
+              'no inline notes':'--notes "## MarbleNG $VERSION_NAME' not in build,
+          }
+          failed=[k for k,v in required.items() if not v]
+          if failed: raise SystemExit('Release publishing safety invariant failure: '+', '.join(failed))
+          print('[OK] release publisher is quote-safe and tag-atomic')
           PY
 
       - name: Set up JDK 17

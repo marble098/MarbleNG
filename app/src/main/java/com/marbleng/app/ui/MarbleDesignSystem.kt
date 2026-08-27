@@ -2,6 +2,7 @@ package com.marbleng.app.ui
 
 // MARBLE_M3_EXPRESSIVE_DESIGN_SYSTEM_V53
 // MARBLE_PRISM_DESIGN_SYSTEM_V54
+// MARBLE_PRISM_POLISH_V55
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.border
@@ -174,23 +175,23 @@ internal fun PrismPanel(
     contentPadding: PaddingValues = PaddingValues(MarbleSpacing.M),
     content: @Composable ColumnScope.() -> Unit
 ) {
-    val shape=RoundedCornerShape(if(selected) 28.dp else 24.dp)
+    val shape=RoundedCornerShape(if(selected) 26.dp else 22.dp)
     val surface=Aether.VoidElevated
     val violet=Aether.Amethyst
     val softBorder=Aether.GlassBorderSoft
-    val glowAlpha=if(selected) .075f else .038f
+    val glowAlpha=if(selected) .055f else .022f
     val borderBrush=Brush.linearGradient(
         listOf(
-            accent.copy(alpha=if(selected) .62f else .30f),
-            violet.copy(alpha=if(selected) .36f else .15f),
-            softBorder.copy(alpha=.92f)
+            accent.copy(alpha=if(selected) .46f else .16f),
+            violet.copy(alpha=if(selected) .23f else .08f),
+            softBorder.copy(alpha=.68f)
         )
     )
 
     Box(
         modifier=modifier
             .shadow(
-                elevation=if(selected) 10.dp else 3.dp,
+                elevation=if(selected) 5.dp else 1.dp,
                 shape=shape,
                 clip=false
             )
@@ -280,11 +281,11 @@ internal fun MarbleMetricCard(
     modifier: Modifier = Modifier,
     sparkline: List<Int> = emptyList()
 ) {
-    val shape=RoundedCornerShape(22.dp)
+    val shape=RoundedCornerShape(20.dp)
     val border=Brush.linearGradient(
         listOf(
-            tone.copy(alpha=.46f),
-            Aether.GlassBorderSoft.copy(alpha=.82f)
+            tone.copy(alpha=.30f),
+            Aether.GlassBorderSoft.copy(alpha=.62f)
         )
     )
     Box(
@@ -294,7 +295,7 @@ internal fun MarbleMetricCard(
             .background(
                 Brush.verticalGradient(
                     listOf(
-                        tone.copy(alpha=.095f),
+                        tone.copy(alpha=.065f),
                         Aether.VoidElevated
                     )
                 )
@@ -341,14 +342,14 @@ internal fun MarbleMetricCard(
                     )
                 }
             }
-            if(sparkline.size>=2) {
+            if(sparkline.size>=3) {
                 Spacer(Modifier.weight(1f))
                 MarbleSparkline(
                     samples=sparkline,
                     tone=tone,
                     modifier=Modifier
                         .fillMaxWidth()
-                        .height(50.dp)
+                        .height(42.dp)
                 )
             }
         }
@@ -432,15 +433,15 @@ internal fun PrismConnectionStage(
     val breathe=MarbleMotion.current.breathe(2_400)
     val progress=qualityScore.coerceIn(0,100)/100f
     val label=when {
-        connected -> "DISCONNECT"
-        connecting -> "CANCEL"
-        blocked -> "RESET"
-        else -> "CONNECT"
+        connected -> "Disconnect"
+        connecting -> "Cancel"
+        blocked -> "Reset"
+        else -> "Connect"
     }
 
     Box(
         modifier=modifier
-            .height(190.dp)
+            .height(164.dp)
             .semantics { contentDescription="$label connection control" }
             .kineticClickable(
                 role=Role.Button,
@@ -450,20 +451,20 @@ internal fun PrismConnectionStage(
         contentAlignment=Alignment.Center
     ) {
         Canvas(Modifier.matchParentSize()) {
-            val left=Offset(size.width*.16f,size.height*.48f)
-            val center=Offset(size.width*.50f,size.height*.45f)
-            val right=Offset(size.width*.84f,size.height*.48f)
+            val left=Offset(size.width*.16f,size.height*.43f)
+            val center=Offset(size.width*.50f,size.height*.40f)
+            val right=Offset(size.width*.84f,size.height*.43f)
 
             val route=Path().apply {
                 moveTo(left.x,left.y)
                 cubicTo(
-                    size.width*.30f,size.height*.28f,
-                    size.width*.38f,size.height*.28f,
+                    size.width*.30f,size.height*.24f,
+                    size.width*.38f,size.height*.24f,
                     center.x,center.y
                 )
                 cubicTo(
-                    size.width*.62f,size.height*.62f,
-                    size.width*.72f,size.height*.62f,
+                    size.width*.62f,size.height*.55f,
+                    size.width*.72f,size.height*.55f,
                     right.x,right.y
                 )
             }
@@ -512,7 +513,7 @@ internal fun PrismConnectionStage(
                 )
             }
 
-            val deviceSize=Size(38.dp.toPx(),58.dp.toPx())
+            val deviceSize=Size(34.dp.toPx(),52.dp.toPx())
             val deviceTop=Offset(
                 left.x-deviceSize.width/2f,
                 left.y-deviceSize.height/2f
@@ -562,7 +563,7 @@ internal fun PrismConnectionStage(
                 )
             }
 
-            val orbRadius=54.dp.toPx()
+            val orbRadius=48.dp.toPx()
             drawCircle(
                 brush=Brush.radialGradient(
                     colors=listOf(
@@ -633,7 +634,9 @@ internal fun PrismConnectionStage(
         }
 
         Column(
-            modifier=Modifier.offset(y=57.dp),
+            modifier=Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom=2.dp),
             horizontalAlignment=Alignment.CenterHorizontally
         ) {
             Text(
@@ -642,14 +645,6 @@ internal fun PrismConnectionStage(
                 style=MaterialTheme.typography.labelMedium,
                 fontWeight=FontWeight.Bold
             )
-            if(connected && qualityScore>=0) {
-                Text(
-                    "$qualityScore% quality",
-                    color=Aether.InkMuted,
-                    style=MaterialTheme.typography.labelSmall,
-                    fontFamily=FontFamily.Monospace
-                )
-            }
         }
     }
 }

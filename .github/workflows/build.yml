@@ -694,216 +694,56 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          # MARBLE_RELEASE_PUBLISH_SAFE_V170
 
           tag="v$VERSION_NAME"
+          shopt -s nullglob
+          assets=(dist/*)
+          apks=(dist/*.apk)
 
-          if gh release view "$tag" >/dev/null 2>&1; then
-            echo "::error::Release $tag already exists; refusing to replace an installed build."
+          if (( ${#apks[@]} == 0 )); then
+            echo "::error::No signed APK assets found in dist/."
             exit 1
           fi
+          test -s dist/SHA256SUMS.txt
+          test -s dist/SIGNING-CERTS.txt
 
           if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
-            echo "::error::Tag $tag already exists; refusing to move it."
+            echo "::error::Tag $tag already exists; refusing to move or replace it."
             exit 1
           fi
-
-          git tag "$tag" "$GITHUB_SHA"
-          git push origin "$tag"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "::error::Release $tag already exists; refusing to replace it."
+            exit 1
+          fi
 
           XRAY_VERSION="$(jq -r '.xray.tag' core-lock.json)"
           HEV_VERSION="$(jq -r '.hev.tag' core-lock.json)"
+          notes_file="$RUNNER_TEMP/marbleng-release-notes.md"
+          previous_tag="$(git tag --list | awk '/^v[0-9]+\.[0-9]+\.[0-9]+$/' | sort -V | tail -n 1)"
 
+          {
+            printf '## MarbleNG %s\n\n' "$VERSION_NAME"
+            printf '### Changes in this release\n'
+            if [[ -n "$previous_tag" ]]; then
+              git log --no-merges --pretty='- %s' "${previous_tag}..${GITHUB_SHA}"
+            else
+              git log -n 50 --no-merges --pretty='- %s' "$GITHUB_SHA"
+            fi
+            printf '\n### Runtime cores\n'
+            printf -- '- Xray: `%s`\n' "$XRAY_VERSION"
+            printf -- '- HEV: `%s`\n' "$HEV_VERSION"
+            printf '\n### Build integrity\n'
+            printf '%s\n' '- Release APKs are built, signed and verified in GitHub Actions.'
+            printf '%s\n' '- `SHA256SUMS.txt` contains the SHA-256 digest of every APK.'
+            printf '%s\n' '- `SIGNING-CERTS.txt` records the verified signing certificate.'
+          } > "$notes_file"
+          test -s "$notes_file"
+
+          # No bare tag is pushed before release publication.
           gh release create \
             "$tag" \
-            dist/* \
+            "${assets[@]}" \
+            --target "$GITHUB_SHA" \
             --title "MarbleNG $VERSION_NAME" \
-            --notes "## MarbleNG $VERSION_NAME
-
-          ### Prism Product UI v54
-          - Rebuilt MarbleNG's visual identity around the Prism design system: subtle cyan/violet/emerald ambient light, selective gradient borders, stronger depth and compact information hierarchy.
-          - Fixed the real-device oversized header gap by replacing the nested TopAppBar with a custom compact header that does not apply system-bar insets twice.
-          - Fixed Home route identity so transient runtime text such as "User disconnected" can never replace the selected node name.
-          - Added a dedicated Android VectorDrawable Marble mark plus a runtime vector device → secure core → server illustration with shared-clock packet motion.
-          - Reworked the Home hero into a focused secure-connection stage and moved live Ping/Jitter/Quality into a separate asymmetric bento with a richer verified-ping sparkline.
-          - Rebuilt Home quick controls into a compact 2×2 bordered grid while retaining official Material 3 Switch semantics and fail-closed behavior.
-          - Replaced the full-width flat bottom bar presentation with a bordered floating Material NavigationBar shell.
-          - Reworked Library source chips, search, action buttons and filter/sort sheet for higher density and clearer action hierarchy.
-          - Library avatars now use the country flag already embedded in node display names when available, while stripping the duplicate flag from the text label.
-          - Strengthened semantic ping badges and the active-node halo without changing benchmark logic or source identity.
-          - Rebuilt compact Settings navigation as auto-scrolling bordered category pills and removed the rectangular edge-fade masks visible in v53 screenshots.
-          - Settings section surfaces now use accent borders and tighter headers; each switch row receives its own subtle bounded surface instead of reading as one giant white wall.
-          - Theme selection now uses three visual preview cards for System / Prism Light / Prism Night while System mode continues to support Material You Dynamic Color.
-          - Preserved Xray, HEV, routing, DNS, Intelligence, benchmark, privacy/leak containment, Quick Tile and exact source-aware deletion behavior.
-          - Added flag/name unit tests and expanded Source verification with Prism-specific product invariants.
-
-          ### Material 3 Expressive product redesign v53
-          - Rebuilt primary product surfaces around stable Material 3 components while preserving MarbleNG's Xray runtime, routing, DNS, HEV, Identity Guard, benchmark and fail-closed invariants.
-          - System theme now uses Android 12+ Material You Dynamic Color; explicit White and Dark themes retain deterministic Marble palettes.
-          - Replaced the custom bottom dock shadow with the official Material NavigationBar and NavigationBar elevation token.
-          - Removed repeated oversized Home/Library/Settings page-title blocks in favor of compact Material TopAppBars with contextual actions.
-          - Rebuilt Home around an animated quality ring, touchable selected-server surface, explicit Route details row, asymmetric Ping/Jitter/Quality bento layout and recent verified-ping sparkline.
-          - Added real Home quick switches for Full TUN, IPv6, Adaptive MTU and kill-switch auto recovery; fail-closed Kill Switch Armed state remains observable and is never presented as a fake disable control.
-          - Moved Library source/filter/sort controls into a Material ModalBottomSheet while Refresh/Ping/Rank remain higher-emphasis FilledTonalButton actions.
-          - Added semantic node avatars, compact data-driven ping badges, connected-node halo and bidirectional swipe actions: edit right, delete-confirm left.
-          - Made Settings adaptive: fading horizontally scrollable tabs on compact windows and NavigationRail on wide windows.
-          - Replaced the hand-built MarbleToggle with official Material 3 Switch and replaced theme chips with SingleChoiceSegmentedButtonRow.
-          - Converted shared product cards to ElevatedCard/CardDefaults elevation and standardized redesigned primary surfaces on an 8dp spacing grid.
-          - Added Design System documentation and unit tests for ping <100ms green, 100-250ms amber and >250ms red, with unknown evidence remaining neutral.
-          - Updated Source verification so Debug/Release Kotlin compilation gates the Material 3 implementation instead of requiring the removed legacy toggle.
-
-          ### Refined Product UI v52
-          - Simplified the Solid White hierarchy around neutral tonal surfaces, restrained state accents and fewer decorative outlines.
-          - Added a complete Material 3 shape and typography system with calmer light/dark brand palettes.
-          - Centered and width-capped primary content and bottom navigation on wide windows instead of stretching the phone layout.
-          - Reduced bottom-dock and primary-action shadow weight while keeping active-state clarity.
-          - Raised custom overflow and dismiss controls to 48dp touch targets and added semantic descriptions.
-          - Replaced remaining three-dot menu glyphs in high-frequency Library controls with a font-independent vector icon.
-          - Reserved danger red for real error/destructive states instead of using it as a normal System-tab category color.
-          - Kept active/testing outlines where they communicate state while removing nested borders from idle cards, chips, latency capsules and metadata rails.
-          - Preserved swipeable Settings, long-name marquee, Home visibility controls, Quick Tile, Host/Port metadata and all network/runtime behavior.
-
-          ### Manual chains, adaptive intelligence and Quick Tile v49
-          - Restored the Compose boundary on DNS Settings after removing the legacy Chain Settings block; both Debug and Release Kotlin compilation now gate promotion before main can advance.
-          - Removed the old global two-hop Chain proxy switch from Settings and moved chain creation to Library → Add → Manual config → Chain proxy.
-          - Chains are saved as independent reusable Library profiles, support ordered add/move/remove controls, and have no arbitrary hop-count limit.
-          - Namespaced every hop's outbound graph and internal proxy/dialer references so custom and already-composite Xray configurations can be chained safely.
-          - Added a state-aware Android Quick Settings Tile: tap connects the exact last successfully used Library row, requests VPN consent through the app only when Android requires it, and toggles an active/connecting/blocked route off.
-          - Marble Intelligence now persists jitter, uses workload-specific latency/jitter/reliability/speed weights, applies a conservative Wilson reliability bound, decays old failure streaks and uses a low-confidence cross-network prior.
-          - Failed benchmarks no longer teach zero latency or erase previously measured throughput/jitter evidence.
-          - Removed TCP-only rejection from real Xray Rank, so fronted/provider-specific nodes that work in v2rayNG are tested through their actual protocol core; minimal delay-start failure also receives one runtime-compatible config retry.
-          - Reduced encrypted DoH failover deadlines after observed transient Cloudflare/Google timeouts while preserving bounded serial provider diversity and no system/plaintext DNS fallback.
-          - Bug Finder's synchronous drain dropped from two seconds to 400 ms; Settings now renders only a compact summary until checks are explicitly expanded, while raw evidence and retained historical logs remain available through Copy/Save TXT.
-          - Bug Finder reports passive 9-signal leak-containment coverage separately from the user-triggered external Anti-IP and DNS percentages, without creating hidden diagnostic traffic.
-          - Removed the verbose verified-RTT sentence under Home quality cards and removed decorative icons beside the selected node and Route details; the underlying evidence remains available to diagnostics.
-          - Preserved verified HTTPS Ping/Jitter/Quality, exact-source profile identity, anti-IP/DNS leak containment and safe route recovery invariants.
-
-          ### Resolver, live-metric and leak-audit hardening v47
-          - Fixed the observed state where the TUN carried traffic but Ping, Jitter and Quality stayed blank: the first verified HTTPS response now publishes immediately and Home explains every pending/failover phase.
-          - Replaced the single measurement dependency with certificate-verified, literal-IP HTTPS targets across Cloudflare, Google and Quad9; each jitter burst remains pinned to one provider so failover never contaminates IPDV.
-          - Disabled Xray parallel DNS fan-out and bounded encrypted fallbacks, preventing a blocked DoH provider from multiplying background deadlines after another resolver has already answered.
-          - Iran Mode now preserves Marble Intelligence's measured resolver order instead of forcing Google first on every connection.
-          - Adaptive DNS learning starts earlier, retries after heavy traffic and accepts only a valid RFC 8484 DNS-message response rather than a quick HTTP error page.
-          - Upload-only traffic no longer triggers byte-counter stall recovery without an independent provider-diverse route confirmation.
-          - Privacy audit now compares proxy egress against an explicitly underlay-bound physical egress, observes DNS only through SOCKS domain addressing, and reports separate Anti-IP, DNS and combined evidence scores.
-          - Bug Finder now warns about retained resolver bursts and distinguishes a healthy tunnel from a missing verified quality sample.
-
-          ### Home UI
-          - Rebuilt Home around a consistent modern vector-icon language.
-          - Removed font-dependent Unicode action glyphs, including the broken power symbol.
-          - Added vector icons to branding, connection state, tunnel mode, connect controls, route inspection, Ping, Jitter, Quality, summary metrics, benchmark, Iran Mode, Quick Actions and network traffic.
-          - Rank, Library, Privacy and Routing portals now use matching Canvas vectors.
-          - Upload/download and Home status chips are font-independent.
-
-          ### Evidence-weighted Ping, Jitter & Quality v46
-          - Audited MarbleNG against v2rayNG 2.3.5 and PattNG 2.3.5-P33: retained their safe one-second TCP gate for simple profiles and real-core delay evidence, while preserving MarbleNG's richer live jitter and quality telemetry.
-          - Replaced the success-only six-sample window with a bounded twelve-attempt evidence window that records verified HTTPS RTTs and misses.
-          - Ping is the rolling median, Jitter is mean absolute same-target IPDV, and p90 latency exposes congested tails hidden by a median alone.
-          - Quality now combines latency, jitter, verified success rate, sample confidence and p90 excess; unknown jitter is neutral instead of fabricated as zero.
-          - Removed double smoothing so Quality reacts with the same rolling window as Ping and Jitter after Wi-Fi/mobile route changes.
-          - Rank confidence now follows samples that actually succeeded instead of samples merely requested, and short partial runs no longer inherit full confidence.
-          - Benchmark jitter now includes real spikes rather than discarding them through a short-window median.
-          - Home shows verified/attempted RTT evidence, success rate and p90 next to Ping, Jitter and Quality.
-
-          ### Swipeable Settings workspaces
-          - Replaced expandable accordions with five top workspaces: General, Testing, Network, Engine and System.
-          - Tabs support both tap and horizontal swipe through Compose HorizontalPager.
-          - Every tab and section has a matching minimal vector icon, restrained accent color and glass surface aligned with the rest of MarbleNG.
-          - Preserved Simple/Expert behavior and direct Routing navigation from Home.
-
-          ### Library long-name marquee
-          - Long node names now scroll horizontally after a short delay only when they overflow.
-          - The marquee is clipped to the identity column, so ping evidence and action controls remain fixed and readable.
-
-          ### Smart Tunnel Rank v45
-          - Rebuilt Rank around the real-delay model used by v2rayNG 2.3.5 instead of tuning the failed v44 session heuristic.
-          - Wired the Settings Smart mode into Rank; Smart now performs a safe one-second TCP precheck only for simple TCP profiles, while complex, UDP-native and HTTP/3 profiles go directly to the real test.
-          - Every selected configuration remains visible in batch progress and receives its own final result, including TCP-gate failures.
-          - Added a dedicated lightweight Xray delay-test config that strips managed DNS, routing, stats, policy, observatory, fake DNS, Fragment and Mux state.
-          - Replaced rotating HEAD checks with two complete certificate-verified HTTPS GET attempts against the standard generate_204 endpoint and one ordered fallback.
-          - Only HTTP 200/204 counts as tunnel health; Rank keeps the minimum valid delay and never converts a timeout into a large synthetic ping.
-          - Increased isolated real-delay concurrency to a safe maximum of eight external Xray workers for substantially faster full-library completion.
-          - Cleared stale card results at batch start and added per-node failure-stage evidence to Bug Finder diagnostics.
-          - Preserved source-scoped testing, physical-network generation protection and deterministic temporary-process cleanup.
-
-          ### Repeatable Tunnel Rank
-          - Fixed the repeated-run regression where the same healthy library could fall from many reachable nodes to 5 and then 0.
-          - Removed the synchronized warm-up plus three-new-TLS-session burst that created up to 60 proxy/server sessions for a 15-node Rank.
-          - Each node now uses one real temporary Xray process, one SOCKS tunnel and one certificate-verified TLS session for its bounded RTT samples.
-          - The first verified response now counts as health evidence; a later keep-alive close preserves earlier samples instead of erasing the node.
-          - Rotated checks across Google connectivity, Cloudflare connectivity and two DNS-free Cloudflare anycast endpoints to avoid one-origin throttling or resolver bias.
-          - Strengthened temporary native-process cleanup and reset per-worker logs so immediate reruns do not inherit sockets, processes or stale errors.
-          - Added physical-network generation protection: history is not polluted across an underlay change, and a mid-Rank Wi-Fi/mobile switch triggers one settled retry.
-          - Preserved full source-scoped real-Xray verification for every selected configuration; TCP Quick Ping is never accepted as tunnel health.
-
-          ### Rank recovery & cleaner node interaction
-          - Fixed the 1.2.4 regression that could report 0 reachable nodes even when every configuration connected successfully.
-          - Preserved partial certificate-verified response evidence so one later read failure no longer erases an otherwise healthy node.
-          - Matched Rank to connected telemetry by probing literal Cloudflare anycast IPs, removing temporary-Xray DNS failures from the result.
-          - Preserved median latency, jitter, sample loss and full real-Xray verification across every selected configuration.
-          - Moved Library test progress out of the Ping action and into a dedicated animated status panel with preparation, node name and completed/total state.
-          - Removed progress counters from action buttons, including the misleading initial 0/0 label.
-          - Removed the redundant power/stop control from every Library node card.
-          - Made the full node card the Connect target while keeping the overflow menu independent.
-          - Removed the redundant Active badge below node cards; the selected card remains visually highlighted.
-
-          ### Fast, accurate Tunnel Rank
-          - Replaced timeout-inflated cold HTTPS timings with verified warm-tunnel HTTP RTT samples through each exact Xray configuration.
-          - Added up to three certificate-verified application RTT samples with median and jitter aggregation.
-          - Tunnel latency now reports the median successful warm sample; timeouts remain failures and are never displayed as synthetic 5000/9999 ms pings.
-          - Added tunnel delay variation (jitter) to node cards and incorporated it into interactive and stability ranking.
-          - Kept every selected configuration in Rank; no TCP-only shortcut can incorrectly label an unverified proxy as healthy.
-          - Reduced Rank probe deadlines and disabled unrelated speed/UDP work so large libraries finish substantially faster.
-          - Shortened cleanup of throwaway benchmark Xray workers without changing the safer live-VPN shutdown path.
-          - Added an independent DNS-free fallback target and monotonic Android elapsed-time measurement.
-          - Kept progressive per-node results and source-scoped ranking, while preserving full Xray verification for every finalist.
-
-          ### Latest UI & first-run setup
-          - Made in-app update changelogs fully readable with a bounded, vertically scrollable release-notes panel and clear scroll-state feedback.
-          - Refined the bottom navigation shadow into a softer controlled elevation and increased tab-label weight for better readability.
-          - Removed the repeated decorative orb from every Library node card and reclaimed its horizontal space for node identity and protocol details.
-          - Added a compact full-width Host/Port metadata rail to every node card while keeping Connect, Ping and overflow actions stable.
-          - Added a polished English first-run setup screen for VPN consent, notification permission and battery-optimization exemption.
-          - Every permission card explains why access is needed and opens the relevant Android consent flow or app-specific settings page directly.
-          - Permission state is refreshed after returning from Android settings, and entry into MarbleNG unlocks only after all three setup steps are ready.
-          - Completed onboarding is persisted so the setup screen is not shown again after a successful first run.
-          - Fixed Compose compatibility for RowScope weight and explicit edge padding in the onboarding layout.
-
-          ### UX & persistence
-          - Always persist the last successfully connected node for exact one-tap Home reconnect after app restart.
-          - Home prioritizes that exact remembered profile before automatic candidate selection.
-          - Library and Settings now use the same clean fixed-height title treatment as Home.
-          - Removed the oversized Library SOURCE SPACE summary and redundant visual counters while preserving source, sort, refresh, ping and rank controls.
-          - Clipboard import moved under Add instead of permanently occupying the search row.
-          - Removed decorative accordion category badges.
-          - Removed the heavy black shadow below in-app Snackbar notifications.
-          - Replaced remaining Library/Snackbar action glyphs with font-independent Canvas vectors.
-          - README.md was fully refreshed for the current app.
-
-          ### System integrity v38
-          - Added a permanent source-wide architecture preflight shared by verify and signed builds.
-          - SAF imports are off-main and capped at 16 MiB.
-          - Remote subscriptions are HTTPS-only, downgrade-safe and capped at 8 MiB.
-          - Active provider nodes survive subscription refresh until disconnect.
-          - Library mutations identify the exact source row, not only a shared config hash.
-          - VPN start carries source identity with the profile id.
-          - Temporary Xray listeners use one collision-safe allocator across benchmark, race, optimizer and Turbo.
-          - Ordinary Xray DNS uses encrypted DoH only; plaintext adaptive TCP/53 fallbacks were removed.
-          - Bug Finder surfaces current-session resolver degradation in the health summary.
-
-          ### Release system
-          - Replaced fixed 1.0.2 publishing with automatic semantic releases.
-          - Version jumps can follow change volume or explicit [version:*] commit hints.
-          - Android versionCode remains epoch-based and monotonic.
-          - Existing release tags are immutable.
-
-          ### Version metadata
-          - Bump class: $VERSION_BUMP_KIND
-          - Changed files: $VERSION_CHANGE_FILES
-          - Changed lines: $VERSION_CHANGE_LINES
-          - Android versionCode: $VERSION_CODE
-
-          ### Native cores
-          - Xray: $XRAY_VERSION
-          - HEV SOCKS5 Tunnel: $HEV_VERSION
-
-          APKs are signed with the persistent MarbleNG Android signing identity stored in repository secrets."
+            --notes-file "$notes_file"
