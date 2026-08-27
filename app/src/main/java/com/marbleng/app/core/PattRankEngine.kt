@@ -11,7 +11,9 @@ import org.json.JSONObject
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.exp
 
 /**
@@ -24,6 +26,7 @@ import kotlin.math.exp
  */
 // MARBLE_PATTRANK_CONCURRENT_MAP_KEY_FIX_V62_3
 // MARBLE_SINGLE_XRAY_BINARY_RANK_V63
+// MARBLE_RANK_PROTOCOL_RECOVERY_V64
 // ConcurrentHashMap inherits Java's legacy contains(value); always use containsKey explicitly.
 class PattRankEngine(
     private val context: Context,
@@ -38,6 +41,8 @@ class PattRankEngine(
 
     private val xrayBinary: File
         get() = File(context.applicationInfo.nativeLibraryDir, "libxray.so")
+
+    private val diagnostics = RuntimeDiagnostics(context)
 
     fun run(
         profiles: List<ProxyProfile>,
@@ -55,6 +60,8 @@ class PattRankEngine(
         val nativeProfiles = scoped.filterNot { it.scheme.equals("ssh", true) }
         val legacyProfiles = scoped.filter { it.scheme.equals("ssh", true) }.toMutableList()
         val results = ConcurrentHashMap<String, BenchmarkResult>()
+        val nativeFailureReasons = ConcurrentHashMap<String, String>()
+        val integratedFailure = AtomicReference("")
         val completed = AtomicInteger(0)
 
         fun publish(profile: ProxyProfile, result: BenchmarkResult) {
@@ -103,7 +110,26 @@ class PattRankEngine(
                             .toString()
                     )
 
-                    val process = ProcessBuilder(xrayBinary.absolutePath, "marble-rank", input.absolutePath)
+                    val protocolSeen = AtomicBoolean(false)
+                    val doneSeen = AtomicBoolean(false)
+                    val nativeStarts = AtomicInteger(0)
+                    val nativeEvents = AtomicInteger(0)
+                    val lastNoise = AtomicReference("")
+
+                    diagnostics.event(
+                        "BENCHMARK",
+                        "rank-integrated-start",
+                        "jobs" to jobs.length(),
+                        "workers" to workers,
+                        "timeoutMs" to timeoutMs,
+                        "binaryBytes" to xrayBinary.length()
+                    )
+
+                    val process = ProcessBuilder(
+                        xrayBinary.absolutePath,
+                        "marble-rank",
+                        input.absolutePath
+                    )
                         .redirectErrorStream(true)
                         .apply {
                             environment()["XRAY_LOCATION_ASSET"] =
@@ -114,34 +140,80 @@ class PattRankEngine(
                     val reader = Thread({
                         process.inputStream.bufferedReader().useLines { lines ->
                             lines.forEach { line ->
-                                if (!line.startsWith(PREFIX)) return@forEach
+                                if (!line.startsWith(PREFIX)) {
+                                    if (line.isNotBlank()) lastNoise.set(line.take(220))
+                                    return@forEach
+                                }
+
                                 val event = runCatching {
                                     JSONObject(line.removePrefix(PREFIX))
                                 }.getOrNull() ?: return@forEach
 
-                                val id = event.optString("id")
-                                val profile = profileById[id] ?: return@forEach
                                 when (event.optString("event")) {
-                                    "start" -> onStart(profile)
-                                    "result" -> {
-                                        val ok = event.optBoolean("ok", false)
-                                        val latency = if (ok) {
-                                            event.optDouble("latencyMs", 9_999.0)
-                                        } else 9_999.0
-                                        val result = BenchmarkResult(
-                                            profileId = profile.id,
-                                            name = profile.name,
-                                            success = if (ok) 100 else 0,
-                                            latencyMs = latency,
-                                            bytesPerSecond = 0.0,
-                                            score = nativeScore(ok, latency),
-                                            probeKind = "TUNNEL",
-                                            jitterMs = event.optDouble("jitterMs", 0.0),
-                                            warmupMs = event.optDouble("warmupMs", 0.0),
-                                            sampleCount = event.optInt("samples", 0),
-                                            failureReason = event.optString("error").take(180)
+                                    "batch" -> {
+                                        protocolSeen.set(true)
+                                        diagnostics.event(
+                                            "BENCHMARK",
+                                            "rank-integrated-ready",
+                                            "jobs" to event.optInt("jobs", jobs.length()),
+                                            "workers" to event.optInt("workers", workers)
                                         )
-                                        publish(profile, result)
+                                    }
+
+                                    "done" -> {
+                                        protocolSeen.set(true)
+                                        doneSeen.set(true)
+                                    }
+
+                                    "fatal" -> {
+                                        protocolSeen.set(true)
+                                        integratedFailure.set(
+                                            event.optString("error")
+                                                .take(180)
+                                                .ifBlank { "integrated-rank-fatal" }
+                                        )
+                                    }
+
+                                    "start" -> {
+                                        protocolSeen.set(true)
+                                        val profile = profileById[event.optString("id")]
+                                            ?: return@forEach
+                                        nativeStarts.incrementAndGet()
+                                        onStart(profile)
+                                    }
+
+                                    "result" -> {
+                                        protocolSeen.set(true)
+                                        val profile = profileById[event.optString("id")]
+                                            ?: return@forEach
+                                        nativeEvents.incrementAndGet()
+
+                                        val ok = event.optBoolean("ok", false)
+                                        if (!ok) {
+                                            nativeFailureReasons[profile.id] =
+                                                event.optString("error")
+                                                    .take(180)
+                                                    .ifBlank { "native-probe-failed" }
+                                            return@forEach
+                                        }
+
+                                        val latency = event.optDouble("latencyMs", 9_999.0)
+                                        publish(
+                                            profile,
+                                            BenchmarkResult(
+                                                profileId = profile.id,
+                                                name = profile.name,
+                                                success = 100,
+                                                latencyMs = latency,
+                                                bytesPerSecond = 0.0,
+                                                score = nativeScore(true, latency),
+                                                probeKind = "TUNNEL",
+                                                jitterMs = event.optDouble("jitterMs", 0.0),
+                                                warmupMs = event.optDouble("warmupMs", 0.0),
+                                                sampleCount = event.optInt("samples", 0),
+                                                failureReason = ""
+                                            )
+                                        )
                                     }
                                 }
                             }
@@ -156,38 +228,65 @@ class PattRankEngine(
                             3_000L
                         ).coerceAtMost(180_000L)
 
+                    var timedOut = false
                     if (!process.waitFor(maxWaitMs, TimeUnit.MILLISECONDS)) {
+                        timedOut = true
+                        integratedFailure.compareAndSet("", "integrated-rank-timeout")
                         process.destroy()
                         if (!process.waitFor(800L, TimeUnit.MILLISECONDS)) {
                             process.destroyForcibly()
                         }
                     }
+
                     reader.join(2_000L)
-                } catch (_: Throwable) {
-                    nativeProfiles
-                        .filter { !results.containsKey(it.id) }
-                        .forEach { if (it !in legacyProfiles) legacyProfiles += it }
+
+                    val exitCode = if (process.isAlive) {
+                        -999
+                    } else {
+                        runCatching { process.exitValue() }.getOrDefault(-998)
+                    }
+
+                    if (!protocolSeen.get()) {
+                        integratedFailure.compareAndSet("", "rank-protocol-handshake-missing")
+                    }
+                    if (exitCode != 0 && exitCode != -999) {
+                        integratedFailure.compareAndSet("", "rank-process-exit-$exitCode")
+                    }
+                    if (!doneSeen.get() && !timedOut && protocolSeen.get()) {
+                        integratedFailure.compareAndSet("", "rank-protocol-done-missing")
+                    }
+
+                    diagnostics.event(
+                        "BENCHMARK",
+                        "rank-integrated-exit",
+                        "exit" to exitCode,
+                        "protocol" to protocolSeen.get(),
+                        "done" to doneSeen.get(),
+                        "starts" to nativeStarts.get(),
+                        "events" to nativeEvents.get(),
+                        "success" to results.size,
+                        "noise" to lastNoise.get().take(180),
+                        "failure" to integratedFailure.get().take(180)
+                    )
+                } catch (t: Throwable) {
+                    integratedFailure.compareAndSet(
+                        "",
+                        "${t::class.java.simpleName}:${t.message.orEmpty().take(150)}"
+                    )
+                    diagnostics.event(
+                        "BENCHMARK",
+                        "rank-integrated-exception",
+                        "error" to integratedFailure.get()
+                    )
                 } finally {
                     runCatching { input.delete() }
                 }
 
+                // Native results are trusted only when they produced real successful evidence.
+                // Every unresolved node gets a selective second path instead of a false FAILED.
                 nativeProfiles
                     .filter { !results.containsKey(it.id) && it !in legacyProfiles }
-                    .forEach { profile ->
-                        publish(
-                            profile,
-                            BenchmarkResult(
-                                profileId = profile.id,
-                                name = profile.name,
-                                success = 0,
-                                latencyMs = 9_999.0,
-                                bytesPerSecond = 0.0,
-                                score = -1.0,
-                                probeKind = "TUNNEL",
-                                failureReason = "integrated-rank-no-result"
-                            )
-                        )
-                    }
+                    .forEach { legacyProfiles += it }
             }
         } else if (nativeProfiles.isNotEmpty()) {
             legacyProfiles += nativeProfiles
@@ -203,7 +302,7 @@ class PattRankEngine(
                     benchCandidates = pendingLegacy.size,
                     benchSamples = 1,
                     benchTimeoutSec = settings.benchTimeoutSec.coerceIn(4, 6),
-                    tcpWorkers = 2,
+                    tcpWorkers = pendingLegacy.size.coerceIn(1, 4),
                     probeMethod = ProbeMethod.TUNNEL,
                     probeSpeedTest = false,
                     verifiedPerformanceTuning = false,
@@ -231,9 +330,19 @@ class PattRankEngine(
                 bytesPerSecond = 0.0,
                 score = -1.0,
                 probeKind = "TUNNEL",
-                failureReason = "rank-no-result"
+                failureReason = nativeFailureReasons[profile.id]
+                    ?: integratedFailure.get().ifBlank { "rank-no-result" }
             )
         }
+
+        diagnostics.event(
+            "BENCHMARK",
+            "rank-final",
+            "requested" to scoped.size,
+            "healthy" to ordered.count { it.success > 0 },
+            "failed" to ordered.count { it.success <= 0 },
+            "integratedFailure" to integratedFailure.get().take(160)
+        )
 
         // Persistence is deliberately outside the native reader fast path.
         ordered.forEach { result ->

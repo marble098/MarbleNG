@@ -46,6 +46,8 @@ type Event struct {
     Samples    int     `json:"samples,omitempty"`
     Target     string  `json:"target,omitempty"`
     Error      string  `json:"error,omitempty"`
+    Jobs       int     `json:"jobs,omitempty"`
+    Workers    int     `json:"workers,omitempty"`
 }
 
 var emitMu sync.Mutex
@@ -146,6 +148,19 @@ func requestDelay(
     return time.Since(started), nil
 }
 
+func safeMeasure(job Job, primaryURL, fallbackURL string, timeout time.Duration) (event Event) {
+    defer func() {
+        if recovered := recover(); recovered != nil {
+            event = Event{
+                Event: "result",
+                ID:    job.ID,
+                Error: compactError(fmt.Errorf("panic: %v", recovered)),
+            }
+        }
+    }()
+    return measure(job, primaryURL, fallbackURL, timeout)
+}
+
 func measure(job Job, primaryURL, fallbackURL string, timeout time.Duration) Event {
     inst, err := newInstance(job.Config)
     if err != nil {
@@ -228,31 +243,38 @@ func measure(job Job, primaryURL, fallbackURL string, timeout time.Duration) Eve
 }
 
 var cmdMarbleRank = &base.Command{
-    UsageLine: "{{.Exec}} marble-rank <batch.json>",
+    UsageLine: "{{.Exec}} marble-rank [batch.json]",
     Short:     "Run MarbleNG batch outbound delay probes",
     Long:      "Runs MarbleNG batch outbound delay probes.",
+    CustomFlags: true,
     Run:       executeMarbleRank,
 }
 
 func executeMarbleRank(cmd *base.Command, args []string) {
     if len(args) != 1 {
-        fmt.Fprintln(os.Stderr, "usage: xray marble-rank <batch.json>")
+        emit(Event{Event: "fatal", Error: "bad-args"})
+        fmt.Fprintln(os.Stderr, "usage: xray marble-rank [batch.json]")
+        base.SetExitStatus(2)
         return
     }
 
     raw, err := os.ReadFile(args[0])
     if err != nil {
-        fmt.Fprintln(os.Stderr, "input:", err)
-        os.Exit(2)
+        emit(Event{Event: "fatal", Error: compactError(fmt.Errorf("input: %w", err))})
+        base.SetExitStatus(2)
+        return
     }
 
     var batch Batch
     if err := json.Unmarshal(raw, &batch); err != nil {
-        fmt.Fprintln(os.Stderr, "json:", err)
-        os.Exit(2)
+        emit(Event{Event: "fatal", Error: compactError(fmt.Errorf("json: %w", err))})
+        base.SetExitStatus(2)
+        return
     }
 
     if len(batch.Jobs) == 0 {
+        emit(Event{Event: "batch", Jobs: 0, Workers: 0, OK: true})
+        emit(Event{Event: "done", Jobs: 0, Workers: 0, OK: true})
         return
     }
     workers := batch.Workers
@@ -282,8 +304,15 @@ func executeMarbleRank(cmd *base.Command, args []string) {
         batch.FallbackURL = "https://cp.cloudflare.com/generate_204"
     }
 
-    fmt.Fprintf(os.Stderr, "MarbleNG Rank helper workers=%s jobs=%s timeoutMs=%s\n",
+    fmt.Fprintf(os.Stderr, "MarbleNG Rank workers=%s jobs=%s timeoutMs=%s\n",
         strconv.Itoa(workers), strconv.Itoa(len(batch.Jobs)), strconv.Itoa(timeoutMS))
+
+    emit(Event{
+        Event:   "batch",
+        OK:      true,
+        Jobs:    len(batch.Jobs),
+        Workers: workers,
+    })
 
     sem := make(chan struct{}, workers)
     var wg sync.WaitGroup
@@ -300,9 +329,15 @@ func executeMarbleRank(cmd *base.Command, args []string) {
             defer func() { <-sem }()
 
             emit(Event{Event: "start", ID: job.ID})
-            emit(measure(job, batch.PrimaryURL, batch.FallbackURL, timeout))
+            emit(safeMeasure(job, batch.PrimaryURL, batch.FallbackURL, timeout))
         }()
     }
 
     wg.Wait()
+    emit(Event{
+        Event:   "done",
+        OK:      true,
+        Jobs:    len(batch.Jobs),
+        Workers: workers,
+    })
 }

@@ -433,6 +433,25 @@ grep -F 'cmdMarbleRank,' "$XRAY_SRC/main/main.go" >/dev/null || {
     die "MarbleNG Rank command registration failed"
 }
 
+grep -F 'UsageLine: "{{.Exec}} marble-rank [batch.json]"'     "$XRAY_SRC/main/marble_rank.go" >/dev/null || {
+    die "Rank UsageLine is incompatible with Xray base.Command.Name()"
+}
+
+cat > "$XRAY_SRC/main/marble_rank_test.go" <<'GORANKTEST'
+package main
+
+import "testing"
+
+func TestMarbleRankCommandRegistration(t *testing.T) {
+    if got := cmdMarbleRank.Name(); got != "marble-rank" {
+        t.Fatalf("Rank command name = %q, want marble-rank", got)
+    }
+    if !cmdMarbleRank.CustomFlags {
+        t.Fatal("Rank command must use CustomFlags")
+    }
+}
+GORANKTEST
+
 ok "Rank integrated into the single Xray binary"
 
 
@@ -493,6 +512,15 @@ log "Preparing Xray Go dependencies"
 )
 
 ok "Xray dependencies prepared"
+
+log "Testing integrated Xray Rank command registration"
+
+(
+    cd "$XRAY_SRC"
+    env GOTOOLCHAIN=auto go test ./main
+)
+
+ok "Integrated Rank command registration test passed"
 
 
 # ==============================================================================
@@ -630,6 +658,9 @@ build_xray() {
 
     grep -a -F 'marble-rank' "$output" >/dev/null || {
         die "Integrated Rank command missing from Xray binary for $abi"
+    }
+    grep -a -F 'MARBLE_RANK ' "$output" >/dev/null || {
+        die "Integrated Rank event protocol missing from Xray binary for $abi"
     }
 
     local size
