@@ -677,12 +677,9 @@ private fun FloatingSpatialDock(
     selected: SpatialTab,
     onSelect: (SpatialTab) -> Unit
 ) {
-    // MARBLE_BOTTOM_DOCK_CLEAN_REBUILD_V655
-    // Clean single-surface dock:
-    // - no nested NavigationBar / NavigationBarItem slab
-    // - no full-width inner white strip
-    // - selected state is compact and balanced
-    // - ripple stays bounded to each tab shape
+    // MARBLE_BOTTOM_DOCK_STRIPLESS_V6551
+    // Purpose: remove the thin wide white strip behind all three bottom tabs
+    // while keeping the dock clean, compact and bounded.
     Box(
         modifier=Modifier
             .fillMaxWidth()
@@ -693,15 +690,9 @@ private fun FloatingSpatialDock(
         val shellShape=RoundedCornerShape(26.dp)
         val shellBorder=Brush.horizontalGradient(
             listOf(
-                Aether.Cyan.copy(alpha=.11f),
-                Aether.GlassBorderSoft.copy(alpha=.22f),
-                Aether.Amethyst.copy(alpha=.06f)
-            )
-        )
-        val shellFill=Brush.verticalGradient(
-            listOf(
-                Aether.VoidElevated.copy(alpha=.96f),
-                Aether.VoidElevated.copy(alpha=.88f)
+                Aether.Cyan.copy(alpha=.10f),
+                Aether.GlassBorderSoft.copy(alpha=.20f),
+                Aether.Amethyst.copy(alpha=.05f)
             )
         )
 
@@ -712,7 +703,7 @@ private fun FloatingSpatialDock(
                 .shadow(2.dp,shellShape,clip=false)
                 .border(1.dp,shellBorder,shellShape)
                 .clip(shellShape)
-                .background(shellFill)
+                .background(Aether.VoidElevated.copy(alpha=.94f))
                 .padding(horizontal=8.dp,vertical=8.dp),
             horizontalArrangement=Arrangement.spacedBy(6.dp),
             verticalAlignment=Alignment.CenterVertically
@@ -721,24 +712,24 @@ private fun FloatingSpatialDock(
                 val active=item == selected
                 val itemShape=RoundedCornerShape(18.dp)
                 val itemTint by animateColorAsState(
-                    targetValue=if(active) Aether.Cyan.copy(alpha=.09f) else Color.Transparent,
+                    targetValue=if(active) Aether.Cyan.copy(alpha=.08f) else Color.Transparent,
                     animationSpec=MarbleMotionSpecs.Color,
                     label="dock-item-tint-${item.name}"
                 )
                 val itemBorder by animateColorAsState(
-                    targetValue=if(active) Aether.Cyan.copy(alpha=.15f) else Color.Transparent,
+                    targetValue=if(active) Aether.Cyan.copy(alpha=.14f) else Color.Transparent,
                     animationSpec=MarbleMotionSpecs.Color,
                     label="dock-item-border-${item.name}"
                 )
-                val iconChip by animateColorAsState(
-                    targetValue=if(active) Aether.Cyan.copy(alpha=.12f) else Color.Transparent,
+                val chipTint by animateColorAsState(
+                    targetValue=if(active) Aether.Cyan.copy(alpha=.14f) else Color.Transparent,
                     animationSpec=MarbleMotionSpecs.Color,
-                    label="dock-item-chip-${item.name}"
+                    label="dock-chip-${item.name}"
                 )
                 val contentTone by animateColorAsState(
                     targetValue=if(active) Aether.Cyan else Aether.InkMuted,
                     animationSpec=MarbleMotionSpecs.Color,
-                    label="dock-item-tone-${item.name}"
+                    label="dock-tone-${item.name}"
                 )
 
                 Column(
@@ -758,9 +749,9 @@ private fun FloatingSpatialDock(
                 ) {
                     Box(
                         modifier=Modifier
-                            .size(30.dp)
-                            .clip(RoundedCornerShape(15.dp))
-                            .background(iconChip),
+                            .size(32.dp)
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(chipTint),
                         contentAlignment=Alignment.Center
                     ) {
                         MarbleTabIcon(
