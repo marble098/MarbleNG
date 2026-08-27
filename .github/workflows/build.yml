@@ -4,7 +4,7 @@ on:
   push:
     branches:
       - main
-  workflow_dispatch:
+  workflow_dispatch: {}
 
 permissions:
   contents: write
@@ -695,7 +695,7 @@ jobs:
         run: |
           set -euo pipefail
           # MARBLE_RELEASE_PUBLISH_RESILIENT_V181
-# Draft -> direct upload_url retries -> exact verify -> publish.
+          # Draft -> direct upload_url retries -> exact verify -> publish.
           # Transactional publication: draft -> per-asset retry -> size verify -> publish.
           export GH_HTTP_TIMEOUT=600
 
@@ -787,11 +787,7 @@ jobs:
           }
 
           urlencode_asset_name() {
-            python3 - "$1" <<'PYURL'
-import sys
-import urllib.parse
-print(urllib.parse.quote(sys.argv[1], safe=""))
-PYURL
+            jq -rn --arg value "$1" '$value|@uri'
           }
 
           upload_one_asset() {
