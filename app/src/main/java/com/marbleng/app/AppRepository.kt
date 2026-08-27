@@ -379,7 +379,7 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
      * Resolve the selected endpoint and enrich only its public IP with coarse public metadata.
      *
      * Privacy boundary:
-     * - disabled by default;
+     * - controlled by the Home-card visibility toggle; no request is started while off;
      * - proxy config, UUID/password, SNI and subscription URL are never sent;
      * - only the already-public resolved server IP is queried at ipwho.is;
      * - a 15-minute per-endpoint cache avoids noisy/redundant lookups.

@@ -32,6 +32,7 @@ package com.marbleng.app.ui
 // MARBLE_PRISM_UI_V54
 // MARBLE_REAL_DEVICE_POLISH_V55
 // MARBLE_SERVER_INTEL_UI_V56
+// MARBLE_SERVER_INTEL_HOME_UI_V58
 
 import android.Manifest
 import android.content.Intent
@@ -1772,6 +1773,10 @@ private fun CyberDeck(
 
         item {
             HomeMetricBento(repo)
+        }
+
+        if (repo.settings.serverIntelEnabled) {
+            item { ServerIntelHomeCard(repo) }
         }
 
         if (repo.settings.homeShowSummaryMetrics) {
@@ -4772,7 +4777,6 @@ private fun SettingsWorkspacePage(
             }
             SettingsWorkspaceTab.NETWORK -> {
                 item { SettingsSectionCard("Split tunneling", "Choose exactly which apps use or bypass the tunnel", HomeIcon.PRIVACY, Aether.Emerald) { SplitTunnelSettings(repo) } }
-                item { SettingsSectionCard("Server intelligence", "IP, city, datacenter and network ownership", HomeIcon.SERVER, Aether.Cyan) { ServerIntelSettings(repo) } }
                 if (expertMode) {
                     if (focusSection == "Routing") {
                         item { SettingsSectionCard("Routing", "Geo assets, direct rules and blocking policy", HomeIcon.ROUTING, Aether.Emerald) { RoutingSettings(repo) } }
@@ -4963,6 +4967,15 @@ private fun AppearanceSettings(repo: AppRepository) {
         repo.settings.homeShowSummaryMetrics
     ) {
         repo.updateSettings(repo.settings.copy(homeShowSummaryMetrics=it))
+    }
+
+    SettingSwitch(
+        "Server info card on Home",
+        "Show selected server IP, city, datacenter/network, ASN and ISP on the Home screen",
+        repo.settings.serverIntelEnabled
+    ) { enabled ->
+        repo.updateSettings(repo.settings.copy(serverIntelEnabled=enabled))
+        if(enabled) repo.refreshServerIntel()
     }
 
     SettingSwitch(
@@ -5440,8 +5453,7 @@ private fun ServerIntelMetric(
 }
 
 @Composable
-private fun ServerIntelSettings(repo: AppRepository) {
-    val enabled=repo.settings.serverIntelEnabled
+private fun ServerIntelHomeCard(repo: AppRepository) {
     val selected=repo.profile(
         repo.activeProfileId,
         repo.activeProfileSourceId
@@ -5455,214 +5467,218 @@ private fun ServerIntelSettings(repo: AppRepository) {
     }
 
     LaunchedEffect(
-        enabled,
+        repo.settings.serverIntelEnabled,
         selected?.id,
         selected?.subscriptionId,
         endpoint
     ) {
-        if(enabled && selected != null && endpoint.isNotBlank()) {
+        if(repo.settings.serverIntelEnabled && selected != null && endpoint.isNotBlank()) {
             repo.refreshServerIntel(selected)
         }
     }
 
-    SettingSwitch(
-        title="Server intelligence",
-        subtitle="Resolve the selected endpoint and show public IP, city, datacenter/network and ASN",
-        checked=enabled
+    PrismPanel(
+        modifier=Modifier.fillMaxWidth(),
+        accent=Aether.Cyan,
+        selected=info != null,
+        contentPadding=PaddingValues(14.dp)
     ) {
-        repo.updateSettings(
-            repo.settings.copy(serverIntelEnabled=it)
-        )
-    }
-
-    if(!enabled) {
-        Text(
-            "Off by default. When enabled, only the resolved public server IP is sent to the metadata service; proxy configs, credentials, SNI and subscription URLs stay local.",
-            color=Aether.InkFaint,
-            style=MaterialTheme.typography.bodySmall
-        )
-        return
-    }
-
-    if(selected == null || endpoint.isBlank()) {
         Row(
-            modifier=Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(16.dp))
-                .background(Aether.Cyan.copy(alpha=.045f))
-                .padding(12.dp),
+            modifier=Modifier.fillMaxWidth(),
             verticalAlignment=Alignment.CenterVertically,
             horizontalArrangement=Arrangement.spacedBy(10.dp)
         ) {
             HomeIconTile(HomeIcon.SERVER,Aether.Cyan)
             Column(Modifier.weight(1f)) {
                 Text(
-                    "No server selected",
+                    "Server info",
                     color=Aether.Ink,
-                    style=MaterialTheme.typography.labelLarge,
+                    style=MaterialTheme.typography.titleMedium,
                     fontWeight=FontWeight.Bold
                 )
                 Text(
-                    "Pick or connect a node; its endpoint will appear here.",
+                    selected?.let { stripLeadingFlag(it.name) }
+                        ?.ifBlank { "Selected route" }
+                        ?: "Choose a server",
                     color=Aether.InkMuted,
-                    style=MaterialTheme.typography.bodySmall
+                    style=MaterialTheme.typography.bodySmall,
+                    maxLines=1,
+                    overflow=TextOverflow.Ellipsis
                 )
             }
-        }
-        return
-    }
-
-    Row(
-        modifier=Modifier.fillMaxWidth(),
-        verticalAlignment=Alignment.CenterVertically,
-        horizontalArrangement=Arrangement.spacedBy(10.dp)
-    ) {
-        HomeIconTile(HomeIcon.SERVER,Aether.Cyan)
-        Column(Modifier.weight(1f)) {
-            Text(
-                stripLeadingFlag(selected.name),
-                color=Aether.Ink,
-                style=MaterialTheme.typography.labelLarge,
-                fontWeight=FontWeight.Bold,
-                maxLines=1,
-                overflow=TextOverflow.Ellipsis
-            )
-            Text(
-                endpoint,
-                color=Aether.InkMuted,
-                style=MaterialTheme.typography.labelSmall.copy(
-                    fontFamily=FontFamily.Monospace
-                ),
-                maxLines=1,
-                overflow=TextOverflow.Ellipsis
-            )
-        }
-        when {
-            repo.serverIntelLoading ->
-                CircularProgressIndicator(
+            when {
+                repo.serverIntelLoading -> CircularProgressIndicator(
                     modifier=Modifier.size(22.dp),
                     color=Aether.Cyan,
                     strokeWidth=2.dp
                 )
-            info != null -> HoloBadge("READY",Aether.Emerald,true)
-            else -> HoloBadge("WAITING",Aether.InkMuted,true)
-        }
-    }
-
-    info?.let { current ->
-        Row(
-            modifier=Modifier.fillMaxWidth(),
-            horizontalArrangement=Arrangement.spacedBy(8.dp)
-        ) {
-            ServerIntelMetric(
-                "Server IP",
-                current.ip,
-                Aether.Cyan,
-                Modifier.weight(1.35f),
-                monospace=true
-            )
-            ServerIntelMetric(
-                "IP family",
-                current.ipType,
-                Aether.Amethyst,
-                Modifier.weight(.65f)
-            )
-        }
-
-        Row(
-            modifier=Modifier.fillMaxWidth(),
-            horizontalArrangement=Arrangement.spacedBy(8.dp)
-        ) {
-            ServerIntelMetric(
-                "City",
-                current.city,
-                Aether.Emerald,
-                Modifier.weight(1f)
-            )
-            ServerIntelMetric(
-                "Country",
-                listOf(current.flag,current.country)
-                    .filter(String::isNotBlank)
-                    .joinToString(" "),
-                Aether.Emerald,
-                Modifier.weight(1f)
-            )
-        }
-
-        ServerIntelMetric(
-            "Datacenter / network",
-            current.datacenterLabel,
-            Aether.Amethyst,
-            Modifier.fillMaxWidth()
-        )
-
-        Row(
-            modifier=Modifier.fillMaxWidth(),
-            horizontalArrangement=Arrangement.spacedBy(8.dp)
-        ) {
-            ServerIntelMetric(
-                "ASN",
-                current.asn,
-                Aether.Cyan,
-                Modifier.weight(.72f),
-                monospace=true
-            )
-            ServerIntelMetric(
-                "ISP",
-                current.isp,
-                Aether.Cyan,
-                Modifier.weight(1.28f)
-            )
-        }
-
-        Row(
-            modifier=Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState()),
-            horizontalArrangement=Arrangement.spacedBy(7.dp)
-        ) {
-            HoloBadge(
-                if(current.hosting) "HOSTING / DC" else "PUBLIC NETWORK",
-                if(current.hosting) Aether.Amethyst else Aether.Cyan,
-                compact=true
-            )
-            if(current.proxy) {
-                HoloBadge("PROXY",Aether.Amber,compact=true)
-            }
-            if(current.vpn) {
-                HoloBadge("VPN",Aether.Amber,compact=true)
-            }
-            if(current.tor) {
-                HoloBadge("TOR",Aether.Danger,compact=true)
-            }
-            current.domain.takeIf(String::isNotBlank)?.let {
-                HoloBadge(it,Aether.InkMuted,compact=true)
+                info != null -> HoloBadge("READY",Aether.Emerald,true)
+                selected == null -> HoloBadge("NO ROUTE",Aether.InkMuted,true)
+                else -> HoloBadge("LOOKUP",Aether.Cyan,true)
             }
         }
-    }
 
-    if(repo.serverIntelError.isNotBlank()) {
+        if(selected == null || endpoint.isBlank()) {
+            Text(
+                "Select a node in Library. Its public IP, city, network/datacenter, ASN and ISP will appear here.",
+                color=Aether.InkMuted,
+                style=MaterialTheme.typography.bodySmall
+            )
+        } else {
+            Row(
+                modifier=Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(Aether.Cyan.copy(alpha=.04f))
+                    .border(
+                        1.dp,
+                        Aether.Cyan.copy(alpha=.10f),
+                        RoundedCornerShape(14.dp)
+                    )
+                    .padding(horizontal=10.dp,vertical=8.dp),
+                verticalAlignment=Alignment.CenterVertically,
+                horizontalArrangement=Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    "ENDPOINT",
+                    color=Aether.Cyan,
+                    style=MaterialTheme.typography.labelSmall,
+                    fontWeight=FontWeight.Bold
+                )
+                Text(
+                    endpoint,
+                    modifier=Modifier.weight(1f),
+                    color=Aether.InkMuted,
+                    style=MaterialTheme.typography.labelSmall.copy(
+                        fontFamily=FontFamily.Monospace,
+                        fontWeight=FontWeight.SemiBold
+                    ),
+                    maxLines=1,
+                    overflow=TextOverflow.Ellipsis
+                )
+                TextButton(
+                    onClick={ repo.refreshServerIntel(selected,force=true) },
+                    enabled=!repo.serverIntelLoading,
+                    contentPadding=PaddingValues(horizontal=7.dp,vertical=0.dp)
+                ) {
+                    Text(
+                        "Refresh",
+                        color=if(repo.serverIntelLoading) Aether.InkFaint else Aether.Cyan,
+                        style=MaterialTheme.typography.labelSmall,
+                        fontWeight=FontWeight.Bold
+                    )
+                }
+            }
+
+            info?.let { current ->
+                Row(
+                    modifier=Modifier.fillMaxWidth(),
+                    horizontalArrangement=Arrangement.spacedBy(8.dp)
+                ) {
+                    ServerIntelMetric(
+                        "Server IP",
+                        current.ip,
+                        Aether.Cyan,
+                        Modifier.weight(1.35f),
+                        monospace=true
+                    )
+                    ServerIntelMetric(
+                        "Family",
+                        current.ipType,
+                        Aether.Amethyst,
+                        Modifier.weight(.65f)
+                    )
+                }
+
+                Row(
+                    modifier=Modifier.fillMaxWidth(),
+                    horizontalArrangement=Arrangement.spacedBy(8.dp)
+                ) {
+                    ServerIntelMetric(
+                        "City",
+                        current.city,
+                        Aether.Emerald,
+                        Modifier.weight(1f)
+                    )
+                    ServerIntelMetric(
+                        "Country",
+                        listOf(current.flag,current.country)
+                            .filter(String::isNotBlank)
+                            .joinToString(" "),
+                        Aether.Emerald,
+                        Modifier.weight(1f)
+                    )
+                }
+
+                ServerIntelMetric(
+                    "Datacenter / network",
+                    current.datacenterLabel,
+                    Aether.Amethyst,
+                    Modifier.fillMaxWidth()
+                )
+
+                Row(
+                    modifier=Modifier.fillMaxWidth(),
+                    horizontalArrangement=Arrangement.spacedBy(8.dp)
+                ) {
+                    ServerIntelMetric(
+                        "ASN",
+                        current.asn,
+                        Aether.Cyan,
+                        Modifier.weight(.72f),
+                        monospace=true
+                    )
+                    ServerIntelMetric(
+                        "ISP",
+                        current.isp,
+                        Aether.Cyan,
+                        Modifier.weight(1.28f)
+                    )
+                }
+
+                Row(
+                    modifier=Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement=Arrangement.spacedBy(7.dp)
+                ) {
+                    HoloBadge(
+                        if(current.hosting) "HOSTING / DC" else "PUBLIC NETWORK",
+                        if(current.hosting) Aether.Amethyst else Aether.Cyan,
+                        compact=true
+                    )
+                    if(current.proxy) HoloBadge("PROXY",Aether.Amber,compact=true)
+                    if(current.vpn) HoloBadge("VPN",Aether.Amber,compact=true)
+                    if(current.tor) HoloBadge("TOR",Aether.Danger,compact=true)
+                    current.domain.takeIf(String::isNotBlank)?.let {
+                        HoloBadge(it,Aether.InkMuted,compact=true)
+                    }
+                }
+            } ?: Text(
+                if(repo.serverIntelLoading) {
+                    "Resolving the selected server and loading public network metadata…"
+                } else {
+                    "Server metadata has not been loaded yet."
+                },
+                color=Aether.InkMuted,
+                style=MaterialTheme.typography.bodySmall
+            )
+
+            if(repo.serverIntelError.isNotBlank()) {
+                Text(
+                    repo.serverIntelError,
+                    color=Aether.Amber,
+                    style=MaterialTheme.typography.bodySmall
+                )
+            }
+        }
+
         Text(
-            repo.serverIntelError,
-            color=Aether.Amber,
-            style=MaterialTheme.typography.bodySmall
+            "Location and datacenter/network labels are IP-database estimates, not GPS-level physical location.",
+            color=Aether.InkFaint,
+            style=MaterialTheme.typography.labelSmall
         )
     }
-
-    CyberButton(
-        label=if(repo.serverIntelLoading) "REFRESHING…" else "REFRESH SERVER DATA",
-        color=Aether.Cyan,
-        modifier=Modifier.fillMaxWidth(),
-        enabled=!repo.serverIntelLoading
-    ) {
-        repo.refreshServerIntel(selected,force=true)
-    }
-
-    Text(
-        "Location and datacenter/network labels are IP-database estimates; they are useful for route context, not GPS-level physical location.",
-        color=Aether.InkFaint,
-        style=MaterialTheme.typography.labelSmall
-    )
 }
 
 @Composable

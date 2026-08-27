@@ -178,10 +178,10 @@ data class AppSettings(
     val homeShowQuickActions: Boolean = true,
 
     /**
-     * Optional public metadata lookup for the selected server endpoint.
-     * Off by default because enabling it sends only the resolved public server IP to ipwho.is.
+     * Optional public metadata lookup for the selected server endpoint shown on Home.
+     * Enabled by default; users can hide it, and only the resolved public server IP is queried.
      */
-    val serverIntelEnabled: Boolean = false,
+    val serverIntelEnabled: Boolean = true,
 
     // Optional smart alerts. Foreground-service status is managed separately while connected.
     val smartNotificationsEnabled: Boolean = true,
