@@ -37,6 +37,7 @@ package com.marbleng.app.ui
 // MARBLE_SERVER_INTEL_HOME_UI_V58
 // MARBLE_LIBRARY_MODE_POLISH_UI_V59
 // MARBLE_GLOBAL_CONTROL_POLISH_UI_V60
+// MARBLE_CONNECTED_CARD_REFINEMENT_UI_V61
 
 import android.Manifest
 import android.content.Intent
@@ -4311,11 +4312,10 @@ private fun SpatialServerCard(
                     enabled=!repo.busy && !active,
                     role=Role.Button
                 ) { onConnect(profile) },
-            borderColor=when {
-                testing -> MaterialTheme.colorScheme.primary.copy(alpha=.62f)
-                active -> Aether.Emerald.copy(alpha=.82f)
-                else -> Color.Transparent
-            },
+            // Connection is a status, not a second selection mode. A full emerald Prism
+            // frame changed radius/shadow/glow and made one row look like a different component.
+            // Keep the normal card geometry; only an in-progress test gets a temporary frame.
+            borderColor=if(testing) Aether.Cyan.copy(alpha=.52f) else Color.Transparent,
             contentPadding=PaddingValues(
                 start=MarbleSpacing.M,
                 top=MarbleSpacing.M,
@@ -4340,7 +4340,7 @@ private fun SpatialServerCard(
                             iterations=Int.MAX_VALUE,
                             initialDelayMillis=1200
                         ),
-                        color=MaterialTheme.colorScheme.onSurface,
+                        color=Aether.Ink,
                         style=MaterialTheme.typography.titleMedium,
                         fontWeight=FontWeight.SemiBold,
                         maxLines=1,
@@ -4357,13 +4357,44 @@ private fun SpatialServerCard(
                             it.isNotBlank() && !it.equals("NONE",true)
                         }
                     ).joinToString(" • ")
-                    Text(
-                        connectionLine,
-                        color=MaterialTheme.colorScheme.onSurfaceVariant,
-                        style=MaterialTheme.typography.labelSmall,
-                        maxLines=1,
-                        overflow=TextOverflow.Ellipsis
-                    )
+                    Row(
+                        modifier=Modifier.fillMaxWidth(),
+                        verticalAlignment=Alignment.CenterVertically,
+                        horizontalArrangement=Arrangement.spacedBy(7.dp)
+                    ) {
+                        Text(
+                            connectionLine,
+                            modifier=Modifier.weight(1f),
+                            color=Aether.InkMuted,
+                            style=MaterialTheme.typography.labelSmall,
+                            maxLines=1,
+                            overflow=TextOverflow.Ellipsis
+                        )
+                        if(active) {
+                            Row(
+                                modifier=Modifier
+                                    .clip(RoundedCornerShape(999.dp))
+                                    .background(Aether.Emerald.copy(alpha=.085f))
+                                    .padding(horizontal=7.dp,vertical=4.dp),
+                                verticalAlignment=Alignment.CenterVertically,
+                                horizontalArrangement=Arrangement.spacedBy(5.dp)
+                            ) {
+                                Box(
+                                    Modifier
+                                        .size(6.dp)
+                                        .clip(CircleShape)
+                                        .background(Aether.Emerald)
+                                )
+                                Text(
+                                    "CONNECTED",
+                                    color=Aether.Emerald,
+                                    style=MaterialTheme.typography.labelSmall,
+                                    fontWeight=FontWeight.Bold,
+                                    maxLines=1
+                                )
+                            }
+                        }
+                    }
                 }
 
                 if(latency > 0) {
@@ -4406,7 +4437,7 @@ private fun SpatialServerCard(
                     ) {
                         HomeVectorIcon(
                             HomeIcon.MORE,
-                            MaterialTheme.colorScheme.onSurfaceVariant,
+                            Aether.InkMuted,
                             Modifier.size(19.dp)
                         )
                     }

@@ -34,6 +34,7 @@ class BenchmarkEngine(
     // MARBLE_V2RAYNG_SMART_RANK_V45
     // MARBLE_EVIDENCE_WEIGHTED_QUALITY_V46
     // MARBLE_BENCH_COMPAT_V47
+    // MARBLE_RUNTIME_PARITY_RANK_V61
 
     fun run(
         profiles: List<ProxyProfile>,
@@ -61,9 +62,10 @@ class BenchmarkEngine(
         // all, so the old (cpu / 2) cap left most of the batch idle behind four workers.
         val nominalWorkers = when {
             directProbe(s) -> s.tcpWorkers.coerceIn(4, 32)
-            // v2rayNG defaults to 16 in-process probes. MarbleNG uses external Xray children, so
-            // eight isolated lightweight workers is the equivalent safe Android bound.
-            v2rayStyleDelay -> s.tcpWorkers.coerceIn(4, 8)
+            // MarbleNG launches one native Xray child per candidate, unlike v2rayNG's in-process
+            // dialer. Four is the safe ceiling here: larger same-host bursts can manufacture
+            // Connection reset / TLS timeout failures that disappear when the node is tapped alone.
+            v2rayStyleDelay -> s.tcpWorkers.coerceIn(2, 4)
             else -> cpu.coerceIn(2, 4)
         }
         val liveWorkers = max(1, (nominalWorkers * thermal).toInt())
@@ -745,7 +747,11 @@ class BenchmarkEngine(
         var failureReason = "xray-start"
 
         val started = runCatching {
-            xray.temporary(p, port, s, delayTest = v2rayStyleDelay) { livePort ->
+            // Reachability must be judged with the same runtime-compatible hardening class
+            // used by a real user connection. The old delayTest=true path deliberately stripped
+            // managed runtime pieces; a config could therefore fail Rank yet work immediately when
+            // tapped. v2rayStyleDelay still controls the lightweight HTTP measurement semantics.
+            xray.temporary(p, port, s, delayTest = false) { livePort ->
                 // Official Xray HTTPing defaults to gstatic 204. Cloudflare is an independent
                 // fallback for routes where that origin is unavailable. A timeout is a failed
                 // sample, never a synthetic 5000/9999 ms latency value.
