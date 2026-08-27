@@ -18,7 +18,7 @@ import (
     corecommserial "github.com/xtls/xray-core/common/serial"
     core "github.com/xtls/xray-core/core"
     coreserial "github.com/xtls/xray-core/infra/conf/serial"
-    _ "github.com/xtls/xray-core/main/distro/all"
+    "github.com/xtls/xray-core/main/commands/base"
 )
 
 const linePrefix = "MARBLE_RANK "
@@ -128,7 +128,7 @@ func requestDelay(
     req.Header.Set("Accept", "*/*")
     req.Header.Set("Accept-Encoding", "identity")
     req.Header.Set("Cache-Control", "no-cache")
-    req.Header.Set("User-Agent", "MarbleNG-Rank/62")
+    req.Header.Set("User-Agent", "MarbleNG-Rank/63")
 
     started := time.Now()
     resp, err := client.Do(req)
@@ -227,13 +227,20 @@ func measure(job Job, primaryURL, fallbackURL string, timeout time.Duration) Eve
     }
 }
 
-func main() {
-    if len(os.Args) != 2 {
-        fmt.Fprintln(os.Stderr, "usage: libmarblerank.so <batch.json>")
-        os.Exit(2)
+var cmdMarbleRank = &base.Command{
+    UsageLine: "{{.Exec}} marble-rank <batch.json>",
+    Short:     "Run MarbleNG batch outbound delay probes",
+    Long:      "Runs MarbleNG batch outbound delay probes.",
+    Run:       executeMarbleRank,
+}
+
+func executeMarbleRank(cmd *base.Command, args []string) {
+    if len(args) != 1 {
+        fmt.Fprintln(os.Stderr, "usage: xray marble-rank <batch.json>")
+        return
     }
 
-    raw, err := os.ReadFile(os.Args[1])
+    raw, err := os.ReadFile(args[0])
     if err != nil {
         fmt.Fprintln(os.Stderr, "input:", err)
         os.Exit(2)

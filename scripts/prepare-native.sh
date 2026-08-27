@@ -231,7 +231,8 @@ for cmd in \
     find \
     sha256sum \
     wc \
-    tr
+    tr \
+    python3
 do
     require_command "$cmd"
 done
@@ -406,17 +407,33 @@ git clone \
 }
 
 [[ -s "$RANK_HELPER_SOURCE" ]] || {
-    die "Missing MarbleNG Rank helper source: $RANK_HELPER_SOURCE"
+    die "Missing MarbleNG Rank command source: $RANK_HELPER_SOURCE"
 }
 
-mkdir -p "$XRAY_SRC/marble-rank-helper"
-cp -f "$RANK_HELPER_SOURCE" "$XRAY_SRC/marble-rank-helper/main.go"
+cp -f "$RANK_HELPER_SOURCE" "$XRAY_SRC/main/marble_rank.go"
 
-[[ -s "$XRAY_SRC/marble-rank-helper/main.go" ]] || {
-    die "Could not stage MarbleNG Rank helper into pinned Xray module"
+[[ -s "$XRAY_SRC/main/marble_rank.go" ]] || {
+    die "Could not stage MarbleNG Rank command into pinned Xray main package"
 }
 
-ok "PattNG-style Rank helper staged inside pinned Xray source"
+python3 - "$XRAY_SRC/main/main.go" <<'PYRANKMAIN'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+text = path.read_text(encoding="utf-8")
+old = "\t\t\tcmdRun,\n\t\t\tcmdVersion,\n"
+new = "\t\t\tcmdRun,\n\t\t\tcmdVersion,\n\t\t\tcmdMarbleRank,\n"
+if text.count(old) != 1:
+    raise SystemExit("Pinned Xray main.go command anchor changed")
+path.write_text(text.replace(old, new, 1), encoding="utf-8")
+PYRANKMAIN
+
+grep -F 'cmdMarbleRank,' "$XRAY_SRC/main/main.go" >/dev/null || {
+    die "MarbleNG Rank command registration failed"
+}
+
+ok "Rank integrated into the single Xray binary"
 
 
 # ==============================================================================
@@ -515,7 +532,6 @@ build_xray() {
 
     local out_dir="$XRAY_STAGE/$abi"
     local output="$out_dir/libxray.so"
-    local rank_output="$out_dir/libmarblerank.so"
     local cc="$NDK_BIN/$cc_name"
 
     mkdir -p "$out_dir"
@@ -606,56 +622,15 @@ build_xray() {
 
     fi
 
-    # PattNG-style in-process Rank helper. One helper process serves the entire batch.
-    if [[ -n "$goarm" ]]; then
-        (
-            cd "$XRAY_SRC"
-            env \
-                GOTOOLCHAIN=auto \
-                GOOS=android \
-                GOARCH="$goarch" \
-                GOARM="$goarm" \
-                CGO_ENABLED=1 \
-                CC="$cc" \
-                go build \
-                    -buildmode=pie \
-                    -trimpath \
-                    -buildvcs=false \
-                    -gcflags="all=-l=4" \
-                    -ldflags="-X github.com/xtls/xray-core/core.build=${commit_id} -s -w -buildid= -checklinkname=0" \
-                    -o "$rank_output" \
-                    ./marble-rank-helper
-        )
-    else
-        (
-            cd "$XRAY_SRC"
-            env \
-                GOTOOLCHAIN=auto \
-                GOOS=android \
-                GOARCH="$goarch" \
-                CGO_ENABLED=1 \
-                CC="$cc" \
-                go build \
-                    -buildmode=pie \
-                    -trimpath \
-                    -buildvcs=false \
-                    -gcflags="all=-l=4" \
-                    -ldflags="-X github.com/xtls/xray-core/core.build=${commit_id} -s -w -buildid= -checklinkname=0" \
-                    -o "$rank_output" \
-                    ./marble-rank-helper
-        )
-    fi
-
-    [[ -s "$rank_output" ]] || {
-        die "MarbleNG Rank helper build produced no file for $abi"
-    }
-    chmod 755 "$rank_output"
-
     [[ -s "$output" ]] || {
         die "Xray Android build produced no file for $abi"
     }
 
     chmod 755 "$output"
+
+    grep -a -F 'marble-rank' "$output" >/dev/null || {
+        die "Integrated Rank command missing from Xray binary for $abi"
+    }
 
     local size
     local hash
@@ -674,13 +649,6 @@ build_xray() {
     echo "     size   : $size bytes"
     echo "     sha256 : $hash"
 
-    local rank_size
-    local rank_hash
-    rank_size="$(wc -c < "$rank_output" | tr -d ' ')"
-    rank_hash="$(sha256sum "$rank_output" | awk '{print $1}')"
-    ok "Rank helper staged: $abi"
-    echo "     size   : $rank_size bytes"
-    echo "     sha256 : $rank_hash"
 }
 
 
@@ -743,13 +711,7 @@ do
         die "Staged Xray missing for $abi: $file"
     }
 
-    rank_file="$XRAY_STAGE/$abi/libmarblerank.so"
-    [[ -s "$rank_file" ]] || {
-        die "Staged Rank helper missing for $abi: $rank_file"
-    }
-
-    ok "$abi / Xray staging"
-    ok "$abi / PattNG-style Rank helper staging"
+    ok "$abi / Xray staging + integrated Rank"
 done
 
 
@@ -1142,10 +1104,8 @@ for abi in \
 do
 
     src="$XRAY_STAGE/$abi/libxray.so"
-    rank_src="$XRAY_STAGE/$abi/libmarblerank.so"
     dst_dir="$JNILIBS/$abi"
     dst="$dst_dir/libxray.so"
-    rank_dst="$dst_dir/libmarblerank.so"
 
     [[ -s "$src" ]] || {
         die "Staged Xray binary disappeared for $abi: $src"
@@ -1177,26 +1137,25 @@ do
         die "Xray copy checksum mismatch for $abi"
     }
 
-    [[ -s "$rank_src" ]] || {
-        die "Staged Rank helper disappeared for $abi: $rank_src"
-    }
-    cp -f "$rank_src" "$rank_dst"
-    chmod 755 "$rank_dst"
-    [[ -s "$rank_dst" ]] || {
-        die "Could not install Rank helper into jniLibs for $abi"
-    }
-    rank_src_hash="$(sha256sum "$rank_src" | awk '{print $1}')"
-    rank_dst_hash="$(sha256sum "$rank_dst" | awk '{print $1}')"
-    [[ "$rank_src_hash" == "$rank_dst_hash" ]] || {
-        die "Rank helper copy checksum mismatch for $abi"
-    }
-
-    ok "Installed Xray -> $abi"
-    ok "Installed Rank helper -> $abi"
+    ok "Installed single Xray + Rank -> $abi"
 
 done
 
-ok "All Xray and PattNG-style Rank helper binaries safely installed after ndk-build"
+ok "Single Xray binary per ABI safely installed after ndk-build"
+
+
+# ==============================================================================
+# Single-core APK size guard
+# ==============================================================================
+
+duplicate_rank="$(
+    find "$JNILIBS" -type f -name 'libmarblerank.so' -print -quit 2>/dev/null || true
+)"
+[[ -z "$duplicate_rank" ]] || {
+    die "Duplicate Rank/Xray payload detected: $duplicate_rank"
+}
+
+ok "APK size guard: no duplicate libmarblerank.so"
 
 
 # ==============================================================================
@@ -1434,7 +1393,6 @@ do
     echo "------------------------------------------------------------"
 
     XRAY_FILE="$JNILIBS/$abi/libxray.so"
-    RANK_FILE="$JNILIBS/$abi/libmarblerank.so"
     HEV_FILE="$JNILIBS/$abi/libhev-socks5-tunnel.so"
     BRIDGE_FILE="$JNILIBS/$abi/libmarbleng.so"
 
@@ -1462,20 +1420,6 @@ do
 
     fi
 
-
-    # --------------------------------------------------------------------------
-    # PattNG-style Rank helper
-    # --------------------------------------------------------------------------
-
-    if [[ -s "$RANK_FILE" ]]; then
-        RANK_SIZE="$(wc -c < "$RANK_FILE" | tr -d ' ')"
-        echo "[OK] $abi / Rank helper"
-        echo "     $RANK_SIZE bytes"
-    else
-        echo "[FAIL] $abi / Rank helper missing:"
-        echo "       $RANK_FILE"
-        FAILED=1
-    fi
 
 
     # --------------------------------------------------------------------------
@@ -1584,8 +1528,6 @@ do
 
     staged="$XRAY_STAGE/$abi/libxray.so"
     final="$JNILIBS/$abi/libxray.so"
-    rank_staged="$XRAY_STAGE/$abi/libmarblerank.so"
-    rank_final="$JNILIBS/$abi/libmarblerank.so"
 
     staged_hash="$(
         sha256sum "$staged" |
@@ -1601,14 +1543,7 @@ do
         die "Final Xray checksum mismatch for $abi"
     fi
 
-    rank_staged_hash="$(sha256sum "$rank_staged" | awk '{print $1}')"
-    rank_final_hash="$(sha256sum "$rank_final" | awk '{print $1}')"
-    [[ "$rank_staged_hash" == "$rank_final_hash" ]] || {
-        die "Final Rank helper checksum mismatch for $abi"
-    }
-
-    ok "$abi Xray checksum verified"
-    ok "$abi Rank helper checksum verified"
+    ok "$abi Xray + integrated Rank checksum verified"
 
 done
 

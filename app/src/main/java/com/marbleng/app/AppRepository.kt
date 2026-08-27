@@ -82,6 +82,7 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     // MARBLE_EVIDENCE_WEIGHTED_QUALITY_V46
     // MARBLE_RANK_RECOVERY_REPO_V61
     // MARBLE_PATTNG_BATCH_RANK_REPO_V62
+    // MARBLE_LIVE_RANK_EVENT_REPO_V63
 
     private val store = AppStore(context)
     private val io = Executors.newFixedThreadPool(3)
@@ -286,6 +287,9 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     var probeFinished by mutableStateOf<Set<String>>(emptySet()); private set
     var probeTotal by mutableStateOf(0); private set
     var probeCurrentName by mutableStateOf(""); private set
+    var probeLastName by mutableStateOf(""); private set
+    var probeLastOutcome by mutableStateOf(""); private set
+    var probeLastLatencyMs by mutableStateOf(0); private set
     var refreshingSources by mutableStateOf<Set<String>>(emptySet()); private set
 
     val probeDone: Int get() = probeFinished.size
@@ -306,17 +310,27 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         probeFinished = emptySet()
         probeTotal = probeBatch.size
         probeCurrentName = ""
+        probeLastName = ""
+        probeLastOutcome = ""
+        probeLastLatencyMs = 0
     }
 
     private fun markProbeStart(profile: ProxyProfile) = postToMain {
         probeRunning = probeRunning + profile.id
         probeCurrentName = profile.name
+        probeLastName = profile.name
+        probeLastOutcome = "TESTING"
+        probeLastLatencyMs = 0
     }
 
     /** Publishes one finished node immediately; the card updates while the batch continues. */
     private fun markProbeResult(profile: ProxyProfile, result: BenchmarkResult) = postToMain {
         probeRunning = probeRunning - profile.id
         probeFinished = probeFinished + profile.id
+        probeCurrentName = profile.name
+        probeLastName = profile.name
+        probeLastOutcome = if (result.success > 0) "OK" else "FAILED"
+        probeLastLatencyMs = if (result.success > 0) result.latencyMs.toInt().coerceAtLeast(1) else 0
         mergeBenchmarks(listOf(result))
     }
 

@@ -23,6 +23,7 @@ import kotlin.math.exp
  * Android process and creates the per-node Xray core instances inside it.
  */
 // MARBLE_PATTRANK_CONCURRENT_MAP_KEY_FIX_V62_3
+// MARBLE_SINGLE_XRAY_BINARY_RANK_V63
 // ConcurrentHashMap inherits Java's legacy contains(value); always use containsKey explicitly.
 class PattRankEngine(
     private val context: Context,
@@ -35,8 +36,8 @@ class PattRankEngine(
         private const val FALLBACK_URL = "https://cp.cloudflare.com/generate_204"
     }
 
-    private val helper: File
-        get() = File(context.applicationInfo.nativeLibraryDir, "libmarblerank.so")
+    private val xrayBinary: File
+        get() = File(context.applicationInfo.nativeLibraryDir, "libxray.so")
 
     fun run(
         profiles: List<ProxyProfile>,
@@ -64,7 +65,7 @@ class PattRankEngine(
             onProgress(done, scoped.size, profile.name)
         }
 
-        if (nativeProfiles.isNotEmpty() && helper.isFile) {
+        if (nativeProfiles.isNotEmpty() && xrayBinary.isFile) {
             val jobs = JSONArray()
             nativeProfiles.forEach { profile ->
                 val config = runCatching {
@@ -102,7 +103,7 @@ class PattRankEngine(
                             .toString()
                     )
 
-                    val process = ProcessBuilder(helper.absolutePath, input.absolutePath)
+                    val process = ProcessBuilder(xrayBinary.absolutePath, "marble-rank", input.absolutePath)
                         .redirectErrorStream(true)
                         .apply {
                             environment()["XRAY_LOCATION_ASSET"] =
@@ -183,7 +184,7 @@ class PattRankEngine(
                                 bytesPerSecond = 0.0,
                                 score = -1.0,
                                 probeKind = "TUNNEL",
-                                failureReason = "native-rank-helper-no-result"
+                                failureReason = "integrated-rank-no-result"
                             )
                         )
                     }
@@ -193,7 +194,7 @@ class PattRankEngine(
         }
 
         // SSH needs Marble's Java SSH bridge. Keep the old isolated-Xray path only there
-        // (and as an emergency helper-packaging fallback), never as normal multi-node Rank.
+        // (and as an emergency integrated-command fallback), never as normal multi-node Rank.
         if (legacyProfiles.isNotEmpty()) {
             val pendingLegacy = legacyProfiles.distinctBy { it.id }.filter { !results.containsKey(it.id) }
             if (pendingLegacy.isNotEmpty()) {

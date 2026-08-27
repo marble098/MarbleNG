@@ -39,6 +39,7 @@ package com.marbleng.app.ui
 // MARBLE_GLOBAL_CONTROL_POLISH_UI_V60
 // MARBLE_CONNECTED_CARD_REFINEMENT_UI_V61
 // MARBLE_FLUID_LIBRARY_MOTION_UI_V62
+// MARBLE_LEAN_COPY_LIVE_RANK_UI_V63
 
 import android.Manifest
 import android.content.Intent
@@ -1529,12 +1530,6 @@ private fun HomeRouteDetailsRow(
                 style=MaterialTheme.typography.labelLarge,
                 fontWeight=FontWeight.SemiBold
             )
-            Text(
-                if(connected) "Endpoint, source and measured performance" else "Review route before connecting",
-                color=Aether.InkFaint,
-                style=MaterialTheme.typography.labelSmall,
-                maxLines=1
-            )
         }
     }
 }
@@ -2949,7 +2944,6 @@ private fun CyberLibrary(
                                     value = url,
                                     onValueChange = { url = it },
                                     label = { Text("Subscription URL • optional") },
-                                    supportingText = { Text("HTTPS only • leave blank for a local source/folder.") },
                                     singleLine = true,
                                     modifier = Modifier.fillMaxWidth(),
                                     shape = RoundedCornerShape(18.dp),
@@ -3171,11 +3165,6 @@ private fun ManualChainEditor(
         .toList()
 
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text(
-            "Build a reusable route: device → hop 1 → … → exit. Add as many hops as needed; each saved chain remains an independent Library node.",
-            color = Aether.InkMuted,
-            style = MaterialTheme.typography.bodySmall
-        )
         ManualField("Chain name • optional", name, { name = it })
 
         Text("ORDERED HOPS • ${hops.size}", color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
@@ -3914,56 +3903,85 @@ private fun LibraryControlDeck(
             exit=fadeOut(MarbleMotionSpecs.ExitFloat)+
                 shrinkVertically(MarbleMotionSpecs.Layout)
         ) {
-            Row(
-                modifier=Modifier
-                    .fillMaxWidth()
-                    .heightIn(min=26.dp)
-                    .semantics {
-                        contentDescription="Rank progress ${repo.probeDone} of ${repo.probeTotal}"
-                    },
-                verticalAlignment=Alignment.CenterVertically,
-                horizontalArrangement=Arrangement.spacedBy(9.dp)
+            Column(
+                modifier=Modifier.fillMaxWidth(),
+                verticalArrangement=Arrangement.spacedBy(5.dp)
             ) {
-                Box(
-                    Modifier
-                        .size(25.dp)
-                        .clip(RoundedCornerShape(9.dp))
-                        .background(Aether.Cyan.copy(alpha=.085f)),
-                    contentAlignment=Alignment.Center
+                Row(
+                    modifier=Modifier.fillMaxWidth().heightIn(min=24.dp),
+                    verticalAlignment=Alignment.CenterVertically,
+                    horizontalArrangement=Arrangement.spacedBy(9.dp)
                 ) {
-                    HomeVectorIcon(
-                        HomeIcon.RANK,
-                        Aether.Cyan,
-                        Modifier.size(14.dp)
+                    HomeVectorIcon(HomeIcon.RANK,Aether.Cyan,Modifier.size(15.dp))
+                    LiveProgressBar(
+                        fraction=if(repo.probeTotal > 0) {
+                            repo.probeDone.toFloat()/repo.probeTotal.toFloat()
+                        } else null,
+                        modifier=Modifier.weight(1f),
+                        color=Aether.Cyan
                     )
-                }
-                LiveProgressBar(
-                    fraction=if(repo.probeTotal > 0) {
-                        repo.probeDone.toFloat()/repo.probeTotal.toFloat()
-                    } else null,
-                    modifier=Modifier.weight(1f),
-                    color=Aether.Cyan
-                )
-                AnimatedContent(
-                    targetState=if(repo.probeTotal > 0) {
-                        "${repo.probeDone.coerceAtMost(repo.probeTotal)}/${repo.probeTotal}"
-                    } else "…",
-                    transitionSpec={
-                        (fadeIn(MarbleMotionSpecs.ResponseFloat)+
-                            slideInVertically(MarbleMotionSpecs.Spatial) { it/2 }) togetherWith
-                            (fadeOut(MarbleMotionSpecs.ExitFloat)+
-                                slideOutVertically(MarbleMotionSpecs.SpatialExit) { -it/2 })
-                    },
-                    label="rank-progress-count"
-                ) { count ->
                     Text(
-                        count,
+                        "${repo.probeDone.coerceAtMost(repo.probeTotal)}/${repo.probeTotal}",
                         color=Aether.Cyan,
                         style=MaterialTheme.typography.labelSmall.copy(
                             fontFamily=FontFamily.Monospace,
                             fontWeight=FontWeight.Bold
                         )
                     )
+                }
+
+                AnimatedContent(
+                    targetState=Triple(repo.probeLastName,repo.probeLastOutcome,repo.probeLastLatencyMs),
+                    transitionSpec={
+                        (fadeIn(MarbleMotionSpecs.ResponseFloat)+
+                            slideInVertically(MarbleMotionSpecs.Spatial) { it/2 }) togetherWith
+                            (fadeOut(MarbleMotionSpecs.ExitFloat)+
+                                slideOutVertically(MarbleMotionSpecs.SpatialExit) { -it/2 })
+                    },
+                    label="rank-live-node-result"
+                ) { event ->
+                    if(event.first.isNotBlank()) {
+                        val tone=when(event.second) {
+                            "FAILED" -> Aether.Danger
+                            "OK" -> Aether.Emerald
+                            else -> Aether.Cyan
+                        }
+                        Row(
+                            modifier=Modifier.fillMaxWidth(),
+                            verticalAlignment=Alignment.CenterVertically,
+                            horizontalArrangement=Arrangement.spacedBy(7.dp)
+                        ) {
+                            HomeVectorIcon(
+                                when(event.second) {
+                                    "FAILED" -> HomeIcon.CANCEL
+                                    "OK" -> HomeIcon.PING
+                                    else -> HomeIcon.BENCHMARK
+                                },
+                                tone,
+                                Modifier.size(13.dp)
+                            )
+                            Text(
+                                stripLeadingFlag(event.first),
+                                modifier=Modifier.weight(1f),
+                                color=Aether.InkMuted,
+                                style=MaterialTheme.typography.labelSmall,
+                                maxLines=1,
+                                overflow=TextOverflow.Ellipsis
+                            )
+                            Text(
+                                when(event.second) {
+                                    "FAILED" -> "FAILED"
+                                    "OK" -> "${event.third} ms"
+                                    else -> "…"
+                                },
+                                color=tone,
+                                style=MaterialTheme.typography.labelSmall.copy(
+                                    fontFamily=FontFamily.Monospace,
+                                    fontWeight=FontWeight.Bold
+                                )
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -4172,6 +4190,7 @@ private fun SpatialServerCard(
     onDetails: () -> Unit
 ) {
     val measured=result?.takeIf { it.success > 0 }
+    val failedResult=result?.takeIf { it.success <= 0 }
     val latency=measured?.latencyMs?.toInt() ?: 0
     val health=healthColor(latency,result?.success ?: 0)
     val testing=probeState == ProbeState.TESTING
@@ -4644,32 +4663,26 @@ private fun SpatialServerCard(
             }
 
             AnimatedVisibility(
-                visible=measured != null,
+                visible=measured != null || failedResult != null,
                 enter=fadeIn(MarbleMotionSpecs.ResponseFloat)+
                     expandVertically(MarbleMotionSpecs.Layout)+
                     slideInVertically(MarbleMotionSpecs.Spatial) { it/2 },
                 exit=fadeOut(MarbleMotionSpecs.ExitFloat)+
                     shrinkVertically(MarbleMotionSpecs.Layout)
             ) {
-                measured?.let { evidence ->
-                    Row(
-                        modifier=Modifier.fillMaxWidth(),
-                        horizontalArrangement=Arrangement.spacedBy(MarbleSpacing.S)
-                    ) {
+                Row(
+                    modifier=Modifier.fillMaxWidth(),
+                    horizontalArrangement=Arrangement.spacedBy(MarbleSpacing.S)
+                ) {
+                    if(measured != null) {
                         HoloBadge(
-                            evidence.probeKind,
-                            if(evidence.probeKind == "TUNNEL") {
-                                Aether.Emerald
-                            } else {
-                                Aether.Cyan
-                            },
+                            measured.probeKind,
+                            if(measured.probeKind == "TUNNEL") Aether.Emerald else Aether.Cyan,
                             compact=true
                         )
-                        HoloBadge(
-                            "${evidence.success}%",
-                            if(evidence.success >= 90) Aether.Emerald else Aether.Amber,
-                            compact=true
-                        )
+                        HoloBadge("${measured.success}%",Aether.Emerald,compact=true)
+                    } else if(failedResult != null) {
+                        HoloBadge("FAILED",Aether.Danger,compact=true)
                     }
                 }
             }
@@ -4763,7 +4776,7 @@ private fun SpatialSettings(
         Box(Modifier.padding(horizontal=16.dp)) {
             MarbleCompactTopBar(
                 title="Settings",
-                subtitle=if(expertMode) "Expert controls" else "Simple controls"
+                subtitle=""
             )
         }
 
@@ -5028,13 +5041,6 @@ private fun SettingsSectionCard(
                     maxLines=1,
                     overflow=TextOverflow.Ellipsis
                 )
-                Text(
-                    subtitle,
-                    color=Aether.InkMuted,
-                    style=MaterialTheme.typography.bodySmall,
-                    maxLines=2,
-                    overflow=TextOverflow.Ellipsis
-                )
             }
         }
 
@@ -5049,16 +5055,18 @@ private fun SettingsSectionCard(
 
 @Composable
 private fun ExpertWorkspaceHint() {
-    SettingsSectionCard(
-        title = "Expert workspace",
-        subtitle = "Enable Expert controls in General to reveal low-level routing and engine controls",
-        icon = HomeIcon.SHIELD,
-        color = Aether.InkMuted
+    Row(
+        modifier=Modifier.fillMaxWidth().padding(vertical=10.dp),
+        verticalAlignment=Alignment.CenterVertically,
+        horizontalArrangement=Arrangement.Center
     ) {
+        HomeVectorIcon(HomeIcon.SHIELD,Aether.InkFaint,Modifier.size(18.dp))
+        Spacer(Modifier.width(7.dp))
         Text(
-            "Simple mode keeps advanced controls hidden without changing their saved values.",
-            color = Aether.InkFaint,
-            style = MaterialTheme.typography.bodySmall
+            "Expert mode off",
+            color=Aether.InkFaint,
+            style=MaterialTheme.typography.labelMedium,
+            fontWeight=FontWeight.SemiBold
         )
     }
 }
@@ -6996,13 +7004,6 @@ private fun SettingSwitch(
                 style=MaterialTheme.typography.bodyMedium,
                 fontWeight=FontWeight.SemiBold
             )
-            Text(
-                subtitle,
-                color=Aether.InkMuted,
-                style=MaterialTheme.typography.bodySmall,
-                maxLines=2,
-                overflow=TextOverflow.Ellipsis
-            )
         }
         Switch(
             checked=checked,
@@ -7204,13 +7205,6 @@ private fun IranModeSettings(repo: AppRepository) {
     val settings = repo.settings
     val state = repo.iranMode
 
-    Text(
-        "Iran Mode detects Iranian ISPs from the carrier code, uplink ASN/geolocation, national " +
-            "block-page DNS injection and Iran-only resolvers, then applies countermeasures matched " +
-            "to the filtering that is actually observed on the link.",
-        color = Aether.InkFaint,
-        style = MaterialTheme.typography.bodySmall
-    )
 
     Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
         CyberSegment(
