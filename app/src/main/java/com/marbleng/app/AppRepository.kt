@@ -13,11 +13,13 @@ import com.marbleng.app.vpn.MarbleVpnService
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
 import java.net.HttpURLConnection
+import java.net.InetAddress
 import java.net.URL
 import java.security.MessageDigest
 import org.json.JSONObject
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.exp
 import kotlin.math.roundToInt
 
@@ -29,6 +31,33 @@ data class AppUpdateInfo(
     val notes: String,
     val url: String
 )
+
+// MARBLE_SERVER_INTEL_REPO_V56
+data class ServerIntelInfo(
+    val endpoint: String,
+    val ip: String,
+    val ipType: String = "",
+    val city: String = "",
+    val region: String = "",
+    val country: String = "",
+    val countryCode: String = "",
+    val flag: String = "",
+    val asn: String = "",
+    val organization: String = "",
+    val isp: String = "",
+    val domain: String = "",
+    val hosting: Boolean = false,
+    val proxy: Boolean = false,
+    val vpn: Boolean = false,
+    val tor: Boolean = false,
+    val fetchedAt: Long = System.currentTimeMillis()
+) {
+    val datacenterLabel: String
+        get() = organization.ifBlank { isp.ifBlank { "Unknown network" } }
+
+    val locationLabel: String
+        get() = listOf(city, region, country).filter(String::isNotBlank).distinct().joinToString(", ")
+}
 
 class AppRepository(private val context: Context, val xray: XrayManager) {
     // MARBLE_LIBRARY_POWER_V10
@@ -228,6 +257,12 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     var privacy by mutableStateOf<PrivacyReport?>(null); private set
     var bugReport by mutableStateOf<BugReport?>(null); private set
 
+    // Selected-server public metadata. Requests are opt-in, cached and generation-guarded.
+    var serverIntel by mutableStateOf<ServerIntelInfo?>(null); private set
+    var serverIntelLoading by mutableStateOf(false); private set
+    var serverIntelError by mutableStateOf(""); private set
+    private val serverIntelGeneration = AtomicLong(0L)
+
     /** Latest stable GitHub Release that is newer than this APK. */
     var availableUpdate by mutableStateOf<AppUpdateInfo?>(null); private set
 
@@ -336,6 +371,202 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
             }
             if (stale) {
                 android.os.Handler(android.os.Looper.getMainLooper()).post { refreshAll() }
+            }
+        }
+    }
+
+    /**
+     * Resolve the selected endpoint and enrich only its public IP with coarse public metadata.
+     *
+     * Privacy boundary:
+     * - disabled by default;
+     * - proxy config, UUID/password, SNI and subscription URL are never sent;
+     * - only the already-public resolved server IP is queried at ipwho.is;
+     * - a 15-minute per-endpoint cache avoids noisy/redundant lookups.
+     */
+    fun refreshServerIntel(targetProfile: ProxyProfile? = null, force: Boolean = false) {
+        if (!settings.serverIntelEnabled) {
+            postToMain {
+                serverIntelLoading = false
+                serverIntelError = ""
+            }
+            return
+        }
+
+        val target = targetProfile
+            ?: profile(activeProfileId, activeProfileSourceId)
+            ?: lastProfile()
+        val endpoint = target?.host
+            ?.trim()
+            ?.removeSurrounding("[", "]")
+            .orEmpty()
+
+        if (target == null || endpoint.isBlank()) {
+            postToMain {
+                serverIntel = null
+                serverIntelLoading = false
+                serverIntelError = "Choose a server with a valid endpoint first"
+            }
+            return
+        }
+
+        val now = System.currentTimeMillis()
+        val cached = serverIntel
+        if (!force &&
+            cached != null &&
+            cached.endpoint.equals(endpoint, ignoreCase = true) &&
+            now - cached.fetchedAt in 0L until 15 * 60_000L
+        ) {
+            return
+        }
+
+        val preferIpv6Snapshot = settings.preferIpv6
+        val generation = serverIntelGeneration.incrementAndGet()
+        postToMain {
+            serverIntelLoading = true
+            serverIntelError = ""
+        }
+
+        io.execute {
+            var connection: HttpURLConnection? = null
+            var basic: ServerIntelInfo? = null
+            try {
+                val addresses = InetAddress.getAllByName(endpoint)
+                    .filterNot {
+                        it.isAnyLocalAddress ||
+                            it.isLoopbackAddress ||
+                            it.isLinkLocalAddress
+                    }
+
+                if (addresses.isEmpty()) {
+                    throw IllegalStateException("Server endpoint did not resolve to a usable IP")
+                }
+
+                val preferred = if (preferIpv6Snapshot) {
+                    addresses.firstOrNull { it.address.size == 16 }
+                        ?: addresses.firstOrNull { it.address.size == 4 }
+                } else {
+                    addresses.firstOrNull { it.address.size == 4 }
+                        ?: addresses.firstOrNull { it.address.size == 16 }
+                } ?: addresses.first()
+
+                val resolvedIp = preferred.hostAddress
+                    ?.substringBefore('%')
+                    ?.trim()
+                    .orEmpty()
+                if (resolvedIp.isBlank()) {
+                    throw IllegalStateException("Server endpoint resolved without an address")
+                }
+
+                val baseInfo = ServerIntelInfo(
+                    endpoint = endpoint,
+                    ip = resolvedIp,
+                    ipType = if (preferred.address.size == 16) "IPv6" else "IPv4",
+                    fetchedAt = System.currentTimeMillis()
+                )
+                basic = baseInfo
+                postToMain {
+                    if (serverIntelGeneration.get() == generation) {
+                        serverIntel = baseInfo
+                    }
+                }
+
+                val encodedIp = java.net.URLEncoder.encode(
+                    resolvedIp,
+                    Charsets.UTF_8.name()
+                )
+                val fields = "success,message,ip,type,country,country_code,region,city,flag,connection,security"
+                connection = (URL(
+                    "https://ipwho.is/$encodedIp?fields=$fields"
+                ).openConnection() as HttpURLConnection).apply {
+                    requestMethod = "GET"
+                    connectTimeout = 5_000
+                    readTimeout = 6_000
+                    instanceFollowRedirects = true
+                    setRequestProperty("Accept", "application/json")
+                    setRequestProperty("User-Agent", "MarbleNG/${BuildConfig.VERSION_NAME}")
+                }
+
+                val code = connection.responseCode
+                if (code !in 200..299) {
+                    throw IllegalStateException("Server metadata lookup returned HTTP $code")
+                }
+
+                val payload = connection.inputStream
+                    .bufferedReader(Charsets.UTF_8)
+                    .use { it.readText() }
+                val json = JSONObject(payload)
+                if (!json.optBoolean("success", false)) {
+                    throw IllegalStateException(
+                        json.optString("message").ifBlank { "Server metadata lookup failed" }
+                    )
+                }
+
+                val flag = json.optJSONObject("flag")
+                val network = json.optJSONObject("connection")
+                val security = json.optJSONObject("security")
+                val asnNumber = network?.optLong("asn") ?: 0L
+
+                val enriched = baseInfo.copy(
+                    ip = json.optString("ip").ifBlank { resolvedIp },
+                    ipType = json.optString("type").ifBlank { baseInfo.ipType },
+                    city = json.optString("city"),
+                    region = json.optString("region"),
+                    country = json.optString("country"),
+                    countryCode = json.optString("country_code"),
+                    flag = flag?.optString("emoji").orEmpty(),
+                    asn = asnNumber.takeIf { it > 0L }?.let { "AS$it" }.orEmpty(),
+                    organization = network?.optString("org").orEmpty(),
+                    isp = network?.optString("isp").orEmpty(),
+                    domain = network?.optString("domain").orEmpty(),
+                    hosting = security?.optBoolean("hosting", false) == true,
+                    proxy = security?.optBoolean("proxy", false) == true,
+                    vpn = security?.optBoolean("vpn", false) == true,
+                    tor = security?.optBoolean("tor", false) == true,
+                    fetchedAt = System.currentTimeMillis()
+                )
+
+                postToMain {
+                    if (serverIntelGeneration.get() == generation) {
+                        serverIntel = enriched
+                        serverIntelError = ""
+                    }
+                }
+                diagnostics.event(
+                    "SERVER_INTEL",
+                    "lookup-ready",
+                    "endpoint" to endpoint.take(80),
+                    "ipType" to enriched.ipType,
+                    "country" to enriched.countryCode,
+                    "hosting" to enriched.hosting
+                )
+            } catch (t: Throwable) {
+                val fallback = basic
+                postToMain {
+                    if (serverIntelGeneration.get() == generation) {
+                        if (fallback != null) serverIntel = fallback
+                        serverIntelError = when {
+                            t.message?.contains("429") == true ->
+                                "Metadata rate limit reached • resolved IP is still shown"
+                            fallback != null ->
+                                "Location/network metadata unavailable • resolved IP is still shown"
+                            else ->
+                                "Could not resolve server information"
+                        }
+                    }
+                }
+                diagnostics.event(
+                    "SERVER_INTEL",
+                    "lookup-failed",
+                    "type" to t::class.java.simpleName
+                )
+            } finally {
+                connection?.disconnect()
+                postToMain {
+                    if (serverIntelGeneration.get() == generation) {
+                        serverIntelLoading = false
+                    }
+                }
             }
         }
     }

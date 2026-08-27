@@ -31,6 +31,7 @@ package com.marbleng.app.ui
 // MARBLE_M3_EXPRESSIVE_UI_V53
 // MARBLE_PRISM_UI_V54
 // MARBLE_REAL_DEVICE_POLISH_V55
+// MARBLE_SERVER_INTEL_UI_V56
 
 import android.Manifest
 import android.content.Intent
@@ -979,7 +980,7 @@ private fun SectionLabel(
 private enum class HomeIcon {
     BRAND, POWER, STOP, CANCEL, RESET, SHIELD, TUNNEL, ROUTE,
     PING, JITTER, QUALITY, NODES, VERIFIED, MODE, BENCHMARK,
-    RANK, LIBRARY, PRIVACY, ROUTING, NETWORK, DOWNLOAD, UPLOAD,
+    RANK, LIBRARY, PRIVACY, ROUTING, NETWORK, SERVER, DOWNLOAD, UPLOAD,
     DETAILS, SPARK, STATUS, MORE
 }
 
@@ -1154,6 +1155,23 @@ private fun HomeVectorIcon(
                 for (i in xs.indices) {
                     drawLine(color,Offset(w*xs[i],h*.75f),Offset(w*xs[i],h*tops[i]),stroke*1.35f,StrokeCap.Round)
                 }
+            }
+
+            HomeIcon.SERVER -> {
+                val top = Path().apply {
+                    moveTo(w*.22f,h*.20f); lineTo(w*.78f,h*.20f)
+                    lineTo(w*.78f,h*.45f); lineTo(w*.22f,h*.45f); close()
+                }
+                val bottom = Path().apply {
+                    moveTo(w*.22f,h*.55f); lineTo(w*.78f,h*.55f)
+                    lineTo(w*.78f,h*.80f); lineTo(w*.22f,h*.80f); close()
+                }
+                drawPath(top,color,style=fineLine)
+                drawPath(bottom,color,style=fineLine)
+                drawCircle(color,m*.035f,Offset(w*.31f,h*.325f))
+                drawCircle(color,m*.035f,Offset(w*.31f,h*.675f))
+                drawLine(color,Offset(w*.43f,h*.325f),Offset(w*.68f,h*.325f),fine,StrokeCap.Round)
+                drawLine(color,Offset(w*.43f,h*.675f),Offset(w*.68f,h*.675f),fine,StrokeCap.Round)
             }
 
             HomeIcon.DOWNLOAD, HomeIcon.UPLOAD -> {
@@ -1617,6 +1635,15 @@ private fun HomeMetricBento(repo: AppRepository) {
 }
 
 @Composable
+private fun marbleSwitchColors() = SwitchDefaults.colors(
+    checkedTrackColor=Aether.Cyan,
+    checkedThumbColor=Color.White,
+    uncheckedTrackColor=Aether.GlassStrong,
+    uncheckedThumbColor=Aether.InkMuted,
+    uncheckedBorderColor=Aether.GlassBorder
+)
+
+@Composable
 private fun HomeQuickSettingRow(
     icon: HomeIcon,
     title: String,
@@ -1663,7 +1690,8 @@ private fun HomeQuickSettingRow(
             Switch(
                 checked=checked,
                 onCheckedChange=onChecked,
-                enabled=enabled
+                enabled=enabled,
+                colors=marbleSwitchColors()
             )
         }
         Text(
@@ -3760,7 +3788,7 @@ private fun LibraryControlDeck(
             LibraryMicroAction(
                 icon=HomeIcon.PING,
                 label="Ping",
-                color=MaterialTheme.colorScheme.primary,
+                color=Aether.Cyan,
                 modifier=Modifier.weight(1f),
                 enabled=selectedCount > 0 && !repo.busy
             ) { repo.testSource(sourceFilter) }
@@ -4366,21 +4394,26 @@ private fun SpatialServerCard(
                 modifier=Modifier
                     .fillMaxWidth()
                     .clip(endpointShape)
-                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha=.64f))
+                    .background(Aether.Cyan.copy(alpha=.045f))
+                    .border(
+                        1.dp,
+                        Aether.Cyan.copy(alpha=.105f),
+                        endpointShape
+                    )
                     .padding(horizontal=10.dp,vertical=8.dp),
                 verticalAlignment=Alignment.CenterVertically,
                 horizontalArrangement=Arrangement.spacedBy(MarbleSpacing.S)
             ) {
                 Text(
                     "HOST",
-                    color=MaterialTheme.colorScheme.primary,
+                    color=Aether.Cyan,
                     style=MaterialTheme.typography.labelSmall,
                     fontWeight=FontWeight.Bold
                 )
                 Text(
                     profile.host.trim().ifBlank { "Unknown host" },
                     modifier=Modifier.weight(1f),
-                    color=MaterialTheme.colorScheme.onSurfaceVariant,
+                    color=Aether.InkMuted,
                     style=MaterialTheme.typography.labelSmall.copy(
                         fontFamily=FontFamily.Monospace,
                         fontWeight=FontWeight.SemiBold
@@ -4388,15 +4421,18 @@ private fun SpatialServerCard(
                     maxLines=1,
                     overflow=TextOverflow.Ellipsis
                 )
-                VerticalDivider(Modifier.height(14.dp))
+                VerticalDivider(
+                    Modifier.height(14.dp),
+                    color=Aether.GlassBorderSoft
+                )
                 Text(
                     "PORT",
-                    color=MaterialTheme.colorScheme.onSurfaceVariant,
+                    color=Aether.InkFaint,
                     style=MaterialTheme.typography.labelSmall
                 )
                 Text(
                     profile.port.takeIf { it > 0 }?.toString() ?: "—",
-                    color=MaterialTheme.colorScheme.onSurface,
+                    color=Aether.Ink,
                     style=MaterialTheme.typography.labelSmall.copy(
                         fontFamily=FontFamily.Monospace,
                         fontWeight=FontWeight.Bold
@@ -4736,6 +4772,7 @@ private fun SettingsWorkspacePage(
             }
             SettingsWorkspaceTab.NETWORK -> {
                 item { SettingsSectionCard("Split tunneling", "Choose exactly which apps use or bypass the tunnel", HomeIcon.PRIVACY, Aether.Emerald) { SplitTunnelSettings(repo) } }
+                item { SettingsSectionCard("Server intelligence", "IP, city, datacenter and network ownership", HomeIcon.SERVER, Aether.Cyan) { ServerIntelSettings(repo) } }
                 if (expertMode) {
                     if (focusSection == "Routing") {
                         item { SettingsSectionCard("Routing", "Geo assets, direct rules and blocking policy", HomeIcon.ROUTING, Aether.Emerald) { RoutingSettings(repo) } }
@@ -5358,6 +5395,328 @@ private fun NotificationSettings(repo: AppRepository) {
 }
 
 @Composable
+private fun ServerIntelMetric(
+    label: String,
+    value: String,
+    tone: Color,
+    modifier: Modifier = Modifier,
+    monospace: Boolean = false
+) {
+    val shape=RoundedCornerShape(15.dp)
+    Column(
+        modifier=modifier
+            .heightIn(min=68.dp)
+            .clip(shape)
+            .background(tone.copy(alpha=.045f))
+            .border(1.dp,tone.copy(alpha=.12f),shape)
+            .padding(horizontal=10.dp,vertical=9.dp),
+        verticalArrangement=Arrangement.spacedBy(3.dp)
+    ) {
+        Text(
+            label.uppercase(),
+            color=tone,
+            style=MaterialTheme.typography.labelSmall,
+            fontWeight=FontWeight.Bold,
+            maxLines=1,
+            overflow=TextOverflow.Ellipsis
+        )
+        Text(
+            value.ifBlank { "—" },
+            color=Aether.Ink,
+            style=if(monospace) {
+                MaterialTheme.typography.bodySmall.copy(
+                    fontFamily=FontFamily.Monospace,
+                    fontWeight=FontWeight.SemiBold
+                )
+            } else {
+                MaterialTheme.typography.bodySmall.copy(
+                    fontWeight=FontWeight.SemiBold
+                )
+            },
+            maxLines=2,
+            overflow=TextOverflow.Ellipsis
+        )
+    }
+}
+
+@Composable
+private fun ServerIntelSettings(repo: AppRepository) {
+    val enabled=repo.settings.serverIntelEnabled
+    val selected=repo.profile(
+        repo.activeProfileId,
+        repo.activeProfileSourceId
+    ) ?: repo.lastProfile()
+    val endpoint=selected?.host
+        ?.trim()
+        ?.removeSurrounding("[", "]")
+        .orEmpty()
+    val info=repo.serverIntel?.takeIf {
+        it.endpoint.equals(endpoint,ignoreCase=true)
+    }
+
+    LaunchedEffect(
+        enabled,
+        selected?.id,
+        selected?.subscriptionId,
+        endpoint
+    ) {
+        if(enabled && selected != null && endpoint.isNotBlank()) {
+            repo.refreshServerIntel(selected)
+        }
+    }
+
+    SettingSwitch(
+        title="Server intelligence",
+        subtitle="Resolve the selected endpoint and show public IP, city, datacenter/network and ASN",
+        checked=enabled
+    ) {
+        repo.updateSettings(
+            repo.settings.copy(serverIntelEnabled=it)
+        )
+    }
+
+    if(!enabled) {
+        Text(
+            "Off by default. When enabled, only the resolved public server IP is sent to the metadata service; proxy configs, credentials, SNI and subscription URLs stay local.",
+            color=Aether.InkFaint,
+            style=MaterialTheme.typography.bodySmall
+        )
+        return
+    }
+
+    if(selected == null || endpoint.isBlank()) {
+        Row(
+            modifier=Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(16.dp))
+                .background(Aether.Cyan.copy(alpha=.045f))
+                .padding(12.dp),
+            verticalAlignment=Alignment.CenterVertically,
+            horizontalArrangement=Arrangement.spacedBy(10.dp)
+        ) {
+            HomeIconTile(HomeIcon.SERVER,Aether.Cyan)
+            Column(Modifier.weight(1f)) {
+                Text(
+                    "No server selected",
+                    color=Aether.Ink,
+                    style=MaterialTheme.typography.labelLarge,
+                    fontWeight=FontWeight.Bold
+                )
+                Text(
+                    "Pick or connect a node; its endpoint will appear here.",
+                    color=Aether.InkMuted,
+                    style=MaterialTheme.typography.bodySmall
+                )
+            }
+        }
+        return
+    }
+
+    Row(
+        modifier=Modifier.fillMaxWidth(),
+        verticalAlignment=Alignment.CenterVertically,
+        horizontalArrangement=Arrangement.spacedBy(10.dp)
+    ) {
+        HomeIconTile(HomeIcon.SERVER,Aether.Cyan)
+        Column(Modifier.weight(1f)) {
+            Text(
+                stripLeadingFlag(selected.name),
+                color=Aether.Ink,
+                style=MaterialTheme.typography.labelLarge,
+                fontWeight=FontWeight.Bold,
+                maxLines=1,
+                overflow=TextOverflow.Ellipsis
+            )
+            Text(
+                endpoint,
+                color=Aether.InkMuted,
+                style=MaterialTheme.typography.labelSmall.copy(
+                    fontFamily=FontFamily.Monospace
+                ),
+                maxLines=1,
+                overflow=TextOverflow.Ellipsis
+            )
+        }
+        when {
+            repo.serverIntelLoading ->
+                CircularProgressIndicator(
+                    modifier=Modifier.size(22.dp),
+                    color=Aether.Cyan,
+                    strokeWidth=2.dp
+                )
+            info != null -> HoloBadge("READY",Aether.Emerald,true)
+            else -> HoloBadge("WAITING",Aether.InkMuted,true)
+        }
+    }
+
+    info?.let { current ->
+        Row(
+            modifier=Modifier.fillMaxWidth(),
+            horizontalArrangement=Arrangement.spacedBy(8.dp)
+        ) {
+            ServerIntelMetric(
+                "Server IP",
+                current.ip,
+                Aether.Cyan,
+                Modifier.weight(1.35f),
+                monospace=true
+            )
+            ServerIntelMetric(
+                "IP family",
+                current.ipType,
+                Aether.Amethyst,
+                Modifier.weight(.65f)
+            )
+        }
+
+        Row(
+            modifier=Modifier.fillMaxWidth(),
+            horizontalArrangement=Arrangement.spacedBy(8.dp)
+        ) {
+            ServerIntelMetric(
+                "City",
+                current.city,
+                Aether.Emerald,
+                Modifier.weight(1f)
+            )
+            ServerIntelMetric(
+                "Country",
+                listOf(current.flag,current.country)
+                    .filter(String::isNotBlank)
+                    .joinToString(" "),
+                Aether.Emerald,
+                Modifier.weight(1f)
+            )
+        }
+
+        ServerIntelMetric(
+            "Datacenter / network",
+            current.datacenterLabel,
+            Aether.Amethyst,
+            Modifier.fillMaxWidth()
+        )
+
+        Row(
+            modifier=Modifier.fillMaxWidth(),
+            horizontalArrangement=Arrangement.spacedBy(8.dp)
+        ) {
+            ServerIntelMetric(
+                "ASN",
+                current.asn,
+                Aether.Cyan,
+                Modifier.weight(.72f),
+                monospace=true
+            )
+            ServerIntelMetric(
+                "ISP",
+                current.isp,
+                Aether.Cyan,
+                Modifier.weight(1.28f)
+            )
+        }
+
+        Row(
+            modifier=Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement=Arrangement.spacedBy(7.dp)
+        ) {
+            HoloBadge(
+                if(current.hosting) "HOSTING / DC" else "PUBLIC NETWORK",
+                if(current.hosting) Aether.Amethyst else Aether.Cyan,
+                compact=true
+            )
+            if(current.proxy) {
+                HoloBadge("PROXY",Aether.Amber,compact=true)
+            }
+            if(current.vpn) {
+                HoloBadge("VPN",Aether.Amber,compact=true)
+            }
+            if(current.tor) {
+                HoloBadge("TOR",Aether.Danger,compact=true)
+            }
+            current.domain.takeIf(String::isNotBlank)?.let {
+                HoloBadge(it,Aether.InkMuted,compact=true)
+            }
+        }
+    }
+
+    if(repo.serverIntelError.isNotBlank()) {
+        Text(
+            repo.serverIntelError,
+            color=Aether.Amber,
+            style=MaterialTheme.typography.bodySmall
+        )
+    }
+
+    CyberButton(
+        label=if(repo.serverIntelLoading) "REFRESHING…" else "REFRESH SERVER DATA",
+        color=Aether.Cyan,
+        modifier=Modifier.fillMaxWidth(),
+        enabled=!repo.serverIntelLoading
+    ) {
+        repo.refreshServerIntel(selected,force=true)
+    }
+
+    Text(
+        "Location and datacenter/network labels are IP-database estimates; they are useful for route context, not GPS-level physical location.",
+        color=Aether.InkFaint,
+        style=MaterialTheme.typography.labelSmall
+    )
+}
+
+@Composable
+private fun SplitTunnelModeSelector(repo: AppRepository) {
+    Row(
+        modifier=Modifier.fillMaxWidth(),
+        horizontalArrangement=Arrangement.spacedBy(7.dp)
+    ) {
+        SplitTunnelMode.entries.forEach { mode ->
+            val selected=repo.settings.splitTunnelMode == mode
+            val label=when(mode) {
+                SplitTunnelMode.ALL_APPS -> "All apps"
+                SplitTunnelMode.ONLY_SELECTED -> "Only selected"
+                SplitTunnelMode.BYPASS_SELECTED -> "Bypass selected"
+            }
+            val shape=RoundedCornerShape(16.dp)
+            Box(
+                modifier=Modifier
+                    .weight(1f)
+                    .heightIn(min=48.dp)
+                    .border(
+                        1.dp,
+                        if(selected) Aether.Emerald.copy(alpha=.38f)
+                        else Aether.GlassBorderSoft,
+                        shape
+                    )
+                    .clip(shape)
+                    .background(
+                        if(selected) Aether.Emerald.copy(alpha=.075f)
+                        else Aether.VoidElevated
+                    )
+                    .kineticClickable(role=Role.Button) {
+                        repo.updateSettings(
+                            repo.settings.copy(splitTunnelMode=mode)
+                        )
+                    }
+                    .padding(horizontal=8.dp,vertical=10.dp),
+                contentAlignment=Alignment.Center
+            ) {
+                Text(
+                    label,
+                    color=if(selected) Aether.Emerald else Aether.InkMuted,
+                    style=MaterialTheme.typography.labelMedium,
+                    fontWeight=if(selected) FontWeight.Bold else FontWeight.Medium,
+                    textAlign=TextAlign.Center,
+                    maxLines=1,
+                    overflow=TextOverflow.Ellipsis
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun SplitTunnelSettings(repo:AppRepository){
     val context=LocalContext.current;val pm=context.packageManager;var search by remember{mutableStateOf("")}
     // Querying every launcher activity and resolving each label is slow on real devices, so the
@@ -5378,7 +5737,7 @@ private fun SplitTunnelSettings(repo:AppRepository){
     val selected=remember(repo.settings.splitTunnelPackages){repo.settings.splitTunnelPackages.split(',', '\n','\r',';').map(String::trim).filter(String::isNotBlank).toSet()}
     val visibleApps=remember(apps,search){apps.filter{search.isBlank()||it.label.contains(search,true)||it.packageName.contains(search,true)}}
     fun toggle(pkg:String){val n=selected.toMutableSet();if(!n.add(pkg))n.remove(pkg);repo.updateSettings(repo.settings.copy(splitTunnelPackages=n.sorted().joinToString(",")))}
-    Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(8.dp)){SplitTunnelMode.entries.forEach{m->CyberChoiceChip(when(m){SplitTunnelMode.ALL_APPS->"All apps";SplitTunnelMode.ONLY_SELECTED->"Only selected";SplitTunnelMode.BYPASS_SELECTED->"Bypass selected"},repo.settings.splitTunnelMode==m,Aether.Emerald){repo.updateSettings(repo.settings.copy(splitTunnelMode=m))}}}
+    SplitTunnelModeSelector(repo)
     if(repo.settings.splitTunnelMode!=SplitTunnelMode.ALL_APPS){
         TextField(search,{search=it},placeholder={Text("Search installed apps")},singleLine=true,modifier=Modifier.fillMaxWidth(),shape=RoundedCornerShape(18.dp),colors=TextFieldDefaults.colors(focusedContainerColor=Aether.GlassStrong,unfocusedContainerColor=Aether.GlassStrong,disabledContainerColor=Aether.GlassStrong,focusedIndicatorColor=Color.Transparent,unfocusedIndicatorColor=Color.Transparent))
         Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=Alignment.CenterVertically){Text(if(apps.isEmpty())"Loading installed apps…" else "${visibleApps.size} apps",color=Aether.InkFaint,style=MaterialTheme.typography.bodySmall);HoloBadge("${selected.size} selected",Aether.Emerald,true)}
@@ -6430,13 +6789,7 @@ private fun SettingSwitch(
         Switch(
             checked=checked,
             onCheckedChange=onChecked,
-            colors=SwitchDefaults.colors(
-                checkedTrackColor=Aether.Cyan,
-                checkedThumbColor=Color.White,
-                uncheckedTrackColor=Aether.GlassStrong,
-                uncheckedThumbColor=Aether.InkMuted,
-                uncheckedBorderColor=Aether.GlassBorder
-            )
+            colors=marbleSwitchColors()
         )
     }
 }

@@ -177,6 +177,12 @@ data class AppSettings(
     val homeShowIranMode: Boolean = true,
     val homeShowQuickActions: Boolean = true,
 
+    /**
+     * Optional public metadata lookup for the selected server endpoint.
+     * Off by default because enabling it sends only the resolved public server IP to ipwho.is.
+     */
+    val serverIntelEnabled: Boolean = false,
+
     // Optional smart alerts. Foreground-service status is managed separately while connected.
     val smartNotificationsEnabled: Boolean = true,
     val notifyConnectionEvents: Boolean = false,

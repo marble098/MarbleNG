@@ -140,6 +140,7 @@ class AppStore(context: Context) {
         homeShowSummaryMetrics = prefs.getBoolean("homeShowSummaryMetrics", false),
         homeShowIranMode = prefs.getBoolean("homeShowIranMode", true),
         homeShowQuickActions = prefs.getBoolean("homeShowQuickActions", true),
+        serverIntelEnabled = prefs.getBoolean("serverIntelEnabled", false),
 
         smartNotificationsEnabled = prefs.getBoolean("smartNotificationsEnabled", true),
         notifyConnectionEvents = prefs.getBoolean("notifyConnectionEvents", false),
@@ -268,6 +269,7 @@ class AppStore(context: Context) {
         .putBoolean("homeShowSummaryMetrics", s.homeShowSummaryMetrics)
         .putBoolean("homeShowIranMode", s.homeShowIranMode)
         .putBoolean("homeShowQuickActions", s.homeShowQuickActions)
+        .putBoolean("serverIntelEnabled", s.serverIntelEnabled)
 
         .putBoolean("smartNotificationsEnabled", s.smartNotificationsEnabled)
         .putBoolean("notifyConnectionEvents", s.notifyConnectionEvents)
