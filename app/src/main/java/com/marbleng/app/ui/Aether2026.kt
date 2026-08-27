@@ -677,28 +677,31 @@ private fun FloatingSpatialDock(
     selected: SpatialTab,
     onSelect: (SpatialTab) -> Unit
 ) {
-    // MARBLE_BOTTOM_DOCK_REDESIGN_V654
-    // One restrained floating shell, no nested Material NavigationBar surface.
-    // This avoids the gray slab / white label band produced by the old stack.
+    // MARBLE_BOTTOM_DOCK_CLEAN_REBUILD_V655
+    // Clean single-surface dock:
+    // - no nested NavigationBar / NavigationBarItem slab
+    // - no full-width inner white strip
+    // - selected state is compact and balanced
+    // - ripple stays bounded to each tab shape
     Box(
         modifier=Modifier
             .fillMaxWidth()
             .navigationBarsPadding()
-            .padding(horizontal=14.dp,vertical=7.dp),
+            .padding(horizontal=16.dp,vertical=8.dp),
         contentAlignment=Alignment.Center
     ) {
-        val shellShape=RoundedCornerShape(27.dp)
+        val shellShape=RoundedCornerShape(26.dp)
         val shellBorder=Brush.horizontalGradient(
             listOf(
-                Aether.Cyan.copy(alpha=.15f),
-                Aether.GlassBorderSoft.copy(alpha=.26f),
-                Aether.Amethyst.copy(alpha=.08f)
+                Aether.Cyan.copy(alpha=.11f),
+                Aether.GlassBorderSoft.copy(alpha=.22f),
+                Aether.Amethyst.copy(alpha=.06f)
             )
         )
         val shellFill=Brush.verticalGradient(
             listOf(
-                Aether.VoidElevated.copy(alpha=.86f),
-                Aether.VoidElevated.copy(alpha=.68f)
+                Aether.VoidElevated.copy(alpha=.96f),
+                Aether.VoidElevated.copy(alpha=.88f)
             )
         )
 
@@ -710,56 +713,71 @@ private fun FloatingSpatialDock(
                 .border(1.dp,shellBorder,shellShape)
                 .clip(shellShape)
                 .background(shellFill)
-                .padding(horizontal=7.dp,vertical=7.dp),
-            horizontalArrangement=Arrangement.spacedBy(5.dp),
+                .padding(horizontal=8.dp,vertical=8.dp),
+            horizontalArrangement=Arrangement.spacedBy(6.dp),
             verticalAlignment=Alignment.CenterVertically
         ) {
             SpatialTab.entries.forEach { item ->
                 val active=item == selected
-                val itemShape=RoundedCornerShape(19.dp)
-                val itemFill by animateColorAsState(
-                    targetValue=if(active) Aether.Cyan.copy(alpha=.085f) else Color.Transparent,
+                val itemShape=RoundedCornerShape(18.dp)
+                val itemTint by animateColorAsState(
+                    targetValue=if(active) Aether.Cyan.copy(alpha=.09f) else Color.Transparent,
                     animationSpec=MarbleMotionSpecs.Color,
-                    label="dock-fill-${item.name}"
+                    label="dock-item-tint-${item.name}"
                 )
                 val itemBorder by animateColorAsState(
-                    targetValue=if(active) Aether.Cyan.copy(alpha=.13f) else Color.Transparent,
+                    targetValue=if(active) Aether.Cyan.copy(alpha=.15f) else Color.Transparent,
                     animationSpec=MarbleMotionSpecs.Color,
-                    label="dock-border-${item.name}"
+                    label="dock-item-border-${item.name}"
+                )
+                val iconChip by animateColorAsState(
+                    targetValue=if(active) Aether.Cyan.copy(alpha=.12f) else Color.Transparent,
+                    animationSpec=MarbleMotionSpecs.Color,
+                    label="dock-item-chip-${item.name}"
                 )
                 val contentTone by animateColorAsState(
                     targetValue=if(active) Aether.Cyan else Aether.InkMuted,
                     animationSpec=MarbleMotionSpecs.Color,
-                    label="dock-content-${item.name}"
+                    label="dock-item-tone-${item.name}"
                 )
 
                 Column(
                     modifier=Modifier
                         .weight(1f)
-                        .height(55.dp)
+                        .height(60.dp)
                         .border(1.dp,itemBorder,itemShape)
                         .clip(itemShape)
-                        .background(itemFill)
+                        .background(itemTint)
                         .kineticClickable(
                             boundedShape=itemShape,
                             role=Role.Button
                         ) { onSelect(item) }
-                        .padding(horizontal=4.dp,vertical=5.dp),
+                        .padding(horizontal=6.dp,vertical=4.dp),
                     horizontalAlignment=Alignment.CenterHorizontally,
                     verticalArrangement=Arrangement.Center
                 ) {
-                    MarbleTabIcon(
-                        tab=item,
-                        color=contentTone,
-                        active=active,
-                        modifier=Modifier.size(21.dp)
-                    )
-                    Spacer(Modifier.height(3.dp))
+                    Box(
+                        modifier=Modifier
+                            .size(30.dp)
+                            .clip(RoundedCornerShape(15.dp))
+                            .background(iconChip),
+                        contentAlignment=Alignment.Center
+                    ) {
+                        MarbleTabIcon(
+                            tab=item,
+                            color=contentTone,
+                            active=active,
+                            modifier=Modifier.size(20.dp)
+                        )
+                    }
+
+                    Spacer(Modifier.height(4.dp))
+
                     Text(
                         item.label,
                         color=contentTone,
                         style=MaterialTheme.typography.labelMedium,
-                        fontWeight=if(active) FontWeight.Bold else FontWeight.Medium,
+                        fontWeight=if(active) FontWeight.SemiBold else FontWeight.Medium,
                         maxLines=1
                     )
                 }
