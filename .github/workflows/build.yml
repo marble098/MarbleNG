@@ -694,7 +694,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          # MARBLE_RELEASE_PUBLISH_RESILIENT_V180
+          # MARBLE_RELEASE_PUBLISH_RESILIENT_V181
+# Draft -> direct upload_url retries -> exact verify -> publish.
           # Transactional publication: draft -> per-asset retry -> size verify -> publish.
           export GH_HTTP_TIMEOUT=600
 
@@ -754,8 +755,15 @@ jobs:
 
           release_json="$(gh api --method POST "repos/$repo/releases" --input "$create_json")"
           release_id="$(jq -r '.id // empty' <<< "$release_json")"
+          release_upload_url="$(jq -r '.upload_url // empty' <<< "$release_json")"
+          upload_base="${release_upload_url%%\{*}"
+
           [[ "$release_id" =~ ^[0-9]+$ ]] || {
             echo "::error::Invalid draft release id."
+            exit 1
+          }
+          [[ "$upload_base" == https://uploads.github.com/* ]] || {
+            echo "::error::Invalid draft upload URL."
             exit 1
           }
 
@@ -778,8 +786,17 @@ jobs:
               jq -c --arg name "$name" '[.[] | select(.name == $name)] | if length == 0 then null else .[0] end'
           }
 
+          urlencode_asset_name() {
+            python3 - "$1" <<'PYURL'
+import sys
+import urllib.parse
+print(urllib.parse.quote(sys.argv[1], safe=""))
+PYURL
+          }
+
           upload_one_asset() {
-            local asset="$1" name local_size attempt existing existing_id existing_size remote remote_size
+            local asset="$1" name name_q local_size attempt existing existing_id existing_size remote remote_size
+            local response_file http_code curl_rc api_message
             name="$(basename "$asset")"
             local_size="$(stat -c '%s' "$asset")"
             (( local_size > 0 )) || { echo "::error::Empty asset: $name"; return 1; }
@@ -800,7 +817,15 @@ jobs:
                 fi
               fi
 
-              if gh release upload "$tag" "$asset" --clobber; then
+              name_q="$(urlencode_asset_name "$name")"
+              response_file="$RUNNER_TEMP/release-upload-${attempt}.json"
+              curl_rc=0
+
+              http_code="$(
+                curl                   --silent                   --show-error                   --location                   --output "$response_file"                   --write-out '%{http_code}'                   --request POST                   --header "Authorization: Bearer $GH_TOKEN"                   --header "Accept: application/vnd.github+json"                   --header "X-GitHub-Api-Version: 2022-11-28"                   --header "Content-Type: application/octet-stream"                   --data-binary "@$asset"                   "${upload_base}?name=${name_q}"
+              )" || curl_rc=$?
+
+              if (( curl_rc == 0 )) && [[ "$http_code" =~ ^20[01]$ ]]; then
                 remote="$(remote_asset_json "$name")"
                 remote_size="$(jq -r '.size // 0' <<< "$remote")"
                 if [[ "$remote_size" == "$local_size" ]]; then
@@ -809,7 +834,8 @@ jobs:
                 fi
                 echo "::warning::Remote size mismatch after upload: $name"
               else
-                echo "::warning::Upload attempt $attempt failed: $name"
+                api_message="$(jq -r '.message // empty' "$response_file" 2>/dev/null || true)"
+                echo "::warning::Upload attempt $attempt failed: $name (curl=$curl_rc http=$http_code $api_message)"
               fi
 
               if (( attempt < 6 )); then

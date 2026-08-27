@@ -212,15 +212,22 @@ check("signed build checks out complete history", "fetch-depth: 0" in files["bui
 check("verify invokes central integrity audit", "scripts/system-integrity-check.py" in files["verify"])
 check("signed build invokes central integrity audit", "scripts/system-integrity-check.py" in files["build"])
 check(
-    "release publishing is immutable and tag-atomic",
-    "MARBLE_RELEASE_PUBLISH_SAFE_V170" in files["build"]
-    and '--notes-file "$notes_file"' in files["build"]
-    and '--target "$GITHUB_SHA"' in files["build"]
-    and '"${assets[@]}"' in files["build"]
+    "release publishing is immutable, verified and tag-atomic",
+    "MARBLE_RELEASE_PUBLISH_RESILIENT_V181" in files["build"]
+    and "draft:true" in files["build"]
+    and "target_commitish:$target" in files["build"]
+    and "release_upload_url" in files["build"]
+    and "https://uploads.github.com/" in files["build"]
+    and "for attempt in 1 2 3 4 5 6; do" in files["build"]
+    and "repos/$repo/releases/assets/$existing_id" in files["build"]
+    and "Remote asset count mismatch." in files["build"]
+    and "Remote release verification failed: $name" in files["build"]
+    and "cleanup_failed_release" in files["build"]
+    and "draft:false" in files["build"]
     and 'git rev-parse -q --verify "refs/tags/$tag"' in files["build"]
     and 'gh release view "$tag"' in files["build"]
-    and 'git push origin "$tag"' not in files["build"]
-    and '--notes "## MarbleNG $VERSION_NAME' not in files["build"],
+    and 'gh release upload "$tag"' not in files["build"]
+    and 'git push origin "$tag"' not in files["build"],
 )
 
 # Global concurrency smells.
