@@ -694,8 +694,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          # MARBLE_RELEASE_PUBLISH_SAFE_V170
+          # MARBLE_RELEASE_PUBLISH_RESILIENT_V180
+          # Transactional publication: draft -> per-asset retry -> size verify -> publish.
+          export GH_HTTP_TIMEOUT=600
 
+          repo="${GITHUB_REPOSITORY}"
           tag="v$VERSION_NAME"
           shopt -s nullglob
           assets=(dist/*)
@@ -740,10 +743,122 @@ jobs:
           } > "$notes_file"
           test -s "$notes_file"
 
-          # No bare tag is pushed before release publication.
-          gh release create \
-            "$tag" \
-            "${assets[@]}" \
-            --target "$GITHUB_SHA" \
-            --title "MarbleNG $VERSION_NAME" \
-            --notes-file "$notes_file"
+          create_json="$RUNNER_TEMP/release-create.json"
+          jq -n \
+            --arg tag "$tag" \
+            --arg target "$GITHUB_SHA" \
+            --arg name "MarbleNG $VERSION_NAME" \
+            --rawfile body "$notes_file" \
+            '{tag_name:$tag,target_commitish:$target,name:$name,body:$body,draft:true,prerelease:false}' \
+            > "$create_json"
+
+          release_json="$(gh api --method POST "repos/$repo/releases" --input "$create_json")"
+          release_id="$(jq -r '.id // empty' <<< "$release_json")"
+          [[ "$release_id" =~ ^[0-9]+$ ]] || {
+            echo "::error::Invalid draft release id."
+            exit 1
+          }
+
+          published=0
+          cleanup_failed_release() {
+            local rc=$?
+            trap - ERR INT TERM
+            if (( published == 0 )); then
+              echo "::warning::Cleaning incomplete draft release $release_id"
+              gh api --method DELETE "repos/$repo/releases/$release_id" >/dev/null 2>&1 || true
+              gh api --method DELETE "repos/$repo/git/refs/tags/$tag" >/dev/null 2>&1 || true
+            fi
+            exit "$rc"
+          }
+          trap cleanup_failed_release ERR INT TERM
+
+          remote_asset_json() {
+            local name="$1"
+            gh api "repos/$repo/releases/$release_id/assets?per_page=100" |
+              jq -c --arg name "$name" '[.[] | select(.name == $name)] | if length == 0 then null else .[0] end'
+          }
+
+          upload_one_asset() {
+            local asset="$1" name local_size attempt existing existing_id existing_size remote remote_size
+            name="$(basename "$asset")"
+            local_size="$(stat -c '%s' "$asset")"
+            (( local_size > 0 )) || { echo "::error::Empty asset: $name"; return 1; }
+
+            for attempt in 1 2 3 4 5 6; do
+              echo "Uploading $name (${local_size} bytes), attempt $attempt/6"
+
+              existing="$(remote_asset_json "$name")"
+              if [[ "$existing" != "null" ]]; then
+                existing_id="$(jq -r '.id // empty' <<< "$existing")"
+                existing_size="$(jq -r '.size // 0' <<< "$existing")"
+                if [[ "$existing_size" == "$local_size" ]]; then
+                  echo "Already complete remotely: $name"
+                  return 0
+                fi
+                if [[ "$existing_id" =~ ^[0-9]+$ ]]; then
+                  gh api --method DELETE "repos/$repo/releases/assets/$existing_id" >/dev/null || true
+                fi
+              fi
+
+              if gh release upload "$tag" "$asset" --clobber; then
+                remote="$(remote_asset_json "$name")"
+                remote_size="$(jq -r '.size // 0' <<< "$remote")"
+                if [[ "$remote_size" == "$local_size" ]]; then
+                  echo "Verified remote asset: $name"
+                  return 0
+                fi
+                echo "::warning::Remote size mismatch after upload: $name"
+              else
+                echo "::warning::Upload attempt $attempt failed: $name"
+              fi
+
+              if (( attempt < 6 )); then
+                case "$attempt" in
+                  1) sleep 5 ;;
+                  2) sleep 10 ;;
+                  3) sleep 20 ;;
+                  4) sleep 40 ;;
+                  5) sleep 60 ;;
+                esac
+              fi
+            done
+
+            echo "::error::Upload retries exhausted: $name"
+            return 1
+          }
+
+          for asset in "${assets[@]}"; do
+            upload_one_asset "$asset"
+          done
+
+          remote_assets="$(gh api "repos/$repo/releases/$release_id/assets?per_page=100")"
+          if [[ "$(jq 'length' <<< "$remote_assets")" -ne "${#assets[@]}" ]]; then
+            echo "::error::Remote asset count mismatch."
+            exit 1
+          fi
+
+          for asset in "${assets[@]}"; do
+            name="$(basename "$asset")"
+            local_size="$(stat -c '%s' "$asset")"
+            match_count="$(jq --arg name "$name" --argjson size "$local_size" '[.[] | select(.name == $name and .size == $size)] | length' <<< "$remote_assets")"
+            [[ "$match_count" -eq 1 ]] || {
+              echo "::error::Remote release verification failed: $name"
+              exit 1
+            }
+          done
+
+          publish_json="$RUNNER_TEMP/release-publish.json"
+          jq -n '{draft:false,prerelease:false,make_latest:"true"}' > "$publish_json"
+          published_json="$(gh api --method PATCH "repos/$repo/releases/$release_id" --input "$publish_json")"
+          [[ "$(jq -r '.draft' <<< "$published_json")" == "false" ]] || {
+            echo "::error::Release remained draft."
+            exit 1
+          }
+
+          published=1
+          trap - ERR INT TERM
+          [[ "$(jq -r '.tag_name // empty' <<< "$published_json")" == "$tag" ]] || {
+            echo "::error::Published tag mismatch."
+            exit 1
+          }
+          echo "Release published: $(jq -r '.html_url // empty' <<< "$published_json")"
