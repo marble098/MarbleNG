@@ -677,6 +677,7 @@ private fun FloatingSpatialDock(
     selected: SpatialTab,
     onSelect: (SpatialTab) -> Unit
 ) {
+    // MARBLE_BOTTOM_DOCK_SHELL_BG_REMOVED_V6552
     // MARBLE_BOTTOM_DOCK_STRIPLESS_V6551
     // Purpose: remove the thin wide white strip behind all three bottom tabs
     // while keeping the dock clean, compact and bounded.
@@ -703,7 +704,7 @@ private fun FloatingSpatialDock(
                 .shadow(2.dp,shellShape,clip=false)
                 .border(1.dp,shellBorder,shellShape)
                 .clip(shellShape)
-                .background(Aether.VoidElevated.copy(alpha=.94f))
+                .background(Color.Transparent)
                 .padding(horizontal=8.dp,vertical=8.dp),
             horizontalArrangement=Arrangement.spacedBy(6.dp),
             verticalAlignment=Alignment.CenterVertically
