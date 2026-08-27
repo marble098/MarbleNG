@@ -681,26 +681,35 @@ private fun FloatingSpatialDock(
         modifier=Modifier
             .fillMaxWidth()
             .navigationBarsPadding()
+            .background(
+                Brush.verticalGradient(
+                    listOf(
+                        Color.Transparent,
+                        Aether.VoidElevated.copy(alpha=.22f)
+                    )
+                )
+            )
             .padding(horizontal=16.dp,vertical=6.dp),
         contentAlignment=Alignment.Center
     ) {
         val shape=RoundedCornerShape(24.dp)
         val border=Brush.linearGradient(
             listOf(
-                Aether.Cyan.copy(alpha=.24f),
-                Aether.Amethyst.copy(alpha=.14f),
-                Aether.GlassBorderSoft.copy(alpha=.70f)
+                Aether.Cyan.copy(alpha=.17f),
+                Aether.Amethyst.copy(alpha=.07f),
+                Aether.GlassBorderSoft.copy(alpha=.30f)
             )
         )
 
+        // MARBLE_BOTTOM_DOCK_FADE_V6532
         Box(
             modifier=Modifier
                 .widthIn(max=500.dp)
                 .fillMaxWidth()
-                .shadow(5.dp,shape,clip=false)
+                .shadow(3.dp,shape,clip=false)
                 .border(1.dp,border,shape)
                 .clip(shape)
-                .background(Aether.VoidElevated)
+                .background(Aether.VoidElevated.copy(alpha=.62f))
         ) {
             NavigationBar(
                 modifier=Modifier
