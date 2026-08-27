@@ -38,6 +38,7 @@ package com.marbleng.app.ui
 // MARBLE_LIBRARY_MODE_POLISH_UI_V59
 // MARBLE_GLOBAL_CONTROL_POLISH_UI_V60
 // MARBLE_CONNECTED_CARD_REFINEMENT_UI_V61
+// MARBLE_FLUID_LIBRARY_MOTION_UI_V62
 
 import android.Manifest
 import android.content.Intent
@@ -3913,46 +3914,57 @@ private fun LibraryControlDeck(
             exit=fadeOut(MarbleMotionSpecs.ExitFloat)+
                 shrinkVertically(MarbleMotionSpecs.Layout)
         ) {
-            HoloGlass(
-                modifier=Modifier.fillMaxWidth(),
-                borderColor=MaterialTheme.colorScheme.primary.copy(alpha=.35f),
-                contentPadding=PaddingValues(MarbleSpacing.M)
+            Row(
+                modifier=Modifier
+                    .fillMaxWidth()
+                    .heightIn(min=26.dp)
+                    .semantics {
+                        contentDescription="Rank progress ${repo.probeDone} of ${repo.probeTotal}"
+                    },
+                verticalAlignment=Alignment.CenterVertically,
+                horizontalArrangement=Arrangement.spacedBy(9.dp)
             ) {
-                Row(
-                    modifier=Modifier.fillMaxWidth(),
-                    verticalAlignment=Alignment.CenterVertically,
-                    horizontalArrangement=Arrangement.spacedBy(MarbleSpacing.S)
+                Box(
+                    Modifier
+                        .size(25.dp)
+                        .clip(RoundedCornerShape(9.dp))
+                        .background(Aether.Cyan.copy(alpha=.085f)),
+                    contentAlignment=Alignment.Center
                 ) {
-                    HomeIconTile(HomeIcon.BENCHMARK,MaterialTheme.colorScheme.primary)
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            "NODE TEST IN PROGRESS",
-                            color=MaterialTheme.colorScheme.primary,
-                            style=MaterialTheme.typography.labelSmall,
-                            fontWeight=FontWeight.Bold
-                        )
-                        Text(
-                            repo.probeCurrentName.ifBlank { "Preparing selected nodes…" },
-                            color=MaterialTheme.colorScheme.onSurface,
-                            style=MaterialTheme.typography.bodySmall,
-                            maxLines=1,
-                            overflow=TextOverflow.Ellipsis
-                        )
-                    }
-                    HoloBadge(
-                        if(repo.probeTotal > 0) {
-                            "${repo.probeDone.coerceAtMost(repo.probeTotal)}/${repo.probeTotal}"
-                        } else "PREPARING",
-                        MaterialTheme.colorScheme.primary,
-                        compact=true
+                    HomeVectorIcon(
+                        HomeIcon.RANK,
+                        Aether.Cyan,
+                        Modifier.size(14.dp)
                     )
                 }
                 LiveProgressBar(
                     fraction=if(repo.probeTotal > 0) {
                         repo.probeDone.toFloat()/repo.probeTotal.toFloat()
                     } else null,
-                    color=MaterialTheme.colorScheme.primary
+                    modifier=Modifier.weight(1f),
+                    color=Aether.Cyan
                 )
+                AnimatedContent(
+                    targetState=if(repo.probeTotal > 0) {
+                        "${repo.probeDone.coerceAtMost(repo.probeTotal)}/${repo.probeTotal}"
+                    } else "…",
+                    transitionSpec={
+                        (fadeIn(MarbleMotionSpecs.ResponseFloat)+
+                            slideInVertically(MarbleMotionSpecs.Spatial) { it/2 }) togetherWith
+                            (fadeOut(MarbleMotionSpecs.ExitFloat)+
+                                slideOutVertically(MarbleMotionSpecs.SpatialExit) { -it/2 })
+                    },
+                    label="rank-progress-count"
+                ) { count ->
+                    Text(
+                        count,
+                        color=Aether.Cyan,
+                        style=MaterialTheme.typography.labelSmall.copy(
+                            fontFamily=FontFamily.Monospace,
+                            fontWeight=FontWeight.Bold
+                        )
+                    )
+                }
             }
         }
     }
@@ -4370,12 +4382,21 @@ private fun SpatialServerCard(
                             maxLines=1,
                             overflow=TextOverflow.Ellipsis
                         )
-                        if(active) {
+                        AnimatedVisibility(
+                            visible=active,
+                            enter=fadeIn(MarbleMotionSpecs.ResponseFloat)+
+                                scaleIn(initialScale=.72f,animationSpec=MarbleMotionSpecs.InteractionFloat)+
+                                slideInHorizontally(MarbleMotionSpecs.Spatial) { it/2 },
+                            exit=fadeOut(MarbleMotionSpecs.ExitFloat)+
+                                scaleOut(targetScale=.78f,animationSpec=MarbleMotionSpecs.ExitFloat)+
+                                slideOutHorizontally(MarbleMotionSpecs.SpatialExit) { it/2 }
+                        ) {
                             Row(
                                 modifier=Modifier
+                                    .semantics { contentDescription="Connected" }
                                     .clip(RoundedCornerShape(999.dp))
                                     .background(Aether.Emerald.copy(alpha=.085f))
-                                    .padding(horizontal=7.dp,vertical=4.dp),
+                                    .padding(horizontal=7.dp,vertical=5.dp),
                                 verticalAlignment=Alignment.CenterVertically,
                                 horizontalArrangement=Arrangement.spacedBy(5.dp)
                             ) {
@@ -4385,19 +4406,25 @@ private fun SpatialServerCard(
                                         .clip(CircleShape)
                                         .background(Aether.Emerald)
                                 )
-                                Text(
-                                    "CONNECTED",
-                                    color=Aether.Emerald,
-                                    style=MaterialTheme.typography.labelSmall,
-                                    fontWeight=FontWeight.Bold,
-                                    maxLines=1
+                                HomeVectorIcon(
+                                    HomeIcon.TUNNEL,
+                                    Aether.Emerald,
+                                    Modifier.size(13.dp)
                                 )
                             }
                         }
                     }
                 }
 
-                if(latency > 0) {
+                AnimatedVisibility(
+                    visible=latency > 0,
+                    enter=fadeIn(MarbleMotionSpecs.ResponseFloat)+
+                        scaleIn(initialScale=.82f,animationSpec=MarbleMotionSpecs.InteractionFloat)+
+                        slideInHorizontally(MarbleMotionSpecs.Spatial) { it/3 },
+                    exit=fadeOut(MarbleMotionSpecs.ExitFloat)+
+                        scaleOut(targetScale=.86f,animationSpec=MarbleMotionSpecs.ExitFloat)
+                ) {
+                    Row(verticalAlignment=Alignment.CenterVertically) {
                     Surface(
                         shape=RoundedCornerShape(999.dp),
                         color=health.copy(alpha=.09f),
@@ -4410,14 +4437,25 @@ private fun SpatialServerCard(
                             modifier=Modifier.padding(horizontal=10.dp,vertical=6.dp),
                             horizontalAlignment=Alignment.End
                         ) {
-                            Text(
-                                "$latency ms",
-                                color=health,
-                                style=MaterialTheme.typography.labelLarge.copy(
-                                    fontFamily=FontFamily.Monospace,
-                                    fontWeight=FontWeight.Bold
+                            AnimatedContent(
+                                targetState=latency,
+                                transitionSpec={
+                                    (fadeIn(MarbleMotionSpecs.ResponseFloat)+
+                                        slideInVertically(MarbleMotionSpecs.Spatial) { it/2 }) togetherWith
+                                        (fadeOut(MarbleMotionSpecs.ExitFloat)+
+                                            slideOutVertically(MarbleMotionSpecs.SpatialExit) { -it/2 })
+                                },
+                                label="node-latency-value"
+                            ) { value ->
+                                Text(
+                                    "$value ms",
+                                    color=health,
+                                    style=MaterialTheme.typography.labelLarge.copy(
+                                        fontFamily=FontFamily.Monospace,
+                                        fontWeight=FontWeight.Bold
+                                    )
                                 )
-                            )
+                            }
                             Text(
                                 libraryPingQuality(latency),
                                 color=health,
@@ -4426,6 +4464,7 @@ private fun SpatialServerCard(
                         }
                     }
                     Spacer(Modifier.width(MarbleSpacing.S))
+                    }
                 }
 
                 Box {
@@ -4575,48 +4614,63 @@ private fun SpatialServerCard(
                 )
             }
 
-            if(testing || queued) {
+            AnimatedVisibility(
+                visible=testing || queued,
+                enter=fadeIn(MarbleMotionSpecs.ResponseFloat)+
+                    expandVertically(MarbleMotionSpecs.Layout),
+                exit=fadeOut(MarbleMotionSpecs.ExitFloat)+
+                    shrinkVertically(MarbleMotionSpecs.Layout)
+            ) {
                 Row(
-                    modifier=Modifier.fillMaxWidth(),
+                    modifier=Modifier
+                        .fillMaxWidth()
+                        .semantics {
+                            contentDescription=if(testing) "Testing node" else "Node queued"
+                        },
                     horizontalArrangement=Arrangement.spacedBy(MarbleSpacing.S),
                     verticalAlignment=Alignment.CenterVertically
                 ) {
-                    Text(
-                        if(testing) "Testing…" else "Queued",
-                        color=if(testing) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
-                        style=MaterialTheme.typography.labelSmall
+                    HomeVectorIcon(
+                        HomeIcon.BENCHMARK,
+                        if(testing) Aether.Cyan else Aether.InkFaint,
+                        Modifier.size(14.dp)
                     )
                     LiveProgressBar(
                         fraction=if(testing) null else 0f,
                         modifier=Modifier.weight(1f),
-                        color=MaterialTheme.colorScheme.primary
+                        color=Aether.Cyan
                     )
                 }
             }
 
-            if(measured != null) {
-                Row(
-                    modifier=Modifier.fillMaxWidth(),
-                    horizontalArrangement=Arrangement.spacedBy(MarbleSpacing.S)
-                ) {
-                    HoloBadge(
-                        measured.probeKind,
-                        if(measured.probeKind == "TUNNEL") {
-                            Aether.Emerald
-                        } else {
-                            MaterialTheme.colorScheme.primary
-                        },
-                        compact=true
-                    )
-                    HoloBadge(
-                        "${measured.success}% ok",
-                        if(measured.success >= 90) Aether.Emerald else Aether.Amber,
-                        compact=true
-                    )
+            AnimatedVisibility(
+                visible=measured != null,
+                enter=fadeIn(MarbleMotionSpecs.ResponseFloat)+
+                    expandVertically(MarbleMotionSpecs.Layout)+
+                    slideInVertically(MarbleMotionSpecs.Spatial) { it/2 },
+                exit=fadeOut(MarbleMotionSpecs.ExitFloat)+
+                    shrinkVertically(MarbleMotionSpecs.Layout)
+            ) {
+                measured?.let { evidence ->
+                    Row(
+                        modifier=Modifier.fillMaxWidth(),
+                        horizontalArrangement=Arrangement.spacedBy(MarbleSpacing.S)
+                    ) {
+                        HoloBadge(
+                            evidence.probeKind,
+                            if(evidence.probeKind == "TUNNEL") {
+                                Aether.Emerald
+                            } else {
+                                Aether.Cyan
+                            },
+                            compact=true
+                        )
+                        HoloBadge(
+                            "${evidence.success}%",
+                            if(evidence.success >= 90) Aether.Emerald else Aether.Amber,
+                            compact=true
+                        )
+                    }
                 }
             }
         }

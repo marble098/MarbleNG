@@ -21,6 +21,7 @@ object XrayConfigHardener {
     // MARBLE_DNS_RACE_V47
     // MARBLE_DNS_SERIAL_FAILOVER_V49
     // MARBLE_DNS_BURST_TOLERANCE_V59
+    // MARBLE_PATTNG_NATIVE_RANK_V62
     private val infra = setOf("freedom", "blackhole", "dns", "loopback")
     private val compatibilityDependencyProtocols = setOf(
         "freedom", "http", "shadowsocks", "socks", "trojan", "vless", "vmess", "hysteria", "wireguard"
@@ -194,6 +195,35 @@ object XrayConfigHardener {
             "observatory", "burstObservatory"
         ).forEach { root.remove(it) }
         root.put("log", JSONObject().put("loglevel", "warning"))
+        return root.toString()
+    }
+
+    /**
+     * Build Rank from the SAME production-compatible outbound graph as a real Marble connection,
+     * then remove only runtime sections that are irrelevant to an outbound delay test.
+     *
+     * This follows PattNG's getV2rayConfig4Speedtest() architecture: unified config first,
+     * post-process second.
+     */
+    fun hardenForNativeRank(
+        source: String,
+        settings: AppSettings = AppSettings()
+    ): String {
+        // The local port is discarded with the inbounds below; it exists only so production
+        // hardening executes through exactly the same code path.
+        val root = JSONObject(harden(source, 19091, settings))
+        root.put("inbounds", JSONArray())
+        listOf(
+            "dns", "fakedns", "routing", "stats", "policy", "api", "reverse", "metrics",
+            "observatory", "burstObservatory"
+        ).forEach(root::remove)
+
+        root.optJSONArray("outbounds")?.let { outbounds ->
+            for (index in 0 until outbounds.length()) {
+                outbounds.optJSONObject(index)?.remove("mux")
+            }
+        }
+        root.put("log", JSONObject().put("loglevel", "none"))
         return root.toString()
     }
 

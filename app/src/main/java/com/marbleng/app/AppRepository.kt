@@ -81,6 +81,7 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     // MARBLE_V2RAYNG_SMART_RANK_V45
     // MARBLE_EVIDENCE_WEIGHTED_QUALITY_V46
     // MARBLE_RANK_RECOVERY_REPO_V61
+    // MARBLE_PATTNG_BATCH_RANK_REPO_V62
 
     private val store = AppStore(context)
     private val io = Executors.newFixedThreadPool(3)
@@ -2136,41 +2137,40 @@ private fun postToMain(block: () -> Unit) {
 
         task("Smart rank • $scope") {
             val scoped = candidates
-            clearBenchmarks(scoped.mapTo(mutableSetOf()) { it.id })
-            // Rank answers one question: can this exact config carry real application traffic?
-            // Endpoint TCP is useful for the separate Ping action, but must never veto Rank.
-            val configuredRankMethod = ProbeMethod.TUNNEL
+
+            // Keep the last known measurements visible while fresh evidence streams in.
+            // Clearing first made every latency/result chip disappear and then pop back into place.
             val rankSettings = settings.copy(
                 benchMode = BenchMode.CUSTOM,
                 benchCandidates = scoped.size.coerceAtLeast(1),
-                // Three bounded application RTT samples share one verified tunnel/TLS
-                // session. The first verified response is health evidence, not a discarded warm-up.
-                // v2rayNG real delay: two GET attempts, 12 s ceiling, minimum valid result.
                 benchSamples = 2,
-                benchTimeoutSec = settings.benchTimeoutSec.coerceIn(6, 12),
-                tcpPrecheckTimeoutMs = settings.tcpPrecheckTimeoutMs.coerceIn(750, 1_500),
-                // External native Xray workers, deliberately below the old 8-way burst.
-                tcpWorkers = settings.tcpWorkers.coerceIn(2, 4),
-                probeMethod = configuredRankMethod,
+                benchTimeoutSec = settings.benchTimeoutSec.coerceIn(4, 6),
+                tcpWorkers = settings.tcpWorkers.coerceIn(4, 16),
+                probeMethod = ProbeMethod.TUNNEL,
                 probeSpeedTest = false,
                 verifiedPerformanceTuning = false,
                 udpProbeEnabled = false
             )
-            fun executeRank(): List<BenchmarkResult> = BenchmarkEngine(xray, intelligence).run(
+
+            fun executeRank(): List<BenchmarkResult> = PattRankEngine(
+                context = context,
+                xray = xray,
+                intelligence = intelligence
+            ).run(
                 scoped,
                 rankSettings,
-                usePrecheck = false,
-                v2rayStyleDelay = true,
                 onCandidates = ::beginProbeBatch,
                 onStart = ::markProbeStart,
                 onResult = ::markProbeResult
             ) { done, total, name ->
-                message = "Tunnel rank • $scope • $done/$total • $name"
+                message = "Rank • $scope • $done/$total • $name"
             }
 
+            val startedAt = System.currentTimeMillis()
             val startedNetwork = intelligence.currentSnapshot().key()
             var results = executeRank()
             val finishedNetwork = intelligence.currentSnapshot().key()
+
             if (finishedNetwork != startedNetwork) {
                 diagnostics.event(
                     "BENCHMARK",
@@ -2178,59 +2178,9 @@ private fun postToMain(block: () -> Unit) {
                     "from" to startedNetwork,
                     "to" to finishedNetwork
                 )
-                message = "Physical network changed • restarting tunnel Rank once"
-                Thread.sleep(750L)
+                message = "Network changed • restarting Rank once"
+                Thread.sleep(350L)
                 results = executeRank()
-            }
-
-            // A batch result is not allowed to become a false death sentence because several native
-            // Xray children hit the same provider/CDN at once. Confirm only the failed cards once,
-            // using two workers and the same runtime-parity tunnel test. This keeps the common path
-            // fast while making the final reachable count agree far better with a real tap/connect.
-            val firstById = results.associateBy { it.profileId }
-            val confirmationTargets = scoped.filter { firstById[it.id]?.success?.let { success -> success > 0 } != true }
-            if (confirmationTargets.isNotEmpty()) {
-                message = "Tunnel rank • $scope • confirming ${confirmationTargets.size} uncertain node${if (confirmationTargets.size == 1) "" else "s"}"
-                val confirmationSettings = rankSettings.copy(
-                    benchSamples = 1,
-                    benchTimeoutSec = maxOf(rankSettings.benchTimeoutSec, 8),
-                    tcpWorkers = 2
-                )
-                val confirmation = BenchmarkEngine(xray, intelligence).run(
-                    confirmationTargets,
-                    confirmationSettings,
-                    usePrecheck = false,
-                    v2rayStyleDelay = true,
-                    onCandidates = { },
-                    onStart = ::markProbeStart,
-                    onResult = ::markProbeResult
-                ) { done, total, name ->
-                    message = "Tunnel rank • $scope • confirm $done/$total • $name"
-                }
-
-                val combined = firstById.toMutableMap()
-                confirmation.forEach { retry ->
-                    val previous = combined[retry.profileId]
-                    if (retry.success > 0 || previous == null || previous.success <= 0) {
-                        combined[retry.profileId] = retry
-                    }
-                }
-                val recovered = confirmation.count { retry ->
-                    retry.success > 0 && (firstById[retry.profileId]?.success ?: 0) <= 0
-                }
-                diagnostics.event(
-                    "BENCHMARK",
-                    "rank-confirmation-pass",
-                    "uncertain" to confirmationTargets.size,
-                    "recovered" to recovered,
-                    "workers" to 2
-                )
-                results = scoped.mapNotNull { combined[it.id] }
-                    .sortedWith(
-                        compareBy<BenchmarkResult> { if (it.success > 0) 0 else 1 }
-                            .thenByDescending { it.score }
-                            .thenBy { it.latencyMs }
-                    )
             }
 
             mergeBenchmarks(results)
@@ -2254,14 +2204,16 @@ private fun postToMain(block: () -> Unit) {
                 "requested" to scoped.size,
                 "tested" to results.size,
                 "healthy" to healthy,
-                "method" to configuredRankMethod.name,
-                "engine" to "runtime-parity-real-delay-v61"
+                "method" to "TUNNEL",
+                "engine" to "pattng-core-dial-batch-v62",
+                "elapsedMs" to (System.currentTimeMillis() - startedAt)
             )
+
             message = if (best == null) {
-                "Tunnel rank • $scope • ${results.size}/${scoped.size} tested • 0 healthy"
+                "Rank • $scope • ${results.size}/${scoped.size} • 0 reachable"
             } else {
-                "Tunnel rank • $scope • ${results.size}/${scoped.size} tested • $healthy healthy • " +
-                    "best ${best.name} • ${best.latencyMs.toInt()} ms • score ${best.score.toInt()}"
+                "Rank • $scope • $healthy/${scoped.size} reachable • " +
+                    "${best.name} • ${best.latencyMs.toInt()} ms"
             }
         }
     }

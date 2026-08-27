@@ -4,7 +4,9 @@ package com.marbleng.app.ui
 // MARBLE_PRISM_DESIGN_SYSTEM_V54
 // MARBLE_PRISM_POLISH_V55
 // MARBLE_GLOBAL_CONTROL_POLISH_DS_V60
+// MARBLE_FLUID_PRISM_STATE_V62
 
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.border
 import androidx.compose.foundation.background
@@ -13,6 +15,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -176,15 +179,20 @@ internal fun PrismPanel(
     contentPadding: PaddingValues = PaddingValues(MarbleSpacing.M),
     content: @Composable ColumnScope.() -> Unit
 ) {
-    val shape=RoundedCornerShape(if(selected) 26.dp else 22.dp)
+    val selectedProgress by animateFloatAsState(
+        targetValue=if(selected) 1f else 0f,
+        animationSpec=MarbleMotionSpecs.ResponseFloat,
+        label="prism-selected-energy"
+    )
+    val shape=RoundedCornerShape(22.dp)
     val surface=Aether.VoidElevated
     val violet=Aether.Amethyst
     val softBorder=Aether.GlassBorderSoft
-    val glowAlpha=if(selected) .055f else .022f
+    val glowAlpha=.022f + .033f*selectedProgress
     val borderBrush=Brush.linearGradient(
         listOf(
-            accent.copy(alpha=if(selected) .46f else .16f),
-            violet.copy(alpha=if(selected) .23f else .08f),
+            accent.copy(alpha=.16f + .30f*selectedProgress),
+            violet.copy(alpha=.08f + .15f*selectedProgress),
             softBorder.copy(alpha=.68f)
         )
     )
@@ -192,7 +200,7 @@ internal fun PrismPanel(
     Box(
         modifier=modifier
             .shadow(
-                elevation=if(selected) 5.dp else 1.dp,
+                elevation=(1f + 4f*selectedProgress).dp,
                 shape=shape,
                 clip=false
             )

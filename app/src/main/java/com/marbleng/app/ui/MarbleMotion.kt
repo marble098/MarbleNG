@@ -2,6 +2,7 @@ package com.marbleng.app.ui
 
 // MARBLE_KINETIC_GLASS_ENGINE_V34
 // MARBLE_PRISM_MOTION_V54
+// MARBLE_BOUNDED_RIPPLE_MOTION_V62
 
 import android.provider.Settings
 import androidx.compose.animation.core.FiniteAnimationSpec
@@ -12,6 +13,7 @@ import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Stable
@@ -24,10 +26,12 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import kotlinx.coroutines.currentCoroutineContext
@@ -167,6 +171,7 @@ fun Modifier.kineticClickable(
     enabled: Boolean = true,
     role: Role? = null,
     pressScale: Float = .972f,
+    boundedShape: Shape = RoundedCornerShape(22.dp),
     onClick: () -> Unit
 ): Modifier = composed {
     val interactionSource = remember { MutableInteractionSource() }
@@ -187,6 +192,9 @@ fun Modifier.kineticClickable(
             scaleX = scale
             scaleY = scale
             translationY = lift
+            // Ripple + press feedback are clipped at the gesture layer itself.
+            shape = boundedShape
+            clip = true
         }
         .clickable(
             interactionSource = interactionSource,
