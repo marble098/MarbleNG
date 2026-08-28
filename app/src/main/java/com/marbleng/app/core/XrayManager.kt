@@ -34,6 +34,7 @@ class XrayManager(private val context: Context) {
     // MARBLE_REPEATABLE_RANK_V44
     // MARBLE_V2RAYNG_SMART_RANK_V45
     // MARBLE_TEMP_CONFIG_FALLBACK_V47
+    // MARBLE_REALTIME_ENGINE_V70
     private companion object {
         const val ROUTING_ASSET_REFRESH_MS = 24L * 60L * 60L * 1000L
         const val ROUTING_ASSET_RETRY_MS = 6L * 60L * 60L * 1000L
@@ -215,6 +216,8 @@ class XrayManager(private val context: Context) {
         return -1L
     }
     val logFile: File get() = File(context.filesDir, "logs/xray.log")
+    /** Live-only TCP_INFO JSONL. MARBLE_REALTIME_ENGINE_V70 */
+    val transportTelemetryFile: File get() = File(context.filesDir, "logs/xray-transport.jsonl")
     private val bin: File get() = File(context.applicationInfo.nativeLibraryDir, "libxray.so")
     private val assetsDir = File(context.filesDir, "xray-assets")
     private val runtimeConfig: File get() = File(context.filesDir, "runtime.json")
@@ -675,9 +678,12 @@ class XrayManager(private val context: Context) {
             if (!startStillCurrent(ticket.generation)) return@runCatching false
 
             publishStartState(ticket.generation, "spawn")
-            val startedProcess = createProcessBuilder("run", "-c", config.absolutePath)
+            transportTelemetryFile.parentFile?.mkdirs(); runCatching { transportTelemetryFile.delete() }
+            val liveBuilder = createProcessBuilder("run", "-c", config.absolutePath)
                 .redirectOutput(ProcessBuilder.Redirect.appendTo(logFile))
-                .start()
+            // Throwaway Rank/Turbo processes intentionally do not receive this environment variable.
+            liveBuilder.environment()["MARBLE_TELEMETRY_FILE"] = transportTelemetryFile.absolutePath
+            val startedProcess = liveBuilder.start()
 
             if (!publishProcess(ticket.generation, startedProcess)) {
                 stopProcess(startedProcess)

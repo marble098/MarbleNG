@@ -34,6 +34,26 @@ jobs:
           set -euo pipefail
           jq -e '.xray.tag and .hev.tag' core-lock.json
 
+      - name: Realtime Xray native smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          # MARBLE_REALTIME_ENGINE_V70
+          XRAY_TAG="$(jq -r '.xray.tag' core-lock.json)"
+          XRAY_TMP="$RUNNER_TEMP/xray-realtime-smoke"
+          rm -rf "$XRAY_TMP"
+          git clone --quiet --depth 1 --branch "$XRAY_TAG" https://github.com/XTLS/Xray-core.git "$XRAY_TMP"
+          cp native/rankhelper/main.go "$XRAY_TMP/main/marble_rank.go"
+          python3 scripts/inject-xray-realtime.py "$XRAY_TMP"
+          python3 - "$XRAY_TMP/main/main.go" <<'PYXRAY'
+          from pathlib import Path
+          import sys
+          p=Path(sys.argv[1]);s=p.read_text();old="\t\t\tcmdRun,\n\t\t\tcmdVersion,\n";new="\t\t\tcmdRun,\n\t\t\tcmdVersion,\n\t\t\tcmdMarbleRank,\n"
+          if s.count(old)!=1: raise SystemExit('Pinned Xray command anchor changed')
+          p.write_text(s.replace(old,new,1))
+          PYXRAY
+          (cd "$XRAY_TMP" && env GOTOOLCHAIN=auto go test ./transport/internet ./main)
+
       - name: Reject malformed Compose function types
         shell: bash
         run: |
@@ -108,13 +128,13 @@ jobs:
               'v55 sparkline confidence':'if(sparkline.size>=3)' in design,
               'premium vector route':'PrismConnectionStage(' in design,
               'prism backdrop':'PrismBackdrop(' in ui,
-              'floating official navigation':'NavigationBar(' in ui and 'NavigationBarItem(' in ui,
+              'floating spatial navigation':'FloatingSpatialDock(' in ui and 'MARBLE_BOTTOM_DOCK_UNIFIED_FLOATING_V661' in ui and 'SpatialTab.entries.forEach' in ui,
               'profile name not runtime detail':'val activeName = active?.name ?: "Choose a route"' in ui,
               'flag aware node identity':'stripLeadingFlag(profile.name)' in ui and 'leadingFlagGlyph' in design,
               'compact settings categories':'compactTabsState' in ui and 'LazyRow(' in ui,
               'source-aware deletion preserved':'removeProfile(profile.id, profile.subscriptionId)' in ui,
               'brand vector':'R.drawable.ic_marble_prism' in ui,
-              'official Material navigation':'NavigationBar(' in ui and 'NavigationBarItem(' in ui,
+              'unified dock interaction':'.kineticClickable(' in ui and 'indicatorTone' in ui and 'MarbleTabIcon(' in ui,
               'layered Prism surfaces':'PrismPanel(' in ui and 'PrismPanel(' in design,
               'visual theme previews':'PrismThemeChoice(' in ui and 'PrismThemeChoice(' in design,
               'library filter bottom sheet':'ModalBottomSheet(' in ui and 'LibraryFilterSheet(' in ui,
@@ -138,14 +158,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # MARBLE_RELEASE_PUBLISH_VERIFY_V170
+          # MARBLE_RELEASE_PUBLISH_VERIFY_V181
           python3 - <<'PY'
           from pathlib import Path
           build=Path('.github/workflows/build.yml').read_text()
           required={
-              'safe marker':'MARBLE_RELEASE_PUBLISH_SAFE_V170' in build,
-              'notes file':'--notes-file "$notes_file"' in build,
-              'target':'--target "$GITHUB_SHA"' in build,
+              'resilient marker':'MARBLE_RELEASE_PUBLISH_RESILIENT_V181' in build,
+              'notes JSON':'--rawfile body "$notes_file"' in build,
+              'target JSON':'--arg target "$GITHUB_SHA"' in build and 'target_commitish:$target' in build,
               'assets':'"${assets[@]}"' in build,
               'tag guard':'git rev-parse -q --verify "refs/tags/$tag"' in build,
               'release guard':'gh release view "$tag"' in build,

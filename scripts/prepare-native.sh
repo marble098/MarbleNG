@@ -416,6 +416,11 @@ cp -f "$RANK_HELPER_SOURCE" "$XRAY_SRC/main/marble_rank.go"
     die "Could not stage MarbleNG Rank command into pinned Xray main package"
 }
 
+# MARBLE_REALTIME_ENGINE_V70 — inject passive TCP_INFO before compiling pinned Xray.
+python3 "$ROOT/scripts/inject-xray-realtime.py" "$XRAY_SRC"
+grep -F 'marbleTrackSocket(fd, network, address)' "$XRAY_SRC/transport/internet/sockopt_linux.go" >/dev/null || die "Realtime Xray socket hook missing"
+grep -F 'MARBLE_REALTIME_ENGINE_V70' "$XRAY_SRC/transport/internet/marble_telemetry_linux.go" >/dev/null || die "Realtime Xray telemetry source missing"
+
 python3 - "$XRAY_SRC/main/main.go" <<'PYRANKMAIN'
 from pathlib import Path
 import sys

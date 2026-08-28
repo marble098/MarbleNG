@@ -35,6 +35,7 @@ class BenchmarkEngine(
     // MARBLE_EVIDENCE_WEIGHTED_QUALITY_V46
     // MARBLE_BENCH_COMPAT_V47
     // MARBLE_RUNTIME_PARITY_RANK_V61
+    // MARBLE_REALTIME_ENGINE_V70
 
     fun run(
         profiles: List<ProxyProfile>,
@@ -250,17 +251,8 @@ class BenchmarkEngine(
         deep: Boolean
     ): Double {
         if (result.success <= 0) return -1.0
-        val reliability = result.success.toDouble().coerceIn(0.0, 100.0)
-        val latency = 100.0 * exp(-result.latencyMs.coerceAtMost(5000.0) / 230.0)
-        val history = historicalScore.coerceIn(0.0, 100.0)
-        if (!deep) {
-            return (reliability * 0.48 + latency * 0.44 + history * 0.08)
-                .coerceIn(0.0, 100.0)
-        }
-        val mbps = result.bytesPerSecond * 8.0 / 1_000_000.0
-        val speed = (ln(1.0 + mbps) / ln(51.0) * 100.0).coerceIn(0.0, 100.0)
-        return (reliability * 0.40 + latency * 0.35 + speed * 0.17 + history * 0.08)
-            .coerceIn(0.0, 100.0)
+        val live = RealtimeQualityEngine.score(result, WorkloadProfile.AUTO, if (deep) BenchMode.BALANCED else BenchMode.FAST).selected
+        return (live * 0.92 + historicalScore.coerceIn(0.0, 100.0) * 0.08).coerceIn(0.0, 100.0)
     }
 
     private fun tuned(settings: AppSettings): AppSettings {
@@ -626,7 +618,15 @@ class BenchmarkEngine(
         val jitter: Double = 0.0,
         val warmup: Double = 0.0,
         val sampleCount: Int = 0,
-        val failureReason: String = ""
+        val failureReason: String = "",
+        val p90Latency: Double = 0.0,
+        val p95Latency: Double = 0.0,
+        val medianJitter: Double = 0.0,
+        val p95Jitter: Double = 0.0,
+        val madLatency: Double = 0.0,
+        val lossPercent: Double = 0.0,
+        val spikePercent: Double = 0.0,
+        val loadedLatency: Double = 0.0
     )
 
     /** True when the selected method never needs a temporary Xray process. */
@@ -711,7 +711,11 @@ class BenchmarkEngine(
         udpSuccess = m.udpSuccess, interactiveScore = 0.0, streamingScore = 0.0,
         stabilityScore = 0.0, resilienceScore = 0.0, usedFragment = usedFragment,
         usedMux = usedMux, jitterMs = m.jitter, warmupMs = m.warmup,
-        sampleCount = m.sampleCount, failureReason = m.failureReason.take(180)
+        sampleCount = m.sampleCount, p90LatencyMs = m.p90Latency,
+        p95LatencyMs = m.p95Latency, medianJitterMs = m.medianJitter,
+        p95JitterMs = m.p95Jitter, madLatencyMs = m.madLatency,
+        lossPercent = m.lossPercent, spikePercent = m.spikePercent,
+        loadedLatencyMs = m.loadedLatency, failureReason = m.failureReason.take(180)
     )
 
     private fun materiallyBetter(candidate: Measurement, baseline: Measurement): Boolean {
@@ -722,8 +726,12 @@ class BenchmarkEngine(
         val speedGain = if (baseline.speed > 32.0 * 1024.0) {
             (candidate.speed - baseline.speed) / baseline.speed
         } else if (candidate.speed > baseline.speed + 128.0 * 1024.0) 1.0 else 0.0
-        return (latencyGain >= 0.12 && candidate.speed >= baseline.speed * 0.82) ||
-            (speedGain >= 0.22 && candidate.latency <= baseline.latency * 1.12) ||
+        val jitterSafe = baseline.jitter <= 0.0 || candidate.jitter <= 0.0 || candidate.jitter <= baseline.jitter * 1.35 + 4.0
+        val tailSafe = baseline.p95Latency <= 0.0 || candidate.p95Latency <= 0.0 || candidate.p95Latency <= baseline.p95Latency * 1.18 + 10.0
+        val jitterGain = if (baseline.jitter > 0.0 && candidate.jitter >= 0.0) (baseline.jitter - candidate.jitter) / baseline.jitter else 0.0
+        return (latencyGain >= 0.10 && candidate.speed >= baseline.speed * 0.82 && jitterSafe && tailSafe) ||
+            (speedGain >= 0.22 && candidate.latency <= baseline.latency * 1.12 && jitterSafe) ||
+            (jitterGain >= 0.20 && candidate.latency <= baseline.latency * 1.10 && tailSafe) ||
             candidate.success >= baseline.success + 25
     }
 
@@ -824,25 +832,28 @@ class BenchmarkEngine(
         }.getOrDefault(false)
         if (!started && failureReason.isBlank()) failureReason = "xray-start"
 
-        fun median(values: List<Double>): Double {
-            if (values.isEmpty()) return 0.0
-            val orderedValues = values.sorted()
-            val middle = orderedValues.size / 2
-            return if (orderedValues.size % 2 == 1) orderedValues[middle]
-            else (orderedValues[middle - 1] + orderedValues[middle]) / 2.0
-        }
+        val outcomes = times.map { kotlin.math.round(it).toInt().coerceIn(1, 10_000) }.toMutableList()
+        repeat((requested - outcomes.size).coerceAtLeast(0)) { outcomes += -1 }
+        val link = LinkQualityEstimator.summarize(outcomes)
         val ordered = times.sorted()
-        val latency = if (ordered.isEmpty()) 9999.0 else if (v2rayStyleDelay) ordered.first() else median(ordered)
-        val variation = times.zipWithNext { a, b -> kotlin.math.abs(b - a) }
-        // Mean absolute IPDV keeps real spikes in the number and matches the live-route meter.
-        // The previous median silently discarded a single severe spike in short 2–4 sample runs.
-        val jitter = if (variation.isEmpty()) 0.0 else variation.average()
-        val success = if (v2rayStyleDelay) {
-            if (times.isNotEmpty()) 100 else 0
-        } else {
-            times.size * 100 / requested
+        val latency = when {
+            ordered.isEmpty() -> 9999.0
+            v2rayStyleDelay -> ordered.first()
+            link != null -> link.medianRttMs.toDouble()
+            else -> ordered[ordered.size / 2]
         }
-        return Measurement(success, latency, speed, udpSuccess, jitter, warmup, times.size, failureReason)
+        val success = if (v2rayStyleDelay) { if (times.isNotEmpty()) 100 else 0 }
+            else link?.successPercent ?: (times.size * 100 / requested)
+        return Measurement(
+            success, latency, speed, udpSuccess,
+            (link?.ewmaJitterMs ?: -1).takeIf { it >= 0 }?.toDouble() ?: 0.0,
+            warmup, link?.successes ?: times.size, failureReason,
+            link?.p90RttMs?.toDouble() ?: latency, link?.p95RttMs?.toDouble() ?: latency,
+            (link?.medianIpdvMs ?: -1).takeIf { it >= 0 }?.toDouble() ?: 0.0,
+            (link?.p95IpdvMs ?: -1).takeIf { it >= 0 }?.toDouble() ?: 0.0,
+            link?.madRttMs?.toDouble() ?: 0.0, link?.lossPercent?.toDouble() ?: (100-success).toDouble(),
+            link?.spikePercent?.toDouble() ?: 0.0
+        )
     }
 
     private fun quickCandidate(p: ProxyProfile, port: Int, s: AppSettings): BenchmarkResult {
@@ -890,217 +901,15 @@ class BenchmarkEngine(
         raw: List<BenchmarkResult>,
         settings: AppSettings
     ): List<BenchmarkResult> {
-        if (raw.isEmpty()) {
-            return raw
-        }
-
-        return raw.map {
-            result ->
-
-            // Confidence follows evidence that actually arrived. Using the requested sample count
-            // let a 1/4 partial response inherit the confidence of four verified RTTs.
-            val observedSamples =
-                result.sampleCount
-                    .coerceAtLeast(if (result.success > 0) 1 else 0)
-                    .coerceAtMost(8)
-                    .toDouble()
-            val confidence = (observedSamples / 4.0).coerceIn(0.0, 1.0)
-
-            val latency =
-                if (
-                    result.success <=
-                    0
-                ) {
-                    0.0
-                } else {
-                    100.0 *
-                        exp(
-                            -result.latencyMs
-                                .coerceAtMost(
-                                    5000.0
-                                ) /
-                                240.0
-                        )
-                }
-
-            // No speed evidence (direct probe, or the optional speed test is off) must not read as
-            // "slow": an unknown throughput scores neutral instead of zero.
-            val speed =
-                if (
-                    result.success <=
-                    0
-                ) {
-                    0.0
-                } else if (
-                    result.bytesPerSecond <=
-                    0.0
-                ) {
-                    50.0
-                } else {
-                    val mbps =
-                        result.bytesPerSecond *
-                            8.0 /
-                            1_000_000.0
-
-                    (
-                        ln(
-                            1.0 +
-                                mbps
-                        ) /
-                            ln(
-                                101.0
-                            ) *
-                            100.0
-                    ).coerceIn(
-                        0.0,
-                        100.0
-                    )
-                }
-
-            val observedReliability =
-                result.success
-                    .toDouble()
-                    .coerceIn(
-                        0.0,
-                        100.0
-                    )
-
-            // One 1/1 result is useful, but it is not the same evidence as four independent samples.
-            val reliability =
-                if (
-                    result.success <=
-                    0
-                ) {
-                    0.0
-                } else {
-                    observedReliability *
-                        confidence +
-                        65.0 *
-                        (
-                            1.0 -
-                                confidence
-                        )
-                }
-
-            val udp =
-                if (
-                    result.udpSuccess <=
-                    0
-                ) {
-                    50.0
-                } else {
-                    result.udpSuccess
-                        .toDouble()
-                        .coerceIn(
-                            0.0,
-                            100.0
-                        )
-                }
-
-            val variation =
-                if (result.sampleCount < 2) 65.0 else
-                    100.0 * exp(-result.jitterMs.coerceAtMost(2000.0) / 65.0)
-
-            val interactive =
-                reliability * 0.35 +
-                    latency * 0.50 +
-                    variation * 0.15
-
-            val streaming =
-                reliability * 0.30 +
-                    speed * 0.55 +
-                    latency * 0.10 +
-                    variation * 0.05
-
-            val stability =
-                reliability * 0.55 +
-                    latency * 0.20 +
-                    variation * 0.25
-
-            val resilience =
-                (
-                    reliability * 0.68 +
-                        udp * 0.15 +
-                        latency * 0.12 +
-                        if (
-                            result.usedFragment
-                        ) {
-                            5.0
-                        } else {
-                            0.0
-                        }
-                ).coerceIn(
-                    0.0,
-                    100.0
-                )
-
-            val score =
-                when (
-                    settings.workloadProfile
-                ) {
-                    WorkloadProfile.INTERACTIVE ->
-                        interactive
-                    WorkloadProfile.STREAMING ->
-                        streaming
-                    WorkloadProfile.STABILITY ->
-                        stability
-                    WorkloadProfile.STEALTH ->
-                        resilience
-                    WorkloadProfile.AUTO ->
-                        when (
-                            settings.benchMode
-                        ) {
-                            BenchMode.RELIABLE ->
-                                stability
-
-                            BenchMode.FAST,
-                            BenchMode.TURBO ->
-                                interactive *
-                                    0.58 +
-                                    streaming *
-                                    0.42
-
-                            BenchMode.BALANCED,
-                            BenchMode.CUSTOM ->
-                                interactive *
-                                    0.31 +
-                                    streaming *
-                                    0.27 +
-                                    stability *
-                                    0.31 +
-                                    resilience *
-                                    0.11
-                        }
-                }
-
-            result.copy(
-                score =
-                    if (
-                        result.success <=
-                        0
-                    ) {
-                        -1.0
-                    } else {
-                        score
-                    },
-                interactiveScore =
-                    interactive,
-                streamingScore =
-                    streaming,
-                stabilityScore =
-                    stability,
-                resilienceScore =
-                    resilience
-            )
-        }.sortedWith(
-            compareByDescending<
-                BenchmarkResult
-            > {
-                it.score
-            }.thenBy {
-                it.latencyMs
-            }
-        )
+        if (raw.isEmpty()) return raw
+        return raw.map { r ->
+            if (r.success <= 0) return@map r.copy(score = -1.0)
+            val q = RealtimeQualityEngine.score(r, settings.workloadProfile, settings.benchMode)
+            val resilience = (q.resilience + if (r.usedFragment) 5.0 else 0.0).coerceIn(0.0, 100.0)
+            r.copy(score = if (settings.workloadProfile == WorkloadProfile.STEALTH) resilience else q.selected,
+                interactiveScore = q.interactive, streamingScore = q.streaming,
+                stabilityScore = q.stability, resilienceScore = resilience)
+        }.sortedWith(compareByDescending<BenchmarkResult> { it.score }.thenBy { it.latencyMs }.thenBy { it.jitterMs })
     }
 
     private fun tcpLatency(p: ProxyProfile, timeoutMs: Int): Double {

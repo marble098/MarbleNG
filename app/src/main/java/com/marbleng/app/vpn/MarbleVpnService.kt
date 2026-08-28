@@ -20,6 +20,7 @@ import com.marbleng.app.core.RuntimeDiagnostics
 import com.marbleng.app.core.SocksHttpClient
 import com.marbleng.app.core.SmartNotificationKind
 import com.marbleng.app.core.SmartNotifier
+import com.marbleng.app.core.TransportTelemetry
 import com.marbleng.app.core.XrayManager
 import com.marbleng.app.model.AppSettings
 import com.marbleng.app.model.ProxyProfile
@@ -62,6 +63,7 @@ class MarbleVpnService : VpnService() {
     // MARBLE_EXACT_PROFILE_SOURCE_V38
     // MARBLE_RTT_RESILIENCE_V47
     // MARBLE_REAL_RTT_XHTTP_V50
+    // MARBLE_REALTIME_ENGINE_V70
     // Live optimisation may learn while connected, but it must never intentionally tear down
     // a healthy user tunnel merely to hot-apply a transport experiment.
     companion object {
@@ -954,6 +956,25 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                     lastT = nowNs
                 }
 
+                if (tick % 2 == 0) {
+                    TransportTelemetry.latest(xray.transportTelemetryFile)?.takeIf { it.fresh() }?.let { transport ->
+                        val liveSettings = activeSettings ?: repo.settings
+                        val stressed = transport.retransDelta >= 2 || transport.lost > 0 ||
+                            transport.rttVarMs >= maxOf(20, transport.rttMs / 3)
+                        if (stressed) routeProbeRequested.set(true)
+                        if (liveSettings.adaptiveMssEnabled && transport.pmtu in 1280..9000) {
+                            repo.intelligence.rememberPathMtu(activeProfileId, transport.pmtu)
+                            if (activeMtu > transport.pmtu) tuningRequested.set(true)
+                        }
+                        if (tick % 10 == 0) diag.event("XRAY", "tcp-info", "session" to session,
+                            "sockets" to transport.sockets, "rttMs" to transport.rttMs,
+                            "p95RttMs" to transport.p95RttMs, "rttVarMs" to transport.rttVarMs,
+                            "retransDelta" to transport.retransDelta, "lost" to transport.lost,
+                            "unacked" to transport.unacked, "pmtu" to transport.pmtu,
+                            "mss" to transport.mss, "cwnd" to transport.cwndPackets, "stressed" to stressed)
+                    }
+                }
+
                 val routeProbeNow = routeProbeRequested.getAndSet(false)
                 if (shouldSampleRoute(tick) || routeProbeNow) {
                     sampleRouteLatency(session, port, generation)
@@ -993,10 +1014,10 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
     }
 
     private fun activeRouteQuality(): ActiveRouteQuality {
-        val values = synchronized(routeOutcomeWindow) { routeOutcomeWindow.filter { it > 0 } }
-        if (values.isEmpty()) return ActiveRouteQuality(0, 0)
-        val sorted = values.sorted()
-        return ActiveRouteQuality(sorted[sorted.size / 2], values.size)
+        val link = LinkQualityEstimator.summarize(synchronized(routeOutcomeWindow) { routeOutcomeWindow.toList() })
+            ?: return ActiveRouteQuality(0, 0)
+        return ActiveRouteQuality(link.medianRttMs, link.successes, link.ewmaJitterMs,
+            link.p95RttMs, link.lossPercent, link.spikePercent)
     }
 
     private fun maybeScheduleOptimizer(session: String, generation: Int) {
@@ -1531,32 +1552,11 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             val snapshot = synchronized(routeOutcomeWindow) {
                 routeOutcomeWindow.addLast(if (sample > 0) sample.coerceIn(1, 10_000) else -1)
                 while (routeOutcomeWindow.size > ROUTE_WINDOW_SIZE) routeOutcomeWindow.removeFirst()
-
                 val outcomes = routeOutcomeWindow.toList()
-                val rtts = outcomes.filter { it > 0 }
-                if (rtts.isEmpty()) return@synchronized intArrayOf(0, -1, 0, 0, outcomes.size, 0, 0)
-                // A miss breaks adjacency; never manufacture an IPDV delta across an unknown gap.
-                val deltas = outcomes.zipWithNext().mapNotNull { (a, b) ->
-                    if (a > 0 && b > 0) abs(b - a).coerceIn(0, 10_000) else null
-                }
-                val sorted = rtts.sorted()
-                val rollingPing = sorted[sorted.size / 2]
-                val rollingJitter =
-                    if (deltas.isEmpty()) -1
-                    else deltas.average().roundToInt()
-                val tailIndex = kotlin.math.ceil(sorted.size * 0.90).toInt().coerceIn(1, sorted.size) - 1
-                val tailLatency = sorted[tailIndex]
-                val successPercent = (rtts.size * 100.0 / outcomes.size).roundToInt()
-
-                intArrayOf(
-                    rollingPing,
-                    rollingJitter,
-                    rtts.size,
-                    deltas.size,
-                    outcomes.size,
-                    successPercent,
-                    tailLatency
-                )
+                val link = LinkQualityEstimator.summarize(outcomes)
+                    ?: return@synchronized intArrayOf(0, -1, 0, 0, outcomes.size, 0, 0)
+                intArrayOf(link.medianRttMs, link.ewmaJitterMs, link.successes, link.jitterSamples,
+                    link.attempts, link.successPercent, link.p90RttMs)
             }
 
             if (snapshot[0] <= 0) return
@@ -1822,11 +1822,11 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         val attemptCount = link.attempts
         val successPercent = link.successPercent
         val tailLatencyMs = link.p90RttMs
-        val jitterMs = link.meanIpdvMs
+        val jitterMs = link.ewmaJitterMs
 
         val quality = ActiveRouteQuality(
-            latencyMs = link.medianRttMs,
-            samples = link.successes
+            latencyMs = link.medianRttMs, samples = link.successes, jitterMs = jitterMs,
+            p95LatencyMs = link.p95RttMs, lossPercent = link.lossPercent, spikePercent = link.spikePercent
         )
 
         repo.updateRouteQuality(
@@ -1850,8 +1850,11 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             "attempts" to attemptCount,
             "successPercent" to successPercent,
             "successLowerBoundPercent" to link.successLowerBoundPercent,
-            "p90Ms" to tailLatencyMs,
-            "method" to "verified-https-ttfb-rolling-ipdv-loss-p90"
+            "p90Ms" to tailLatencyMs, "p95Ms" to link.p95RttMs,
+            "medianIpdvMs" to link.medianIpdvMs, "p95IpdvMs" to link.p95IpdvMs,
+            "madMs" to link.madRttMs, "lossPercent" to link.lossPercent,
+            "spikePercent" to link.spikePercent,
+            "method" to "verified-https-ttfb-robust-ipdv-loss-tail"
         )
 
         repo.intelligence.recordLiveRoute(
@@ -1872,10 +1875,12 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             (quality.latencyMs / 8).coerceAtLeast(1)
         )
         val jitterReady = jitterMs >= 0 && jitterSampleCount >= 2
-        val instantHigh =
-            quality.samples >= 3 && jitterReady && jitterMs >= highThreshold
-        val instantLow =
-            quality.samples >= 3 && jitterReady && jitterMs <= releaseThreshold
+        val tailJitterHigh = link.p95IpdvMs >= maxOf(highThreshold * 2, 35)
+        val instabilityHigh = link.lossPercent >= 15 || link.spikePercent >= 25
+        val instantHigh = quality.samples >= 3 && jitterReady &&
+            (jitterMs >= highThreshold || tailJitterHigh || instabilityHigh)
+        val instantLow = quality.samples >= 3 && jitterReady && jitterMs <= releaseThreshold &&
+            link.p95IpdvMs <= maxOf(releaseThreshold * 2, 20) && link.lossPercent <= 5 && link.spikePercent <= 10
 
         when {
             instantHigh -> {

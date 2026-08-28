@@ -22,6 +22,7 @@ object XrayConfigHardener {
     // MARBLE_DNS_SERIAL_FAILOVER_V49
     // MARBLE_DNS_BURST_TOLERANCE_V59
     // MARBLE_PATTNG_NATIVE_RANK_V62
+    // MARBLE_REALTIME_ENGINE_V70
     private val infra = setOf("freedom", "blackhole", "dns", "loopback")
     private val compatibilityDependencyProtocols = setOf(
         "freedom", "http", "shadowsocks", "socks", "trojan", "vless", "vmess", "hysteria", "wireguard"
@@ -384,10 +385,11 @@ object XrayConfigHardener {
                             sockopt.put("tcpKeepAliveIdle", liveness.keepAliveIdleSeconds)
                             sockopt.put("tcpKeepAliveInterval", liveness.keepAliveIntervalSeconds)
                             sockopt.put("tcpUserTimeout", liveness.userTimeoutMs)
+                            if (settings.tcpFastOpenEnabled) sockopt.put("tcpFastOpen", true) else sockopt.remove("tcpFastOpen")
+                            if (settings.tcpMaxSeg in 536..9000) sockopt.put("tcpMaxSeg", settings.tcpMaxSeg) else sockopt.remove("tcpMaxSeg")
                         } else {
-                            sockopt.remove("tcpKeepAliveIdle")
-                            sockopt.remove("tcpKeepAliveInterval")
-                            sockopt.remove("tcpUserTimeout")
+                            sockopt.remove("tcpKeepAliveIdle"); sockopt.remove("tcpKeepAliveInterval"); sockopt.remove("tcpUserTimeout")
+                            sockopt.remove("tcpFastOpen"); sockopt.remove("tcpMaxSeg")
                         }
                         if (
                             settings.adaptiveDualStackEnabled &&
@@ -399,10 +401,10 @@ object XrayConfigHardener {
                             sockopt.put(
                                 "happyEyeballs",
                                 JSONObject()
-                                    .put("tryDelayMs", 180)
+                                    .put("tryDelayMs", settings.happyEyeballsTryDelayMs.coerceIn(0, 500))
                                     .put("prioritizeIPv6", settings.ipv6Enabled && settings.preferIpv6)
                                     .put("interleave", 1)
-                                    .put("maxConcurrentTry", 4)
+                                    .put("maxConcurrentTry", settings.happyEyeballsMaxConcurrent.coerceIn(2, 8))
                             )
                         } else {
                             sockopt.remove("happyEyeballs")
