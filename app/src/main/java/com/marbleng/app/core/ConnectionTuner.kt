@@ -1,6 +1,7 @@
 package com.marbleng.app.core
 
 import com.marbleng.app.model.AppSettings
+import com.marbleng.app.model.BenchMode
 import com.marbleng.app.model.ProxyProfile
 import com.marbleng.app.model.WorkloadProfile
 import org.json.JSONObject
@@ -29,6 +30,8 @@ data class AccelerationPlan(
     val muxConcurrency: Int = 0,
     val muxXudpConcurrency: Int = 0,
     val dnsQueryStrategy: String = "",
+    val tcpFastOpen: Boolean = false,
+    val tcpMaxSeg: Int = 0,
     val latencyMs: Double = 0.0,
     val bytesPerSecond: Double = 0.0,
     val gainPercent: Double = 0.0,
@@ -36,7 +39,7 @@ data class AccelerationPlan(
 ) {
     /** True when the method changes nothing, i.e. the node was already configured optimally. */
     val neutral: Boolean
-        get() = !fragment && !mux && dnsQueryStrategy.isBlank()
+        get() = !fragment && !mux && dnsQueryStrategy.isBlank() && !tcpFastOpen && tcpMaxSeg <= 0
 
     fun applyTo(base: AppSettings): AppSettings {
         var next = base
@@ -55,9 +58,9 @@ data class AccelerationPlan(
                 muxXudpConcurrency = muxXudpConcurrency.takeIf { it > 0 } ?: base.muxXudpConcurrency
             )
         }
-        if (dnsQueryStrategy.isNotBlank()) {
-            next = next.copy(dnsQueryStrategy = dnsQueryStrategy)
-        }
+        if (dnsQueryStrategy.isNotBlank()) next = next.copy(dnsQueryStrategy = dnsQueryStrategy)
+        if (tcpFastOpen) next = next.copy(tcpFastOpenEnabled = true)
+        if (tcpMaxSeg > 0) next = next.copy(tcpMaxSeg = tcpMaxSeg)
         return next
     }
 
@@ -72,6 +75,8 @@ data class AccelerationPlan(
         .put("muxConcurrency", muxConcurrency)
         .put("muxXudpConcurrency", muxXudpConcurrency)
         .put("dnsQueryStrategy", dnsQueryStrategy)
+        .put("tcpFastOpen", tcpFastOpen)
+        .put("tcpMaxSeg", tcpMaxSeg)
         .put("latencyMs", latencyMs)
         .put("bytesPerSecond", bytesPerSecond)
         .put("gainPercent", gainPercent)
@@ -91,6 +96,8 @@ data class AccelerationPlan(
             muxConcurrency = o.optInt("muxConcurrency"),
             muxXudpConcurrency = o.optInt("muxXudpConcurrency"),
             dnsQueryStrategy = o.optString("dnsQueryStrategy"),
+            tcpFastOpen = o.optBoolean("tcpFastOpen"),
+            tcpMaxSeg = o.optInt("tcpMaxSeg"),
             latencyMs = o.optDouble("latencyMs", 0.0),
             bytesPerSecond = o.optDouble("bytesPerSecond", 0.0),
             gainPercent = o.optDouble("gainPercent", 0.0),
@@ -106,7 +113,12 @@ data class TuningTrial(
     val success: Int,
     val latencyMs: Double,
     val bytesPerSecond: Double,
-    val score: Double
+    val score: Double,
+    val jitterMs: Double = 0.0,
+    val p95LatencyMs: Double = 0.0,
+    val p95JitterMs: Double = 0.0,
+    val lossPercent: Double = 0.0,
+    val spikePercent: Double = 0.0
 )
 
 data class TuningReport(
@@ -137,6 +149,7 @@ data class TuningReport(
  */
 // MARBLE_FAST_STRATEGY_RACE_V14
 // MARBLE_EXTREME_NETWORK_V30
+// MARBLE_REALTIME_ENGINE_V70
 class ConnectionTuner(
     private val xray: XrayManager,
     private val intelligence: MarbleIntelligence
@@ -334,6 +347,20 @@ class ConnectionTuner(
             emptyList()
         }
 
+        val tcpEligible = !udpNative && profile.transport.lowercase() !in setOf("mkcp", "kcp", "hysteria", "hysteria2")
+        val tfoMethods = if (tcpEligible && base.adaptiveTcpFastOpenEnabled && !base.tcpFastOpenEnabled) {
+            listOf(AccelerationPlan(methodId = "tcp-fast-open", label = "TCP Fast Open", tcpFastOpen = true))
+        } else emptyList()
+        val mssMethods = if (tcpEligible && base.adaptiveMssEnabled && base.tcpMaxSeg <= 0) {
+            val pathMtu = intelligence.learnedPathMtu(profile.id).takeIf { it in 1280..9000 } ?: intelligence.adaptiveMtu(profile, base)
+            val overhead = if (snapshot.hasIpv6) 60 else 40
+            val primary = (pathMtu - overhead).coerceIn(1160, 1460)
+            listOf(
+                AccelerationPlan(methodId = "mss-learned", label = "PMTU-aware MSS $primary", tcpMaxSeg = primary),
+                AccelerationPlan(methodId = "mss-conservative", label = "Conservative MSS ${(primary - 80).coerceAtLeast(1160)}", tcpMaxSeg = (primary - 80).coerceAtLeast(1160))
+            ).distinctBy { it.tcpMaxSeg }
+        } else emptyList()
+
         val comboMethods = buildList {
             val fragment = fragmentMethods.firstOrNull()
             val mux = muxMethods.lastOrNull()
@@ -341,12 +368,14 @@ class ConnectionTuner(
             if (fragment != null && dns != null) add(fragment.copy(methodId="fragment-dns-v4", label="TLS fragmentation + IPv4 endpoint", dnsQueryStrategy="UseIPv4"))
             if (mux != null && dns != null) add(mux.copy(methodId="mux-dns-v4", label="Light Mux + IPv4 endpoint", dnsQueryStrategy="UseIPv4"))
             if (fragment != null && mux != null) add(fragment.copy(methodId="fragment-mux-light", label="TLS fragmentation + light Mux", mux=true, muxConcurrency=4, muxXudpConcurrency=8))
+            val tfo = tfoMethods.firstOrNull(); val mss = mssMethods.firstOrNull()
+            if (tfo != null && mss != null) add(tfo.copy(methodId = "tfo-mss", label = "TCP Fast Open + PMTU MSS", tcpMaxSeg = mss.tcpMaxSeg))
         }
 
         val ordered = when {
-            struggling -> fragmentMethods + comboMethods + dnsMethods + muxMethods
-            highRtt -> muxMethods + comboMethods + dnsMethods + fragmentMethods
-            else -> dnsMethods + muxMethods + fragmentMethods + comboMethods
+            struggling -> fragmentMethods + mssMethods + tfoMethods + dnsMethods + muxMethods + comboMethods
+            highRtt -> tfoMethods + mssMethods + muxMethods + dnsMethods + fragmentMethods + comboMethods
+            else -> tfoMethods + mssMethods + dnsMethods + muxMethods + fragmentMethods + comboMethods
         }
 
         val budget = base.connectTuningMethods.coerceIn(1, 8)
@@ -368,50 +397,27 @@ class ConnectionTuner(
         speedBytes: Int,
         probeTimeoutMs: Int
     ): TuningTrial {
-        val settings = plan.applyTo(base).copy(
-            benchSamples = samples,
-            benchTimeoutSec = (probeTimeoutMs / 1_000).coerceAtLeast(3)
-        )
-        val times = mutableListOf<Double>()
-        var ok = 0
-        var bytesPerSecond = 0.0
-
+        val settings = plan.applyTo(base).copy(benchSamples = samples, benchTimeoutSec = (probeTimeoutMs / 1_000).coerceAtLeast(3))
+        val outcomes = mutableListOf<Int>(); var bytesPerSecond = 0.0
         runCatching {
             xray.temporary(profile, port, settings) { livePort ->
                 repeat(samples) {
-                    val probe = SocksHttpClient.get(
-                        livePort,
-                        LATENCY_HOST,
-                        LATENCY_PATH,
-                        probeTimeoutMs,
-                        32 * 1024
-                    )
-                    if (probe.status in 200..399) {
-                        ok++
-                        times += probe.elapsedMs
-                    }
+                    val p = SocksHttpClient.get(livePort, LATENCY_HOST, LATENCY_PATH, probeTimeoutMs, 32 * 1024)
+                    outcomes += if (p.status in 200..399) kotlin.math.round(p.elapsedMs).toInt().coerceIn(1, 10_000) else -1
                 }
-                if (ok > 0 && speedBytes > 0) {
-                    val download = SocksHttpClient.get(
-                        livePort,
-                        SPEED_HOST,
-                        "/__down?bytes=$speedBytes",
-                        probeTimeoutMs + 4_000,
-                        speedBytes + 16_384
-                    )
-                    if (download.status in 200..299) bytesPerSecond = download.bytesPerSecond
+                if (outcomes.any { it > 0 } && speedBytes > 0) {
+                    val d = SocksHttpClient.get(livePort, SPEED_HOST, "/__down?bytes=$speedBytes", probeTimeoutMs + 4_000, speedBytes + 16_384)
+                    if (d.status in 200..299) bytesPerSecond = d.bytesPerSecond
                 }
             }
         }
-
-        return TuningTrial(
-            methodId = plan.methodId,
-            label = plan.label,
-            success = ok * 100 / samples.coerceAtLeast(1),
-            latencyMs = if (times.isEmpty()) DEAD_LATENCY else times.sorted()[times.size / 2],
-            bytesPerSecond = bytesPerSecond,
-            score = 0.0
-        )
+        val q = LinkQualityEstimator.summarize(outcomes)
+        return TuningTrial(plan.methodId, plan.label, q?.successPercent ?: 0,
+            q?.medianRttMs?.toDouble() ?: DEAD_LATENCY, bytesPerSecond, 0.0,
+            (q?.ewmaJitterMs ?: -1).takeIf { it >= 0 }?.toDouble() ?: 0.0,
+            q?.p95RttMs?.toDouble() ?: 0.0,
+            (q?.p95IpdvMs ?: -1).takeIf { it >= 0 }?.toDouble() ?: 0.0,
+            q?.lossPercent?.toDouble() ?: 100.0, q?.spikePercent?.toDouble() ?: 0.0)
     }
 
     private fun score(
@@ -420,21 +426,13 @@ class ConnectionTuner(
         workload: WorkloadProfile
     ): Double {
         if (trial.success <= 0) return 0.0
-        val latencyScore = 100.0 * exp(-trial.latencyMs.coerceAtLeast(1.0) / 420.0)
-        val speedScore = if (trial.bytesPerSecond <= 0.0) {
-            0.0
-        } else {
-            (100.0 * ln(1.0 + trial.bytesPerSecond / (128.0 * 1024.0)) / ln(65.0)).coerceIn(0.0, 100.0)
-        }
-        val latencyWeight = if (!speedSeen) 1.0 else when (workload) {
-            WorkloadProfile.INTERACTIVE -> 0.80
-            WorkloadProfile.STREAMING -> 0.30
-            WorkloadProfile.STABILITY -> 0.55
-            WorkloadProfile.STEALTH -> 0.65
-            WorkloadProfile.AUTO -> 0.60
-        }
-        val composite = latencyScore * latencyWeight + speedScore * (1.0 - latencyWeight)
-        return composite * (trial.success / 100.0)
+        return RealtimeQualityEngine.score(
+            RealtimeEvidence(trial.success.toDouble(), trial.latencyMs,
+                trial.p95LatencyMs.takeIf { it > 0 } ?: trial.latencyMs,
+                trial.jitterMs, trial.p95JitterMs.takeIf { it > 0 } ?: trial.jitterMs,
+                trial.lossPercent, trial.spikePercent,
+                if (speedSeen) trial.bytesPerSecond else 0.0, samples = if (trial.jitterMs > 0) 2 else 1),
+            workload, BenchMode.BALANCED).selected
     }
 
     /**
@@ -453,13 +451,14 @@ class ConnectionTuner(
             candidate.bytesPerSecond > baseline.bytesPerSecond + 256.0 * 1024.0 -> 1.0
             else -> 0.0
         }
-        val speedSafe = baseline.bytesPerSecond <= 0.0 ||
-            candidate.bytesPerSecond >= baseline.bytesPerSecond * 0.85
+        val speedSafe = baseline.bytesPerSecond <= 0.0 || candidate.bytesPerSecond >= baseline.bytesPerSecond * 0.85
         val latencySafe = candidate.latencyMs <= baseline.latencyMs * 1.12
-
-        return (latencyGain >= 0.12 && speedSafe) ||
-            (speedGain >= 0.22 && latencySafe) ||
-            candidate.success >= baseline.success + 25
+        val jitterSafe = baseline.jitterMs <= 0.0 || candidate.jitterMs <= 0.0 || candidate.jitterMs <= baseline.jitterMs * 1.35 + 4.0
+        val tailSafe = baseline.p95LatencyMs <= 0.0 || candidate.p95LatencyMs <= 0.0 || candidate.p95LatencyMs <= baseline.p95LatencyMs * 1.18 + 10.0
+        val jitterGain = if (baseline.jitterMs > 0.0 && candidate.jitterMs >= 0.0) (baseline.jitterMs - candidate.jitterMs) / baseline.jitterMs else 0.0
+        return (latencyGain >= 0.10 && speedSafe && jitterSafe && tailSafe) ||
+            (speedGain >= 0.22 && latencySafe && jitterSafe) ||
+            (jitterGain >= 0.20 && latencySafe && tailSafe) || candidate.success >= baseline.success + 25
     }
 
     private fun gainPercent(chosen: TuningTrial, baseline: TuningTrial): Double {

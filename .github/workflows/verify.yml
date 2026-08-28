@@ -34,6 +34,26 @@ jobs:
           set -euo pipefail
           jq -e '.xray.tag and .hev.tag' core-lock.json
 
+      - name: Realtime Xray native smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          # MARBLE_REALTIME_ENGINE_V70
+          XRAY_TAG="$(jq -r '.xray.tag' core-lock.json)"
+          XRAY_TMP="$RUNNER_TEMP/xray-realtime-smoke"
+          rm -rf "$XRAY_TMP"
+          git clone --quiet --depth 1 --branch "$XRAY_TAG" https://github.com/XTLS/Xray-core.git "$XRAY_TMP"
+          cp native/rankhelper/main.go "$XRAY_TMP/main/marble_rank.go"
+          python3 scripts/inject-xray-realtime.py "$XRAY_TMP"
+          python3 - "$XRAY_TMP/main/main.go" <<'PYXRAY'
+          from pathlib import Path
+          import sys
+          p=Path(sys.argv[1]);s=p.read_text();old="\t\t\tcmdRun,\n\t\t\tcmdVersion,\n";new="\t\t\tcmdRun,\n\t\t\tcmdVersion,\n\t\t\tcmdMarbleRank,\n"
+          if s.count(old)!=1: raise SystemExit('Pinned Xray command anchor changed')
+          p.write_text(s.replace(old,new,1))
+          PYXRAY
+          (cd "$XRAY_TMP" && env GOTOOLCHAIN=auto go test ./transport/internet ./main)
+
       - name: Reject malformed Compose function types
         shell: bash
         run: |

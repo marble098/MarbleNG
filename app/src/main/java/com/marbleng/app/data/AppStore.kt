@@ -177,6 +177,14 @@ class AppStore(context: Context) {
         dnsQueryStrategy = prefs.getString("dnsQueryStrategy", "UseIP") ?: "UseIP",
         ipv6Enabled = prefs.getBoolean("ipv6Enabled", true),
         preferIpv6 = prefs.getBoolean("preferIpv6", false),
+        // MARBLE_REALTIME_ENGINE_V70
+        adaptiveHappyEyeballsEnabled = prefs.getBoolean("adaptiveHappyEyeballsEnabled", true),
+        happyEyeballsTryDelayMs = prefs.getInt("happyEyeballsTryDelayMs", 60).coerceIn(0, 500),
+        happyEyeballsMaxConcurrent = prefs.getInt("happyEyeballsMaxConcurrent", 4).coerceIn(2, 8),
+        adaptiveTcpFastOpenEnabled = prefs.getBoolean("adaptiveTcpFastOpenEnabled", true),
+        tcpFastOpenEnabled = prefs.getBoolean("tcpFastOpenEnabled", false),
+        adaptiveMssEnabled = prefs.getBoolean("adaptiveMssEnabled", true),
+        tcpMaxSeg = prefs.getInt("tcpMaxSeg", 0).coerceIn(0, 9000),
 
         fragmentEnabled = prefs.getBoolean("fragmentEnabled", false),
         fragmentPackets = prefs.getString("fragmentPackets", "tlshello") ?: "tlshello",
@@ -306,6 +314,13 @@ class AppStore(context: Context) {
         .putString("dnsQueryStrategy", s.dnsQueryStrategy)
         .putBoolean("ipv6Enabled", s.ipv6Enabled)
         .putBoolean("preferIpv6", s.preferIpv6)
+        .putBoolean("adaptiveHappyEyeballsEnabled", s.adaptiveHappyEyeballsEnabled)
+        .putInt("happyEyeballsTryDelayMs", s.happyEyeballsTryDelayMs.coerceIn(0, 500))
+        .putInt("happyEyeballsMaxConcurrent", s.happyEyeballsMaxConcurrent.coerceIn(2, 8))
+        .putBoolean("adaptiveTcpFastOpenEnabled", s.adaptiveTcpFastOpenEnabled)
+        .putBoolean("tcpFastOpenEnabled", s.tcpFastOpenEnabled)
+        .putBoolean("adaptiveMssEnabled", s.adaptiveMssEnabled)
+        .putInt("tcpMaxSeg", s.tcpMaxSeg.coerceIn(0, 9000))
 
         .putBoolean("fragmentEnabled", s.fragmentEnabled)
         .putString("fragmentPackets", s.fragmentPackets)

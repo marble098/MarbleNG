@@ -79,11 +79,20 @@ data class BenchmarkResult(
     val usedMux: Boolean = false,
     /** Evidence tier shown in Library. TCP/ICMP are endpoint reachability; TUNNEL proves Xray. */
     val probeKind: String = "TUNNEL",
-    /** Mean absolute IPDV between consecutive verified warm-tunnel samples. */
+    /** Robust EWMA IPDV; misses break adjacency. MARBLE_REALTIME_ENGINE_V70 */
     val jitterMs: Double = 0.0,
     /** First verified response timing; never used as the final delay when a warmer try wins. */
     val warmupMs: Double = 0.0,
     val sampleCount: Int = 0,
+    val p90LatencyMs: Double = 0.0,
+    val p95LatencyMs: Double = 0.0,
+    val medianJitterMs: Double = 0.0,
+    val p95JitterMs: Double = 0.0,
+    val madLatencyMs: Double = 0.0,
+    val lossPercent: Double = 0.0,
+    val spikePercent: Double = 0.0,
+    /** RTT while a bounded throughput probe was in flight; zero means unknown. */
+    val loadedLatencyMs: Double = 0.0,
     /** Compact stage evidence retained for Bug Finder; never shown as a synthetic ping. */
     val failureReason: String = ""
 )
@@ -222,6 +231,16 @@ data class AppSettings(
     // IPv6 off can never become an operating-system bypass around the protected route.
     val ipv6Enabled: Boolean = true,
     val preferIpv6: Boolean = false,
+
+    // Realtime transport adaptation. MARBLE_REALTIME_ENGINE_V70
+    val adaptiveHappyEyeballsEnabled: Boolean = true,
+    val happyEyeballsTryDelayMs: Int = 60,
+    val happyEyeballsMaxConcurrent: Int = 4,
+    val adaptiveTcpFastOpenEnabled: Boolean = true,
+    val tcpFastOpenEnabled: Boolean = false,
+    val adaptiveMssEnabled: Boolean = true,
+    /** 0 = kernel/default unless a measured Marble Turbo plan supplies an MSS. */
+    val tcpMaxSeg: Int = 0,
 
     val fragmentEnabled: Boolean = false,
     val fragmentPackets: String = "tlshello",

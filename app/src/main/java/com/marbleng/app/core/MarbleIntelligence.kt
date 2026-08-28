@@ -872,7 +872,8 @@ class MarbleIntelligence(private val context: Context) {
                 proxyTransport = profile.transport
             )
         )
-        effectiveMtu = recommendation.mtu
+        val learned = learnedPathMtu(profile.id)
+        effectiveMtu = if (learned in 1280..9000) min(recommendation.mtu, learned) else recommendation.mtu
         return effectiveMtu
     }
 
@@ -948,6 +949,22 @@ class MarbleIntelligence(private val context: Context) {
         }
     }
 
+    private fun pathMtuKey(profileId: String): String = "path-mtu|$profileId|${currentSnapshot().key()}"
+
+    /** Passive kernel PMTU memory; not claimed as full RFC 8899 DPLPMTUD. MARBLE_REALTIME_ENGINE_V70 */
+    fun rememberPathMtu(profileId: String, mtu: Int) {
+        if (profileId.isBlank() || mtu !in 1280..9000) return
+        prefs.edit().putString(pathMtuKey(profileId), "$mtu:${System.currentTimeMillis()}").apply()
+    }
+
+    fun learnedPathMtu(profileId: String): Int {
+        val parts = (prefs.getString(pathMtuKey(profileId), "") ?: "").split(':')
+        val mtu = parts.getOrNull(0)?.toIntOrNull() ?: return 0
+        val at = parts.getOrNull(1)?.toLongOrNull() ?: return 0
+        if (System.currentTimeMillis() - at !in 0L..PATH_MTU_TTL_MS) return 0
+        return mtu.takeIf { it in 1280..9000 } ?: 0
+    }
+
     /**
      * Userspace-tunnel sizing for the node about to carry traffic. Evidence comes from the measured
      * acceleration pass first and from long-run history second; both beat a static guess.
@@ -1013,17 +1030,27 @@ class MarbleIntelligence(private val context: Context) {
             throughputTuned
         }
 
+        val liveHealth = if (settings.healthHistoryEnabled) db.get(profileId, network.key()) else null
+        val jitterCapped = if ((liveHealth?.jitterEwma ?: 0.0) >= 24.0) {
+            // Root-free queue pressure control: reduce Marble/HEV buffering when the route itself is jittery.
+            // This is intentionally not labelled FQ-CoDel. MARBLE_REALTIME_ENGINE_V70
+            TunnelTuning(
+                maxSessions = min(latencyCapped.maxSessions, 3072),
+                tcpBufferBytes = min(latencyCapped.tcpBufferBytes, 65_536),
+                udpBufferBytes = min(latencyCapped.udpBufferBytes, 262_144),
+                label = "${latencyCapped.label}/jitter-pressure"
+            )
+        } else latencyCapped
+
         // Never let a bigger datapath fight the thermal governor for the same silicon.
         return if (thermal < 0.55) {
             TunnelTuning(
-                maxSessions = min(latencyCapped.maxSessions, 2048),
-                tcpBufferBytes = min(latencyCapped.tcpBufferBytes, 65_536),
-                udpBufferBytes = min(latencyCapped.udpBufferBytes, 524_288),
-                label = "${latencyCapped.label}/thermal"
+                maxSessions = min(jitterCapped.maxSessions, 2048),
+                tcpBufferBytes = min(jitterCapped.tcpBufferBytes, 65_536),
+                udpBufferBytes = min(jitterCapped.udpBufferBytes, 262_144),
+                label = "${jitterCapped.label}/thermal"
             )
-        } else {
-            latencyCapped
-        }
+        } else jitterCapped
     }
 
     /**
@@ -1056,14 +1083,17 @@ class MarbleIntelligence(private val context: Context) {
         }
 
         val dnsOrdered = preferredDnsOrder(base)
+        val ipRace = SmartIpRacePolicy.decide(n, db.get(profile.id, n.key()), base.copy(preferIpv6 = effectivePreferIpv6))
 
         // Measured-first policy: history chooses what to test, but never mutates Fragment/Mux by guess.
         // Explicit user settings remain intact, and IranShield may still apply censorship-specific changes.
         val tuned = base.copy(
             dnsQueryStrategy = queryStrategy,
-            preferIpv6 = effectivePreferIpv6,
+            preferIpv6 = ipRace.prioritizeIpv6,
             dnsPrimaryDoH = dnsOrdered.first,
-            dnsSecondaryDoH = dnsOrdered.second
+            dnsSecondaryDoH = dnsOrdered.second,
+            happyEyeballsTryDelayMs = ipRace.tryDelayMs,
+            happyEyeballsMaxConcurrent = ipRace.maxConcurrentTry
         )
 
         // Only a freshly measured acceleration plan may change generic transport tuning.
@@ -1931,5 +1961,6 @@ class MarbleIntelligence(private val context: Context) {
         const val ACCELERATION_PREF = "route-acceleration"
         const val ACCELERATION_LIMIT = 160
         const val ACCELERATION_TTL_MS = 6L * 60L * 60L * 1000L
+        const val PATH_MTU_TTL_MS = 7L * 24L * 60L * 60L * 1000L
     }
 }
