@@ -56,7 +56,7 @@ MarbleNG uses three primary tabs: **Home**, **Library**, and **Settings**.
 - Physical-network label and live upload/download activity.
 - Tunnel and kill-switch state.
 
-The Home title and main connection surface use a fixed layout so changing runtime status text does not move the Connect control.
+The Home title and main connection surface use a fixed layout so changing runtime status text does not move the Connect control. The status title and sentence above the Connect ring are anchored to a reserved block, so a shorter or longer sentence swaps in place instead of pulling the control up and down.
 
 ### Library
 
@@ -89,6 +89,7 @@ The Library UI keeps only functional controls: source selection, sort, Refresh, 
 - Duplicate a profile into Manual storage when enabled.
 - Swipe for quick test / rename actions.
 - See per-card queued/testing progress.
+- The node carrying traffic is highlighted with a painted emerald frame, a verified avatar badge and a `CONNECTED` pill; the row that is still handshaking shows the same frame in violet. The emphasis never resizes the card.
 
 ### Settings
 

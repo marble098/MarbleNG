@@ -5,6 +5,8 @@ package com.marbleng.app.ui
 // MARBLE_PRISM_POLISH_V55
 // MARBLE_GLOBAL_CONTROL_POLISH_DS_V60
 // MARBLE_FLUID_PRISM_STATE_V62
+// MARBLE_ACTIVE_NODE_HALO_DS_V64
+// MARBLE_ANCHORED_STATUS_TEXT_DS_V64
 
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.Canvas
@@ -28,11 +30,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlin.math.PI
 import kotlin.math.sin
@@ -171,12 +176,26 @@ internal fun PrismBackdrop(
     }
 }
 
+/**
+ * Reserve exactly [lines] lines of [style] as a height.
+ *
+ * Runtime status copy changes length the moment a state flips. Unanchored, a sentence that wraps into a
+ * second line pushes every control below it up and down. The conversion runs through the current density
+ * so font scaling keeps the reservation honest instead of clipping the copy.
+ */
+@Composable
+internal fun anchoredTextBlockHeight(style: TextStyle, lines: Int): Dp {
+    val unit=if (style.lineHeight.value.isNaN()) style.fontSize * 1.35f else style.lineHeight
+    return with(LocalDensity.current) { (unit * lines.toFloat()).toDp() }
+}
+
 @Composable
 internal fun PrismPanel(
     modifier: Modifier = Modifier,
     accent: Color = Aether.Cyan,
     selected: Boolean = false,
     contentPadding: PaddingValues = PaddingValues(MarbleSpacing.M),
+    tint: Brush? = null,
     content: @Composable ColumnScope.() -> Unit
 ) {
     val selectedProgress by animateFloatAsState(
@@ -207,6 +226,9 @@ internal fun PrismPanel(
             .border(1.dp,borderBrush,shape)
             .clip(shape)
             .background(surface)
+            // State tint sits above the opaque surface and below the content: a connected row can be
+            // flooded with its state color without repainting or resizing anything inside it.
+            .then(if (tint == null) Modifier else Modifier.background(tint))
     ) {
         Canvas(Modifier.matchParentSize()) {
             val center=Offset(size.width*.08f,size.height*.02f)
@@ -228,6 +250,100 @@ internal fun PrismPanel(
             verticalArrangement=Arrangement.spacedBy(MarbleSpacing.S),
             content=content
         )
+    }
+}
+
+/**
+ * Painted emphasis for the row that currently carries traffic.
+ *
+ * A Library row is a list item: giving one row a real border, radius or padding change resizes it and
+ * shoves every row below it. This frame never participates in measurement — it paints on top of the
+ * finished card, so a connected node keeps the exact box geometry of a disconnected one while the ring,
+ * the inner bloom and the left energy rail announce the live route. Ambient motion is read once here
+ * instead of per row, and callers compose this only while a route is live.
+ */
+@Composable
+internal fun PrismRouteFrame(
+    tone: Color,
+    modifier: Modifier = Modifier,
+    radius: Dp = 22.dp
+) {
+    val motion=MarbleMotion.current
+    val flow=motion.loop(3_400)
+    val breathe=.72f + .28f*motion.breathe(2_600)
+    val accent=Aether.Cyan
+
+    Canvas(modifier) {
+        val ring=(1.15.dp + .75.dp*breathe).toPx()
+        val inset=ring/2f
+        val corner=radius.toPx()
+        drawRoundRect(
+            brush=Brush.linearGradient(
+                colors=listOf(
+                    tone.copy(alpha=.92f),
+                    tone.copy(alpha=.36f),
+                    accent.copy(alpha=.68f)
+                ),
+                start=Offset.Zero,
+                end=Offset(size.width,size.height)
+            ),
+            topLeft=Offset(inset,inset),
+            size=Size(
+                (size.width-ring).coerceAtLeast(0f),
+                (size.height-ring).coerceAtLeast(0f)
+            ),
+            cornerRadius=CornerRadius((corner-inset).coerceAtLeast(0f)),
+            style=Stroke(width=ring,cap=StrokeCap.Round)
+        )
+
+        // Soft light spilling inward from the ring. The bloom only occupies the gutter between the edge
+        // and the card padding, so text keeps its own contrast.
+        repeat(2) { index ->
+            val spread=(4 + index*5).dp.toPx()
+            drawRoundRect(
+                color=tone.copy(alpha=if(index==0) .085f else .05f),
+                topLeft=Offset(spread/2f,spread/2f),
+                size=Size(
+                    (size.width-spread).coerceAtLeast(0f),
+                    (size.height-spread).coerceAtLeast(0f)
+                ),
+                cornerRadius=CornerRadius((corner+spread/2f).coerceAtLeast(0f)),
+                style=Stroke(width=spread)
+            )
+        }
+
+        val rail=2.6.dp.toPx()
+        val railX=6.5.dp.toPx()
+        val railTop=15.dp.toPx()
+        val railBottom=size.height-15.dp.toPx()
+        if(railBottom-railTop > rail*2f) {
+            val span=railBottom-railTop
+            drawRoundRect(
+                brush=Brush.verticalGradient(
+                    colors=listOf(
+                        tone.copy(alpha=.92f),
+                        tone.copy(alpha=.28f),
+                        accent.copy(alpha=.80f)
+                    ),
+                    startY=railTop,
+                    endY=railBottom
+                ),
+                topLeft=Offset(railX,railTop),
+                size=Size(rail,span),
+                cornerRadius=CornerRadius(rail/2f)
+            )
+            val pulseY=railTop+rail+(span-rail*2f)*flow
+            drawCircle(
+                color=tone.copy(alpha=.26f),
+                radius=rail*3.2f,
+                center=Offset(railX+rail/2f,pulseY)
+            )
+            drawCircle(
+                color=tone,
+                radius=rail*.72f,
+                center=Offset(railX+rail/2f,pulseY)
+            )
+        }
     }
 }
 

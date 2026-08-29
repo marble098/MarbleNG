@@ -40,6 +40,8 @@ package com.marbleng.app.ui
 // MARBLE_CONNECTED_CARD_REFINEMENT_UI_V61
 // MARBLE_FLUID_LIBRARY_MOTION_UI_V62
 // MARBLE_LEAN_COPY_LIVE_RANK_UI_V63
+// MARBLE_HOME_STATUS_ANCHOR_UI_V64
+// MARBLE_ACTIVE_NODE_HALO_UI_V64
 
 import android.Manifest
 import android.content.Intent
@@ -881,6 +883,7 @@ private fun HoloGlass(
     modifier: Modifier = Modifier,
     borderColor: Color = Color.Transparent,
     contentPadding: PaddingValues = PaddingValues(16.dp),
+    tint: Brush? = null,
     content: @Composable ColumnScope.() -> Unit
 ) {
     PrismPanel(
@@ -888,6 +891,7 @@ private fun HoloGlass(
         accent=if(borderColor == Color.Transparent) Aether.Cyan else borderColor,
         selected=borderColor != Color.Transparent,
         contentPadding=contentPadding,
+        tint=tint,
         content=content
     )
 }
@@ -999,7 +1003,7 @@ private fun SectionLabel(
 // MARBLE_HOME_VECTOR_ICONS_V36
 private enum class HomeIcon {
     BRAND, POWER, STOP, CANCEL, RESET, SHIELD, TUNNEL, ROUTE,
-    PING, JITTER, QUALITY, NODES, VERIFIED, MODE, BENCHMARK,
+    PING, JITTER, QUALITY, NODES, VERIFIED, CHECK, MODE, BENCHMARK,
     RANK, LIBRARY, PRIVACY, ROUTING, NETWORK, SERVER, DOWNLOAD, UPLOAD,
     DETAILS, SPARK, STATUS, MORE
 }
@@ -1141,6 +1145,13 @@ private fun HomeVectorIcon(
                     moveTo(w*.34f,h*.51f); lineTo(w*.45f,h*.62f); lineTo(w*.67f,h*.39f)
                 }
                 drawPath(check,color,style=line)
+            }
+
+            HomeIcon.CHECK -> {
+                val tick = Path().apply {
+                    moveTo(w*.22f,h*.53f); lineTo(w*.42f,h*.72f); lineTo(w*.78f,h*.29f)
+                }
+                drawPath(tick,color,style=Stroke(width=(m*.16f).coerceAtLeast(1.5f),cap=StrokeCap.Round))
             }
 
             HomeIcon.MODE -> {
@@ -1398,31 +1409,68 @@ private fun MarbleServerAvatar(
     val tone=if(active) Aether.Emerald else Aether.Cyan
     val shape=RoundedCornerShape(17.dp)
 
+    // The badge has to live outside the clipped surface box: a corner sticker inside the rounded
+    // rectangle is cut away by the clip. The outer box keeps the fixed 50dp box, so nothing re-measures.
     Box(
         modifier=modifier
-            .size(50.dp)
-            .border(1.dp,tone.copy(alpha=.32f),shape)
-            .clip(shape)
-            .background(
-                Brush.linearGradient(
-                    listOf(
-                        tone.copy(alpha=.13f),
-                        Aether.Amethyst.copy(alpha=.055f)
-                    )
-                )
-            ),
+            .size(50.dp),
         contentAlignment=Alignment.Center
     ) {
-        Text(
-            label,
-            color=tone,
-            style=if(flag != null || fallback != null) {
-                MaterialTheme.typography.headlineSmall
-            } else {
-                MaterialTheme.typography.titleLarge
-            },
-            fontWeight=FontWeight.Bold
-        )
+        Box(
+            modifier=Modifier
+                .matchParentSize()
+                .border(
+                    if(active) 1.4.dp else 1.dp,
+                    tone.copy(alpha=if(active) .55f else .32f),
+                    shape
+                )
+                .clip(shape)
+                .background(
+                    Brush.linearGradient(
+                        if(active) {
+                            listOf(
+                                tone.copy(alpha=.26f),
+                                tone.copy(alpha=.09f),
+                                Aether.Amethyst.copy(alpha=.11f)
+                            )
+                        } else {
+                            listOf(
+                                tone.copy(alpha=.13f),
+                                Aether.Amethyst.copy(alpha=.055f)
+                            )
+                        }
+                    )
+                ),
+            contentAlignment=Alignment.Center
+        ) {
+            Text(
+                label,
+                color=tone,
+                style=if(flag != null || fallback != null) {
+                    MaterialTheme.typography.headlineSmall
+                } else {
+                    MaterialTheme.typography.titleLarge
+                },
+                fontWeight=FontWeight.Bold
+            )
+        }
+        if(active) {
+            Box(
+                modifier=Modifier
+                    .align(Alignment.BottomEnd)
+                    .offset(x=2.dp,y=2.dp)
+                    .size(16.dp)
+                    .clip(CircleShape)
+                    .background(Aether.Emerald),
+                contentAlignment=Alignment.Center
+            ) {
+                HomeVectorIcon(
+                    HomeIcon.CHECK,
+                    Aether.Void,
+                    Modifier.size(10.dp)
+                )
+            }
+        }
     }
 }
 
@@ -1944,35 +1992,27 @@ private fun HomeOrbitalHero(
         selected=connected || connecting || blocked,
         contentPadding=PaddingValues(14.dp)
     ) {
+        // Home status copy is runtime text. It is anchored to a reserved block so the Connect control
+        // below keeps its exact position while the sentence changes.
         Row(
             modifier=Modifier.fillMaxWidth(),
             verticalAlignment=Alignment.CenterVertically
         ) {
-            Column(Modifier.weight(1f)) {
-                Text(
-                    when {
-                        connected -> "Protected"
-                        connecting -> "Securing route"
-                        blocked -> "Fail-closed"
-                        else -> "Ready to protect"
-                    },
-                    color=Aether.Ink,
-                    style=MaterialTheme.typography.titleLarge,
-                    fontWeight=FontWeight.Bold
-                )
-                Text(
-                    when {
-                        connected -> "Selected route is carrying traffic securely"
-                        connecting -> "Xray is negotiating the route"
-                        blocked -> "Traffic stays blocked until recovery"
-                        else -> "Choose a route or use the last successful server"
-                    },
-                    color=Aether.InkMuted,
-                    style=MaterialTheme.typography.bodySmall,
-                    maxLines=2,
-                    overflow=TextOverflow.Ellipsis
-                )
-            }
+            HomeStatusAnchor(
+                title=when {
+                    connected -> "Protected"
+                    connecting -> "Securing route"
+                    blocked -> "Fail-closed"
+                    else -> "Ready to protect"
+                },
+                detail=when {
+                    connected -> "Selected route is carrying traffic securely"
+                    connecting -> "Xray is negotiating the route"
+                    blocked -> "Traffic stays blocked until recovery"
+                    else -> "Choose a route or use the last successful server"
+                },
+                modifier=Modifier.weight(1f)
+            )
             PrismBadge(
                 text=if(repo.settings.connectionMode == ConnectionMode.FULL_TUN) {
                     "FULL TUN"
@@ -2007,6 +2047,79 @@ private fun HomeOrbitalHero(
     }
 }
 
+/** How much room the Home status sentence may ever occupy. */
+private const val HOME_STATUS_DETAIL_LINES = 2
+
+/**
+ * Fixed-height Home status copy.
+ *
+ * The title and the sentence above the Connect control are runtime state text: they change the moment a
+ * connection state lands and every state has a different length. Unanchored, the shorter sentence freed a
+ * line and pulled the whole Connect surface upward, then pushed it back on the next state. Both lines
+ * reserve their own room here and the swap animates inside the reservation, so the control keeps exactly
+ * one position in every state.
+ */
+@Composable
+private fun HomeStatusAnchor(
+    title: String,
+    detail: String,
+    modifier: Modifier = Modifier
+) {
+    val titleStyle=MaterialTheme.typography.titleLarge
+    val detailStyle=MaterialTheme.typography.bodySmall
+    val titleBlock=anchoredTextBlockHeight(titleStyle, 1)
+    val detailBlock=anchoredTextBlockHeight(detailStyle, HOME_STATUS_DETAIL_LINES)
+
+    Column(
+        modifier=modifier,
+        verticalArrangement=Arrangement.spacedBy(5.dp)
+    ) {
+        AnimatedContent(
+            targetState=title,
+            transitionSpec={
+                (fadeIn(MarbleMotionSpecs.ResponseFloat) +
+                    slideInVertically(MarbleMotionSpecs.Spatial) { it / 3 }) togetherWith
+                    (fadeOut(MarbleMotionSpecs.ExitFloat) +
+                        slideOutVertically(MarbleMotionSpecs.SpatialExit) { -it / 3 })
+            },
+            label="home-status-title-anchor-v64",
+            modifier=Modifier
+                .fillMaxWidth()
+                .heightIn(min=titleBlock)
+        ) { text ->
+            Text(
+                text,
+                color=Aether.Ink,
+                style=titleStyle,
+                fontWeight=FontWeight.Bold,
+                maxLines=1,
+                overflow=TextOverflow.Ellipsis
+            )
+        }
+        AnimatedContent(
+            targetState=detail,
+            transitionSpec={
+                (fadeIn(MarbleMotionSpecs.ResponseFloat) +
+                    slideInVertically(MarbleMotionSpecs.Spatial) { it / 3 }) togetherWith
+                    (fadeOut(MarbleMotionSpecs.ExitFloat) +
+                        slideOutVertically(MarbleMotionSpecs.SpatialExit) { -it / 3 })
+            },
+            label="home-status-detail-anchor-v64",
+            modifier=Modifier
+                .fillMaxWidth()
+                .heightIn(min=detailBlock),
+            contentAlignment=Alignment.TopStart
+        ) { text ->
+            Text(
+                text,
+                color=Aether.InkMuted,
+                style=detailStyle,
+                maxLines=HOME_STATUS_DETAIL_LINES,
+                overflow=TextOverflow.Ellipsis
+            )
+        }
+    }
+}
 
 @Composable
 private fun HomeActionPortal(
@@ -4207,6 +4320,13 @@ private fun SpatialServerCard(
     val health=healthColor(latency,result?.success ?: 0)
     val testing=probeState == ProbeState.TESTING
     val queued=probeState == ProbeState.QUEUED
+    // The handshake belongs to one row as much as the live route does: while Xray negotiates this exact
+    // profile the row keeps the transitional color, then the same frame settles into connected green.
+    val securing=!active &&
+        repo.state == "CONNECTING" &&
+        repo.stateDetail == profile.name
+    val emphasized=active || securing
+    val routeTone=if(active) Aether.Emerald else Aether.Amethyst
     val clipboard=LocalClipboardManager.current
 
     var menuOpen by remember { mutableStateOf(false) }
@@ -4347,356 +4467,399 @@ private fun SpatialServerCard(
             }
         }
     ) {
-        HoloGlass(
-            modifier=Modifier
-                .fillMaxWidth()
-                .animateContentSize(MarbleMotionSpecs.Layout)
-                .kineticClickable(
-                    enabled=!repo.busy && !active,
-                    role=Role.Button
-                ) { onConnect(profile) },
-            // Connection is a status, not a second selection mode. A full emerald Prism
-            // frame changed radius/shadow/glow and made one row look like a different component.
-            // Keep the normal card geometry; only an in-progress test gets a temporary frame.
-            borderColor=if(testing) Aether.Cyan.copy(alpha=.52f) else Color.Transparent,
-            contentPadding=PaddingValues(
-                start=MarbleSpacing.M,
-                top=MarbleSpacing.M,
-                end=MarbleSpacing.S,
-                bottom=MarbleSpacing.M
-            )
-        ) {
-            Row(
-                modifier=Modifier.fillMaxWidth(),
-                verticalAlignment=Alignment.CenterVertically
-            ) {
-                MarbleServerAvatar(
-                    profile=profile,
-                    active=active
-                )
-                Spacer(Modifier.width(MarbleSpacing.M))
-
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        stripLeadingFlag(profile.name),
-                        modifier=Modifier.basicMarquee(
-                            iterations=Int.MAX_VALUE,
-                            initialDelayMillis=1200
-                        ),
-                        color=Aether.Ink,
-                        style=MaterialTheme.typography.titleMedium,
-                        fontWeight=FontWeight.SemiBold,
-                        maxLines=1,
-                        softWrap=false,
-                        overflow=TextOverflow.Clip
-                    )
-                    Spacer(Modifier.height(MarbleSpacing.Micro))
-                    val connectionLine=listOfNotNull(
-                        profile.scheme.uppercase(),
-                        profile.transport.uppercase().takeIf {
-                            it.isNotBlank() && it != "NATIVE"
-                        },
-                        profile.security.uppercase().takeIf {
-                            it.isNotBlank() && !it.equals("NONE",true)
-                        }
-                    ).joinToString(" • ")
-                    Row(
-                        modifier=Modifier.fillMaxWidth(),
-                        verticalAlignment=Alignment.CenterVertically,
-                        horizontalArrangement=Arrangement.spacedBy(7.dp)
-                    ) {
-                        Text(
-                            connectionLine,
-                            modifier=Modifier.weight(1f),
-                            color=Aether.InkMuted,
-                            style=MaterialTheme.typography.labelSmall,
-                            maxLines=1,
-                            overflow=TextOverflow.Ellipsis
+        // The connected row must feel different without becoming a different component: the emphasis is
+        // painted on top of the finished card, so the measured box of the row never changes.
+        Box(modifier=Modifier.fillMaxWidth()) {
+            HoloGlass(
+                modifier=Modifier
+                    .fillMaxWidth()
+                    .animateContentSize(MarbleMotionSpecs.Layout)
+                    .kineticClickable(
+                        enabled=!repo.busy && !active,
+                        role=Role.Button
+                    ) { onConnect(profile) },
+                // Connection is a status, not a second selection mode. The row therefore keeps its exact
+                // radius, padding and measured box, and the live route is announced by painted layers:
+                // a state flood under the content and a halo on top of the finished card. An
+                // in-progress benchmark still gets its own temporary cyan edge.
+                borderColor=if(testing) Aether.Cyan.copy(alpha=.52f) else Color.Transparent,
+                tint=if(emphasized) {
+                    Brush.linearGradient(
+                        listOf(
+                            routeTone.copy(alpha=.10f),
+                            routeTone.copy(alpha=.035f),
+                            Color.Transparent
                         )
-                        AnimatedVisibility(
-                            visible=active,
-                            enter=fadeIn(MarbleMotionSpecs.ResponseFloat)+
-                                scaleIn(initialScale=.72f,animationSpec=MarbleMotionSpecs.InteractionFloat)+
-                                slideInHorizontally(MarbleMotionSpecs.Spatial) { it/2 },
-                            exit=fadeOut(MarbleMotionSpecs.ExitFloat)+
-                                scaleOut(targetScale=.78f,animationSpec=MarbleMotionSpecs.ExitFloat)+
-                                slideOutHorizontally(MarbleMotionSpecs.SpatialExit) { it/2 }
+                    )
+                } else {
+                    null
+                },
+                contentPadding=PaddingValues(
+                    start=MarbleSpacing.M,
+                    top=MarbleSpacing.M,
+                    end=MarbleSpacing.S,
+                    bottom=MarbleSpacing.M
+                )
+            ) {
+                Row(
+                    modifier=Modifier.fillMaxWidth(),
+                    verticalAlignment=Alignment.CenterVertically
+                ) {
+                    MarbleServerAvatar(
+                        profile=profile,
+                        active=active
+                    )
+                    Spacer(Modifier.width(MarbleSpacing.M))
+
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            stripLeadingFlag(profile.name),
+                            modifier=Modifier.basicMarquee(
+                                iterations=Int.MAX_VALUE,
+                                initialDelayMillis=1200
+                            ),
+                            color=Aether.Ink,
+                            style=MaterialTheme.typography.titleMedium,
+                            fontWeight=FontWeight.SemiBold,
+                            maxLines=1,
+                            softWrap=false,
+                            overflow=TextOverflow.Clip
+                        )
+                        Spacer(Modifier.height(MarbleSpacing.Micro))
+                        val connectionLine=listOfNotNull(
+                            profile.scheme.uppercase(),
+                            profile.transport.uppercase().takeIf {
+                                it.isNotBlank() && it != "NATIVE"
+                            },
+                            profile.security.uppercase().takeIf {
+                                it.isNotBlank() && !it.equals("NONE",true)
+                            }
+                        ).joinToString(" • ")
+                        // The route pill shares the line with the protocol summary, and that line reserves
+                        // the pill height, so the badge appearing never resizes the row.
+                        Row(
+                            modifier=Modifier
+                                .fillMaxWidth()
+                                .heightIn(min=24.dp),
+                            verticalAlignment=Alignment.CenterVertically,
+                            horizontalArrangement=Arrangement.spacedBy(7.dp)
                         ) {
-                            Row(
-                                modifier=Modifier
-                                    .semantics { contentDescription="Connected" }
-                                    .clip(RoundedCornerShape(999.dp))
-                                    .background(Aether.Emerald.copy(alpha=.085f))
-                                    .padding(horizontal=7.dp,vertical=5.dp),
-                                verticalAlignment=Alignment.CenterVertically,
-                                horizontalArrangement=Arrangement.spacedBy(5.dp)
+                            Text(
+                                connectionLine,
+                                modifier=Modifier.weight(1f),
+                                color=Aether.InkMuted,
+                                style=MaterialTheme.typography.labelSmall,
+                                maxLines=1,
+                                overflow=TextOverflow.Ellipsis
+                            )
+                            AnimatedVisibility(
+                                visible=emphasized,
+                                enter=fadeIn(MarbleMotionSpecs.ResponseFloat)+
+                                    scaleIn(initialScale=.72f,animationSpec=MarbleMotionSpecs.InteractionFloat)+
+                                    slideInHorizontally(MarbleMotionSpecs.Spatial) { it/2 },
+                                exit=fadeOut(MarbleMotionSpecs.ExitFloat)+
+                                    scaleOut(targetScale=.78f,animationSpec=MarbleMotionSpecs.ExitFloat)+
+                                    slideOutHorizontally(MarbleMotionSpecs.SpatialExit) { it/2 }
                             ) {
-                                Box(
-                                    Modifier
-                                        .size(6.dp)
-                                        .clip(CircleShape)
-                                        .background(Aether.Emerald)
-                                )
-                                HomeVectorIcon(
-                                    HomeIcon.TUNNEL,
-                                    Aether.Emerald,
-                                    Modifier.size(13.dp)
+                                val pillShape=RoundedCornerShape(999.dp)
+                                Row(
+                                    modifier=Modifier
+                                        .semantics {
+                                            contentDescription=if(active) "Connected" else "Connecting"
+                                        }
+                                        .clip(pillShape)
+                                        .background(routeTone.copy(alpha=.14f))
+                                        .border(1.dp,routeTone.copy(alpha=.42f),pillShape)
+                                        .padding(horizontal=8.dp,vertical=4.dp),
+                                    verticalAlignment=Alignment.CenterVertically,
+                                    horizontalArrangement=Arrangement.spacedBy(5.dp)
+                                ) {
+                                    Box(
+                                        Modifier
+                                            .size(6.dp)
+                                            .clip(CircleShape)
+                                            .background(routeTone)
+                                    )
+                                    Text(
+                                        if(active) "CONNECTED" else "SECURING",
+                                        color=routeTone,
+                                        style=MaterialTheme.typography.labelSmall,
+                                        fontWeight=FontWeight.Bold,
+                                        maxLines=1
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    AnimatedVisibility(
+                        visible=latency > 0,
+                        enter=fadeIn(MarbleMotionSpecs.ResponseFloat)+
+                            scaleIn(initialScale=.82f,animationSpec=MarbleMotionSpecs.InteractionFloat)+
+                            slideInHorizontally(MarbleMotionSpecs.Spatial) { it/3 },
+                        exit=fadeOut(MarbleMotionSpecs.ExitFloat)+
+                            scaleOut(targetScale=.86f,animationSpec=MarbleMotionSpecs.ExitFloat)
+                    ) {
+                        Row(verticalAlignment=Alignment.CenterVertically) {
+                        Surface(
+                            shape=RoundedCornerShape(999.dp),
+                            color=health.copy(alpha=.09f),
+                            border=androidx.compose.foundation.BorderStroke(
+                                1.dp,
+                                health.copy(alpha=.32f)
+                            )
+                        ) {
+                            Column(
+                                modifier=Modifier.padding(horizontal=10.dp,vertical=6.dp),
+                                horizontalAlignment=Alignment.End
+                            ) {
+                                AnimatedContent(
+                                    targetState=latency,
+                                    transitionSpec={
+                                        (fadeIn(MarbleMotionSpecs.ResponseFloat)+
+                                            slideInVertically(MarbleMotionSpecs.Spatial) { it/2 }) togetherWith
+                                            (fadeOut(MarbleMotionSpecs.ExitFloat)+
+                                                slideOutVertically(MarbleMotionSpecs.SpatialExit) { -it/2 })
+                                    },
+                                    label="node-latency-value"
+                                ) { value ->
+                                    Text(
+                                        "$value ms",
+                                        color=health,
+                                        style=MaterialTheme.typography.labelLarge.copy(
+                                            fontFamily=FontFamily.Monospace,
+                                            fontWeight=FontWeight.Bold
+                                        )
+                                    )
+                                }
+                                Text(
+                                    libraryPingQuality(latency),
+                                    color=health,
+                                    style=MaterialTheme.typography.labelSmall
                                 )
                             }
                         }
+                        Spacer(Modifier.width(MarbleSpacing.S))
+                        }
+                    }
+
+                    Box {
+                        IconButton(
+                            onClick={ menuOpen=true },
+                            modifier=Modifier.semantics {
+                                contentDescription="More actions for ${profile.name}"
+                            }
+                        ) {
+                            HomeVectorIcon(
+                                HomeIcon.MORE,
+                                Aether.InkMuted,
+                                Modifier.size(19.dp)
+                            )
+                        }
+
+                        DropdownMenu(
+                            expanded=menuOpen,
+                            onDismissRequest={ menuOpen=false },
+                            containerColor=MaterialTheme.colorScheme.surface
+                        ) {
+                            DropdownMenuItem(
+                                text={ Text("Details") },
+                                onClick={
+                                    menuOpen=false
+                                    onDetails()
+                                }
+                            )
+                            DropdownMenuItem(
+                                text={ Text("Copy config link") },
+                                onClick={
+                                    menuOpen=false
+                                    clipboard.setText(
+                                        AnnotatedString(
+                                            profile.raw.trim().ifBlank {
+                                                profile.configJson
+                                            }
+                                        )
+                                    )
+                                    repo.setRuntimeMessage("Config copied")
+                                }
+                            )
+                            DropdownMenuItem(
+                                text={ Text("Copy Xray JSON") },
+                                onClick={
+                                    menuOpen=false
+                                    clipboard.setText(AnnotatedString(profile.configJson))
+                                    repo.setRuntimeMessage("Xray JSON copied")
+                                }
+                            )
+                            if(!profile.scheme.equals("ssh",true)) {
+                                DropdownMenuItem(
+                                    text={ Text("Edit Xray JSON") },
+                                    onClick={
+                                        menuOpen=false
+                                        jsonText=profile.configJson
+                                        jsonOpen=true
+                                    }
+                                )
+                            }
+                            if(repo.settings.manualSourceEnabled) {
+                                DropdownMenuItem(
+                                    text={ Text("Duplicate to Manual") },
+                                    onClick={
+                                        menuOpen=false
+                                        repo.duplicateProfile(
+                                            profile.id,
+                                            profile.subscriptionId
+                                        )
+                                    }
+                                )
+                            }
+                            HorizontalDivider()
+                            DropdownMenuItem(
+                                text={ Text("Test this node") },
+                                onClick={
+                                    menuOpen=false
+                                    repo.fullTest(profile)
+                                }
+                            )
+                            DropdownMenuItem(
+                                text={ Text("Rename") },
+                                onClick={
+                                    menuOpen=false
+                                    onEdit()
+                                }
+                            )
+                            DropdownMenuItem(
+                                text={ Text("Delete",color=Aether.Danger) },
+                                onClick={
+                                    menuOpen=false
+                                    deleteBySwipe=true
+                                }
+                            )
+                        }
+                    }
+                }
+
+                // The endpoint strip is the row's own status surface: it takes the route color so the
+                // live tunnel is readable even while the card is scrolled half off screen.
+                val endpointShape=RoundedCornerShape(13.dp)
+                val endpointTone=if(emphasized) routeTone else Aether.Cyan
+                Row(
+                    modifier=Modifier
+                        .fillMaxWidth()
+                        .clip(endpointShape)
+                        .background(endpointTone.copy(alpha=if(emphasized) .085f else .045f))
+                        .border(
+                            1.dp,
+                            endpointTone.copy(alpha=if(emphasized) .30f else .105f),
+                            endpointShape
+                        )
+                        .padding(horizontal=10.dp,vertical=8.dp),
+                    verticalAlignment=Alignment.CenterVertically,
+                    horizontalArrangement=Arrangement.spacedBy(MarbleSpacing.S)
+                ) {
+                    Text(
+                        "HOST",
+                        color=endpointTone,
+                        style=MaterialTheme.typography.labelSmall,
+                        fontWeight=FontWeight.Bold
+                    )
+                    Text(
+                        profile.host.trim().ifBlank { "Unknown host" },
+                        modifier=Modifier.weight(1f),
+                        color=Aether.InkMuted,
+                        style=MaterialTheme.typography.labelSmall.copy(
+                            fontFamily=FontFamily.Monospace,
+                            fontWeight=FontWeight.SemiBold
+                        ),
+                        maxLines=1,
+                        overflow=TextOverflow.Ellipsis
+                    )
+                    VerticalDivider(
+                        Modifier.height(14.dp),
+                        color=Aether.GlassBorderSoft
+                    )
+                    Text(
+                        "PORT",
+                        color=Aether.InkFaint,
+                        style=MaterialTheme.typography.labelSmall
+                    )
+                    Text(
+                        profile.port.takeIf { it > 0 }?.toString() ?: "—",
+                        color=Aether.Ink,
+                        style=MaterialTheme.typography.labelSmall.copy(
+                            fontFamily=FontFamily.Monospace,
+                            fontWeight=FontWeight.Bold
+                        )
+                    )
+                }
+
+                AnimatedVisibility(
+                    visible=testing || queued,
+                    enter=fadeIn(MarbleMotionSpecs.ResponseFloat)+
+                        expandVertically(MarbleMotionSpecs.Layout),
+                    exit=fadeOut(MarbleMotionSpecs.ExitFloat)+
+                        shrinkVertically(MarbleMotionSpecs.Layout)
+                ) {
+                    Row(
+                        modifier=Modifier
+                            .fillMaxWidth()
+                            .semantics {
+                                contentDescription=if(testing) "Testing node" else "Node queued"
+                            },
+                        horizontalArrangement=Arrangement.spacedBy(MarbleSpacing.S),
+                        verticalAlignment=Alignment.CenterVertically
+                    ) {
+                        HomeVectorIcon(
+                            HomeIcon.BENCHMARK,
+                            if(testing) Aether.Cyan else Aether.InkFaint,
+                            Modifier.size(14.dp)
+                        )
+                        LiveProgressBar(
+                            fraction=if(testing) null else 0f,
+                            modifier=Modifier.weight(1f),
+                            color=Aether.Cyan
+                        )
                     }
                 }
 
                 AnimatedVisibility(
-                    visible=latency > 0,
+                    visible=measured != null || failedResult != null,
                     enter=fadeIn(MarbleMotionSpecs.ResponseFloat)+
-                        scaleIn(initialScale=.82f,animationSpec=MarbleMotionSpecs.InteractionFloat)+
-                        slideInHorizontally(MarbleMotionSpecs.Spatial) { it/3 },
+                        expandVertically(MarbleMotionSpecs.Layout)+
+                        slideInVertically(MarbleMotionSpecs.Spatial) { it/2 },
                     exit=fadeOut(MarbleMotionSpecs.ExitFloat)+
-                        scaleOut(targetScale=.86f,animationSpec=MarbleMotionSpecs.ExitFloat)
+                        shrinkVertically(MarbleMotionSpecs.Layout)
                 ) {
-                    Row(verticalAlignment=Alignment.CenterVertically) {
-                    Surface(
-                        shape=RoundedCornerShape(999.dp),
-                        color=health.copy(alpha=.09f),
-                        border=androidx.compose.foundation.BorderStroke(
-                            1.dp,
-                            health.copy(alpha=.32f)
-                        )
+                    Row(
+                        modifier=Modifier.fillMaxWidth(),
+                        horizontalArrangement=Arrangement.spacedBy(MarbleSpacing.S)
                     ) {
-                        Column(
-                            modifier=Modifier.padding(horizontal=10.dp,vertical=6.dp),
-                            horizontalAlignment=Alignment.End
-                        ) {
-                            AnimatedContent(
-                                targetState=latency,
-                                transitionSpec={
-                                    (fadeIn(MarbleMotionSpecs.ResponseFloat)+
-                                        slideInVertically(MarbleMotionSpecs.Spatial) { it/2 }) togetherWith
-                                        (fadeOut(MarbleMotionSpecs.ExitFloat)+
-                                            slideOutVertically(MarbleMotionSpecs.SpatialExit) { -it/2 })
-                                },
-                                label="node-latency-value"
-                            ) { value ->
-                                Text(
-                                    "$value ms",
-                                    color=health,
-                                    style=MaterialTheme.typography.labelLarge.copy(
-                                        fontFamily=FontFamily.Monospace,
-                                        fontWeight=FontWeight.Bold
-                                    )
-                                )
-                            }
-                            Text(
-                                libraryPingQuality(latency),
-                                color=health,
-                                style=MaterialTheme.typography.labelSmall
+                        if(measured != null) {
+                            HoloBadge(
+                                measured.probeKind,
+                                if(measured.probeKind == "TUNNEL") Aether.Emerald else Aether.Cyan,
+                                compact=true
                             )
+                            HoloBadge("${measured.success}%",Aether.Emerald,compact=true)
+                        } else if(failedResult != null) {
+                            HoloBadge("FAILED",Aether.Danger,compact=true)
                         }
-                    }
-                    Spacer(Modifier.width(MarbleSpacing.S))
-                    }
-                }
-
-                Box {
-                    IconButton(
-                        onClick={ menuOpen=true },
-                        modifier=Modifier.semantics {
-                            contentDescription="More actions for ${profile.name}"
-                        }
-                    ) {
-                        HomeVectorIcon(
-                            HomeIcon.MORE,
-                            Aether.InkMuted,
-                            Modifier.size(19.dp)
-                        )
-                    }
-
-                    DropdownMenu(
-                        expanded=menuOpen,
-                        onDismissRequest={ menuOpen=false },
-                        containerColor=MaterialTheme.colorScheme.surface
-                    ) {
-                        DropdownMenuItem(
-                            text={ Text("Details") },
-                            onClick={
-                                menuOpen=false
-                                onDetails()
-                            }
-                        )
-                        DropdownMenuItem(
-                            text={ Text("Copy config link") },
-                            onClick={
-                                menuOpen=false
-                                clipboard.setText(
-                                    AnnotatedString(
-                                        profile.raw.trim().ifBlank {
-                                            profile.configJson
-                                        }
-                                    )
-                                )
-                                repo.setRuntimeMessage("Config copied")
-                            }
-                        )
-                        DropdownMenuItem(
-                            text={ Text("Copy Xray JSON") },
-                            onClick={
-                                menuOpen=false
-                                clipboard.setText(AnnotatedString(profile.configJson))
-                                repo.setRuntimeMessage("Xray JSON copied")
-                            }
-                        )
-                        if(!profile.scheme.equals("ssh",true)) {
-                            DropdownMenuItem(
-                                text={ Text("Edit Xray JSON") },
-                                onClick={
-                                    menuOpen=false
-                                    jsonText=profile.configJson
-                                    jsonOpen=true
-                                }
-                            )
-                        }
-                        if(repo.settings.manualSourceEnabled) {
-                            DropdownMenuItem(
-                                text={ Text("Duplicate to Manual") },
-                                onClick={
-                                    menuOpen=false
-                                    repo.duplicateProfile(
-                                        profile.id,
-                                        profile.subscriptionId
-                                    )
-                                }
-                            )
-                        }
-                        HorizontalDivider()
-                        DropdownMenuItem(
-                            text={ Text("Test this node") },
-                            onClick={
-                                menuOpen=false
-                                repo.fullTest(profile)
-                            }
-                        )
-                        DropdownMenuItem(
-                            text={ Text("Rename") },
-                            onClick={
-                                menuOpen=false
-                                onEdit()
-                            }
-                        )
-                        DropdownMenuItem(
-                            text={ Text("Delete",color=Aether.Danger) },
-                            onClick={
-                                menuOpen=false
-                                deleteBySwipe=true
-                            }
-                        )
                     }
                 }
             }
 
-            val endpointShape=RoundedCornerShape(13.dp)
-            Row(
-                modifier=Modifier
-                    .fillMaxWidth()
-                    .clip(endpointShape)
-                    .background(Aether.Cyan.copy(alpha=.045f))
-                    .border(
-                        1.dp,
-                        Aether.Cyan.copy(alpha=.105f),
-                        endpointShape
-                    )
-                    .padding(horizontal=10.dp,vertical=8.dp),
-                verticalAlignment=Alignment.CenterVertically,
-                horizontalArrangement=Arrangement.spacedBy(MarbleSpacing.S)
-            ) {
-                Text(
-                    "HOST",
-                    color=Aether.Cyan,
-                    style=MaterialTheme.typography.labelSmall,
-                    fontWeight=FontWeight.Bold
-                )
-                Text(
-                    profile.host.trim().ifBlank { "Unknown host" },
-                    modifier=Modifier.weight(1f),
-                    color=Aether.InkMuted,
-                    style=MaterialTheme.typography.labelSmall.copy(
-                        fontFamily=FontFamily.Monospace,
-                        fontWeight=FontWeight.SemiBold
-                    ),
-                    maxLines=1,
-                    overflow=TextOverflow.Ellipsis
-                )
-                VerticalDivider(
-                    Modifier.height(14.dp),
-                    color=Aether.GlassBorderSoft
-                )
-                Text(
-                    "PORT",
-                    color=Aether.InkFaint,
-                    style=MaterialTheme.typography.labelSmall
-                )
-                Text(
-                    profile.port.takeIf { it > 0 }?.toString() ?: "—",
-                    color=Aether.Ink,
-                    style=MaterialTheme.typography.labelSmall.copy(
-                        fontFamily=FontFamily.Monospace,
-                        fontWeight=FontWeight.Bold
-                    )
-                )
-            }
-
+            // Painted after the card so a connected row is unmistakable, and matchParentSize so the halo
+            // never participates in measurement: the row's box stays identical in every state.
             AnimatedVisibility(
-                visible=testing || queued,
-                enter=fadeIn(MarbleMotionSpecs.ResponseFloat)+
-                    expandVertically(MarbleMotionSpecs.Layout),
-                exit=fadeOut(MarbleMotionSpecs.ExitFloat)+
-                    shrinkVertically(MarbleMotionSpecs.Layout)
+                visible=emphasized,
+                modifier=Modifier.matchParentSize(),
+                enter=fadeIn(MarbleMotionSpecs.ResponseFloat),
+                exit=fadeOut(MarbleMotionSpecs.ExitFloat)
             ) {
-                Row(
-                    modifier=Modifier
-                        .fillMaxWidth()
-                        .semantics {
-                            contentDescription=if(testing) "Testing node" else "Node queued"
-                        },
-                    horizontalArrangement=Arrangement.spacedBy(MarbleSpacing.S),
-                    verticalAlignment=Alignment.CenterVertically
-                ) {
-                    HomeVectorIcon(
-                        HomeIcon.BENCHMARK,
-                        if(testing) Aether.Cyan else Aether.InkFaint,
-                        Modifier.size(14.dp)
-                    )
-                    LiveProgressBar(
-                        fraction=if(testing) null else 0f,
-                        modifier=Modifier.weight(1f),
-                        color=Aether.Cyan
-                    )
-                }
-            }
-
-            AnimatedVisibility(
-                visible=measured != null || failedResult != null,
-                enter=fadeIn(MarbleMotionSpecs.ResponseFloat)+
-                    expandVertically(MarbleMotionSpecs.Layout)+
-                    slideInVertically(MarbleMotionSpecs.Spatial) { it/2 },
-                exit=fadeOut(MarbleMotionSpecs.ExitFloat)+
-                    shrinkVertically(MarbleMotionSpecs.Layout)
-            ) {
-                Row(
-                    modifier=Modifier.fillMaxWidth(),
-                    horizontalArrangement=Arrangement.spacedBy(MarbleSpacing.S)
-                ) {
-                    if(measured != null) {
-                        HoloBadge(
-                            measured.probeKind,
-                            if(measured.probeKind == "TUNNEL") Aether.Emerald else Aether.Cyan,
-                            compact=true
-                        )
-                        HoloBadge("${measured.success}%",Aether.Emerald,compact=true)
-                    } else if(failedResult != null) {
-                        HoloBadge("FAILED",Aether.Danger,compact=true)
-                    }
-                }
+                PrismRouteFrame(
+                    tone=routeTone,
+                    modifier=Modifier.fillMaxSize()
+                )
             }
         }
     }

@@ -70,6 +70,8 @@ Primary surfaces use an 8dp grid:
 
 - compact TopAppBar instead of a repeated oversized page title
 - animated radial connection/quality ring
+- anchored Home status block: the runtime title/sentence reserve their own height, so a shorter
+  sentence never pulls the Connect control upward and a longer one never pushes it down
 - state color concentrated in the ring/control
 - touchable selected-server surface with avatar and chevron
 - explicit Route details row
@@ -85,7 +87,11 @@ Primary surfaces use an 8dp grid:
 - Refresh/Ping/Rank remain distinct filled-tonal actions
 - server avatar uses a real hostname country-code TLD only when available; otherwise protocol initial
 - compact semantic ping badge
-- connected node receives a semantic halo/outline
+- connected node receives a semantic halo/outline painted **on top of** the row: emerald ring, inner
+  bloom, left energy rail with a travelling pulse, a state flood under the content and a verified badge
+  on the avatar. Nothing in that emphasis is measured, so a connected row keeps the exact box of a
+  disconnected one and the list never reflows. While the handshake for that row is still running the
+  same frame shows in violet, the transitional state of the palette.
 - swipe right: edit
 - swipe left: deletion confirmation
 - overflow menu remains available for advanced operations
