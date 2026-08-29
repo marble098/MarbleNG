@@ -261,7 +261,7 @@ internal fun Modifier.prismElevated(
         label="prism-elevation"
     )
     val hairline by animateColorAsState(
-        targetValue=tone.copy(alpha=if (selected) .44f else .20f),
+        targetValue=tone.copy(alpha=if (selected) .44f else .18f),
         animationSpec=MarbleMotionSpecs.Color,
         label="prism-elevation-hairline"
     )
@@ -505,7 +505,7 @@ internal fun PrismButton(
     val hairline: Brush=when {
         !enabled -> SolidColor(Aether.GlassBorderSoft.copy(alpha=.45f))
         filled -> SolidColor(Color.Transparent)
-        variant == PrismButtonVariant.Quiet -> SolidColor(Aether.GlassBorderSoft)
+        variant == PrismButtonVariant.Quiet -> SolidColor(accent.copy(alpha=.30f))
         else -> SolidColor(accent.copy(alpha=if (pressed) .44f else .30f))
     }
 
@@ -1085,7 +1085,7 @@ internal fun PrismConnectionStage(
     modifier: Modifier = Modifier
 ) {
     val surface=Aether.VoidElevated
-    val outline=Aether.GlassBorderSoft
+    val outline=tone.copy(alpha=.18f)
     val muted=Aether.InkMuted
     val phase=MarbleMotion.current.loop(if(connecting) 950 else 1_650)
     val breathe=MarbleMotion.current.breathe(2_400)
@@ -1397,7 +1397,7 @@ internal fun PrismThemeChoice(
     val previewSurface=if(darkPreview) Color(0xFF172337) else Color.White
     val previewText=if(darkPreview) Color(0xFFEAF1FB) else Color(0xFF152339)
     val selectionTone=Aether.Cyan
-    val border=if(selected) selectionTone.copy(alpha=.52f) else Aether.GlassBorderSoft
+    val border=if(selected) selectionTone.copy(alpha=.52f) else accent.copy(alpha=.20f)
 
     Column(
         modifier=modifier
