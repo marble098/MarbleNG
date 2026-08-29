@@ -414,7 +414,7 @@ object SocksHttpClient {
                     val requestPath = "$path${separator}marble=${SystemClock.elapsedRealtimeNanos()}-$index"
                     val request = buildString {
                         append("GET $requestPath HTTP/1.1\r\n")
-                        append("Host: ${httpHostHeader(host, targetPort)}\r\n")
+                        append("Host: ${httpHostHeader(host, 443)}\r\n")
                         append("User-Agent: MarbleNG/1\r\n")
                         append("Accept: */*\r\n")
                         append("Accept-Encoding: identity\r\n")
