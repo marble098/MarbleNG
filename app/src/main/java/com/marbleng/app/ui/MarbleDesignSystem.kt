@@ -9,6 +9,7 @@ package com.marbleng.app.ui
 // MARBLE_ANCHORED_STATUS_TEXT_DS_V64
 // MARBLE_UNIFIED_SURFACE_SYSTEM_DS_V65
 // MARBLE_PRISM_BUTTON_SYSTEM_DS_V65
+// MARBLE_PRISM_RIM_AND_SEARCH_FRAME_DS_V66
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
@@ -21,9 +22,12 @@ import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -35,6 +39,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalDensity
@@ -443,7 +448,7 @@ private fun prismShade(color: Color, amount: Float): Color = Color(
  * detail page — is built from this shape, so an action's importance is expressed by its variant and
  * nothing else. Primary carries a filled, state-tinted skin with a soft colored glow; Secondary is
  * tonal; Quiet is for dismiss/back; Danger owns destructive verbs. Label copy is single-line and
- * centred, and the press response is elevation plus shade, which stays legible at any font scale.
+ * centred, and the press response is shade plus rim, which stays legible at any font scale.
  */
 internal enum class PrismButtonVariant { Primary, Secondary, Quiet, Danger }
 
@@ -487,11 +492,20 @@ internal fun PrismButton(
             )
         )
     }
-    val hairline=when {
-        !enabled -> Aether.GlassBorderSoft
-        filled -> prismLift(accent,.34f).copy(alpha=.55f)
-        variant == PrismButtonVariant.Quiet -> Aether.GlassBorder
-        else -> accent.copy(alpha=if (pressed) .46f else .30f)
+    // The resting rim. A bright "lifted" ring around the fill reads as a white halo hugging the
+    // inner edge of every control on real densities. The edge is now cut with light from above:
+    // a whisper of lift on top, a grounded shade below. The soft glow stays outside the control,
+    // where the shadow already lives.
+    val hairline: Brush=when {
+        !enabled -> SolidColor(Aether.GlassBorderSoft)
+        filled -> Brush.verticalGradient(
+            listOf(
+                prismLift(accent,.10f).copy(alpha=.22f),
+                prismShade(accent,.26f).copy(alpha=.52f)
+            )
+        )
+        variant == PrismButtonVariant.Quiet -> SolidColor(Aether.GlassBorder)
+        else -> SolidColor(accent.copy(alpha=if (pressed) .40f else .26f))
     }
 
     Button(
@@ -499,11 +513,13 @@ internal fun PrismButton(
         enabled=enabled,
         shape=shape,
         interactionSource=interaction,
+        // The Button's own surface shadow stacked a second, untinted shadow under the Prism glow
+        // and muddied the halo around filled buttons. Depth comes from the outer accent shadow.
         elevation=ButtonDefaults.buttonElevation(
-            defaultElevation=if (filled) PrismSurface.ControlElevation else 0.dp,
-            pressedElevation=PrismSurface.PressedElevation,
-            hoveredElevation=if (filled) PrismSurface.ControlElevation else 0.dp,
-            focusedElevation=if (filled) PrismSurface.ControlElevation else 0.dp,
+            defaultElevation=0.dp,
+            pressedElevation=0.dp,
+            hoveredElevation=0.dp,
+            focusedElevation=0.dp,
             disabledElevation=0.dp
         ),
         contentPadding=contentPadding ?: PaddingValues(
@@ -588,7 +604,7 @@ internal fun PrismIconButton(
         label="icon-control-fill"
     )
     val hairline by animateColorAsState(
-        targetValue=if (selected) tone.copy(alpha=.44f) else Aether.GlassBorderSoft,
+        targetValue=if (selected) tone.copy(alpha=.44f) else Aether.GlassBorder,
         animationSpec=MarbleMotionSpecs.Color,
         label="icon-control-hairline"
     )
@@ -696,7 +712,7 @@ internal fun PrismSelectionTile(
         label="selection-fill"
     )
     val hairline by animateColorAsState(
-        targetValue=if (selected) tone.copy(alpha=.46f) else Aether.GlassBorderSoft,
+        targetValue=if (selected) tone.copy(alpha=.46f) else Aether.GlassBorder,
         animationSpec=MarbleMotionSpecs.Color,
         label="selection-hairline"
     )
@@ -1289,21 +1305,35 @@ internal fun PrismSearchField(
     placeholder: String,
     modifier: Modifier = Modifier
 ) {
-    val shape=RoundedCornerShape(20.dp)
-    TextField(
-        value=value,
-        onValueChange=onValueChange,
-        modifier=modifier.heightIn(min=54.dp),
-        placeholder={
-            Text(
-                placeholder,
-                color=Aether.InkFaint,
-                style=MaterialTheme.typography.bodyMedium
-            )
-        },
-        leadingIcon={
-            val iconColor=Aether.InkMuted
-            Canvas(Modifier.size(20.dp)) {
+    // A controlled well instead of a bare M3 TextField. The standard field shipped its own 56dp
+    // box, a hidden underline indicator and internal padding geometry, so on the Library it sat
+    // a few points taller than the button beside it with no visible frame at all and the row
+    // read as broken. This field owns its geometry: one exact control height, one recessed
+    // fill, one hairline that answers the cursor.
+    val shape=RoundedCornerShape(PrismSurface.ControlRadius)
+    var focused by remember { mutableStateOf(false) }
+    val frame by animateColorAsState(
+        targetValue=if (focused) Aether.Cyan.copy(alpha=.65f) else Aether.GlassBorder,
+        animationSpec=MarbleMotionSpecs.Color,
+        label="search-frame"
+    )
+
+    Box(
+        modifier=modifier
+            .height(PrismSurface.ControlHeight)
+            .clip(shape)
+            .background(Aether.GlassStrong.copy(alpha=.55f))
+            .border(PrismSurface.Hairline,frame,shape),
+        contentAlignment=Alignment.Center
+    ) {
+        Row(
+            modifier=Modifier
+                .fillMaxWidth()
+                .padding(horizontal=14.dp),
+            verticalAlignment=Alignment.CenterVertically
+        ) {
+            val iconColor=if (focused) Aether.Cyan else Aether.InkMuted
+            Canvas(Modifier.size(19.dp)) {
                 drawCircle(
                     color=iconColor,
                     radius=size.minDimension*.28f,
@@ -1318,20 +1348,29 @@ internal fun PrismSearchField(
                     cap=StrokeCap.Round
                 )
             }
-        },
-        singleLine=true,
-        shape=shape,
-        colors=TextFieldDefaults.colors(
-            focusedTextColor=Aether.Ink,
-            unfocusedTextColor=Aether.Ink,
-            cursorColor=Aether.Cyan,
-            focusedContainerColor=Aether.VoidElevated,
-            unfocusedContainerColor=Aether.VoidElevated,
-            disabledContainerColor=Aether.GlassStrong,
-            focusedIndicatorColor=Color.Transparent,
-            unfocusedIndicatorColor=Color.Transparent
-        )
-    )
+            Spacer(Modifier.width(10.dp))
+            BasicTextField(
+                value=value,
+                onValueChange=onValueChange,
+                singleLine=true,
+                modifier=Modifier.weight(1f),
+                textStyle=MaterialTheme.typography.bodyMedium.copy(color=Aether.Ink),
+                cursorBrush=SolidColor(Aether.Cyan),
+                decorationBox={ innerField ->
+                    Column {
+                        innerField()
+                    }
+                    if (value.isEmpty()) {
+                        Text(
+                            placeholder,
+                            color=Aether.InkFaint,
+                            style=MaterialTheme.typography.bodyMedium
+                        )
+                    }
+                }
+            )
+        }
+    }
 }
 
 @Composable
