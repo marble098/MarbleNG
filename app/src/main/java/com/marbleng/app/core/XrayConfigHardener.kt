@@ -23,6 +23,7 @@ object XrayConfigHardener {
     // MARBLE_DNS_BURST_TOLERANCE_V59
     // MARBLE_PATTNG_NATIVE_RANK_V62
     // MARBLE_REALTIME_ENGINE_V70
+    // MARBLE_UNIFIED_ADDRESS_FAMILY_V65
     private val infra = setOf("freedom", "blackhole", "dns", "loopback")
     private val compatibilityDependencyProtocols = setOf(
         "freedom", "http", "shadowsocks", "socks", "trojan", "vless", "vmess", "hysteria", "wireguard"
@@ -143,7 +144,12 @@ object XrayConfigHardener {
      * A CLI child needs one local SOCKS inbound (gomobile core.Dial does not), but everything not
      * required to establish the selected outbound is removed so repeated Rank runs are isolated.
      */
-    fun hardenForDelayTest(source: String, socksPort: Int): String {
+    fun hardenForDelayTest(
+        source: String,
+        socksPort: Int,
+        settings: AppSettings = AppSettings(),
+        underlayHasIpv6: Boolean = AddressFamilyPolicy.underlayHasIpv6()
+    ): String {
         require(socksPort in 1..65535) { "Invalid delay-test SOCKS port" }
         val root = JSONObject(source)
         val imported = root.optJSONArray("outbounds") ?: error("Xray JSON has no outbounds")
@@ -177,6 +183,11 @@ object XrayConfigHardener {
         required.forEach { tag ->
             byTag[tag]?.let { outbound ->
                 outbound.remove("mux")
+                // Same family plan as the tunnel, so a measured delay describes the path the user
+                // will actually get instead of the one the OS resolver happened to prefer.
+                if (endpointDomains(outbound).isNotEmpty()) {
+                    applyAddressFamily(outbound, settings, underlayHasIpv6)
+                }
                 outbounds.put(outbound)
             }
         }
@@ -208,16 +219,51 @@ object XrayConfigHardener {
      */
     fun hardenForNativeRank(
         source: String,
-        settings: AppSettings = AppSettings()
+        settings: AppSettings = AppSettings(),
+        underlayHasIpv6: Boolean = AddressFamilyPolicy.underlayHasIpv6()
     ): String {
         // The local port is discarded with the inbounds below; it exists only so production
         // hardening executes through exactly the same code path.
         val root = JSONObject(harden(source, 19091, settings))
         root.put("inbounds", JSONArray())
+        // Xray installs its *system* resolver whenever a config has no dns app, so removing the
+        // section did not just simplify the rank instance — it made ranking resolve node hostnames in
+        // plaintext over the underlay and pick a family by luck, while the real tunnel used encrypted
+        // DoH with an explicit order. The rank config therefore keeps a dns app, rewritten to the
+        // underlay-local DoH form so ranking does not depend on the tunnel it is measuring.
         listOf(
-            "dns", "fakedns", "routing", "stats", "policy", "api", "reverse", "metrics",
+            "fakedns", "routing", "stats", "policy", "api", "reverse", "metrics",
             "observatory", "burstObservatory"
         ).forEach(root::remove)
+
+        val rankResolvers = listOf(settings.dnsPrimaryIp, settings.dnsSecondaryIp)
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .distinct()
+        val rankPlan = AddressFamilyPolicy.plan(settings = settings)
+        if (rankResolvers.isEmpty()) {
+            root.remove("dns")
+        } else {
+            root.put(
+                "dns",
+                JSONObject()
+                    .put(
+                        "servers",
+                        JSONArray(
+                            rankResolvers.map { resolver ->
+                                JSONObject().put(
+                                    "address",
+                                    "https+local://${dnsHostLiteral(resolver)}/dns-query"
+                                )
+                            }
+                        )
+                    )
+                    .put("queryStrategy", rankPlan.dnsQueryStrategy)
+                    .put("disableCache", false)
+                    .put("useSystemHosts", false)
+                    .put("tag", "xgc-dns")
+            )
+        }
 
         root.optJSONArray("outbounds")?.let { outbounds ->
             for (index in 0 until outbounds.length()) {
@@ -339,6 +385,17 @@ object XrayConfigHardener {
             byTag[tag]?.let { bootstrapDomains += endpointDomains(it) }
         }
 
+        // One underlay probe per config build. Both the endpoint strategies and the DNS record
+        // selection are derived from it, so "IPv6 enabled" can never mean different things in two
+        // parts of the same config.
+        val underlayHasIpv6 = AddressFamilyPolicy.underlayHasIpv6()
+        // The config-level plan: DNS record selection and the IPv6 block rule are decided once here
+        // so they can never disagree with the per-outbound endpoint plans below.
+        val dnsPlan = AddressFamilyPolicy.plan(
+            settings = settings,
+            underlayHasIpv6 = underlayHasIpv6
+        )
+
         val out = JSONArray()
         keep.forEach { tag ->
             byTag[tag]?.let { outbound ->
@@ -348,66 +405,31 @@ object XrayConfigHardener {
                 outbound.remove("sendThrough")
 
                 if (endpointDomains(outbound).isNotEmpty()) {
-                    val protocol = outbound.optString("protocol").lowercase()
-                    if (protocol == "wireguard") {
-                        val settingsObject = outbound.optJSONObject("settings")
-                            ?: JSONObject().also { outbound.put("settings", it) }
-                        settingsObject.put(
-                            "domainStrategy",
-                            when {
-                                !settings.ipv6Enabled -> "ForceIPv4"
-                                settings.preferIpv6 -> "ForceIPv6v4"
-                                else -> forceDomainStrategy(
-                                    settingsObject.optString("domainStrategy"),
-                                    settings.dnsQueryStrategy
-                                )
-                            }
-                        )
-                    } else {
-                        val stream = outbound.optJSONObject("streamSettings")
-                            ?: JSONObject().also { outbound.put("streamSettings", it) }
-                        val sockopt = stream.optJSONObject("sockopt")
-                            ?: JSONObject().also { stream.put("sockopt", it) }
-                        val endpointStrategy = when {
-                            !settings.ipv6Enabled -> "ForceIPv4"
-                            settings.preferIpv6 -> "ForceIPv6v4"
-                            else -> forceDomainStrategy(
-                                sockopt.optString("domainStrategy"),
-                                settings.dnsQueryStrategy
-                            )
-                        }
-                        sockopt.put("domainStrategy", endpointStrategy)
-                        val chained = outbound.optJSONObject("proxySettings")?.optString("tag")?.isNotBlank() == true
-                        val method = stream.optString("method").lowercase()
+                    applyAddressFamily(outbound, settings, underlayHasIpv6)
+
+                    // Liveness tuning belongs to the long-lived tunnel only: a throwaway delay test
+                    // never keeps a socket open long enough for keep-alives to matter.
+                    val streamObject = outbound.optJSONObject("streamSettings")
+                    val sockoptObject = streamObject?.optJSONObject("sockopt")
+                    if (
+                        sockoptObject != null &&
+                        outbound.optString("protocol").lowercase() != "wireguard"
+                    ) {
+                        val method = streamObject.optString("method").lowercase()
                         val tcpTransport = method !in setOf("hysteria", "mkcp")
+                        val chained = outbound.optJSONObject("proxySettings")
+                            ?.optString("tag")
+                            ?.isNotBlank() == true
                         if (tcpTransport) {
                             val liveness = SocketLivenessPolicy.forTransport(method, chained)
-                            sockopt.put("tcpKeepAliveIdle", liveness.keepAliveIdleSeconds)
-                            sockopt.put("tcpKeepAliveInterval", liveness.keepAliveIntervalSeconds)
-                            sockopt.put("tcpUserTimeout", liveness.userTimeoutMs)
-                            if (settings.tcpFastOpenEnabled) sockopt.put("tcpFastOpen", true) else sockopt.remove("tcpFastOpen")
-                            if (settings.tcpMaxSeg in 536..9000) sockopt.put("tcpMaxSeg", settings.tcpMaxSeg) else sockopt.remove("tcpMaxSeg")
+                            sockoptObject.put("tcpKeepAliveIdle", liveness.keepAliveIdleSeconds)
+                            sockoptObject.put("tcpKeepAliveInterval", liveness.keepAliveIntervalSeconds)
+                            sockoptObject.put("tcpUserTimeout", liveness.userTimeoutMs)
+                            if (settings.tcpFastOpenEnabled) sockoptObject.put("tcpFastOpen", true) else sockoptObject.remove("tcpFastOpen")
+                            if (settings.tcpMaxSeg in 536..9000) sockoptObject.put("tcpMaxSeg", settings.tcpMaxSeg) else sockoptObject.remove("tcpMaxSeg")
                         } else {
-                            sockopt.remove("tcpKeepAliveIdle"); sockopt.remove("tcpKeepAliveInterval"); sockopt.remove("tcpUserTimeout")
-                            sockopt.remove("tcpFastOpen"); sockopt.remove("tcpMaxSeg")
-                        }
-                        if (
-                            settings.adaptiveDualStackEnabled &&
-                            endpointStrategy in setOf("ForceIP", "ForceIPv4v6", "ForceIPv6v4") &&
-                            tcpTransport &&
-                            !chained &&
-                            sockopt.optString("dialerProxy").isBlank()
-                        ) {
-                            sockopt.put(
-                                "happyEyeballs",
-                                JSONObject()
-                                    .put("tryDelayMs", settings.happyEyeballsTryDelayMs.coerceIn(0, 500))
-                                    .put("prioritizeIPv6", settings.ipv6Enabled && settings.preferIpv6)
-                                    .put("interleave", 1)
-                                    .put("maxConcurrentTry", settings.happyEyeballsMaxConcurrent.coerceIn(2, 8))
-                            )
-                        } else {
-                            sockopt.remove("happyEyeballs")
+                            sockoptObject.remove("tcpKeepAliveIdle"); sockoptObject.remove("tcpKeepAliveInterval"); sockoptObject.remove("tcpUserTimeout")
+                            sockoptObject.remove("tcpFastOpen"); sockoptObject.remove("tcpMaxSeg")
                         }
                     }
                 }
@@ -419,7 +441,19 @@ object XrayConfigHardener {
         if (fragmentOutbound != null) out.put(fragmentOutbound)
 
         if (needsDirect) {
-            out.put(JSONObject().put("tag", "direct").put("protocol", "freedom"))
+            // Direct routes must honour the same family plan as the tunnel: a Freedom outbound left
+            // on AsIs hands the hostname to the OS resolver and dials whichever answer arrives first,
+            // which is how "IPv6 enabled" could still never use IPv6 — and how an IPv4-only user could
+            // still leak AAAA lookups.
+            out.put(
+                JSONObject()
+                    .put("tag", "direct")
+                    .put("protocol", "freedom")
+                    .put(
+                        "settings",
+                        JSONObject().put("domainStrategy", dnsPlan.dnsQueryStrategy)
+                    )
+            )
         }
 
         // Traditional Android DNS packets are intercepted before they can emerge as plaintext
@@ -460,13 +494,10 @@ object XrayConfigHardener {
         src.put("inbounds", JSONArray().put(inbound))
         src.put("outbounds", out)
 
-        val queryStrategy = if (!settings.ipv6Enabled) {
-            "UseIPv4"
-        } else {
-            settings.dnsQueryStrategy.takeIf {
-                it in setOf("UseIP", "UseIPv4", "UseIPv6", "UseSystem")
-            } ?: "UseIP"
-        }
+        // The engine only accepts UseIP / UseIPv4 / UseIPv6 for dns.queryStrategy; anything else is
+        // a hard config error, and the value must agree with the endpoint strategies written above or
+        // an IPv6-preferred node is starved of AAAA records.
+        val queryStrategy = dnsPlan.dnsQueryStrategy
 
         val bootstrapIps = listOf(settings.dnsPrimaryIp, settings.dnsSecondaryIp)
             .map { it.trim() }
@@ -505,7 +536,7 @@ object XrayConfigHardener {
             bootstrapIps.forEach { ip ->
                 dnsServers.put(
                     JSONObject()
-                        .put("address", "https+local://$ip/dns-query")
+                        .put("address", "https+local://${dnsHostLiteral(ip)}/dns-query")
                         .put("domains", JSONArray(bootstrapDomains.map { "full:$it" }))
                         .put("skipFallback", true)
                         .put("queryStrategy", queryStrategy)
@@ -587,8 +618,10 @@ object XrayConfigHardener {
                 .put("outboundTag", firstTag)
         )
 
-        // Android VPN always captures ::/0. Blocking here prevents an OS-level IPv6 bypass.
-        if (!settings.ipv6Enabled) {
+        // Android VPN always captures ::/0. When the user turned IPv6 off, blocking here prevents
+        // an OS-level IPv6 bypass; when it is on, the same prefix must stay routable or the tunnel
+        // would black-hole its own preferred family.
+        if (dnsPlan.blockIpv6Traffic) {
             addIpRule(rules, listOf("::/0"), "block")
         }
 
@@ -672,7 +705,7 @@ object XrayConfigHardener {
         listOf("api", "reverse", "metrics", "stats", "observatory", "burstObservatory", "fakedns")
             .forEach(src::remove)
 
-        verify(src, socksPort, firstTag, needsDirect, settings)
+        verify(src, socksPort, firstTag, needsDirect, settings, underlayHasIpv6)
         return src.toString(2)
     }
 
@@ -723,57 +756,77 @@ object XrayConfigHardener {
         return host.lowercase()
     }
 
+    /**
+     * Write the address-family plan onto one outbound's endpoint resolution.
+     *
+     * The live tunnel, the CLI delay test and the in-process native rank instance call this, so a
+     * node is always measured over the same family it will be used over — and so that "IPv6 enabled"
+     * cannot mean one thing in the tunnel and another in the probes.
+     */
+    private fun applyAddressFamily(
+        outbound: JSONObject,
+        settings: AppSettings,
+        underlayHasIpv6: Boolean
+    ): IpFamilyPlan {
+        val protocol = outbound.optString("protocol").lowercase()
+        val stream = outbound.optJSONObject("streamSettings")
+        val sockopt = stream?.optJSONObject("sockopt")
+        val chained = outbound.optJSONObject("proxySettings")
+            ?.optString("tag")
+            ?.isNotBlank() == true
+        val method = stream?.optString("method").orEmpty().lowercase()
+        // WireGuard is UDP-only, and a v6-only plan has a single family to dial, so neither can use
+        // Xray's TCP race; they get a deterministic address order instead.
+        val tcpTransport = protocol != "wireguard" && method !in setOf("hysteria", "mkcp")
+        val plan = AddressFamilyPolicy.plan(
+            settings = settings,
+            underlayHasIpv6 = underlayHasIpv6,
+            tcpTransport = tcpTransport,
+            chained = chained,
+            dialerProxy = sockopt?.optString("dialerProxy").orEmpty(),
+            importedStrategy = sockopt?.optString("domainStrategy")
+                ?: outbound.optJSONObject("settings")?.optString("domainStrategy").orEmpty()
+        )
+
+        if (protocol == "wireguard") {
+            val settingsObject = outbound.optJSONObject("settings")
+                ?: JSONObject().also { outbound.put("settings", it) }
+            settingsObject.put("domainStrategy", plan.endpointStrategy)
+            return plan
+        }
+
+        val streamObject = stream ?: JSONObject().also { outbound.put("streamSettings", it) }
+        val sockoptObject = streamObject.optJSONObject("sockopt")
+            ?: JSONObject().also { streamObject.put("sockopt", it) }
+        // Every hostname endpoint is resolved by the engine's own DNS module. Leaving the strategy at
+        // AsIs would hand the node hostname to the OS resolver again, which is both an anti-leak hole
+        // and the reason a v6-only node could never be reached.
+        sockoptObject.put("domainStrategy", plan.endpointStrategy)
+        // Xray races only when tryDelayMs and maxConcurrentTry are both non-zero, and its own default
+        // disables the race — so an armed plan must always write the block, and a plan that cannot race
+        // must always remove it instead of leaving "ForceIP", which means "pick one address at random".
+        if (plan.raceEnabled) {
+            sockoptObject.put(
+                "happyEyeballs",
+                JSONObject()
+                    .put("tryDelayMs", plan.tryDelayMs)
+                    .put("prioritizeIPv6", plan.prioritizeIpv6)
+                    .put("interleave", 1)
+                    .put("maxConcurrentTry", plan.maxConcurrentTry)
+            )
+        } else {
+            sockoptObject.remove("happyEyeballs")
+        }
+        return plan
+    }
+
+    /** An IPv6 resolver literal only parses inside brackets; an IPv4 one must stay untouched. */
+    private fun dnsHostLiteral(value: String): String =
+        if (value.contains(':') && !value.startsWith("[")) "[$value]" else value
+
     private fun fragmentEligible(protocol: String, method: String): Boolean =
         protocol in setOf("http", "shadowsocks", "socks", "trojan", "vless", "vmess") &&
             method !in setOf("hysteria", "mkcp")
-
-    private fun forceDomainStrategy(
-        current: String,
-        queryStrategy: String
-    ): String {
-        // Physical single-stack networks remain strict. Dual-stack defaults to ForceIP so Xray
-        // can race IPv4/IPv6 instead of silently falling back to forced IPv4.
-        if (
-            queryStrategy ==
-            "UseIPv4"
-        ) {
-            return "ForceIPv4"
-        }
-
-        if (
-            queryStrategy ==
-            "UseIPv6"
-        ) {
-            return "ForceIPv6"
-        }
-
-        return when (current) {
-            "ForceIP",
-            "ForceIPv4",
-            "ForceIPv6",
-            "ForceIPv4v6",
-            "ForceIPv6v4" ->
-                current
-
-            "UseIP" ->
-                "ForceIP"
-
-            "UseIPv6" ->
-                "ForceIPv6"
-
-            "UseIPv4v6" ->
-                "ForceIPv4v6"
-
-            "UseIPv6v4" ->
-                "ForceIPv6v4"
-
-            "UseIPv4" ->
-                "ForceIPv4"
-
-            else ->
-                "ForceIP"
-        }
-    }
 
     private fun addDomainRule(rules: JSONArray, values: List<String>, outboundTag: String) {
         if (values.isEmpty()) return
@@ -847,7 +900,8 @@ object XrayConfigHardener {
     port: Int,
     selectedTag: String,
     needsDirect: Boolean,
-    settings: AppSettings
+    settings: AppSettings,
+    underlayHasIpv6: Boolean = AddressFamilyPolicy.underlayHasIpv6()
 ) {
     val ins = o.getJSONArray("inbounds")
     require(
@@ -922,6 +976,67 @@ object XrayConfigHardener {
             if (!raw.equals("private", true) && !raw.equals("geoip:private", true)) {
                 normalizeGeoIpTag(raw)?.let { tag ->
                     require(hasIp(tag, "direct")) { "Missing direct IP route: $tag" }
+                }
+            }
+        }
+
+        // MARBLE_UNIFIED_ADDRESS_FAMILY_V65 — the address family decision has to be visible in the
+        // emitted config, because every failure mode in this area is silent: the engine accepts a
+        // half-written policy and simply keeps dialling IPv4.
+        // Same underlay verdict the config was built with, so a mid-flight network change cannot
+        // make a correct config look like a violated invariant.
+        val familyPlan = AddressFamilyPolicy.plan(
+            settings = settings,
+            underlayHasIpv6 = underlayHasIpv6
+        )
+        require(dns.optString("queryStrategy") == familyPlan.dnsQueryStrategy) {
+            "DNS record strategy disagrees with the IPv6 setting"
+        }
+        dns.optJSONArray("servers")?.let { servers ->
+            for (index in 0 until servers.length()) {
+                val server = servers.optJSONObject(index) ?: continue
+                require(server.optString("queryStrategy") == familyPlan.dnsQueryStrategy) {
+                    "A DNS server entry disagrees with the IPv6 setting"
+                }
+            }
+        }
+        if (familyPlan.blockIpv6Traffic) {
+            require(hasIp("::/0", "block")) { "IPv6 is disabled but ::/0 is not blocked" }
+            // No hostname endpoint may keep a v6-capable strategy while the user excluded IPv6.
+            for (index in 0 until outs.length()) {
+                val outbound = outs.optJSONObject(index) ?: continue
+                if (endpointDomains(outbound).isEmpty()) continue
+                val strategy = outbound.optJSONObject("streamSettings")?.optJSONObject("sockopt")
+                    ?.optString("domainStrategy").orEmpty()
+                    .ifBlank { outbound.optJSONObject("settings")?.optString("domainStrategy").orEmpty() }
+                require(strategy.isBlank() || strategy == "ForceIPv4" || strategy == "UseIPv4") {
+                    "IPv6 is disabled but $strategy was written for ${outbound.optString("tag")}"
+                }
+            }
+        }
+        for (index in 0 until outs.length()) {
+            val outbound = outs.optJSONObject(index) ?: continue
+            // Only hostname endpoints resolve a family at dial time; a config that already carries a
+            // literal address is left exactly as its author wrote it.
+            if (endpointDomains(outbound).isEmpty()) continue
+            val sockopt = outbound.optJSONObject("streamSettings")?.optJSONObject("sockopt") ?: continue
+            val strategy = sockopt.optString("domainStrategy")
+            if (strategy.isBlank()) continue
+            require(strategy in AddressFamilyPolicy.ENDPOINT_STRATEGIES) {
+                "Unsupported endpoint domainStrategy: $strategy"
+            }
+            // ForceIP without an armed race is Xray's "pick one address at random" path. That is the
+            // exact defect users reported as "IPv6 never activates", so it can never ship.
+            if (strategy == "ForceIP") {
+                val race = sockopt.optJSONObject("happyEyeballs")
+                require(
+                    race != null &&
+                        race.optInt("tryDelayMs") >= AddressFamilyPolicy.MIN_TRY_DELAY_MS &&
+                        race.optInt("maxConcurrentTry") >= AddressFamilyPolicy.MIN_CONCURRENT_TRY
+                ) { "Dual-stack endpoint left without an armed Happy Eyeballs race" }
+            } else {
+                require(!sockopt.has("happyEyeballs")) {
+                    "Happy Eyeballs written for a single-family endpoint strategy"
                 }
             }
         }

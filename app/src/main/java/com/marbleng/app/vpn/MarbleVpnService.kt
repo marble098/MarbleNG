@@ -600,19 +600,35 @@ class MarbleVpnService : VpnService() {
             if (upstream.isNotEmpty()) runCatching { builder.setUnderlyingNetworks(upstream.toTypedArray()) }
         }
 
-        var dnsCount = 0
+        // This resolver list is what apps use whenever the encrypted DNS hijack is not answering,
+        // and it is also the only way an IPv6-only underlay can look anything up: handing a v6-only
+        // network two IPv4 resolvers makes every AAAA query — and therefore every IPv6 node —
+        // unreachable before the engine even starts.
+        val underlay = app.repo.intelligence.currentSnapshot()
+        val dnsServers = linkedSetOf<String>()
         listOf(settings.dnsPrimaryIp, settings.dnsSecondaryIp)
             .map(String::trim)
             .filter(String::isNotBlank)
-            .distinct()
-            .forEach { dns ->
-                runCatching {
-                    builder.addDnsServer(dns)
-                    dnsCount++
-                }.onFailure {
-                    diag.error("TUN", "dns-builder-failed", it, "dns" to dns, "session" to session)
-                }
+            .forEach { candidate ->
+                // A v4 resolver on a network that has no IPv4 can only ever time out.
+                if (candidate.contains(':') || underlay.hasIpv4) dnsServers += candidate
             }
+        if (settings.ipv6Enabled && dnsServers.none { it.contains(':') }) {
+            // Bootstrap v6 resolvers so the underlay can resolve a node's AAAA records even when the
+            // user configured IPv4 DNS only. Both are literals, so no lookup is needed to reach them.
+            dnsServers += "2606:4700:4700::1111"
+            dnsServers += "2001:4860:4860::8888"
+        }
+
+        var dnsCount = 0
+        dnsServers.forEach { dns ->
+            runCatching {
+                builder.addDnsServer(dns)
+                dnsCount++
+            }.onFailure {
+                diag.error("TUN", "dns-builder-failed", it, "dns" to dns, "session" to session)
+            }
+        }
         if (dnsCount == 0) {
             diag.event("TUN", "dns-policy-empty", "session" to session)
             return false

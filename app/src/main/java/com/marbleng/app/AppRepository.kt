@@ -437,7 +437,9 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
             return
         }
 
-        val preferIpv6Snapshot = settings.preferIpv6
+        // The same family plan the tunnel uses: server intelligence that reports the IPv4 address of
+        // a node the engine would dial over IPv6 describes a path the user never gets.
+        val familyPlan = AddressFamilyPolicy.plan(settings = settings)
         val generation = serverIntelGeneration.incrementAndGet()
         postToMain {
             serverIntelLoading = true
@@ -448,24 +450,26 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
             var connection: HttpURLConnection? = null
             var basic: ServerIntelInfo? = null
             try {
-                val addresses = InetAddress.getAllByName(endpoint)
-                    .filterNot {
-                        it.isAnyLocalAddress ||
-                            it.isLoopbackAddress ||
-                            it.isLinkLocalAddress
+                val addresses = AddressFamilyPolicy.resolveCandidates(
+                    host = endpoint,
+                    plan = familyPlan,
+                    resolver = { name ->
+                        InetAddress.getAllByName(name)
+                            .filterNot {
+                                it.isAnyLocalAddress ||
+                                    it.isLoopbackAddress ||
+                                    it.isLinkLocalAddress
+                            }
+                            .toTypedArray()
                     }
+                )
 
                 if (addresses.isEmpty()) {
                     throw IllegalStateException("Server endpoint did not resolve to a usable IP")
                 }
 
-                val preferred = if (preferIpv6Snapshot) {
-                    addresses.firstOrNull { it.address.size == 16 }
-                        ?: addresses.firstOrNull { it.address.size == 4 }
-                } else {
-                    addresses.firstOrNull { it.address.size == 4 }
-                        ?: addresses.firstOrNull { it.address.size == 16 }
-                } ?: addresses.first()
+                // Already ordered by the plan, so the first entry is the address the engine will dial.
+                val preferred = addresses.first()
 
                 val resolvedIp = preferred.hostAddress
                     ?.substringBefore('%')

@@ -60,10 +60,14 @@ class XrayManager(private val context: Context) {
             }
         }
 
-    private fun startSshBridge(generation: Long, profile: ProxyProfile): Int {
+    private fun startSshBridge(
+        generation: Long,
+        profile: ProxyProfile,
+        settings: AppSettings
+    ): Int {
         val candidate = SshTransportManager()
         val port = try {
-            candidate.start(profile)
+            candidate.start(profile, settings)
         } catch (error: Throwable) {
             candidate.stop()
             throw error
@@ -669,7 +673,7 @@ class XrayManager(private val context: Context) {
 
             publishStartState(ticket.generation, "config")
             val sourceConfig = if (profile.scheme.equals("ssh", true)) {
-                SshProfileCodec.xrayClientConfig(startSshBridge(ticket.generation, profile))
+                SshProfileCodec.xrayClientConfig(startSshBridge(ticket.generation, profile, settings))
             } else {
                 profile.configJson
             }

@@ -438,7 +438,8 @@ class BenchmarkEngine(
                         } else {
                             tcpLatency(
                                 profile,
-                                s.tcpPrecheckTimeoutMs
+                                s.tcpPrecheckTimeoutMs,
+                                s
                             )
                         }
                 }
@@ -648,7 +649,8 @@ class BenchmarkEngine(
             profile = p,
             icmpMode = s.probeMethod == ProbeMethod.ICMP,
             samples = s.benchSamples.coerceIn(1, 8),
-            timeoutMs = directTimeoutMs
+            timeoutMs = directTimeoutMs,
+            settings = s
         )
         return BenchmarkResult(
             profileId = p.id,
@@ -913,15 +915,34 @@ class BenchmarkEngine(
         }.sortedWith(compareByDescending<BenchmarkResult> { it.score }.thenBy { it.latencyMs }.thenBy { it.jitterMs })
     }
 
-    private fun tcpLatency(p: ProxyProfile, timeoutMs: Int): Double {
+    private fun tcpLatency(p: ProxyProfile, timeoutMs: Int, settings: AppSettings = AppSettings()): Double {
         if (p.host.isBlank() || p.port <= 0) return DEAD_LATENCY
+        // Dial in the order the tunnel itself will use. `Socket.connect(host, port)` takes the first
+        // answer the OS resolver happened to return, which on Android is usually the A record, so a
+        // dual-stack node was measured (and therefore ranked) over IPv4 even when Marble would run it
+        // over IPv6.
+        val candidates = AddressFamilyPolicy.resolveCandidates(
+            p.host,
+            AddressFamilyPolicy.plan(settings = settings)
+        )
+        if (candidates.isEmpty()) return DEAD_LATENCY
         val start = System.nanoTime()
-        return try {
-            Socket().use { it.connect(InetSocketAddress(p.host, p.port), timeoutMs) }
-            (System.nanoTime() - start) / 1e6
-        } catch (_: Throwable) {
-            DEAD_LATENCY
+        candidates.forEachIndexed { index, address ->
+            val spentMs = ((System.nanoTime() - start) / 1_000_000L).toInt()
+            val remainingMs = timeoutMs - spentMs
+            val attemptMs = when {
+                candidates.size == 1 -> timeoutMs
+                index == candidates.lastIndex -> max(remainingMs, 250)
+                // A family that is black-holed must cost a little, not the whole precheck budget.
+                else -> min(max(remainingMs, 250), 1_200)
+            }
+            if (attemptMs <= 0) return DEAD_LATENCY
+            val connected = runCatching {
+                Socket().use { it.connect(InetSocketAddress(address, p.port), attemptMs) }
+            }.isSuccess
+            if (connected) return ((System.nanoTime() - start) / 1e6)
         }
+        return DEAD_LATENCY
     }
 
     private fun isUdpNative(p: ProxyProfile): Boolean =

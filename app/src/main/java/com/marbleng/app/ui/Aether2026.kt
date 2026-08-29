@@ -42,6 +42,9 @@ package com.marbleng.app.ui
 // MARBLE_LEAN_COPY_LIVE_RANK_UI_V63
 // MARBLE_HOME_STATUS_ANCHOR_UI_V64
 // MARBLE_ACTIVE_NODE_HALO_UI_V64
+// MARBLE_LIBRARY_CONTROL_GRADE_UI_V65
+// MARBLE_CONNECTED_PING_READOUT_UI_V65
+// MARBLE_UNIFIED_SURFACE_SYSTEM_UI_V65
 
 import android.Manifest
 import android.content.Intent
@@ -116,6 +119,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.marbleng.app.AppRepository
 import com.marbleng.app.R
+import com.marbleng.app.core.AddressFamilyPolicy
 import com.marbleng.app.core.BugSeverity
 import com.marbleng.app.core.IranModeState
 import com.marbleng.app.core.ManualConfigDraft
@@ -361,9 +365,12 @@ fun Aether2026App(
             onDismissRequest = { dialog = null },
             containerColor = Aether.VoidElevated,
             confirmButton = {
-                TextButton(onClick = { dialog = null }) {
-                    Text("Close", color = Aether.Cyan)
-                }
+                MarbleDialogAction(
+                    label="Close",
+                    tone=Aether.Cyan,
+                    variant=PrismButtonVariant.Secondary,
+                    onClick={ dialog=null }
+                )
             },
             title = { Text(what, color = Aether.Ink) },
             text = {
@@ -542,9 +549,7 @@ private fun MarbleUpdateDialog(
             }
         },
         dismissButton = {
-            TextButton(onClick = onLater) {
-                Text("Later", color = Aether.InkMuted)
-            }
+            MarbleDialogAction(label="Later", tone=Aether.InkMuted, onClick=onLater)
         }
     )
 }
@@ -884,14 +889,20 @@ private fun HoloGlass(
     borderColor: Color = Color.Transparent,
     contentPadding: PaddingValues = PaddingValues(16.dp),
     tint: Brush? = null,
+    radius: Dp = PrismSurface.CardRadius,
+    onClick: (() -> Unit)? = null,
+    enabled: Boolean = true,
     content: @Composable ColumnScope.() -> Unit
 ) {
     PrismPanel(
         modifier=modifier,
         accent=if(borderColor == Color.Transparent) Aether.Cyan else borderColor,
         selected=borderColor != Color.Transparent,
+        radius=radius,
         contentPadding=contentPadding,
         tint=tint,
+        onClick=onClick,
+        enabled=enabled,
         content=content
     )
 }
@@ -1356,39 +1367,13 @@ private fun MarbleCompactTopBar(
         }
 
         if(onAction != null && actionLabel != null) {
-            val actionShape=RoundedCornerShape(17.dp)
-            Row(
-                modifier=Modifier
-                    .heightIn(min=48.dp)
-                    .border(
-                        1.dp,
-                        Aether.Cyan.copy(alpha=.18f),
-                        actionShape
-                    )
-                    .clip(actionShape)
-                    .background(Aether.Cyan.copy(alpha=.075f))
-                    .kineticClickable(
-                        role=Role.Button,
-                        onClick=onAction
-                    )
-                    .padding(horizontal=10.dp,vertical=8.dp),
-                verticalAlignment=Alignment.CenterVertically,
-                horizontalArrangement=Arrangement.spacedBy(7.dp)
-            ) {
-                if(actionIcon != null) {
-                    HomeVectorIcon(
-                        actionIcon,
-                        Aether.Cyan,
-                        Modifier.size(18.dp)
-                    )
-                }
-                Text(
-                    actionLabel,
-                    color=Aether.Cyan,
-                    style=MaterialTheme.typography.labelLarge,
-                    fontWeight=FontWeight.Bold
-                )
-            }
+            CyberButton(
+                label=actionLabel,
+                color=Aether.Cyan,
+                icon=actionIcon,
+                compact=true,
+                onClick=onAction
+            )
         }
     }
 }
@@ -1487,29 +1472,22 @@ private fun HomeServerSelector(
     Row(
         modifier=Modifier
             .fillMaxWidth()
-            .border(
-                1.dp,
-                if(connected) {
-                    Aether.Emerald.copy(alpha=.38f)
-                } else {
-                    Aether.Cyan.copy(alpha=.24f)
-                },
-                shape
-            )
-            .clip(shape)
-            .background(
-                Brush.horizontalGradient(
+            .prismElevated(
+                shape=shape,
+                tone=if(connected) Aether.Emerald else Aether.Cyan,
+                selected=connected,
+                tint=Brush.horizontalGradient(
                     listOf(
                         if(connected) {
-                            Aether.Emerald.copy(alpha=.075f)
+                            Aether.Emerald.copy(alpha=.10f)
                         } else {
-                            Aether.Cyan.copy(alpha=.06f)
+                            Aether.Cyan.copy(alpha=.075f)
                         },
-                        Aether.VoidElevated
+                        Color.Transparent
                     )
                 )
             )
-            .kineticClickable(role=Role.Button,onClick=onLibrary)
+            .kineticClickable(role=Role.Button, boundedShape=shape, onClick=onLibrary)
             .padding(12.dp),
         verticalAlignment=Alignment.CenterVertically,
         horizontalArrangement=Arrangement.spacedBy(12.dp)
@@ -1721,17 +1699,9 @@ private fun HomeQuickSettingRow(
         modifier=Modifier
             .fillMaxWidth()
             .heightIn(min=104.dp)
-            .border(
-                1.dp,
-                if(checked) tone.copy(alpha=.34f)
-                else Aether.GlassBorderSoft,
-                shape
-            )
             .clip(shape)
-            .background(
-                if(checked) tone.copy(alpha=.055f)
-                else Aether.VoidElevated
-            )
+            .background(Aether.VoidElevated)
+            .prismWell(shape=shape, tone=tone, selected=checked)
             .padding(12.dp),
         verticalArrangement=Arrangement.spacedBy(8.dp)
     ) {
@@ -2134,13 +2104,14 @@ private fun HomeActionPortal(
     Row(
         modifier
             .heightIn(min=78.dp)
-            .border(1.dp,color.copy(alpha=.26f),shape)
-            .clip(shape)
-            .background(
-                Brush.linearGradient(
+            .prismElevated(
+                shape=shape,
+                tone=color,
+                fill=Aether.VoidElevated,
+                tint=Brush.linearGradient(
                     listOf(
                         color.copy(alpha=.075f),
-                        Aether.VoidElevated
+                        Color.Transparent
                     )
                 )
             )
@@ -2252,11 +2223,23 @@ private fun HomeRouteRibbon(repo: AppRepository) {
                 HomeQuickSettingRow(
                     icon=HomeIcon.NETWORK,
                     title="IPv6",
-                    subtitle="Inside tunnel",
+                    subtitle=when {
+                        !repo.settings.ipv6Enabled -> "Blocked fail-closed"
+                        repo.networkSnapshot.hasIpv6 -> "Preferred on this network"
+                        else -> "Ready • no v6 route here"
+                    },
                     checked=repo.settings.ipv6Enabled,
                     enabled=!repo.busy
                 ) { enabled ->
-                    repo.updateSettings(repo.settings.copy(ipv6Enabled=enabled))
+                    // One switch, one promise: IPv6 stays inside the tunnel and the family policy
+                    // dials nodes over IPv6 whenever the network can carry it. Turning it off also
+                    // drops the stricter preference so Xray can block ::/0 fail-closed.
+                    repo.updateSettings(
+                        repo.settings.copy(
+                            ipv6Enabled = enabled,
+                            preferIpv6 = if (enabled) repo.settings.preferIpv6 else false
+                        )
+                    )
                 }
             }
         }
@@ -2398,17 +2381,17 @@ private fun ConnectionCore(
     Column(
         Modifier
             .fillMaxWidth()
-            .clip(shape)
-            .background(
-                Brush.verticalGradient(
+            .prismElevated(
+                shape=shape,
+                tone=statusColor,
+                selected=connected,
+                tint=Brush.verticalGradient(
                     listOf(
                         statusColor.copy(alpha = .12f),
-                        Aether.VoidElevated,
-                        Aether.VoidElevated
+                        Color.Transparent
                     )
                 )
             )
-            .border(1.dp, statusColor.copy(alpha = .24f), shape)
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(13.dp)
     ) {
@@ -2618,9 +2601,17 @@ private fun HoloActionPill(
     Row(
         modifier = modifier
             .heightIn(min = 76.dp)
-            .clip(shape)
-            .background(color.copy(alpha = .065f))
-            .kineticClickable(role = Role.Button, onClick = onClick)
+            .prismElevated(
+                shape = shape,
+                tone = color,
+                tint = Brush.linearGradient(
+                    listOf(
+                        color.copy(alpha = .065f),
+                        Color.Transparent
+                    )
+                )
+            )
+            .kineticClickable(role = Role.Button, boundedShape = shape, onClick = onClick)
             .padding(horizontal = 11.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -2753,20 +2744,19 @@ private fun CyberLibrary(
                 )
             },
             confirmButton = {
-                TextButton(
-                    onClick = {
+                MarbleDialogAction(
+                    label="Save",
+                    tone=Aether.Cyan,
+                    variant=PrismButtonVariant.Primary,
+                    enabled=renameText.isNotBlank(),
+                    onClick={
                         repo.renameProfile(target.id, renameText, target.subscriptionId)
                         renameTarget = null
-                    },
-                    enabled = renameText.isNotBlank()
-                ) {
-                    Text("Save", color = Aether.Cyan)
-                }
+                    }
+                )
             },
             dismissButton = {
-                TextButton(onClick = { renameTarget = null }) {
-                    Text("Cancel", color = Aether.InkMuted)
-                }
+                MarbleDialogAction(label="Cancel", tone=Aether.InkMuted, onClick={ renameTarget = null })
             }
         )
     }
@@ -2877,27 +2867,30 @@ private fun CyberLibrary(
                 }
             },
             confirmButton = {
-                TextButton(
-                    onClick = {
+                MarbleDialogAction(
+                    label="Save",
+                    tone=Aether.Cyan,
+                    variant=PrismButtonVariant.Primary,
+                    enabled=!repo.busy,
+                    onClick={
                         if (repo.updateSubscription(target.id, editSubscriptionName, editSubscriptionUrl)) {
                             manageSubscription = null
                         }
-                    },
-                    enabled = !repo.busy
-                ) { Text("SAVE", color = Aether.Cyan) }
+                    }
+                )
             },
             dismissButton = {
-                Row {
-                    TextButton(
-                        onClick = {
+                Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                    MarbleDialogAction(
+                        label="Delete",
+                        tone=Aether.Danger,
+                        enabled=!repo.busy,
+                        onClick={
                             deleteSubscription = target
                             manageSubscription = null
-                        },
-                        enabled = !repo.busy
-                    ) { Text("DELETE", color = Aether.Danger) }
-                    TextButton(onClick = { manageSubscription = null }) {
-                        Text("CLOSE", color = Aether.InkMuted)
-                    }
+                        }
+                    )
+                    MarbleDialogAction(label="Close", tone=Aether.InkMuted, onClick={ manageSubscription = null })
                 }
             }
         )
@@ -2918,18 +2911,18 @@ private fun CyberLibrary(
                 )
             },
             confirmButton = {
-                TextButton(
-                    onClick = {
+                MarbleDialogAction(
+                    label="Remove failed",
+                    tone=Aether.Danger,
+                    enabled=!repo.busy && failedCount > 0 && repo.state == "DISCONNECTED",
+                    onClick={
                         repo.removeFailedSubscriptionNodes(target.id, kind)
                         pruneFailedTarget = null
-                    },
-                    enabled = !repo.busy && failedCount > 0 && repo.state == "DISCONNECTED"
-                ) { Text("REMOVE FAILED", color = Aether.Danger) }
+                    }
+                )
             },
             dismissButton = {
-                TextButton(onClick = { pruneFailedTarget = null }) {
-                    Text("CANCEL", color = Aether.InkMuted)
-                }
+                MarbleDialogAction(label="Cancel", tone=Aether.InkMuted, onClick={ pruneFailedTarget = null })
             }
         )
     }
@@ -2946,19 +2939,19 @@ private fun CyberLibrary(
                 )
             },
             confirmButton = {
-                TextButton(
-                    onClick = {
+                MarbleDialogAction(
+                    label="Delete source",
+                    tone=Aether.Danger,
+                    enabled=!repo.busy,
+                    onClick={
                         if (sourceFilter == target.id) repo.selectLibrarySource("all")
                         repo.removeSubscription(target.id)
                         deleteSubscription = null
-                    },
-                    enabled = !repo.busy
-                ) { Text("DELETE SOURCE", color = Aether.Danger) }
+                    }
+                )
             },
             dismissButton = {
-                TextButton(onClick = { deleteSubscription = null }) {
-                    Text("CANCEL", color = Aether.InkMuted)
-                }
+                MarbleDialogAction(label="Cancel", tone=Aether.InkMuted, onClick={ deleteSubscription = null })
             }
         )
     }
@@ -3010,8 +3003,11 @@ private fun CyberLibrary(
                 CyberButton(
                     label = if (addOpen) "Close" else "Add",
                     color = Aether.Cyan,
-                    modifier = Modifier.height(52.dp).widthIn(min = 88.dp)
-                ) { addOpen = !addOpen }
+                    modifier = Modifier.widthIn(min = 96.dp),
+                    variant = if (addOpen) PrismButtonVariant.Secondary else PrismButtonVariant.Primary,
+                    icon = if (addOpen) null else HomeIcon.SPARK,
+                    onClick = { addOpen = !addOpen }
+                )
             }
         }
 
@@ -3084,6 +3080,7 @@ private fun CyberLibrary(
                                     colors = marbleOutlinedTextFieldColors()
                                 )
                                 CyberButton(
+                                    variant = PrismButtonVariant.Primary,
                                     label = if (url.isBlank()) "Create local source" else "Add subscription",
                                     color = Aether.Cyan,
                                     modifier = Modifier.fillMaxWidth(),
@@ -3184,39 +3181,16 @@ private fun LibraryModeSegment(
     modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
-    val selectionTone = Aether.Cyan
-    val shape = RoundedCornerShape(17.dp)
-    val border by animateColorAsState(
-        targetValue = if (selected) selectionTone.copy(alpha = .42f) else Aether.GlassBorderSoft,
-        animationSpec = MarbleMotionSpecs.Color,
-        label = "library-mode-border-$text"
+    // The add-sheet mode switch is a segmented pair: a selected half lights, the other stays quiet,
+    // and neither half changes size while the content below it animates.
+    PrismSelectionTile(
+        label = text,
+        selected = selected,
+        tone = Aether.Cyan,
+        modifier = modifier,
+        minHeight = 50.dp,
+        onClick = onClick
     )
-    val background by animateColorAsState(
-        targetValue = if (selected) selectionTone.copy(alpha = .075f) else Aether.VoidElevated,
-        animationSpec = MarbleMotionSpecs.Color,
-        label = "library-mode-background-$text"
-    )
-
-    Box(
-        modifier = modifier
-            .heightIn(min = 50.dp)
-            .border(1.dp, border, shape)
-            .clip(shape)
-            .background(background)
-            .kineticClickable(role = Role.Button, onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(
-            text,
-            color = if (selected) selectionTone else Aether.InkMuted,
-            style = MaterialTheme.typography.labelMedium,
-            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            textAlign = TextAlign.Center
-        )
-    }
 }
 
 @Composable
@@ -3298,45 +3272,75 @@ private fun ManualChainEditor(
         }
         hops.forEachIndexed { index, ref ->
             val profile = repo.profile(ref.second, ref.first)
+            PrismWell(
+                modifier = Modifier.fillMaxWidth(),
+                tone = Aether.Amethyst,
+                selected = index == hops.lastIndex,
+                contentPadding = PaddingValues(start = 11.dp, end = 4.dp, top = 5.dp, bottom = 5.dp)
+            ) {
             Row(
-                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(15.dp))
-                    .background(Aether.Amethyst.copy(alpha = .055f))
-                    .border(1.dp, Aether.Amethyst.copy(alpha = .18f), RoundedCornerShape(15.dp))
-                    .padding(start = 11.dp, end = 4.dp, top = 5.dp, bottom = 5.dp),
+                modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(Modifier.weight(1f)) {
                     Text("${index + 1}. ${profile?.name ?: "Unavailable node"}", color = Aether.Ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(if (index == hops.lastIndex) "EXIT" else "HOP", color = if (index == hops.lastIndex) Aether.Emerald else Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
                 }
-                TextButton(enabled = index > 0, onClick = {
-                    hops = hops.toMutableList().also { list ->
-                        val item = list.removeAt(index); list.add(index - 1, item)
-                    }
-                }) { Text("↑", color = if (index > 0) Aether.Cyan else Aether.InkFaint) }
-                TextButton(enabled = index < hops.lastIndex, onClick = {
-                    hops = hops.toMutableList().also { list ->
-                        val item = list.removeAt(index); list.add(index + 1, item)
-                    }
-                }) { Text("↓", color = if (index < hops.lastIndex) Aether.Cyan else Aether.InkFaint) }
-                TextButton(onClick = { hops = hops.toMutableList().also { it.removeAt(index) } }) { Text("×", color = Aether.Danger) }
+                PrismIconButton(
+                    onClick = {
+                        hops = hops.toMutableList().also { list ->
+                            val item = list.removeAt(index); list.add(index - 1, item)
+                        }
+                    },
+                    enabled = index > 0,
+                    size = 32.dp,
+                    descriptiveLabel = "Move hop up"
+                ) { Text("↑", color = if (index > 0) Aether.Cyan else Aether.InkFaint, style = MaterialTheme.typography.titleSmall) }
+                PrismIconButton(
+                    onClick = {
+                        hops = hops.toMutableList().also { list ->
+                            val item = list.removeAt(index); list.add(index + 1, item)
+                        }
+                    },
+                    enabled = index < hops.lastIndex,
+                    size = 32.dp,
+                    descriptiveLabel = "Move hop down"
+                ) { Text("↓", color = if (index < hops.lastIndex) Aether.Cyan else Aether.InkFaint, style = MaterialTheme.typography.titleSmall) }
+                PrismIconButton(
+                    onClick = { hops = hops.toMutableList().also { it.removeAt(index) } },
+                    tone = Aether.Danger,
+                    size = 32.dp,
+                    descriptiveLabel = "Remove hop"
+                ) { Text("×", color = Aether.Danger, style = MaterialTheme.typography.titleSmall) }
+            }
             }
         }
 
         ManualField("Search nodes", search, { search = it })
         candidates.forEach { profile ->
-            TextButton(
-                onClick = { hops = hops + (profile.subscriptionId to profile.id) },
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("+ ${profile.name}", color = Aether.Ink, modifier = Modifier.weight(1f), textAlign = TextAlign.Start, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(profile.scheme.uppercase(), color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
-            }
+            val chosen = hops.any { it.second == profile.id }
+            PrismSelectionTile(
+                label = profile.name,
+                selected = chosen,
+                tone = Aether.Amethyst,
+                modifier = Modifier.fillMaxWidth(),
+                detail = profile.scheme.uppercase(),
+                minHeight = 44.dp,
+                alignment = Alignment.CenterStart,
+                onClick = {
+                    if (chosen) {
+                        hops = hops.filterNot { it.second == profile.id }
+                    } else {
+                        hops = hops + (profile.subscriptionId to profile.id)
+                    }
+                }
+            )
         }
         if (search.isBlank() && candidates.size >= 24) {
             Text("Showing 24 nodes • search to find any other node", color = Aether.InkFaint, style = MaterialTheme.typography.bodySmall)
         }
         CyberButton(
+            variant = PrismButtonVariant.Primary,
             label = "SAVE ${hops.size}-HOP CHAIN",
             color = Aether.Amethyst,
             modifier = Modifier.fillMaxWidth(),
@@ -3589,6 +3593,7 @@ private fun ManualConfigEditor(
         )
 
         CyberButton(
+            variant = PrismButtonVariant.Primary,
             label = if (protocol == ManualProtocol.SSH) "Save SSH connection" else "Save manual config",
             color = Aether.Emerald,
             modifier = Modifier.fillMaxWidth(),
@@ -3676,9 +3681,14 @@ private fun ConnectionDetailPage(
     ) {
         item {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = onBack, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)) {
-                    Text("‹ Back", color = Aether.Cyan)
+                PrismIconButton(
+                    onClick = onBack,
+                    size = 38.dp,
+                    descriptiveLabel = "Back to library"
+                ) {
+                    HomeVectorIcon(HomeIcon.DETAILS, Aether.Cyan, Modifier.size(17.dp))
                 }
+                Spacer(Modifier.width(6.dp))
                 Spacer(Modifier.width(4.dp))
                 Text(
                     current.name,
@@ -3730,7 +3740,9 @@ private fun ConnectionDetailPage(
                     label = if (active) "Disconnect" else "Connect",
                     color = if (active) Aether.Danger else Aether.Emerald,
                     modifier = Modifier.weight(1f),
-                    enabled = !repo.busy
+                    enabled = !repo.busy,
+                    variant = PrismButtonVariant.Primary,
+                    icon = if (active) HomeIcon.STOP else HomeIcon.POWER
                 ) {
                     if (active) repo.stopVpn() else onConnect(current)
                 }
@@ -3941,27 +3953,14 @@ private fun LibrarySortChoice(
     modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
-    val shape=RoundedCornerShape(16.dp)
-    Row(
-        modifier=modifier
-            .heightIn(min=48.dp)
-            .clip(shape)
-            .background(if(selected) Aether.Cyan.copy(alpha=.075f) else Aether.VoidElevated)
-            .border(1.dp,if(selected) Aether.Cyan.copy(alpha=.38f) else Aether.GlassBorderSoft,shape)
-            .kineticClickable(role=Role.Button,onClick=onClick)
-            .padding(horizontal=10.dp,vertical=8.dp),
-        verticalAlignment=Alignment.CenterVertically,
-        horizontalArrangement=Arrangement.Center
-    ) {
-        Text(
-            text,
-            color=if(selected) Aether.Cyan else Aether.InkMuted,
-            style=MaterialTheme.typography.labelMedium,
-            fontWeight=if(selected) FontWeight.Bold else FontWeight.Medium,
-            maxLines=1,
-            overflow=TextOverflow.Ellipsis
-        )
-    }
+    PrismSelectionTile(
+        label=text,
+        selected=selected,
+        tone=color,
+        modifier=modifier,
+        minHeight=48.dp,
+        onClick=onClick
+    )
 }
 
 
@@ -4127,16 +4126,20 @@ private fun SourceOrbitChip(
     Row(
         modifier=Modifier
             .heightIn(min=48.dp)
-            .border(
-                1.dp,
-                if(selected) Aether.Cyan.copy(alpha=.40f) else Aether.GlassBorderSoft,
-                shape
+            .prismElevated(
+                shape=shape,
+                tone=Aether.Cyan,
+                selected=selected,
+                tint=if(selected) {
+                    Brush.linearGradient(
+                        listOf(
+                            Aether.Cyan.copy(alpha=.075f),
+                            Aether.Cyan.copy(alpha=.02f)
+                        )
+                    )
+                } else null
             )
-            .clip(shape)
-            .background(
-                if(selected) Aether.Cyan.copy(alpha=.075f) else Aether.VoidElevated
-            )
-            .kineticClickable(role=Role.Button,onClick=onClick)
+            .kineticClickable(role=Role.Button, boundedShape=shape, onClick=onClick)
             .padding(start=10.dp,end=if(onManage != null && selected) 4.dp else 12.dp),
         verticalAlignment=Alignment.CenterVertically,
         horizontalArrangement=Arrangement.spacedBy(8.dp)
@@ -4197,36 +4200,31 @@ private fun LibraryMicroAction(
     color: Color,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
+    variant: PrismButtonVariant = PrismButtonVariant.Primary,
+    badge: String = "",
+    detail: String = "",
     onClick: () -> Unit
 ) {
-    val shape=RoundedCornerShape(18.dp)
-    FilledTonalButton(
+    // The Library action deck is the loudest control group in the screen, so it carries the filled
+    // variant: a state-tinted skin, a soft colored glow and an icon that stays legible on the fill.
+    PrismButton(
+        label=label,
         onClick=onClick,
-        modifier=modifier
-            .heightIn(min=50.dp),
+        tone=color,
+        modifier=modifier,
+        variant=variant,
         enabled=enabled,
-        shape=shape,
-        colors=ButtonDefaults.filledTonalButtonColors(
-            containerColor=color.copy(alpha=.09f),
-            contentColor=color,
-            disabledContainerColor=Aether.GlassStrong,
-            disabledContentColor=Aether.InkFaint
-        ),
-        contentPadding=PaddingValues(horizontal=10.dp,vertical=8.dp)
-    ) {
-        HomeVectorIcon(
-            icon,
-            if(enabled) color else Aether.InkFaint,
-            Modifier.size(18.dp)
-        )
-        Spacer(Modifier.width(7.dp))
-        Text(
-            label,
-            style=MaterialTheme.typography.labelMedium,
-            fontWeight=FontWeight.Bold,
-            maxLines=1
-        )
-    }
+        badge=badge,
+        detail=detail,
+        contentPadding=PaddingValues(horizontal=11.dp,vertical=9.dp),
+        icon={
+            HomeVectorIcon(
+                icon,
+                if(enabled) LocalContentColor.current else Aether.InkFaint,
+                Modifier.size(18.dp)
+            )
+        }
+    )
 }
 
 private fun sortModeLabel(mode: NodeSortMode): String = when (mode) {
@@ -4261,10 +4259,13 @@ private fun SubscriptionManagerCard(
         modifier = Modifier
             .widthIn(min = 210.dp, max = 270.dp)
             .heightIn(min = 62.dp)
-            .clip(shape)
-            .background(accent.copy(alpha = if (selected) .10f else .055f))
-            .border(1.dp, if (selected) accent.copy(alpha = .34f) else Color.Transparent, shape)
-            .kineticClickable(role = Role.Button, onClick = onView)
+            .prismElevated(
+                shape = shape,
+                tone = accent,
+                selected = selected,
+                fill = Aether.VoidElevated
+            )
+            .kineticClickable(role = Role.Button, boundedShape = shape, onClick = onView)
             .padding(start = 10.dp, top = 8.dp, bottom = 8.dp, end = 5.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -4395,17 +4396,22 @@ private fun SpatialServerCard(
                 }
             },
             confirmButton={
-                TextButton(onClick={
-                    if(repo.updateProfileJson(
-                            profile.id,
-                            jsonText,
-                            profile.subscriptionId
-                        )
-                    ) jsonOpen=false
-                }) { Text("Save JSON", color = Aether.Cyan) }
+                MarbleDialogAction(
+                    label="Save JSON",
+                    tone=Aether.Cyan,
+                    variant=PrismButtonVariant.Primary,
+                    onClick={
+                        if(repo.updateProfileJson(
+                                profile.id,
+                                jsonText,
+                                profile.subscriptionId
+                            )
+                        ) jsonOpen=false
+                    }
+                )
             },
             dismissButton={
-                TextButton(onClick={ jsonOpen=false }) { Text("Cancel", color = Aether.InkMuted) }
+                MarbleDialogAction(label="Cancel", tone=Aether.InkMuted, onClick={ jsonOpen=false })
             }
         )
     }
@@ -4421,17 +4427,17 @@ private fun SpatialServerCard(
                 )
             },
             confirmButton={
-                TextButton(
+                MarbleDialogAction(
+                    label="Delete",
+                    tone=Aether.Danger,
                     onClick={
                         repo.removeProfile(profile.id, profile.subscriptionId)
                         deleteBySwipe=false
                     }
-                ) {
-                    Text("Delete",color=Aether.Danger)
-                }
+                )
             },
             dismissButton={
-                TextButton(onClick={ deleteBySwipe=false }) { Text("Cancel", color = Aether.InkMuted) }
+                MarbleDialogAction(label="Cancel", tone=Aether.InkMuted, onClick={ deleteBySwipe=false })
             }
         )
     }
@@ -4592,68 +4598,86 @@ private fun SpatialServerCard(
                         }
                     }
 
+                    // The measured latency is the row's own instrument, not a second badge: it sits
+                    // flush against the trailing edge, divided off by a hairline, and never paints its
+                    // own pill. A connected row already owns a halo, a state flood and a status pill —
+                    // a fourth bordered box inside that frame is what made the card look broken.
                     AnimatedVisibility(
                         visible=latency > 0,
                         enter=fadeIn(MarbleMotionSpecs.ResponseFloat)+
-                            scaleIn(initialScale=.82f,animationSpec=MarbleMotionSpecs.InteractionFloat)+
-                            slideInHorizontally(MarbleMotionSpecs.Spatial) { it/3 },
+                            scaleIn(initialScale=.92f,animationSpec=MarbleMotionSpecs.InteractionFloat),
                         exit=fadeOut(MarbleMotionSpecs.ExitFloat)+
-                            scaleOut(targetScale=.86f,animationSpec=MarbleMotionSpecs.ExitFloat)
+                            scaleOut(targetScale=.95f,animationSpec=MarbleMotionSpecs.ExitFloat)
                     ) {
                         Row(verticalAlignment=Alignment.CenterVertically) {
-                        Surface(
-                            shape=RoundedCornerShape(999.dp),
-                            color=health.copy(alpha=.09f),
-                            border=androidx.compose.foundation.BorderStroke(
-                                1.dp,
-                                health.copy(alpha=.32f)
+                            Box(
+                                Modifier
+                                    .width(1.dp)
+                                    .height(26.dp)
+                                    .background(Aether.GlassBorderSoft)
                             )
-                        ) {
-                            Column(
-                                modifier=Modifier.padding(horizontal=10.dp,vertical=6.dp),
-                                horizontalAlignment=Alignment.End
-                            ) {
-                                AnimatedContent(
-                                    targetState=latency,
-                                    transitionSpec={
-                                        (fadeIn(MarbleMotionSpecs.ResponseFloat)+
-                                            slideInVertically(MarbleMotionSpecs.Spatial) { it/2 }) togetherWith
-                                            (fadeOut(MarbleMotionSpecs.ExitFloat)+
-                                                slideOutVertically(MarbleMotionSpecs.SpatialExit) { -it/2 })
-                                    },
-                                    label="node-latency-value"
-                                ) { value ->
-                                    Text(
-                                        "$value ms",
-                                        color=health,
-                                        style=MaterialTheme.typography.labelLarge.copy(
-                                            fontFamily=FontFamily.Monospace,
-                                            fontWeight=FontWeight.Bold
+                            Spacer(Modifier.width(MarbleSpacing.SM))
+                            Column(horizontalAlignment=Alignment.End) {
+                                Row(
+                                    verticalAlignment=Alignment.CenterVertically,
+                                    horizontalArrangement=Arrangement.spacedBy(5.dp)
+                                ) {
+                                    PrismSignalMeter(
+                                        bars=libraryPingBars(latency),
+                                        tone=health,
+                                        modifier=Modifier.width(15.dp).height(12.dp)
+                                    )
+                                    AnimatedContent(
+                                        targetState=latency,
+                                        transitionSpec={
+                                            (fadeIn(MarbleMotionSpecs.ResponseFloat)+
+                                                slideInVertically(MarbleMotionSpecs.Spatial) { it/2 }) togetherWith
+                                                (fadeOut(MarbleMotionSpecs.ExitFloat)+
+                                                    slideOutVertically(MarbleMotionSpecs.SpatialExit) { -it/2 })
+                                        },
+                                        label="node-latency-value"
+                                    ) { value ->
+                                        Text(
+                                            "$value",
+                                            color=health,
+                                            style=MaterialTheme.typography.titleSmall.copy(
+                                                fontFamily=FontFamily.Monospace,
+                                                fontWeight=FontWeight.Bold
+                                            )
                                         )
+                                    }
+                                    Text(
+                                        "ms",
+                                        color=Aether.InkFaint,
+                                        style=MaterialTheme.typography.labelSmall,
+                                        fontWeight=FontWeight.SemiBold
                                     )
                                 }
                                 Text(
-                                    libraryPingQuality(latency),
-                                    color=health,
-                                    style=MaterialTheme.typography.labelSmall
+                                    libraryPingQuality(latency).uppercase(),
+                                    color=health.copy(alpha=.86f),
+                                    style=MaterialTheme.typography.labelSmall,
+                                    fontWeight=FontWeight.Bold,
+                                    maxLines=1
                                 )
                             }
-                        }
-                        Spacer(Modifier.width(MarbleSpacing.S))
+                            Spacer(Modifier.width(MarbleSpacing.SM))
                         }
                     }
 
                     Box {
-                        IconButton(
+                        PrismIconButton(
                             onClick={ menuOpen=true },
-                            modifier=Modifier.semantics {
-                                contentDescription="More actions for ${profile.name}"
-                            }
+                            tone=if(menuOpen) Aether.Cyan else Aether.InkMuted,
+                            selected=menuOpen,
+                            enabled=!repo.busy,
+                            size=38.dp,
+                            descriptiveLabel="More actions for ${profile.name}"
                         ) {
                             HomeVectorIcon(
                                 HomeIcon.MORE,
-                                Aether.InkMuted,
-                                Modifier.size(19.dp)
+                                if(menuOpen) Aether.Cyan else Aether.InkMuted,
+                                Modifier.size(17.dp)
                             )
                         }
 
@@ -4739,58 +4763,56 @@ private fun SpatialServerCard(
                     }
                 }
 
-                // The endpoint strip is the row's own status surface: it takes the route color so the
-                // live tunnel is readable even while the card is scrolled half off screen.
-                val endpointShape=RoundedCornerShape(13.dp)
+                // The endpoint strip is the row's recessed instrument panel. It takes the route color
+                // so the live tunnel stays readable half off screen, and it is a well — never a second
+                // elevated box competing with the card that holds it.
                 val endpointTone=if(emphasized) routeTone else Aether.Cyan
-                Row(
-                    modifier=Modifier
-                        .fillMaxWidth()
-                        .clip(endpointShape)
-                        .background(endpointTone.copy(alpha=if(emphasized) .085f else .045f))
-                        .border(
-                            1.dp,
-                            endpointTone.copy(alpha=if(emphasized) .30f else .105f),
-                            endpointShape
-                        )
-                        .padding(horizontal=10.dp,vertical=8.dp),
-                    verticalAlignment=Alignment.CenterVertically,
-                    horizontalArrangement=Arrangement.spacedBy(MarbleSpacing.S)
+                PrismWell(
+                    modifier=Modifier.fillMaxWidth(),
+                    tone=endpointTone,
+                    selected=emphasized,
+                    radius=13.dp
                 ) {
-                    Text(
-                        "HOST",
-                        color=endpointTone,
-                        style=MaterialTheme.typography.labelSmall,
-                        fontWeight=FontWeight.Bold
-                    )
-                    Text(
-                        profile.host.trim().ifBlank { "Unknown host" },
-                        modifier=Modifier.weight(1f),
-                        color=Aether.InkMuted,
-                        style=MaterialTheme.typography.labelSmall.copy(
-                            fontFamily=FontFamily.Monospace,
-                            fontWeight=FontWeight.SemiBold
-                        ),
-                        maxLines=1,
-                        overflow=TextOverflow.Ellipsis
-                    )
-                    VerticalDivider(
-                        Modifier.height(14.dp),
-                        color=Aether.GlassBorderSoft
-                    )
-                    Text(
-                        "PORT",
-                        color=Aether.InkFaint,
-                        style=MaterialTheme.typography.labelSmall
-                    )
-                    Text(
-                        profile.port.takeIf { it > 0 }?.toString() ?: "—",
-                        color=Aether.Ink,
-                        style=MaterialTheme.typography.labelSmall.copy(
-                            fontFamily=FontFamily.Monospace,
+                    Row(
+                        modifier=Modifier.fillMaxWidth(),
+                        verticalAlignment=Alignment.CenterVertically,
+                        horizontalArrangement=Arrangement.spacedBy(MarbleSpacing.S)
+                    ) {
+                        Text(
+                            "HOST",
+                            color=endpointTone,
+                            style=MaterialTheme.typography.labelSmall,
                             fontWeight=FontWeight.Bold
                         )
-                    )
+                        Text(
+                            profile.host.trim().ifBlank { "Unknown host" },
+                            modifier=Modifier.weight(1f),
+                            color=Aether.InkMuted,
+                            style=MaterialTheme.typography.labelSmall.copy(
+                                fontFamily=FontFamily.Monospace,
+                                fontWeight=FontWeight.SemiBold
+                            ),
+                            maxLines=1,
+                            overflow=TextOverflow.Ellipsis
+                        )
+                        VerticalDivider(
+                            Modifier.height(14.dp),
+                            color=Aether.GlassBorderSoft
+                        )
+                        Text(
+                            "PORT",
+                            color=Aether.InkFaint,
+                            style=MaterialTheme.typography.labelSmall
+                        )
+                        Text(
+                            profile.port.takeIf { it > 0 }?.toString() ?: "—",
+                            color=Aether.Ink,
+                            style=MaterialTheme.typography.labelSmall.copy(
+                                fontFamily=FontFamily.Monospace,
+                                fontWeight=FontWeight.Bold
+                            )
+                        )
+                    }
                 }
 
                 AnimatedVisibility(
@@ -4874,34 +4896,36 @@ private fun MicroStat(
     value: String,
     modifier: Modifier = Modifier
 ) {
-    Column(
-        modifier = modifier
-            .heightIn(min = 46.dp)
-            .clip(RoundedCornerShape(12.dp))
-            .background(Aether.GlassStrong.copy(alpha = .52f))
-            .padding(horizontal = 9.dp, vertical = 7.dp),
-        verticalArrangement = Arrangement.Center
+    PrismWell(
+        modifier = modifier.heightIn(min = 46.dp),
+        radius = 12.dp,
+        contentPadding = PaddingValues(horizontal = 9.dp, vertical = 7.dp)
     ) {
-        Text(
-            label,
-            color = Aether.InkFaint,
-            style = MaterialTheme.typography.labelSmall,
-            maxLines = 1,
-            softWrap = false,
-            overflow = TextOverflow.Ellipsis
-        )
-        Spacer(Modifier.height(1.dp))
-        Text(
-            value,
-            color = Aether.InkMuted,
-            style = MaterialTheme.typography.labelMedium.copy(
-                fontFamily = FontFamily.Monospace,
-                fontWeight = FontWeight.SemiBold
-            ),
-            maxLines = 1,
-            softWrap = false,
-            overflow = TextOverflow.Ellipsis
-        )
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.Center
+        ) {
+            Text(
+                label,
+                color = Aether.InkFaint,
+                style = MaterialTheme.typography.labelSmall,
+                maxLines = 1,
+                softWrap = false,
+                overflow = TextOverflow.Ellipsis
+            )
+            Spacer(Modifier.height(1.dp))
+            Text(
+                value,
+                color = Aether.InkMuted,
+                style = MaterialTheme.typography.labelMedium.copy(
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.SemiBold
+                ),
+                maxLines = 1,
+                softWrap = false,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
     }
 }
 
@@ -4973,12 +4997,11 @@ private fun SpatialSettings(
                         modifier=Modifier
                             .fillMaxHeight()
                             .width(94.dp)
-                            .border(
-                                1.dp,
-                                Aether.GlassBorderSoft,
-                                railShape
-                            )
-                            .clip(railShape),
+                            .prismElevated(
+                                shape=railShape,
+                                tone=Aether.Cyan,
+                                fill=Color.Transparent
+                            ),
                         containerColor=Aether.VoidElevated
                     ) {
                         Spacer(Modifier.height(8.dp))
@@ -5059,16 +5082,11 @@ private fun SpatialSettings(
                             Row(
                                 modifier=Modifier
                                     .heightIn(min=46.dp)
-                                    .border(
-                                        1.dp,
-                                        if(selected) tone.copy(alpha=.44f)
-                                        else Aether.GlassBorderSoft,
-                                        shape
-                                    )
-                                    .clip(shape)
-                                    .background(
-                                        if(selected) tone.copy(alpha=.085f)
-                                        else Aether.VoidElevated
+                                    .prismElevated(
+                                        shape=shape,
+                                        tone=tone,
+                                        selected=selected,
+                                        fill=Aether.VoidElevated
                                     )
                                     .kineticClickable(
                                         role=Role.Button
@@ -5778,9 +5796,7 @@ private fun ServerIntelMetric(
     Column(
         modifier=modifier
             .heightIn(min=68.dp)
-            .clip(shape)
-            .background(tone.copy(alpha=.045f))
-            .border(1.dp,tone.copy(alpha=.12f),shape)
+            .prismWell(shape=shape, tone=tone)
             .padding(horizontal=10.dp,vertical=9.dp),
         verticalArrangement=Arrangement.spacedBy(3.dp)
     ) {
@@ -5887,13 +5903,7 @@ private fun ServerIntelHomeCard(repo: AppRepository) {
             Row(
                 modifier=Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(Aether.Cyan.copy(alpha=.04f))
-                    .border(
-                        1.dp,
-                        Aether.Cyan.copy(alpha=.10f),
-                        RoundedCornerShape(14.dp)
-                    )
+                    .prismWell(shape=RoundedCornerShape(14.dp))
                     .padding(horizontal=10.dp,vertical=8.dp),
                 verticalAlignment=Alignment.CenterVertically,
                 horizontalArrangement=Arrangement.spacedBy(8.dp)
@@ -5915,18 +5925,13 @@ private fun ServerIntelHomeCard(repo: AppRepository) {
                     maxLines=1,
                     overflow=TextOverflow.Ellipsis
                 )
-                TextButton(
-                    onClick={ repo.refreshServerIntel(selected,force=true) },
+                CyberButton(
+                    label=if(repo.serverIntelLoading) "Refreshing" else "Refresh",
+                    color=Aether.Cyan,
+                    compact=true,
                     enabled=!repo.serverIntelLoading,
-                    contentPadding=PaddingValues(horizontal=7.dp,vertical=0.dp)
-                ) {
-                    Text(
-                        "Refresh",
-                        color=if(repo.serverIntelLoading) Aether.InkFaint else Aether.Cyan,
-                        style=MaterialTheme.typography.labelSmall,
-                        fontWeight=FontWeight.Bold
-                    )
-                }
+                    onClick={ repo.refreshServerIntel(selected,force=true) }
+                )
             }
 
             info?.let { current ->
@@ -6053,16 +6058,11 @@ private fun SplitTunnelModeSelector(repo: AppRepository) {
                 modifier=Modifier
                     .weight(1f)
                     .heightIn(min=48.dp)
-                    .border(
-                        1.dp,
-                        if(selected) Aether.Cyan.copy(alpha=.38f)
-                        else Aether.GlassBorderSoft,
-                        shape
-                    )
-                    .clip(shape)
-                    .background(
-                        if(selected) Aether.Cyan.copy(alpha=.075f)
-                        else Aether.VoidElevated
+                    .prismElevated(
+                        shape=shape,
+                        tone=Aether.Cyan,
+                        selected=selected,
+                        fill=Aether.VoidElevated
                     )
                     .kineticClickable(role=Role.Button) {
                         repo.updateSettings(
@@ -6216,6 +6216,43 @@ private fun FragmentMuxSettings(repo: AppRepository) {
 @Composable
 private fun DnsSettings(repo: AppRepository) {
     val underlay = repo.networkSnapshot
+    // One line of truth. The switches below are inputs; this is what the engine will actually do,
+    // computed by the same policy the tunnel, the delay test and the pings use.
+    val familyPlan = AddressFamilyPolicy.plan(
+        settings = repo.settings,
+        underlayHasIpv6 = underlay.hasIpv6
+    )
+
+    PrismWell(
+        modifier = Modifier.fillMaxWidth(),
+        tone = if (familyPlan.prioritizeIpv6) Aether.Cyan else Aether.Amethyst,
+        selected = familyPlan.prioritizeIpv6,
+        contentPadding = PaddingValues(horizontal = 11.dp, vertical = 9.dp)
+    ) {
+        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                "ACTIVE FAMILY POLICY",
+                color = Aether.InkFaint,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                AddressFamilyPolicy.describe(familyPlan),
+                color = Aether.Ink,
+                style = MaterialTheme.typography.bodySmall
+            )
+            Text(
+                "endpoint ${familyPlan.endpointStrategy} • dns ${familyPlan.dnsQueryStrategy} • " +
+                    if (familyPlan.blockIpv6Traffic) "::/0 blocked" else "::/0 through the tunnel",
+                color = Aether.InkMuted,
+                style = MaterialTheme.typography.labelSmall.copy(
+                    fontFamily = FontFamily.Monospace
+                ),
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
 
     Row(
         modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
@@ -6238,7 +6275,7 @@ private fun DnsSettings(repo: AppRepository) {
 
     SettingSwitch(
         title = "Enable IPv6",
-        subtitle = "Keep IPv6 inside the protected TUN. When off, Xray blocks ::/0 fail-closed instead of letting Android bypass the VPN.",
+        subtitle = "Keep IPv6 inside the protected TUN and dial node hostnames over IPv6 first whenever the network can carry it. When off, Xray blocks ::/0 fail-closed instead of letting Android bypass the VPN.",
         checked = repo.settings.ipv6Enabled
     ) {
         repo.updateSettings(
@@ -6251,7 +6288,7 @@ private fun DnsSettings(repo: AppRepository) {
 
     SettingSwitch(
         title = "Prefer IPv6",
-        subtitle = "IPv6-first endpoint dialing with IPv4 fallback; Marble suspends the preference automatically on IPv4-only networks.",
+        subtitle = "Keep the IPv6-first order even when a node's IPv6 path measured badly, and combine with “IPv6 only” DNS for strict IPv6 with no fallback. Marble suspends the preference automatically on IPv4-only networks.",
         checked = repo.settings.ipv6Enabled && repo.settings.preferIpv6
     ) {
         repo.updateSettings(
@@ -6332,10 +6369,27 @@ private fun DnsSettings(repo: AppRepository) {
         horizontalArrangement = Arrangement.spacedBy(7.dp),
         verticalArrangement = Arrangement.spacedBy(7.dp)
     ) {
-        listOf("UseIP", "UseIPv4", "UseIPv6", "UseSystem").forEach { strategy ->
+        // "UseSystem" used to be offered here. It tells Xray to ask the Android resolver, which both
+        // leaks the query outside the encrypted path and hides the AAAA records an IPv6 node needs,
+        // so the list is now exactly the three record strategies the engine honours inside the tunnel.
+        // Show what the engine will really do rather than the raw stored string: a legacy
+        // "UseSystem" value resolves to A + AAAA, and turning IPv6 off forces IPv4 records — either
+        // way an unlabelled mismatch would make the switch look broken.
+        val storedStrategy = repo.settings.dnsQueryStrategy
+        val effectiveStrategy = when {
+            !repo.settings.ipv6Enabled -> "UseIPv4"
+            storedStrategy == "UseIPv4" || storedStrategy == "UseIPv6" -> storedStrategy
+            else -> "UseIP"
+        }
+        mapOf(
+            "UseIP" to "A + AAAA",
+            "UseIPv4" to "IPv4 ONLY",
+            "UseIPv6" to "IPv6 ONLY"
+        ).forEach { (strategy, label) ->
             CyberChoiceChip(
-                text = strategy.uppercase(),
-                selected = repo.settings.dnsQueryStrategy == strategy,
+                text = label,
+                selected = effectiveStrategy == strategy,
+                enabled = strategy != "UseIPv6" || repo.settings.ipv6Enabled,
                 color = Aether.Cyan
             ) {
                 repo.updateSettings(repo.settings.copy(dnsQueryStrategy = strategy))
@@ -6380,9 +6434,12 @@ private fun RoutingAssetCard(
     val color = if (ready) Aether.Emerald else Aether.Amber
     Column(
         modifier = modifier
-            .clip(RoundedCornerShape(17.dp))
-            .background(Aether.Void.copy(alpha = .48f))
-            .border(1.dp, color.copy(alpha = .24f), RoundedCornerShape(17.dp))
+            .prismElevated(
+                shape = RoundedCornerShape(17.dp),
+                tone = color,
+                selected = ready,
+                fill = Aether.VoidElevated
+            )
             .padding(horizontal = 11.dp, vertical = 10.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -6792,9 +6849,12 @@ private fun BugFinderSettings(repo: AppRepository) {
         ) { repo.setDebugMode(it) }
 
         Column(
-            Modifier.fillMaxWidth().clip(RoundedCornerShape(15.dp))
-                .background((if(debug) Aether.Cyan else Aether.GlassBorderSoft).copy(alpha=.065f))
-                .border(1.dp,(if(debug) Aether.Cyan else Aether.GlassBorderSoft).copy(alpha=.24f),RoundedCornerShape(15.dp))
+            Modifier.fillMaxWidth()
+                .prismWell(
+                    shape=RoundedCornerShape(15.dp),
+                    tone=if(debug) Aether.Cyan else Aether.InkMuted,
+                    selected=debug
+                )
                 .padding(11.dp), verticalArrangement=Arrangement.spacedBy(4.dp)
         ) {
             Text("TXT REPORT LOCATION", color=if(debug) Aether.Cyan else Aether.InkFaint, style=MaterialTheme.typography.labelSmall)
@@ -6802,7 +6862,14 @@ private fun BugFinderSettings(repo: AppRepository) {
         }
 
         Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-            CyberButton(if(repo.busy)"SCANNING…" else "RUN ULTIMATE SCAN", Aether.Cyan, Modifier.weight(1f), !repo.busy) { repo.runBugFinder() }
+            CyberButton(
+                if(repo.busy)"SCANNING…" else "Run ultimate scan",
+                Aether.Cyan,
+                Modifier.weight(1f),
+                !repo.busy,
+                variant = PrismButtonVariant.Primary,
+                icon = if(repo.busy) null else HomeIcon.BENCHMARK
+            ) { repo.runBugFinder() }
             CyberButton("COPY REPORT", Aether.Amethyst, Modifier.weight(1f), report != null && !repo.busy) {
                 clipboard.setText(AnnotatedString(repo.bugFinderReportText()))
                 repo.setRuntimeMessage("Ultimate Bug Finder report copied")
@@ -6830,8 +6897,9 @@ private fun BugFinderSettings(repo: AppRepository) {
                     val c=when(check.severity){
                         BugSeverity.PASS->Aether.Emerald; BugSeverity.INFO->Aether.Cyan; BugSeverity.WARN->Aether.Amber; BugSeverity.FAIL->Aether.Danger
                     }
-                    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(15.dp)).background(c.copy(alpha=.055f))
-                        .border(1.dp,c.copy(alpha=.20f),RoundedCornerShape(15.dp)).padding(11.dp),verticalArrangement=Arrangement.spacedBy(4.dp)) {
+                    Column(Modifier.fillMaxWidth()
+                        .prismWell(shape=RoundedCornerShape(15.dp), tone=c, selected=c != Aether.Emerald)
+                        .padding(11.dp),verticalArrangement=Arrangement.spacedBy(4.dp)) {
                         Row(verticalAlignment=Alignment.CenterVertically) {
                             Text(check.title,color=Aether.Ink,style=MaterialTheme.typography.labelLarge,modifier=Modifier.weight(1f))
                             HoloBadge(check.severity.name,c,true)
@@ -6981,35 +7049,62 @@ private fun CyberButton(
     color: Color,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
+    variant: PrismButtonVariant = PrismButtonVariant.Secondary,
+    detail: String = "",
+    badge: String = "",
+    icon: HomeIcon? = null,
+    compact: Boolean = false,
     onClick: () -> Unit
 ) {
-    val shape=RoundedCornerShape(18.dp)
-    FilledTonalButton(
+    // A destructive verb is always dressed as one, whichever accent the caller passed.
+    val resolved=if(color == Aether.Danger) PrismButtonVariant.Danger else variant
+    PrismButton(
+        label=label,
         onClick=onClick,
-        modifier=modifier
-            .heightIn(min=50.dp)
-            .border(
-                1.dp,
-                color.copy(alpha=if(enabled) .30f else .12f),
-                shape
-            ),
+        tone=color,
+        modifier=modifier,
+        variant=resolved,
         enabled=enabled,
-        shape=shape,
-        colors=ButtonDefaults.filledTonalButtonColors(
-            containerColor=color.copy(alpha=.09f),
-            contentColor=color,
-            disabledContainerColor=Aether.GlassStrong,
-            disabledContentColor=Aether.InkFaint
-        )
-    ) {
-        Text(
-            label,
-            style=MaterialTheme.typography.labelLarge,
-            fontWeight=FontWeight.Bold,
-            maxLines=1,
-            overflow=TextOverflow.Ellipsis
-        )
-    }
+        compact=compact,
+        detail=detail,
+        badge=badge,
+        icon=icon?.let {
+            {
+                HomeVectorIcon(
+                    it,
+                    if(enabled) {
+                        // Filled skins carry the button's own content color so the icon never
+                        // collides with the gradient; tonal skins keep the semantic accent.
+                        if(resolved == PrismButtonVariant.Primary ||
+                            resolved == PrismButtonVariant.Danger
+                        ) LocalContentColor.current else color
+                    } else Aether.InkFaint,
+                    Modifier.size(if(compact) 16.dp else 18.dp)
+                )
+            }
+        }
+    )
+}
+
+/** Dialog verbs share the product button instead of a bare text link. */
+@Composable
+private fun MarbleDialogAction(
+    label: String,
+    tone: Color,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    variant: PrismButtonVariant = PrismButtonVariant.Quiet,
+    onClick: () -> Unit
+) {
+    CyberButton(
+        label=label,
+        color=tone,
+        modifier=modifier,
+        enabled=enabled,
+        variant=variant,
+        compact=true,
+        onClick=onClick
+    )
 }
 
 
@@ -7019,42 +7114,19 @@ private fun CyberChoiceChip(
     selected: Boolean,
     color: Color,
     selectionTone: Color = Aether.Cyan,
+    enabled: Boolean = true,
     onClick: () -> Unit
 ) {
     val tone = if (selectionTone == Color.Unspecified) color else selectionTone
-    val shape = RoundedCornerShape(16.dp)
-    val border by animateColorAsState(
-        targetValue = if (selected) tone.copy(alpha = .44f) else Aether.GlassBorderSoft,
-        animationSpec = MarbleMotionSpecs.Color,
-        label = "choice-border-$text"
+    PrismSelectionTile(
+        label = text,
+        selected = selected,
+        tone = tone,
+        modifier = Modifier.widthIn(min = 84.dp),
+        minHeight = 44.dp,
+        enabled = enabled,
+        onClick = onClick
     )
-    val background by animateColorAsState(
-        targetValue = if (selected) tone.copy(alpha = .075f) else Aether.VoidElevated,
-        animationSpec = MarbleMotionSpecs.Color,
-        label = "choice-background-$text"
-    )
-
-    Box(
-        modifier = Modifier
-            .heightIn(min = 44.dp)
-            .widthIn(min = 82.dp)
-            .border(1.dp, border, shape)
-            .clip(shape)
-            .background(background)
-            .kineticClickable(role = Role.Button, onClick = onClick)
-            .padding(horizontal = 13.dp, vertical = 9.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(
-            text,
-            color = if (selected) tone else Aether.InkMuted,
-            style = MaterialTheme.typography.labelMedium,
-            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            textAlign = TextAlign.Center
-        )
-    }
 }
 
 @Composable
@@ -7067,45 +7139,16 @@ private fun CyberSegment(
     selectionTone: Color = Aether.Cyan,
     onClick: () -> Unit
 ) {
-    val tone = selectionTone
-    val shape = RoundedCornerShape(16.dp)
-    val background by animateColorAsState(
-        targetValue = if (selected) tone.copy(alpha = .075f) else Aether.VoidElevated,
-        animationSpec = MarbleMotionSpecs.Color,
-        label = "segment-$label"
+    PrismSelectionTile(
+        label = label,
+        selected = selected,
+        tone = selectionTone,
+        modifier = modifier,
+        detail = detail,
+        minHeight = 62.dp,
+        alignment = Alignment.CenterStart,
+        onClick = onClick
     )
-    val border by animateColorAsState(
-        targetValue = if (selected) tone.copy(alpha = .38f) else Aether.GlassBorderSoft,
-        animationSpec = MarbleMotionSpecs.Color,
-        label = "segment-border-$label"
-    )
-
-    Column(
-        modifier
-            .heightIn(min = 62.dp)
-            .border(1.dp, border, shape)
-            .clip(shape)
-            .background(background)
-            .kineticClickable(role = Role.Button, onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.Center
-    ) {
-        Text(
-            label,
-            color = if (selected) tone else Aether.Ink,
-            style = MaterialTheme.typography.labelLarge,
-            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-        Text(
-            detail,
-            color = if (selected) color.copy(alpha = .82f) else Aether.InkFaint,
-            style = MaterialTheme.typography.labelSmall,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-    }
 }
 
 @Composable
@@ -7116,49 +7159,50 @@ private fun SettingSwitch(
     onChecked: (Boolean) -> Unit
 ) {
     val tone=if(checked) Aether.Cyan else Aether.InkMuted
-    val border by animateColorAsState(
-        targetValue=if(checked) {
-            Aether.Cyan.copy(alpha=.28f)
-        } else {
-            Aether.GlassBorderSoft
-        },
-        animationSpec=MarbleMotionSpecs.Color,
-        label="setting-row-border"
-    )
-    val shape=RoundedCornerShape(18.dp)
 
-    Row(
-        modifier=Modifier
-            .fillMaxWidth()
-            .border(1.dp,border,shape)
-            .clip(shape)
-            .background(
-                if(checked) Aether.Cyan.copy(alpha=.035f)
-                else Aether.VoidElevated
-            )
-            .padding(horizontal=12.dp,vertical=10.dp),
-        verticalAlignment=Alignment.CenterVertically,
-        horizontalArrangement=Arrangement.spacedBy(12.dp)
+    PrismWell(
+        modifier=Modifier.fillMaxWidth(),
+        tone=tone,
+        selected=checked,
+        radius=PrismSurface.TileRadius,
+        contentPadding=PaddingValues(horizontal=12.dp,vertical=10.dp),
+        onClick={ onChecked(!checked) }
     ) {
-        Box(
-            Modifier
-                .size(8.dp)
-                .clip(CircleShape)
-                .background(tone)
-        )
-        Column(Modifier.weight(1f)) {
-            Text(
-                title,
-                color=Aether.Ink,
-                style=MaterialTheme.typography.bodyMedium,
-                fontWeight=FontWeight.SemiBold
+        Row(
+            modifier=Modifier.fillMaxWidth(),
+            verticalAlignment=Alignment.CenterVertically,
+            horizontalArrangement=Arrangement.spacedBy(12.dp)
+        ) {
+            Box(
+                Modifier
+                    .size(8.dp)
+                    .clip(CircleShape)
+                    .background(tone)
+            )
+            Column(Modifier.weight(1f)) {
+                Text(
+                    title,
+                    color=Aether.Ink,
+                    style=MaterialTheme.typography.bodyMedium,
+                    fontWeight=FontWeight.SemiBold
+                )
+                // The explanation was carried by every call site for versions and never rendered.
+                if(subtitle.isNotBlank()) {
+                    Text(
+                        subtitle,
+                        color=Aether.InkFaint,
+                        style=MaterialTheme.typography.labelSmall,
+                        maxLines=2,
+                        overflow=TextOverflow.Ellipsis
+                    )
+                }
+            }
+            Switch(
+                checked=checked,
+                onCheckedChange=onChecked,
+                colors=marbleSwitchColors()
             )
         }
-        Switch(
-            checked=checked,
-            onCheckedChange=onChecked,
-            colors=marbleSwitchColors()
-        )
     }
 }
 
@@ -7171,38 +7215,52 @@ private fun NumberSetting(
     suffix: String = "",
     onValue: (Int) -> Unit
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .background(Aether.Void.copy(alpha = .30f))
-            .padding(horizontal = 8.dp, vertical = 5.dp),
-        verticalAlignment = Alignment.CenterVertically
+    PrismWell(
+        modifier = Modifier.fillMaxWidth(),
+        tone = Aether.Cyan,
+        radius = PrismSurface.TileRadius,
+        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 5.dp)
     ) {
-        Text(
-            title,
-            color = Aether.Ink,
-            style = MaterialTheme.typography.bodyMedium,
-            modifier = Modifier.weight(1f)
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                title,
+                color = Aether.Ink,
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.weight(1f)
+            )
 
-        TextButton(onClick = { onValue((value - 1).coerceAtLeast(range.first)) }) {
-            Text("−", color = Aether.InkMuted)
-        }
+            PrismIconButton(
+                onClick = { onValue((value - 1).coerceAtLeast(range.first)) },
+                tone = Aether.InkMuted,
+                size = 34.dp,
+                descriptiveLabel = "Decrease $title"
+            ) {
+                Text("−", color = Aether.InkMuted, style = MaterialTheme.typography.titleMedium)
+            }
 
-        Text(
-            "$value$suffix",
-            color = Aether.Cyan,
-            style = MaterialTheme.typography.labelLarge.copy(
-                fontFamily = FontFamily.Monospace,
-                fontWeight = FontWeight.Bold
-            ),
-            modifier = Modifier.widthIn(min = 44.dp),
-            textAlign = TextAlign.Center
-        )
+            Text(
+                "$value$suffix",
+                color = Aether.Cyan,
+                style = MaterialTheme.typography.labelLarge.copy(
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold
+                ),
+                modifier = Modifier.widthIn(min = 44.dp),
+                textAlign = TextAlign.Center
+            )
 
-        TextButton(onClick = { onValue((value + 1).coerceAtMost(range.last)) }) {
-            Text("+", color = Aether.Cyan)
+            PrismIconButton(
+                onClick = { onValue((value + 1).coerceAtMost(range.last)) },
+                tone = Aether.Cyan,
+                selected = true,
+                size = 34.dp,
+                descriptiveLabel = "Increase $title"
+            ) {
+                Text("+", color = Aether.Cyan, style = MaterialTheme.typography.titleMedium)
+            }
         }
     }
 }
