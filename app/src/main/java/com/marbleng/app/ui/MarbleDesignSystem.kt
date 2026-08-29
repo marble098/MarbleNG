@@ -300,8 +300,11 @@ internal fun Modifier.prismWell(
         animationSpec=MarbleMotionSpecs.Color,
         label="prism-well-fill"
     )
+    // MARBLE_HALO_INNER_BORDER_FIX_V67
+    // GlassBorderSoft at .9f alpha composited as a bright whitish ring on light themes.
+    // A translucent tone border blends with the well fill and never reads as a halo.
     val hairline by animateColorAsState(
-        targetValue=if (selected) tone.copy(alpha=.34f) else Aether.GlassBorderSoft.copy(alpha=.9f),
+        targetValue=if (selected) tone.copy(alpha=.38f) else tone.copy(alpha=.15f),
         animationSpec=MarbleMotionSpecs.Color,
         label="prism-well-hairline"
     )
@@ -492,20 +495,18 @@ internal fun PrismButton(
             )
         )
     }
-    // The resting rim. A bright "lifted" ring around the fill reads as a white halo hugging the
-    // inner edge of every control on real densities. The edge is now cut with light from above:
-    // a whisper of lift on top, a grounded shade below. The soft glow stays outside the control,
-    // where the shadow already lives.
+    // MARBLE_HALO_INNER_BORDER_FIX_V67
+    // The old "lifted" rim used prismLift (a lighter shade of the accent) at the top of a
+    // vertical gradient.  On light themes that lightened edge composited as a visible white
+    // halo hugging every filled control.  The fix: filled buttons now skip the border
+    // altogether — the coloured fill plus the accent shadow already carry enough depth — and
+    // tonal/quiet variants use a single solid accent border that never lightens above its
+    // background.
     val hairline: Brush=when {
-        !enabled -> SolidColor(Aether.GlassBorderSoft)
-        filled -> Brush.verticalGradient(
-            listOf(
-                prismLift(accent,.10f).copy(alpha=.22f),
-                prismShade(accent,.26f).copy(alpha=.52f)
-            )
-        )
-        variant == PrismButtonVariant.Quiet -> SolidColor(Aether.GlassBorder)
-        else -> SolidColor(accent.copy(alpha=if (pressed) .40f else .26f))
+        !enabled -> SolidColor(Aether.GlassBorderSoft.copy(alpha=.45f))
+        filled -> SolidColor(Color.Transparent)
+        variant == PrismButtonVariant.Quiet -> SolidColor(Aether.GlassBorderSoft)
+        else -> SolidColor(accent.copy(alpha=if (pressed) .44f else .30f))
     }
 
     Button(
@@ -603,8 +604,12 @@ internal fun PrismIconButton(
         animationSpec=MarbleMotionSpecs.Color,
         label="icon-control-fill"
     )
+    // MARBLE_HALO_INNER_BORDER_FIX_V67
+    // Unselected hairline was Aether.GlassBorder — a light blue-gray that composited as a
+    // white ring inside the circle on light themes.  Switching to a translucent accent
+    // eliminates the halo in both light and dark palettes.
     val hairline by animateColorAsState(
-        targetValue=if (selected) tone.copy(alpha=.44f) else Aether.GlassBorder,
+        targetValue=if (selected) tone.copy(alpha=.50f) else tone.copy(alpha=.18f),
         animationSpec=MarbleMotionSpecs.Color,
         label="icon-control-hairline"
     )
@@ -711,8 +716,12 @@ internal fun PrismSelectionTile(
         animationSpec=MarbleMotionSpecs.Color,
         label="selection-fill"
     )
+    // MARBLE_HALO_INNER_BORDER_FIX_V67
+    // The unselected border was Aether.GlassBorder — a light blue-gray that composited as a
+    // white ring inside every tile on light themes.  Replacing it with a translucent accent
+    // keeps the tile framed without any white-edge halo, in both light and dark palettes.
     val hairline by animateColorAsState(
-        targetValue=if (selected) tone.copy(alpha=.46f) else Aether.GlassBorder,
+        targetValue=if (selected) tone.copy(alpha=.50f) else tone.copy(alpha=.18f),
         animationSpec=MarbleMotionSpecs.Color,
         label="selection-hairline"
     )
