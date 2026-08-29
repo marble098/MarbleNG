@@ -140,6 +140,12 @@ class AppStore(context: Context) {
         homeShowSummaryMetrics = prefs.getBoolean("homeShowSummaryMetrics", false),
         homeShowIranMode = prefs.getBoolean("homeShowIranMode", true),
         homeShowQuickActions = prefs.getBoolean("homeShowQuickActions", true),
+        homeShowLiveQuality = prefs.getBoolean("homeShowLiveQuality", true),
+        homeShowServerSelector = prefs.getBoolean("homeShowServerSelector", true),
+        homeShowRouteDetails = prefs.getBoolean("homeShowRouteDetails", true),
+        homeShowRouteRibbon = prefs.getBoolean("homeShowRouteRibbon", true),
+        homeShowFreedomSwitch = prefs.getBoolean("homeShowFreedomSwitch", true),
+        serverlessModeEnabled = prefs.getBoolean("serverlessModeEnabled", false),
         serverIntelEnabled = prefs.getBoolean("serverIntelEnabled", true),
 
         smartNotificationsEnabled = prefs.getBoolean("smartNotificationsEnabled", true),
@@ -190,6 +196,12 @@ class AppStore(context: Context) {
         fragmentPackets = prefs.getString("fragmentPackets", "tlshello") ?: "tlshello",
         fragmentLength = prefs.getString("fragmentLength", "100-200") ?: "100-200",
         fragmentInterval = prefs.getString("fragmentInterval", "10-20") ?: "10-20",
+        fragmentMaxSplit = prefs.getString("fragmentMaxSplit", "") ?: "",
+        fragmentInnerEnabled = prefs.getBoolean("fragmentInnerEnabled", false),
+        fragmentInnerPackets = prefs.getString("fragmentInnerPackets", "1-1") ?: "1-1",
+        fragmentInnerLength = prefs.getString("fragmentInnerLength", "1") ?: "1",
+        fragmentInnerInterval = prefs.getString("fragmentInnerInterval", "4") ?: "4",
+        fragmentInnerMaxSplit = prefs.getString("fragmentInnerMaxSplit", "517") ?: "517",
 
         muxEnabled = prefs.getBoolean("muxEnabled", false),
         muxConcurrency = prefs.getInt("muxConcurrency", 8),
@@ -277,6 +289,12 @@ class AppStore(context: Context) {
         .putBoolean("homeShowSummaryMetrics", s.homeShowSummaryMetrics)
         .putBoolean("homeShowIranMode", s.homeShowIranMode)
         .putBoolean("homeShowQuickActions", s.homeShowQuickActions)
+        .putBoolean("homeShowLiveQuality", s.homeShowLiveQuality)
+        .putBoolean("homeShowServerSelector", s.homeShowServerSelector)
+        .putBoolean("homeShowRouteDetails", s.homeShowRouteDetails)
+        .putBoolean("homeShowRouteRibbon", s.homeShowRouteRibbon)
+        .putBoolean("homeShowFreedomSwitch", s.homeShowFreedomSwitch)
+        .putBoolean("serverlessModeEnabled", s.serverlessModeEnabled)
         .putBoolean("serverIntelEnabled", s.serverIntelEnabled)
 
         .putBoolean("smartNotificationsEnabled", s.smartNotificationsEnabled)
@@ -326,6 +344,12 @@ class AppStore(context: Context) {
         .putString("fragmentPackets", s.fragmentPackets)
         .putString("fragmentLength", s.fragmentLength)
         .putString("fragmentInterval", s.fragmentInterval)
+        .putString("fragmentMaxSplit", s.fragmentMaxSplit)
+        .putBoolean("fragmentInnerEnabled", s.fragmentInnerEnabled)
+        .putString("fragmentInnerPackets", s.fragmentInnerPackets)
+        .putString("fragmentInnerLength", s.fragmentInnerLength)
+        .putString("fragmentInnerInterval", s.fragmentInnerInterval)
+        .putString("fragmentInnerMaxSplit", s.fragmentInnerMaxSplit)
 
         .putBoolean("muxEnabled", s.muxEnabled)
         .putInt("muxConcurrency", s.muxConcurrency)

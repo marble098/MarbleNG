@@ -280,7 +280,7 @@ class ConnectionTuner(
         val highRtt = (health?.latencyEwma ?: 0.0) >= 150.0
         val struggling = (health?.failureStreak ?: 0) > 0 || (health?.successEwma ?: 100.0) < 70.0
 
-        val fragmentMethods = if (tlsLike && !udpNative && !base.fragmentEnabled) {
+        val fragmentMethods = if (tlsLike && !udpNative) {
             listOf(
                 AccelerationPlan(
                     methodId = "fragment-tlshello",
@@ -297,8 +297,29 @@ class ConnectionTuner(
                     fragmentPackets = "1-3",
                     fragmentLength = "40-90",
                     fragmentInterval = "5-10"
+                ),
+                AccelerationPlan(
+                    methodId = "fragment-sni",
+                    label = "SNI tlshello length 6",
+                    fragment = true,
+                    fragmentPackets = "tlshello",
+                    fragmentLength = "6",
+                    fragmentInterval = "0"
+                ),
+                AccelerationPlan(
+                    methodId = "fragment-iran-max",
+                    label = "Iran max slice",
+                    fragment = true,
+                    fragmentPackets = "1-3",
+                    fragmentLength = "5-15",
+                    fragmentInterval = "15-30"
                 )
-            )
+            ).filterNot { plan ->
+                base.fragmentEnabled &&
+                    plan.fragmentPackets == base.fragmentPackets &&
+                    plan.fragmentLength == base.fragmentLength &&
+                    plan.fragmentInterval == base.fragmentInterval
+            }
         } else {
             emptyList()
         }

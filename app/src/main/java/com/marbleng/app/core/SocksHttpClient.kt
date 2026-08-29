@@ -68,7 +68,8 @@ object SocksHttpClient {
         url: String,
         timeoutMs: Int = 30_000,
         maxBytes: Int = 8 * 1024 * 1024,
-        redirectsLeft: Int = 5
+        redirectsLeft: Int = 5,
+        userAgent: String = "MarbleNG/1"
     ): String {
         require(redirectsLeft >= 0) { "Too many redirects" }
 
@@ -88,7 +89,10 @@ object SocksHttpClient {
             body = null,
             timeoutMs = timeoutMs,
             maxBytes = maxBytes,
-            headers = mapOf("Accept-Encoding" to "identity")
+            headers = mapOf(
+                "Accept-Encoding" to "identity",
+                "User-Agent" to userAgent
+            )
         )
 
         if (probe.status in 300..399) {
@@ -99,7 +103,8 @@ object SocksHttpClient {
                 URL(target, location).toString(),
                 timeoutMs,
                 maxBytes,
-                redirectsLeft - 1
+                redirectsLeft - 1,
+                userAgent
             )
         }
 

@@ -125,6 +125,7 @@ import com.marbleng.app.core.BugSeverity
 import com.marbleng.app.core.IranModeState
 import com.marbleng.app.core.ManualConfigDraft
 import com.marbleng.app.core.ManualProtocol
+import com.marbleng.app.core.ServerlessFreedomEngine
 import com.marbleng.app.model.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -999,14 +1000,7 @@ private fun SectionLabel(
                 fontWeight=FontWeight.Bold
             )
         }
-        if(!subtitle.isNullOrBlank()) {
-            Text(
-                subtitle,
-                modifier=Modifier.padding(start=11.dp),
-                color=Aether.InkFaint,
-                style=MaterialTheme.typography.bodySmall
-            )
-        }
+        // Subtitles are accepted for API stability but never painted.
     }
 }
 
@@ -1464,7 +1458,8 @@ private fun HomeServerSelector(
     profile: ProxyProfile?,
     activeName: String,
     connected: Boolean,
-    onLibrary: () -> Unit
+    onLibrary: () -> Unit,
+    serverless: Boolean = false
 ) {
     val displayName=stripLeadingFlag(activeName).ifBlank { "Choose a route" }
     val shape=RoundedCornerShape(21.dp)
@@ -1503,13 +1498,17 @@ private fun HomeServerSelector(
                 overflow=TextOverflow.Ellipsis
             )
             Text(
-                profile?.let {
-                    listOfNotNull(
-                        it.scheme.uppercase(),
-                        it.host.takeIf(String::isNotBlank),
-                        it.port.takeIf { p -> p > 0 }?.toString()
-                    ).joinToString("  •  ")
-                }.orEmpty().ifBlank { "Open Library to select a server" },
+                if (serverless) {
+                    "FREEDOM  •  fragment"
+                } else {
+                    profile?.let {
+                        listOfNotNull(
+                            it.scheme.uppercase(),
+                            it.host.takeIf(String::isNotBlank),
+                            it.port.takeIf { p -> p > 0 }?.toString()
+                        ).joinToString("  •  ")
+                    }.orEmpty()
+                },
                 color=Aether.InkMuted,
                 style=MaterialTheme.typography.bodySmall,
                 maxLines=1,
@@ -1698,7 +1697,7 @@ private fun HomeQuickSettingRow(
     Column(
         modifier=Modifier
             .fillMaxWidth()
-            .heightIn(min=104.dp)
+            .heightIn(min=78.dp)
             .clip(shape)
             .background(Aether.VoidElevated)
             .prismWell(shape=shape, tone=tone, selected=checked)
@@ -1733,13 +1732,6 @@ private fun HomeQuickSettingRow(
             fontWeight=FontWeight.Bold,
             maxLines=1
         )
-        Text(
-            subtitle,
-            color=Aether.InkFaint,
-            style=MaterialTheme.typography.labelSmall,
-            maxLines=1,
-            overflow=TextOverflow.Ellipsis
-        )
     }
 }
 
@@ -1773,12 +1765,7 @@ private fun CyberDeck(
         item {
             MarbleCompactTopBar(
                 title="MarbleNG",
-                subtitle=when {
-                    connected -> "Secure route active"
-                    connecting -> "Establishing encrypted route"
-                    blocked -> "Fail-closed protection"
-                    else -> "Private networking"
-                },
+                subtitle="",
                 actionLabel="Servers",
                 actionIcon=HomeIcon.LIBRARY,
                 onAction=onLibrary
@@ -1796,14 +1783,45 @@ private fun CyberDeck(
                 onToggle = {
                     if (connected || connecting || blocked) repo.stopVpn()
                     else repo.reconnectLastOrAuto(onConnect)
-                },
-                onLibrary = onLibrary,
-                onDetails = onDetails
+                }
             )
         }
 
-        item {
-            HomeMetricBento(repo)
+        if (repo.settings.homeShowFreedomSwitch) {
+            item {
+                HomeServerlessSwitch(repo = repo, onConnect = onConnect)
+            }
+        }
+
+        if (repo.settings.homeShowServerSelector) {
+            item {
+                HomeServerSelector(
+                    profile = active,
+                    activeName = if (repo.settings.serverlessModeEnabled) {
+                        ServerlessFreedomEngine.DISPLAY_NAME
+                    } else {
+                        activeName
+                    },
+                    connected = connected,
+                    onLibrary = onLibrary,
+                    serverless = repo.settings.serverlessModeEnabled
+                )
+            }
+        }
+
+        if (repo.settings.homeShowRouteDetails) {
+            item {
+                HomeRouteDetailsRow(
+                    connected = connected,
+                    onDetails = onDetails
+                )
+            }
+        }
+
+        if (repo.settings.homeShowLiveQuality) {
+            item {
+                HomeMetricBento(repo)
+            }
         }
 
         if (repo.settings.serverIntelEnabled) {
@@ -1879,11 +1897,6 @@ private fun CyberDeck(
                         } else 0f,
                         color = Aether.Cyan
                     )
-                    Text(
-                        "Real Xray verification across every enabled node • no 8-node cap",
-                        color = Aether.InkFaint,
-                        style = MaterialTheme.typography.labelSmall
-                    )
                 }
             }
         }
@@ -1911,21 +1924,21 @@ private fun CyberDeck(
                     Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                         HomeActionPortal(
                             HomeIcon.RANK, "Rank all",
-                            "Xray • ${repo.libraryProfiles.size} nodes",
+                            "${repo.libraryProfiles.size}",
                             Aether.Cyan, Modifier.weight(1f)
                         ) { repo.smartRank() }
                         HomeActionPortal(
-                            HomeIcon.LIBRARY, "Library", "${repo.libraryProfiles.size} nodes",
+                            HomeIcon.LIBRARY, "Library", "${repo.libraryProfiles.size}",
                             Aether.Amethyst, Modifier.weight(1f), onLibrary
                         )
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                         HomeActionPortal(
-                            HomeIcon.PRIVACY, "Privacy", if (connected) "Audit egress" else "Connect first",
+                            HomeIcon.PRIVACY, "Privacy", "",
                             Aether.Emerald, Modifier.weight(1f), onPrivacy
                         )
                         HomeActionPortal(
-                            HomeIcon.ROUTING, "Routing", "Traffic policy",
+                            HomeIcon.ROUTING, "Routing", "",
                             Aether.Amber, Modifier.weight(1f), onRouting
                         )
                     }
@@ -1933,11 +1946,14 @@ private fun CyberDeck(
             }
         }
 
-        item { HomeRouteRibbon(repo) }
+        if (repo.settings.homeShowRouteRibbon) {
+            item { HomeRouteRibbon(repo) }
+        }
     }
 }
 
 @Composable
+@Suppress("UNUSED_PARAMETER")
 private fun HomeOrbitalHero(
     repo: AppRepository,
     active: ProxyProfile?,
@@ -1945,9 +1961,7 @@ private fun HomeOrbitalHero(
     connected: Boolean,
     connecting: Boolean,
     blocked: Boolean,
-    onToggle: () -> Unit,
-    onLibrary: () -> Unit,
-    onDetails: () -> Unit
+    onToggle: () -> Unit
 ) {
     val tone=when {
         connected -> Aether.Emerald
@@ -1975,12 +1989,6 @@ private fun HomeOrbitalHero(
                     blocked -> "Fail-closed"
                     else -> "Ready to protect"
                 },
-                detail=when {
-                    connected -> "Selected route is carrying traffic securely"
-                    connecting -> "Xray is negotiating the route"
-                    blocked -> "Traffic stays blocked until recovery"
-                    else -> "Choose a route or use the last successful server"
-                },
                 modifier=Modifier.weight(1f)
             )
             PrismBadge(
@@ -2002,91 +2010,59 @@ private fun HomeOrbitalHero(
             blocked=blocked,
             onToggle=onToggle
         )
+    }
+}
 
-        HomeServerSelector(
-            profile=active,
-            activeName=activeName,
-            connected=connected,
-            onLibrary=onLibrary
-        )
+@Composable
+private fun HomeStatusAnchor(
+    title: String,
+    modifier: Modifier = Modifier
+) {
+    val titleStyle=MaterialTheme.typography.titleLarge
+    val titleBlock=anchoredTextBlockHeight(titleStyle, 1)
 
-        HomeRouteDetailsRow(
-            connected=connected,
-            onDetails=onDetails
+    AnimatedContent(
+        targetState=title,
+        transitionSpec={
+            (fadeIn(MarbleMotionSpecs.ResponseFloat) +
+                slideInVertically(MarbleMotionSpecs.Spatial) { it / 3 }) togetherWith
+                (fadeOut(MarbleMotionSpecs.ExitFloat) +
+                    slideOutVertically(MarbleMotionSpecs.SpatialExit) { -it / 3 })
+        },
+        label="home-status-title-anchor-v64",
+        modifier=modifier
+            .fillMaxWidth()
+            .heightIn(min=titleBlock)
+    ) { text ->
+        Text(
+            text,
+            color=Aether.Ink,
+            style=titleStyle,
+            fontWeight=FontWeight.Bold,
+            maxLines=1,
+            overflow=TextOverflow.Ellipsis
         )
     }
 }
 
-/** How much room the Home status sentence may ever occupy. */
-private const val HOME_STATUS_DETAIL_LINES = 2
-
-/**
- * Fixed-height Home status copy.
- *
- * The title and the sentence above the Connect control are runtime state text: they change the moment a
- * connection state lands and every state has a different length. Unanchored, the shorter sentence freed a
- * line and pulled the whole Connect surface upward, then pushed it back on the next state. Both lines
- * reserve their own room here and the swap animates inside the reservation, so the control keeps exactly
- * one position in every state.
- */
 @Composable
-private fun HomeStatusAnchor(
-    title: String,
-    detail: String,
-    modifier: Modifier = Modifier
+private fun HomeServerlessSwitch(
+    repo: AppRepository,
+    onConnect: (ProxyProfile) -> Unit
 ) {
-    val titleStyle=MaterialTheme.typography.titleLarge
-    val detailStyle=MaterialTheme.typography.bodySmall
-    val titleBlock=anchoredTextBlockHeight(titleStyle, 1)
-    val detailBlock=anchoredTextBlockHeight(detailStyle, HOME_STATUS_DETAIL_LINES)
-
-    Column(
-        modifier=modifier,
-        verticalArrangement=Arrangement.spacedBy(5.dp)
-    ) {
-        AnimatedContent(
-            targetState=title,
-            transitionSpec={
-                (fadeIn(MarbleMotionSpecs.ResponseFloat) +
-                    slideInVertically(MarbleMotionSpecs.Spatial) { it / 3 }) togetherWith
-                    (fadeOut(MarbleMotionSpecs.ExitFloat) +
-                        slideOutVertically(MarbleMotionSpecs.SpatialExit) { -it / 3 })
-            },
-            label="home-status-title-anchor-v64",
-            modifier=Modifier
-                .fillMaxWidth()
-                .heightIn(min=titleBlock)
-        ) { text ->
-            Text(
-                text,
-                color=Aether.Ink,
-                style=titleStyle,
-                fontWeight=FontWeight.Bold,
-                maxLines=1,
-                overflow=TextOverflow.Ellipsis
-            )
-        }
-        AnimatedContent(
-            targetState=detail,
-            transitionSpec={
-                (fadeIn(MarbleMotionSpecs.ResponseFloat) +
-                    slideInVertically(MarbleMotionSpecs.Spatial) { it / 3 }) togetherWith
-                    (fadeOut(MarbleMotionSpecs.ExitFloat) +
-                        slideOutVertically(MarbleMotionSpecs.SpatialExit) { -it / 3 })
-            },
-            label="home-status-detail-anchor-v64",
-            modifier=Modifier
-                .fillMaxWidth()
-                .heightIn(min=detailBlock),
-            contentAlignment=Alignment.TopStart
-        ) { text ->
-            Text(
-                text,
-                color=Aether.InkMuted,
-                style=detailStyle,
-                maxLines=HOME_STATUS_DETAIL_LINES,
-                overflow=TextOverflow.Ellipsis
-            )
+    val enabled = repo.settings.serverlessModeEnabled
+    val connected = repo.state == "CONNECTED" || repo.state == "CONNECTING" || repo.state == "BLOCKED"
+    HomeQuickSettingRow(
+        icon = HomeIcon.SHIELD,
+        title = "Marble Freedom",
+        subtitle = "",
+        checked = enabled,
+        enabled = !repo.busy
+    ) { next ->
+        repo.setServerlessMode(next)
+        if (connected) {
+            val profile = repo.lastProfile()
+            if (profile != null) onConnect(profile)
         }
     }
 }
@@ -2137,13 +2113,15 @@ private fun HomeActionPortal(
                 fontWeight=FontWeight.Bold,
                 maxLines=1
             )
-            Text(
-                detail,
-                color=Aether.InkFaint,
-                style=MaterialTheme.typography.labelSmall,
-                maxLines=1,
-                overflow=TextOverflow.Ellipsis
-            )
+            if (detail.isNotBlank()) {
+                Text(
+                    detail,
+                    color=Aether.InkFaint,
+                    style=MaterialTheme.typography.labelSmall,
+                    maxLines=1,
+                    overflow=TextOverflow.Ellipsis
+                )
+            }
         }
         HomeVectorIcon(
             HomeIcon.DETAILS,
@@ -2318,13 +2296,13 @@ private fun IranModeStatusPill(state: IranModeState) {
             )
             Text(
                 when {
-                    forced -> "Always-on protection • physical detection bypassed"
-                    scanning -> "Checking the physical underlay"
+                    forced -> "FORCED"
+                    scanning -> "SCANNING"
                     state.isp != null -> buildString {
                         append(state.ispLine)
                         if (state.confidence > 0) append(" • ${state.confidence}%")
                     }
-                    else -> "Restricted-network protection active"
+                    else -> "ACTIVE"
                 },
                 color = Aether.InkMuted,
                 style = MaterialTheme.typography.bodySmall,
@@ -3138,15 +3116,7 @@ private fun CyberLibrary(
                         color = Aether.Ink,
                         style = MaterialTheme.typography.titleMedium
                     )
-                    Text(
-                        if (repo.libraryProfiles.isEmpty()) {
-                            "Add a subscription URL above, or import a config file."
-                        } else {
-                            "Clear the search box or pick another source."
-                        },
-                        color = Aether.InkFaint,
-                        style = MaterialTheme.typography.bodySmall
-                    )
+
                 }
             }
         }
@@ -5274,12 +5244,6 @@ private fun AppearanceSettings(repo: AppRepository) {
         style=MaterialTheme.typography.titleSmall,
         fontWeight=FontWeight.Bold
     )
-    Text(
-        "Choose a fixed Marble palette or let Android Material You drive System mode.",
-        color=Aether.InkMuted,
-        style=MaterialTheme.typography.bodySmall
-    )
-
     Row(
         modifier=Modifier.fillMaxWidth(),
         horizontalArrangement=Arrangement.spacedBy(8.dp)
@@ -5320,7 +5284,7 @@ private fun AppearanceSettings(repo: AppRepository) {
 
     SettingSwitch(
         "Expert controls",
-        "Reveal MTU, DNS, routing, fragmentation, recovery and chain settings",
+        "",
         repo.settings.expertMode
     ) {
         repo.updateSettings(repo.settings.copy(expertMode=it))
@@ -5328,7 +5292,7 @@ private fun AppearanceSettings(repo: AppRepository) {
 
     SettingSwitch(
         "Automatic app update checks",
-        "Check signed GitHub Releases when MarbleNG returns to the foreground",
+        "",
         repo.settings.appUpdateCheckEnabled
     ) { enabled ->
         repo.updateSettings(
@@ -5337,14 +5301,11 @@ private fun AppearanceSettings(repo: AppRepository) {
         if(enabled) repo.checkForAppUpdate(force=true)
     }
 
-    SectionLabel(
-        "Home layout",
-        "Optional surfaces only — the underlying engine keeps running"
-    )
+    SectionLabel("Home layout")
 
     SettingSwitch(
         "Summary metrics on Home",
-        "Show Nodes, Xray OK and Mode below the connection panel",
+        "",
         repo.settings.homeShowSummaryMetrics
     ) {
         repo.updateSettings(repo.settings.copy(homeShowSummaryMetrics=it))
@@ -5352,7 +5313,7 @@ private fun AppearanceSettings(repo: AppRepository) {
 
     SettingSwitch(
         "Server info card on Home",
-        "Show selected server IP, city, datacenter/network, ASN and ISP on the Home screen",
+        "",
         repo.settings.serverIntelEnabled
     ) { enabled ->
         repo.updateSettings(repo.settings.copy(serverIntelEnabled=enabled))
@@ -5361,7 +5322,7 @@ private fun AppearanceSettings(repo: AppRepository) {
 
     SettingSwitch(
         "Iran Mode card on Home",
-        "Hide only the Home card; Iran Mode protection stays active",
+        "",
         repo.settings.homeShowIranMode
     ) {
         repo.updateSettings(repo.settings.copy(homeShowIranMode=it))
@@ -5369,10 +5330,42 @@ private fun AppearanceSettings(repo: AppRepository) {
 
     SettingSwitch(
         "Quick Actions on Home",
-        "Show Rank, Library, Privacy and Routing shortcuts",
+        "",
         repo.settings.homeShowQuickActions
     ) {
         repo.updateSettings(repo.settings.copy(homeShowQuickActions=it))
+    }
+
+    SettingSwitch(
+        "Live quality on Home",
+        "",
+        repo.settings.homeShowLiveQuality
+    ) {
+        repo.updateSettings(repo.settings.copy(homeShowLiveQuality=it))
+    }
+
+    SettingSwitch(
+        "Server selector on Home",
+        "",
+        repo.settings.homeShowServerSelector
+    ) {
+        repo.updateSettings(repo.settings.copy(homeShowServerSelector=it))
+    }
+
+    SettingSwitch(
+        "Route details on Home",
+        "",
+        repo.settings.homeShowRouteDetails
+    ) {
+        repo.updateSettings(repo.settings.copy(homeShowRouteDetails=it))
+    }
+
+    SettingSwitch(
+        "Route ribbon on Home",
+        "",
+        repo.settings.homeShowRouteRibbon
+    ) {
+        repo.updateSettings(repo.settings.copy(homeShowRouteRibbon=it))
     }
 }
 
@@ -5409,11 +5402,6 @@ private fun ConnectionSettings(repo: AppRepository) {
         repo.updateSettings(repo.settings.copy(localProxyPort = it))
     }
 
-    Text(
-        "Last successful route is remembered automatically for one-tap Home reconnect.",
-        color = Aether.InkFaint,
-        style = MaterialTheme.typography.bodySmall
-    )
 }
 
 @Composable
@@ -6167,11 +6155,7 @@ private fun FragmentMuxSettings(repo: AppRepository) {
                 }
             }
 
-            Text(
-                "Baseline: tlshello • 100-200 • 10-20 ms",
-                color = Aether.InkFaint,
-                style = MaterialTheme.typography.bodySmall
-            )
+
         }
     }
 
@@ -6513,11 +6497,7 @@ private fun RoutingSettings(repo: AppRepository) {
                     color = Aether.Ink,
                     style = MaterialTheme.typography.titleMedium
                 )
-                Text(
-                    "Iran domains/IPs direct • ads blocked • international traffic stays on proxy",
-                    color = Aether.InkMuted,
-                    style = MaterialTheme.typography.bodySmall
-                )
+
             }
             HoloBadge(
                 if (iranDirect && s.routeBlockAds) "Active" else "Custom",
@@ -6662,11 +6642,7 @@ private fun RoutingSettings(repo: AppRepository) {
         repo.updateSettings(repo.settings.copy(geoSiteUrl = it))
     }
 
-    Text(
-        "Default source: Chocolate4U/Iran-v2ray-rules • refreshes after 24h",
-        color = Aether.InkFaint,
-        style = MaterialTheme.typography.bodySmall
-    )
+
 
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         CyberButton(
@@ -6753,11 +6729,6 @@ private fun RoutingSettings(repo: AppRepository) {
         }
     }
 
-    Text(
-        "Iran-direct is deliberate: Iranian destinations see your ISP IP; the rest stays on the proxy.",
-        color = Aether.Amber,
-        style = MaterialTheme.typography.bodySmall
-    )
 }
 
 @Composable
@@ -6939,17 +6910,6 @@ private fun probeMethodShortLabel(method: ProbeMethod): String = when (method) {
     ProbeMethod.ICMP -> "ICMP"
 }
 
-private fun probeMethodExplainer(method: ProbeMethod): String = when (method) {
-    ProbeMethod.HYBRID ->
-        "Quick TCP gate, then a real Xray tunnel test. Default."
-    ProbeMethod.TUNNEL ->
-        "One real Xray process per node with a real HTTPS fetch. Slowest and most accurate."
-    ProbeMethod.TCP ->
-        "Measures the TCP handshake (tcping). Fast, but cannot tell a working proxy from a filtered route."
-    ProbeMethod.ICMP ->
-        "Classic system ping. Many carriers drop ICMP, so healthy nodes can look unreachable."
-}
-
 @Composable
 private fun ProbeSettings(repo: AppRepository) {
     val s = repo.settings
@@ -6975,12 +6935,6 @@ private fun ProbeSettings(repo: AppRepository) {
             ) { repo.updateSettings(repo.settings.copy(probeMethod = method)) }
         }
     }
-
-    Text(
-        probeMethodExplainer(s.probeMethod),
-        color = Aether.InkMuted,
-        style = MaterialTheme.typography.bodySmall
-    )
 
     HorizontalDivider(color = Aether.GlassBorderSoft)
 
@@ -7186,16 +7140,6 @@ private fun SettingSwitch(
                     style=MaterialTheme.typography.bodyMedium,
                     fontWeight=FontWeight.SemiBold
                 )
-                // The explanation was carried by every call site for versions and never rendered.
-                if(subtitle.isNotBlank()) {
-                    Text(
-                        subtitle,
-                        color=Aether.InkFaint,
-                        style=MaterialTheme.typography.labelSmall,
-                        maxLines=2,
-                        overflow=TextOverflow.Ellipsis
-                    )
-                }
             }
             Switch(
                 checked=checked,
@@ -7454,6 +7398,32 @@ private fun IranModeSettings(repo: AppRepository) {
         "Probe for DNS injection, SNI resets, port allowlists and UDP blocking",
         settings.iranDeepProbeEnabled
     ) { repo.updateSettings(settings.copy(iranDeepProbeEnabled = it)) }
+
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        HoloBadge(
+            if (state.active) "ENGINE ON" else "ENGINE IDLE",
+            if (state.active) Aether.Emerald else Aether.InkFaint,
+            compact = true
+        )
+        if (state.active) {
+            HoloBadge(state.ispLine, Aether.Cyan, compact = true)
+        }
+    }
+
+    Text(
+        state.summary,
+        color = Aether.InkMuted,
+        style = MaterialTheme.typography.bodySmall
+    )
+
+    CyberButton(
+        label = "Re-scan now",
+        color = Aether.Cyan,
+        modifier = Modifier.fillMaxWidth(),
+        enabled = !state.scanning
+    ) { repo.scanIranMode(force = true, deep = true) }
+}
+s(settings.copy(iranDeepProbeEnabled = it)) }
 
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         HoloBadge(

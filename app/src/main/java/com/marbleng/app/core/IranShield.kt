@@ -38,27 +38,7 @@ object IranShield {
         }
     }
 
-    private data class FragmentProfile(
-        val packets: String,
-        val length: String,
-        val interval: String,
-        val description: String
-    )
-
-    private fun fragmentProfile(tier: Int): FragmentProfile = when (tier) {
-        3 -> FragmentProfile(
-            "1-3", "5-15", "15-30",
-            "Maximum bounded stream slicing • first three writes split into 5-15 byte chunks"
-        )
-        2 -> FragmentProfile(
-            "1-3", "10-30", "10-20",
-            "Aggressive TLS record shredding • first three records split into 10-30 byte chunks"
-        )
-        else -> FragmentProfile(
-            "tlshello", "100-200", "10-20",
-            "ClientHello fragmentation • splits the SNI across TCP segments"
-        )
-    }
+    private fun fragmentProfile(state: IranModeState) = DpiEvasionPolicy.connectionRecipe(state)
 
     /**
      * Rewrites the effective settings used for a connection while Iran Mode is active.
@@ -75,22 +55,29 @@ object IranShield {
         if (!state.active) return base
 
         val tier = tier(state)
-        val fragment = fragmentProfile(tier)
+        val fragment = fragmentProfile(state)
         val autoFragment = shouldAutoFragment(profile)
         val udpBlocked = CensorTechnique.UDP_BLOCKED in state.techniques
         val cellular = state.isp?.kind == IranIspKind.MOBILE
+        val serverless = profile != null && ServerlessFreedomEngine.isServerless(profile)
 
         var next = if (!base.iranModeCountermeasures) base else base.copy(
             // --- Anti-DPI transport shaping -------------------------------------------------
             // Clear HTTP-like transports already have their own framing. Do not mutate
             // XHTTP/VLESS-ENC first writes merely because Iran Mode is active. Explicit user
             // Fragment settings are still preserved via base.*.
-            fragmentEnabled = if (autoFragment) true else base.fragmentEnabled,
-            fragmentPackets = if (autoFragment) fragment.packets else base.fragmentPackets,
-            fragmentLength = if (autoFragment) fragment.length else base.fragmentLength,
-            fragmentInterval = if (autoFragment) fragment.interval else base.fragmentInterval,
+            fragmentEnabled = if (autoFragment || serverless) true else base.fragmentEnabled,
+            fragmentPackets = if (autoFragment || serverless) fragment.packets else base.fragmentPackets,
+            fragmentLength = if (autoFragment || serverless) fragment.length else base.fragmentLength,
+            fragmentInterval = if (autoFragment || serverless) fragment.interval else base.fragmentInterval,
+            fragmentMaxSplit = if (autoFragment || serverless) fragment.maxSplit else base.fragmentMaxSplit,
+            fragmentInnerEnabled = if (autoFragment || serverless) fragment.innerEnabled else base.fragmentInnerEnabled,
+            fragmentInnerPackets = if (fragment.innerEnabled) fragment.innerPackets else base.fragmentInnerPackets,
+            fragmentInnerLength = if (fragment.innerEnabled) fragment.innerLength else base.fragmentInnerLength,
+            fragmentInnerInterval = if (fragment.innerEnabled) fragment.innerInterval else base.fragmentInnerInterval,
+            fragmentInnerMaxSplit = if (fragment.innerEnabled) fragment.innerMaxSplit else base.fragmentInnerMaxSplit,
             adaptiveFragmentEnabled =
-                if (autoFragment) true else base.adaptiveFragmentEnabled,
+                if (autoFragment || serverless) true else base.adaptiveFragmentEnabled,
 
             // --- Encrypted resolution ---------------------------------------------------------
             // Preserve Marble Intelligence's network-scoped measured order. Hard-coding Google
@@ -117,12 +104,8 @@ object IranShield {
         if (base.iranModeCountermeasures) {
             // Mobile DPI stacks are far less tolerant of large records; keep the TUN under the
             // fragmentation ceiling so shredded ClientHellos are never reassembled downstream.
-            val mtuCeiling = when {
-                tier >= 3 -> 1380
-                cellular -> 1400
-                else -> 1420
-            }
-            next = next.copy(mtuMax = min(next.mtuMax, mtuCeiling))
+            val mtuCeiling = DpiEvasionPolicy.mtuCeiling(state, cellular)
+            next = next.copy(mtuMax = min(next.mtuMax, mtuCeiling).coerceAtLeast(next.mtuMin))
 
             // QUIC/UDP is dropped nationally during clampdowns; failing it fast makes apps fall back
             // to TCP through the tunnel instead of stalling on retransmits.
@@ -231,7 +214,7 @@ object IranShield {
         val tier = tier(state)
         val out = mutableListOf<String>()
 
-        out += fragmentProfile(tier).description
+        out += fragmentProfile(state).description
         out += "Encrypted DoH resolution with measured provider order and bounded serial fallback"
         out += "Plaintext :53 hijacked into the tunnel so the ISP resolver cannot inject block pages"
         out += "Transport preference: REALITY/XTLS-Vision and CDN-frontable transports on port 443"

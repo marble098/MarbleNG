@@ -285,29 +285,31 @@ object XrayConfigHardener {
             val clone = JSONObject(orig.toString())
             val proto = clone.optString("protocol")
             val tag = clone.optString("tag").ifBlank {
-                if (proto !in infra && firstTag.isBlank()) "proxy" else "out-$i"
+                if (isSelectableProxy(clone) && firstTag.isBlank()) "proxy" else "out-$i"
             }
             clone.put("tag", tag)
             byTag[tag] = clone
-            if (proto !in infra && firstTag.isBlank()) firstTag = tag
+            if (isSelectableProxy(clone) && firstTag.isBlank()) firstTag = tag
         }
         require(firstTag.isNotBlank()) { "No proxy outbound" }
 
         val keep = linkedSetOf<String>()
-        fun add(tag: String) {
+        fun add(tag: String, viaDialer: Boolean = false) {
             val outbound = byTag[tag] ?: return
             val protocol = outbound.optString("protocol").lowercase()
             if (tag != firstTag) {
-                if (!settings.configCompatibilityMode && protocol in infra) return
-                if (settings.configCompatibilityMode && protocol !in compatibilityDependencyProtocols) return
+                val fragmentHop = protocol in setOf("freedom", "direct") &&
+                    (hasFragment(outbound) || viaDialer)
+                if (!fragmentHop) {
+                    if (!settings.configCompatibilityMode && protocol in infra) return
+                    if (settings.configCompatibilityMode && protocol !in compatibilityDependencyProtocols) return
+                }
             }
             if (!keep.add(tag)) return
             outbound.optJSONObject("proxySettings")?.optString("tag")
                 ?.takeIf { it.isNotBlank() }?.let(::add)
-            if (settings.configCompatibilityMode) {
-                outbound.optJSONObject("streamSettings")?.optJSONObject("sockopt")
-                    ?.optString("dialerProxy")?.takeIf { it.isNotBlank() }?.let(::add)
-            }
+            outbound.optJSONObject("streamSettings")?.optJSONObject("sockopt")
+                ?.optString("dialerProxy")?.takeIf { it.isNotBlank() }?.let { add(it, viaDialer = true) }
         }
         add(firstTag)
 
@@ -328,10 +330,53 @@ object XrayConfigHardener {
             }
         }
 
+        // Overlay live fragment recipes onto Freedom hops that already shred TLS (serverless).
+        // Never attach fragment-direct onto a Freedom outbound that is itself the fragment hop.
+        keep.forEach { tag ->
+            val outbound = byTag[tag] ?: return@forEach
+            if (!hasFragment(outbound)) return@forEach
+            val inner = tag != firstTag && settings.fragmentInnerEnabled
+            overlayFragment(
+                outbound,
+                packets = if (inner) settings.fragmentInnerPackets else settings.fragmentPackets,
+                length = if (inner) settings.fragmentInnerLength else settings.fragmentLength,
+                interval = if (inner) settings.fragmentInnerInterval else settings.fragmentInterval,
+                maxSplit = if (inner) settings.fragmentInnerMaxSplit else settings.fragmentMaxSplit
+            )
+        }
+
+        val selectedAlreadyFragments = byTag[firstTag]?.let { selected ->
+            hasFragment(selected) ||
+                selected.optJSONObject("streamSettings")
+                    ?.optJSONObject("sockopt")
+                    ?.optString("dialerProxy")
+                    ?.let { hop -> byTag[hop]?.let(::hasFragment) } == true
+        } == true
+
         // Fragment is attached as a Freedom dialer only to a physical proxy hop.
         // For a two-hop chain, the exit already has proxySettings -> entry, so Fragment lands
         // on the entry hop and never destroys the exit transport layer.
-        val fragmentOutbound = if (settings.fragmentEnabled) {
+        val fragmentOutbound = if (settings.fragmentEnabled && !selectedAlreadyFragments) {
+            val innerPackets = if (settings.fragmentInnerEnabled) {
+                settings.fragmentInnerPackets.ifBlank { "1-1" }
+            } else {
+                settings.fragmentPackets.ifBlank { "tlshello" }
+            }
+            val innerLength = if (settings.fragmentInnerEnabled) {
+                settings.fragmentInnerLength.ifBlank { "1" }
+            } else {
+                settings.fragmentLength.ifBlank { "100-200" }
+            }
+            val innerInterval = if (settings.fragmentInnerEnabled) {
+                settings.fragmentInnerInterval.ifBlank { "4" }
+            } else {
+                settings.fragmentInterval.ifBlank { "10-20" }
+            }
+            val innerMaxSplit = if (settings.fragmentInnerEnabled) {
+                settings.fragmentInnerMaxSplit.ifBlank { "517" }
+            } else {
+                settings.fragmentMaxSplit
+            }
             JSONObject()
                 .put("tag", "fragment-direct")
                 .put("protocol", "freedom")
@@ -339,10 +384,37 @@ object XrayConfigHardener {
                     "settings",
                     JSONObject().put(
                         "fragment",
-                        JSONObject()
-                            .put("packets", settings.fragmentPackets.ifBlank { "tlshello" })
-                            .put("length", settings.fragmentLength.ifBlank { "100-200" })
-                            .put("interval", settings.fragmentInterval.ifBlank { "10-20" })
+                        fragmentSettings(innerPackets, innerLength, innerInterval, innerMaxSplit)
+                    )
+                )
+        } else {
+            null
+        }
+
+        val tlsFragmentOutbound = if (
+            fragmentOutbound != null &&
+            settings.fragmentInnerEnabled
+        ) {
+            JSONObject()
+                .put("tag", "tls-fragment")
+                .put("protocol", "freedom")
+                .put(
+                    "settings",
+                    JSONObject().put(
+                        "fragment",
+                        fragmentSettings(
+                            settings.fragmentPackets.ifBlank { "tlshello" },
+                            settings.fragmentLength.ifBlank { "6" },
+                            settings.fragmentInterval.ifBlank { "0" },
+                            settings.fragmentMaxSplit
+                        )
+                    )
+                )
+                .put(
+                    "streamSettings",
+                    JSONObject().put(
+                        "sockopt",
+                        JSONObject().put("dialerProxy", "fragment-direct")
                     )
                 )
         } else {
@@ -350,6 +422,7 @@ object XrayConfigHardener {
         }
 
         if (fragmentOutbound != null) {
+            val attachTag = if (tlsFragmentOutbound != null) "tls-fragment" else "fragment-direct"
             keep.forEach { tag ->
                 val outbound = byTag[tag] ?: return@forEach
                 val protocol = outbound.optString("protocol").lowercase()
@@ -365,7 +438,7 @@ object XrayConfigHardener {
                     ?: JSONObject().also { stream.put("sockopt", it) }
 
                 if (!alreadyChained && sockopt.optString("dialerProxy").isBlank()) {
-                    sockopt.put("dialerProxy", "fragment-direct")
+                    sockopt.put("dialerProxy", attachTag)
                 }
             }
         }
@@ -438,6 +511,7 @@ object XrayConfigHardener {
             }
         }
 
+        if (tlsFragmentOutbound != null) out.put(tlsFragmentOutbound)
         if (fragmentOutbound != null) out.put(fragmentOutbound)
 
         if (needsDirect) {
@@ -827,6 +901,51 @@ object XrayConfigHardener {
     private fun fragmentEligible(protocol: String, method: String): Boolean =
         protocol in setOf("http", "shadowsocks", "socks", "trojan", "vless", "vmess") &&
             method !in setOf("hysteria", "mkcp")
+
+    /** Freedom/direct hops that already shred TLS are selectable routes, not infrastructure. */
+    private fun isSelectableProxy(outbound: JSONObject): Boolean {
+        val protocol = outbound.optString("protocol").lowercase()
+        if (protocol !in infra) return true
+        return protocol in setOf("freedom", "direct") && hasFragment(outbound)
+    }
+
+    private fun hasFragment(outbound: JSONObject): Boolean {
+        val fragment = outbound.optJSONObject("settings")?.optJSONObject("fragment") ?: return false
+        return fragment.optString("packets").isNotBlank()
+    }
+
+    private fun overlayFragment(
+        outbound: JSONObject,
+        packets: String,
+        length: String,
+        interval: String,
+        maxSplit: String
+    ) {
+        val settingsObject = outbound.optJSONObject("settings")
+            ?: JSONObject().also { outbound.put("settings", it) }
+        settingsObject.put("fragment", fragmentSettings(packets, length, interval, maxSplit))
+    }
+
+    private fun fragmentSettings(
+        packets: String,
+        length: String,
+        interval: String,
+        maxSplit: String
+    ): JSONObject {
+        val fragment = JSONObject()
+            .put("packets", packets)
+            .put("length", length)
+            .put("interval", interval)
+        putMaxSplit(fragment, maxSplit)
+        return fragment
+    }
+
+    private fun putMaxSplit(fragment: JSONObject, maxSplit: String) {
+        val trimmed = maxSplit.trim()
+        if (trimmed.isBlank()) return
+        trimmed.toIntOrNull()?.let { fragment.put("maxSplit", it) }
+            ?: fragment.put("maxSplit", trimmed)
+    }
 
     private fun addDomainRule(rules: JSONArray, values: List<String>, outboundTag: String) {
         if (values.isEmpty()) return

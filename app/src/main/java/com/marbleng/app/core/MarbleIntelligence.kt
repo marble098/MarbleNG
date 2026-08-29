@@ -1031,26 +1031,34 @@ class MarbleIntelligence(private val context: Context) {
         }
 
         val liveHealth = if (settings.healthHistoryEnabled) db.get(profileId, network.key()) else null
-        val jitterCapped = if ((liveHealth?.jitterEwma ?: 0.0) >= 24.0) {
-            // Root-free queue pressure control: reduce Marble/HEV buffering when the route itself is jittery.
-            // This is intentionally not labelled FQ-CoDel. MARBLE_REALTIME_ENGINE_V70
+        val jitterHigh = (liveHealth?.jitterEwma ?: 0.0) >= 24.0
+        val pingHigh = (liveHealth?.latencyEwma ?: 0.0) >= 250.0 &&
+            (liveHealth?.latencyEwma ?: 0.0) < 9000.0
+        val lossy = (liveHealth?.successEwma ?: 100.0) in 1.0..84.0
+        val pathCapped = if (jitterHigh || pingHigh || lossy) {
+            // Root-free queue pressure control: shrink Marble/HEV buffers when live ping/jitter/loss
+            // say the underlay is reassembling or dropping shredded TLS records.
             TunnelTuning(
-                maxSessions = min(latencyCapped.maxSessions, 3072),
+                maxSessions = min(latencyCapped.maxSessions, if (lossy) 2048 else 3072),
                 tcpBufferBytes = min(latencyCapped.tcpBufferBytes, 65_536),
-                udpBufferBytes = min(latencyCapped.udpBufferBytes, 262_144),
-                label = "${latencyCapped.label}/jitter-pressure"
+                udpBufferBytes = min(latencyCapped.udpBufferBytes, if (lossy) 131_072 else 262_144),
+                label = when {
+                    lossy -> "${latencyCapped.label}/loss-pressure"
+                    pingHigh -> "${latencyCapped.label}/ping-pressure"
+                    else -> "${latencyCapped.label}/jitter-pressure"
+                }
             )
         } else latencyCapped
 
         // Never let a bigger datapath fight the thermal governor for the same silicon.
         return if (thermal < 0.55) {
             TunnelTuning(
-                maxSessions = min(jitterCapped.maxSessions, 2048),
-                tcpBufferBytes = min(jitterCapped.tcpBufferBytes, 65_536),
-                udpBufferBytes = min(jitterCapped.udpBufferBytes, 262_144),
-                label = "${jitterCapped.label}/thermal"
+                maxSessions = min(pathCapped.maxSessions, 2048),
+                tcpBufferBytes = min(pathCapped.tcpBufferBytes, 65_536),
+                udpBufferBytes = min(pathCapped.udpBufferBytes, 262_144),
+                label = "${pathCapped.label}/thermal"
             )
-        } else jitterCapped
+        } else pathCapped
     }
 
     /**
@@ -1126,7 +1134,23 @@ class MarbleIntelligence(private val context: Context) {
             }
 
         // Iran Mode is applied last so its countermeasures win over generic adaptive tuning.
-        return IranShield.apply(accelerated, profile, iranState, iranGeoIpReady)
+        val shielded = IranShield.apply(accelerated, profile, iranState, iranGeoIpReady)
+        val health = db.get(profile.id, n.key())
+        val healed = DpiEvasionPolicy.heal(
+            shielded,
+            DpiEvasionPolicy.PathEvidence(
+                pingMs = health?.latencyEwma?.toInt() ?: 0,
+                jitterMs = health?.jitterEwma?.toInt() ?: 0,
+                successPercent = health?.successEwma?.toInt() ?: 100,
+                samples = health?.samples ?: 0
+            ),
+            iranState
+        )
+        return if (ServerlessFreedomEngine.isServerless(profile)) {
+            ServerlessFreedomEngine.pinSession(healed)
+        } else {
+            healed
+        }
     }
 
     fun hasHistory(
