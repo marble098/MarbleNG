@@ -36,6 +36,9 @@ files = {
     "manual": read("app/src/main/java/com/marbleng/app/core/ManualConfigBuilder.kt"),
     "ssh": read("app/src/main/java/com/marbleng/app/core/SshTransportManager.kt"),
     "socks": read("app/src/main/java/com/marbleng/app/core/SocksHttpClient.kt"),
+    "dpiFetch": read("app/src/main/java/com/marbleng/app/core/DpiAwareFetcher.kt"),
+    "dpiPolicy": read("app/src/main/java/com/marbleng/app/core/DpiEvasionPolicy.kt"),
+    "serverless": read("app/src/main/java/com/marbleng/app/core/ServerlessFreedomEngine.kt"),
     "udp": read("app/src/main/java/com/marbleng/app/core/SocksUdpProbe.kt"),
     "privacy": read("app/src/main/java/com/marbleng/app/net/PrivacyAuditor.kt"),
     "bug": read("app/src/main/java/com/marbleng/app/core/BugFinder.kt"),
@@ -86,7 +89,31 @@ check("source deletion is disconnected-only", "Disconnect before deleting a subs
 check("Android cleartext is disabled", 'cleartextTrafficPermitted="false"' in files["security"])
 check("subscription policy is HTTPS only", "isHttpsSubscriptionUrl" in files["repo"])
 check("subscription payload is bounded", "MAX_SUBSCRIPTION_BYTES" in files["repo"])
-check("HTTPS redirects cannot downgrade", "Subscription redirect left HTTPS" in files["repo"])
+check(
+    "HTTPS redirects cannot downgrade",
+    "Subscription redirect left HTTPS" in files["repo"] + files["dpiFetch"],
+)
+check("DPI-aware subscription fetch is wired", "DpiAwareFetcher.fetch" in files["repo"])
+check("GitHub raw uses jsDelivr mirror", "cdn.jsdelivr.net/gh" in files["dpiFetch"])
+check(
+    "serverless Freedom fragment profile exists",
+    "marble-serverless-freedom" in files["serverless"]
+    and "full-fragment" in files["serverless"]
+    and '"protocol", "freedom"' in files["serverless"],
+)
+check(
+    "serverless profile is not a MitM listener",
+    "dokodemo" not in files["serverless"].lower(),
+)
+check("Home Freedom switch exists", "HomeServerlessSwitch" in files["ui"])
+check(
+    "Home layout hide flags exist",
+    "homeShowLiveQuality" in files["models"]
+    and "homeShowRouteRibbon" in files["models"]
+    and "homeShowFreedomSwitch" in files["models"]
+    and "homeShowServerSelector" in files["ui"],
+)
+check("fragment inner hops avoid legacy chainEnabled", "chainEnabled" not in files["dpiPolicy"])
 check(
     "tunnel management helper rejects cleartext",
     "Only HTTPS management requests are allowed while a tunnel is active" in files["socks"],

@@ -10,8 +10,6 @@ import com.marbleng.app.model.*
 import com.marbleng.app.quicktile.MarbleQuickTileService
 import com.marbleng.app.net.*
 import com.marbleng.app.vpn.MarbleVpnService
-import java.io.ByteArrayOutputStream
-import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.InetAddress
 import java.net.URL
@@ -413,6 +411,20 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         val target = targetProfile
             ?: profile(activeProfileId, activeProfileSourceId)
             ?: lastProfile()
+        if (target != null && ServerlessFreedomEngine.isServerless(target)) {
+            postToMain {
+                serverIntel = ServerIntelInfo(
+                    endpoint = "freedom",
+                    ip = "this device",
+                    ipType = "Freedom",
+                    organization = "Marble Freedom",
+                    isp = "No remote proxy"
+                )
+                serverIntelLoading = false
+                serverIntelError = ""
+            }
+            return
+        }
         val endpoint = target?.host
             ?.trim()
             ?.removeSurrounding("[", "]")
@@ -843,12 +855,19 @@ fun resetTelemetry() {
      * Resolve a config. Library mutations pass sourceId so identical configs in two sources remain
      * independent rows; engine callers may intentionally resolve by canonical config id only.
      */
-    fun profile(id: String, sourceId: String? = null): ProxyProfile? =
-        if (!sourceId.isNullOrBlank()) {
+    fun profile(id: String, sourceId: String? = null): ProxyProfile? {
+        if (ServerlessFreedomEngine.matches(id, sourceId)) return serverlessProfile()
+        return if (!sourceId.isNullOrBlank()) {
             profiles.firstOrNull { it.id == id && it.subscriptionId == sourceId }
         } else {
             profiles.firstOrNull { it.id == id }
         }
+    }
+
+    fun serverlessProfile(): ProxyProfile {
+        val shielded = IranShield.apply(settings, null, iranMode, geoIpReady())
+        return ServerlessFreedomEngine.profile(shielded)
+    }
 
     /** True only for the exact Library row currently carrying traffic. */
     fun isActiveProfile(profile: ProxyProfile): Boolean {
@@ -916,14 +935,23 @@ fun resetTelemetry() {
     fun effectiveSettingsFor(
         profile: ProxyProfile,
         withAcceleration: Boolean = true
-    ): AppSettings =
-        IdentityGuard.apply(
-            if (settings.intelligenceEnabled) {
-                intelligence.effectiveSettings(profile, settings, withAcceleration)
-            } else {
-                IranShield.apply(settings, profile, iranMode, geoIpReady())
-            }
-        )
+    ): AppSettings {
+        val tuned = if (settings.intelligenceEnabled) {
+            intelligence.effectiveSettings(profile, settings, withAcceleration)
+        } else {
+            DpiEvasionPolicy.heal(
+                IranShield.apply(settings, profile, iranMode, geoIpReady()),
+                DpiEvasionPolicy.PathEvidence(),
+                iranMode
+            )
+        }
+        val guarded = IdentityGuard.apply(tuned)
+        return if (ServerlessFreedomEngine.isServerless(profile)) {
+            ServerlessFreedomEngine.pinSession(guarded)
+        } else {
+            guarded
+        }
+    }
 
     /**
      * Baseline the acceleration tuner measures against: everything the user, Iran Mode and
@@ -1159,8 +1187,20 @@ private fun postToMain(block: () -> Unit) {
             ).roundToInt().coerceIn(0, 100)
     }
 
-    fun recoveryCandidates(failedIds: Set<String>): List<ProxyProfile> =
-        intelligence.recoveryCandidates(enabledProfilesSnapshot(), failedIds, settings)
+    fun recoveryCandidates(failedIds: Set<String>): List<ProxyProfile> {
+        if (settings.serverlessModeEnabled ||
+            ServerlessFreedomEngine.matches(activeProfileId, activeProfileSourceId)
+        ) {
+            return emptyList()
+        }
+        return intelligence.recoveryCandidates(enabledProfilesSnapshot(), failedIds, settings)
+    }
+
+    fun setServerlessMode(enabled: Boolean) {
+        if (settings.serverlessModeEnabled == enabled) return
+        updateSettings(settings.copy(serverlessModeEnabled = enabled))
+        message = if (enabled) "Marble Freedom" else "Library"
+    }
 
     fun refreshIntelligenceStatus() {
         if (!statusRefreshInFlight.compareAndSet(false, true)) return
@@ -1906,8 +1946,12 @@ private fun postToMain(block: () -> Unit) {
 
     /** Reassigns a profile to another subscription bucket (or "manual") so nodes can move between library sources. */
     fun lastProfile(): ProxyProfile? {
+        if (settings.serverlessModeEnabled) return serverlessProfile()
         val id = store.lastProfileId()
         if (id.isBlank()) return null
+        if (ServerlessFreedomEngine.matches(id, store.lastProfileSourceId())) {
+            return enabledProfilesSnapshot().firstOrNull()
+        }
 
         val sourceId = store.lastProfileSourceId()
         val exact = profile(id, sourceId)
@@ -2014,6 +2058,9 @@ private fun postToMain(block: () -> Unit) {
 
     fun startVpn(p: ProxyProfile) {
         privacy = null
+        if (!ServerlessFreedomEngine.isServerless(p) && settings.serverlessModeEnabled) {
+            updateSettings(settings.copy(serverlessModeEnabled = false))
+        }
         runCatching { scanIranMode() }
         setRuntimeState("CONNECTING", p.name)
         val intent = Intent(context, MarbleVpnService::class.java)
@@ -2026,6 +2073,9 @@ private fun postToMain(block: () -> Unit) {
 
     fun startLocalProxy(p: ProxyProfile) {
         privacy = null
+        if (!ServerlessFreedomEngine.isServerless(p) && settings.serverlessModeEnabled) {
+            updateSettings(settings.copy(serverlessModeEnabled = false))
+        }
         runCatching { scanIranMode() }
         setRuntimeState("CONNECTING", p.name)
         val intent = Intent(context, MarbleVpnService::class.java)
@@ -2601,76 +2651,69 @@ private fun postToMain(block: () -> Unit) {
     private fun isHttpsSubscriptionUrl(url: String): Boolean =
         url.trim().startsWith("https://", ignoreCase = true)
 
-    private fun readBoundedUtf8(input: InputStream, maxBytes: Int): String {
-        val output = ByteArrayOutputStream(minOf(maxBytes, 64 * 1024))
-        val buffer = ByteArray(16 * 1024)
-        var total = 0
-
-        while (true) {
-            val read = input.read(buffer)
-            if (read < 0) break
-            if (read == 0) continue
-
-            total += read
-            require(total <= maxBytes) {
-                "Subscription exceeds ${maxBytes / 1024 / 1024} MiB"
-            }
-            output.write(buffer, 0, read)
-        }
-        return output.toString(Charsets.UTF_8.name())
-    }
-
+    /**
+     * DPI-aware HTTPS fetch. GitHub/raw SNI blocks, UA fingerprinting and first-flight RSTs are
+     * handled by [DpiAwareFetcher] (browser UA, jsDelivr mirrors, no-cleartext redirects).
+     * While connected, management stays inside the live SOCKS route. While Iran Mode is active
+     * and disconnected, a temporary Freedom-fragment SOCKS bridge is the last resort.
+     * Subscription redirect left HTTPS is enforced by DpiAwareFetcher.fetchDirect.
+     */
     private fun httpSubscription(url: String): SubscriptionPayload {
         require(isHttpsSubscriptionUrl(url)) {
             "Remote subscriptions must use HTTPS"
         }
-
-        if (state != "DISCONNECTED") {
+        val connected = state != "DISCONNECTED"
+        if (connected) {
             check(xray.isAlive) {
                 "Direct management request blocked while the tunnel is not healthy"
             }
+        }
+        val throughSocks: ((String, String) -> DpiAwareFetcher.Payload)? =
+            if (connected || iranMode.active) {
+                { candidate, agent ->
+                    if (connected) {
+                        DpiAwareFetcher.Payload(
+                            text = SocksHttpClient.getTextUrl(
+                                activeProxyPort(),
+                                candidate,
+                                maxBytes = MAX_SUBSCRIPTION_BYTES,
+                                userAgent = agent
+                            )
+                        )
+                    } else {
+                        fetchViaFreedomBridge(candidate, agent)
+                    }
+                }
+            } else {
+                null
+            }
+        val payload = DpiAwareFetcher.fetch(
+            url = url,
+            maxBytes = MAX_SUBSCRIPTION_BYTES,
+            iranActive = iranMode.active,
+            allowDirect = !connected,
+            throughSocks = throughSocks
+        )
+        return SubscriptionPayload(payload.text, payload.userInfo)
+    }
 
-            // Keep management traffic inside the current SOCKS route and bound the payload.
-            return SubscriptionPayload(
-                SocksHttpClient.getTextUrl(
-                    activeProxyPort(),
+    private fun fetchViaFreedomBridge(url: String, userAgent: String): DpiAwareFetcher.Payload {
+        var payload: DpiAwareFetcher.Payload? = null
+        val recipe = DpiEvasionPolicy.serverlessRecipe(iranMode)
+        val bridgeSettings = DpiEvasionPolicy.applyRecipe(settings, recipe)
+        val profile = ServerlessFreedomEngine.profile(bridgeSettings)
+        val started = xray.temporary(profile, 21_080, bridgeSettings) { port ->
+            payload = DpiAwareFetcher.Payload(
+                text = SocksHttpClient.getTextUrl(
+                    port,
                     url,
-                    maxBytes = MAX_SUBSCRIPTION_BYTES
+                    maxBytes = MAX_SUBSCRIPTION_BYTES,
+                    userAgent = userAgent
                 )
             )
         }
-
-        val connection = URL(url).openConnection() as HttpURLConnection
-        connection.connectTimeout = 12_000
-        connection.readTimeout = 30_000
-        connection.instanceFollowRedirects = true
-        connection.setRequestProperty("User-Agent", "MarbleNG/3 Integrity")
-
-        return try {
-            val code = connection.responseCode
-            require(connection.url.protocol.equals("https", ignoreCase = true)) {
-                "Subscription redirect left HTTPS"
-            }
-            require(code in 200..299) { "HTTPS $code" }
-
-            val declared = connection.contentLengthLong
-            require(declared < 0 || declared <= MAX_SUBSCRIPTION_BYTES.toLong()) {
-                "Subscription exceeds ${MAX_SUBSCRIPTION_BYTES / 1024 / 1024} MiB"
-            }
-
-            val userInfo = connection.getHeaderField("subscription-userinfo")
-                ?: connection.getHeaderField("Subscription-Userinfo")
-                ?: ""
-
-            SubscriptionPayload(
-                text = connection.inputStream.use {
-                    readBoundedUtf8(it, MAX_SUBSCRIPTION_BYTES)
-                },
-                userInfo = userInfo
-            )
-        } finally {
-            connection.disconnect()
-        }
+        require(started && payload != null) { "Freedom fragment bridge failed" }
+        return payload!!
     }
 
     private fun http(url: String): String = httpSubscription(url).text

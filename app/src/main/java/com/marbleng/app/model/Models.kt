@@ -185,6 +185,17 @@ data class AppSettings(
     val homeShowSummaryMetrics: Boolean = false,
     val homeShowIranMode: Boolean = true,
     val homeShowQuickActions: Boolean = true,
+    val homeShowLiveQuality: Boolean = true,
+    val homeShowServerSelector: Boolean = true,
+    val homeShowRouteDetails: Boolean = true,
+    val homeShowRouteRibbon: Boolean = true,
+    val homeShowFreedomSwitch: Boolean = true,
+
+    /**
+     * Permanent Home switch: when on, Connect uses the built-in Freedom fragment profile
+     * instead of a Library node. Not an anonymity proxy.
+     */
+    val serverlessModeEnabled: Boolean = false,
 
     /**
      * Optional public metadata lookup for the selected server endpoint shown on Home.
@@ -246,6 +257,12 @@ data class AppSettings(
     val fragmentPackets: String = "tlshello",
     val fragmentLength: String = "100-200",
     val fragmentInterval: String = "10-20",
+    val fragmentMaxSplit: String = "",
+    val fragmentInnerEnabled: Boolean = false,
+    val fragmentInnerPackets: String = "1-1",
+    val fragmentInnerLength: String = "1",
+    val fragmentInnerInterval: String = "4",
+    val fragmentInnerMaxSplit: String = "517",
 
     val muxEnabled: Boolean = false,
     val muxConcurrency: Int = 8,
