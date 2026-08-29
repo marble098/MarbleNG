@@ -5367,6 +5367,14 @@ private fun AppearanceSettings(repo: AppRepository) {
     ) {
         repo.updateSettings(repo.settings.copy(homeShowRouteRibbon=it))
     }
+
+    SettingSwitch(
+        "Marble Freedom on Home",
+        "",
+        repo.settings.homeShowFreedomSwitch
+    ) {
+        repo.updateSettings(repo.settings.copy(homeShowFreedomSwitch=it))
+    }
 }
 
 
@@ -7398,32 +7406,6 @@ private fun IranModeSettings(repo: AppRepository) {
         "Probe for DNS injection, SNI resets, port allowlists and UDP blocking",
         settings.iranDeepProbeEnabled
     ) { repo.updateSettings(settings.copy(iranDeepProbeEnabled = it)) }
-
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        HoloBadge(
-            if (state.active) "ENGINE ON" else "ENGINE IDLE",
-            if (state.active) Aether.Emerald else Aether.InkFaint,
-            compact = true
-        )
-        if (state.active) {
-            HoloBadge(state.ispLine, Aether.Cyan, compact = true)
-        }
-    }
-
-    Text(
-        state.summary,
-        color = Aether.InkMuted,
-        style = MaterialTheme.typography.bodySmall
-    )
-
-    CyberButton(
-        label = "Re-scan now",
-        color = Aether.Cyan,
-        modifier = Modifier.fillMaxWidth(),
-        enabled = !state.scanning
-    ) { repo.scanIranMode(force = true, deep = true) }
-}
-s(settings.copy(iranDeepProbeEnabled = it)) }
 
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         HoloBadge(
