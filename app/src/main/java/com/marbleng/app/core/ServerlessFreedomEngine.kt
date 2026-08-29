@@ -43,9 +43,15 @@ object ServerlessFreedomEngine {
     )
 
     fun configJson(settings: AppSettings = AppSettings()): String {
-        val recipe = DpiEvasionPolicy.recipeFrom(settings).let { current ->
-            if (current.innerEnabled) current else DpiEvasionPolicy.TLSHELLO_SNI
-        }
+        val recipe = DpiEvasionPolicy.freedomRecipe(settings)
+        val outbounds = JSONArray()
+
+        val hasMiddle = recipe.middleEnabled || (settings.freedomMiddleEnabled && settings.freedomLayerCount >= 3)
+        val middleTag = "middle-fragment"
+        val innerTag = "full-fragment"
+
+        val outerDialer = if (hasMiddle) middleTag else innerTag
+
         val outer = JSONObject()
             .put("tag", "proxy")
             .put("protocol", "freedom")
@@ -65,28 +71,51 @@ object ServerlessFreedomEngine {
                 "streamSettings",
                 JSONObject().put(
                     "sockopt",
-                    JSONObject().put("dialerProxy", "full-fragment")
+                    JSONObject().put("dialerProxy", outerDialer)
                 )
             )
+        outbounds.put(outer)
+
+        if (hasMiddle) {
+            val middleFragment = fragmentObject(
+                recipe.middlePackets.ifBlank { settings.freedomMiddlePackets.ifBlank { "1-3" } },
+                recipe.middleLength.ifBlank { settings.freedomMiddleLength.ifBlank { "10-30" } },
+                recipe.middleInterval.ifBlank { settings.freedomMiddleInterval.ifBlank { "5-10" } },
+                recipe.middleMaxSplit.ifBlank { settings.freedomMiddleMaxSplit.ifBlank { "768" } }
+            )
+            val middle = JSONObject()
+                .put("tag", middleTag)
+                .put("protocol", "freedom")
+                .put("settings", JSONObject().put("fragment", middleFragment))
+                .put(
+                    "streamSettings",
+                    JSONObject().put(
+                        "sockopt",
+                        JSONObject().put("dialerProxy", innerTag)
+                    )
+                )
+            outbounds.put(middle)
+        }
 
         val innerFragment = fragmentObject(
-            recipe.innerPackets.ifBlank { "1-1" },
-            recipe.innerLength.ifBlank { "1" },
-            recipe.innerInterval.ifBlank { "4" },
-            recipe.innerMaxSplit.ifBlank { "517" }
+            recipe.innerPackets.ifBlank { settings.freedomInnerPackets.ifBlank { "1-1" } },
+            recipe.innerLength.ifBlank { settings.freedomInnerLength.ifBlank { "1" } },
+            recipe.innerInterval.ifBlank { settings.freedomInnerInterval.ifBlank { "4" } },
+            recipe.innerMaxSplit.ifBlank { settings.freedomInnerMaxSplit.ifBlank { "517" } }
         )
         val inner = JSONObject()
-            .put("tag", "full-fragment")
+            .put("tag", innerTag)
             .put("protocol", "freedom")
             .put(
                 "settings",
                 JSONObject()
                     .put("fragment", innerFragment)
-                    .put("noises", udpNoises())
+                    .put("noises", udpNoises(settings))
             )
+        outbounds.put(inner)
 
         return JSONObject()
-            .put("outbounds", JSONArray().put(outer).put(inner))
+            .put("outbounds", outbounds)
             .toString()
     }
 
@@ -119,19 +148,43 @@ object ServerlessFreedomEngine {
     }
 
     /** UDP noise skips port 53 inside Xray; used to pad QUIC-shaped datagrams on IPv4/IPv6. */
-    private fun udpNoises(): JSONArray = JSONArray()
-        .put(
-            JSONObject()
-                .put("type", "rand")
-                .put("packet", "1250")
-                .put("delay", "10")
-                .put("applyTo", "ipv4")
-        )
-        .put(
-            JSONObject()
-                .put("type", "rand")
-                .put("packet", "1230")
-                .put("delay", "10")
-                .put("applyTo", "ipv6")
-        )
+    private fun udpNoises(settings: AppSettings = AppSettings()): JSONArray {
+        if (!settings.freedomUdpNoiseEnabled) return JSONArray()
+        val array = JSONArray()
+        val pkt4 = settings.freedomUdpNoisePacket4.ifBlank { "1250" }
+        val del4 = settings.freedomUdpNoiseDelay4.ifBlank { "10" }
+        val pkt6 = settings.freedomUdpNoisePacket6.ifBlank { "1230" }
+        val del6 = settings.freedomUdpNoiseDelay6.ifBlank { "10" }
+
+        val count = settings.freedomUdpNoiseCount.coerceIn(1, 10)
+        for (i in 0 until count) {
+            if (i % 2 == 0) {
+                array.put(
+                    JSONObject()
+                        .put("type", "rand")
+                        .put("packet", pkt4)
+                        .put("delay", del4)
+                        .put("applyTo", "ipv4")
+                )
+            } else {
+                array.put(
+                    JSONObject()
+                        .put("type", "rand")
+                        .put("packet", pkt6)
+                        .put("delay", del6)
+                        .put("applyTo", "ipv6")
+                )
+            }
+        }
+        if (array.length() == 1) {
+            array.put(
+                JSONObject()
+                    .put("type", "rand")
+                    .put("packet", pkt6)
+                    .put("delay", del6)
+                    .put("applyTo", "ipv6")
+            )
+        }
+        return array
+    }
 }

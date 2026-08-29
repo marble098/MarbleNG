@@ -332,17 +332,44 @@ object XrayConfigHardener {
 
         // Overlay live fragment recipes onto Freedom hops that already shred TLS (serverless).
         // Never attach fragment-direct onto a Freedom outbound that is itself the fragment hop.
+        val isFreedomSelected = byTag[firstTag]?.optString("protocol")?.lowercase() == "freedom"
         keep.forEach { tag ->
             val outbound = byTag[tag] ?: return@forEach
             if (!hasFragment(outbound)) return@forEach
-            val inner = tag != firstTag && settings.fragmentInnerEnabled
-            overlayFragment(
-                outbound,
-                packets = if (inner) settings.fragmentInnerPackets else settings.fragmentPackets,
-                length = if (inner) settings.fragmentInnerLength else settings.fragmentLength,
-                interval = if (inner) settings.fragmentInnerInterval else settings.fragmentInterval,
-                maxSplit = if (inner) settings.fragmentInnerMaxSplit else settings.fragmentMaxSplit
-            )
+            if (tag == "middle-fragment" || tag == "freedom-middle") {
+                val middlePackets = if (isFreedomSelected) settings.freedomMiddlePackets.ifBlank { "1-3" } else settings.fragmentInnerPackets
+                val middleLength = if (isFreedomSelected) settings.freedomMiddleLength.ifBlank { "10-30" } else settings.fragmentInnerLength
+                val middleInterval = if (isFreedomSelected) settings.freedomMiddleInterval.ifBlank { "5-10" } else settings.fragmentInnerInterval
+                val middleMaxSplit = if (isFreedomSelected) settings.freedomMiddleMaxSplit.ifBlank { "768" } else settings.fragmentInnerMaxSplit
+                overlayFragment(
+                    outbound,
+                    packets = middlePackets,
+                    length = middleLength,
+                    interval = middleInterval,
+                    maxSplit = middleMaxSplit
+                )
+            } else {
+                val inner = tag != firstTag && (settings.fragmentInnerEnabled || isFreedomSelected)
+                val packets = if (isFreedomSelected && inner) settings.freedomInnerPackets.ifBlank { settings.fragmentInnerPackets }
+                    else if (isFreedomSelected) settings.freedomOuterPackets.ifBlank { settings.fragmentPackets }
+                    else if (inner) settings.fragmentInnerPackets else settings.fragmentPackets
+                val length = if (isFreedomSelected && inner) settings.freedomInnerLength.ifBlank { settings.fragmentInnerLength }
+                    else if (isFreedomSelected) settings.freedomOuterLength.ifBlank { settings.fragmentLength }
+                    else if (inner) settings.fragmentInnerLength else settings.fragmentLength
+                val interval = if (isFreedomSelected && inner) settings.freedomInnerInterval.ifBlank { settings.fragmentInnerInterval }
+                    else if (isFreedomSelected) settings.freedomOuterInterval.ifBlank { settings.fragmentInterval }
+                    else if (inner) settings.fragmentInnerInterval else settings.fragmentInterval
+                val maxSplit = if (isFreedomSelected && inner) settings.freedomInnerMaxSplit.ifBlank { settings.fragmentInnerMaxSplit }
+                    else if (isFreedomSelected) settings.freedomOuterMaxSplit.ifBlank { settings.fragmentMaxSplit }
+                    else if (inner) settings.fragmentInnerMaxSplit else settings.fragmentMaxSplit
+                overlayFragment(
+                    outbound,
+                    packets = packets,
+                    length = length,
+                    interval = interval,
+                    maxSplit = maxSplit
+                )
+            }
         }
 
         val selectedAlreadyFragments = byTag[firstTag]?.let { selected ->
@@ -444,6 +471,7 @@ object XrayConfigHardener {
         }
 
         val needsDirect = settings.routingMode != RoutingMode.PROXY_ALL ||
+            (isFreedomSelected && settings.freedomDirectDomestic) ||
             settings.routeDirectDomains.isNotBlank() ||
             settings.routeDirectIps.isNotBlank()
 
@@ -573,29 +601,58 @@ object XrayConfigHardener {
         // an IPv6-preferred node is starved of AAAA records.
         val queryStrategy = dnsPlan.dnsQueryStrategy
 
-        val bootstrapIps = listOf(settings.dnsPrimaryIp, settings.dnsSecondaryIp)
-            .map { it.trim() }
-            .filter { it.isNotBlank() }
-            .distinct()
+        val isFreedomProfile = byTag[firstTag]?.optString("protocol")?.lowercase() == "freedom"
+        val freedomDnsList = if (isFreedomProfile && settings.freedomDnsAuto) {
+            val configured = listOf(
+                settings.freedomDnsPrimaryDoH,
+                settings.freedomDnsSecondaryDoH,
+                settings.freedomDnsFallbackDoH
+            ).map { it.trim() }.filter { it.startsWith("https://") }
+            val clean = settings.freedomDnsCleanResolvers
+                .split(',', '\n', '\r', ';')
+                .map { it.trim() }
+                .filter { it.startsWith("https://") }
+            (configured + clean).distinctBy { it.lowercase() }
+        } else {
+            emptyList()
+        }
+
+        val bootstrapIps = if (isFreedomProfile && settings.freedomDnsPrimaryIp.isNotBlank()) {
+            listOf(settings.freedomDnsPrimaryIp, settings.freedomDnsSecondaryIp)
+                .map { it.trim() }
+                .filter { it.isNotBlank() }
+                .distinct()
+        } else {
+            listOf(settings.dnsPrimaryIp, settings.dnsSecondaryIp)
+                .map { it.trim() }
+                .filter { it.isNotBlank() }
+                .distinct()
+        }
 
         val stockCloudflareDoh = "https://1.1.1.1/dns-query"
         val stockGoogleDoh = "https://8.8.8.8/dns-query"
         val stockQuad9Doh = "https://9.9.9.9/dns-query"
-        val configuredRemoteDoh = listOf(settings.dnsPrimaryDoH, settings.dnsSecondaryDoH)
-            .map { it.trim() }
-            .filter { it.startsWith("https://") }
-            .distinct()
-            .ifEmpty {
-                listOf(
-                    stockCloudflareDoh,
-                    stockGoogleDoh
-                )
-            }
+        val configuredRemoteDoh = if (isFreedomProfile && freedomDnsList.isNotEmpty()) {
+            freedomDnsList
+        } else {
+            listOf(settings.dnsPrimaryDoH, settings.dnsSecondaryDoH)
+                .map { it.trim() }
+                .filter { it.startsWith("https://") }
+                .distinct()
+                .ifEmpty {
+                    listOf(
+                        stockCloudflareDoh,
+                        stockGoogleDoh
+                    )
+                }
+        }
 
         // Runtime evidence has now shown transient deadlines from both stock Cloudflare and Google
         // endpoints on different networks. Adaptive DNS must therefore never collapse to a single
         // provider. Preserve the user's order, then add independent encrypted fallbacks.
-        val remoteDoh = if (settings.adaptiveDnsEnabled) {
+        val remoteDoh = if (isFreedomProfile && freedomDnsList.isNotEmpty()) {
+            freedomDnsList.take(6)
+        } else if (settings.adaptiveDnsEnabled) {
             (configuredRemoteDoh + listOf(stockCloudflareDoh, stockGoogleDoh, stockQuad9Doh))
                 .distinctBy { it.lowercase() }
                 .take(3)
@@ -674,7 +731,9 @@ object XrayConfigHardener {
 
         // DNS interception has highest priority: any app attempting classic UDP/TCP :53 is handed
         // to dns-out, which hijacks A/AAAA into the encrypted built-in DNS path above.
-        if (settings.dnsHijackEnabled) {
+        val isFreedomMode = isFreedomProfile || settings.serverlessModeEnabled
+        val dnsHijackActive = settings.dnsHijackEnabled || (isFreedomMode && settings.freedomDnsHijack)
+        if (dnsHijackActive) {
             rules.put(
                 JSONObject()
                     .put("type", "field")
@@ -724,19 +783,25 @@ object XrayConfigHardener {
             val directDomains = linkedSetOf<String>()
             val directIps = linkedSetOf<String>()
 
-            if (settings.routeBypassPrivate && settings.routingMode != RoutingMode.PROXY_ALL) {
+            if ((settings.routeBypassPrivate && settings.routingMode != RoutingMode.PROXY_ALL) ||
+                (isFreedomMode && settings.freedomDirectDomestic)
+            ) {
                 directIps += PRIVATE_CIDRS
             }
 
-            if (settings.routingMode == RoutingMode.GEO_DIRECT || settings.routingMode == RoutingMode.CUSTOM) {
-                splitTokens(settings.routeGeoIpTags).forEach { tag ->
+            if (settings.routingMode == RoutingMode.GEO_DIRECT || settings.routingMode == RoutingMode.CUSTOM ||
+                (isFreedomMode && settings.freedomDirectDomestic)
+            ) {
+                val ipTagString = if (isFreedomMode && settings.freedomDirectDomestic && settings.routeGeoIpTags.isBlank()) "ir,private" else settings.routeGeoIpTags
+                val siteTagString = if (isFreedomMode && settings.freedomDirectDomestic && settings.routeGeoSiteTags.isBlank()) "ir" else settings.routeGeoSiteTags
+                splitTokens(ipTagString).forEach { tag ->
                     if (tag.equals("private", true) || tag.equals("geoip:private", true)) {
                         directIps += PRIVATE_CIDRS
                     } else {
                         normalizeGeoIpTag(tag)?.let(directIps::add)
                     }
                 }
-                splitTokens(settings.routeGeoSiteTags).forEach { tag ->
+                splitTokens(siteTagString).forEach { tag ->
                     normalizeGeoSiteTag(tag)?.let(directDomains::add)
                 }
             }
@@ -760,9 +825,13 @@ object XrayConfigHardener {
                 .put("outboundTag", firstTag)
         )
 
-        val domainStrategy = settings.routeDomainStrategy.takeIf {
-            it in setOf("AsIs", "IPIfNonMatch", "IPOnDemand")
-        } ?: "AsIs"
+        val domainStrategy = if (isFreedomMode && settings.freedomDomainStrategy.isNotBlank()) {
+            settings.freedomDomainStrategy.takeIf { it in setOf("AsIs", "IPIfNonMatch", "IPOnDemand") } ?: "IPIfNonMatch"
+        } else {
+            settings.routeDomainStrategy.takeIf {
+                it in setOf("AsIs", "IPIfNonMatch", "IPOnDemand")
+            } ?: "AsIs"
+        }
 
         src.put("routing", JSONObject().put("domainStrategy", domainStrategy).put("rules", rules))
         // Runtime logs are for actionable failures. Xray prints compatibility/deprecation

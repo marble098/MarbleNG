@@ -143,6 +143,16 @@ object RoutingDefaults {
 /** How Iran Mode decides whether the anti-filtering engine should run. */
 enum class IranModePolicy { AUTO, ALWAYS_ON, OFF }
 
+/** Presets for Marble Freedom anti-DPI fragmentation engine. */
+enum class FreedomPreset {
+    SMART_ADAPTIVE,
+    MULTI_LAYER_CASCADE,
+    SNI_SHREDDER,
+    AGGRESSIVE_RECORD_SPLIT,
+    EXTREME_ANTI_DPI,
+    CUSTOM
+}
+
 // MARBLE_SMART_DEFAULTS_V14
 // MARBLE_ULTIMATE_DEBUG_SETTING_V15
 // MARBLE_INTELLIGENCE_V24
@@ -263,6 +273,45 @@ data class AppSettings(
     val fragmentInnerLength: String = "1",
     val fragmentInnerInterval: String = "4",
     val fragmentInnerMaxSplit: String = "517",
+
+    // Marble Freedom Anti-DPI Multi-Layer Fragmentation & Smart Multi-DNS
+    val freedomPreset: FreedomPreset = FreedomPreset.SMART_ADAPTIVE,
+    val freedomLayerCount: Int = 3,
+    val freedomOuterPackets: String = "tlshello",
+    val freedomOuterLength: String = "6",
+    val freedomOuterInterval: String = "0",
+    val freedomOuterMaxSplit: String = "",
+    val freedomMiddleEnabled: Boolean = true,
+    val freedomMiddlePackets: String = "1-3",
+    val freedomMiddleLength: String = "10-30",
+    val freedomMiddleInterval: String = "5-10",
+    val freedomMiddleMaxSplit: String = "768",
+    val freedomInnerEnabled: Boolean = true,
+    val freedomInnerPackets: String = "1-1",
+    val freedomInnerLength: String = "1",
+    val freedomInnerInterval: String = "4",
+    val freedomInnerMaxSplit: String = "517",
+
+    // Smart Multi-DNS for Marble Freedom
+    val freedomDnsAuto: Boolean = true,
+    val freedomDnsPrimaryIp: String = "1.1.1.1",
+    val freedomDnsSecondaryIp: String = "8.8.8.8",
+    val freedomDnsPrimaryDoH: String = "https://1.1.1.1/dns-query",
+    val freedomDnsSecondaryDoH: String = "https://8.8.8.8/dns-query",
+    val freedomDnsFallbackDoH: String = "https://9.9.9.9/dns-query",
+    val freedomDnsCleanResolvers: String = "https://1.1.1.1/dns-query,https://8.8.8.8/dns-query,https://9.9.9.9/dns-query,https://dns.adguard-dns.com/dns-query,https://doh.sb/dns-query,https://dns.shecan.ir/dns-query",
+    val freedomDnsQueryStrategy: String = "UseIP",
+    val freedomDomainStrategy: String = "IPIfNonMatch",
+    val freedomDnsHijack: Boolean = true,
+    val freedomDirectDomestic: Boolean = true,
+
+    // UDP Noise & Padding Defense for Marble Freedom
+    val freedomUdpNoiseEnabled: Boolean = true,
+    val freedomUdpNoisePacket4: String = "1250",
+    val freedomUdpNoiseDelay4: String = "10",
+    val freedomUdpNoisePacket6: String = "1230",
+    val freedomUdpNoiseDelay6: String = "10",
+    val freedomUdpNoiseCount: Int = 2,
 
     val muxEnabled: Boolean = false,
     val muxConcurrency: Int = 8,

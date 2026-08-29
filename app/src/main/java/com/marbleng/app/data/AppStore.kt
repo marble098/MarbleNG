@@ -203,6 +203,42 @@ class AppStore(context: Context) {
         fragmentInnerInterval = prefs.getString("fragmentInnerInterval", "4") ?: "4",
         fragmentInnerMaxSplit = prefs.getString("fragmentInnerMaxSplit", "517") ?: "517",
 
+        freedomPreset = enumValue("freedomPreset", FreedomPreset.SMART_ADAPTIVE),
+        freedomLayerCount = prefs.getInt("freedomLayerCount", 3).coerceIn(1, 3),
+        freedomOuterPackets = prefs.getString("freedomOuterPackets", "tlshello") ?: "tlshello",
+        freedomOuterLength = prefs.getString("freedomOuterLength", "6") ?: "6",
+        freedomOuterInterval = prefs.getString("freedomOuterInterval", "0") ?: "0",
+        freedomOuterMaxSplit = prefs.getString("freedomOuterMaxSplit", "") ?: "",
+        freedomMiddleEnabled = prefs.getBoolean("freedomMiddleEnabled", true),
+        freedomMiddlePackets = prefs.getString("freedomMiddlePackets", "1-3") ?: "1-3",
+        freedomMiddleLength = prefs.getString("freedomMiddleLength", "10-30") ?: "10-30",
+        freedomMiddleInterval = prefs.getString("freedomMiddleInterval", "5-10") ?: "5-10",
+        freedomMiddleMaxSplit = prefs.getString("freedomMiddleMaxSplit", "768") ?: "768",
+        freedomInnerEnabled = prefs.getBoolean("freedomInnerEnabled", true),
+        freedomInnerPackets = prefs.getString("freedomInnerPackets", "1-1") ?: "1-1",
+        freedomInnerLength = prefs.getString("freedomInnerLength", "1") ?: "1",
+        freedomInnerInterval = prefs.getString("freedomInnerInterval", "4") ?: "4",
+        freedomInnerMaxSplit = prefs.getString("freedomInnerMaxSplit", "517") ?: "517",
+
+        freedomDnsAuto = prefs.getBoolean("freedomDnsAuto", true),
+        freedomDnsPrimaryIp = prefs.getString("freedomDnsPrimaryIp", "1.1.1.1") ?: "1.1.1.1",
+        freedomDnsSecondaryIp = prefs.getString("freedomDnsSecondaryIp", "8.8.8.8") ?: "8.8.8.8",
+        freedomDnsPrimaryDoH = prefs.getString("freedomDnsPrimaryDoH", "https://1.1.1.1/dns-query") ?: "https://1.1.1.1/dns-query",
+        freedomDnsSecondaryDoH = prefs.getString("freedomDnsSecondaryDoH", "https://8.8.8.8/dns-query") ?: "https://8.8.8.8/dns-query",
+        freedomDnsFallbackDoH = prefs.getString("freedomDnsFallbackDoH", "https://9.9.9.9/dns-query") ?: "https://9.9.9.9/dns-query",
+        freedomDnsCleanResolvers = prefs.getString("freedomDnsCleanResolvers", "https://1.1.1.1/dns-query,https://8.8.8.8/dns-query,https://9.9.9.9/dns-query,https://dns.adguard-dns.com/dns-query,https://doh.sb/dns-query,https://dns.shecan.ir/dns-query") ?: "https://1.1.1.1/dns-query,https://8.8.8.8/dns-query,https://9.9.9.9/dns-query,https://dns.adguard-dns.com/dns-query,https://doh.sb/dns-query,https://dns.shecan.ir/dns-query",
+        freedomDnsQueryStrategy = prefs.getString("freedomDnsQueryStrategy", "UseIP") ?: "UseIP",
+        freedomDomainStrategy = prefs.getString("freedomDomainStrategy", "IPIfNonMatch") ?: "IPIfNonMatch",
+        freedomDnsHijack = prefs.getBoolean("freedomDnsHijack", true),
+        freedomDirectDomestic = prefs.getBoolean("freedomDirectDomestic", true),
+
+        freedomUdpNoiseEnabled = prefs.getBoolean("freedomUdpNoiseEnabled", true),
+        freedomUdpNoisePacket4 = prefs.getString("freedomUdpNoisePacket4", "1250") ?: "1250",
+        freedomUdpNoiseDelay4 = prefs.getString("freedomUdpNoiseDelay4", "10") ?: "10",
+        freedomUdpNoisePacket6 = prefs.getString("freedomUdpNoisePacket6", "1230") ?: "1230",
+        freedomUdpNoiseDelay6 = prefs.getString("freedomUdpNoiseDelay6", "10") ?: "10",
+        freedomUdpNoiseCount = prefs.getInt("freedomUdpNoiseCount", 2).coerceIn(1, 10),
+
         muxEnabled = prefs.getBoolean("muxEnabled", false),
         muxConcurrency = prefs.getInt("muxConcurrency", 8),
         muxXudpConcurrency = prefs.getInt("muxXudpConcurrency", 16),
@@ -350,6 +386,42 @@ class AppStore(context: Context) {
         .putString("fragmentInnerLength", s.fragmentInnerLength)
         .putString("fragmentInnerInterval", s.fragmentInnerInterval)
         .putString("fragmentInnerMaxSplit", s.fragmentInnerMaxSplit)
+
+        .putString("freedomPreset", s.freedomPreset.name)
+        .putInt("freedomLayerCount", s.freedomLayerCount.coerceIn(1, 3))
+        .putString("freedomOuterPackets", s.freedomOuterPackets)
+        .putString("freedomOuterLength", s.freedomOuterLength)
+        .putString("freedomOuterInterval", s.freedomOuterInterval)
+        .putString("freedomOuterMaxSplit", s.freedomOuterMaxSplit)
+        .putBoolean("freedomMiddleEnabled", s.freedomMiddleEnabled)
+        .putString("freedomMiddlePackets", s.freedomMiddlePackets)
+        .putString("freedomMiddleLength", s.freedomMiddleLength)
+        .putString("freedomMiddleInterval", s.freedomMiddleInterval)
+        .putString("freedomMiddleMaxSplit", s.freedomMiddleMaxSplit)
+        .putBoolean("freedomInnerEnabled", s.freedomInnerEnabled)
+        .putString("freedomInnerPackets", s.freedomInnerPackets)
+        .putString("freedomInnerLength", s.freedomInnerLength)
+        .putString("freedomInnerInterval", s.freedomInnerInterval)
+        .putString("freedomInnerMaxSplit", s.freedomInnerMaxSplit)
+
+        .putBoolean("freedomDnsAuto", s.freedomDnsAuto)
+        .putString("freedomDnsPrimaryIp", s.freedomDnsPrimaryIp)
+        .putString("freedomDnsSecondaryIp", s.freedomDnsSecondaryIp)
+        .putString("freedomDnsPrimaryDoH", s.freedomDnsPrimaryDoH)
+        .putString("freedomDnsSecondaryDoH", s.freedomDnsSecondaryDoH)
+        .putString("freedomDnsFallbackDoH", s.freedomDnsFallbackDoH)
+        .putString("freedomDnsCleanResolvers", s.freedomDnsCleanResolvers)
+        .putString("freedomDnsQueryStrategy", s.freedomDnsQueryStrategy)
+        .putString("freedomDomainStrategy", s.freedomDomainStrategy)
+        .putBoolean("freedomDnsHijack", s.freedomDnsHijack)
+        .putBoolean("freedomDirectDomestic", s.freedomDirectDomestic)
+
+        .putBoolean("freedomUdpNoiseEnabled", s.freedomUdpNoiseEnabled)
+        .putString("freedomUdpNoisePacket4", s.freedomUdpNoisePacket4)
+        .putString("freedomUdpNoiseDelay4", s.freedomUdpNoiseDelay4)
+        .putString("freedomUdpNoisePacket6", s.freedomUdpNoisePacket6)
+        .putString("freedomUdpNoiseDelay6", s.freedomUdpNoiseDelay6)
+        .putInt("freedomUdpNoiseCount", s.freedomUdpNoiseCount.coerceIn(1, 10))
 
         .putBoolean("muxEnabled", s.muxEnabled)
         .putInt("muxConcurrency", s.muxConcurrency)
