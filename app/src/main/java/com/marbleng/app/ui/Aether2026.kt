@@ -538,16 +538,13 @@ private fun MarbleUpdateDialog(
             }
         },
         confirmButton = {
-            Button(
+            PrismButton(
+                label = "View update",
                 onClick = onUpdate,
-                shape = RoundedCornerShape(14.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Aether.Cyan,
-                    contentColor = Aether.Void
-                )
-            ) {
-                Text("View update", fontWeight = FontWeight.Black)
-            }
+                tone = Aether.Cyan,
+                variant = PrismButtonVariant.Primary,
+                compact = true
+            )
         },
         dismissButton = {
             MarbleDialogAction(label="Later", tone=Aether.InkMuted, onClick=onLater)
@@ -652,12 +649,14 @@ private fun MarbleSnackbarHost(
                 }
 
                 data.visuals.actionLabel?.let { action ->
-                    TextButton(
+                    PrismButton(
+                        label = action,
                         onClick = data::performAction,
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
-                    ) {
-                        Text(action, color = tone, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
-                    }
+                        tone = tone,
+                        variant = PrismButtonVariant.Secondary,
+                        compact = true,
+                        contentPadding = PaddingValues(horizontal = 9.dp, vertical = 4.dp)
+                    )
                 }
 
                 Box(
@@ -2485,16 +2484,14 @@ private fun ConnectionCore(
                     )
                     if (detailsAvailable) {
                         Spacer(Modifier.width(6.dp))
-                        TextButton(
+                        PrismButton(
+                            label = "Details",
                             onClick = onDetails,
-                            contentPadding = PaddingValues(horizontal = 7.dp, vertical = 0.dp)
-                        ) {
-                            Text(
-                                "Details",
-                                color = Aether.Cyan,
-                                style = MaterialTheme.typography.labelSmall
-                            )
-                        }
+                            tone = Aether.Cyan,
+                            variant = PrismButtonVariant.Quiet,
+                            compact = true,
+                            contentPadding = PaddingValues(horizontal = 9.dp, vertical = 3.dp)
+                        )
                     }
                 }
             }

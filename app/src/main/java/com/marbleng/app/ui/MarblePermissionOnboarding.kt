@@ -212,28 +212,14 @@ fun MarblePermissionOnboarding(onComplete: () -> Unit) {
             )
         }
         item {
-            Button(
+            PrismButton(
+                label = if (allReady) "Enter MarbleNG" else "Complete all 3 steps",
                 onClick = onComplete,
-                enabled = allReady,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(56.dp),
-                shape = RoundedCornerShape(18.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Aether.Cyan,
-                    contentColor = Color.White,
-                    disabledContainerColor = Aether.GlassStrong,
-                    disabledContentColor = Aether.InkFaint
-                )
-            ) {
-                AnimatedContent(targetState = allReady, label = "onboarding-finish-label") { ready ->
-                    Text(
-                        if (ready) "Enter MarbleNG" else "Complete all 3 steps",
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            }
+                tone = Aether.Cyan,
+                modifier = Modifier.fillMaxWidth(),
+                variant = PrismButtonVariant.Primary,
+                enabled = allReady
+            )
         }
         item {
             Text(
@@ -374,25 +360,15 @@ private fun AccessCard(
                 }
             }
             Text(reason, color = Aether.InkMuted, style = MaterialTheme.typography.bodySmall)
-            Button(
+            PrismButton(
+                label = action,
                 onClick = onClick,
+                tone = if (ready) Aether.Emerald else accent,
+                modifier = Modifier.fillMaxWidth(),
+                variant = PrismButtonVariant.Secondary,
                 enabled = !ready,
-                modifier = Modifier.fillMaxWidth().height(46.dp),
-                shape = RoundedCornerShape(15.dp),
-                contentPadding = PaddingValues(horizontal = 14.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = accent.copy(alpha = .12f),
-                    contentColor = accent,
-                    disabledContainerColor = Aether.Emerald.copy(alpha = .09f),
-                    disabledContentColor = Aether.Emerald
-                )
-            ) {
-                Text(
-                    action,
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.Bold
-                )
-            }
+                compact = true
+            )
         }
     }
 }
