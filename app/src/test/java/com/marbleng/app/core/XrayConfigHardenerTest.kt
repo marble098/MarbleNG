@@ -5,6 +5,7 @@ import com.marbleng.app.model.FreedomPreset
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -60,6 +61,32 @@ class XrayConfigHardenerTest {
         val outerSockopt = outbound(hardened, "proxy")
             .optJSONObject("streamSettings")?.optJSONObject("sockopt")
         assertFalse(outerSockopt?.has("domainStrategy") ?: false)
+    }
+
+    /**
+     * Runtime regression (real Xray v26.7.28, through the PyPI xray-core engine): Xray's
+     * "tlshello" fragment mode rewrites the ClientHello into complete tiny TLS records
+     * (Xray-core issue #4370). Servers — Fastly (pypi.org), Cloudflare (registry.npmjs.org),
+     * GitHub, AWS (httpbin.org) — RST that shape on every attempt ("write: broken pipe"),
+     * while the GFW-knocker packet split (1-1 / 1-3 / 5-10) over the same 3-hop chain returns
+     * HTTP 200 on all of them. The default outer hop must therefore never be "tlshello".
+     */
+    @Test
+    fun `default freedom outer hop is packet split, not tlshello record rewriting`() {
+        val settings = AppSettings() // default preset = SMART_ADAPTIVE -> MULTI_LAYER_CASCADE
+        val hardened = harden(settings)
+
+        val outer = outbound(hardened, "proxy")
+        val fragment = outer.optJSONObject("settings")?.optJSONObject("fragment")
+        assertNotNull("outer fragment missing", fragment)
+        assertEquals("1-1", fragment!!.optString("packets"))
+
+        // Every recipe that can be a default (SMART_ADAPTIVE/MULTI_LAYER_CASCADE/TLSHELLO_SNI/
+        // CUSTOM fallbacks) must avoid the record-rewriting mode, not just the default settings.
+        val source = JSONObject(ServerlessFreedomEngine.configJson(settings))
+        val outerFragment = source.getJSONArray("outbounds").getJSONObject(0)
+            .getJSONObject("settings").getJSONObject("fragment")
+        assertFalse(outerFragment.optString("packets").equals("tlshello", ignoreCase = true))
     }
 
     @Test

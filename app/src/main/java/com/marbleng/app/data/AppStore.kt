@@ -205,9 +205,10 @@ class AppStore(context: Context) {
 
         freedomPreset = enumValue("freedomPreset", FreedomPreset.SMART_ADAPTIVE),
         freedomLayerCount = prefs.getInt("freedomLayerCount", 3).coerceIn(1, 3),
-        freedomOuterPackets = prefs.getString("freedomOuterPackets", "tlshello") ?: "tlshello",
-        freedomOuterLength = prefs.getString("freedomOuterLength", "6") ?: "6",
-        freedomOuterInterval = prefs.getString("freedomOuterInterval", "0") ?: "0",
+        // GFW-knocker packet-split defaults (1-1 / 1-3 / 5-10); see Models.kt comment.
+        freedomOuterPackets = prefs.getString("freedomOuterPackets", "1-1") ?: "1-1",
+        freedomOuterLength = prefs.getString("freedomOuterLength", "1-3") ?: "1-3",
+        freedomOuterInterval = prefs.getString("freedomOuterInterval", "5-10") ?: "5-10",
         freedomOuterMaxSplit = prefs.getString("freedomOuterMaxSplit", "") ?: "",
         freedomMiddleEnabled = prefs.getBoolean("freedomMiddleEnabled", true),
         freedomMiddlePackets = prefs.getString("freedomMiddlePackets", "1-3") ?: "1-3",
@@ -226,7 +227,9 @@ class AppStore(context: Context) {
         freedomDnsPrimaryDoH = prefs.getString("freedomDnsPrimaryDoH", "https://1.1.1.1/dns-query") ?: "https://1.1.1.1/dns-query",
         freedomDnsSecondaryDoH = prefs.getString("freedomDnsSecondaryDoH", "https://8.8.8.8/dns-query") ?: "https://8.8.8.8/dns-query",
         freedomDnsFallbackDoH = prefs.getString("freedomDnsFallbackDoH", "https://9.9.9.9/dns-query") ?: "https://9.9.9.9/dns-query",
-        freedomDnsCleanResolvers = prefs.getString("freedomDnsCleanResolvers", "https://1.1.1.1/dns-query,https://8.8.8.8/dns-query,https://9.9.9.9/dns-query,https://dns.adguard-dns.com/dns-query,https://doh.sb/dns-query,https://dns.shecan.ir/dns-query") ?: "https://1.1.1.1/dns-query,https://8.8.8.8/dns-query,https://9.9.9.9/dns-query,https://dns.adguard-dns.com/dns-query,https://doh.sb/dns-query,https://dns.shecan.ir/dns-query",
+        // doh.sb is intentionally absent: its addresses are not stable enough to pin in Xray
+        // dns.hosts, and an unpinned hostname DoH cannot bootstrap inside the Freedom chain.
+        freedomDnsCleanResolvers = prefs.getString("freedomDnsCleanResolvers", "https://1.1.1.1/dns-query,https://8.8.8.8/dns-query,https://9.9.9.9/dns-query,https://dns.adguard-dns.com/dns-query,https://dns.shecan.ir/dns-query") ?: "https://1.1.1.1/dns-query,https://8.8.8.8/dns-query,https://9.9.9.9/dns-query,https://dns.adguard-dns.com/dns-query,https://dns.shecan.ir/dns-query",
         freedomDnsQueryStrategy = prefs.getString("freedomDnsQueryStrategy", "UseIP") ?: "UseIP",
         freedomDomainStrategy = prefs.getString("freedomDomainStrategy", "IPIfNonMatch") ?: "IPIfNonMatch",
         freedomDnsHijack = prefs.getBoolean("freedomDnsHijack", true),

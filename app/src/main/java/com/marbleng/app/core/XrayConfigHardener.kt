@@ -652,13 +652,10 @@ object XrayConfigHardener {
         }
 
         // Domain-host DoH servers cannot bootstrap their own hostname inside the Freedom chain:
-        // without a dns.hosts pin Xray resolves them through the OS resolver (poisoned on Iranian
+        // with no dns.hosts pin Xray resolves them through the OS resolver (poisoned on Iranian
         // networks) or recurses back into this same DNS module. Keep only IP literals and the
         // pinned hosts above; everything else is dropped instead of shipping a broken
         // finalQuery fallback that silently poisons every lookup.
-        // (Upstream breaks the loop with domain→domain dns.hosts mappings, e.g.
-        //  cloudflare-dns.com → challenges.cloudflare.com; IP-list pins are the other form the
-        //  same HostAddress parser accepts and need no fakedns/system-hosts.)
         val freedomDnsReady = freedomDnsList.filter { url ->
             val host = dohHost(url)
             host.isNotBlank() && (isIpLiteralHost(host) || FREEDOM_DOH_HOST_PINS.keys.any {
@@ -1086,7 +1083,8 @@ object XrayConfigHardener {
                 group.isEmpty() || group.split(':').all { it.matches(Regex("[0-9a-fA-F]{1,4}")) }
             }
         }
-        return clean.matches(Regex("\\d{1,3}(\\.\\d{1,3}){3}"))
+        if (!clean.matches(Regex("\\d{1,3}(\\.\\d{1,3}){3}"))) return false
+        return clean.split('.').all { (it.toIntOrNull() ?: -1) in 0..255 }
     }
 
     /** Freedom/direct hops that already shred TLS are selectable routes, not infrastructure. */

@@ -7532,9 +7532,9 @@ private fun FreedomSettings(repo: AppRepository) {
                     FreedomPreset.SMART_ADAPTIVE -> s.copy(
                         freedomPreset = preset,
                         freedomLayerCount = 3,
-                        freedomOuterPackets = "tlshello",
-                        freedomOuterLength = "6",
-                        freedomOuterInterval = "0",
+                        freedomOuterPackets = "1-1",
+                        freedomOuterLength = "1-3",
+                        freedomOuterInterval = "5-10",
                         freedomOuterMaxSplit = "",
                         freedomMiddleEnabled = true,
                         freedomMiddlePackets = "1-3",
@@ -7551,9 +7551,11 @@ private fun FreedomSettings(repo: AppRepository) {
                     FreedomPreset.MULTI_LAYER_CASCADE -> s.copy(
                         freedomPreset = preset,
                         freedomLayerCount = 3,
-                        freedomOuterPackets = "tlshello",
-                        freedomOuterLength = "4-8",
-                        freedomOuterInterval = "0",
+                        // Packet-split outer (GFW-knocker shape). "tlshello" record-rewriting is
+                        // avoided: it emits complete tiny TLS records that real servers RST.
+                        freedomOuterPackets = "1-1",
+                        freedomOuterLength = "1-3",
+                        freedomOuterInterval = "5-10",
                         freedomOuterMaxSplit = "",
                         freedomMiddleEnabled = true,
                         freedomMiddlePackets = "1-3",
@@ -7570,9 +7572,10 @@ private fun FreedomSettings(repo: AppRepository) {
                     FreedomPreset.SNI_SHREDDER -> s.copy(
                         freedomPreset = preset,
                         freedomLayerCount = 1,
-                        freedomOuterPackets = "tlshello",
+                        // Packet-split, not "tlshello" record-rewriting (see comment above).
+                        freedomOuterPackets = "1-1",
                         freedomOuterLength = "1-3",
-                        freedomOuterInterval = "10-20",
+                        freedomOuterInterval = "5-10",
                         freedomOuterMaxSplit = "4",
                         freedomMiddleEnabled = false,
                         freedomInnerEnabled = false,
@@ -7837,9 +7840,9 @@ private fun FreedomSettings(repo: AppRepository) {
             s.copy(
                 freedomPreset = FreedomPreset.SMART_ADAPTIVE,
                 freedomLayerCount = 3,
-                freedomOuterPackets = "tlshello",
-                freedomOuterLength = "6",
-                freedomOuterInterval = "0",
+                freedomOuterPackets = "1-1",
+                freedomOuterLength = "1-3",
+                freedomOuterInterval = "5-10",
                 freedomOuterMaxSplit = "",
                 freedomMiddleEnabled = true,
                 freedomMiddlePackets = "1-3",

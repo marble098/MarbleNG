@@ -130,6 +130,51 @@ answers while background refresh runs.
 
 ### DEFECT D — Identity Guard pinned the user's *own* egress and killed the route
 
+*(documented below; keep reading — it is the second independent route-killer.)*
+
+### DEFECT E — the outer "tlshello" fragment hop was rejected by real servers (PRIMARY, runtime-proven)
+
+Marble's default recipe (`SMART_ADAPTIVE` → `MULTI_LAYER_CASCADE`) put `packets: "tlshello",
+length: "6", interval: "0"` on the outer `proxy` hop. Xray's `tlshello` mode is **not** a
+TCP-segment splitter; `proxy/freedom/freedom.go` `FragmentWriter` re-encodes the ClientHello
+into **complete tiny TLS records** (HEADER_i + PAYLOAD_i, 5-byte record header per 6-byte
+chunk). Upstream itself calls this out:
+
+- Xray-core issue **#4370** — "`tlshello` fragment … only break from end of each payload …
+  this creates a pattern that can be recognized by GFW, because every packet is a complete
+  tls record"; the maintainer-accepted workaround is chaining *another* fragment hop
+  (`dialerProxy("tlshello" + "1-1")`), which is exactly the shape Marble already had — yet
+  the record-level pattern still fails.
+- Xray-core discussion **#5969** (field notes 2026-04, MCI / Irancell / Shatel) — the SNI-based
+  DPI now reassembles TCP segments and re-inspects; plain `fragment: tlshello` no longer
+  bypasses it and blocked SNIs get **RST'd**.
+
+**Runtime proof (this session, real engine):** the PyPI `xray-core==1.8.26.10` wheel vendors the
+exact Xray tag Marble pins (`UPSTREAM_VERSION = v26.7.28`). Running the emitted chain against
+real servers:
+
+| Outer hop | Fastly `pypi.org` | Cloudflare `registry.npmjs.org` | GitHub `github.com` | AWS `httpbin.org` | `example.com` |
+| --- | --- | --- | --- | --- | --- |
+| `tlshello / 6 / 0` (+ inner 1-1/1/4/517) | RST `broken pipe` | RST | RST | RST | RST |
+| `tlshello / 100-200 / 10-20` | RST | — | — | RST | RST |
+| `1-1 / 1-3 / 5-10` (+ inner) | **HTTP 200** | **HTTP 200** | **HTTP 200** | **HTTP 200** | HTTP 200 |
+| official XTLS `skip-fragment` pair | HTTP 200 | — | — | — | — |
+| official XTLS `tls-fragment` pair | RST | — | — | — | — |
+
+A local TLS 1.3 server accepts the `tlshello` shape (RFC 8446 §5.1 *permits* handshake
+fragmentation across records), so the bytes are protocol-legal — but production TLS fronts
+(Fastly/Cloudflare/GitHub/AWS) and Iran's DPI actively reset it. Marble's chain therefore
+looked correct yet could not complete a single real TLS connection.
+
+**Fix:** the outer hop of every default Freedom recipe is now the GFW-knocker packet split
+`1-1 / 1-3 / 5-10` (the same fragment the community's battle-tested config uses; official XTLS
+offers it as `skip-fragment`). The ClientHello stays one valid TLS record while per-packet DPI
+never sees the SNI in one packet — and the runtime matrix above shows 200 OK through the full
+3-hop chain with UDP noises, pins and 5 s DoH budgets. `tlshello` remains available only if a
+user explicitly selects a recipe that still uses it (none of the factory presets do now).
+
+### DEFECT D — Identity Guard pinned the user's *own* egress and killed the route
+
 `ServerlessFreedomEngine.pinSession()` enables `identityGuardEnabled` +
 `identityGuardStrictNoFailover`. `MarbleVpnService.verifyExitIdentity()` (run at tick 12 and
 every 180 s) observes the egress IP **through the Freedom chain**, i.e. the user's own public

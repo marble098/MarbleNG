@@ -64,17 +64,23 @@ object DpiEvasionPolicy {
         description = "ClientHello fragmentation • splits the SNI across TCP segments"
     )
 
-    /** Official XTLS serverless-for-Iran outer hop: tiny tlshello, no pacing delay. */
+    /**
+     * GFW-knocker's battle-tested serverless outer hop (fragment 1-1 / 1-3 / 5-10) plus Marble's
+     * 1-byte/4 ms inner split. NOTE: the old "tlshello" mode is intentionally not used here — it
+     * rewrites the ClientHello into complete tiny TLS records (Xray #4370), a pattern that both
+     * real servers (Fastly/Cloudflare/GitHub/AWS all RST it; verified on v26.7.28) and Iran's
+     * current DPI reassemble and refilter (Xray discussion #5969 field notes, 2026-04).
+     */
     val TLSHELLO_SNI: FragmentRecipe = FragmentRecipe(
-        packets = "tlshello",
-        length = "6",
-        interval = "0",
+        packets = "1-1",
+        length = "1-3",
+        interval = "5-10",
         innerPackets = "1-1",
         innerLength = "1",
         innerInterval = "4",
         innerMaxSplit = "517",
         rank = 5,
-        description = "Chained tlshello→full-fragment • SNI shred plus 517-byte split"
+        description = "GFW-knocker serverless split • 1-1/1-3/5-10 first writes + 517-byte 1-byte split"
     )
 
     val RECORD_SPLIT: FragmentRecipe = FragmentRecipe(
@@ -102,11 +108,18 @@ object DpiEvasionPolicy {
         description = "Full-stream fragment • 1-byte writes, 4 ms interval, 517 maxSplit"
     )
 
-    /** 3-Layer cascading anti-DPI shredder: TLS ClientHello -> Record Splitter -> Micro Stream Fragment. */
+    /**
+     * 3-Layer cascading anti-DPI shredder. The outer layer is GFW-knocker's packet-split
+     * (1-1 / 1-3 / 5-10), NOT Xray's "tlshello" record-rewriter: "tlshello" emits complete tiny
+     * TLS records that real servers (Fastly, Cloudflare, GitHub, AWS — RST), verified against
+     * v26.7.28, and Iran's 2026 DPI reassembles and refilters anyway (Xray #4370, #5969).
+     * Packet-split keeps the ClientHello a single valid TLS record while hiding the SNI from
+     * per-packet DPI — the tested working shape (GFW-knocker config, official skip-fragment).
+     */
     val MULTI_LAYER_CASCADE: FragmentRecipe = FragmentRecipe(
-        packets = "tlshello",
-        length = "6",
-        interval = "0",
+        packets = "1-1",
+        length = "1-3",
+        interval = "5-10",
         middlePackets = "1-3",
         middleLength = "10-30",
         middleInterval = "5-10",
@@ -116,7 +129,7 @@ object DpiEvasionPolicy {
         innerInterval = "4",
         innerMaxSplit = "517",
         rank = 6,
-        description = "3-Layer cascade • TLS Hello SNI shred → Record slicer → Byte-level micro fragment"
+        description = "3-Layer cascade • packet-split outer → record slicer → byte-level micro fragment"
     )
 
     /** Aggressive 3-layer TLS record & stream shredder for severe DPI inspection. */
@@ -161,9 +174,9 @@ object DpiEvasionPolicy {
             com.marbleng.app.model.FreedomPreset.AGGRESSIVE_RECORD_SPLIT -> AGGRESSIVE_CASCADE
             com.marbleng.app.model.FreedomPreset.EXTREME_ANTI_DPI -> EXTREME_ANTI_DPI
             com.marbleng.app.model.FreedomPreset.CUSTOM -> FragmentRecipe(
-                packets = settings.freedomOuterPackets.ifBlank { "tlshello" },
-                length = settings.freedomOuterLength.ifBlank { "6" },
-                interval = settings.freedomOuterInterval.ifBlank { "0" },
+                packets = settings.freedomOuterPackets.ifBlank { "1-1" },
+                length = settings.freedomOuterLength.ifBlank { "1-3" },
+                interval = settings.freedomOuterInterval.ifBlank { "5-10" },
                 maxSplit = settings.freedomOuterMaxSplit,
                 middlePackets = if (settings.freedomMiddleEnabled) settings.freedomMiddlePackets.ifBlank { "1-3" } else "",
                 middleLength = if (settings.freedomMiddleEnabled) settings.freedomMiddleLength.ifBlank { "10-30" } else "",

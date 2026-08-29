@@ -11,7 +11,7 @@ import org.json.JSONObject
  * DPI cannot reassemble SNI. Identity Guard still pins the (user) exit IP.
  *
  * Template follows the official XTLS `serverless_for_Iran.jsonc` chain
- * (tlshello length 6 interval 0 → full-fragment 1-1/1/4 maxSplit 517 + UDP noises)
+ * (packet-split 1-1/1-3/5-10 → full-fragment 1-1/1/4 maxSplit 517 + UDP noises)
  * while emitting `freedom`/`blackhole` for the locked Xray v26.7.28 core.
  */
 object ServerlessFreedomEngine {
@@ -60,9 +60,9 @@ object ServerlessFreedomEngine {
                 JSONObject().put(
                     "fragment",
                     fragmentObject(
-                        recipe.packets.ifBlank { "tlshello" },
-                        recipe.length.ifBlank { "6" },
-                        recipe.interval.ifBlank { "0" },
+                        recipe.packets.ifBlank { "1-1" },
+                        recipe.length.ifBlank { "1-3" },
+                        recipe.interval.ifBlank { "5-10" },
                         recipe.maxSplit
                     )
                 )

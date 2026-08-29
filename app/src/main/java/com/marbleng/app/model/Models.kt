@@ -277,9 +277,13 @@ data class AppSettings(
     // Marble Freedom Anti-DPI Multi-Layer Fragmentation & Smart Multi-DNS
     val freedomPreset: FreedomPreset = FreedomPreset.SMART_ADAPTIVE,
     val freedomLayerCount: Int = 3,
-    val freedomOuterPackets: String = "tlshello",
-    val freedomOuterLength: String = "6",
-    val freedomOuterInterval: String = "0",
+    // Outer hop defaults follow GFW-knocker's packet-split (1-1 / 1-3 / 5-10). The old
+    // "tlshello" record-rewriting mode is no longer a default: it emits complete tiny TLS
+    // records that real servers and Iran's 2026 DPI reject/RST (Xray #4370, #5969; runtime
+    // verified on v26.7.28 against Fastly/Cloudflare/GitHub/AWS).
+    val freedomOuterPackets: String = "1-1",
+    val freedomOuterLength: String = "1-3",
+    val freedomOuterInterval: String = "5-10",
     val freedomOuterMaxSplit: String = "",
     val freedomMiddleEnabled: Boolean = true,
     val freedomMiddlePackets: String = "1-3",
