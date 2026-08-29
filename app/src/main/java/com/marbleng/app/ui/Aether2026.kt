@@ -4849,8 +4849,10 @@ private fun SpatialServerCard(
             }
 
             // Painted after the card so a connected row is unmistakable, and matchParentSize so the halo
-            // never participates in measurement: the row's box stays identical in every state.
-            AnimatedVisibility(
+            // never participates in measurement: the row's box stays identical in every state. The
+            // animation package is named explicitly because a Box scope has no AnimatedVisibility receiver
+            // of its own, and the star-imported layout overloads would otherwise win overload resolution.
+            androidx.compose.animation.AnimatedVisibility(
                 visible=emphasized,
                 modifier=Modifier.matchParentSize(),
                 enter=fadeIn(MarbleMotionSpecs.ResponseFloat),
