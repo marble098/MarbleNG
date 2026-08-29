@@ -10,6 +10,7 @@ package com.marbleng.app.ui
 // MARBLE_UNIFIED_SURFACE_SYSTEM_DS_V65
 // MARBLE_PRISM_BUTTON_SYSTEM_DS_V65
 // MARBLE_PRISM_RIM_AND_SEARCH_FRAME_DS_V66
+// MARBLE_BUTTON_TEXT_RECT_REMOVED_DS_V68
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
@@ -17,14 +18,13 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.border
 import androidx.compose.foundation.background
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -340,13 +340,16 @@ internal fun PrismPanel(
     val shape=RoundedCornerShape(radius)
     val surface=Aether.VoidElevated
     val violet=Aether.Amethyst
-    val softBorder=Aether.GlassBorderSoft
     val glowAlpha=.022f + .033f*selectedProgress
+    // MARBLE_BUTTON_TEXT_RECT_REMOVED_DS_V68
+    // GlassBorderSoft in the panel rim composited as a pale rectangular band on light themes —
+    // especially around Settings section cards and the Library filter sheet panels that host the
+    // choice chips. Keep the rim as pure accent/violet so no foreign rectangle sits behind labels.
     val borderBrush=Brush.linearGradient(
         listOf(
-            accent.copy(alpha=.16f + .30f*selectedProgress),
-            violet.copy(alpha=.08f + .15f*selectedProgress),
-            softBorder.copy(alpha=.68f)
+            accent.copy(alpha=.18f + .34f*selectedProgress),
+            violet.copy(alpha=.10f + .18f*selectedProgress),
+            accent.copy(alpha=.08f + .12f*selectedProgress)
         )
     )
 
@@ -452,6 +455,12 @@ private fun prismShade(color: Color, amount: Float): Color = Color(
  * nothing else. Primary carries a filled, state-tinted skin with a soft colored glow; Secondary is
  * tonal; Quiet is for dismiss/back; Danger owns destructive verbs. Label copy is single-line and
  * centred, and the press response is shade plus rim, which stays legible at any font scale.
+ *
+ * MARBLE_BUTTON_TEXT_RECT_REMOVED_DS_V68
+ * Built as a plain Row (same stack as [PrismSelectionTile] / [PrismIconButton]), never as an M3
+ * `Button`. The Material surface still painted a second, differently-coloured rectangle behind the
+ * label even with `containerColor = Transparent` — the box users saw behind every Settings and
+ * Library-filter control. One fill, optional hairline, one content colour; no nested surface.
  */
 internal enum class PrismButtonVariant { Primary, Secondary, Quiet, Danger }
 
@@ -471,8 +480,6 @@ internal fun PrismButton(
 ) {
     val filled=enabled && (variant == PrismButtonVariant.Primary || variant == PrismButtonVariant.Danger)
     val shape=RoundedCornerShape(if (compact) 15.dp else PrismSurface.ControlRadius)
-    val interaction=remember { MutableInteractionSource() }
-    val pressed by interaction.collectIsPressedAsState()
 
     val accent=if (variant == PrismButtonVariant.Danger) Aether.Danger else tone
     val content=when {
@@ -483,105 +490,96 @@ internal fun PrismButton(
     }
     val skin=when {
         !enabled -> Brush.linearGradient(listOf(Aether.GlassStrong, Aether.GlassStrong))
-        filled && pressed -> Brush.linearGradient(listOf(prismShade(accent,.16f), prismShade(accent,.02f)))
         filled -> Brush.linearGradient(listOf(prismShade(accent,.05f), prismLift(accent,.18f)))
         variant == PrismButtonVariant.Quiet -> Brush.linearGradient(
             listOf(Aether.VoidElevated.copy(alpha=.55f), Aether.VoidElevated.copy(alpha=.55f))
         )
         else -> Brush.linearGradient(
             listOf(
-                accent.copy(alpha=if (pressed) .20f else .115f),
+                accent.copy(alpha=.115f),
                 Aether.VoidElevated
             )
         )
     }
-    // MARBLE_HALO_INNER_BORDER_FIX_V67
-    // The old "lifted" rim used prismLift (a lighter shade of the accent) at the top of a
-    // vertical gradient.  On light themes that lightened edge composited as a visible white
-    // halo hugging every filled control.  The fix: filled buttons now skip the border
-    // altogether — the coloured fill plus the accent shadow already carry enough depth — and
-    // tonal/quiet variants use a single solid accent border that never lightens above its
-    // background.
-    val hairline: Brush=when {
-        !enabled -> SolidColor(Aether.GlassBorderSoft.copy(alpha=.45f))
-        filled -> SolidColor(Color.Transparent)
-        variant == PrismButtonVariant.Quiet -> SolidColor(accent.copy(alpha=.30f))
-        else -> SolidColor(accent.copy(alpha=if (pressed) .44f else .30f))
+    // Filled skins skip the hairline entirely (fill + accent shadow carry depth). Tonal/quiet
+    // use a single solid accent edge — never a light neutral that reads as a second rectangle.
+    val hairline: Color=when {
+        !enabled -> accent.copy(alpha=.14f)
+        filled -> Color.Transparent
+        variant == PrismButtonVariant.Quiet -> accent.copy(alpha=.30f)
+        else -> accent.copy(alpha=.30f)
     }
+    val pad=contentPadding ?: PaddingValues(
+        horizontal=if (compact) 12.dp else 15.dp,
+        vertical=if (compact) 7.dp else 10.dp
+    )
 
-    Button(
-        onClick=onClick,
-        enabled=enabled,
-        shape=shape,
-        interactionSource=interaction,
-        // The Button's own surface shadow stacked a second, untinted shadow under the Prism glow
-        // and muddied the halo around filled buttons. Depth comes from the outer accent shadow.
-        elevation=ButtonDefaults.buttonElevation(
-            defaultElevation=0.dp,
-            pressedElevation=0.dp,
-            hoveredElevation=0.dp,
-            focusedElevation=0.dp,
-            disabledElevation=0.dp
-        ),
-        contentPadding=contentPadding ?: PaddingValues(
-            horizontal=if (compact) 12.dp else 15.dp,
-            vertical=if (compact) 7.dp else 10.dp
-        ),
-        colors=ButtonDefaults.buttonColors(
-            containerColor=Color.Transparent,
-            contentColor=content,
-            disabledContainerColor=Color.Transparent,
-            disabledContentColor=Aether.InkFaint
-        ),
-        modifier=modifier
-            .heightIn(
-                min=when {
-                    detail.isNotBlank() && !compact -> 58.dp
-                    compact -> PrismSurface.CompactControlHeight
-                    else -> PrismSurface.ControlHeight
-                }
-            )
-            .widthIn(min=if (compact) 66.dp else 92.dp)
-            .shadow(
-                elevation=if (filled) PrismSurface.ControlElevation else 0.dp,
-                shape=shape,
-                clip=false,
-                ambientColor=accent.copy(alpha=if (filled) .30f else 0f),
-                spotColor=accent.copy(alpha=if (filled) .38f else 0f)
-            )
-            .background(skin,shape)
-            .border(PrismSurface.Hairline,hairline,shape)
-    ) {
-        if (icon != null) {
-            icon()
-            Spacer(Modifier.width(if (compact) 6.dp else 8.dp))
-        }
-        Column(horizontalAlignment=Alignment.Start) {
-            Text(
-                label,
-                style=if (compact) MaterialTheme.typography.labelMedium else MaterialTheme.typography.labelLarge,
-                fontWeight=FontWeight.Bold,
-                maxLines=1,
-                overflow=TextOverflow.Ellipsis
-            )
-            if (detail.isNotBlank()) {
+    CompositionLocalProvider(LocalContentColor provides content) {
+        Row(
+            modifier=modifier
+                .heightIn(
+                    min=when {
+                        detail.isNotBlank() && !compact -> 58.dp
+                        compact -> PrismSurface.CompactControlHeight
+                        else -> PrismSurface.ControlHeight
+                    }
+                )
+                .widthIn(min=if (compact) 66.dp else 92.dp)
+                .shadow(
+                    elevation=if (filled) PrismSurface.ControlElevation else 0.dp,
+                    shape=shape,
+                    clip=false,
+                    ambientColor=accent.copy(alpha=if (filled) .30f else 0f),
+                    spotColor=accent.copy(alpha=if (filled) .38f else 0f)
+                )
+                .clip(shape)
+                .background(skin)
+                .border(PrismSurface.Hairline, hairline, shape)
+                .kineticClickable(
+                    enabled=enabled,
+                    role=Role.Button,
+                    boundedShape=shape,
+                    onClick=onClick
+                )
+                .padding(pad),
+            verticalAlignment=Alignment.CenterVertically,
+            horizontalArrangement=Arrangement.Center
+        ) {
+            if (icon != null) {
+                icon()
+                Spacer(Modifier.width(if (compact) 6.dp else 8.dp))
+            }
+            Column(
+                modifier=Modifier.weight(1f, fill=false),
+                horizontalAlignment=Alignment.Start
+            ) {
                 Text(
-                    detail,
-                    style=MaterialTheme.typography.labelSmall,
-                    color=content.copy(alpha=.72f),
+                    label,
+                    color=content,
+                    style=if (compact) MaterialTheme.typography.labelMedium else MaterialTheme.typography.labelLarge,
+                    fontWeight=FontWeight.Bold,
                     maxLines=1,
                     overflow=TextOverflow.Ellipsis
                 )
+                if (detail.isNotBlank()) {
+                    Text(
+                        detail,
+                        style=MaterialTheme.typography.labelSmall,
+                        color=content.copy(alpha=.72f),
+                        maxLines=1,
+                        overflow=TextOverflow.Ellipsis
+                    )
+                }
             }
-        }
-        if (badge.isNotBlank()) {
-            Spacer(Modifier.width(8.dp))
-            Text(
-                badge,
-                style=MaterialTheme.typography.labelSmall.copy(fontFamily=FontFamily.Monospace),
-                fontWeight=FontWeight.Bold,
-                color=content.copy(alpha=.86f)
-            )
+            if (badge.isNotBlank()) {
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    badge,
+                    style=MaterialTheme.typography.labelSmall.copy(fontFamily=FontFamily.Monospace),
+                    fontWeight=FontWeight.Bold,
+                    color=content.copy(alpha=.86f)
+                )
+            }
         }
     }
 }
@@ -711,19 +709,14 @@ internal fun PrismSelectionTile(
     onClick: () -> Unit
 ) {
     val shape=RoundedCornerShape(PrismSurface.TileRadius)
+    // MARBLE_BUTTON_TEXT_RECT_REMOVED_DS_V68
+    // One continuous fill owns the whole tile. No second rectangle (hairline of a foreign
+    // neutral, M3 indicator, nested surface) is allowed behind or around the label — selection
+    // is ink colour + a soft tone wash only.
     val fill by animateColorAsState(
-        targetValue=if (selected) tone.copy(alpha=.10f) else Aether.VoidElevated,
+        targetValue=if (selected) tone.copy(alpha=.12f) else Aether.VoidElevated,
         animationSpec=MarbleMotionSpecs.Color,
         label="selection-fill"
-    )
-    // MARBLE_HALO_INNER_BORDER_FIX_V67
-    // The unselected border was Aether.GlassBorder — a light blue-gray that composited as a
-    // white ring inside every tile on light themes.  Replacing it with a translucent accent
-    // keeps the tile framed without any white-edge halo, in both light and dark palettes.
-    val hairline by animateColorAsState(
-        targetValue=if (selected) tone.copy(alpha=.50f) else tone.copy(alpha=.18f),
-        animationSpec=MarbleMotionSpecs.Color,
-        label="selection-hairline"
     )
     val elevation by animateDpAsState(
         targetValue=if (selected) PrismSurface.ControlElevation else 0.dp,
@@ -738,12 +731,11 @@ internal fun PrismSelectionTile(
                 elevation=elevation,
                 shape=shape,
                 clip=false,
-                ambientColor=tone.copy(alpha=.26f),
-                spotColor=tone.copy(alpha=.32f)
+                ambientColor=tone.copy(alpha=if (selected) .22f else 0f),
+                spotColor=tone.copy(alpha=if (selected) .28f else 0f)
             )
             .clip(shape)
             .background(fill)
-            .border(PrismSurface.Hairline,hairline,shape)
             .kineticClickable(enabled=enabled, role=Role.Button, boundedShape=shape, onClick=onClick)
             .padding(horizontal=12.dp,vertical=9.dp),
         verticalAlignment=Alignment.CenterVertically,
@@ -943,7 +935,7 @@ internal fun MarbleMetricCard(
     val border=Brush.linearGradient(
         listOf(
             tone.copy(alpha=.30f),
-            Aether.GlassBorderSoft.copy(alpha=.62f)
+            tone.copy(alpha=.12f)
         )
     )
     Box(
@@ -1021,7 +1013,7 @@ internal fun MarbleSparkline(
     modifier: Modifier = Modifier
 ) {
     val clean=samples.filter { it > 0 }.takeLast(36)
-    val grid=Aether.GlassBorderSoft
+    val grid=Aether.GlassBorder
     val surface=Aether.VoidElevated
     Canvas(modifier) {
         if(clean.size<2) return@Canvas

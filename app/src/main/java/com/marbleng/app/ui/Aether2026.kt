@@ -5031,7 +5031,9 @@ private fun SpatialSettings(
                                 colors=NavigationRailItemDefaults.colors(
                                     selectedIconColor=Aether.Cyan,
                                     selectedTextColor=Aether.Cyan,
-                                    indicatorColor=Aether.Cyan.copy(alpha=.10f),
+                                    // No pill/rectangle behind the rail label — selection is
+                                    // carried by icon/text colour only (MARBLE_BUTTON_TEXT_RECT_REMOVED_DS_V68).
+                                    indicatorColor=Color.Transparent,
                                     unselectedIconColor=Aether.InkMuted,
                                     unselectedTextColor=Aether.InkMuted
                                 )
