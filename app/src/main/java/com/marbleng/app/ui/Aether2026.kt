@@ -2800,7 +2800,7 @@ private fun CyberLibrary(
             title = { Text("Remove failed $kind nodes?", color = Aether.Danger) },
             text = {
                 Text(
-                    "This removes $failedCount node${if (failedCount == 1) "" else "s"} from ${target.name} whose most recent stored $kind test failed. Other sources and other test types are untouched.",
+                    "This removes $failedCount failed node${if (failedCount == 1) "" else "s"} from ${target.name}.",
                     color = Aether.InkMuted
                 )
             },
@@ -2828,7 +2828,7 @@ private fun CyberLibrary(
             title = { Text("Delete ${target.name}?", color = Aether.Danger) },
             text = {
                 Text(
-                    "This removes the subscription and ${repo.subscriptionNodeCount(target.id)} nodes that belong to it. Other sources are untouched.",
+                    "This removes the subscription and its ${repo.subscriptionNodeCount(target.id)} nodes.",
                     color = Aether.InkMuted
                 )
             },
@@ -3358,7 +3358,7 @@ private fun ManualConfigEditor(
                         ManualField("Password", draft.password, { draft = draft.copy(password = it) }, Modifier.weight(1f))
                     }
                     ManualField("Host key SHA256 • optional", draft.sshHostKeySha256, { draft = draft.copy(sshHostKeySha256 = it) })
-                    Text("SSH carries TCP through the protected loopback adapter; UDP is blocked fail-closed.", color = Aether.InkFaint, style = MaterialTheme.typography.bodySmall)
+                    Text("TCP via protected loopback; UDP blocked.", color = Aether.InkFaint, style = MaterialTheme.typography.bodySmall)
                 }
                 ManualProtocol.WIREGUARD -> {
                     ManualField("Private key", draft.wireguardSecretKey, { draft = draft.copy(wireguardSecretKey = it) })
@@ -3446,7 +3446,7 @@ private fun ManualConfigEditor(
                         { draft = draft.copy(cipherSuites = it) }
                     )
                     Text(
-                        "PattNG/Xray TLS control • `unsafe` uses native Go TLS; leave Cipher Suites empty for automatic defaults.",
+                        "`unsafe` uses native Go TLS; empty Cipher Suites = automatic.",
                         color = Aether.InkFaint,
                         style = MaterialTheme.typography.labelSmall
                     )
@@ -3467,7 +3467,7 @@ private fun ManualConfigEditor(
         SectionLabel("Save to", targetSourceName ?: "Select one Library source first")
         Text(
             if (targetReady) {
-                "This config will be added to the currently selected source and kept across refreshes."
+                "Will be added to the selected source and kept across refreshes."
             } else {
                 "All sources is only a view. Select a source chip first, then add the config."
             },
@@ -5466,7 +5466,7 @@ private fun IntelligenceSettings(repo: AppRepository) {
         HoloBadge(if (sentinel.killSwitchArmed) "KILL SWITCH" else "NO KILL SWITCH", if (sentinel.killSwitchArmed) Aether.Emerald else Aether.InkFaint, compact = true)
     }
     if (sentinel.splitBypassCount > 0) {
-        Text("${sentinel.splitBypassCount} apps intentionally bypass the VPN; device protection is partial.", color = Aether.Amber, style = MaterialTheme.typography.bodySmall)
+        Text("${sentinel.splitBypassCount} apps bypass the VPN; coverage is partial.", color = Aether.Amber, style = MaterialTheme.typography.bodySmall)
     }
 }
 
@@ -5508,11 +5508,6 @@ private fun NotificationSettings(repo: AppRepository) {
         )
     }
 
-    Text(
-        "Android requires a foreground-service status while the VPN/proxy is running. The controls below manage optional alerts and how much live telemetry is shown.",
-        color = Aether.InkFaint,
-        style = MaterialTheme.typography.bodySmall
-    )
 
     if (Build.VERSION.SDK_INT >= 33 && !permissionGranted) {
         CyberButton(
@@ -5719,7 +5714,7 @@ private fun ServerIntelHomeCard(repo: AppRepository) {
 
         if(selected == null || endpoint.isBlank()) {
             Text(
-                "Select a node in Library. Its public IP, city, network/datacenter, ASN and ISP will appear here.",
+                "No node selected",
                 color=Aether.InkMuted,
                 style=MaterialTheme.typography.bodySmall
             )
@@ -5872,11 +5867,6 @@ private fun ServerIntelHomeCard(repo: AppRepository) {
             }
         }
 
-        Text(
-            "Location and datacenter/network labels are IP-database estimates, not GPS-level physical location.",
-            color=Aether.InkFaint,
-            style=MaterialTheme.typography.labelSmall
-        )
     }
 }
 
@@ -6013,7 +6003,7 @@ private fun FragmentMuxSettings(repo: AppRepository) {
             }
 
             Text(
-                "Recommended baseline: tlshello • 100-200 • 10-20 ms. More aggressive values can lower stability.",
+                "Baseline: tlshello • 100-200 • 10-20 ms",
                 color = Aether.InkFaint,
                 style = MaterialTheme.typography.bodySmall
             )
@@ -6436,7 +6426,7 @@ private fun RoutingSettings(repo: AppRepository) {
             Text("!", color = Aether.Amber, style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.width(9.dp))
             Text(
-                "$missingGeoAssets is required. Signed builds contain a bundled fallback; Prepare also refreshes configured sources.",
+                "$missingGeoAssets is required; tap Prepare to install it.",
                 color = Aether.InkMuted,
                 style = MaterialTheme.typography.bodySmall
             )
@@ -6451,7 +6441,7 @@ private fun RoutingSettings(repo: AppRepository) {
     }
 
     Text(
-        "Default source: Chocolate4U/Iran-v2ray-rules release branch. Marble refreshes remote data after 24 hours and keeps the last known-good file if refresh fails.",
+        "Default source: Chocolate4U/Iran-v2ray-rules • refreshes after 24h",
         color = Aether.InkFaint,
         style = MaterialTheme.typography.bodySmall
     )
@@ -6542,7 +6532,7 @@ private fun RoutingSettings(repo: AppRepository) {
     }
 
     Text(
-        "Privacy note: Iran-direct is intentional bypass, not a leak. Iranian destinations see your ISP egress IP; other destinations remain on the selected proxy. Identity Guard pins the proxied exit and strips arbitrary public direct rules.",
+        "Iran-direct is deliberate: Iranian destinations see your ISP IP; the rest stays on the proxy.",
         color = Aether.Amber,
         style = MaterialTheme.typography.bodySmall
     )
@@ -6605,8 +6595,6 @@ private fun BugFinderSettings(repo: AppRepository) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text("Ultimate runtime observatory", color=Aether.Ink, style=MaterialTheme.typography.titleMedium)
-                Text("Passive crash, process, thread, Xray, HEV, VPN and engine evidence. The scanner itself does not generate Internet traffic.",
-                    color=Aether.InkFaint, style=MaterialTheme.typography.bodySmall)
             }
             HoloBadge(
                 when {
@@ -6633,7 +6621,7 @@ private fun BugFinderSettings(repo: AppRepository) {
             subtitle = if (debug) {
                 "ON • runtime, Xray and HEV evidence streams asynchronously to ${repo.debugReportLocation()}"
             } else {
-                "Off by default. When enabled, normal app/VPN threads only enqueue bounded events; storage work stays on a diagnostics thread."
+                "Off by default"
             },
             checked = debug
         ) { repo.setDebugMode(it) }
@@ -6646,8 +6634,6 @@ private fun BugFinderSettings(repo: AppRepository) {
         ) {
             Text("TXT REPORT LOCATION", color=if(debug) Aether.Cyan else Aether.InkFaint, style=MaterialTheme.typography.labelSmall)
             Text(repo.debugReportLocation(), color=Aether.Ink, style=MaterialTheme.typography.bodySmall.copy(fontFamily=FontFamily.Monospace))
-            Text("Debug Mode records a rolling live session plus Bug Finder snapshots. Raw proxy configs and credentials are redacted.",
-                color=Aether.InkMuted, style=MaterialTheme.typography.bodySmall)
         }
 
         Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
@@ -6690,11 +6676,8 @@ private fun BugFinderSettings(repo: AppRepository) {
                     }
                 }
             }
-            Text("Raw evidence and retained historical logs stay in COPY/SAVE TXT only. They are intentionally not rendered here, keeping Settings compact and responsive.",
-                color=Aether.InkFaint,style=MaterialTheme.typography.bodySmall)
             if(current.failures>0) CyberButton("SAFE RUNTIME RESET",Aether.Danger,Modifier.fillMaxWidth(),!repo.busy) { repo.safeRuntimeResetFromBugFinder() }
-        } ?: Text("Run the scan while the problem is happening. It is passive and does not open diagnostic HTTPS/DNS connections.",
-            color=Aether.InkMuted,style=MaterialTheme.typography.bodySmall)
+        }
     }
 }
 
@@ -6725,29 +6708,19 @@ private fun probeMethodShortLabel(method: ProbeMethod): String = when (method) {
 
 private fun probeMethodExplainer(method: ProbeMethod): String = when (method) {
     ProbeMethod.HYBRID ->
-        "Dead endpoints are dropped with a quick TCP check, then the survivors get a real Xray " +
-            "tunnel test. Best balance of speed and truth, and the default."
+        "Quick TCP gate, then a real Xray tunnel test. Default."
     ProbeMethod.TUNNEL ->
-        "Every node starts a real Xray process and fetches a real HTTPS URL through it. This is " +
-            "the only method that proves a node actually works, and the slowest."
+        "One real Xray process per node with a real HTTPS fetch. Slowest and most accurate."
     ProbeMethod.TCP ->
-        "Measures the TCP handshake to the server address (tcping). Very fast and light, but it " +
-            "cannot tell a working proxy from an expired account or a filtered route."
+        "Measures the TCP handshake (tcping). Fast, but cannot tell a working proxy from a filtered route."
     ProbeMethod.ICMP ->
-        "Classic ping through the system. Fast, but many servers and mobile carriers drop ICMP, " +
-            "so healthy nodes can appear unreachable."
+        "Classic system ping. Many carriers drop ICMP, so healthy nodes can look unreachable."
 }
 
 @Composable
 private fun ProbeSettings(repo: AppRepository) {
     val s = repo.settings
 
-    Text(
-        "Choose how nodes are measured everywhere: Test all, the performance test, a single node " +
-            "test and the automatic route picker.",
-        color = Aether.InkFaint,
-        style = MaterialTheme.typography.bodySmall
-    )
 
     FlowRow(
         modifier = Modifier.fillMaxWidth(),
@@ -6825,8 +6798,7 @@ private fun ProbeSettings(repo: AppRepository) {
             Text("!", color = Aether.Amber, style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.width(9.dp))
             Text(
-                "Direct probes never open the proxy, so a node can look fast here and still fail " +
-                    "to carry traffic. Auto-connect still verifies the route it picks.",
+                "TCP/ICMP bypass the proxy; only Real tunnel proves the route carries traffic.",
                 color = Aether.InkMuted,
                 style = MaterialTheme.typography.bodySmall
             )

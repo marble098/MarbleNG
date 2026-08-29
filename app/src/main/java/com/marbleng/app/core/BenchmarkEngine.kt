@@ -4,6 +4,7 @@ import com.marbleng.app.model.*
 import java.net.InetSocketAddress
 import java.net.Socket
 import java.util.Collections
+import java.util.Locale
 import java.util.concurrent.ExecutorCompletionService
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -941,9 +942,9 @@ class BenchmarkEngine(
         BASE_PORT + (index.coerceAtLeast(0) % BENCHMARK_PORT_SLOTS) * 4
 
     private fun formatRate(bytesPerSecond: Double): String = when {
-        bytesPerSecond >= 1024.0 * 1024.0 -> "%.1f MiB/s".format(bytesPerSecond / 1024.0 / 1024.0)
-        bytesPerSecond >= 1024.0 -> "%.0f KiB/s".format(bytesPerSecond / 1024.0)
-        else -> "%.0f B/s".format(bytesPerSecond)
+        bytesPerSecond >= 1024.0 * 1024.0 -> String.format(Locale.US, "%.1f MiB/s", bytesPerSecond / 1024.0 / 1024.0)
+        bytesPerSecond >= 1024.0 -> String.format(Locale.US, "%.0f KiB/s", bytesPerSecond / 1024.0)
+        else -> String.format(Locale.US, "%.0f B/s", bytesPerSecond)
     }
 
     private companion object {

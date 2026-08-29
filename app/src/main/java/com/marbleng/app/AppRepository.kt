@@ -16,6 +16,7 @@ import java.net.HttpURLConnection
 import java.net.InetAddress
 import java.net.URL
 import java.security.MessageDigest
+import java.util.Locale
 import org.json.JSONObject
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
@@ -2243,7 +2244,7 @@ private fun postToMain(block: () -> Unit) {
             )
             mergeBenchmarks(result)
             message = result.firstOrNull()?.let {
-                "${it.success}% • ${"%.0f".format(it.latencyMs)} ms • ${"%.1f".format(it.score)}"
+                "${it.success}% • ${String.format(Locale.US, "%.0f", it.latencyMs)} ms • ${String.format(Locale.US, "%.1f", it.score)}"
             } ?: "Test failed"
         }
     }
@@ -2697,8 +2698,8 @@ private fun postToMain(block: () -> Unit) {
         .joinToString("") { "%02x".format(it) }
 
     private fun formatBytes(bytes: Long): String = when {
-        bytes >= 1024L * 1024L -> "%.1f MiB".format(bytes / (1024.0 * 1024.0))
-        bytes >= 1024L -> "%.1f KiB".format(bytes / 1024.0)
+        bytes >= 1024L * 1024L -> String.format(Locale.US, "%.1f MiB", bytes / (1024.0 * 1024.0))
+        bytes >= 1024L -> String.format(Locale.US, "%.1f KiB", bytes / 1024.0)
         else -> "$bytes B"
     }
 

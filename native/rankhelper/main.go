@@ -259,12 +259,14 @@ func executeMarbleRank(cmd *base.Command, args []string) {
 
     sem := make(chan struct{}, workers)
     var wg sync.WaitGroup
+    executed := 0
 
     for _, job := range batch.Jobs {
         job := job
         if job.ID == "" || job.Config == "" {
             continue
         }
+        executed++
         wg.Add(1)
         go func() {
             defer wg.Done()
@@ -280,7 +282,7 @@ func executeMarbleRank(cmd *base.Command, args []string) {
     emit(Event{
         Event:   "done",
         OK:      true,
-        Jobs:    len(batch.Jobs),
+        Jobs:    executed,
         Workers: workers,
     })
 }
