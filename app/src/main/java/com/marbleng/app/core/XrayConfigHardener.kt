@@ -539,6 +539,39 @@ object XrayConfigHardener {
             }
         }
 
+        /*
+         * Freedom/direct fragment hops that dial the Internet directly must resolve the USER's
+         * destination hostname, not a proxy endpoint. The official XTLS serverless_for_Iran.jsonc
+         * and the GFW-knocker serverless config both give that hop an explicit domain strategy
+         * (ForceIP + Happy Eyeballs / UseIP) and resolve it through Xray's encrypted DNS module.
+         * Without it Xray hands the domain to the OS resolver, which on Iranian networks is
+         * poisoned (10.10.34.0/24 answers) or silently drops — so every domain-ATYP connection
+         * through Marble Freedom fails, including the app's own SOCKS probes while connected.
+         * Only the innermost hop gets the plan: it is the one that opens the real socket, and the
+         * resolution happens at its Dial()/PacketWriter before any dialerProxy redirect.
+         */
+        keep.forEach { tag ->
+            val outbound = byTag[tag] ?: return@forEach
+            val protocol = outbound.optString("protocol").lowercase()
+            if (protocol != "freedom" && protocol != "direct") return@forEach
+            if (!hasFragment(outbound)) return@forEach
+            val chained = outbound.optJSONObject("proxySettings")
+                ?.optString("tag")
+                ?.isNotBlank() == true ||
+                outbound.optJSONObject("streamSettings")
+                    ?.optJSONObject("sockopt")
+                    ?.optString("dialerProxy")
+                    ?.isNotBlank() == true
+            if (chained) return@forEach
+            val hopPlan = applyAddressFamily(outbound, settings, underlayHasIpv6)
+            // UDP packets are resolved by the hop's native PacketWriter, which reads the
+            // outbound-level (settings) strategy rather than sockopt. Write both, as the
+            // GFW-knocker config does, so TCP and UDP agree on the same plan.
+            val settingsObject = outbound.optJSONObject("settings")
+                ?: JSONObject().also { outbound.put("settings", it) }
+            settingsObject.put("domainStrategy", hopPlan.endpointStrategy)
+        }
+
         if (tlsFragmentOutbound != null) out.put(tlsFragmentOutbound)
         if (fragmentOutbound != null) out.put(fragmentOutbound)
 
@@ -617,6 +650,28 @@ object XrayConfigHardener {
             emptyList()
         }
 
+        // Domain-host DoH servers cannot bootstrap their own hostname inside the Freedom chain:
+        // without a dns.hosts pin Xray resolves them through the OS resolver (poisoned on Iranian
+        // networks) or recurses back into this same DNS module. Keep only IP literals and the
+        // pinned hosts above; everything else is dropped instead of shipping a broken
+        // finalQuery fallback that silently poisons every lookup.
+        val freedomDnsReady = freedomDnsList.filter { url ->
+            val host = dohHost(url)
+            host.isNotBlank() && (isIpLiteralHost(host) || FREEDOM_DOH_HOST_PINS.keys.any {
+                it.equals(host, ignoreCase = true)
+            })
+        }
+        val freedomDnsHosts = if (isFreedomProfile && freedomDnsReady.isNotEmpty()) {
+            val used = FREEDOM_DOH_HOST_PINS.filter { (host, _) ->
+                freedomDnsReady.any { dohHost(it).equals(host, ignoreCase = true) }
+            }
+            if (used.isEmpty()) null else JSONObject().also { root ->
+                used.forEach { (host, ips) -> root.put(host, JSONArray(ips)) }
+            }
+        } else {
+            null
+        }
+
         val bootstrapIps = if (isFreedomProfile && settings.freedomDnsPrimaryIp.isNotBlank()) {
             listOf(settings.freedomDnsPrimaryIp, settings.freedomDnsSecondaryIp)
                 .map { it.trim() }
@@ -632,8 +687,8 @@ object XrayConfigHardener {
         val stockCloudflareDoh = "https://1.1.1.1/dns-query"
         val stockGoogleDoh = "https://8.8.8.8/dns-query"
         val stockQuad9Doh = "https://9.9.9.9/dns-query"
-        val configuredRemoteDoh = if (isFreedomProfile && freedomDnsList.isNotEmpty()) {
-            freedomDnsList
+        val configuredRemoteDoh = if (isFreedomProfile && freedomDnsReady.isNotEmpty()) {
+            freedomDnsReady
         } else {
             listOf(settings.dnsPrimaryDoH, settings.dnsSecondaryDoH)
                 .map { it.trim() }
@@ -650,8 +705,8 @@ object XrayConfigHardener {
         // Runtime evidence has now shown transient deadlines from both stock Cloudflare and Google
         // endpoints on different networks. Adaptive DNS must therefore never collapse to a single
         // provider. Preserve the user's order, then add independent encrypted fallbacks.
-        val remoteDoh = if (isFreedomProfile && freedomDnsList.isNotEmpty()) {
-            freedomDnsList.take(6)
+        val remoteDoh = if (isFreedomProfile && freedomDnsReady.isNotEmpty()) {
+            freedomDnsReady.take(6)
         } else if (settings.adaptiveDnsEnabled) {
             (configuredRemoteDoh + listOf(stockCloudflareDoh, stockGoogleDoh, stockQuad9Doh))
                 .distinctBy { it.lowercase() }
@@ -684,12 +739,23 @@ object XrayConfigHardener {
         // v59 real-device evidence: a healthy ~120 ms cellular tunnel produced deadline bursts
         // at the previous 850/1050 ms budgets during concurrent Android DNS fan-out. Keep serial,
         // encrypted provider failover, but give TLS/HTTP response bursts enough room before rotating.
+        //
+        // The Freedom chain fragments the FIRST write of every TCP stream into 1-byte packets with
+        // 4 ms pacing (up to maxSplit 517), so a DoH TLS handshake alone can need a couple of
+        // seconds before the first response byte. The stock 1.35 s budget makes Cloudflare/Google/
+        // Quad9 look dead even when they are reachable. The official XTLS
+        // serverless_for_Iran.jsonc gives its single DoH server 10 s for exactly this reason.
+        val freedomDnsTimed = isFreedomProfile && freedomDnsReady.isNotEmpty()
+        fun dnsTimeoutMs(index: Int): Long =
+            if (freedomDnsTimed) 5_000L + index * 750L
+            else if (index == 0) 1_350L else 1_650L + (index - 1) * 250L
+
         remoteDoh.firstOrNull()?.let { address ->
             dnsServers.put(
                 JSONObject()
                     .put("address", address)
                     .put("queryStrategy", queryStrategy)
-                    .put("timeoutMs", 1350)
+                    .put("timeoutMs", dnsTimeoutMs(0))
             )
         }
 
@@ -705,27 +771,31 @@ object XrayConfigHardener {
                 JSONObject()
                     .put("address", address)
                     .put("queryStrategy", queryStrategy)
-                    .put("timeoutMs", 1650 + index * 250)
+                    .put("timeoutMs", dnsTimeoutMs(index + 1))
                     .put("finalQuery", index == customSecondaryDoh.lastIndex)
             )
         }
 
-        src.put(
-            "dns",
-            JSONObject()
-                .put("servers", dnsServers)
-                .put("queryStrategy", queryStrategy)
-                .put("disableCache", false)
-                // Xray optimistic cache: if both encrypted upstreams briefly time out, return a
-                // previously validated answer immediately while the cache refreshes in background.
-                // No plaintext/system-DNS fallback is introduced.
-                .put("serveStale", true)
-                .put("serveExpiredTTL", 1800)
-                .put("enableParallelQuery", false)
-                .put("useSystemHosts", false)
-                .put("disableFallbackIfMatch", bootstrapDomains.isNotEmpty())
-                .put("tag", "xgc-dns")
-        )
+        val dnsConfig = JSONObject()
+            .put("servers", dnsServers)
+            .put("queryStrategy", queryStrategy)
+            .put("disableCache", false)
+            // Xray optimistic cache: if both encrypted upstreams briefly time out, return a
+            // previously validated answer immediately while the cache refreshes in background.
+            // No plaintext/system-DNS fallback is introduced.
+            .put("serveStale", true)
+            .put("serveExpiredTTL", 1800)
+            .put("enableParallelQuery", false)
+        // Pin the domain-host Freedom DoH endpoints to stable IPs, exactly like the official
+        // XTLS and GFW-knocker serverless configs pin cloudflare-dns.com: the pin breaks the
+        // resolver bootstrap loop and keeps the DoH hostname off the poisoned OS resolver
+        // while the TLS SNI still carries the real server name.
+        freedomDnsHosts?.let { dnsConfig.put("hosts", it) }
+        dnsConfig
+            .put("useSystemHosts", false)
+            .put("disableFallbackIfMatch", bootstrapDomains.isNotEmpty())
+            .put("tag", "xgc-dns")
+        src.put("dns", dnsConfig)
 
         val rules = JSONArray()
 
@@ -970,6 +1040,39 @@ object XrayConfigHardener {
     private fun fragmentEligible(protocol: String, method: String): Boolean =
         protocol in setOf("http", "shadowsocks", "socks", "trojan", "vless", "vmess") &&
             method !in setOf("hysteria", "mkcp")
+
+    /**
+     * DoH hostnames Marble Freedom may use without a bootstrap loop.
+     *
+     * A `https://host/dns-query` server resolves its own hostname before it can answer anything.
+     * Inside the Freedom chain that resolution would either fall back to the OS resolver
+     * (poisoned on Iranian networks) or recurse back into this very DNS module. XTLS's official
+     * serverless_for_Iran.jsonc and the widely used GFW-knocker serverless config both pin such
+     * hostnames in `dns.hosts`; the pins below follow the same pattern.
+     */
+    private val FREEDOM_DOH_HOST_PINS = mapOf(
+        "dns.shecan.ir" to listOf("178.22.122.100", "185.51.200.2"),
+        "dns.adguard-dns.com" to listOf("94.140.14.14", "94.140.15.15")
+    )
+
+    private fun dohHost(url: String): String = url.trim()
+        .substringAfter("https://", "")
+        .substringBefore('/')
+        .substringBefore('?')
+        .trim()
+
+    private fun isIpLiteralHost(host: String): Boolean {
+        val clean = host.removePrefix("[").removeSuffix("]")
+        if (clean.contains(':')) {
+            // Rough but sufficient IPv6 shape check: hex groups plus at most one "::".
+            val parts = clean.split("::", limit = 2)
+            if (parts.size > 2) return false
+            return parts.all { group ->
+                group.isEmpty() || group.split(':').all { it.matches(Regex("[0-9a-fA-F]{1,4}")) }
+            }
+        }
+        return clean.matches(Regex("\\d{1,3}(\\.\\d{1,3}){3}"))
+    }
 
     /** Freedom/direct hops that already shred TLS are selectable routes, not infrastructure. */
     private fun isSelectableProxy(outbound: JSONObject): Boolean {

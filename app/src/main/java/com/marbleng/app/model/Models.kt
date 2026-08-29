@@ -299,7 +299,11 @@ data class AppSettings(
     val freedomDnsPrimaryDoH: String = "https://1.1.1.1/dns-query",
     val freedomDnsSecondaryDoH: String = "https://8.8.8.8/dns-query",
     val freedomDnsFallbackDoH: String = "https://9.9.9.9/dns-query",
-    val freedomDnsCleanResolvers: String = "https://1.1.1.1/dns-query,https://8.8.8.8/dns-query,https://9.9.9.9/dns-query,https://dns.adguard-dns.com/dns-query,https://doh.sb/dns-query,https://dns.shecan.ir/dns-query",
+    // Domain-host resolvers must be pin-able in Xray dns.hosts (see XrayConfigHardener); a
+    // hostname DoH without a pin would bootstrap through the poisoned OS resolver or recurse
+    // inside the Freedom DNS module. doh.sb is intentionally absent: its addresses are not
+    // stable enough to pin, so it would silently fail inside the encrypted path.
+    val freedomDnsCleanResolvers: String = "https://1.1.1.1/dns-query,https://8.8.8.8/dns-query,https://9.9.9.9/dns-query,https://dns.adguard-dns.com/dns-query,https://dns.shecan.ir/dns-query",
     val freedomDnsQueryStrategy: String = "UseIP",
     val freedomDomainStrategy: String = "IPIfNonMatch",
     val freedomDnsHijack: Boolean = true,

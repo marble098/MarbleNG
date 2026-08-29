@@ -281,6 +281,8 @@ dependencies {
     implementation("com.github.mwiede:jsch:2.28.6")
 
     testImplementation("junit:junit:4.13.2")
+    // Local unit tests parse the emitted Xray JSON; android.jar's org.json is a no-op stub.
+    testImplementation("org.json:json:20240303")
 
     debugImplementation(
         "androidx.compose.ui:ui-tooling"

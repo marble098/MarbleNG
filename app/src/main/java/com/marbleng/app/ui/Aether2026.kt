@@ -7857,7 +7857,7 @@ private fun FreedomSettings(repo: AppRepository) {
                 freedomDnsPrimaryDoH = "https://1.1.1.1/dns-query",
                 freedomDnsSecondaryDoH = "https://8.8.8.8/dns-query",
                 freedomDnsFallbackDoH = "https://9.9.9.9/dns-query",
-                freedomDnsCleanResolvers = "https://1.1.1.1/dns-query,https://8.8.8.8/dns-query,https://9.9.9.9/dns-query,https://dns.adguard-dns.com/dns-query,https://doh.sb/dns-query,https://dns.shecan.ir/dns-query",
+                freedomDnsCleanResolvers = "https://1.1.1.1/dns-query,https://8.8.8.8/dns-query,https://9.9.9.9/dns-query,https://dns.adguard-dns.com/dns-query,https://dns.shecan.ir/dns-query",
                 freedomDnsQueryStrategy = "UseIP",
                 freedomDomainStrategy = "IPIfNonMatch",
                 freedomDnsHijack = true,
