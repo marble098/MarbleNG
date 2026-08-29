@@ -7,11 +7,17 @@ package com.marbleng.app.ui
 // MARBLE_FLUID_PRISM_STATE_V62
 // MARBLE_ACTIVE_NODE_HALO_DS_V64
 // MARBLE_ANCHORED_STATUS_TEXT_DS_V64
+// MARBLE_UNIFIED_SURFACE_SYSTEM_DS_V65
+// MARBLE_PRISM_BUTTON_SYSTEM_DS_V65
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.border
 import androidx.compose.foundation.background
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -28,13 +34,16 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.runtime.remember
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
@@ -189,13 +198,124 @@ internal fun anchoredTextBlockHeight(style: TextStyle, lines: Int): Dp {
     return with(LocalDensity.current) { (unit * lines.toFloat()).toDp() }
 }
 
+/**
+ * The single depth contract every container in MarbleNG is measured against.
+ *
+ * Before this existed, a panel could ship with a shadow, with a hairline, or with neither, and the
+ * difference was decided by whoever happened to write that row. The rule is now mechanical:
+ *
+ *  - an **elevated** surface (card, sheet, hero portal, node row) carries exactly one soft,
+ *    state-tinted shadow and one hairline;
+ *  - an **inset** surface ([PrismWell]) is recessed by fill, never by shadow — that is what a
+ *    metric strip, a sub-row or a status line inside a card uses;
+ *  - **controls** ([PrismButton], [PrismIconButton], selection tiles) reuse the same radii and the
+ *    same selected-state language as the surface they sit on.
+ *
+ * Nested translucency, specular edges and stacked shadows stay banned: they caused GPU compositing
+ * bands on real devices, and one shadow plus one outline is enough to read depth.
+ */
+internal object PrismSurface {
+    val CardRadius = 22.dp
+    val TileRadius = 18.dp
+    val InsetRadius = 14.dp
+    val ControlRadius = 18.dp
+    val ControlHeight = 50.dp
+    val CompactControlHeight = 40.dp
+    val IconControlSize = 40.dp
+    val Hairline = 1.dp
+    val StrongHairline = 1.4.dp
+    val RestingElevation = 2.5.dp
+    val RaisedElevation = 6.5.dp
+    val ControlElevation = 3.dp
+    val PressedElevation = 1.dp
+}
+
+/**
+ * Readable ink for a filled, coloured surface.
+ *
+ * Marble ships light, dark and Material You dynamic palettes, so "white text" is not a constant:
+ * the accent itself decides. A bright fill gets deep ink, a saturated fill gets near-white.
+ */
+internal fun prismOnColor(base: Color): Color {
+    val luminance = .2126f * base.red + .7152f * base.green + .0722f * base.blue
+    return if (luminance > .60f) Color(0xFF061321) else Color(0xFFF7FBFF)
+}
+
+/** Shared elevation + hairline + fill stack, for containers that cannot be a [PrismPanel]. */
+@Composable
+internal fun Modifier.prismElevated(
+    shape: Shape,
+    tone: Color,
+    selected: Boolean = false,
+    fill: Color = Aether.VoidElevated,
+    tint: Brush? = null
+): Modifier {
+    val elevation by animateDpAsState(
+        targetValue=if (selected) PrismSurface.RaisedElevation else PrismSurface.RestingElevation,
+        animationSpec=MarbleMotionSpecs.Dp,
+        label="prism-elevation"
+    )
+    val hairline by animateColorAsState(
+        targetValue=tone.copy(alpha=if (selected) .44f else .20f),
+        animationSpec=MarbleMotionSpecs.Color,
+        label="prism-elevation-hairline"
+    )
+    return this
+        .shadow(
+            elevation=elevation,
+            shape=shape,
+            clip=false,
+            ambientColor=tone.copy(alpha=.28f),
+            spotColor=tone.copy(alpha=.36f)
+        )
+        .border(PrismSurface.Hairline, hairline, shape)
+        .clip(shape)
+        .background(fill)
+        // A state tint is painted above the opaque surface and below the content, so a live row can
+        // be flooded with its state colour without resizing or repainting anything inside it.
+        .then(if (tint == null) Modifier else Modifier.background(tint))
+}
+
+/**
+ * The recessed counterpart of [prismElevated].
+ *
+ * Anything that lives *inside* a card — a row, a strip, a segment, a metric — uses this instead of
+ * a drop shadow. Two nested elevated surfaces always read as a rendering bug, and it is the single
+ * biggest reason the app previously felt inconsistent: the cards floated, everything else was a
+ * bare rectangle with a hairline on it.
+ */
+@Composable
+internal fun Modifier.prismWell(
+    shape: Shape,
+    tone: Color = Aether.Cyan,
+    selected: Boolean = false
+): Modifier {
+    val fill by animateColorAsState(
+        targetValue=if (selected) tone.copy(alpha=.085f) else Aether.GlassStrong.copy(alpha=.45f),
+        animationSpec=MarbleMotionSpecs.Color,
+        label="prism-well-fill"
+    )
+    val hairline by animateColorAsState(
+        targetValue=if (selected) tone.copy(alpha=.34f) else Aether.GlassBorderSoft.copy(alpha=.9f),
+        animationSpec=MarbleMotionSpecs.Color,
+        label="prism-well-hairline"
+    )
+    return this
+        .clip(shape)
+        .background(fill)
+        .border(PrismSurface.Hairline, hairline, shape)
+}
+
 @Composable
 internal fun PrismPanel(
     modifier: Modifier = Modifier,
     accent: Color = Aether.Cyan,
     selected: Boolean = false,
+    radius: Dp = PrismSurface.CardRadius,
     contentPadding: PaddingValues = PaddingValues(MarbleSpacing.M),
     tint: Brush? = null,
+    onClick: (() -> Unit)? = null,
+    enabled: Boolean = true,
     content: @Composable ColumnScope.() -> Unit
 ) {
     val selectedProgress by animateFloatAsState(
@@ -203,7 +323,13 @@ internal fun PrismPanel(
         animationSpec=MarbleMotionSpecs.ResponseFloat,
         label="prism-selected-energy"
     )
-    val shape=RoundedCornerShape(22.dp)
+    val elevation by animateDpAsState(
+        targetValue=PrismSurface.RestingElevation +
+            (PrismSurface.RaisedElevation - PrismSurface.RestingElevation) * selectedProgress,
+        animationSpec=MarbleMotionSpecs.Dp,
+        label="prism-panel-elevation"
+    )
+    val shape=RoundedCornerShape(radius)
     val surface=Aether.VoidElevated
     val violet=Aether.Amethyst
     val softBorder=Aether.GlassBorderSoft
@@ -219,13 +345,19 @@ internal fun PrismPanel(
     Box(
         modifier=modifier
             .shadow(
-                elevation=(1f + 4f*selectedProgress).dp,
+                elevation=elevation,
                 shape=shape,
-                clip=false
+                clip=false,
+                ambientColor=accent.copy(alpha=.26f),
+                spotColor=accent.copy(alpha=.34f)
             )
-            .border(1.dp,borderBrush,shape)
+            .border(PrismSurface.Hairline,borderBrush,shape)
             .clip(shape)
             .background(surface)
+            .then(
+                if (onClick == null) Modifier
+                else Modifier.kineticClickable(enabled=enabled, role=Role.Button, boundedShape=shape, onClick=onClick)
+            )
             // State tint sits above the opaque surface and below the content: a connected row can be
             // flooded with its state color without repainting or resizing anything inside it.
             .then(if (tint == null) Modifier else Modifier.background(tint))
@@ -250,6 +382,382 @@ internal fun PrismPanel(
             verticalArrangement=Arrangement.spacedBy(MarbleSpacing.S),
             content=content
         )
+    }
+}
+
+/**
+ * A recessed box: the inside of a card.
+ *
+ * Wells never cast a shadow. Depth comes from a sunken fill plus one hairline, so an endpoint strip,
+ * a metric or a settings row reads as *content of* the panel holding it instead of as a second card
+ * stacked on top of the first. [selected] only warms the fill and the outline; geometry never moves.
+ */
+@Composable
+internal fun PrismWell(
+    modifier: Modifier = Modifier,
+    tone: Color = Aether.Cyan,
+    selected: Boolean = false,
+    radius: Dp = PrismSurface.InsetRadius,
+    contentPadding: PaddingValues = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+    onClick: (() -> Unit)? = null,
+    enabled: Boolean = true,
+    content: @Composable BoxScope.() -> Unit
+) {
+    val shape=RoundedCornerShape(radius)
+
+    Box(
+        modifier=modifier
+            .prismWell(shape=shape, tone=tone, selected=selected)
+            .then(
+                if (onClick == null) Modifier
+                else Modifier.kineticClickable(
+                    enabled=enabled,
+                    role=Role.Button,
+                    boundedShape=shape,
+                    onClick=onClick
+                )
+            )
+            .padding(contentPadding),
+        content=content
+    )
+}
+
+private fun prismLift(color: Color, amount: Float): Color = Color(
+    red=(color.red + (1f - color.red) * amount).coerceIn(0f, 1f),
+    green=(color.green + (1f - color.green) * amount).coerceIn(0f, 1f),
+    blue=(color.blue + (1f - color.blue) * amount).coerceIn(0f, 1f),
+    alpha=color.alpha
+)
+
+private fun prismShade(color: Color, amount: Float): Color = Color(
+    red=(color.red * (1f - amount)).coerceIn(0f, 1f),
+    green=(color.green * (1f - amount)).coerceIn(0f, 1f),
+    blue=(color.blue * (1f - amount)).coerceIn(0f, 1f),
+    alpha=color.alpha
+)
+
+/**
+ * The one product button.
+ *
+ * Every action in MarbleNG — Library deck, add/import sheet, subscription manager, dialogs, the
+ * detail page — is built from this shape, so an action's importance is expressed by its variant and
+ * nothing else. Primary carries a filled, state-tinted skin with a soft colored glow; Secondary is
+ * tonal; Quiet is for dismiss/back; Danger owns destructive verbs. Label copy is single-line and
+ * centred, and the press response is elevation plus shade, which stays legible at any font scale.
+ */
+internal enum class PrismButtonVariant { Primary, Secondary, Quiet, Danger }
+
+@Composable
+internal fun PrismButton(
+    label: String,
+    onClick: () -> Unit,
+    tone: Color,
+    modifier: Modifier = Modifier,
+    variant: PrismButtonVariant = PrismButtonVariant.Secondary,
+    enabled: Boolean = true,
+    compact: Boolean = false,
+    detail: String = "",
+    badge: String = "",
+    icon: (@Composable () -> Unit)? = null,
+    contentPadding: PaddingValues? = null
+) {
+    val filled=enabled && (variant == PrismButtonVariant.Primary || variant == PrismButtonVariant.Danger)
+    val shape=RoundedCornerShape(if (compact) 15.dp else PrismSurface.ControlRadius)
+    val interaction=remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+
+    val accent=if (variant == PrismButtonVariant.Danger) Aether.Danger else tone
+    val content=when {
+        !enabled -> Aether.InkFaint
+        filled -> prismOnColor(accent)
+        variant == PrismButtonVariant.Quiet -> Aether.InkMuted
+        else -> accent
+    }
+    val skin=when {
+        !enabled -> Brush.linearGradient(listOf(Aether.GlassStrong, Aether.GlassStrong))
+        filled && pressed -> Brush.linearGradient(listOf(prismShade(accent,.16f), prismShade(accent,.02f)))
+        filled -> Brush.linearGradient(listOf(prismShade(accent,.05f), prismLift(accent,.18f)))
+        variant == PrismButtonVariant.Quiet -> Brush.linearGradient(
+            listOf(Aether.VoidElevated.copy(alpha=.55f), Aether.VoidElevated.copy(alpha=.55f))
+        )
+        else -> Brush.linearGradient(
+            listOf(
+                accent.copy(alpha=if (pressed) .20f else .115f),
+                Aether.VoidElevated
+            )
+        )
+    }
+    val hairline=when {
+        !enabled -> Aether.GlassBorderSoft
+        filled -> prismLift(accent,.34f).copy(alpha=.55f)
+        variant == PrismButtonVariant.Quiet -> Aether.GlassBorder
+        else -> accent.copy(alpha=if (pressed) .46f else .30f)
+    }
+
+    Button(
+        onClick=onClick,
+        enabled=enabled,
+        shape=shape,
+        interactionSource=interaction,
+        elevation=ButtonDefaults.buttonElevation(
+            defaultElevation=if (filled) PrismSurface.ControlElevation else 0.dp,
+            pressedElevation=PrismSurface.PressedElevation,
+            hoveredElevation=if (filled) PrismSurface.ControlElevation else 0.dp,
+            focusedElevation=if (filled) PrismSurface.ControlElevation else 0.dp,
+            disabledElevation=0.dp
+        ),
+        contentPadding=contentPadding ?: PaddingValues(
+            horizontal=if (compact) 12.dp else 15.dp,
+            vertical=if (compact) 7.dp else 10.dp
+        ),
+        colors=ButtonDefaults.buttonColors(
+            containerColor=Color.Transparent,
+            contentColor=content,
+            disabledContainerColor=Color.Transparent,
+            disabledContentColor=Aether.InkFaint
+        ),
+        modifier=modifier
+            .heightIn(
+                min=when {
+                    detail.isNotBlank() && !compact -> 58.dp
+                    compact -> PrismSurface.CompactControlHeight
+                    else -> PrismSurface.ControlHeight
+                }
+            )
+            .widthIn(min=if (compact) 66.dp else 92.dp)
+            .shadow(
+                elevation=if (filled) PrismSurface.ControlElevation else 0.dp,
+                shape=shape,
+                clip=false,
+                ambientColor=accent.copy(alpha=if (filled) .30f else 0f),
+                spotColor=accent.copy(alpha=if (filled) .38f else 0f)
+            )
+            .background(skin,shape)
+            .border(PrismSurface.Hairline,hairline,shape)
+    ) {
+        if (icon != null) {
+            icon()
+            Spacer(Modifier.width(if (compact) 6.dp else 8.dp))
+        }
+        Column(horizontalAlignment=Alignment.Start) {
+            Text(
+                label,
+                style=if (compact) MaterialTheme.typography.labelMedium else MaterialTheme.typography.labelLarge,
+                fontWeight=FontWeight.Bold,
+                maxLines=1,
+                overflow=TextOverflow.Ellipsis
+            )
+            if (detail.isNotBlank()) {
+                Text(
+                    detail,
+                    style=MaterialTheme.typography.labelSmall,
+                    color=content.copy(alpha=.72f),
+                    maxLines=1,
+                    overflow=TextOverflow.Ellipsis
+                )
+            }
+        }
+        if (badge.isNotBlank()) {
+            Spacer(Modifier.width(8.dp))
+            Text(
+                badge,
+                style=MaterialTheme.typography.labelSmall.copy(fontFamily=FontFamily.Monospace),
+                fontWeight=FontWeight.Bold,
+                color=content.copy(alpha=.86f)
+            )
+        }
+    }
+}
+
+/** Pressable circular control: overflow menus, sheet closers, stepper buttons. */
+@Composable
+internal fun PrismIconButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    tone: Color = Aether.Cyan,
+    selected: Boolean = false,
+    enabled: Boolean = true,
+    size: Dp = PrismSurface.IconControlSize,
+    descriptiveLabel: String = "",
+    content: @Composable () -> Unit
+) {
+    val shape=CircleShape
+    val fill by animateColorAsState(
+        targetValue=if (selected) tone.copy(alpha=.15f) else Aether.GlassStrong.copy(alpha=.42f),
+        animationSpec=MarbleMotionSpecs.Color,
+        label="icon-control-fill"
+    )
+    val hairline by animateColorAsState(
+        targetValue=if (selected) tone.copy(alpha=.44f) else Aether.GlassBorderSoft,
+        animationSpec=MarbleMotionSpecs.Color,
+        label="icon-control-hairline"
+    )
+
+    Box(
+        modifier=modifier
+            .size(size)
+            .clip(shape)
+            .background(fill)
+            .border(PrismSurface.Hairline,hairline,shape)
+            .then(
+                if (descriptiveLabel.isBlank()) Modifier
+                else Modifier.semantics { contentDescription=descriptiveLabel }
+            )
+            .kineticClickable(
+                enabled=enabled,
+                role=Role.Button,
+                boundedShape=shape,
+                onClick=onClick
+            ),
+        contentAlignment=Alignment.Center
+    ) {
+        content()
+    }
+}
+
+/** Four-segment signal meter used by the Library ping readout and metric wells. */
+@Composable
+internal fun PrismSignalMeter(
+    bars: Int,
+    tone: Color,
+    modifier: Modifier = Modifier,
+    total: Int = 4,
+    inactive: Color = Aether.GlassBorder
+) {
+    Canvas(modifier) {
+        if (total <= 0) return@Canvas
+        val slot=size.width / total
+        val barWidth=(slot * .55f).coerceAtMost(4.5.dp.toPx())
+        val corner=(barWidth / 2f)
+        repeat(total) { index ->
+            val ratio=(index + 1f) / total
+            val height=size.height * (.44f + .56f * ratio)
+            drawRoundRect(
+                color=if (index < bars) tone else inactive.copy(alpha=.7f),
+                topLeft=Offset(slot * index + (slot - barWidth) / 2f,size.height - height),
+                size=Size(barWidth,height),
+                cornerRadius=CornerRadius(corner)
+            )
+        }
+    }
+}
+
+/** A selected tick, drawn instead of imported so it survives every theme and font scale. */
+@Composable
+internal fun PrismCheckBadge(
+    tone: Color,
+    modifier: Modifier = Modifier,
+    diameter: Dp = 18.dp
+) {
+    Box(
+        modifier=modifier
+            .size(diameter)
+            .clip(CircleShape)
+            .background(tone),
+        contentAlignment=Alignment.Center
+    ) {
+        Canvas(Modifier.size(diameter * .56f)) {
+            val w=size.width
+            drawPath(
+                path=Path().apply {
+                    moveTo(w * .08f,w * .52f)
+                    lineTo(w * .38f,w * .82f)
+                    lineTo(w * .94f,w * .14f)
+                },
+                color=prismOnColor(tone),
+                style=Stroke(width=w * .22f,cap=StrokeCap.Round)
+            )
+        }
+    }
+}
+
+/**
+ * The selectable tile shared by every choice in the product: library mode, sort, resolver presets,
+ * sources and settings segments. A selected tile lifts, warms and gains a tick; it never resizes.
+ */
+@Composable
+internal fun PrismSelectionTile(
+    label: String,
+    selected: Boolean,
+    tone: Color,
+    modifier: Modifier = Modifier,
+    detail: String = "",
+    minHeight: Dp = 48.dp,
+    alignment: Alignment = Alignment.Center,
+    leading: (@Composable (() -> Unit))? = null,
+    trailing: (@Composable (() -> Unit))? = null,
+    enabled: Boolean = true,
+    onClick: () -> Unit
+) {
+    val shape=RoundedCornerShape(PrismSurface.TileRadius)
+    val fill by animateColorAsState(
+        targetValue=if (selected) tone.copy(alpha=.10f) else Aether.VoidElevated,
+        animationSpec=MarbleMotionSpecs.Color,
+        label="selection-fill"
+    )
+    val hairline by animateColorAsState(
+        targetValue=if (selected) tone.copy(alpha=.46f) else Aether.GlassBorderSoft,
+        animationSpec=MarbleMotionSpecs.Color,
+        label="selection-hairline"
+    )
+    val elevation by animateDpAsState(
+        targetValue=if (selected) PrismSurface.ControlElevation else 0.dp,
+        animationSpec=MarbleMotionSpecs.Dp,
+        label="selection-elevation"
+    )
+
+    Row(
+        modifier=modifier
+            .heightIn(min=minHeight)
+            .shadow(
+                elevation=elevation,
+                shape=shape,
+                clip=false,
+                ambientColor=tone.copy(alpha=.26f),
+                spotColor=tone.copy(alpha=.32f)
+            )
+            .clip(shape)
+            .background(fill)
+            .border(PrismSurface.Hairline,hairline,shape)
+            .kineticClickable(enabled=enabled, role=Role.Button, boundedShape=shape, onClick=onClick)
+            .padding(horizontal=12.dp,vertical=9.dp),
+        verticalAlignment=Alignment.CenterVertically,
+        horizontalArrangement=when (alignment) {
+            Alignment.CenterStart -> Arrangement.Start
+            Alignment.CenterEnd -> Arrangement.End
+            else -> Arrangement.Center
+        }
+    ) {
+        if (leading != null) {
+            leading()
+            Spacer(Modifier.width(9.dp))
+        }
+        Column(horizontalAlignment=Alignment.Start) {
+            Text(
+                label,
+                color=if (selected) tone else Aether.Ink,
+                style=MaterialTheme.typography.labelMedium,
+                fontWeight=if (selected) FontWeight.Bold else FontWeight.SemiBold,
+                maxLines=1,
+                overflow=TextOverflow.Ellipsis
+            )
+            if (detail.isNotBlank()) {
+                Text(
+                    detail,
+                    color=if (selected) tone.copy(alpha=.8f) else Aether.InkFaint,
+                    style=MaterialTheme.typography.labelSmall,
+                    maxLines=1,
+                    overflow=TextOverflow.Ellipsis
+                )
+            }
+        }
+        if (trailing != null) {
+            Spacer(Modifier.width(8.dp))
+            trailing()
+        } else if (selected) {
+            Spacer(Modifier.width(8.dp))
+            PrismCheckBadge(tone,diameter=15.dp)
+        }
     }
 }
 

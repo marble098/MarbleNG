@@ -1084,15 +1084,36 @@ class MarbleIntelligence(private val context: Context) {
 
         val dnsOrdered = preferredDnsOrder(base)
         val ipRace = SmartIpRacePolicy.decide(n, db.get(profile.id, n.key()), base.copy(preferIpv6 = effectivePreferIpv6))
+        // The underlay decides which records are even worth asking for; the plan then decides the
+        // family order for the tunnel, the delay test and the probers in one place. A measured IPv6
+        // pathology on this node demotes the automatic ordering, but never overrides what the user
+        // explicitly asked for.
+        val familyBase = base.copy(dnsQueryStrategy = queryStrategy)
+        val measuredV6Healthy = if (ipRace.reason == "unstable-race") false else null
+        val familyPreference = AddressFamilyPolicy.preference(
+            settings = familyBase,
+            underlayHasIpv6 = n.hasIpv6,
+            measuredV6Healthy = measuredV6Healthy
+        )
 
         // Measured-first policy: history chooses what to test, but never mutates Fragment/Mux by guess.
         // Explicit user settings remain intact, and IranShield may still apply censorship-specific changes.
-        val tuned = base.copy(
-            dnsQueryStrategy = queryStrategy,
-            preferIpv6 = ipRace.prioritizeIpv6,
+        val tuned = familyBase.copy(
+            dnsQueryStrategy = AddressFamilyPolicy.dnsQueryStrategy(familyBase, familyPreference),
+            preferIpv6 = AddressFamilyPolicy.prioritizeIpv6(
+                preference = familyPreference,
+                underlayHasIpv6 = n.hasIpv6,
+                measuredV6Healthy = measuredV6Healthy
+            ),
             dnsPrimaryDoH = dnsOrdered.first,
             dnsSecondaryDoH = dnsOrdered.second,
-            happyEyeballsTryDelayMs = ipRace.tryDelayMs,
+            // A zero delay is meaningful: it tells the hardener not to arm Xray's race at all, which
+            // then resolves deterministically instead of leaving the choice to the engine's random pick.
+            happyEyeballsTryDelayMs = if (ipRace.tryDelayMs > 0) {
+                ipRace.tryDelayMs.coerceIn(AddressFamilyPolicy.MIN_TRY_DELAY_MS, AddressFamilyPolicy.MAX_TRY_DELAY_MS)
+            } else {
+                0
+            },
             happyEyeballsMaxConcurrent = ipRace.maxConcurrentTry
         )
 

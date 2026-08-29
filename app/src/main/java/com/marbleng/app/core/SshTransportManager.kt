@@ -8,6 +8,7 @@ import com.jcraft.jsch.HostKeyRepository
 import com.jcraft.jsch.JSch
 import com.jcraft.jsch.Session
 import com.jcraft.jsch.UserInfo
+import com.marbleng.app.model.AppSettings
 import com.marbleng.app.model.ProxyProfile
 import org.json.JSONArray
 import org.json.JSONObject
@@ -177,7 +178,7 @@ class SshTransportManager : Closeable {
     @Volatile private var started = false
 
     @Synchronized
-    fun start(profile: ProxyProfile): Int {
+    fun start(profile: ProxyProfile, settings: AppSettings = AppSettings()): Int {
         check(!started) { "SSH bridge instances are one-shot" }
         started = true
         val endpoint = SshProfileCodec.parse(profile)
@@ -186,7 +187,20 @@ class SshTransportManager : Closeable {
         if (pin.isNotBlank()) {
             jsch.setHostKeyRepository(PinnedHostKeyRepository(pin))
         }
-        val nextSession = jsch.getSession(endpoint.username, endpoint.host, endpoint.port)
+        // JSch resolves the host itself and dials whichever record the system resolver returned
+        // first, so a dual-stack SSH endpoint was always reached over IPv4 no matter what the user
+        // enabled. Hand it the address the family plan chose instead; the pinned-key check matches
+        // the key material, never the host string, so the pin still verifies.
+        val dialTarget = AddressFamilyPolicy
+            .resolveCandidates(
+                endpoint.host,
+                AddressFamilyPolicy.plan(settings = settings)
+            )
+            .firstOrNull()
+            ?.hostAddress
+            ?.takeIf { it.isNotBlank() }
+            ?: endpoint.host
+        val nextSession = jsch.getSession(endpoint.username, dialTarget, endpoint.port)
         nextSession.setPassword(endpoint.password.toByteArray(Charsets.UTF_8))
         nextSession.setConfig("PreferredAuthentications", "password")
         nextSession.setConfig("StrictHostKeyChecking", if (pin.isBlank()) "no" else "yes")

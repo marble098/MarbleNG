@@ -36,6 +36,20 @@ object SocksHttpClient {
     // MARBLE_REPEATABLE_RANK_V44
     // MARBLE_V2RAYNG_SMART_RANK_V45
     // MARBLE_SNI_RTT_V47
+    // MARBLE_IPV6_HOST_HEADER_V65
+
+    /**
+     * The HTTP Host header for a target.
+     *
+     * An IPv6 literal has to be bracketed — `Host: 2606:4700::1:443` is ambiguous and strict servers
+     * reject it — while a hostname or an IPv4 literal is left exactly as written. The TLS server name
+     * keeps the unbracketed form, because that is what certificate verification matches against.
+     */
+    private fun httpHostHeader(host: String, port: Int, defaultPort: Int = 443): String {
+        val literal = if (host.contains(':') && !host.startsWith("[")) "[$host]" else host
+        return if (port == defaultPort) literal else "$literal:$port"
+    }
+
     fun get(
         port: Int,
         host: String,
@@ -129,16 +143,9 @@ object SocksHttpClient {
                 "SOCKS auth negotiation failed"
             }
 
-            val ipv4 = literalIpv4Bytes(host)
-            if (ipv4 != null) {
-                output.write(byteArrayOf(5, 1, 0, 1))
-                output.write(ipv4)
-            } else {
-                val hostBytes = host.toByteArray(Charsets.UTF_8)
-                require(hostBytes.size in 1..255) { "SOCKS hostname too long" }
-                output.write(byteArrayOf(5, 1, 0, 3, hostBytes.size.toByte()))
-                output.write(hostBytes)
-            }
+            val target = socksTarget(host)
+            output.write(byteArrayOf(5, 1, 0, target.first.toByte()))
+            output.write(target.second)
             output.write(byteArrayOf((targetPort ushr 8).toByte(), targetPort.toByte()))
             output.flush()
 
@@ -214,16 +221,9 @@ object SocksHttpClient {
                 "SOCKS auth negotiation failed"
             }
 
-            val ipv4 = literalIpv4Bytes(host)
-            if (ipv4 != null) {
-                output.write(byteArrayOf(5, 1, 0, 1))
-                output.write(ipv4)
-            } else {
-                val hostBytes = host.toByteArray(Charsets.UTF_8)
-                require(hostBytes.size in 1..255) { "SOCKS hostname too long" }
-                output.write(byteArrayOf(5, 1, 0, 3, hostBytes.size.toByte()))
-                output.write(hostBytes)
-            }
+            val target = socksTarget(host)
+            output.write(byteArrayOf(5, 1, 0, target.first.toByte()))
+            output.write(target.second)
             output.write(
                 byteArrayOf(
                     (targetPort ushr 8).toByte(),
@@ -262,7 +262,7 @@ object SocksHttpClient {
 
             val sslOut = BufferedOutputStream(secure.getOutputStream())
             val sslIn = BufferedInputStream(secure.getInputStream())
-            val hostHeader = if (targetPort == 443) tlsHost else "$tlsHost:$targetPort"
+            val hostHeader = httpHostHeader(tlsHost, targetPort)
             val request = buildString {
                 append("GET $path HTTP/1.1\r\n")
                 append("Host: $hostHeader\r\n")
@@ -319,16 +319,9 @@ object SocksHttpClient {
             output.flush()
             require(input.read() == 5 && input.read() == 0) { "SOCKS auth negotiation failed" }
 
-            val ipv4 = literalIpv4Bytes(host)
-            if (ipv4 != null) {
-                output.write(byteArrayOf(5, 1, 0, 1))
-                output.write(ipv4)
-            } else {
-                val hostBytes = host.toByteArray(Charsets.UTF_8)
-                require(hostBytes.size in 1..255) { "SOCKS hostname too long" }
-                output.write(byteArrayOf(5, 1, 0, 3, hostBytes.size.toByte()))
-                output.write(hostBytes)
-            }
+            val target = socksTarget(host)
+            output.write(byteArrayOf(5, 1, 0, target.first.toByte()))
+            output.write(target.second)
             output.write(byteArrayOf(0x01, 0xbb.toByte()))
             output.flush()
 
@@ -421,7 +414,7 @@ object SocksHttpClient {
                     val requestPath = "$path${separator}marble=${SystemClock.elapsedRealtimeNanos()}-$index"
                     val request = buildString {
                         append("GET $requestPath HTTP/1.1\r\n")
-                        append("Host: $host\r\n")
+                        append("Host: ${httpHostHeader(host, 443)}\r\n")
                         append("User-Agent: MarbleNG/1\r\n")
                         append("Accept: */*\r\n")
                         append("Accept-Encoding: identity\r\n")
@@ -502,18 +495,11 @@ object SocksHttpClient {
             // Use a real literal address type when the caller supplied an IPv4 literal.
             // The previous implementation sent even "1.1.1.1" as ATYP=domain, so the so-called
             // DNS-independent transport probe could still enter Xray's domain-resolution path.
-            val ipv4 = literalIpv4Bytes(host)
-            if (ipv4 != null) {
-                // SOCKS5 ATYP=IPv4
-                output.write(byteArrayOf(5, 1, 0, 1))
-                output.write(ipv4)
-            } else {
-                // SOCKS5 ATYP=domain keeps ordinary hostnames away from Android/system DNS.
-                val hostBytes = host.toByteArray(Charsets.UTF_8)
-                require(hostBytes.size in 1..255) { "SOCKS hostname too long" }
-                output.write(byteArrayOf(5, 1, 0, 3, hostBytes.size.toByte()))
-                output.write(hostBytes)
-            }
+            val target = socksTarget(host)
+            // ATYP=1/4 keeps a literal address literal and ATYP=domain keeps ordinary hostnames away
+            // from Android/system DNS.
+            output.write(byteArrayOf(5, 1, 0, target.first.toByte()))
+            output.write(target.second)
             output.write(byteArrayOf((targetPort ushr 8).toByte(), targetPort.toByte()))
             output.flush()
 
@@ -559,7 +545,7 @@ object SocksHttpClient {
             }
             headers.forEach { (key, value) -> normalizedHeaders[key] = value }
 
-            val hostHeader = if (targetPort == 443) host else "$host:$targetPort"
+            val hostHeader = httpHostHeader(host, targetPort)
             val requestText = buildString {
                 append("$method $path HTTP/1.1\r\n")
                 append("Host: $hostHeader\r\n")
@@ -624,6 +610,30 @@ object SocksHttpClient {
         }
     }
 
+
+    /**
+     * The SOCKS5 target for a literal IPv4 (ATYP 1), literal IPv6 (ATYP 4) or hostname (ATYP 3).
+     *
+     * Only ATYP 1 and 3 were supported, so an IPv6 node — bare or bracketed — went out as a
+     * *hostname* called "2606:…". The proxy tried to resolve that, failed, and every measurement for
+     * the node reported it unreachable: IPv6 endpoints looked broken instead of connectable.
+     */
+    private fun socksTarget(host: String): Pair<Int, ByteArray> {
+        literalIpv4Bytes(host)?.let { return 1 to it }
+        literalIpv6Bytes(host)?.let { return 4 to it }
+        val name = host.trim().removePrefix("[").removeSuffix("]")
+        val hostBytes = name.toByteArray(Charsets.UTF_8)
+        require(hostBytes.size in 1..255) { "SOCKS hostname too long" }
+        return 3 to hostBytes
+    }
+
+    /** A bracketed or bare IPv6 literal, resolved syntactically — never through DNS. */
+    private fun literalIpv6Bytes(host: String): ByteArray? {
+        val raw = host.trim().removePrefix("[").removeSuffix("]")
+        if (!raw.contains(':')) return null
+        val bytes = runCatching { java.net.InetAddress.getByName(raw).address }.getOrNull() ?: return null
+        return if (bytes.size == 16) bytes else null
+    }
 
     private fun literalIpv4Bytes(host: String): ByteArray? {
         val parts = host.trim().split('.')

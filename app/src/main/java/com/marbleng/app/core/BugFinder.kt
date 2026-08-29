@@ -19,7 +19,9 @@ import com.marbleng.app.model.ProxyProfile
 import com.marbleng.app.net.PrivacyReport
 import java.io.File
 import java.io.RandomAccessFile
+import java.net.Inet6Address
 import java.net.InetSocketAddress
+import java.net.Socket
 import java.time.Instant
 import java.util.ArrayDeque
 
@@ -156,6 +158,47 @@ class BugFinder(private val context: Context, private val xray: XrayManager) {
         }
 
         checks += BugCheck("Android underlay", BugSeverity.INFO, networkLabel.ifBlank { "Unknown network" })
+
+        // IPv6 is only real when three independent things agree: the underlay actually carries a
+        // global v6 address, Android handed the tunnel the ::/0 route, and the emitted config gave the
+        // engine an explicit family order instead of leaving a dual-stack endpoint to chance. Every one
+        // of those legs used to be invisible, which is why "IPv6 is enabled but never used" was so hard
+        // to see from inside the app.
+        val familyPlan = AddressFamilyPolicy.plan(
+            settings = settings,
+            underlayHasIpv6 = AddressFamilyPolicy.underlayHasIpv6()
+        )
+        val lastTunEstablished = allRuntime.lastIndexOf("TUN | established")
+        val ipv6RouteCaptured = lastTunEstablished >= 0 &&
+            "ipv6Captured=true" in allRuntime.substring(lastTunEstablished)
+        checks += when {
+            !settings.ipv6Enabled -> BugCheck(
+                "IPv6 path",
+                BugSeverity.INFO,
+                "Disabled by policy • Xray blocks ::/0 fail-closed so Android cannot bypass the tunnel"
+            )
+            !familyPlan.underlayHasIpv6 -> BugCheck(
+                "IPv6 path",
+                if (connected) BugSeverity.WARN else BugSeverity.INFO,
+                "No global IPv6 address on this underlay • endpoints fall back to IPv4 • " +
+                    nodeIpv6Evidence(profiles.firstOrNull { it.id == activeProfileId }, settings),
+                "Check carrier/router IPv6 (DHCPv6-PD or 6rd), then reconnect"
+            )
+            connected && fullTun && !ipv6RouteCaptured -> BugCheck(
+                "IPv6 path",
+                BugSeverity.FAIL,
+                "Android established the tunnel without capturing ::/0 • IPv6 would leave the VPN",
+                "Reconnect; if it repeats, review split-tunnel and IPv6 support on the network"
+            )
+            else -> BugCheck(
+                "IPv6 path",
+                BugSeverity.PASS,
+                "${AddressFamilyPolicy.describe(familyPlan)} • endpoint ${familyPlan.endpointStrategy} " +
+                    "• dns ${familyPlan.dnsQueryStrategy}" +
+                    (if (familyPlan.raceEnabled) " • race ${familyPlan.tryDelayMs} ms" else "") +
+                    " • ${nodeIpv6Evidence(profiles.firstOrNull { it.id == activeProfileId }, settings)}"
+            )
+        }
 
         val alive = xray.isAlive
         val xrayPid = xray.processPid
@@ -522,6 +565,43 @@ class BugFinder(private val context: Context, private val xray: XrayManager) {
             evidence = problemEvidence.takeLast(80),
             sections = sections
         )
+    }
+
+    /**
+     * Whether the node itself answers on IPv6, measured in the same family order the tunnel uses.
+     *
+     * The engine's plan and the network's capability are not enough to answer "is IPv6 actually on":
+     * a hostname with no AAAA record can only ever be dialled over IPv4, and that is a property of
+     * the node rather than of Marble's configuration. Without this line the two cases look identical
+     * in a report.
+     */
+    private fun nodeIpv6Evidence(profile: ProxyProfile?, settings: AppSettings): String {
+        if (
+            profile == null ||
+            !settings.ipv6Enabled ||
+            profile.host.isBlank() ||
+            profile.port !in 1..65535
+        ) {
+            return "endpoint probe skipped"
+        }
+        return runCatching {
+            val candidate = AddressFamilyPolicy
+                .resolveCandidates(
+                    profile.host,
+                    AddressFamilyPolicy.plan(settings = settings)
+                )
+                .filterIsInstance<Inet6Address>()
+                .firstOrNull()
+            when {
+                candidate == null -> "node publishes no AAAA record • IPv4 is the only honest path"
+                Socket().use { socket ->
+                    runCatching {
+                        socket.connect(InetSocketAddress(candidate, profile.port), 900)
+                    }.isSuccess
+                } -> "node answers on IPv6 ${candidate.hostAddress}"
+                else -> "node advertises IPv6 but the v6 connect failed • v6 quality here is suspect"
+            }
+        }.getOrDefault("node IPv6 probe unavailable")
     }
 
     private fun systemSection(settings: AppSettings, status: DiagnosticEngineStatus): String {

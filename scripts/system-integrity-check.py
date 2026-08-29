@@ -109,7 +109,13 @@ check(
 )
 
 # DNS, routing and identity.
-check("endpoint bootstrap is encrypted local DoH", "https+local://$ip/dns-query" in files["hardener"])
+check(
+    "endpoint bootstrap is encrypted local DoH",
+    # Both bootstrap surfaces must be encrypted, and the literal has to be bracketed when the
+    # underlay only has an IPv6 resolver (MARBLE_UNIFIED_ADDRESS_FAMILY_V65).
+    "https+local://${dnsHostLiteral(ip)}/dns-query" in files["hardener"]
+    and "https+local://${dnsHostLiteral(resolver)}/dns-query" in files["hardener"],
+)
 check("ordinary Xray DNS has no plaintext tcp53 fallback", '"tcp://$ip:53"' not in files["hardener"])
 check("Xray encrypted DNS fallback is bounded and serial", 'put("enableParallelQuery", false)' in files["hardener"])
 check("adaptive resolver test sends a real DNS wire query", 'application/dns-message' in files["intel"] and '"POST"' in files["intel"] and "dnsQuery" in files["intel"])

@@ -365,9 +365,11 @@ class ConnectionTuner(
         val comboMethods = buildList {
             val fragment = fragmentMethods.firstOrNull()
             val mux = muxMethods.lastOrNull()
+            // A combo inherits whichever family the tuner ranked first; hard-coding "-dns-v4" here is
+            // how an IPv6-preferred network silently got tested and tuned back onto IPv4.
             val dns = dnsMethods.firstOrNull()
-            if (fragment != null && dns != null) add(fragment.copy(methodId="fragment-dns-v4", label="TLS fragmentation + IPv4 endpoint", dnsQueryStrategy="UseIPv4"))
-            if (mux != null && dns != null) add(mux.copy(methodId="mux-dns-v4", label="Light Mux + IPv4 endpoint", dnsQueryStrategy="UseIPv4"))
+            if (fragment != null && dns != null) add(fragment.copy(methodId="fragment-${dns.methodId}", label="TLS fragmentation + ${dns.label.lowercase()}", dnsQueryStrategy=dns.dnsQueryStrategy))
+            if (mux != null && dns != null) add(mux.copy(methodId="mux-${dns.methodId}", label="Light Mux + ${dns.label.lowercase()}", dnsQueryStrategy=dns.dnsQueryStrategy))
             if (fragment != null && mux != null) add(fragment.copy(methodId="fragment-mux-light", label="TLS fragmentation + light Mux", mux=true, muxConcurrency=4, muxXudpConcurrency=8))
             val tfo = tfoMethods.firstOrNull(); val mss = mssMethods.firstOrNull()
             if (tfo != null && mss != null) add(tfo.copy(methodId = "tfo-mss", label = "TCP Fast Open + PMTU MSS", tcpMaxSeg = mss.tcpMaxSeg))

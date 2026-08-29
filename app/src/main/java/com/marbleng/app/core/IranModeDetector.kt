@@ -564,10 +564,13 @@ class IranModeDetector(
             val addresses = runCatching {
                 network?.getAllByName(host) ?: InetAddress.getAllByName(host)
             }.getOrNull() ?: return TlsOutcome.ERROR
-            val target = addresses.firstOrNull() ?: return TlsOutcome.ERROR
-            if (IranNetworkRegistry.isBlockPageAddress(target.hostAddress.orEmpty())) {
+            if (addresses.isEmpty()) return TlsOutcome.ERROR
+            // A resolver poisoned in one family only is invisible to a single-answer probe, so every
+            // record is inspected before the first usable one is dialled.
+            if (addresses.any { IranNetworkRegistry.isBlockPageAddress(it.hostAddress.orEmpty()) }) {
                 return TlsOutcome.BLOCKPAGE
             }
+            val target = addresses.first()
 
             plain = network?.socketFactory?.createSocket() ?: Socket()
             plain.soTimeout = 5_000
@@ -600,14 +603,19 @@ class IranModeDetector(
     private fun tcpReachable(network: Network?, host: String, port: Int, timeoutMs: Int): Boolean {
         var socket: Socket? = null
         return try {
-            val target = if (network != null) {
-                network.getAllByName(host).firstOrNull() ?: return false
-            } else {
-                InetAddress.getByName(host)
+            val addresses = runCatching {
+                (network?.getAllByName(host) ?: InetAddress.getAllByName(host)).toList()
+            }.getOrDefault(emptyList())
+            if (addresses.isEmpty()) return false
+            // Dial every record instead of trusting the first answer: a network that black-holes only
+            // IPv4 (or only IPv6) does not have an unreachable host, and an IPv6-only check is exactly
+            // what proves whether the underlay can carry the family Marble prefers.
+            addresses.any { address ->
+                runCatching { socket?.close() }
+                val candidate = network?.socketFactory?.createSocket() ?: Socket()
+                socket = candidate
+                runCatching { candidate.connect(InetSocketAddress(address, port), timeoutMs) }.isSuccess
             }
-            socket = network?.socketFactory?.createSocket() ?: Socket()
-            socket.connect(InetSocketAddress(target, port), timeoutMs)
-            true
         } catch (error: Throwable) {
             false
         } finally {

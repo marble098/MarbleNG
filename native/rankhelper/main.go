@@ -92,12 +92,17 @@ func newInstance(configText string) (*core.Instance, error) {
     config.Inbound = nil
 
     // Keep only the pieces required by an outbound delay instance, mirroring
-    // PattNG's MeasureOutboundDelay protobuf trimming.
+    // PattNG's MeasureOutboundDelay protobuf trimming — plus the dns app, which is not optional
+    // here: without it Xray installs the system resolver, so the rank path would resolve the node
+    // hostname in plaintext and choose an address family by luck while the real tunnel used encrypted
+    // DNS with an explicit order. Ranking a node over a different family than Marble dials it makes
+    // every learned latency, and every auto-selected route, wrong.
     essential := make([]*corecommserial.TypedMessage, 0, len(config.App))
     for _, app := range config.App {
         if app.Type == "xray.app.proxyman.OutboundConfig" ||
             app.Type == "xray.app.dispatcher.Config" ||
-            app.Type == "xray.app.log.Config" {
+            app.Type == "xray.app.log.Config" ||
+            app.Type == "xray.app.dns.Config" {
             essential = append(essential, app)
         }
     }
