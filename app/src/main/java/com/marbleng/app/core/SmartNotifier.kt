@@ -15,6 +15,7 @@ import com.marbleng.app.MainActivity
 import com.marbleng.app.R
 import com.marbleng.app.model.AppSettings
 import com.marbleng.app.vpn.MarbleVpnService
+import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 
 enum class SmartNotificationKind {
@@ -206,8 +207,8 @@ class SmartNotifier(private val context: Context) {
         private val optionalIds = ConcurrentHashMap.newKeySet<Int>()
 
         fun formatRate(bytesPerSecond: Long): String = when {
-            bytesPerSecond >= 1024L * 1024L -> "%.1f MB/s".format(bytesPerSecond / (1024.0 * 1024.0))
-            bytesPerSecond >= 1024L -> "%.0f KB/s".format(bytesPerSecond / 1024.0)
+            bytesPerSecond >= 1024L * 1024L -> String.format(Locale.US, "%.1f MB/s", bytesPerSecond / (1024.0 * 1024.0))
+            bytesPerSecond >= 1024L -> String.format(Locale.US, "%.0f KB/s", bytesPerSecond / 1024.0)
             else -> "$bytesPerSecond B/s"
         }
     }

@@ -2,6 +2,7 @@ package com.marbleng.app.core
 import com.marbleng.app.model.AppSettings
 import com.marbleng.app.model.BenchmarkResult
 import com.marbleng.app.model.ProxyProfile
+import java.util.Locale
 import kotlin.math.max
 
 data class ActiveRouteQuality(val latencyMs:Int,val samples:Int,val jitterMs:Int=-1,val p95LatencyMs:Int=0,val lossPercent:Int=0,val spikePercent:Int=0)
@@ -39,11 +40,11 @@ class ContinuousRouteOptimizer(private val intelligence:MarbleIntelligence){
   val gain=best.score-cur.score;val emergency=cur.success<75&&best.success>=75
   val safe=emergency||(best.latencyMs<=cur.latencyMs*1.15&&(cj<0||bj<0||bj<=cj*1.35+3)&&bt<=ct*1.20+12&&loss(best)<=loss(cur)+5)
   val meaningful=emergency||(gain>=5&&(lGain>=.10||sGain>=.25||jGain>=.20||tGain>=.15||lossGain>=5)&&safe)
-  if(!meaningful){clear();return OptimizerDecision(summary="Autopilot • ${active.name} held • challenger gain ${"%.1f".format(gain)} below realtime hysteresis")}
+  if(!meaningful){clear();return OptimizerDecision(summary="Autopilot • ${active.name} held • challenger gain ${String.format(Locale.US, "%.1f", gain)} below realtime hysteresis")}
   if(pendingProfileId==best.profileId)pendingWins++ else{pendingProfileId=best.profileId;pendingWins=1};val req=if(emergency)1 else s.optimizerConfirmations.coerceIn(1,3)
   if(pendingWins<req)return OptimizerDecision(summary="Autopilot • ${best.name} leads • confirmation $pendingWins/$req")
   val target=profiles.firstOrNull{it.id==best.profileId}?:return OptimizerDecision(summary="Autopilot • winning route no longer exists");clear();val jl=bj.takeIf{it>=0}?.let{" • jitter ${it.toInt()} ms"}.orEmpty()
-  return OptimizerDecision(target,"Autopilot • ${best.name} wins • ${best.latencyMs.toInt()} ms$jl • gain ${"%.1f".format(gain)}",gain)
+  return OptimizerDecision(target,"Autopilot • ${best.name} wins • ${best.latencyMs.toInt()} ms$jl • gain ${String.format(Locale.US, "%.1f", gain)}",gain)
  }
  @Synchronized fun noteSwitch(now:Long=System.currentTimeMillis()){lastSwitchAt=now;clear()}
  @Synchronized private fun clear(){pendingProfileId="";pendingWins=0}
