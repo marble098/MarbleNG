@@ -223,15 +223,17 @@ internal object PrismSurface {
     val CardRadius = 22.dp
     val TileRadius = 18.dp
     val InsetRadius = 14.dp
-    val ControlRadius = 18.dp
-    val ControlHeight = 50.dp
-    val CompactControlHeight = 40.dp
-    val IconControlSize = 40.dp
+    // Controls intentionally use a tighter radius than cards. The resulting soft squircle reads as
+    // an action rather than another nested panel, while keeping Marble's rounded visual language.
+    val ControlRadius = 16.dp
+    val ControlHeight = 52.dp
+    val CompactControlHeight = 42.dp
+    val IconControlSize = 42.dp
     val Hairline = 1.dp
     val StrongHairline = 1.4.dp
     val RestingElevation = 2.5.dp
     val RaisedElevation = 6.5.dp
-    val ControlElevation = 3.dp
+    val ControlElevation = 5.dp
     val PressedElevation = 1.dp
 }
 
@@ -479,35 +481,35 @@ internal fun PrismButton(
     contentPadding: PaddingValues? = null
 ) {
     val filled=enabled && (variant == PrismButtonVariant.Primary || variant == PrismButtonVariant.Danger)
-    val shape=RoundedCornerShape(if (compact) 15.dp else PrismSurface.ControlRadius)
+    val shape=RoundedCornerShape(if (compact) 14.dp else PrismSurface.ControlRadius)
 
     val accent=if (variant == PrismButtonVariant.Danger) Aether.Danger else tone
     val content=when {
         !enabled -> Aether.InkFaint
         filled -> prismOnColor(accent)
         variant == PrismButtonVariant.Quiet -> Aether.InkMuted
-        else -> accent
+        else -> Aether.Ink
     }
+    // New control skin: primary actions have a deliberate diagonal colour movement; secondary
+    // actions remain calm and glassy with an accent bloom at the leading edge. This keeps dense
+    // Settings groups ordered instead of turning every row into a wall of saturated colour.
     val skin=when {
-        !enabled -> Brush.linearGradient(listOf(Aether.GlassStrong, Aether.GlassStrong))
-        filled -> Brush.linearGradient(listOf(prismShade(accent,.05f), prismLift(accent,.18f)))
+        !enabled -> Brush.linearGradient(listOf(Aether.GlassStrong.copy(alpha=.48f), Aether.VoidElevated))
+        filled -> Brush.linearGradient(
+            colors=listOf(prismLift(accent,.16f), accent, prismShade(accent,.12f))
+        )
         variant == PrismButtonVariant.Quiet -> Brush.linearGradient(
-            listOf(Aether.VoidElevated.copy(alpha=.55f), Aether.VoidElevated.copy(alpha=.55f))
+            listOf(Color.Transparent, Aether.GlassStrong.copy(alpha=.28f))
         )
         else -> Brush.linearGradient(
-            listOf(
-                accent.copy(alpha=.115f),
-                Aether.VoidElevated
-            )
+            listOf(accent.copy(alpha=.16f), accent.copy(alpha=.07f), Aether.VoidElevated)
         )
     }
-    // Filled skins skip the hairline entirely (fill + accent shadow carry depth). Tonal/quiet
-    // use a single solid accent edge — never a light neutral that reads as a second rectangle.
     val hairline: Color=when {
-        !enabled -> accent.copy(alpha=.14f)
-        filled -> Color.Transparent
-        variant == PrismButtonVariant.Quiet -> accent.copy(alpha=.30f)
-        else -> accent.copy(alpha=.30f)
+        !enabled -> Aether.InkFaint.copy(alpha=.12f)
+        filled -> prismLift(accent,.28f).copy(alpha=.72f)
+        variant == PrismButtonVariant.Quiet -> Aether.InkFaint.copy(alpha=.14f)
+        else -> accent.copy(alpha=.34f)
     }
     val pad=contentPadding ?: PaddingValues(
         horizontal=if (compact) 12.dp else 15.dp,
@@ -596,9 +598,9 @@ internal fun PrismIconButton(
     descriptiveLabel: String = "",
     content: @Composable () -> Unit
 ) {
-    val shape=CircleShape
+    val shape=RoundedCornerShape(size * .36f)
     val fill by animateColorAsState(
-        targetValue=if (selected) tone.copy(alpha=.15f) else Aether.GlassStrong.copy(alpha=.42f),
+        targetValue=if (selected) tone.copy(alpha=.18f) else Aether.GlassStrong.copy(alpha=.34f),
         animationSpec=MarbleMotionSpecs.Color,
         label="icon-control-fill"
     )
@@ -708,7 +710,7 @@ internal fun PrismSelectionTile(
     enabled: Boolean = true,
     onClick: () -> Unit
 ) {
-    val shape=RoundedCornerShape(PrismSurface.TileRadius)
+    val shape=RoundedCornerShape(15.dp)
     // MARBLE_BUTTON_TEXT_RECT_REMOVED_DS_V68
     // One continuous fill owns the whole tile. No second rectangle (hairline of a foreign
     // neutral, M3 indicator, nested surface) is allowed behind or around the label — selection
@@ -736,6 +738,11 @@ internal fun PrismSelectionTile(
             )
             .clip(shape)
             .background(fill)
+            .border(
+                PrismSurface.Hairline,
+                if (selected) tone.copy(alpha=.48f) else tone.copy(alpha=.12f),
+                shape
+            )
             // MARBLE_SELECTION_TILE_INDICATION_REMOVED_DS_V69
             // The tile already signals selection through fill, elevation and a check badge.
             // Material3's ripple state layer composited as a semi-transparent off-white
