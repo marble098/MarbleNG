@@ -736,7 +736,13 @@ internal fun PrismSelectionTile(
             )
             .clip(shape)
             .background(fill)
-            .kineticClickable(enabled=enabled, role=Role.Button, boundedShape=shape, onClick=onClick)
+            // MARBLE_SELECTION_TILE_INDICATION_REMOVED_DS_V69
+            // The tile already signals selection through fill, elevation and a check badge.
+            // Material3's ripple state layer composited as a semi-transparent off-white
+            // rectangle behind the detail text — the "white box" under Testing & ping.
+            // Suppressing the indication leaves press scale/lift intact and removes the
+            // extra overlay so sub-text sits cleanly on the selected fill.
+            .kineticClickable(enabled=enabled, role=Role.Button, boundedShape=shape, showIndication=false, onClick=onClick)
             .padding(horizontal=12.dp,vertical=9.dp),
         verticalAlignment=Alignment.CenterVertically,
         horizontalArrangement=when (alignment) {

@@ -172,6 +172,7 @@ fun Modifier.kineticClickable(
     role: Role? = null,
     pressScale: Float = .972f,
     boundedShape: Shape = RoundedCornerShape(22.dp),
+    showIndication: Boolean = true,
     onClick: () -> Unit
 ): Modifier = composed {
     val interactionSource = remember { MutableInteractionSource() }
@@ -186,6 +187,13 @@ fun Modifier.kineticClickable(
         animationSpec = MarbleMotionSpecs.InteractionFloat,
         label = "kinetic-press-lift"
     )
+    // MARBLE_SELECTION_TILE_INDICATION_REMOVED_DS_V69
+    // The Material3 ripple draws a persistent focused/pressed state layer on top of the
+    // surface. On selection tiles that already own their selected-state fill, that extra
+    // off-white overlay composited as a visible rectangle behind the sub-text — the "white
+    // box" reported under Testing & ping. Callers that paint their own selection feedback
+    // pass showIndication = false to suppress it; press scale and lift still apply.
+    val indication = if (showIndication) LocalIndication.current else null
 
     this
         .graphicsLayer {
@@ -198,7 +206,7 @@ fun Modifier.kineticClickable(
         }
         .clickable(
             interactionSource = interactionSource,
-            indication = LocalIndication.current,
+            indication = indication,
             enabled = enabled,
             role = role,
             onClick = onClick
