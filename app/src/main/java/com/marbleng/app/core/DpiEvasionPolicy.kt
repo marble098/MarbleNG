@@ -31,11 +31,17 @@ object DpiEvasionPolicy {
         val innerLength: String = "",
         val innerInterval: String = "",
         val innerMaxSplit: String = "",
+        val middlePackets: String = "",
+        val middleLength: String = "",
+        val middleInterval: String = "",
+        val middleMaxSplit: String = "",
         val rank: Int,
         val description: String
     ) {
         val innerEnabled: Boolean
             get() = innerPackets.isNotBlank()
+        val middleEnabled: Boolean
+            get() = middlePackets.isNotBlank()
     }
 
     data class PathEvidence(
@@ -95,6 +101,91 @@ object DpiEvasionPolicy {
         rank = 5,
         description = "Full-stream fragment • 1-byte writes, 4 ms interval, 517 maxSplit"
     )
+
+    /** 3-Layer cascading anti-DPI shredder: TLS ClientHello -> Record Splitter -> Micro Stream Fragment. */
+    val MULTI_LAYER_CASCADE: FragmentRecipe = FragmentRecipe(
+        packets = "tlshello",
+        length = "6",
+        interval = "0",
+        middlePackets = "1-3",
+        middleLength = "10-30",
+        middleInterval = "5-10",
+        middleMaxSplit = "768",
+        innerPackets = "1-1",
+        innerLength = "1",
+        innerInterval = "4",
+        innerMaxSplit = "517",
+        rank = 6,
+        description = "3-Layer cascade • TLS Hello SNI shred → Record slicer → Byte-level micro fragment"
+    )
+
+    /** Aggressive 3-layer TLS record & stream shredder for severe DPI inspection. */
+    val AGGRESSIVE_CASCADE: FragmentRecipe = FragmentRecipe(
+        packets = "1-3",
+        length = "5-15",
+        interval = "10-20",
+        middlePackets = "1-3",
+        middleLength = "10-30",
+        middleInterval = "5-10",
+        middleMaxSplit = "768",
+        innerPackets = "1-1",
+        innerLength = "1",
+        innerInterval = "4",
+        innerMaxSplit = "517",
+        rank = 6,
+        description = "Aggressive 3-layer TLS record & stream shredder"
+    )
+
+    /** Extreme byte-by-byte anti-censorship micro-fragmenting. */
+    val EXTREME_ANTI_DPI: FragmentRecipe = FragmentRecipe(
+        packets = "1-1",
+        length = "1",
+        interval = "2",
+        maxSplit = "256",
+        middlePackets = "1-2",
+        middleLength = "2-5",
+        middleInterval = "3-6",
+        middleMaxSplit = "517",
+        innerPackets = "1-1",
+        innerLength = "1",
+        innerInterval = "4",
+        innerMaxSplit = "256",
+        rank = 7,
+        description = "Extreme deep micro-fragmenting • byte-by-byte anti-censorship shred"
+    )
+
+    fun freedomRecipe(settings: AppSettings, state: IranModeState = IranModeState()): FragmentRecipe {
+        return when (settings.freedomPreset) {
+            com.marbleng.app.model.FreedomPreset.MULTI_LAYER_CASCADE -> MULTI_LAYER_CASCADE
+            com.marbleng.app.model.FreedomPreset.SNI_SHREDDER -> TLSHELLO_SNI
+            com.marbleng.app.model.FreedomPreset.AGGRESSIVE_RECORD_SPLIT -> AGGRESSIVE_CASCADE
+            com.marbleng.app.model.FreedomPreset.EXTREME_ANTI_DPI -> EXTREME_ANTI_DPI
+            com.marbleng.app.model.FreedomPreset.CUSTOM -> FragmentRecipe(
+                packets = settings.freedomOuterPackets.ifBlank { "tlshello" },
+                length = settings.freedomOuterLength.ifBlank { "6" },
+                interval = settings.freedomOuterInterval.ifBlank { "0" },
+                maxSplit = settings.freedomOuterMaxSplit,
+                middlePackets = if (settings.freedomMiddleEnabled) settings.freedomMiddlePackets.ifBlank { "1-3" } else "",
+                middleLength = if (settings.freedomMiddleEnabled) settings.freedomMiddleLength.ifBlank { "10-30" } else "",
+                middleInterval = if (settings.freedomMiddleEnabled) settings.freedomMiddleInterval.ifBlank { "5-10" } else "",
+                middleMaxSplit = if (settings.freedomMiddleEnabled) settings.freedomMiddleMaxSplit.ifBlank { "768" } else "",
+                innerPackets = if (settings.freedomInnerEnabled) settings.freedomInnerPackets.ifBlank { "1-1" } else "",
+                innerLength = if (settings.freedomInnerEnabled) settings.freedomInnerLength.ifBlank { "1" } else "",
+                innerInterval = if (settings.freedomInnerEnabled) settings.freedomInnerInterval.ifBlank { "4" } else "",
+                innerMaxSplit = if (settings.freedomInnerEnabled) settings.freedomInnerMaxSplit.ifBlank { "517" } else "",
+                rank = 6,
+                description = "Custom user-configured multi-layer fragment"
+            )
+            com.marbleng.app.model.FreedomPreset.SMART_ADAPTIVE -> {
+                val tier = IranShield.tier(state)
+                when {
+                    tier >= 3 -> EXTREME_ANTI_DPI
+                    tier >= 2 -> MULTI_LAYER_CASCADE
+                    else -> MULTI_LAYER_CASCADE
+                }
+            }
+        }
+    }
 
     fun connectionRecipe(state: IranModeState): FragmentRecipe {
         val tier = IranShield.tier(state)
