@@ -541,9 +541,10 @@ object XrayConfigHardener {
 
         /*
          * Freedom/direct fragment hops that dial the Internet directly must resolve the USER's
-         * destination hostname, not a proxy endpoint. The official XTLS serverless_for_Iran.jsonc
-         * and the GFW-knocker serverless config both give that hop an explicit domain strategy
-         * (ForceIP + Happy Eyeballs / UseIP) and resolve it through Xray's encrypted DNS module.
+         * destination hostname, not a proxy endpoint. The official XTLS Xray-examples
+         * serverless_for_Iran.jsonc and the GFW-knocker serverless config both give that hop an
+         * explicit domain strategy (ForceIP + Happy Eyeballs / UseIP) and resolve it through
+         * Xray's encrypted DNS module.
          * Without it Xray hands the domain to the OS resolver, which on Iranian networks is
          * poisoned (10.10.34.0/24 answers) or silently drops — so every domain-ATYP connection
          * through Marble Freedom fails, including the app's own SOCKS probes while connected.
@@ -655,6 +656,9 @@ object XrayConfigHardener {
         // networks) or recurses back into this same DNS module. Keep only IP literals and the
         // pinned hosts above; everything else is dropped instead of shipping a broken
         // finalQuery fallback that silently poisons every lookup.
+        // (Upstream breaks the loop with domain→domain dns.hosts mappings, e.g.
+        //  cloudflare-dns.com → challenges.cloudflare.com; IP-list pins are the other form the
+        //  same HostAddress parser accepts and need no fakedns/system-hosts.)
         val freedomDnsReady = freedomDnsList.filter { url ->
             val host = dohHost(url)
             host.isNotBlank() && (isIpLiteralHost(host) || FREEDOM_DOH_HOST_PINS.keys.any {
@@ -687,19 +691,24 @@ object XrayConfigHardener {
         val stockCloudflareDoh = "https://1.1.1.1/dns-query"
         val stockGoogleDoh = "https://8.8.8.8/dns-query"
         val stockQuad9Doh = "https://9.9.9.9/dns-query"
-        val configuredRemoteDoh = if (isFreedomProfile && freedomDnsReady.isNotEmpty()) {
-            freedomDnsReady
+        val genericDoh = listOf(settings.dnsPrimaryDoH, settings.dnsSecondaryDoH)
+            .map { it.trim() }
+            .filter { it.startsWith("https://") }
+            .distinct()
+        val configuredRemoteDoh = if (isFreedomProfile) {
+            // Even with the clean-resolver list switched off, a Freedom chain must never get an
+            // unpinned hostname DoH: it would bootstrap through the poisoned OS resolver or
+            // recurse into this module. Filter the generic pair to IP literals as well.
+            if (freedomDnsReady.isNotEmpty()) freedomDnsReady
+            else genericDoh.filter { url -> isIpLiteralHost(dohHost(url)) }
+                .ifEmpty { listOf(stockCloudflareDoh, stockGoogleDoh) }
         } else {
-            listOf(settings.dnsPrimaryDoH, settings.dnsSecondaryDoH)
-                .map { it.trim() }
-                .filter { it.startsWith("https://") }
-                .distinct()
-                .ifEmpty {
-                    listOf(
-                        stockCloudflareDoh,
-                        stockGoogleDoh
-                    )
-                }
+            genericDoh.ifEmpty {
+                listOf(
+                    stockCloudflareDoh,
+                    stockGoogleDoh
+                )
+            }
         }
 
         // Runtime evidence has now shown transient deadlines from both stock Cloudflare and Google
@@ -743,9 +752,12 @@ object XrayConfigHardener {
         // The Freedom chain fragments the FIRST write of every TCP stream into 1-byte packets with
         // 4 ms pacing (up to maxSplit 517), so a DoH TLS handshake alone can need a couple of
         // seconds before the first response byte. The stock 1.35 s budget makes Cloudflare/Google/
-        // Quad9 look dead even when they are reachable. The official XTLS
-        // serverless_for_Iran.jsonc gives its single DoH server 10 s for exactly this reason.
-        val freedomDnsTimed = isFreedomProfile && freedomDnsReady.isNotEmpty()
+        // Quad9 look dead even when they are reachable. The official XTLS Xray-examples
+        // serverless_for_Iran.jsonc gives its single DoH server 10 s (timeoutMs 10000) for
+        // exactly this reason.
+        // The fragment chain slows the first write of every connection, so the inflated budgets
+        // apply to any Freedom profile regardless of which resolver list is active.
+        val freedomDnsTimed = isFreedomProfile
         fun dnsTimeoutMs(index: Int): Long =
             if (freedomDnsTimed) 5_000L + index * 750L
             else if (index == 0) 1_350L else 1_650L + (index - 1) * 250L
@@ -786,10 +798,11 @@ object XrayConfigHardener {
             .put("serveStale", true)
             .put("serveExpiredTTL", 1800)
             .put("enableParallelQuery", false)
-        // Pin the domain-host Freedom DoH endpoints to stable IPs, exactly like the official
-        // XTLS and GFW-knocker serverless configs pin cloudflare-dns.com: the pin breaks the
-        // resolver bootstrap loop and keeps the DoH hostname off the poisoned OS resolver
-        // while the TLS SNI still carries the real server name.
+        // Pin the domain-host Freedom DoH endpoints to stable IPs. (Upstream instead remaps the
+        // hostname to another domain in dns.hosts, e.g. cloudflare-dns.com →
+        // challenges.cloudflare.com; a plain IP list is the other form HostAddress parses and
+        // needs no fakedns or system hosts.) Either way the resolver bootstrap loop is broken
+        // and the TLS SNI still carries the real DoH hostname.
         freedomDnsHosts?.let { dnsConfig.put("hosts", it) }
         dnsConfig
             .put("useSystemHosts", false)
@@ -1046,9 +1059,11 @@ object XrayConfigHardener {
      *
      * A `https://host/dns-query` server resolves its own hostname before it can answer anything.
      * Inside the Freedom chain that resolution would either fall back to the OS resolver
-     * (poisoned on Iranian networks) or recurse back into this very DNS module. XTLS's official
-     * serverless_for_Iran.jsonc and the widely used GFW-knocker serverless config both pin such
-     * hostnames in `dns.hosts`; the pins below follow the same pattern.
+     * (poisoned on Iranian networks) or recurse back into this very DNS module. The official
+     * XTLS/Xray-examples serverless_for_Iran.jsonc and the GFW-knocker serverless config break
+     * that loop with domain→domain `dns.hosts` mappings; the pins below use the IP-list form of
+     * the same HostAddress mechanism, which is exactly what v26.7.28 parses into
+     * Config_HostMapping.Ip.
      */
     private val FREEDOM_DOH_HOST_PINS = mapOf(
         "dns.shecan.ir" to listOf("178.22.122.100", "185.51.200.2"),
