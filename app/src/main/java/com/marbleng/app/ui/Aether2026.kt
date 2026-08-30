@@ -1746,8 +1746,7 @@ private fun HomeQuickSettingRow(
     subtitle: String,
     checked: Boolean,
     enabled: Boolean = true,
-    onChecked: (Boolean) -> Unit,
-    debounceMs: Long = 300L
+    onChecked: (Boolean) -> Unit
 ) {
     val tone=if(checked) Aether.Cyan else Aether.InkMuted
     val shape=RoundedCornerShape(20.dp)
@@ -5012,7 +5011,6 @@ private fun SpatialSettings(
     }
 
     LaunchedEffect(selectedTabIndex) {
-        listState.scrollToItem(0)
         val current = selectedTabIndex.coerceIn(0, tabs.lastIndex)
         compactTabsState.animateScrollToItem(current)
         repo.rememberSettingsTab(tabs[current].name)
@@ -5606,7 +5604,7 @@ private fun IntelligenceSettings(repo: AppRepository) {
         checked = s.connectTuningEnabled
     ) { repo.updateSettings(repo.settings.copy(connectTuningEnabled = it)) }
 
-    AnimatedVisibility(s.connectTuningEnabled, key = "connectTuning") {
+    AnimatedVisibility(s.connectTuningEnabled) {
         Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
             NumberSetting("Connect tuning budget", s.connectTuningBudgetSec, 0..20, " sec") {
                 repo.updateSettings(repo.settings.copy(connectTuningBudgetSec = it))
@@ -5620,7 +5618,7 @@ private fun IntelligenceSettings(repo: AppRepository) {
                 checked = s.liveTuningEnabled
             ) { repo.updateSettings(repo.settings.copy(liveTuningEnabled = it)) }
 
-            AnimatedVisibility(s.liveTuningEnabled, key = "liveTuning") {
+            AnimatedVisibility(s.liveTuningEnabled) {
                 Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
                     NumberSetting("Live tuning interval", s.liveTuningIntervalSec, 60..3600, " sec") {
                         repo.updateSettings(repo.settings.copy(liveTuningIntervalSec = it))
@@ -5655,7 +5653,7 @@ private fun IntelligenceSettings(repo: AppRepository) {
         checked = s.continuousOptimizerEnabled
     ) { repo.updateSettings(repo.settings.copy(continuousOptimizerEnabled = it)) }
 
-    AnimatedVisibility(s.continuousOptimizerEnabled, key = "optimizer") {
+    AnimatedVisibility(s.continuousOptimizerEnabled) {
         Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
             NumberSetting("Autopilot interval", s.optimizerIntervalSec, 60..900, " sec") {
                 repo.updateSettings(repo.settings.copy(optimizerIntervalSec = it))
@@ -5692,7 +5690,7 @@ private fun IntelligenceSettings(repo: AppRepository) {
         checked = s.raceConnectEnabled
     ) { repo.updateSettings(s.copy(raceConnectEnabled = it)) }
 
-    AnimatedVisibility(s.raceConnectEnabled, key = "raceConnect") {
+    AnimatedVisibility(s.raceConnectEnabled) {
         NumberSetting("Race width", s.raceWidth, 2..4) {
             repo.updateSettings(repo.settings.copy(raceWidth = it))
         }
@@ -5704,7 +5702,7 @@ private fun IntelligenceSettings(repo: AppRepository) {
         checked = s.smartFallbackEnabled
     ) { repo.updateSettings(s.copy(smartFallbackEnabled = it)) }
 
-    AnimatedVisibility(s.smartFallbackEnabled, key = "fallback") {
+    AnimatedVisibility(s.smartFallbackEnabled) {
         Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
             NumberSetting("Fallback depth", s.fallbackCount, 1..8) {
                 repo.updateSettings(repo.settings.copy(fallbackCount = it))
@@ -5729,7 +5727,7 @@ private fun IntelligenceSettings(repo: AppRepository) {
         checked = s.adaptiveMtuEnabled
     ) { repo.updateSettings(s.copy(adaptiveMtuEnabled = it)) }
 
-    AnimatedVisibility(s.adaptiveMtuEnabled, key = "adaptiveMtu") {
+    AnimatedVisibility(s.adaptiveMtuEnabled) {
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             NumberSetting("MTU floor", s.mtuMin, 1280..1500) {
                 repo.updateSettings(repo.settings.copy(mtuMin = it.coerceAtMost(repo.settings.mtuMax)))
@@ -5880,7 +5878,7 @@ private fun NotificationSettings(repo: AppRepository) {
         checked = s.smartNotificationsEnabled
     ) { repo.updateSettings(s.copy(smartNotificationsEnabled = it)) }
 
-    AnimatedVisibility(s.smartNotificationsEnabled, key = "smartNotifications") {
+    AnimatedVisibility(s.smartNotificationsEnabled) {
         Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
             SettingSwitch(
                 title = "Connection events",
@@ -7114,7 +7112,7 @@ private fun ProbeSettings(repo: AppRepository) {
         checked = s.probeSpeedTest
     ) { repo.updateSettings(repo.settings.copy(probeSpeedTest = it)) }
 
-    AnimatedVisibility(s.probeSpeedTest, key = "speedTest") {
+    AnimatedVisibility(s.probeSpeedTest) {
         Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
             SettingSwitch(
                 title = "Grow the speed sample",
@@ -7261,6 +7259,7 @@ private fun SettingSwitch(
     title: String,
     subtitle: String,
     checked: Boolean,
+    debounceMs: Long = 300L,
     onChecked: (Boolean) -> Unit
 ) {
     val tone=if(checked) Aether.Cyan else Aether.InkMuted
@@ -7938,7 +7937,7 @@ private fun FreedomSettings(repo: AppRepository) {
         checked = s.freedomUdpNoiseEnabled
     ) { repo.updateSettings(s.copy(freedomUdpNoiseEnabled = it)) }
 
-    AnimatedVisibility(s.freedomUdpNoiseEnabled && !s.freedomForceTcpForStreaming, key = "udpNoise") {
+    AnimatedVisibility(s.freedomUdpNoiseEnabled && !s.freedomForceTcpForStreaming) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             NumberSetting("Noise burst pairs", s.freedomUdpNoiseCount, 2..16) {
                 repo.updateSettings(s.copy(freedomUdpNoiseCount = it))
