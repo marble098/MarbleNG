@@ -1,5 +1,6 @@
 package com.marbleng.app.ui.screens.settings.sections
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
@@ -26,9 +27,9 @@ fun FreedomSettingsSection(
             .verticalScroll(scrollState),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        FreedomEngineCard(state, viewModel)
+        FreedomEngineCard()
         FragmentChainCard(state, viewModel)
-        EncryptedDnsCard(state, viewModel)
+        EncryptedDnsCard()
     }
 }
 
@@ -58,12 +59,9 @@ private fun FragmentChainCard(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
-            Text(
-                text = "Outer hop",
-                style = MaterialTheme.typography.labelLarge
-            )
+            Text(text = "Outer hop", style = MaterialTheme.typography.labelLarge)
 
-            // FIX: Use weight-based Row instead of spacedBy to prevent label overlap
+            // FIX: weight-based Row prevents label overlap on small screens
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -96,7 +94,7 @@ private fun FragmentChainCard(
                 singleLine = true
             )
 
-            Divider(modifier = Modifier.padding(vertical = 8.dp))
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -104,10 +102,7 @@ private fun FragmentChainCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "Middle hop",
-                        style = MaterialTheme.typography.titleSmall
-                    )
+                    Text(text = "Middle hop", style = MaterialTheme.typography.titleSmall)
                     Text(
                         text = "Optional third stage • off by default (stalls multi-CDN)",
                         style = MaterialTheme.typography.bodySmall,
@@ -120,15 +115,13 @@ private fun FragmentChainCard(
                 )
             }
 
+            // FIX: AnimatedVisibility is inside @Composable scope — correct usage
             AnimatedVisibility(visible = state.middleHopEnabled) {
                 Column(
                     modifier = Modifier.fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Text(
-                        text = "Inner hop",
-                        style = MaterialTheme.typography.labelLarge
-                    )
+                    Text(text = "Inner hop", style = MaterialTheme.typography.labelLarge)
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -191,7 +184,7 @@ private fun FragmentInputField(
 }
 
 @Composable
-private fun FreedomEngineCard(state: FreedomSettingsState, viewModel: SettingsViewModel) {
+private fun FreedomEngineCard() {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text("Marble Freedom Engine", style = MaterialTheme.typography.titleLarge)
@@ -205,7 +198,7 @@ private fun FreedomEngineCard(state: FreedomSettingsState, viewModel: SettingsVi
 }
 
 @Composable
-private fun EncryptedDnsCard(state: FreedomSettingsState, viewModel: SettingsViewModel) {
+private fun EncryptedDnsCard() {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text("Encrypted DNS", style = MaterialTheme.typography.titleMedium)
