@@ -9,11 +9,17 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.*
+import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.marbleng.app.ui.screens.settings.sections.FreedomSettingsSection
+import com.marbleng.app.ui.screens.settings.sections.GeneralSettingsSection
+import com.marbleng.app.ui.screens.settings.sections.NetworkSettingsSection
+import com.marbleng.app.ui.screens.settings.sections.ExpertSettingsSection
+import com.marbleng.app.ui.screens.settings.sections.TestingSettingsSection
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -23,10 +29,8 @@ fun SettingsScreen(
     val uiState by viewModel.uiState.collectAsState()
     val listState = rememberLazyListState()
 
-    // FIX: Use mutableIntStateOf with explicit recomposition key
     var selectedTabIndex by remember { mutableIntStateOf(0) }
 
-    // Sync with ViewModel state
     LaunchedEffect(uiState.selectedCategory) {
         val newIndex = SettingsCategory.entries.indexOf(uiState.selectedCategory)
         if (newIndex != selectedTabIndex && newIndex >= 0) {
@@ -49,7 +53,6 @@ fun SettingsScreen(
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            // FIX: ScrollableTabRow with proper edge padding
             ScrollableTabRow(
                 selectedTabIndex = selectedTabIndex,
                 modifier = Modifier.fillMaxWidth(),
@@ -69,16 +72,16 @@ fun SettingsScreen(
                 SettingsCategory.entries.forEachIndexed { index, category ->
                     Tab(
                         selected = selectedTabIndex == index,
-                        onClick = { 
+                        onClick = {
                             selectedTabIndex = index
                             viewModel.onCategorySelected(category)
                         },
-                        text = { 
+                        text = {
                             Text(
                                 text = category.displayName,
                                 maxLines = 1,
                                 softWrap = false
-                            ) 
+                            )
                         },
                         icon = {
                             Icon(
@@ -92,7 +95,6 @@ fun SettingsScreen(
                 }
             }
 
-            // FIX: Animated content with forced recomposition key
             Box(modifier = Modifier.weight(1f)) {
                 key(selectedTabIndex) {
                     LazyColumn(
@@ -103,11 +105,11 @@ fun SettingsScreen(
                     ) {
                         item {
                             when (SettingsCategory.entries[selectedTabIndex]) {
-                                SettingsCategory.GENERAL -> GeneralSettingsSection()
-                                SettingsCategory.FREEDOM -> FreedomSettingsSection()
-                                SettingsCategory.TESTING -> TestingSettingsSection()
-                                SettingsCategory.NETWORK -> NetworkSettingsSection()
-                                SettingsCategory.EXPERT -> ExpertSettingsSection()
+                                SettingsCategory.GENERAL  -> GeneralSettingsSection()
+                                SettingsCategory.FREEDOM  -> FreedomSettingsSection()
+                                SettingsCategory.TESTING  -> TestingSettingsSection()
+                                SettingsCategory.NETWORK  -> NetworkSettingsSection()
+                                SettingsCategory.EXPERT   -> ExpertSettingsSection()
                             }
                         }
                     }
@@ -115,15 +117,4 @@ fun SettingsScreen(
             }
         }
     }
-}
-
-enum class SettingsCategory(
-    val displayName: String,
-    val icon: androidx.compose.ui.graphics.vector.ImageVector
-) {
-    GENERAL("General", androidx.compose.material.icons.Icons.Default.Settings),
-    FREEDOM("Freedom", androidx.compose.material.icons.Icons.Default.Security),
-    TESTING("Testing", androidx.compose.material.icons.Icons.Default.NetworkCheck),
-    NETWORK("Network", androidx.compose.material.icons.Icons.Default.SignalCellularAlt),
-    EXPERT("Expert", androidx.compose.material.icons.Icons.Default.Build)
 }
