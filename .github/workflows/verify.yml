@@ -198,8 +198,22 @@ jobs:
         with:
           gradle-version: '9.5.1'
 
+      - name: Clear stale Gradle caches
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf ~/.gradle/caches/build-cache-1
+          rm -rf ~/.gradle/caches/transforms-4
+          rm -rf ~/.gradle/caches/modules-2/files-2.1/org.jetbrains.kotlin/kotlin-gradle-plugin*
+          rm -rf ~/.gradle/caches/modules-2/files-2.1/com.android.tools.build/gradle
+          rm -rf .gradle/configuration-cache
+          echo "Gradle caches cleared"
+
       - name: Unit tests and Kotlin compilation
         shell: bash
         run: |
           set -euo pipefail
-          gradle --no-daemon :app:testDebugUnitTest :app:compileDebugKotlin :app:compileReleaseKotlin
+          gradle --no-daemon --no-configuration-cache \
+            :app:testDebugUnitTest \
+            :app:compileDebugKotlin \
+            :app:compileReleaseKotlin
