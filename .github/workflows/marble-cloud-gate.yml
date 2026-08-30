@@ -18,7 +18,7 @@ jobs:
     timeout-minutes: 25
     steps:
       - name: Checkout candidate
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Shell syntax
         shell: bash
@@ -58,7 +58,7 @@ jobs:
           java-version: '17'
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
 
       - name: Install compile SDK
         shell: bash

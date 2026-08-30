@@ -29,6 +29,18 @@ need grep
 
 [[ -f "$LOCK" ]] || { echo "core-lock.json not found: $LOCK" >&2; exit 1; }
 
+# Authenticate API requests in CI so shared runner IP rate limits cannot turn a
+# public upstream lookup into HTTP 403. Local callers may still run without a
+# token and use GitHub's unauthenticated quota.
+GITHUB_API_TOKEN="${GH_TOKEN:-${GITHUB_TOKEN:-}}"
+GITHUB_API_HEADERS=(-H "Accept: application/vnd.github+json")
+if [[ -n "$GITHUB_API_TOKEN" ]]; then
+    GITHUB_API_HEADERS+=(
+        -H "Authorization: Bearer $GITHUB_API_TOKEN"
+        -H "X-GitHub-Api-Version: 2022-11-28"
+    )
+fi
+
 # ------------------------------------------------------------------------------
 # resolve_latest_tag  <owner/repo>  <channel>
 #
@@ -42,7 +54,7 @@ resolve_latest_tag() {
 
     local json
     json="$(curl -fsSL --retry 4 --retry-delay 3 \
-        -H "Accept: application/vnd.github+json" \
+        "${GITHUB_API_HEADERS[@]}" \
         "$api")" || {
         echo ""
         return

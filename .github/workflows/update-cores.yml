@@ -12,9 +12,11 @@ jobs:
   update:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with: { fetch-depth: 0 }
       - name: Resolve newest upstream channels
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: ./scripts/update-core-lock.sh
       - name: Commit only when tags changed
         run: |
