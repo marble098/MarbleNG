@@ -565,7 +565,7 @@ private fun compactInAppMessage(raw: String): String {
     val lower = message.lowercase()
     return when {
         "vless without tls or other encryption is prohibited" in lower ->
-            "Unsupported VLESS • enable TLS/REALITY or non-none VLESS encryption"
+            "Unsupported VLESS • pick a node with TLS/REALITY, or turn Marble Freedom back on"
         "failed to build outbound config" in lower ->
             "Xray rejected this node configuration • check protocol/TLS settings"
         "context deadline exceeded" in lower && "dns-query" in lower ->
@@ -5090,6 +5090,7 @@ private fun SpatialSettings(
                 }
             } else {
                 Column(Modifier.fillMaxSize()) {
+                    Box(Modifier.fillMaxWidth()) {
                     LazyRow(
                         state=compactTabsState,
                         modifier=Modifier
@@ -5145,6 +5146,34 @@ private fun SpatialSettings(
                                 )
                             }
                         }
+                    }
+
+                    // MARBLE_SETTINGS_TABS_SCROLL_HINT_V1 — fade hints so it's obvious the
+                    // tab strip keeps going instead of just cutting a label off mid-word.
+                    // Plain `if` (not AnimatedVisibility) on purpose: this Box sits inside an
+                    // outer Column, and an unqualified AnimatedVisibility() here is ambiguous
+                    // between the top-level overload and the ColumnScope-only overload once a
+                    // ColumnScope receiver is available from that outer Column — Kotlin refuses
+                    // to guess and fails the build with "cannot be called in this context with
+                    // an implicit receiver". A plain conditional has no such ambiguity.
+                    if (compactTabsState.canScrollBackward) {
+                        Box(
+                            Modifier
+                                .align(Alignment.CenterStart)
+                                .fillMaxHeight()
+                                .width(20.dp)
+                                .background(Brush.horizontalGradient(listOf(Aether.Void, Color.Transparent)))
+                        )
+                    }
+                    if (compactTabsState.canScrollForward) {
+                        Box(
+                            Modifier
+                                .align(Alignment.CenterEnd)
+                                .fillMaxHeight()
+                                .width(20.dp)
+                                .background(Brush.horizontalGradient(listOf(Color.Transparent, Aether.Void)))
+                        )
+                    }
                     }
 
                     HorizontalPager(
