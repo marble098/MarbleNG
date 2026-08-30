@@ -145,6 +145,9 @@ private enum class SpatialTab(val label: String) {
     SETTINGS("Settings")
 }
 
+private fun rememberedSpatialTab(name: String): SpatialTab =
+    runCatching { SpatialTab.valueOf(name) }.getOrDefault(SpatialTab.DECK)
+
 private data class InstalledApp(val label: String, val packageName: String)
 
 
@@ -155,7 +158,7 @@ fun Aether2026App(
     onConnect: (ProxyProfile) -> Unit,
     onImportFile: () -> Unit
 ) {
-    var tab by remember { mutableStateOf(SpatialTab.DECK) }
+    var tab by remember { mutableStateOf(rememberedSpatialTab(repo.lastAppTab)) }
     var dialog by remember { mutableStateOf<String?>(null) }
     var settingsFocus by remember { mutableStateOf<String?>(null) }
     var detailProfile by remember { mutableStateOf<ProxyProfile?>(null) }
@@ -168,6 +171,10 @@ fun Aether2026App(
             snackbar.showSnackbar(repo.message, duration = SnackbarDuration.Short)
             repo.clearMessage()
         }
+    }
+
+    LaunchedEffect(tab) {
+        repo.rememberAppTab(tab.name)
     }
 
     Scaffold(
@@ -1000,7 +1007,54 @@ private fun SectionLabel(
                 fontWeight=FontWeight.Bold
             )
         }
-        // Subtitles are accepted for API stability but never painted.
+        subtitle?.takeIf { it.isNotBlank() }?.let { detail ->
+            Text(
+                detail,
+                color=Aether.InkMuted,
+                style=MaterialTheme.typography.bodySmall,
+                maxLines=2,
+                overflow=TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+@Composable
+private fun FreedomSectionHeader(
+    title: String,
+    subtitle: String,
+    tone: Color = Aether.Cyan
+) {
+    Column(
+        modifier=Modifier
+            .fillMaxWidth()
+            .padding(top=4.dp,bottom=1.dp),
+        verticalArrangement=Arrangement.spacedBy(4.dp)
+    ) {
+        Row(
+            verticalAlignment=Alignment.CenterVertically,
+            horizontalArrangement=Arrangement.spacedBy(9.dp)
+        ) {
+            Box(
+                Modifier
+                    .size(8.dp)
+                    .clip(CircleShape)
+                    .background(tone)
+            )
+            Text(
+                title,
+                color=Aether.Ink,
+                style=MaterialTheme.typography.titleSmall,
+                fontWeight=FontWeight.SemiBold
+            )
+        }
+        Text(
+            subtitle,
+            color=Aether.InkMuted,
+            style=MaterialTheme.typography.bodySmall,
+            maxLines=2,
+            overflow=TextOverflow.Ellipsis
+        )
     }
 }
 
@@ -4910,6 +4964,9 @@ private enum class SettingsWorkspaceTab(val label: String, val icon: HomeIcon) {
     SYSTEM("System", HomeIcon.DETAILS)
 }
 
+private fun rememberedSettingsTab(name: String): SettingsWorkspaceTab =
+    runCatching { SettingsWorkspaceTab.valueOf(name) }.getOrDefault(SettingsWorkspaceTab.GENERAL)
+
 @Composable
 private fun settingsTabTone(tab: SettingsWorkspaceTab): Color = when (tab) {
     SettingsWorkspaceTab.FREEDOM -> Aether.Cyan
@@ -4928,7 +4985,7 @@ private fun SpatialSettings(
     val scope=rememberCoroutineScope()
     val initialPage=if(focusSection == "Routing") {
         SettingsWorkspaceTab.NETWORK.ordinal
-    } else 0
+    } else rememberedSettingsTab(repo.lastSettingsTab).ordinal
     val pagerState=rememberPagerState(initialPage=initialPage) { tabs.size }
     val compactTabsState=rememberLazyListState()
 
@@ -4942,7 +4999,9 @@ private fun SpatialSettings(
     }
 
     LaunchedEffect(pagerState.currentPage) {
-        compactTabsState.animateScrollToItem(pagerState.currentPage)
+        val current = pagerState.currentPage.coerceIn(0, tabs.lastIndex)
+        compactTabsState.animateScrollToItem(current)
+        repo.rememberSettingsTab(tabs[current].name)
     }
 
     Column(Modifier.fillMaxSize()) {
@@ -5204,7 +5263,10 @@ private fun SettingsSectionCard(
                     Modifier.size(21.dp)
                 )
             }
-            Column(Modifier.weight(1f)) {
+            Column(
+                Modifier.weight(1f),
+                verticalArrangement=Arrangement.spacedBy(2.dp)
+            ) {
                 Text(
                     title,
                     color=Aether.Ink,
@@ -5213,6 +5275,15 @@ private fun SettingsSectionCard(
                     maxLines=1,
                     overflow=TextOverflow.Ellipsis
                 )
+                if(subtitle.isNotBlank()) {
+                    Text(
+                        subtitle,
+                        color=Aether.InkMuted,
+                        style=MaterialTheme.typography.bodySmall,
+                        maxLines=2,
+                        overflow=TextOverflow.Ellipsis
+                    )
+                }
             }
         }
 
@@ -7148,13 +7219,27 @@ private fun SettingSwitch(
                     .clip(CircleShape)
                     .background(tone)
             )
-            Column(Modifier.weight(1f)) {
+            Column(
+                Modifier.weight(1f),
+                verticalArrangement=Arrangement.spacedBy(2.dp)
+            ) {
                 Text(
                     title,
                     color=Aether.Ink,
                     style=MaterialTheme.typography.bodyMedium,
-                    fontWeight=FontWeight.SemiBold
+                    fontWeight=FontWeight.SemiBold,
+                    maxLines=2,
+                    overflow=TextOverflow.Ellipsis
                 )
+                if(subtitle.isNotBlank()) {
+                    Text(
+                        subtitle,
+                        color=Aether.InkMuted,
+                        style=MaterialTheme.typography.bodySmall,
+                        maxLines=2,
+                        overflow=TextOverflow.Ellipsis
+                    )
+                }
             }
             Switch(
                 checked=checked,
@@ -7483,9 +7568,13 @@ private fun FreedomSettings(repo: AppRepository) {
                 )
                 Text(
                     if (enabled) {
-                        "$layerCount-hop chain • YouTube / X / Reddit ready"
+                        if (s.freedomForceTcpForStreaming) {
+                            "$layerCount-hop chain • YouTube TCP fallback on"
+                        } else {
+                            "$layerCount-hop chain • QUIC padding on"
+                        }
                     } else {
-                        "Serverless DPI bypass is idle"
+                        "Serverless DPI bypass is ready when you switch it on"
                     },
                     color = Aether.InkMuted,
                     style = MaterialTheme.typography.bodySmall,
@@ -7513,8 +7602,10 @@ private fun FreedomSettings(repo: AppRepository) {
                     Aether.Amethyst,
                     compact = true
                 )
-                if (s.freedomUdpNoiseEnabled) {
-                    HoloBadge("UDP NOISE", Aether.Emerald, compact = true)
+                if (s.freedomForceTcpForStreaming) {
+                    HoloBadge("TCP FALLBACK", Aether.Emerald, compact = true)
+                } else if (s.freedomUdpNoiseEnabled) {
+                    HoloBadge("QUIC PADDING", Aether.Emerald, compact = true)
                 }
                 if (s.freedomDnsHijack) {
                     HoloBadge("DNS HIJACK", Aether.Emerald, compact = true)
@@ -7526,14 +7617,24 @@ private fun FreedomSettings(repo: AppRepository) {
         }
     }
 
+    SettingSwitch(
+        title = "YouTube / media TCP fallback",
+        subtitle = "Reject QUIC and UDP/443 so video apps retry HTTPS through the fragmented TCP chain",
+        checked = s.freedomForceTcpForStreaming
+    ) { repo.updateSettings(s.copy(freedomForceTcpForStreaming = it)) }
+
     // ── Evasion presets (2-column grid, not a free-flow jumble) ───────────────
-    SectionLabel("Evasion preset")
+    FreedomSectionHeader(
+        title = "Evasion preset",
+        subtitle = "Start with the balanced two-hop profile. Escalate only on harsher filters.",
+        tone = Aether.Cyan
+    )
     val presets = listOf(
-        Triple(FreedomPreset.SMART_ADAPTIVE, "Smart Auto", "Adapts to Iran Mode tier"),
-        Triple(FreedomPreset.MULTI_LAYER_CASCADE, "2-Hop Cascade", "Official XTLS shape"),
-        Triple(FreedomPreset.SNI_SHREDDER, "SNI Shredder", "GFW-knocker single chain"),
-        Triple(FreedomPreset.AGGRESSIVE_RECORD_SPLIT, "Skip-Fragment", "Delayed first write"),
-        Triple(FreedomPreset.EXTREME_ANTI_DPI, "Extreme", "Max shred, still 2 hops"),
+        Triple(FreedomPreset.SMART_ADAPTIVE, "Smart Auto", "Best everyday default"),
+        Triple(FreedomPreset.MULTI_LAYER_CASCADE, "Stable 2-hop", "Social and video balance"),
+        Triple(FreedomPreset.SNI_SHREDDER, "SNI split", "Lightweight first-write split"),
+        Triple(FreedomPreset.AGGRESSIVE_RECORD_SPLIT, "Slow-first", "For strict reset filters"),
+        Triple(FreedomPreset.EXTREME_ANTI_DPI, "Extreme", "Strongest 2-hop mode"),
         Triple(FreedomPreset.CUSTOM, "Custom", "Manual layer tuning")
     )
     presets.chunked(2).forEach { row ->
@@ -7562,7 +7663,11 @@ private fun FreedomSettings(repo: AppRepository) {
     HorizontalDivider(color = Aether.GlassBorderSoft)
 
     // ── Fragment layers ──────────────────────────────────────────────────────
-    SectionLabel("Fragment chain")
+    FreedomSectionHeader(
+        title = "Fragment chain",
+        subtitle = "Two hops stay fast for multi-CDN pages. Enable the middle hop only when you need extra resistance.",
+        tone = Aether.Amethyst
+    )
 
     FreedomLayerCard(
         title = "Outer hop",
@@ -7625,7 +7730,11 @@ private fun FreedomSettings(repo: AppRepository) {
     HorizontalDivider(color = Aether.GlassBorderSoft)
 
     // ── DNS ──────────────────────────────────────────────────────────────────
-    SectionLabel("Encrypted multi-DNS")
+    FreedomSectionHeader(
+        title = "Encrypted DNS",
+        subtitle = "Pinned DoH resolvers avoid poisoned media-CDN answers and keep classic DNS inside the tunnel.",
+        tone = Aether.Emerald
+    )
 
     SettingSwitch(
         title = "Smart multi-resolver cascade",
@@ -7735,15 +7844,23 @@ private fun FreedomSettings(repo: AppRepository) {
     HorizontalDivider(color = Aether.GlassBorderSoft)
 
     // ── UDP noise ────────────────────────────────────────────────────────────
-    SectionLabel("UDP noise (QUIC / UDP 443)")
+    FreedomSectionHeader(
+        title = "QUIC / UDP policy",
+        subtitle = if (s.freedomForceTcpForStreaming) {
+            "TCP fallback is active, so QUIC padding waits until you turn the fallback off."
+        } else {
+            "Use dedicated padding only on networks where UDP/443 is allowed."
+        },
+        tone = Aether.Amber
+    )
 
     SettingSwitch(
-        title = "Dedicated UDP-noises outbound",
-        subtitle = "Pad QUIC and UDP/443 only — official XTLS shape, not the TCP hop",
+        title = "Dedicated QUIC padding",
+        subtitle = "Pads UDP/443 separately. It is bypassed while the YouTube TCP fallback is on.",
         checked = s.freedomUdpNoiseEnabled
     ) { repo.updateSettings(s.copy(freedomUdpNoiseEnabled = it)) }
 
-    AnimatedVisibility(s.freedomUdpNoiseEnabled) {
+    AnimatedVisibility(s.freedomUdpNoiseEnabled && !s.freedomForceTcpForStreaming) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             NumberSetting("Noise burst pairs", s.freedomUdpNoiseCount, 2..16) {
                 repo.updateSettings(s.copy(freedomUdpNoiseCount = it))
@@ -7795,6 +7912,7 @@ private fun FreedomSettings(repo: AppRepository) {
             freedomDomainStrategy = "IPOnDemand",
             freedomDnsHijack = true,
             freedomDirectDomestic = true,
+            freedomForceTcpForStreaming = true,
             freedomUdpNoiseEnabled = true,
             freedomUdpNoisePacket4 = "1250",
             freedomUdpNoiseDelay4 = "10",

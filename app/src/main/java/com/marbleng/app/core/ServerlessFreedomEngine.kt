@@ -16,8 +16,8 @@ import org.json.JSONObject
  *
  * Why YouTube / X / Reddit previously failed or loaded half-broken on Freedom:
  *  - an untested middle hop slowed the first flight past CDN idle cutoffs
- *  - UDP/QUIC (YouTube media, X live) had noise attached to the TCP hop instead of a
- *    dedicated noises outbound routed only for QUIC and UDP/443 (official shape)
+ *  - UDP/QUIC (YouTube media, X live) stalled while apps waited on blocked UDP/443;
+ *    Marble now defaults to TCP fallback and keeps dedicated noises as an expert option
  *  - poisoned injector ranges were not blocked, so half-resolved multi-CDN hosts stuck
  */
 object ServerlessFreedomEngine {
@@ -120,7 +120,8 @@ object ServerlessFreedomEngine {
             recipe.innerMaxSplit.ifBlank { settings.freedomInnerMaxSplit.ifBlank { "517" } }
         )
         // TCP hop: fragment only. UDP noises live on a dedicated outbound (official XTLS shape)
-        // so ordinary TCP is not padded and QUIC/UDP-443 get the full noise burst.
+        // so ordinary TCP is not padded. Routing either rejects QUIC for TCP fallback (default)
+        // or sends UDP/443 to the noises outbound when the user explicitly allows it.
         val inner = JSONObject()
             .put("tag", INNER_TAG)
             .put("protocol", "freedom")
@@ -172,7 +173,8 @@ object ServerlessFreedomEngine {
 
     /**
      * Dedicated UDP-noises outbound matching XTLS Serverless-for-Iran.
-     * Routed only for QUIC and UDP/443 by [XrayConfigHardener]; never attached to the TCP hop.
+     * Routed only for QUIC and UDP/443 by [XrayConfigHardener] when TCP fallback is off; never
+     * attached to the TCP hop.
      * NoisePacketWriter skips port 53 internally.
      */
     private fun udpNoisesOutbound(settings: AppSettings): JSONObject {

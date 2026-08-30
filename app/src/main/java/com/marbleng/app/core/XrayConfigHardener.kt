@@ -922,29 +922,23 @@ object XrayConfigHardener {
             addIpRule(rules, FREEDOM_POISON_BLOCK_IPS, "block")
         }
 
-        // Freedom: route QUIC and UDP/443 through the dedicated noises outbound (official XTLS
-        // shape). Attaching noises to the TCP hop padded every datagram and still left QUIC
-        // unprotected when apps dialled UDP/443 directly.
-        if (isFreedomMode) {
+        // YouTube and several media stacks prefer QUIC. On Iranian links UDP/443 often blackholes
+        // even when TCP/443 works with fragmentation, so Marble defaults Freedom to a fast TCP
+        // fallback: reject the QUIC path before the app spends a long time retransmitting. Experts
+        // can turn this off and use the official dedicated udp-noises outbound on networks where
+        // UDP/443 is actually carried. The existing muxUdp443=reject policy now also has a real
+        // routing effect instead of being only a mux hint.
+        val rejectUdp443 = settings.muxUdp443 == "reject" ||
+            (isFreedomMode && settings.freedomForceTcpForStreaming)
+        if (rejectUdp443) {
+            addQuicUdp443Rule(rules, "block")
+        } else if (isFreedomMode) {
             val noiseTag = keep.firstOrNull { tag ->
                 tag == ServerlessFreedomEngine.UDP_NOISES_TAG ||
                     (byTag[tag]?.let { hasNoises(it) && !hasFragment(it) } == true)
             }
             if (noiseTag != null && settings.freedomUdpNoiseEnabled) {
-                rules.put(
-                    JSONObject()
-                        .put("type", "field")
-                        .put("network", "udp")
-                        .put("protocol", JSONArray().put("quic"))
-                        .put("outboundTag", noiseTag)
-                )
-                rules.put(
-                    JSONObject()
-                        .put("type", "field")
-                        .put("network", "udp")
-                        .put("port", "443")
-                        .put("outboundTag", noiseTag)
-                )
+                addQuicUdp443Rule(rules, noiseTag)
             }
         }
 
@@ -1271,6 +1265,25 @@ object XrayConfigHardener {
             JSONObject()
                 .put("type", "field")
                 .put("ip", JSONArray(values))
+                .put("outboundTag", outboundTag)
+        )
+    }
+
+    private fun addQuicUdp443Rule(rules: JSONArray, outboundTag: String) {
+        rules.put(
+            JSONObject()
+                .put("type", "field")
+                .put("inboundTag", JSONArray().put("socks-in"))
+                .put("network", "udp")
+                .put("protocol", JSONArray().put("quic"))
+                .put("outboundTag", outboundTag)
+        )
+        rules.put(
+            JSONObject()
+                .put("type", "field")
+                .put("inboundTag", JSONArray().put("socks-in"))
+                .put("network", "udp")
+                .put("port", "443")
                 .put("outboundTag", outboundTag)
         )
     }

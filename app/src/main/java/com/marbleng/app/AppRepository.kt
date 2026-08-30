@@ -130,6 +130,26 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     )
         private set
 
+    var lastAppTab by mutableStateOf(store.lastAppTab())
+        private set
+
+    var lastSettingsTab by mutableStateOf(store.lastSettingsTab())
+        private set
+
+    fun rememberAppTab(name: String) {
+        val normalized = name.trim().ifBlank { "DECK" }
+        if (lastAppTab == normalized) return
+        lastAppTab = normalized
+        store.setLastAppTab(normalized)
+    }
+
+    fun rememberSettingsTab(name: String) {
+        val normalized = name.trim().ifBlank { "GENERAL" }
+        if (lastSettingsTab == normalized) return
+        lastSettingsTab = normalized
+        store.setLastSettingsTab(normalized)
+    }
+
     fun selectLibrarySource(id: String) {
         val normalized = normalizeLibrarySourceFilter(id)
         if (librarySourceFilter == normalized) return
