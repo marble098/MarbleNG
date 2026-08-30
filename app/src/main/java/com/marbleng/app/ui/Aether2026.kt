@@ -85,8 +85,6 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -4982,24 +4980,28 @@ private fun SpatialSettings(
 ) {
     val tabs=SettingsWorkspaceTab.entries
     val expertMode=repo.settings.expertMode
-    val scope=rememberCoroutineScope()
     val initialPage=if(focusSection == "Routing") {
         SettingsWorkspaceTab.NETWORK.ordinal
     } else rememberedSettingsTab(repo.lastSettingsTab).ordinal
-    val pagerState=rememberPagerState(initialPage=initialPage) { tabs.size }
-    val compactTabsState=rememberLazyListState(initialFirstVisibleItemIndex=initialPage)
+    // MARBLE_SETTINGS_TAB_CONTENT_VISIBLE_V70
+    // The previous pager-based tabs kept the selected workspace invisible on real devices: the
+    // tab strip updated while the page area stayed empty for every tab. Selection is now an
+    // explicit mutableIntStateOf and the visible tab is recomposed under key(selectedTabIndex),
+    // so the chosen workspace always lays out its own SettingsWorkspacePage.
+    var selectedTabIndex by remember { mutableIntStateOf(initialPage.coerceIn(0, tabs.lastIndex)) }
+    val compactTabsState=rememberLazyListState(initialFirstVisibleItemIndex=selectedTabIndex)
 
     LaunchedEffect(focusSection) {
         if(focusSection == "Routing") {
             if(!repo.settings.expertMode) {
                 repo.updateSettings(repo.settings.copy(expertMode=true))
             }
-            pagerState.animateScrollToPage(SettingsWorkspaceTab.NETWORK.ordinal)
+            selectedTabIndex = SettingsWorkspaceTab.NETWORK.ordinal
         }
     }
 
-    LaunchedEffect(pagerState.currentPage) {
-        val current = pagerState.currentPage.coerceIn(0, tabs.lastIndex)
+    LaunchedEffect(selectedTabIndex) {
+        val current = selectedTabIndex.coerceIn(0, tabs.lastIndex)
         compactTabsState.animateScrollToItem(current)
         repo.rememberSettingsTab(tabs[current].name)
     }
@@ -5037,13 +5039,11 @@ private fun SpatialSettings(
                     ) {
                         Spacer(Modifier.height(8.dp))
                         tabs.forEachIndexed { index,tab ->
-                            val selected=pagerState.currentPage == index
+                            val selected=selectedTabIndex == index
                             NavigationRailItem(
                                 selected=selected,
                                 onClick={
-                                    scope.launch {
-                                        pagerState.animateScrollToPage(index)
-                                    }
+                                    selectedTabIndex = index
                                 },
                                 icon={
                                     HomeVectorIcon(
@@ -5073,20 +5073,16 @@ private fun SpatialSettings(
 
                     Spacer(Modifier.width(10.dp))
 
-                    HorizontalPager(
-                        state=pagerState,
+                    SettingsTabPane(
+                        tab=tabs[selectedTabIndex],
+                        selectedIndex=selectedTabIndex,
+                        repo=repo,
+                        expertMode=expertMode,
+                        focusSection=focusSection,
                         modifier=Modifier
                             .fillMaxHeight()
-                            .weight(1f),
-                        beyondViewportPageCount=1
-                    ) { page ->
-                        SettingsWorkspacePage(
-                            tab=tabs[page],
-                            repo=repo,
-                            expertMode=expertMode,
-                            focusSection=focusSection
-                        )
-                    }
+                            .weight(1f)
+                    )
                 }
             } else {
                 Column(Modifier.fillMaxSize()) {
@@ -5109,7 +5105,7 @@ private fun SpatialSettings(
                             tabs,
                             key={ _,tab -> tab.name }
                         ) { index,tab ->
-                            val selected=pagerState.currentPage == index
+                            val selected=selectedTabIndex == index
                             val tone=settingsTabTone(tab)
                             val shape=RoundedCornerShape(18.dp)
 
@@ -5125,9 +5121,7 @@ private fun SpatialSettings(
                                     .kineticClickable(
                                         role=Role.Button
                                     ) {
-                                        scope.launch {
-                                            pagerState.animateScrollToPage(index)
-                                        }
+                                        selectedTabIndex = index
                                     }
                                     .padding(horizontal=13.dp,vertical=9.dp),
                                 verticalAlignment=Alignment.CenterVertically,
@@ -5176,26 +5170,51 @@ private fun SpatialSettings(
                     }
                     }
 
-                    HorizontalPager(
-                        state=pagerState,
+                    SettingsTabPane(
+                        tab=tabs[selectedTabIndex],
+                        selectedIndex=selectedTabIndex,
+                        repo=repo,
+                        expertMode=expertMode,
+                        focusSection=focusSection,
                         modifier=Modifier
                             .fillMaxWidth()
-                            .weight(1f),
-                        beyondViewportPageCount=1
-                    ) { page ->
-                        SettingsWorkspacePage(
-                            tab=tabs[page],
-                            repo=repo,
-                            expertMode=expertMode,
-                            focusSection=focusSection
-                        )
-                    }
+                            .weight(1f)
+                    )
                 }
             }
         }
     }
 }
 
+
+/**
+ * Hosts exactly the selected Settings workspace.
+ *
+ * Each Settings tab used to be a page of a shared HorizontalPager; on real devices the pager
+ * updated its index while the page area stayed empty, so every workspace looked blank. A plain
+ * [key]-scoped SettingsWorkspacePage keeps the visible tab and its content in lockstep — no
+ * shared pager scroll state, no offscreen page.
+ */
+@Composable
+private fun SettingsTabPane(
+    tab: SettingsWorkspaceTab,
+    selectedIndex: Int,
+    repo: AppRepository,
+    expertMode: Boolean,
+    focusSection: String?,
+    modifier: Modifier = Modifier
+) {
+    Box(modifier = modifier) {
+        key(selectedIndex) {
+            SettingsWorkspacePage(
+                tab=tab,
+                repo=repo,
+                expertMode=expertMode,
+                focusSection=focusSection
+            )
+        }
+    }
+}
 
 @Composable
 private fun SettingsWorkspacePage(
