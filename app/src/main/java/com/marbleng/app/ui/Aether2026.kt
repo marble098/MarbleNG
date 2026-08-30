@@ -5080,8 +5080,7 @@ private fun SpatialSettings(
 
                     SettingsTabPane(
                         tab=tabs[selectedTabIndex],
-                        selectedIndex=selectedTabIndex,
-                        repo=repo,
+                                                repo=repo,
                         expertMode=expertMode,
                         focusSection=focusSection,
                         modifier=Modifier
@@ -5175,20 +5174,15 @@ private fun SpatialSettings(
                     }
                     }
 
-                    Box(
+                    SettingsTabPane(
+                        tab=tabs[selectedTabIndex],
+                        repo=repo,
+                        expertMode=expertMode,
+                        focusSection=focusSection,
                         modifier=Modifier
                             .fillMaxWidth()
                             .weight(1f)
-                    ) {
-                        SettingsTabPane(
-                            tab=tabs[selectedTabIndex],
-                            selectedIndex=selectedTabIndex,
-                            repo=repo,
-                            expertMode=expertMode,
-                            focusSection=focusSection,
-                            modifier=Modifier.fillMaxSize()
-                        )
-                    }
+                    )
                 }
             }
         }
@@ -5207,22 +5201,22 @@ private fun SpatialSettings(
 @Composable
 private fun SettingsTabPane(
     tab: SettingsWorkspaceTab,
-    selectedIndex: Int,
     repo: AppRepository,
     expertMode: Boolean,
     focusSection: String?,
     modifier: Modifier = Modifier
 ) {
-    Box(modifier = modifier) {
-        key(selectedIndex) {
-            SettingsWorkspacePage(
-                tab=tab,
-                repo=repo,
-                expertMode=expertMode,
-                focusSection=focusSection
-            )
-        }
-    }
+    // MARBLE_SETTINGS_DIRECT_CONTENT_HOST_V73
+    // Keep the weighted mobile host directly attached to the LazyColumn.
+    // The previous Box/key boundary could resolve to a zero-height child on
+    // affected Android builds while the Settings tab strip stayed visible.
+    SettingsWorkspacePage(
+        tab=tab,
+        repo=repo,
+        expertMode=expertMode,
+        focusSection=focusSection,
+        modifier=modifier
+    )
 }
 
 @Composable
@@ -5230,10 +5224,11 @@ private fun SettingsWorkspacePage(
     tab: SettingsWorkspaceTab,
     repo: AppRepository,
     expertMode: Boolean,
-    focusSection: String?
+    focusSection: String?,
+    modifier: Modifier = Modifier
 ) {
     LazyColumn(
-        modifier = Modifier.fillMaxSize(),
+        modifier = modifier,
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
