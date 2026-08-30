@@ -242,6 +242,7 @@ check("Bug Finder reports passive and external leak scores separately", "Passive
 check("Home exact reconnect path exists", "repo.reconnectLastOrAuto(onConnect)" in files["ui"])
 check("Library exact active-row check exists", "repo.isActiveProfile(profile)" in files["ui"])
 check("Settings tabs render the selected workspace", "key(selectedTabIndex)" in files["ui"] and "SettingsTabPane(" in files["ui"] and "SettingsWorkspacePage(" in files["ui"])
+check("Settings workspace has explicit remaining-height viewport", "MARBLE_SETTINGS_CONTENT_VIEWPORT_HARDENING_V72" in files["ui"] and "modifier=Modifier.fillMaxSize()" in files["ui"])
 check("Library long names use overflow marquee", "basicMarquee(" in files["ui"])
 check("legacy global chain settings are removed", "chainEnabled" not in files["models"] + files["store"] + files["ui"])
 check("DNS settings keep their Compose boundary", "@Composable\nprivate fun DnsSettings(" in files["ui"])
