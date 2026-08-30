@@ -11,7 +11,7 @@ import javax.inject.Inject
 class HomeViewModel @Inject constructor(
     private val connectionManager: ConnectionManager,
     private val profileRepository: ProfileRepository,
-    private val settingsRepository: SettingsRepository,
+    private val settingsRepository: HomeSettingsRepository,
     private val lastRouteStore: LastRouteStore
 ) : ViewModel() {
 
@@ -35,13 +35,12 @@ class HomeViewModel @Inject constructor(
     }
 
     /**
-     * FIX: When user clicks Connect, properly handle last-node reconnect
-     * when Marble Freedom is turned OFF.
+     * FIX: When Marble Freedom is OFF, reconnect to the last used node
+     * instead of short-circuiting into freedom logic.
      */
     fun onConnectClicked() {
         viewModelScope.launch {
             _uiState.update { it.copy(isConnecting = true, error = null) }
-
             try {
                 val currentState = _uiState.value
                 val lastNodeId = lastRouteStore.getLastConnectedNodeId()
@@ -61,26 +60,19 @@ class HomeViewModel @Inject constructor(
                     }
                 }
             } catch (e: Exception) {
-                _uiState.update { 
-                    it.copy(
-                        isConnecting = false,
-                        error = e.message ?: "Connection failed"
-                    ) 
+                _uiState.update {
+                    it.copy(isConnecting = false, error = e.message ?: "Connection failed")
                 }
             }
         }
     }
 
     fun onDisconnectClicked() {
-        viewModelScope.launch {
-            connectionManager.disconnect()
-        }
+        viewModelScope.launch { connectionManager.disconnect() }
     }
 
     fun onMarbleFreedomToggled(enabled: Boolean) {
-        viewModelScope.launch {
-            settingsRepository.setMarbleFreedomEnabled(enabled)
-        }
+        viewModelScope.launch { settingsRepository.setMarbleFreedomEnabled(enabled) }
     }
 
     fun clearError() {
@@ -90,17 +82,17 @@ class HomeViewModel @Inject constructor(
 
 interface ConnectionManager {
     val connectionState: StateFlow<ConnectionState>
-    suspend fun connect(profile: Profile)
+    suspend fun connect(profile: NodeProfile)
     suspend fun connectAutoSelect()
     suspend fun connectWithFreedom()
     suspend fun disconnect()
 }
 
 interface ProfileRepository {
-    suspend fun getProfileById(id: String): Profile?
+    suspend fun getProfileById(id: String): NodeProfile?
 }
 
-interface SettingsRepository {
+interface HomeSettingsRepository {
     val isMarbleFreedomEnabled: StateFlow<Boolean>
     suspend fun setMarbleFreedomEnabled(enabled: Boolean)
 }
@@ -109,7 +101,8 @@ interface LastRouteStore {
     suspend fun getLastConnectedNodeId(): String?
 }
 
-data class Profile(val id: String, val name: String)
+data class NodeProfile(val id: String, val name: String)
+
 sealed class ConnectionState {
     data object Disconnected : ConnectionState()
     data object Connecting : ConnectionState()
