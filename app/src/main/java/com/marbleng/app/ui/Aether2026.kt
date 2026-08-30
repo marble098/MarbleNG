@@ -4987,7 +4987,7 @@ private fun SpatialSettings(
         SettingsWorkspaceTab.NETWORK.ordinal
     } else rememberedSettingsTab(repo.lastSettingsTab).ordinal
     val pagerState=rememberPagerState(initialPage=initialPage) { tabs.size }
-    val compactTabsState=rememberLazyListState()
+    val compactTabsState=rememberLazyListState(initialFirstVisibleItemIndex=initialPage)
 
     LaunchedEffect(focusSection) {
         if(focusSection == "Routing") {
@@ -8047,52 +8047,57 @@ private fun FreedomLayerCard(
         radius = 16.dp,
         contentPadding = PaddingValues(12.dp)
     ) {
-        Row(
+        Column(
             modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Box(
-                Modifier
-                    .size(8.dp)
-                    .clip(CircleShape)
-                    .background(if (enabled) tone else Aether.InkFaint)
-            )
-            Column(Modifier.weight(1f)) {
-                Text(
-                    title,
-                    color = Aether.Ink,
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.Bold
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Box(
+                    Modifier
+                        .size(8.dp)
+                        .clip(CircleShape)
+                        .background(if (enabled) tone else Aether.InkFaint)
                 )
-                Text(
-                    subtitle,
-                    color = Aether.InkFaint,
-                    style = MaterialTheme.typography.labelSmall,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-            if (onEnabled != null) {
-                Switch(
-                    checked = enabled,
-                    onCheckedChange = onEnabled,
-                    colors = marbleSwitchColors()
-                )
-            }
-        }
-
-        AnimatedVisibility(enabled) {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(7.dp)
-                ) {
-                    TinyField("Packets", packets, Modifier.weight(1f), onPackets)
-                    TinyField("Length", length, Modifier.weight(1f), onLength)
-                    TinyField("Interval", interval, Modifier.weight(1f), onInterval)
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        title,
+                        color = Aether.Ink,
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        subtitle,
+                        color = Aether.InkFaint,
+                        style = MaterialTheme.typography.labelSmall,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
-                TinyField("maxSplit (optional)", maxSplit, Modifier.fillMaxWidth(), onMaxSplit)
+                if (onEnabled != null) {
+                    Switch(
+                        checked = enabled,
+                        onCheckedChange = onEnabled,
+                        colors = marbleSwitchColors()
+                    )
+                }
+            }
+
+            AnimatedVisibility(enabled) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(7.dp)
+                    ) {
+                        TinyField("Packets", packets, Modifier.weight(1f), onPackets)
+                        TinyField("Length", length, Modifier.weight(1f), onLength)
+                        TinyField("Interval", interval, Modifier.weight(1f), onInterval)
+                    }
+                    TinyField("maxSplit (optional)", maxSplit, Modifier.fillMaxWidth(), onMaxSplit)
+                }
             }
         }
     }
