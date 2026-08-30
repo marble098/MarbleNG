@@ -277,9 +277,13 @@ data class AppSettings(
     // Marble Freedom Anti-DPI Multi-Layer Fragmentation & Smart Multi-DNS
     val freedomPreset: FreedomPreset = FreedomPreset.SMART_ADAPTIVE,
     val freedomLayerCount: Int = 3,
-    val freedomOuterPackets: String = "tlshello",
-    val freedomOuterLength: String = "6",
-    val freedomOuterInterval: String = "0",
+    // Outer hop defaults follow GFW-knocker's packet-split (1-1 / 1-3 / 5-10). The old
+    // "tlshello" record-rewriting mode is no longer a default: it emits complete tiny TLS
+    // records that real servers and Iran's 2026 DPI reject/RST (Xray #4370, #5969; runtime
+    // verified on v26.7.28 against Fastly/Cloudflare/GitHub/AWS).
+    val freedomOuterPackets: String = "1-1",
+    val freedomOuterLength: String = "1-3",
+    val freedomOuterInterval: String = "5-10",
     val freedomOuterMaxSplit: String = "",
     val freedomMiddleEnabled: Boolean = true,
     val freedomMiddlePackets: String = "1-3",
@@ -299,7 +303,11 @@ data class AppSettings(
     val freedomDnsPrimaryDoH: String = "https://1.1.1.1/dns-query",
     val freedomDnsSecondaryDoH: String = "https://8.8.8.8/dns-query",
     val freedomDnsFallbackDoH: String = "https://9.9.9.9/dns-query",
-    val freedomDnsCleanResolvers: String = "https://1.1.1.1/dns-query,https://8.8.8.8/dns-query,https://9.9.9.9/dns-query,https://dns.adguard-dns.com/dns-query,https://doh.sb/dns-query,https://dns.shecan.ir/dns-query",
+    // Domain-host resolvers must be pin-able in Xray dns.hosts (see XrayConfigHardener); a
+    // hostname DoH without a pin would bootstrap through the poisoned OS resolver or recurse
+    // inside the Freedom DNS module. doh.sb is intentionally absent: its addresses are not
+    // stable enough to pin, so it would silently fail inside the encrypted path.
+    val freedomDnsCleanResolvers: String = "https://1.1.1.1/dns-query,https://8.8.8.8/dns-query,https://9.9.9.9/dns-query,https://dns.adguard-dns.com/dns-query,https://dns.shecan.ir/dns-query",
     val freedomDnsQueryStrategy: String = "UseIP",
     val freedomDomainStrategy: String = "IPIfNonMatch",
     val freedomDnsHijack: Boolean = true,

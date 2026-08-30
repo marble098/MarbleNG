@@ -17,6 +17,7 @@ import com.marbleng.app.core.DataStallGuard
 import com.marbleng.app.core.LinkQualityEstimator
 import com.marbleng.app.core.NetworkSnapshot
 import com.marbleng.app.core.RuntimeDiagnostics
+import com.marbleng.app.core.ServerlessFreedomEngine
 import com.marbleng.app.core.SocksHttpClient
 import com.marbleng.app.core.SmartNotificationKind
 import com.marbleng.app.core.SmartNotifier
@@ -1995,6 +1996,23 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
 
         if (observed.isBlank()) return true
         if (!isRouteCurrent(session, generation)) return false
+
+        // Marble Freedom has no remote exit to pin: the observed egress is the user's own address,
+        // which legitimately changes (CGNAT rebinding, WiFi↔mobile handover, IPv6 prefix rotation)
+        // and has no relation to proxy identity. Pinning it would tear the route down mid-session,
+        // and recoveryCandidates is intentionally empty for serverless, leaving the user stuck in
+        // a fail-closed tunnel. Identity verification is informational only on this profile.
+        if (ServerlessFreedomEngine.matches(activeProfileId, activeProfileSourceId)) {
+            val repo = (application as MarbleApplication).repo
+            repo.updateSentinel(
+                repo.sentinel.copy(
+                    exitIp = observed,
+                    updatedAt = System.currentTimeMillis()
+                )
+            )
+            diag.event("IDENTITY", "freedom-exit-informational", "session" to session, "ip" to observed)
+            return true
+        }
 
         val isV6 = observed.contains(':')
         val pinned = if (isV6) pinnedExitV6 else pinnedExitV4

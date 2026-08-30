@@ -51,18 +51,26 @@ class DpiEvasionPolicyTest {
         assertTrue(healed.mtuMax <= 1280)
     }
 
+    /**
+     * SNI + TCP-reset DPI uses the chained serverless recipe. The outer hop is the packet
+     * split (1-1/1-3/5-10), NOT Xray's "tlshello" record-rewriter: real servers (Fastly,
+     * Cloudflare, GitHub, AWS — RST, verified on v26.7.28) and Iran's 2026 DPI reject that
+     * shape (Xray #4370, #5969). The recipe still chains directly-dialing fragmentation.
+     */
     @Test
-    fun sniPlusResetUsesChainedTlshello() {
+    fun sniPlusResetUsesChainedServerlessSplit() {
         val recipe = DpiEvasionPolicy.connectionRecipe(
             IranModeState(
                 active = true,
                 techniques = setOf(CensorTechnique.SNI_FILTERING, CensorTechnique.TCP_RESET)
             )
         )
-        assertEquals("tlshello", recipe.packets)
-        assertEquals("6", recipe.length)
+        assertEquals("1-1", recipe.packets)
+        assertEquals("1-3", recipe.length)
+        assertEquals("5-10", recipe.interval)
         assertTrue(recipe.innerEnabled)
         assertEquals("1-1", recipe.innerPackets)
+        assertEquals("4", recipe.innerInterval)
         assertEquals("517", recipe.innerMaxSplit)
     }
 
