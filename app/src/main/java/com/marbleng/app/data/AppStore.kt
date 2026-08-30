@@ -204,13 +204,13 @@ class AppStore(context: Context) {
         fragmentInnerMaxSplit = prefs.getString("fragmentInnerMaxSplit", "517") ?: "517",
 
         freedomPreset = enumValue("freedomPreset", FreedomPreset.SMART_ADAPTIVE),
-        freedomLayerCount = prefs.getInt("freedomLayerCount", 3).coerceIn(1, 3),
+        freedomLayerCount = prefs.getInt("freedomLayerCount", 2).coerceIn(1, 3),
         // GFW-knocker packet-split defaults (1-1 / 1-3 / 5-10); see Models.kt comment.
         freedomOuterPackets = prefs.getString("freedomOuterPackets", "1-1") ?: "1-1",
         freedomOuterLength = prefs.getString("freedomOuterLength", "1-3") ?: "1-3",
         freedomOuterInterval = prefs.getString("freedomOuterInterval", "5-10") ?: "5-10",
         freedomOuterMaxSplit = prefs.getString("freedomOuterMaxSplit", "") ?: "",
-        freedomMiddleEnabled = prefs.getBoolean("freedomMiddleEnabled", true),
+        freedomMiddleEnabled = prefs.getBoolean("freedomMiddleEnabled", false),
         freedomMiddlePackets = prefs.getString("freedomMiddlePackets", "1-3") ?: "1-3",
         freedomMiddleLength = prefs.getString("freedomMiddleLength", "10-30") ?: "10-30",
         freedomMiddleInterval = prefs.getString("freedomMiddleInterval", "5-10") ?: "5-10",
@@ -231,7 +231,7 @@ class AppStore(context: Context) {
         // dns.hosts, and an unpinned hostname DoH cannot bootstrap inside the Freedom chain.
         freedomDnsCleanResolvers = prefs.getString("freedomDnsCleanResolvers", "https://1.1.1.1/dns-query,https://8.8.8.8/dns-query,https://9.9.9.9/dns-query,https://dns.adguard-dns.com/dns-query,https://dns.shecan.ir/dns-query") ?: "https://1.1.1.1/dns-query,https://8.8.8.8/dns-query,https://9.9.9.9/dns-query,https://dns.adguard-dns.com/dns-query,https://dns.shecan.ir/dns-query",
         freedomDnsQueryStrategy = prefs.getString("freedomDnsQueryStrategy", "UseIP") ?: "UseIP",
-        freedomDomainStrategy = prefs.getString("freedomDomainStrategy", "IPIfNonMatch") ?: "IPIfNonMatch",
+        freedomDomainStrategy = prefs.getString("freedomDomainStrategy", "IPOnDemand") ?: "IPOnDemand",
         freedomDnsHijack = prefs.getBoolean("freedomDnsHijack", true),
         freedomDirectDomestic = prefs.getBoolean("freedomDirectDomestic", true),
 
@@ -240,7 +240,7 @@ class AppStore(context: Context) {
         freedomUdpNoiseDelay4 = prefs.getString("freedomUdpNoiseDelay4", "10") ?: "10",
         freedomUdpNoisePacket6 = prefs.getString("freedomUdpNoisePacket6", "1230") ?: "1230",
         freedomUdpNoiseDelay6 = prefs.getString("freedomUdpNoiseDelay6", "10") ?: "10",
-        freedomUdpNoiseCount = prefs.getInt("freedomUdpNoiseCount", 2).coerceIn(1, 10),
+        freedomUdpNoiseCount = prefs.getInt("freedomUdpNoiseCount", 6).coerceIn(2, 16),
 
         muxEnabled = prefs.getBoolean("muxEnabled", false),
         muxConcurrency = prefs.getInt("muxConcurrency", 8),
@@ -424,7 +424,7 @@ class AppStore(context: Context) {
         .putString("freedomUdpNoiseDelay4", s.freedomUdpNoiseDelay4)
         .putString("freedomUdpNoisePacket6", s.freedomUdpNoisePacket6)
         .putString("freedomUdpNoiseDelay6", s.freedomUdpNoiseDelay6)
-        .putInt("freedomUdpNoiseCount", s.freedomUdpNoiseCount.coerceIn(1, 10))
+        .putInt("freedomUdpNoiseCount", s.freedomUdpNoiseCount.coerceIn(2, 16))
 
         .putBoolean("muxEnabled", s.muxEnabled)
         .putInt("muxConcurrency", s.muxConcurrency)

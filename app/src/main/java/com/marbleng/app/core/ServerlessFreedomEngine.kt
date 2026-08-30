@@ -11,13 +11,22 @@ import org.json.JSONObject
  * DPI cannot reassemble SNI. Identity Guard still pins the (user) exit IP.
  *
  * Template follows the official XTLS `serverless_for_Iran.jsonc` chain
- * (packet-split 1-1/1-3/5-10 → full-fragment 1-1/1/4 maxSplit 517 + UDP noises)
+ * (packet-split outer → full-fragment 1-1/1/4 maxSplit 517 + dedicated UDP-noises outbound)
  * while emitting `freedom`/`blackhole` for the locked Xray v26.7.28 core.
+ *
+ * Why YouTube / X / Reddit previously failed or loaded half-broken on Freedom:
+ *  - an untested middle hop slowed the first flight past CDN idle cutoffs
+ *  - UDP/QUIC (YouTube media, X live) had noise attached to the TCP hop instead of a
+ *    dedicated noises outbound routed only for QUIC and UDP/443 (official shape)
+ *  - poisoned injector ranges were not blocked, so half-resolved multi-CDN hosts stuck
  */
 object ServerlessFreedomEngine {
     const val PROFILE_ID = "marble-serverless-freedom"
     const val SOURCE_ID = "marble-serverless"
     const val DISPLAY_NAME = "Marble Freedom"
+    const val UDP_NOISES_TAG = "udp-noises"
+    const val INNER_TAG = "full-fragment"
+    const val MIDDLE_TAG = "middle-fragment"
 
     fun matches(id: String, sourceId: String? = null): Boolean {
         if (id != PROFILE_ID) return false
@@ -27,12 +36,15 @@ object ServerlessFreedomEngine {
     fun isServerless(profile: ProxyProfile): Boolean =
         matches(profile.id, profile.subscriptionId) || profile.scheme.equals("freedom", true)
 
-    fun profile(settings: AppSettings = AppSettings()): ProxyProfile = ProxyProfile(
+    fun profile(
+        settings: AppSettings = AppSettings(),
+        iranMode: IranModeState = IranModeState()
+    ): ProxyProfile = ProxyProfile(
         id = PROFILE_ID,
         name = DISPLAY_NAME,
         scheme = "freedom",
         raw = "freedom://fragment",
-        configJson = configJson(settings),
+        configJson = configJson(settings, iranMode),
         host = "",
         port = 443,
         transport = "fragment",
@@ -42,15 +54,19 @@ object ServerlessFreedomEngine {
         sourceManaged = true
     )
 
-    fun configJson(settings: AppSettings = AppSettings()): String {
-        val recipe = DpiEvasionPolicy.freedomRecipe(settings)
+    fun configJson(
+        settings: AppSettings = AppSettings(),
+        iranMode: IranModeState = IranModeState()
+    ): String {
+        val recipe = DpiEvasionPolicy.freedomRecipe(settings, iranMode)
         val outbounds = JSONArray()
 
-        val hasMiddle = recipe.middleEnabled || (settings.freedomMiddleEnabled && settings.freedomLayerCount >= 3)
-        val middleTag = "middle-fragment"
-        val innerTag = "full-fragment"
+        // Official XTLS is a 2-hop chain (outer → full-fragment). A middle hop is only emitted
+        // when the active recipe (or an explicit Custom preset) asks for it — never by stale
+        // freedomMiddleEnabled leftovers from an older install.
+        val effectiveMiddle = recipe.middleEnabled
 
-        val outerDialer = if (hasMiddle) middleTag else innerTag
+        val outerDialer = if (effectiveMiddle) MIDDLE_TAG else INNER_TAG
 
         val outer = JSONObject()
             .put("tag", "proxy")
@@ -76,7 +92,7 @@ object ServerlessFreedomEngine {
             )
         outbounds.put(outer)
 
-        if (hasMiddle) {
+        if (effectiveMiddle) {
             val middleFragment = fragmentObject(
                 recipe.middlePackets.ifBlank { settings.freedomMiddlePackets.ifBlank { "1-3" } },
                 recipe.middleLength.ifBlank { settings.freedomMiddleLength.ifBlank { "10-30" } },
@@ -84,14 +100,14 @@ object ServerlessFreedomEngine {
                 recipe.middleMaxSplit.ifBlank { settings.freedomMiddleMaxSplit.ifBlank { "768" } }
             )
             val middle = JSONObject()
-                .put("tag", middleTag)
+                .put("tag", MIDDLE_TAG)
                 .put("protocol", "freedom")
                 .put("settings", JSONObject().put("fragment", middleFragment))
                 .put(
                     "streamSettings",
                     JSONObject().put(
                         "sockopt",
-                        JSONObject().put("dialerProxy", innerTag)
+                        JSONObject().put("dialerProxy", INNER_TAG)
                     )
                 )
             outbounds.put(middle)
@@ -103,16 +119,20 @@ object ServerlessFreedomEngine {
             recipe.innerInterval.ifBlank { settings.freedomInnerInterval.ifBlank { "4" } },
             recipe.innerMaxSplit.ifBlank { settings.freedomInnerMaxSplit.ifBlank { "517" } }
         )
+        // TCP hop: fragment only. UDP noises live on a dedicated outbound (official XTLS shape)
+        // so ordinary TCP is not padded and QUIC/UDP-443 get the full noise burst.
         val inner = JSONObject()
-            .put("tag", innerTag)
+            .put("tag", INNER_TAG)
             .put("protocol", "freedom")
             .put(
                 "settings",
-                JSONObject()
-                    .put("fragment", innerFragment)
-                    .put("noises", udpNoises(settings))
+                JSONObject().put("fragment", innerFragment)
             )
         outbounds.put(inner)
+
+        if (settings.freedomUdpNoiseEnabled) {
+            outbounds.put(udpNoisesOutbound(settings))
+        }
 
         return JSONObject()
             .put("outbounds", outbounds)
@@ -126,7 +146,10 @@ object ServerlessFreedomEngine {
         identityGuardStrictNoFailover = true,
         fragmentEnabled = true,
         adaptiveFragmentEnabled = true,
-        fragmentInnerEnabled = true
+        fragmentInnerEnabled = true,
+        // Freedom must always hijack classic DNS; without it the poisoned ISP resolver wins.
+        dnsHijackEnabled = true,
+        freedomDnsHijack = true
     )
 
     private fun fragmentObject(
@@ -147,36 +170,30 @@ object ServerlessFreedomEngine {
         return fragment
     }
 
-    /** UDP noise skips port 53 inside Xray; used to pad QUIC-shaped datagrams on IPv4/IPv6. */
-    private fun udpNoises(settings: AppSettings = AppSettings()): JSONArray {
-        if (!settings.freedomUdpNoiseEnabled) return JSONArray()
-        val array = JSONArray()
+    /**
+     * Dedicated UDP-noises outbound matching XTLS Serverless-for-Iran.
+     * Routed only for QUIC and UDP/443 by [XrayConfigHardener]; never attached to the TCP hop.
+     * NoisePacketWriter skips port 53 internally.
+     */
+    private fun udpNoisesOutbound(settings: AppSettings): JSONObject {
         val pkt4 = settings.freedomUdpNoisePacket4.ifBlank { "1250" }
         val del4 = settings.freedomUdpNoiseDelay4.ifBlank { "10" }
         val pkt6 = settings.freedomUdpNoisePacket6.ifBlank { "1230" }
         val del6 = settings.freedomUdpNoiseDelay6.ifBlank { "10" }
-
-        val count = settings.freedomUdpNoiseCount.coerceIn(1, 10)
-        for (i in 0 until count) {
-            if (i % 2 == 0) {
-                array.put(
-                    JSONObject()
-                        .put("type", "rand")
-                        .put("packet", pkt4)
-                        .put("delay", del4)
-                        .put("applyTo", "ipv4")
-                )
-            } else {
-                array.put(
-                    JSONObject()
-                        .put("type", "rand")
-                        .put("packet", pkt6)
-                        .put("delay", del6)
-                        .put("applyTo", "ipv6")
-                )
-            }
+        // Official ships ~13 IPv4 + ~13 IPv6 entries. A smaller burst still defeats
+        // stateful UDP trackers; cap at 16 total for mobile battery.
+        val pairs = settings.freedomUdpNoiseCount.coerceIn(2, 16)
+        val array = JSONArray()
+        repeat(pairs) {
+            array.put(
+                JSONObject()
+                    .put("type", "rand")
+                    .put("packet", pkt4)
+                    .put("delay", del4)
+                    .put("applyTo", "ipv4")
+            )
         }
-        if (array.length() == 1) {
+        repeat(pairs) {
             array.put(
                 JSONObject()
                     .put("type", "rand")
@@ -185,6 +202,14 @@ object ServerlessFreedomEngine {
                     .put("applyTo", "ipv6")
             )
         }
-        return array
+        return JSONObject()
+            .put("tag", UDP_NOISES_TAG)
+            .put("protocol", "freedom")
+            .put(
+                "settings",
+                JSONObject()
+                    .put("domainStrategy", "UseIP")
+                    .put("noises", array)
+            )
     }
 }

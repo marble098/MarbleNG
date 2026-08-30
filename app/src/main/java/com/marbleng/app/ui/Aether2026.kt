@@ -7447,7 +7447,10 @@ private fun IranModeSettings(repo: AppRepository) {
 private fun FreedomSettings(repo: AppRepository) {
     val s = repo.settings
     val enabled = s.serverlessModeEnabled
+    val recipe = com.marbleng.app.core.DpiEvasionPolicy.freedomRecipe(s)
+    val layerCount = 1 + (if (recipe.middleEnabled) 1 else 0) + (if (recipe.innerEnabled) 1 else 0)
 
+    // ── Status hero ──────────────────────────────────────────────────────────
     HoloGlass(
         modifier = Modifier.fillMaxWidth(),
         borderColor = if (enabled) Aether.Cyan.copy(alpha = 0.55f) else Color.Transparent,
@@ -7455,282 +7458,199 @@ private fun FreedomSettings(repo: AppRepository) {
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            Box(
+                Modifier
+                    .size(42.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background((if (enabled) Aether.Emerald else Aether.InkMuted).copy(alpha = .11f)),
+                contentAlignment = Alignment.Center
+            ) {
+                HomeVectorIcon(
+                    HomeIcon.SHIELD,
+                    if (enabled) Aether.Emerald else Aether.InkMuted,
+                    Modifier.size(22.dp)
+                )
+            }
             Column(Modifier.weight(1f)) {
                 Text(
-                    "Marble Freedom Engine",
+                    "Marble Freedom",
                     color = Aether.Ink,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    if (enabled) "Direct serverless DPI evasion active" else "Serverless mode is idle",
+                    if (enabled) {
+                        "$layerCount-hop chain • YouTube / X / Reddit ready"
+                    } else {
+                        "Serverless DPI bypass is idle"
+                    },
                     color = Aether.InkMuted,
-                    style = MaterialTheme.typography.bodySmall
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
-            HoloBadge(
-                if (enabled) "ENABLED" else "DISABLED",
-                if (enabled) Aether.Emerald else Aether.InkMuted,
-                compact = true
+            Switch(
+                checked = enabled,
+                onCheckedChange = { repo.setServerlessMode(it) },
+                colors = marbleSwitchColors()
             )
         }
 
-        SettingSwitch(
-            title = "Serverless Freedom Mode",
-            subtitle = "Connect to the free web directly without proxy nodes using multi-layer TLS fragmentation and clean multi-DNS racing",
-            checked = enabled
-        ) { next ->
-            repo.setServerlessMode(next)
-        }
-
-        Row(
-            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(7.dp)
-        ) {
-            val layerCount = 1 + (if (s.freedomMiddleEnabled) 1 else 0) + (if (s.freedomInnerEnabled) 1 else 0)
-            HoloBadge("$layerCount-LAYER FRAGMENTATION", Aether.Cyan, compact = true)
-            HoloBadge(s.freedomPreset.name.replace("_", " "), Aether.Amethyst, compact = true)
-            if (s.freedomUdpNoiseEnabled) {
-                HoloBadge("UDP NOISE ON", Aether.Emerald, compact = true)
-            }
-            if (s.freedomDnsHijack) {
-                HoloBadge("SMART MULTI-DNS", Aether.Emerald, compact = true)
-            }
-        }
-    }
-
-    SectionLabel("Evasion presets")
-
-    FlowRow(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(7.dp),
-        verticalArrangement = Arrangement.spacedBy(7.dp)
-    ) {
-        FreedomPreset.entries.forEach { preset ->
-            val isSelected = s.freedomPreset == preset
-            CyberChoiceChip(
-                text = when (preset) {
-                    FreedomPreset.SMART_ADAPTIVE -> "Smart Auto"
-                    FreedomPreset.MULTI_LAYER_CASCADE -> "3-Layer Cascade"
-                    FreedomPreset.SNI_SHREDDER -> "SNI Shredder"
-                    FreedomPreset.AGGRESSIVE_RECORD_SPLIT -> "Aggressive Split"
-                    FreedomPreset.EXTREME_ANTI_DPI -> "Extreme Anti-DPI"
-                    FreedomPreset.CUSTOM -> "Custom"
-                },
-                selected = isSelected,
-                color = when (preset) {
-                    FreedomPreset.SMART_ADAPTIVE -> Aether.Cyan
-                    FreedomPreset.MULTI_LAYER_CASCADE -> Aether.Emerald
-                    FreedomPreset.SNI_SHREDDER -> Aether.Amethyst
-                    FreedomPreset.AGGRESSIVE_RECORD_SPLIT, FreedomPreset.EXTREME_ANTI_DPI -> Aether.Amber
-                    FreedomPreset.CUSTOM -> Aether.InkMuted
-                }
+        if (enabled) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(7.dp)
             ) {
-                val updated = when (preset) {
-                    FreedomPreset.SMART_ADAPTIVE -> s.copy(
-                        freedomPreset = preset,
-                        freedomLayerCount = 3,
-                        freedomOuterPackets = "1-1",
-                        freedomOuterLength = "1-3",
-                        freedomOuterInterval = "5-10",
-                        freedomOuterMaxSplit = "",
-                        freedomMiddleEnabled = true,
-                        freedomMiddlePackets = "1-3",
-                        freedomMiddleLength = "10-30",
-                        freedomMiddleInterval = "5-10",
-                        freedomMiddleMaxSplit = "768",
-                        freedomInnerEnabled = true,
-                        freedomInnerPackets = "1-1",
-                        freedomInnerLength = "1",
-                        freedomInnerInterval = "4",
-                        freedomInnerMaxSplit = "517",
-                        freedomUdpNoiseEnabled = true
-                    )
-                    FreedomPreset.MULTI_LAYER_CASCADE -> s.copy(
-                        freedomPreset = preset,
-                        freedomLayerCount = 3,
-                        // Packet-split outer (GFW-knocker shape). "tlshello" record-rewriting is
-                        // avoided: it emits complete tiny TLS records that real servers RST.
-                        freedomOuterPackets = "1-1",
-                        freedomOuterLength = "1-3",
-                        freedomOuterInterval = "5-10",
-                        freedomOuterMaxSplit = "",
-                        freedomMiddleEnabled = true,
-                        freedomMiddlePackets = "1-3",
-                        freedomMiddleLength = "10-25",
-                        freedomMiddleInterval = "5-10",
-                        freedomMiddleMaxSplit = "768",
-                        freedomInnerEnabled = true,
-                        freedomInnerPackets = "1-2",
-                        freedomInnerLength = "2-5",
-                        freedomInnerInterval = "4-8",
-                        freedomInnerMaxSplit = "517",
-                        freedomUdpNoiseEnabled = true
-                    )
-                    FreedomPreset.SNI_SHREDDER -> s.copy(
-                        freedomPreset = preset,
-                        freedomLayerCount = 1,
-                        // Packet-split, not "tlshello" record-rewriting (see comment above).
-                        freedomOuterPackets = "1-1",
-                        freedomOuterLength = "1-3",
-                        freedomOuterInterval = "5-10",
-                        freedomOuterMaxSplit = "4",
-                        freedomMiddleEnabled = false,
-                        freedomInnerEnabled = false,
-                        freedomUdpNoiseEnabled = false
-                    )
-                    FreedomPreset.AGGRESSIVE_RECORD_SPLIT -> s.copy(
-                        freedomPreset = preset,
-                        freedomLayerCount = 3,
-                        freedomOuterPackets = "1-3",
-                        freedomOuterLength = "1-2",
-                        freedomOuterInterval = "10-25",
-                        freedomOuterMaxSplit = "5",
-                        freedomMiddleEnabled = true,
-                        freedomMiddlePackets = "1-2",
-                        freedomMiddleLength = "1-4",
-                        freedomMiddleInterval = "15-30",
-                        freedomMiddleMaxSplit = "4",
-                        freedomInnerEnabled = true,
-                        freedomInnerPackets = "1-2",
-                        freedomInnerLength = "2-5",
-                        freedomInnerInterval = "20-40",
-                        freedomInnerMaxSplit = "3",
-                        freedomUdpNoiseEnabled = true,
-                        freedomUdpNoiseCount = 4
-                    )
-                    FreedomPreset.EXTREME_ANTI_DPI -> s.copy(
-                        freedomPreset = preset,
-                        freedomLayerCount = 3,
-                        freedomOuterPackets = "1-3",
-                        freedomOuterLength = "1-2",
-                        freedomOuterInterval = "15-35",
-                        freedomOuterMaxSplit = "6",
-                        freedomMiddleEnabled = true,
-                        freedomMiddlePackets = "1-3",
-                        freedomMiddleLength = "1-3",
-                        freedomMiddleInterval = "20-40",
-                        freedomMiddleMaxSplit = "5",
-                        freedomInnerEnabled = true,
-                        freedomInnerPackets = "1-2",
-                        freedomInnerLength = "1-4",
-                        freedomInnerInterval = "25-50",
-                        freedomInnerMaxSplit = "4",
-                        freedomUdpNoiseEnabled = true,
-                        freedomUdpNoiseCount = 5
-                    )
-                    FreedomPreset.CUSTOM -> s.copy(freedomPreset = preset)
+                HoloBadge("$layerCount-HOP", Aether.Cyan, compact = true)
+                HoloBadge(
+                    s.freedomPreset.name.replace("_", " "),
+                    Aether.Amethyst,
+                    compact = true
+                )
+                if (s.freedomUdpNoiseEnabled) {
+                    HoloBadge("UDP NOISE", Aether.Emerald, compact = true)
                 }
-                repo.updateSettings(updated)
+                if (s.freedomDnsHijack) {
+                    HoloBadge("DNS HIJACK", Aether.Emerald, compact = true)
+                }
+                if (s.freedomDirectDomestic) {
+                    HoloBadge("IR DIRECT", Aether.Cyan, compact = true)
+                }
             }
+        }
+    }
+
+    // ── Evasion presets (2-column grid, not a free-flow jumble) ───────────────
+    SectionLabel("Evasion preset")
+    val presets = listOf(
+        Triple(FreedomPreset.SMART_ADAPTIVE, "Smart Auto", "Adapts to Iran Mode tier"),
+        Triple(FreedomPreset.MULTI_LAYER_CASCADE, "2-Hop Cascade", "Official XTLS shape"),
+        Triple(FreedomPreset.SNI_SHREDDER, "SNI Shredder", "GFW-knocker single chain"),
+        Triple(FreedomPreset.AGGRESSIVE_RECORD_SPLIT, "Skip-Fragment", "Delayed first write"),
+        Triple(FreedomPreset.EXTREME_ANTI_DPI, "Extreme", "Max shred, still 2 hops"),
+        Triple(FreedomPreset.CUSTOM, "Custom", "Manual layer tuning")
+    )
+    presets.chunked(2).forEach { row ->
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            row.forEach { (preset, title, detail) ->
+                val selected = s.freedomPreset == preset
+                PrismSelectionTile(
+                    label = title,
+                    selected = selected,
+                    tone = Aether.Cyan,
+                    modifier = Modifier.weight(1f),
+                    detail = detail,
+                    minHeight = 58.dp,
+                    alignment = Alignment.CenterStart
+                ) {
+                    repo.updateSettings(freedomPresetSettings(s, preset))
+                }
+            }
+            if (row.size == 1) Spacer(Modifier.weight(1f))
         }
     }
 
     HorizontalDivider(color = Aether.GlassBorderSoft)
 
-    SectionLabel("Multi-layer fragmentation")
+    // ── Fragment layers ──────────────────────────────────────────────────────
+    SectionLabel("Fragment chain")
 
-    Text("LAYER 1 • OUTER TLS FRAGMENTATION", color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
-    Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-        TinyField("Packets", s.freedomOuterPackets, Modifier.weight(1f)) {
-            repo.updateSettings(s.copy(freedomOuterPackets = it, freedomPreset = FreedomPreset.CUSTOM))
-        }
-        TinyField("Length", s.freedomOuterLength, Modifier.weight(1f)) {
-            repo.updateSettings(s.copy(freedomOuterLength = it, freedomPreset = FreedomPreset.CUSTOM))
-        }
-        TinyField("Interval (ms)", s.freedomOuterInterval, Modifier.weight(1f)) {
-            repo.updateSettings(s.copy(freedomOuterInterval = it, freedomPreset = FreedomPreset.CUSTOM))
-        }
-    }
-    TinyField("Outer maxSplit (optional limit)", s.freedomOuterMaxSplit, Modifier.fillMaxWidth()) {
-        repo.updateSettings(s.copy(freedomOuterMaxSplit = it, freedomPreset = FreedomPreset.CUSTOM))
-    }
+    FreedomLayerCard(
+        title = "Outer hop",
+        subtitle = "First-write packet split • hides SNI from per-packet DPI",
+        tone = Aether.Cyan,
+        enabled = true,
+        onEnabled = null,
+        packets = s.freedomOuterPackets,
+        length = s.freedomOuterLength,
+        interval = s.freedomOuterInterval,
+        maxSplit = s.freedomOuterMaxSplit,
+        onPackets = { repo.updateSettings(s.copy(freedomOuterPackets = it, freedomPreset = FreedomPreset.CUSTOM)) },
+        onLength = { repo.updateSettings(s.copy(freedomOuterLength = it, freedomPreset = FreedomPreset.CUSTOM)) },
+        onInterval = { repo.updateSettings(s.copy(freedomOuterInterval = it, freedomPreset = FreedomPreset.CUSTOM)) },
+        onMaxSplit = { repo.updateSettings(s.copy(freedomOuterMaxSplit = it, freedomPreset = FreedomPreset.CUSTOM)) }
+    )
 
-    HorizontalDivider(color = Aether.GlassBorderSoft)
+    FreedomLayerCard(
+        title = "Middle hop",
+        subtitle = "Optional third stage • off by default (stalls multi-CDN)",
+        tone = Aether.Amethyst,
+        enabled = s.freedomMiddleEnabled,
+        onEnabled = {
+            repo.updateSettings(
+                s.copy(
+                    freedomMiddleEnabled = it,
+                    freedomLayerCount = if (it) 3 else 2,
+                    freedomPreset = FreedomPreset.CUSTOM
+                )
+            )
+        },
+        packets = s.freedomMiddlePackets,
+        length = s.freedomMiddleLength,
+        interval = s.freedomMiddleInterval,
+        maxSplit = s.freedomMiddleMaxSplit,
+        onPackets = { repo.updateSettings(s.copy(freedomMiddlePackets = it, freedomPreset = FreedomPreset.CUSTOM)) },
+        onLength = { repo.updateSettings(s.copy(freedomMiddleLength = it, freedomPreset = FreedomPreset.CUSTOM)) },
+        onInterval = { repo.updateSettings(s.copy(freedomMiddleInterval = it, freedomPreset = FreedomPreset.CUSTOM)) },
+        onMaxSplit = { repo.updateSettings(s.copy(freedomMiddleMaxSplit = it, freedomPreset = FreedomPreset.CUSTOM)) }
+    )
 
-    Text("LAYER 2 • MIDDLE CASCADE FRAGMENTATION", color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
-    SettingSwitch(
-        title = "Enable middle fragmentation layer",
-        subtitle = "Chains an intermediate proxy hop with distinct packet segmentation and delay windows",
-        checked = s.freedomMiddleEnabled
-    ) {
-        repo.updateSettings(s.copy(freedomMiddleEnabled = it, freedomPreset = FreedomPreset.CUSTOM))
-    }
-
-    AnimatedVisibility(s.freedomMiddleEnabled) {
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                TinyField("Packets", s.freedomMiddlePackets, Modifier.weight(1f)) {
-                    repo.updateSettings(s.copy(freedomMiddlePackets = it, freedomPreset = FreedomPreset.CUSTOM))
-                }
-                TinyField("Length", s.freedomMiddleLength, Modifier.weight(1f)) {
-                    repo.updateSettings(s.copy(freedomMiddleLength = it, freedomPreset = FreedomPreset.CUSTOM))
-                }
-                TinyField("Interval (ms)", s.freedomMiddleInterval, Modifier.weight(1f)) {
-                    repo.updateSettings(s.copy(freedomMiddleInterval = it, freedomPreset = FreedomPreset.CUSTOM))
-                }
-            }
-            TinyField("Middle maxSplit (e.g. 768)", s.freedomMiddleMaxSplit, Modifier.fillMaxWidth()) {
-                repo.updateSettings(s.copy(freedomMiddleMaxSplit = it, freedomPreset = FreedomPreset.CUSTOM))
-            }
-        }
-    }
-
-    HorizontalDivider(color = Aether.GlassBorderSoft)
-
-    Text("LAYER 3 • INNER / DEEP CASCADE FRAGMENTATION", color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
-    SettingSwitch(
-        title = "Enable inner / deep fragmentation layer",
-        subtitle = "Chains a third-stage fragmenter to shred TLS records before DPI state machine assembly",
-        checked = s.freedomInnerEnabled
-    ) {
-        repo.updateSettings(s.copy(freedomInnerEnabled = it, freedomPreset = FreedomPreset.CUSTOM))
-    }
-
-    AnimatedVisibility(s.freedomInnerEnabled) {
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                TinyField("Packets", s.freedomInnerPackets, Modifier.weight(1f)) {
-                    repo.updateSettings(s.copy(freedomInnerPackets = it, freedomPreset = FreedomPreset.CUSTOM))
-                }
-                TinyField("Length", s.freedomInnerLength, Modifier.weight(1f)) {
-                    repo.updateSettings(s.copy(freedomInnerLength = it, freedomPreset = FreedomPreset.CUSTOM))
-                }
-                TinyField("Interval (ms)", s.freedomInnerInterval, Modifier.weight(1f)) {
-                    repo.updateSettings(s.copy(freedomInnerInterval = it, freedomPreset = FreedomPreset.CUSTOM))
-                }
-            }
-            TinyField("Inner maxSplit (e.g. 517)", s.freedomInnerMaxSplit, Modifier.fillMaxWidth()) {
-                repo.updateSettings(s.copy(freedomInnerMaxSplit = it, freedomPreset = FreedomPreset.CUSTOM))
-            }
-        }
-    }
+    FreedomLayerCard(
+        title = "Inner hop",
+        subtitle = "Byte-level full fragment • dials the real socket",
+        tone = Aether.Emerald,
+        enabled = s.freedomInnerEnabled,
+        onEnabled = {
+            repo.updateSettings(s.copy(freedomInnerEnabled = it, freedomPreset = FreedomPreset.CUSTOM))
+        },
+        packets = s.freedomInnerPackets,
+        length = s.freedomInnerLength,
+        interval = s.freedomInnerInterval,
+        maxSplit = s.freedomInnerMaxSplit,
+        onPackets = { repo.updateSettings(s.copy(freedomInnerPackets = it, freedomPreset = FreedomPreset.CUSTOM)) },
+        onLength = { repo.updateSettings(s.copy(freedomInnerLength = it, freedomPreset = FreedomPreset.CUSTOM)) },
+        onInterval = { repo.updateSettings(s.copy(freedomInnerInterval = it, freedomPreset = FreedomPreset.CUSTOM)) },
+        onMaxSplit = { repo.updateSettings(s.copy(freedomInnerMaxSplit = it, freedomPreset = FreedomPreset.CUSTOM)) }
+    )
 
     HorizontalDivider(color = Aether.GlassBorderSoft)
 
-    SectionLabel("Intelligent multi-DNS & clean resolvers")
+    // ── DNS ──────────────────────────────────────────────────────────────────
+    SectionLabel("Encrypted multi-DNS")
 
     SettingSwitch(
-        title = "Smart multi-resolver auto-fallbacks",
-        subtitle = "Automatically races and cascades encrypted DoH endpoints and clean IP fallbacks",
+        title = "Smart multi-resolver cascade",
+        subtitle = "Race encrypted DoH endpoints with clean IP fallbacks",
         checked = s.freedomDnsAuto
     ) { repo.updateSettings(s.copy(freedomDnsAuto = it)) }
 
     SettingSwitch(
-        title = "Intercept port 53 traditional DNS",
-        subtitle = "Directly hijack UDP/TCP 53 requests into the encrypted multi-resolver engine",
+        title = "Hijack classic DNS (port 53)",
+        subtitle = "Force UDP/TCP 53 into the encrypted resolver engine",
         checked = s.freedomDnsHijack
     ) { repo.updateSettings(s.copy(freedomDnsHijack = it)) }
 
     SettingSwitch(
-        title = "Direct domestic (*.ir) & private routing",
-        subtitle = "Route domestic Iranian websites and LAN traffic direct to prevent DNS loops",
+        title = "Domestic (.ir) & private direct",
+        subtitle = "Keep Iranian sites and LAN off the fragment chain",
         checked = s.freedomDirectDomestic
     ) { repo.updateSettings(s.copy(freedomDirectDomestic = it)) }
 
-    Text("ENCRYPTED DOH RESOLVERS", color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
+    Text(
+        "DOH ENDPOINTS",
+        color = Aether.InkFaint,
+        style = MaterialTheme.typography.labelSmall,
+        fontWeight = FontWeight.Bold
+    )
     TinyField("Primary DoH", s.freedomDnsPrimaryDoH, Modifier.fillMaxWidth()) {
         repo.updateSettings(s.copy(freedomDnsPrimaryDoH = it))
     }
@@ -7740,14 +7660,20 @@ private fun FreedomSettings(repo: AppRepository) {
     TinyField("Fallback DoH", s.freedomDnsFallbackDoH, Modifier.fillMaxWidth()) {
         repo.updateSettings(s.copy(freedomDnsFallbackDoH = it))
     }
-
-    Text("CLEAN DOH RESOLVER POOL (COMMA SEPARATED)", color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
-    TinyField("Clean DoH pool", s.freedomDnsCleanResolvers, Modifier.fillMaxWidth()) {
+    TinyField("Clean DoH pool (comma-separated)", s.freedomDnsCleanResolvers, Modifier.fillMaxWidth()) {
         repo.updateSettings(s.copy(freedomDnsCleanResolvers = it))
     }
 
-    Text("BOOTSTRAP & CLEAN DNS IPS", color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
-    Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+    Text(
+        "BOOTSTRAP IPS",
+        color = Aether.InkFaint,
+        style = MaterialTheme.typography.labelSmall,
+        fontWeight = FontWeight.Bold
+    )
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
         TinyField("Primary IP", s.freedomDnsPrimaryIp, Modifier.weight(1f)) {
             repo.updateSettings(s.copy(freedomDnsPrimaryIp = it))
         }
@@ -7756,38 +7682,50 @@ private fun FreedomSettings(repo: AppRepository) {
         }
     }
 
-    Text("DNS RECORD STRATEGY", color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
-    FlowRow(
+    Text(
+        "DNS RECORD STRATEGY",
+        color = Aether.InkFaint,
+        style = MaterialTheme.typography.labelSmall,
+        fontWeight = FontWeight.Bold
+    )
+    Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(7.dp),
-        verticalArrangement = Arrangement.spacedBy(7.dp)
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         listOf(
             "UseIP" to "A + AAAA",
-            "UseIPv4" to "IPv4 ONLY",
-            "UseIPv6" to "IPv6 ONLY"
+            "UseIPv4" to "IPv4",
+            "UseIPv6" to "IPv6"
         ).forEach { (strategy, label) ->
-            CyberChoiceChip(
-                text = label,
+            PrismSelectionTile(
+                label = label,
                 selected = s.freedomDnsQueryStrategy == strategy,
-                color = Aether.Cyan
+                tone = Aether.Cyan,
+                modifier = Modifier.weight(1f),
+                minHeight = 44.dp
             ) {
                 repo.updateSettings(s.copy(freedomDnsQueryStrategy = strategy))
             }
         }
     }
 
-    Text("DOMAIN ROUTING STRATEGY", color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
-    FlowRow(
+    Text(
+        "DOMAIN ROUTING",
+        color = Aether.InkFaint,
+        style = MaterialTheme.typography.labelSmall,
+        fontWeight = FontWeight.Bold
+    )
+    Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(7.dp),
-        verticalArrangement = Arrangement.spacedBy(7.dp)
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        listOf("IPIfNonMatch", "AsIs", "IPOnDemand").forEach { strategy ->
-            CyberChoiceChip(
-                text = strategy,
+        listOf("IPOnDemand", "IPIfNonMatch", "AsIs").forEach { strategy ->
+            PrismSelectionTile(
+                label = strategy,
                 selected = s.freedomDomainStrategy == strategy,
-                color = Aether.Emerald
+                tone = Aether.Emerald,
+                modifier = Modifier.weight(1f),
+                minHeight = 44.dp
             ) {
                 repo.updateSettings(s.copy(freedomDomainStrategy = strategy))
             }
@@ -7796,32 +7734,39 @@ private fun FreedomSettings(repo: AppRepository) {
 
     HorizontalDivider(color = Aether.GlassBorderSoft)
 
-    SectionLabel("UDP noise & datagram scrambling")
+    // ── UDP noise ────────────────────────────────────────────────────────────
+    SectionLabel("UDP noise (QUIC / UDP 443)")
 
     SettingSwitch(
-        title = "Inject UDP noise datagrams",
-        subtitle = "Inject pseudo-random UDP packets before datagram payload transmission to defeat DPI state tracking",
+        title = "Dedicated UDP-noises outbound",
+        subtitle = "Pad QUIC and UDP/443 only — official XTLS shape, not the TCP hop",
         checked = s.freedomUdpNoiseEnabled
     ) { repo.updateSettings(s.copy(freedomUdpNoiseEnabled = it)) }
 
     AnimatedVisibility(s.freedomUdpNoiseEnabled) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            NumberSetting("Noise packet count", s.freedomUdpNoiseCount, 1..10) {
+            NumberSetting("Noise burst pairs", s.freedomUdpNoiseCount, 2..16) {
                 repo.updateSettings(s.copy(freedomUdpNoiseCount = it))
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                TinyField("IPv4 noise payload (B)", s.freedomUdpNoisePacket4, Modifier.weight(1f)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                TinyField("IPv4 size (B)", s.freedomUdpNoisePacket4, Modifier.weight(1f)) {
                     repo.updateSettings(s.copy(freedomUdpNoisePacket4 = it))
                 }
-                TinyField("IPv4 noise delay (ms)", s.freedomUdpNoiseDelay4, Modifier.weight(1f)) {
+                TinyField("IPv4 delay (ms)", s.freedomUdpNoiseDelay4, Modifier.weight(1f)) {
                     repo.updateSettings(s.copy(freedomUdpNoiseDelay4 = it))
                 }
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                TinyField("IPv6 noise payload (B)", s.freedomUdpNoisePacket6, Modifier.weight(1f)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                TinyField("IPv6 size (B)", s.freedomUdpNoisePacket6, Modifier.weight(1f)) {
                     repo.updateSettings(s.copy(freedomUdpNoisePacket6 = it))
                 }
-                TinyField("IPv6 noise delay (ms)", s.freedomUdpNoiseDelay6, Modifier.weight(1f)) {
+                TinyField("IPv6 delay (ms)", s.freedomUdpNoiseDelay6, Modifier.weight(1f)) {
                     repo.updateSettings(s.copy(freedomUdpNoiseDelay6 = it))
                 }
             }
@@ -7830,50 +7775,180 @@ private fun FreedomSettings(repo: AppRepository) {
 
     HorizontalDivider(color = Aether.GlassBorderSoft)
 
+    // ── Reset ────────────────────────────────────────────────────────────────
     CyberButton(
-        label = "RESTORE FREEDOM DEFAULTS",
+        label = "Restore Freedom defaults",
         color = Aether.Amethyst,
         modifier = Modifier.fillMaxWidth(),
-        enabled = !repo.busy
+        enabled = !repo.busy,
+        variant = PrismButtonVariant.Secondary
     ) {
-        repo.updateSettings(
-            s.copy(
-                freedomPreset = FreedomPreset.SMART_ADAPTIVE,
-                freedomLayerCount = 3,
-                freedomOuterPackets = "1-1",
-                freedomOuterLength = "1-3",
-                freedomOuterInterval = "5-10",
-                freedomOuterMaxSplit = "",
-                freedomMiddleEnabled = true,
-                freedomMiddlePackets = "1-3",
-                freedomMiddleLength = "10-30",
-                freedomMiddleInterval = "5-10",
-                freedomMiddleMaxSplit = "768",
-                freedomInnerEnabled = true,
-                freedomInnerPackets = "1-1",
-                freedomInnerLength = "1",
-                freedomInnerInterval = "4",
-                freedomInnerMaxSplit = "517",
-                freedomDnsAuto = true,
-                freedomDnsPrimaryIp = "1.1.1.1",
-                freedomDnsSecondaryIp = "8.8.8.8",
-                freedomDnsPrimaryDoH = "https://1.1.1.1/dns-query",
-                freedomDnsSecondaryDoH = "https://8.8.8.8/dns-query",
-                freedomDnsFallbackDoH = "https://9.9.9.9/dns-query",
-                freedomDnsCleanResolvers = "https://1.1.1.1/dns-query,https://8.8.8.8/dns-query,https://9.9.9.9/dns-query,https://dns.adguard-dns.com/dns-query,https://dns.shecan.ir/dns-query",
-                freedomDnsQueryStrategy = "UseIP",
-                freedomDomainStrategy = "IPIfNonMatch",
-                freedomDnsHijack = true,
-                freedomDirectDomestic = true,
-                freedomUdpNoiseEnabled = true,
-                freedomUdpNoisePacket4 = "1250",
-                freedomUdpNoiseDelay4 = "10",
-                freedomUdpNoisePacket6 = "1230",
-                freedomUdpNoiseDelay6 = "10",
-                freedomUdpNoiseCount = 2
-            )
-        )
+        repo.updateSettings(freedomPresetSettings(s, FreedomPreset.SMART_ADAPTIVE).copy(
+            freedomDnsAuto = true,
+            freedomDnsPrimaryIp = "1.1.1.1",
+            freedomDnsSecondaryIp = "8.8.8.8",
+            freedomDnsPrimaryDoH = "https://1.1.1.1/dns-query",
+            freedomDnsSecondaryDoH = "https://8.8.8.8/dns-query",
+            freedomDnsFallbackDoH = "https://9.9.9.9/dns-query",
+            freedomDnsCleanResolvers = "https://1.1.1.1/dns-query,https://8.8.8.8/dns-query,https://9.9.9.9/dns-query,https://dns.adguard-dns.com/dns-query,https://dns.shecan.ir/dns-query",
+            freedomDnsQueryStrategy = "UseIP",
+            freedomDomainStrategy = "IPOnDemand",
+            freedomDnsHijack = true,
+            freedomDirectDomestic = true,
+            freedomUdpNoiseEnabled = true,
+            freedomUdpNoisePacket4 = "1250",
+            freedomUdpNoiseDelay4 = "10",
+            freedomUdpNoisePacket6 = "1230",
+            freedomUdpNoiseDelay6 = "10",
+            freedomUdpNoiseCount = 6
+        ))
         repo.setRuntimeMessage("Marble Freedom settings restored to defaults")
     }
 }
+
+/** Apply a Freedom preset's fragment recipe onto AppSettings without touching DNS/noise. */
+private fun freedomPresetSettings(s: AppSettings, preset: FreedomPreset): AppSettings = when (preset) {
+    FreedomPreset.SMART_ADAPTIVE,
+    FreedomPreset.MULTI_LAYER_CASCADE -> s.copy(
+        freedomPreset = preset,
+        freedomLayerCount = 2,
+        freedomOuterPackets = "1-1",
+        freedomOuterLength = "1-3",
+        freedomOuterInterval = "5-10",
+        freedomOuterMaxSplit = "",
+        freedomMiddleEnabled = false,
+        freedomInnerEnabled = true,
+        freedomInnerPackets = "1-1",
+        freedomInnerLength = "1",
+        freedomInnerInterval = "4",
+        freedomInnerMaxSplit = "517",
+        freedomUdpNoiseEnabled = true,
+        freedomUdpNoiseCount = 6
+    )
+    FreedomPreset.SNI_SHREDDER -> s.copy(
+        freedomPreset = preset,
+        freedomLayerCount = 2,
+        freedomOuterPackets = "1-1",
+        freedomOuterLength = "1-3",
+        freedomOuterInterval = "5-10",
+        freedomOuterMaxSplit = "4",
+        freedomMiddleEnabled = false,
+        freedomInnerEnabled = true,
+        freedomInnerPackets = "1-1",
+        freedomInnerLength = "1",
+        freedomInnerInterval = "4",
+        freedomInnerMaxSplit = "517",
+        freedomUdpNoiseEnabled = true,
+        freedomUdpNoiseCount = 4
+    )
+    FreedomPreset.AGGRESSIVE_RECORD_SPLIT -> s.copy(
+        freedomPreset = preset,
+        freedomLayerCount = 2,
+        // Official XTLS skip-fragment pair
+        freedomOuterPackets = "1-1",
+        freedomOuterLength = "130",
+        freedomOuterInterval = "560",
+        freedomOuterMaxSplit = "4",
+        freedomMiddleEnabled = false,
+        freedomInnerEnabled = true,
+        freedomInnerPackets = "2-4",
+        freedomInnerLength = "1",
+        freedomInnerInterval = "4",
+        freedomInnerMaxSplit = "130",
+        freedomUdpNoiseEnabled = true,
+        freedomUdpNoiseCount = 8
+    )
+    FreedomPreset.EXTREME_ANTI_DPI -> s.copy(
+        freedomPreset = preset,
+        freedomLayerCount = 2,
+        freedomOuterPackets = "1-1",
+        freedomOuterLength = "1-3",
+        freedomOuterInterval = "5-10",
+        freedomOuterMaxSplit = "4",
+        freedomMiddleEnabled = false,
+        freedomInnerEnabled = true,
+        freedomInnerPackets = "1-1",
+        freedomInnerLength = "1",
+        freedomInnerInterval = "4",
+        freedomInnerMaxSplit = "517",
+        freedomUdpNoiseEnabled = true,
+        freedomUdpNoiseCount = 10
+    )
+    FreedomPreset.CUSTOM -> s.copy(freedomPreset = preset)
+}
+
+@Composable
+private fun FreedomLayerCard(
+    title: String,
+    subtitle: String,
+    tone: Color,
+    enabled: Boolean,
+    onEnabled: ((Boolean) -> Unit)?,
+    packets: String,
+    length: String,
+    interval: String,
+    maxSplit: String,
+    onPackets: (String) -> Unit,
+    onLength: (String) -> Unit,
+    onInterval: (String) -> Unit,
+    onMaxSplit: (String) -> Unit
+) {
+    PrismWell(
+        modifier = Modifier.fillMaxWidth(),
+        tone = if (enabled) tone else Aether.InkMuted,
+        selected = enabled,
+        radius = 16.dp,
+        contentPadding = PaddingValues(12.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Box(
+                Modifier
+                    .size(8.dp)
+                    .clip(CircleShape)
+                    .background(if (enabled) tone else Aether.InkFaint)
+            )
+            Column(Modifier.weight(1f)) {
+                Text(
+                    title,
+                    color = Aether.Ink,
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    subtitle,
+                    color = Aether.InkFaint,
+                    style = MaterialTheme.typography.labelSmall,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            if (onEnabled != null) {
+                Switch(
+                    checked = enabled,
+                    onCheckedChange = onEnabled,
+                    colors = marbleSwitchColors()
+                )
+            }
+        }
+
+        AnimatedVisibility(enabled) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(7.dp)
+                ) {
+                    TinyField("Packets", packets, Modifier.weight(1f), onPackets)
+                    TinyField("Length", length, Modifier.weight(1f), onLength)
+                    TinyField("Interval", interval, Modifier.weight(1f), onInterval)
+                }
+                TinyField("maxSplit (optional)", maxSplit, Modifier.fillMaxWidth(), onMaxSplit)
+            }
+        }
+    }
+}
+
 
