@@ -2,6 +2,7 @@ package com.marbleng.app.ui.screens.settings
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.marbleng.app.ui.screens.settings.sections.FreedomSettingsState
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -61,8 +62,16 @@ data class SettingsUiState(
     val contentRevision: Int = 0
 )
 
-enum class SettingsCategory {
-    GENERAL, FREEDOM, TESTING, NETWORK, EXPERT
+// Single source of truth for SettingsCategory
+enum class SettingsCategory(
+    val displayName: String,
+    val icon: androidx.compose.ui.graphics.vector.ImageVector
+) {
+    GENERAL("General", androidx.compose.material.icons.Icons.Default.Settings),
+    FREEDOM("Freedom", androidx.compose.material.icons.Icons.Default.Security),
+    TESTING("Testing", androidx.compose.material.icons.Icons.Default.NetworkCheck),
+    NETWORK("Network", androidx.compose.material.icons.Icons.Default.SignalCellularAlt),
+    EXPERT("Expert", androidx.compose.material.icons.Icons.Default.Build)
 }
 
 interface SettingsRepository {
