@@ -3,8 +3,8 @@ import java.util.Properties
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")
-    id("com.google.dagger.hilt.android")
     kotlin("kapt")
+    id("com.google.dagger.hilt.android")
 }
 
 val versionCodeFromCi =
@@ -42,12 +42,12 @@ android {
         create("release") {
             if (signingConfigured) {
                 val configuredStore = rootProject.file(signingValue("storeFile"))
-                require(configuredStore.isFile) { "Release keystore missing: ${configuredStore.absolutePath}" }
+                require(configuredStore.isFile)  { "Release keystore missing: ${configuredStore.absolutePath}" }
                 require(configuredStore.length() > 0L) { "Release keystore empty: ${configuredStore.absolutePath}" }
-                storeFile = configuredStore
+                storeFile     = configuredStore
                 storePassword = signingValue("storePassword")
-                keyAlias = signingValue("keyAlias")
-                keyPassword = signingValue("keyPassword")
+                keyAlias      = signingValue("keyAlias")
+                keyPassword   = signingValue("keyPassword")
             }
         }
     }
@@ -55,10 +55,10 @@ android {
     buildTypes {
         debug {
             applicationIdSuffix = ".debug"
-            versionNameSuffix = "-debug"
+            versionNameSuffix   = "-debug"
         }
         release {
-            isMinifyEnabled = true
+            isMinifyEnabled   = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             if (signingConfigured) signingConfig = signingConfigs.getByName("release")
@@ -75,7 +75,7 @@ android {
     }
 
     buildFeatures {
-        compose = true
+        compose     = true
         buildConfig = true
     }
 
