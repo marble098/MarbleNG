@@ -70,6 +70,9 @@ object DpiEvasionPolicy {
      * rewrites the ClientHello into complete tiny TLS records (Xray #4370), a pattern that both
      * real servers (Fastly/Cloudflare/GitHub/AWS all RST it; verified on v26.7.28) and Iran's
      * current DPI reassemble and refilter (Xray discussion #5969 field notes, 2026-04).
+     *
+     * 2-hop only (no middle): matches the official XTLS skip-fragment → full-fragment shape and
+     * keeps multi-CDN first flights (YouTube / X / Reddit) under CDN idle cutoffs.
      */
     val TLSHELLO_SNI: FragmentRecipe = FragmentRecipe(
         packets = "1-1",
@@ -81,6 +84,24 @@ object DpiEvasionPolicy {
         innerMaxSplit = "517",
         rank = 5,
         description = "GFW-knocker serverless split • 1-1/1-3/5-10 first writes + 517-byte 1-byte split"
+    )
+
+    /**
+     * Official XTLS Serverless-for-Iran "skip-fragment" alternative pair:
+     *   skip-fragment 1-1 / 130 / 560 / maxSplit 4  →  _chain-skip 2-4 / 1 / 4 / maxSplit 130
+     * Longer first-packet delay defeats SNI reassembly that watches the first few ms.
+     */
+    val OFFICIAL_SKIP_CHAIN: FragmentRecipe = FragmentRecipe(
+        packets = "1-1",
+        length = "130",
+        interval = "560",
+        maxSplit = "4",
+        innerPackets = "2-4",
+        innerLength = "1",
+        innerInterval = "4",
+        innerMaxSplit = "130",
+        rank = 6,
+        description = "Official XTLS skip-fragment chain • delayed first write + paced follow-ups"
     )
 
     val RECORD_SPLIT: FragmentRecipe = FragmentRecipe(
@@ -109,62 +130,57 @@ object DpiEvasionPolicy {
     )
 
     /**
-     * 3-Layer cascading anti-DPI shredder. The outer layer is GFW-knocker's packet-split
-     * (1-1 / 1-3 / 5-10), NOT Xray's "tlshello" record-rewriter: "tlshello" emits complete tiny
-     * TLS records that real servers (Fastly, Cloudflare, GitHub, AWS — RST), verified against
-     * v26.7.28, and Iran's 2026 DPI reassembles and refilters anyway (Xray #4370, #5969).
-     * Packet-split keeps the ClientHello a single valid TLS record while hiding the SNI from
-     * per-packet DPI — the tested working shape (GFW-knocker config, official skip-fragment).
+     * Default Freedom chain — the official XTLS 2-hop pair that actually completes TLS to
+     * multi-CDN fronts (YouTube / X / Reddit / Fastly / Cloudflare):
+     *   outer 1-1 / 1-3 / 5-10  →  full-fragment 1-1 / 1 / 4 / maxSplit 517
+     * No middle hop: the previous 3-layer cascade added an untested slicer that pushed the first
+     * flight past CDN idle cutoffs and left media sites half-loaded.
      */
     val MULTI_LAYER_CASCADE: FragmentRecipe = FragmentRecipe(
         packets = "1-1",
         length = "1-3",
         interval = "5-10",
-        middlePackets = "1-3",
-        middleLength = "10-30",
-        middleInterval = "5-10",
-        middleMaxSplit = "768",
         innerPackets = "1-1",
         innerLength = "1",
         innerInterval = "4",
         innerMaxSplit = "517",
         rank = 6,
-        description = "3-Layer cascade • packet-split outer → record slicer → byte-level micro fragment"
+        description = "Official 2-hop cascade • packet-split outer → byte-level full fragment"
     )
 
-    /** Aggressive 3-layer TLS record & stream shredder for severe DPI inspection. */
+    /**
+     * Aggressive path for extreme operators (MCI / Irancell clampdowns). Uses the official
+     * XTLS skip-fragment delay pair rather than a third hop — longer first-write delay defeats
+     * SNI reassembly without the CDN timeout tax of a middle hop.
+     */
     val AGGRESSIVE_CASCADE: FragmentRecipe = FragmentRecipe(
-        packets = "1-3",
-        length = "5-15",
-        interval = "10-20",
-        middlePackets = "1-3",
-        middleLength = "10-30",
-        middleInterval = "5-10",
-        middleMaxSplit = "768",
-        innerPackets = "1-1",
+        packets = "1-1",
+        length = "130",
+        interval = "560",
+        maxSplit = "4",
+        innerPackets = "2-4",
         innerLength = "1",
         innerInterval = "4",
-        innerMaxSplit = "517",
+        innerMaxSplit = "130",
         rank = 6,
-        description = "Aggressive 3-layer TLS record & stream shredder"
+        description = "Official skip-fragment cascade • delayed first write for severe DPI"
     )
 
-    /** Extreme byte-by-byte anti-censorship micro-fragmenting. */
+    /**
+     * Extreme path: GFW-knocker outer + official full-fragment inner, still 2 hops.
+     * Byte-level shredding on both ends without a middle hop that stalls multi-CDN.
+     */
     val EXTREME_ANTI_DPI: FragmentRecipe = FragmentRecipe(
         packets = "1-1",
-        length = "1",
-        interval = "2",
-        maxSplit = "256",
-        middlePackets = "1-2",
-        middleLength = "2-5",
-        middleInterval = "3-6",
-        middleMaxSplit = "517",
+        length = "1-3",
+        interval = "5-10",
+        maxSplit = "4",
         innerPackets = "1-1",
         innerLength = "1",
         innerInterval = "4",
-        innerMaxSplit = "256",
+        innerMaxSplit = "517",
         rank = 7,
-        description = "Extreme deep micro-fragmenting • byte-by-byte anti-censorship shred"
+        description = "Extreme 2-hop micro-fragment • GFW-knocker outer + full 517-byte shred"
     )
 
     fun freedomRecipe(settings: AppSettings, state: IranModeState = IranModeState()): FragmentRecipe {
@@ -192,7 +208,9 @@ object DpiEvasionPolicy {
             com.marbleng.app.model.FreedomPreset.SMART_ADAPTIVE -> {
                 val tier = IranShield.tier(state)
                 when {
-                    tier >= 3 -> EXTREME_ANTI_DPI
+                    // Extreme operators: official skip-fragment delay pair (no middle hop).
+                    tier >= 3 -> AGGRESSIVE_CASCADE
+                    // Heavy SNI/RST: still the battle-tested 2-hop GFW-knocker pair.
                     tier >= 2 -> MULTI_LAYER_CASCADE
                     else -> MULTI_LAYER_CASCADE
                 }

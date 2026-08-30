@@ -55,12 +55,16 @@ class XrayConfigHardenerTest {
         assertTrue("sockopt.domainStrategy must be written", innerSockopt?.has("domainStrategy") == true)
 
         // Only the hop that opens the real socket resolves; the dialer hops just bridge.
-        val middleSockopt = outbound(hardened, "middle-fragment")
-            .optJSONObject("streamSettings")?.optJSONObject("sockopt")
-        assertFalse(middleSockopt?.has("domainStrategy") ?: false)
+        // Default Freedom is a 2-hop chain (no middle). Outer must not carry domainStrategy.
         val outerSockopt = outbound(hardened, "proxy")
             .optJSONObject("streamSettings")?.optJSONObject("sockopt")
         assertFalse(outerSockopt?.has("domainStrategy") ?: false)
+        assertEquals("full-fragment", outerSockopt?.optString("dialerProxy"))
+
+        // Dedicated UDP-noises outbound is kept and also resolves through Xray DNS.
+        val noise = outbound(hardened, ServerlessFreedomEngine.UDP_NOISES_TAG)
+        assertTrue((noise.optJSONObject("settings")?.optJSONArray("noises")?.length() ?: 0) > 0)
+        assertTrue(noise.optJSONObject("settings")?.has("domainStrategy") == true)
     }
 
     /**
@@ -128,7 +132,7 @@ class XrayConfigHardenerTest {
 
         // The Freedom chain fragments the first TCP write into 1-byte/4 ms chunks; a DoH
         // handshake cannot fit the stock 1350 ms budget, so cold lookups would always fail.
-        assertTrue("first DNS server gets a Freedom-sized budget", servers.getJSONObject(0).optLong("timeoutMs") >= 5_000L)
+        assertTrue("first DNS server gets a Freedom-sized budget", servers.getJSONObject(0).optLong("timeoutMs") >= 8_000L)
     }
 
     @Test
@@ -146,5 +150,43 @@ class XrayConfigHardenerTest {
         // same Freedom chain, so this asserts the shared graph stays valid under PROXY_ALL too.
         val hardened = harden(settings, source)
         assertEquals("freedom", outbound(hardened, "full-fragment").optString("protocol"))
+    }
+
+    @Test
+    fun `default freedom is 2-hop without middle and routes udp noise separately`() {
+        val settings = AppSettings(
+            fragmentEnabled = true,
+            fragmentInnerEnabled = true,
+            freedomPreset = FreedomPreset.SMART_ADAPTIVE,
+            freedomUdpNoiseEnabled = true,
+            freedomDnsAuto = true
+        )
+        val hardened = harden(settings)
+        val tags = (0 until hardened.getJSONArray("outbounds").length()).map {
+            hardened.getJSONArray("outbounds").getJSONObject(it).optString("tag")
+        }
+        assertTrue("proxy" in tags)
+        assertTrue("full-fragment" in tags)
+        assertFalse("middle-fragment must not ship by default", "middle-fragment" in tags)
+        assertTrue(ServerlessFreedomEngine.UDP_NOISES_TAG in tags)
+
+        val routing = hardened.getJSONObject("routing")
+        assertEquals("IPOnDemand", routing.optString("domainStrategy"))
+        val rules = routing.getJSONArray("rules")
+        val ruleText = rules.toString()
+        assertTrue("poison injector range blocked", ruleText.contains("10.10.34.0/24"))
+        assertTrue("quic routed to noises", ruleText.contains("quic"))
+        assertTrue("udp-noises tag used", ruleText.contains(ServerlessFreedomEngine.UDP_NOISES_TAG))
+
+        val hosts = hardened.getJSONObject("dns").optJSONObject("hosts")
+        assertTrue(hosts?.has("domain:youtube.com") == true)
+    }
+
+    @Test
+    fun `smart adaptive never emits tlshello outer hop`() {
+        val recipe = DpiEvasionPolicy.freedomRecipe(AppSettings())
+        assertFalse(recipe.packets.equals("tlshello", ignoreCase = true))
+        assertFalse(recipe.middleEnabled)
+        assertTrue(recipe.innerEnabled)
     }
 }

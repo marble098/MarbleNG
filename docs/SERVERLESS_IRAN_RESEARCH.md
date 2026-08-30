@@ -268,3 +268,26 @@ The changed files:
 - `app/.../vpn/MarbleVpnService.kt` — DEFECT D.
 - `app/.../model/Models.kt`, `app/.../ui/Aether2026.kt` — DEFECT B defaults (doh.sb removed).
 - `app/.../core/XrayConfigHardenerTest.kt` (+ `org.json` test dependency) — regression tests.
+
+## 7. Freedom v2 — YouTube / X / Reddit load fix (2026-08-30)
+
+User report: Marble Freedom (Auto Smart and every other preset) loaded X half-broken,
+failed Reddit entirely, and never opened YouTube.
+
+### Root causes (mapped to upstream)
+
+| Defect | Evidence | Fix |
+| --- | --- | --- |
+| **F — untested middle hop** | §4 watch-list item 1; official XTLS is 2-hop only | Default recipes are now 2-hop (outer → full-fragment). Middle is Custom-only. |
+| **G — UDP noise on TCP hop** | Official puts noises on a dedicated `udp-noises` outbound routed only for QUIC + UDP/443 | `ServerlessFreedomEngine` emits `udp-noises`; hardener keeps it and adds matching routing rules. |
+| **H — poison injector dials** | Official blocks `10.10.34.0/24`, `2001:4188:2:600::/64`, `0.0.0.0`, `::` | Freedom mode always emits those block rules before direct/proxy. |
+| **I — multi-CDN DNS cold-start** | Official DoH `timeoutMs: 10000`, `serveExpiredTTL: 21600`; GFW-knocker remaps `youtube.com → google.com` | Freedom DoH budgets raised to 8 s+; stale TTL 21600; ProxiedDomain remaps for youtube/googlevideo/ytimg/ggpht/gvt1/gvt2; `domainStrategy: IPOnDemand`. |
+| **J — SMART overlay undid recipe** | Hardener re-wrote Freedom hop fragments from stale `freedomOuter*` fields | Named presets trust `configJson` emission; only CUSTOM is overlaid from settings. Iran Mode state is passed into `freedomRecipe` via `serverlessProfile()`. |
+
+### Sources re-verified this session
+
+- `XTLS/Xray-examples` `Serverless-for-Iran/serverless_for_Iran.jsonc` (codeload archive)
+- `XTLS/Xray-examples` `Serverless-for-Iran/serverless_with_mitm_for_Iran.jsonc` (YouTube/X/Reddit need MitM domain-fronting for the hardest clampdowns; Freedom stays non-MitM but inherits the fragment/DNS/UDP shape)
+- `GFW-knocker/gfw_resist_HTTPS_proxy` `ServerLess_TLSFrag_Xray_Config_New.json` (youtube.com → google.com hosts remap; 1-1/1-3/5-10 fragment)
+
+MitM domain-fronting (cert install) remains out of scope for Freedom — it requires a trusted CA on the device. The non-MitM path above is what the official basic config uses for general HTTPS.

@@ -276,7 +276,9 @@ data class AppSettings(
 
     // Marble Freedom Anti-DPI Multi-Layer Fragmentation & Smart Multi-DNS
     val freedomPreset: FreedomPreset = FreedomPreset.SMART_ADAPTIVE,
-    val freedomLayerCount: Int = 3,
+    // Default is the official XTLS 2-hop chain (outer → full-fragment). A middle hop is
+    // Custom-only; the previous 3-layer default stalled multi-CDN first flights.
+    val freedomLayerCount: Int = 2,
     // Outer hop defaults follow GFW-knocker's packet-split (1-1 / 1-3 / 5-10). The old
     // "tlshello" record-rewriting mode is no longer a default: it emits complete tiny TLS
     // records that real servers and Iran's 2026 DPI reject/RST (Xray #4370, #5969; runtime
@@ -285,7 +287,7 @@ data class AppSettings(
     val freedomOuterLength: String = "1-3",
     val freedomOuterInterval: String = "5-10",
     val freedomOuterMaxSplit: String = "",
-    val freedomMiddleEnabled: Boolean = true,
+    val freedomMiddleEnabled: Boolean = false,
     val freedomMiddlePackets: String = "1-3",
     val freedomMiddleLength: String = "10-30",
     val freedomMiddleInterval: String = "5-10",
@@ -309,17 +311,19 @@ data class AppSettings(
     // stable enough to pin, so it would silently fail inside the encrypted path.
     val freedomDnsCleanResolvers: String = "https://1.1.1.1/dns-query,https://8.8.8.8/dns-query,https://9.9.9.9/dns-query,https://dns.adguard-dns.com/dns-query,https://dns.shecan.ir/dns-query",
     val freedomDnsQueryStrategy: String = "UseIP",
-    val freedomDomainStrategy: String = "IPIfNonMatch",
+    // Official XTLS uses IPOnDemand so domain rules resolve before matching.
+    val freedomDomainStrategy: String = "IPOnDemand",
     val freedomDnsHijack: Boolean = true,
     val freedomDirectDomestic: Boolean = true,
 
-    // UDP Noise & Padding Defense for Marble Freedom
+    // UDP Noise & Padding Defense for Marble Freedom (dedicated outbound, official XTLS shape)
     val freedomUdpNoiseEnabled: Boolean = true,
     val freedomUdpNoisePacket4: String = "1250",
     val freedomUdpNoiseDelay4: String = "10",
     val freedomUdpNoisePacket6: String = "1230",
     val freedomUdpNoiseDelay6: String = "10",
-    val freedomUdpNoiseCount: Int = 2,
+    // Pairs of IPv4+IPv6 noise bursts; official ships ~13 each, 6 is a solid mobile default.
+    val freedomUdpNoiseCount: Int = 6,
 
     val muxEnabled: Boolean = false,
     val muxConcurrency: Int = 8,

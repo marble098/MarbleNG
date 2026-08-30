@@ -866,7 +866,7 @@ fun resetTelemetry() {
 
     fun serverlessProfile(): ProxyProfile {
         val shielded = IranShield.apply(settings, null, iranMode, geoIpReady())
-        return ServerlessFreedomEngine.profile(shielded)
+        return ServerlessFreedomEngine.profile(shielded, iranMode)
     }
 
     /** True only for the exact Library row currently carrying traffic. */
