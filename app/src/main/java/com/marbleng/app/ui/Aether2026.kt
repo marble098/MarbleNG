@@ -4983,7 +4983,12 @@ private fun SpatialSettings(
     val initialPage=if(focusSection == "Routing") {
         SettingsWorkspaceTab.NETWORK.ordinal
     } else rememberedSettingsTab(repo.lastSettingsTab).ordinal
-    // MARBLE_SETTINGS_TAB_CONTENT_VISIBLE_V70
+    // MARBLE_SETTINGS_CONTENT_VIEWPORT_HARDENING_V72
+// Keep the selected workspace inside an explicit remaining-height viewport.
+// This avoids relying on a nested BoxWithConstraints -> Column -> weight chain for
+// the LazyColumn's height on real phone builds; the tab strip remains fixed while
+// the workspace host receives the full remaining viewport.
+// MARBLE_SETTINGS_TAB_CONTENT_VISIBLE_V70
     // The previous pager-based tabs kept the selected workspace invisible on real devices: the
     // tab strip updated while the page area stayed empty for every tab. Selection is now an
     // explicit mutableIntStateOf and the visible tab is recomposed under key(selectedTabIndex),
@@ -5170,16 +5175,20 @@ private fun SpatialSettings(
                     }
                     }
 
-                    SettingsTabPane(
-                        tab=tabs[selectedTabIndex],
-                        selectedIndex=selectedTabIndex,
-                        repo=repo,
-                        expertMode=expertMode,
-                        focusSection=focusSection,
+                    Box(
                         modifier=Modifier
                             .fillMaxWidth()
                             .weight(1f)
-                    )
+                    ) {
+                        SettingsTabPane(
+                            tab=tabs[selectedTabIndex],
+                            selectedIndex=selectedTabIndex,
+                            repo=repo,
+                            expertMode=expertMode,
+                            focusSection=focusSection,
+                            modifier=Modifier.fillMaxSize()
+                        )
+                    }
                 }
             }
         }
