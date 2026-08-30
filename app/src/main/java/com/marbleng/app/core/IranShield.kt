@@ -110,7 +110,10 @@ object IranShield {
             // QUIC/UDP is dropped nationally during clampdowns; failing it fast makes apps fall back
             // to TCP through the tunnel instead of stalling on retransmits.
             if (udpBlocked || tier >= 3) {
-                next = next.copy(muxUdp443 = "reject")
+                next = next.copy(
+                    muxUdp443 = "reject",
+                    freedomForceTcpForStreaming = true
+                )
             }
 
             if (base.workloadProfile == WorkloadProfile.AUTO && tier >= 2) {

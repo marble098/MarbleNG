@@ -316,6 +316,12 @@ data class AppSettings(
     val freedomDnsHijack: Boolean = true,
     val freedomDirectDomestic: Boolean = true,
 
+    // Streaming reliability for Marble Freedom. YouTube and some media surfaces prefer QUIC; on
+    // filtered links those UDP/443 handshakes can stall forever. Default to a fast TCP fallback so
+    // the TLS path uses the fragmented Freedom chain, while still letting experts re-enable padded
+    // QUIC from Settings when their network carries it.
+    val freedomForceTcpForStreaming: Boolean = true,
+
     // UDP Noise & Padding Defense for Marble Freedom (dedicated outbound, official XTLS shape)
     val freedomUdpNoiseEnabled: Boolean = true,
     val freedomUdpNoisePacket4: String = "1250",

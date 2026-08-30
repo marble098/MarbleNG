@@ -61,6 +61,28 @@ class AppStore(context: Context) {
             .putString("librarySourceFilter", id.trim().ifBlank { "all" })
             .apply()
 
+    /** Last top-level app destination. Kept outside AppSettings because it is navigation state. */
+    fun lastAppTab(): String = prefs.getString("lastAppTab", "DECK")
+        ?.trim()
+        .orEmpty()
+        .ifBlank { "DECK" }
+
+    fun setLastAppTab(name: String) =
+        prefs.edit()
+            .putString("lastAppTab", name.trim().ifBlank { "DECK" })
+            .apply()
+
+    /** Last Settings workspace tab so returning to Settings reopens the user's exact area. */
+    fun lastSettingsTab(): String = prefs.getString("lastSettingsTab", "GENERAL")
+        ?.trim()
+        .orEmpty()
+        .ifBlank { "GENERAL" }
+
+    fun setLastSettingsTab(name: String) =
+        prefs.edit()
+            .putString("lastSettingsTab", name.trim().ifBlank { "GENERAL" })
+            .apply()
+
     /**
      * v8.1 migration: existing installs already have old proxy-all/ads-off preferences persisted,
      * so changing AppSettings constructor defaults alone would not activate the new policy.
@@ -234,6 +256,7 @@ class AppStore(context: Context) {
         freedomDomainStrategy = prefs.getString("freedomDomainStrategy", "IPOnDemand") ?: "IPOnDemand",
         freedomDnsHijack = prefs.getBoolean("freedomDnsHijack", true),
         freedomDirectDomestic = prefs.getBoolean("freedomDirectDomestic", true),
+        freedomForceTcpForStreaming = prefs.getBoolean("freedomForceTcpForStreaming", true),
 
         freedomUdpNoiseEnabled = prefs.getBoolean("freedomUdpNoiseEnabled", true),
         freedomUdpNoisePacket4 = prefs.getString("freedomUdpNoisePacket4", "1250") ?: "1250",
@@ -418,6 +441,7 @@ class AppStore(context: Context) {
         .putString("freedomDomainStrategy", s.freedomDomainStrategy)
         .putBoolean("freedomDnsHijack", s.freedomDnsHijack)
         .putBoolean("freedomDirectDomestic", s.freedomDirectDomestic)
+        .putBoolean("freedomForceTcpForStreaming", s.freedomForceTcpForStreaming)
 
         .putBoolean("freedomUdpNoiseEnabled", s.freedomUdpNoiseEnabled)
         .putString("freedomUdpNoisePacket4", s.freedomUdpNoisePacket4)

@@ -22,13 +22,17 @@ repo **archives** (`codeload …/tar.gz/refs/tags/…`) and reading the files di
 
 Serverless anti-censorship is a **local-only Xray configuration**: no remote proxy server, no
 anonymity. The user's own IP is the egress IP. It defeats Iranian DPI by reshaping the *first
-bytes* of each TLS/TCP flow and by padding UDP datagrams, so the national gateway cannot
-reassemble the ClientHello / read the SNI / fingerprint the session:
+bytes* of each TLS/TCP flow and by either padding UDP datagrams or forcing blocked QUIC to
+fall back to TCP, so the national gateway cannot reassemble the ClientHello / read the SNI /
+fingerprint the session:
 
 - **TCP/TLS fragmentation chain** — the ClientHello is split into TLS records and/or 1-byte TCP
   writes with millisecond pacing so the DPI's reassembly heuristics never see a complete SNI.
-- **UDP noise injection** — random datagrams are sent before the first real QUIC/443 packet so
-  stateful UDP trackers cannot match the flow.
+- **YouTube/media TCP fallback** — QUIC/UDP-443 is rejected by default on Marble Freedom so
+  video apps retry HTTPS over the fragmented TCP chain instead of stalling on a blocked UDP path.
+- **UDP noise injection** — when the user disables TCP fallback on UDP-friendly networks, random
+  datagrams are sent before the first real QUIC/443 packet so stateful UDP trackers cannot match
+  the flow.
 
 Reference implementations researched (all verified):
 
@@ -232,10 +236,10 @@ first places to look if the runtime log still shows failures after §2 fixes:
    them out `tcp-direct-out`/`udp-direct-out`; Marble sends everything over the chain and
    resolves everything through encrypted DoH. Functionally safe (more conservative), but it
    keeps Iranian-site traffic on the fragmented path where upstream offloads it.
-3. **UDP noise on the socket-dialing hop vs a dedicated outbound.** Upstream puts noises on a
-   separate `udp-noises` outbound routed **only** for QUIC/UDP-443; Marble attaches them to
-   the deepest hop, so every non-port-53 UDP datagram gets padded (correct per `NoisePacketWriter`,
-   but broader than upstream — cosmetic overhead, low risk).
+3. **QUIC blackhole vs dedicated UDP noises.** Upstream puts noises on a separate
+   `udp-noises` outbound routed **only** for QUIC/UDP-443. Marble now keeps that dedicated
+   outbound as an opt-in path, but defaults Freedom to a YouTube-safe TCP fallback because many
+   Iranian links simply blackhole UDP/443 and video apps wait too long before retrying TCP.
 4. **More conservative DNS.** Marble keeps `useSystemHosts: false` and encrypted-only DoH,
    where upstream uses `UseSystem` + `useSystemHosts: true` + fakedns. Marble's approach is
    stronger against poisoning but depends entirely on the resolver pool being reachable (the
@@ -279,7 +283,7 @@ failed Reddit entirely, and never opened YouTube.
 | Defect | Evidence | Fix |
 | --- | --- | --- |
 | **F — untested middle hop** | §4 watch-list item 1; official XTLS is 2-hop only | Default recipes are now 2-hop (outer → full-fragment). Middle is Custom-only. |
-| **G — UDP noise on TCP hop** | Official puts noises on a dedicated `udp-noises` outbound routed only for QUIC + UDP/443 | `ServerlessFreedomEngine` emits `udp-noises`; hardener keeps it and adds matching routing rules. |
+| **G — QUIC/UDP media stalls** | Official has a dedicated `udp-noises` path, but field reports show UDP/443 often blackholes before YouTube falls back | Freedom now defaults to rejecting QUIC/UDP443 so YouTube retries fragmented TCP; the dedicated `udp-noises` outbound remains available when TCP fallback is disabled. |
 | **H — poison injector dials** | Official blocks `10.10.34.0/24`, `2001:4188:2:600::/64`, `0.0.0.0`, `::` | Freedom mode always emits those block rules before direct/proxy. |
 | **I — multi-CDN DNS cold-start** | Official DoH `timeoutMs: 10000`, `serveExpiredTTL: 21600`; GFW-knocker remaps `youtube.com → google.com` | Freedom DoH budgets raised to 8 s+; stale TTL 21600; ProxiedDomain remaps for youtube/googlevideo/ytimg/ggpht/gvt1/gvt2; `domainStrategy: IPOnDemand`. |
 | **J — SMART overlay undid recipe** | Hardener re-wrote Freedom hop fragments from stale `freedomOuter*` fields | Named presets trust `configJson` emission; only CUSTOM is overlaid from settings. Iran Mode state is passed into `freedomRecipe` via `serverlessProfile()`. |

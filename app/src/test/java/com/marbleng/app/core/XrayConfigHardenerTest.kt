@@ -38,6 +38,16 @@ class XrayConfigHardenerTest {
     private fun harden(settings: AppSettings, source: String = ServerlessFreedomEngine.configJson(settings)): JSONObject =
         JSONObject(XrayConfigHardener.harden(source, 21080, settings))
 
+    private fun udp443Rules(rules: org.json.JSONArray): List<JSONObject> =
+        (0 until rules.length())
+            .map { rules.getJSONObject(it) }
+            .filter { rule ->
+                val protocols = rule.optJSONArray("protocol")
+                rule.optString("network") == "udp" &&
+                    (rule.optString("port") == "443" ||
+                        (protocols != null && (0 until protocols.length()).any { protocols.optString(it) == "quic" }))
+            }
+
     @Test
     fun `innermost freedom hop resolves user destinations through xray dns`() {
         val settings = freedomSettings()
@@ -153,7 +163,7 @@ class XrayConfigHardenerTest {
     }
 
     @Test
-    fun `default freedom is 2-hop without middle and routes udp noise separately`() {
+    fun `default freedom is 2-hop without middle and forces media tcp fallback`() {
         val settings = AppSettings(
             fragmentEnabled = true,
             fragmentInnerEnabled = true,
@@ -175,11 +185,35 @@ class XrayConfigHardenerTest {
         val rules = routing.getJSONArray("rules")
         val ruleText = rules.toString()
         assertTrue("poison injector range blocked", ruleText.contains("10.10.34.0/24"))
-        assertTrue("quic routed to noises", ruleText.contains("quic"))
-        assertTrue("udp-noises tag used", ruleText.contains(ServerlessFreedomEngine.UDP_NOISES_TAG))
+        val udp443 = udp443Rules(rules)
+        assertTrue("quic/udp443 must be rejected for YouTube TCP fallback", udp443.any { it.optString("outboundTag") == "block" })
+        assertFalse(
+            "default YouTube-safe path must not send QUIC to the noise outbound",
+            udp443.any { it.optString("outboundTag") == ServerlessFreedomEngine.UDP_NOISES_TAG }
+        )
 
         val hosts = hardened.getJSONObject("dns").optJSONObject("hosts")
         assertTrue(hosts?.has("domain:youtube.com") == true)
+    }
+
+    @Test
+    fun `freedom can still use dedicated udp noises when tcp fallback is off`() {
+        val settings = freedomSettings().copy(
+            freedomForceTcpForStreaming = false,
+            freedomUdpNoiseEnabled = true
+        )
+        val hardened = harden(settings)
+        val rules = hardened.getJSONObject("routing").getJSONArray("rules")
+        val udp443 = udp443Rules(rules)
+
+        assertTrue(
+            "QUIC/UDP443 should route to the dedicated noises outbound when fallback is off",
+            udp443.any { it.optString("outboundTag") == ServerlessFreedomEngine.UDP_NOISES_TAG }
+        )
+        assertFalse(
+            "fallback-off noise mode should not add a UDP443 block rule",
+            udp443.any { it.optString("outboundTag") == "block" }
+        )
     }
 
     @Test
