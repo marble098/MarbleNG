@@ -565,7 +565,7 @@ private fun compactInAppMessage(raw: String): String {
     val lower = message.lowercase()
     return when {
         "vless without tls or other encryption is prohibited" in lower ->
-            "Unsupported VLESS • enable TLS/REALITY or non-none VLESS encryption"
+            "Unsupported VLESS • pick a node with TLS/REALITY, or turn Marble Freedom back on"
         "failed to build outbound config" in lower ->
             "Xray rejected this node configuration • check protocol/TLS settings"
         "context deadline exceeded" in lower && "dns-query" in lower ->
@@ -5090,6 +5090,7 @@ private fun SpatialSettings(
                 }
             } else {
                 Column(Modifier.fillMaxSize()) {
+                    Box(Modifier.fillMaxWidth()) {
                     LazyRow(
                         state=compactTabsState,
                         modifier=Modifier
@@ -5145,6 +5146,36 @@ private fun SpatialSettings(
                                 )
                             }
                         }
+                    }
+
+                    // MARBLE_SETTINGS_TABS_SCROLL_HINT_V1 — fade hints so it's obvious the
+                    // tab strip keeps going instead of just cutting a label off mid-word.
+                    AnimatedVisibility(
+                        visible=compactTabsState.canScrollBackward,
+                        modifier=Modifier.align(Alignment.CenterStart),
+                        enter=fadeIn(),
+                        exit=fadeOut()
+                    ) {
+                        Box(
+                            Modifier
+                                .fillMaxHeight()
+                                .width(20.dp)
+                                .background(Brush.horizontalGradient(listOf(Aether.Void, Color.Transparent)))
+                        )
+                    }
+                    AnimatedVisibility(
+                        visible=compactTabsState.canScrollForward,
+                        modifier=Modifier.align(Alignment.CenterEnd),
+                        enter=fadeIn(),
+                        exit=fadeOut()
+                    ) {
+                        Box(
+                            Modifier
+                                .fillMaxHeight()
+                                .width(20.dp)
+                                .background(Brush.horizontalGradient(listOf(Color.Transparent, Aether.Void)))
+                        )
+                    }
                     }
 
                     HorizontalPager(
