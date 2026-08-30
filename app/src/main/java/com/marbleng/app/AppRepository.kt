@@ -1968,20 +1968,22 @@ private fun postToMain(block: () -> Unit) {
     fun lastProfile(): ProxyProfile? {
         if (settings.serverlessModeEnabled) return serverlessProfile()
         val id = store.lastProfileId()
-        if (id.isBlank()) return null
-        if (ServerlessFreedomEngine.matches(id, store.lastProfileSourceId())) {
-            // Marble Freedom was the last-used identity but is now switched off. There is
-            // no real "last node" to resume here — silently grabbing an arbitrary library
-            // entry could hand Connect an incompatible/insecure profile (e.g. plaintext
-            // VLESS) and surface a confusing preflight rejection. Returning null routes the
-            // caller through auto(), which prefers a measured/working node over the first
-            // one in the list.
-            return null
+        if (id.isNotBlank() && !ServerlessFreedomEngine.matches(id, store.lastProfileSourceId())) {
+            val sourceId = store.lastProfileSourceId()
+            val exact = profile(id, sourceId)
+            val candidate = (exact ?: profile(id))?.takeIf(::profileSourceEnabled)
+            if (candidate != null) return candidate
         }
 
-        val sourceId = store.lastProfileSourceId()
-        val exact = profile(id, sourceId)
-        return (exact ?: profile(id))?.takeIf(::profileSourceEnabled)
+        // When Marble Freedom is switched off or store has no active profile, check connection
+        // history in reverse to seamlessly restore the most recent enabled library node.
+        val fromHistory = history.asReversed().asSequence()
+            .filterNot { ServerlessFreedomEngine.matches(it.profileId, "") }
+            .mapNotNull { rec -> profile(rec.profileId)?.takeIf(::profileSourceEnabled) }
+            .firstOrNull()
+        if (fromHistory != null) return fromHistory
+
+        return null
     }
 
     /** Exact one-tap reconnect for Home after app/process restart. */
@@ -2025,7 +2027,8 @@ private fun postToMain(block: () -> Unit) {
         val candidate = when {
             rememberedUsable -> remembered
             measured != null -> measured
-            else -> available.first()
+            else -> available.firstOrNull { it.scheme != "vless" || (it.security.isNotBlank() && it.security != "none") }
+                ?: available.first()
         } ?: available.first()
         diagnostics.event(
             "APP",
