@@ -103,7 +103,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
@@ -1741,7 +1746,8 @@ private fun HomeQuickSettingRow(
     subtitle: String,
     checked: Boolean,
     enabled: Boolean = true,
-    onChecked: (Boolean) -> Unit
+    onChecked: (Boolean) -> Unit,
+    debounceMs: Long = 300L
 ) {
     val tone=if(checked) Aether.Cyan else Aether.InkMuted
     val shape=RoundedCornerShape(20.dp)
@@ -4993,7 +4999,7 @@ private fun SpatialSettings(
     // tab strip updated while the page area stayed empty for every tab. Selection is now an
     // explicit mutableIntStateOf and the visible tab is recomposed under key(selectedTabIndex),
     // so the chosen workspace always lays out its own SettingsWorkspacePage.
-    var selectedTabIndex by remember { mutableIntStateOf(initialPage.coerceIn(0, tabs.lastIndex)) }
+    var selectedTabIndex by rememberSaveable { mutableIntStateOf(initialPage.coerceIn(0, tabs.lastIndex)) }
     val compactTabsState=rememberLazyListState(initialFirstVisibleItemIndex=selectedTabIndex)
 
     LaunchedEffect(focusSection) {
@@ -5006,12 +5012,19 @@ private fun SpatialSettings(
     }
 
     LaunchedEffect(selectedTabIndex) {
+        listState.scrollToItem(0)
         val current = selectedTabIndex.coerceIn(0, tabs.lastIndex)
         compactTabsState.animateScrollToItem(current)
         repo.rememberSettingsTab(tabs[current].name)
     }
 
-    Column(Modifier.fillMaxSize()) {
+    Column(
+        Modifier
+            .fillMaxSize()
+            .imePadding()
+            .systemBarsPadding()
+            .windowInsetsPadding(WindowInsets.navigationBars)
+    ) {
         Box(Modifier.padding(horizontal=16.dp)) {
             MarbleCompactTopBar(
                 title="Settings",
@@ -5593,7 +5606,7 @@ private fun IntelligenceSettings(repo: AppRepository) {
         checked = s.connectTuningEnabled
     ) { repo.updateSettings(repo.settings.copy(connectTuningEnabled = it)) }
 
-    AnimatedVisibility(s.connectTuningEnabled) {
+    AnimatedVisibility(s.connectTuningEnabled, key = "connectTuning") {
         Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
             NumberSetting("Connect tuning budget", s.connectTuningBudgetSec, 0..20, " sec") {
                 repo.updateSettings(repo.settings.copy(connectTuningBudgetSec = it))
@@ -5607,7 +5620,7 @@ private fun IntelligenceSettings(repo: AppRepository) {
                 checked = s.liveTuningEnabled
             ) { repo.updateSettings(repo.settings.copy(liveTuningEnabled = it)) }
 
-            AnimatedVisibility(s.liveTuningEnabled) {
+            AnimatedVisibility(s.liveTuningEnabled, key = "liveTuning") {
                 Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
                     NumberSetting("Live tuning interval", s.liveTuningIntervalSec, 60..3600, " sec") {
                         repo.updateSettings(repo.settings.copy(liveTuningIntervalSec = it))
@@ -5642,7 +5655,7 @@ private fun IntelligenceSettings(repo: AppRepository) {
         checked = s.continuousOptimizerEnabled
     ) { repo.updateSettings(repo.settings.copy(continuousOptimizerEnabled = it)) }
 
-    AnimatedVisibility(s.continuousOptimizerEnabled) {
+    AnimatedVisibility(s.continuousOptimizerEnabled, key = "optimizer") {
         Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
             NumberSetting("Autopilot interval", s.optimizerIntervalSec, 60..900, " sec") {
                 repo.updateSettings(repo.settings.copy(optimizerIntervalSec = it))
@@ -5679,7 +5692,7 @@ private fun IntelligenceSettings(repo: AppRepository) {
         checked = s.raceConnectEnabled
     ) { repo.updateSettings(s.copy(raceConnectEnabled = it)) }
 
-    AnimatedVisibility(s.raceConnectEnabled) {
+    AnimatedVisibility(s.raceConnectEnabled, key = "raceConnect") {
         NumberSetting("Race width", s.raceWidth, 2..4) {
             repo.updateSettings(repo.settings.copy(raceWidth = it))
         }
@@ -5691,7 +5704,7 @@ private fun IntelligenceSettings(repo: AppRepository) {
         checked = s.smartFallbackEnabled
     ) { repo.updateSettings(s.copy(smartFallbackEnabled = it)) }
 
-    AnimatedVisibility(s.smartFallbackEnabled) {
+    AnimatedVisibility(s.smartFallbackEnabled, key = "fallback") {
         Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
             NumberSetting("Fallback depth", s.fallbackCount, 1..8) {
                 repo.updateSettings(repo.settings.copy(fallbackCount = it))
@@ -5716,7 +5729,7 @@ private fun IntelligenceSettings(repo: AppRepository) {
         checked = s.adaptiveMtuEnabled
     ) { repo.updateSettings(s.copy(adaptiveMtuEnabled = it)) }
 
-    AnimatedVisibility(s.adaptiveMtuEnabled) {
+    AnimatedVisibility(s.adaptiveMtuEnabled, key = "adaptiveMtu") {
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             NumberSetting("MTU floor", s.mtuMin, 1280..1500) {
                 repo.updateSettings(repo.settings.copy(mtuMin = it.coerceAtMost(repo.settings.mtuMax)))
@@ -5867,7 +5880,7 @@ private fun NotificationSettings(repo: AppRepository) {
         checked = s.smartNotificationsEnabled
     ) { repo.updateSettings(s.copy(smartNotificationsEnabled = it)) }
 
-    AnimatedVisibility(s.smartNotificationsEnabled) {
+    AnimatedVisibility(s.smartNotificationsEnabled, key = "smartNotifications") {
         Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
             SettingSwitch(
                 title = "Connection events",
@@ -7101,7 +7114,7 @@ private fun ProbeSettings(repo: AppRepository) {
         checked = s.probeSpeedTest
     ) { repo.updateSettings(repo.settings.copy(probeSpeedTest = it)) }
 
-    AnimatedVisibility(s.probeSpeedTest) {
+    AnimatedVisibility(s.probeSpeedTest, key = "speedTest") {
         Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
             SettingSwitch(
                 title = "Grow the speed sample",
@@ -7252,13 +7265,26 @@ private fun SettingSwitch(
 ) {
     val tone=if(checked) Aether.Cyan else Aether.InkMuted
 
+    var lastClickTime by remember { mutableLongStateOf(0L) }
+
     PrismWell(
-        modifier=Modifier.fillMaxWidth(),
+        modifier=Modifier
+            .fillMaxWidth()
+            .semantics {
+                contentDescription = "$title, switch ${if (checked) "on" else "off"}"
+                stateDescription = if (checked) "Enabled" else "Disabled"
+            },
         tone=tone,
         selected=checked,
         radius=PrismSurface.TileRadius,
         contentPadding=PaddingValues(horizontal=12.dp,vertical=10.dp),
-        onClick={ onChecked(!checked) }
+        onClick={
+                val now = System.currentTimeMillis()
+                if (now - lastClickTime > debounceMs) {
+                    lastClickTime = now
+                    onChecked(!checked)
+                }
+            }
     ) {
         Row(
             modifier=Modifier.fillMaxWidth(),
@@ -7912,7 +7938,7 @@ private fun FreedomSettings(repo: AppRepository) {
         checked = s.freedomUdpNoiseEnabled
     ) { repo.updateSettings(s.copy(freedomUdpNoiseEnabled = it)) }
 
-    AnimatedVisibility(s.freedomUdpNoiseEnabled && !s.freedomForceTcpForStreaming) {
+    AnimatedVisibility(s.freedomUdpNoiseEnabled && !s.freedomForceTcpForStreaming, key = "udpNoise") {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             NumberSetting("Noise burst pairs", s.freedomUdpNoiseCount, 2..16) {
                 repo.updateSettings(s.copy(freedomUdpNoiseCount = it))
