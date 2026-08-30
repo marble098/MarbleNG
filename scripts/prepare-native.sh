@@ -1200,51 +1200,19 @@ ok "APK size guard: no duplicate libmarblerank.so"
 
 log "[4/4] Downloading Xray geo assets for $XRAY_TAG"
 
-XRAY_RELEASE_JSON="$CORE/xray-release.json"
 XRAY_ZIP="$CORE/xray-release.zip"
+XRAY_ASSET_NAME="Xray-linux-64.zip"
 
-download_file \
-    "https://api.github.com/repos/XTLS/Xray-core/releases/tags/$XRAY_TAG" \
-    "$XRAY_RELEASE_JSON" \
-    180 \
-    --silent \
-    -H "Accept: application/vnd.github+json" \
-    -H "X-GitHub-Api-Version: 2022-11-28" || {
-        die "Xray release metadata download failed after retries"
-    }
-
-[[ -s "$XRAY_RELEASE_JSON" ]] || {
-    die "Xray release metadata download failed"
+# The asset name is fixed by the Xray release contract, so querying the GitHub
+# Releases API only to rediscover this URL adds an unnecessary rate-limited
+# dependency. GitHub-hosted runners share unauthenticated API quotas and can
+# receive HTTP 403 even while the public release asset itself is available.
+# Use the stable release download URL directly instead.
+[[ "$XRAY_TAG" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || {
+    die "Unsafe Xray release tag in core-lock.json: $XRAY_TAG"
 }
 
-if ! jq -e . "$XRAY_RELEASE_JSON" >/dev/null 2>&1; then
-    die "GitHub returned invalid Xray release metadata"
-fi
-
-
-# ==============================================================================
-# Locate Xray release ZIP
-#
-# Avoid:
-#
-#   jq ... | head -n 1
-#
-# under pipefail. jq's first() performs the selection internally instead.
-# ==============================================================================
-
-XRAY_ASSET_URL="$(
-    jq -r '
-        first(
-            .assets[]
-            | select(.name == "Xray-linux-64.zip")
-            | .browser_download_url
-        ) // empty
-    ' "$XRAY_RELEASE_JSON"
-)"
-
-[[ -n "$XRAY_ASSET_URL" ]] || {
-    die "Xray-linux-64.zip is unavailable for $XRAY_TAG"
-}
+XRAY_ASSET_URL="https://github.com/XTLS/Xray-core/releases/download/${XRAY_TAG}/${XRAY_ASSET_NAME}"
 
 echo
 echo "Xray release asset:"

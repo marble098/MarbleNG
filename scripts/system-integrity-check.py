@@ -52,6 +52,11 @@ files = {
     "verify": read(".github/workflows/verify.yml"),
 }
 
+workflow_sources = "\n".join(
+    path.read_text(encoding="utf-8")
+    for path in sorted((ROOT / ".github" / "workflows").glob("*.yml"))
+)
+
 checks = []
 
 def check(name: str, condition: bool) -> None:
@@ -62,6 +67,10 @@ def integer_constant(text: str, name: str) -> int:
     if not match:
         raise AssertionError(f"missing numeric constant {name}")
     return int(match.group(1).replace("_", ""))
+
+def action_uses_minimum(text: str, action: str, minimum_major: int) -> bool:
+    versions = re.findall(rf"uses:\s*{re.escape(action)}@v([0-9]+)\b", text)
+    return bool(versions) and all(int(version) >= minimum_major for version in versions)
 
 # Lifecycle and application boundaries.
 check(
@@ -244,6 +253,21 @@ check("Quick Tile service is permission protected", "android.permission.BIND_QUI
 check("signed build checks out complete history", "fetch-depth: 0" in files["build"])
 check("verify invokes central integrity audit", "scripts/system-integrity-check.py" in files["verify"])
 check("signed build invokes central integrity audit", "scripts/system-integrity-check.py" in files["build"])
+check(
+    "native release assets bypass rate-limited metadata API",
+    "api.github.com/repos/XTLS/Xray-core/releases/tags" not in files["native"]
+    and "releases/download/${XRAY_TAG}/${XRAY_ASSET_NAME}" in files["native"],
+)
+check(
+    "Xray Go cache follows the pinned dependency checksum",
+    "cache-dependency-path: .bootstrap/xray/go.sum" in files["build"],
+)
+check(
+    "workflow JavaScript actions use Node 24 generations",
+    action_uses_minimum(workflow_sources, "actions/checkout", 7)
+    and action_uses_minimum(workflow_sources, "actions/setup-go", 7)
+    and action_uses_minimum(workflow_sources, "android-actions/setup-android", 4),
+)
 check(
     "release publishing is immutable, verified and tag-atomic",
     "MARBLE_RELEASE_PUBLISH_RESILIENT_V181" in files["build"]
