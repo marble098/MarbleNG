@@ -1970,7 +1970,13 @@ private fun postToMain(block: () -> Unit) {
         val id = store.lastProfileId()
         if (id.isBlank()) return null
         if (ServerlessFreedomEngine.matches(id, store.lastProfileSourceId())) {
-            return enabledProfilesSnapshot().firstOrNull()
+            // Marble Freedom was the last-used identity but is now switched off. There is
+            // no real "last node" to resume here — silently grabbing an arbitrary library
+            // entry could hand Connect an incompatible/insecure profile (e.g. plaintext
+            // VLESS) and surface a confusing preflight rejection. Returning null routes the
+            // caller through auto(), which prefers a measured/working node over the first
+            // one in the list.
+            return null
         }
 
         val sourceId = store.lastProfileSourceId()

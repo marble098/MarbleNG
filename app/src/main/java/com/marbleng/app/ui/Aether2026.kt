@@ -565,7 +565,7 @@ private fun compactInAppMessage(raw: String): String {
     val lower = message.lowercase()
     return when {
         "vless without tls or other encryption is prohibited" in lower ->
-            "Unsupported VLESS • enable TLS/REALITY or non-none VLESS encryption"
+            "Unsupported VLESS • pick a node with TLS/REALITY, or turn Marble Freedom back on"
         "failed to build outbound config" in lower ->
             "Xray rejected this node configuration • check protocol/TLS settings"
         "context deadline exceeded" in lower && "dns-query" in lower ->
