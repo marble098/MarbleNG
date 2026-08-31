@@ -212,16 +212,17 @@ object MarbleFreedomSmartRanker {
         val bestProbe = scored.firstOrNull { it.profile.id == bestProfileObj.id }
 
         // MARBLE_SURVIVAL_FIRST_RANK_V80: Record the result
-        if (bestProbe?.probeResult?.success == true && intelligence != null && settings.healthHistoryEnabled) {
+        val bestProbeResult = bestProbe?.probeResult
+        if (bestProbeResult?.success == true && intelligence != null && settings.healthHistoryEnabled) {
             intelligence.recordBenchmark(
                 bestProfileObj,
                 BenchmarkResult(
                     profileId = bestProfileObj.id,
                     name = bestProfileObj.name,
                     success = 100,
-                    latencyMs = bestProbe.probeResult.latencyMs,
+                    latencyMs = bestProbeResult.latencyMs,
                     bytesPerSecond = 0.0,
-                    score = bestProbe.score,
+                    score = bestProbe?.score ?: 0.0,
                     probeKind = "TUNNEL"
                 ),
                 settings

@@ -2348,9 +2348,9 @@ private fun postToMain(block: () -> Unit) {
             // HTTPS generate204 probe timed out is NOT hard-failed if it carries strong historical
             // success evidence. Quarantined profiles are pinned to the end and never selected.
             val quarantinedIds = invalidCandidates.mapTo(mutableSetOf()) { it.first.id }
-            val healthHistories = intelligence.healthSnapshot().mapNotNull { (id, rec) ->
-                SurvivalFirstRanker.fromNodeHealth(rec)?.let { id to it }
-            }.toMap()
+            val healthHistories = intelligence.healthSnapshot().entries
+                .mapNotNull { e -> SurvivalFirstRanker.fromNodeHealth(e.value)?.let { e.key to it } }
+                .toMap()
             val iranActive = iranMode.active
             val reordered = SurvivalFirstRanker.reorderResults(
                 results, healthHistories, settings, iranActive, quarantinedIds
