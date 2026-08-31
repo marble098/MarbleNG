@@ -79,3 +79,23 @@ DoH exchange shared the general HTTPS pool.
 invariants, Compose-function-type checks and release-publishing safety checks all still pass. No
 `GlobalScope` was introduced and all changes are thread-safe (CAS gates, `@Synchronized` entry
 points, `ConcurrentHashMap` tables).
+
+## 4. Turbo Rank — all-node parallel real-tunnel rank (MARBLE_TURBO_RANK_V91)
+
+User requirement: Rank must measure **ALL** nodes with real Xray tunnel tests, in parallel, very
+fast, with no strict gating, and show every result.
+
+- `native/rankhelper/main.go`: worker cap raised 32 → 128 (default 64). Each worker is an
+  in-process `core.New`/`core.Dial` Xray instance, not a CLI child, so one wave dials every
+  node of a normal subscription.
+- `AppRepository.smartRankRun`: the preflight quarantine is no longer a hard gate — the whole
+  enabled pool enters `PattRankEngine` (real `TUNNEL` probes via `marble-rank`) and every node
+  publishes a result. Quarantined/deprecated nodes are only pinned to the bottom of the
+  survival-first ordering, never selected.
+- Rank workers: `maxOf(settings.tcpWorkers, 64).coerceAtMost(128)` instead of `coerceIn(4, 16)`
+  (the old 4–16 cap forced several sequential waves).
+- Results stream to each Library card through `beginProbeBatch` / `markProbeResult` as they
+  complete, and the summary line reports `healthy/total`.
+- The stale-subscription *stop* (majority quarantined) is removed from the Library rank path;
+  it still exists in the Smart Aegis auto-connect path where no selection is possible without a
+  valid pool.

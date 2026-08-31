@@ -1,6 +1,7 @@
 package com.marbleng.app.core
 
 import com.marbleng.app.model.AppSettings
+import com.marbleng.app.model.FreedomPreset
 import kotlin.math.max
 import kotlin.math.min
 
@@ -183,12 +184,160 @@ object DpiEvasionPolicy {
         description = "Extreme 2-hop micro-fragment • GFW-knocker outer + full 517-byte shred"
     )
 
+    // ============================================================================
+    // Per-operator steel profiles (MARBLE_OPERATOR_FREEDOM_V91)
+    //
+    // Source: XTLS official Serverless-for-Iran chain (skip-fragment 1-1/130/560/4 →
+    // _chain-skip 2-4/1/4/130 → full-fragment 1-1/1/4/517) plus Xray-core discussion #5969
+    // field notes from MCI / Irancell / Shatel (April 2026): plain tlshello TCP fragmentation
+    // is reassembled before inspection, so the steel chain uses delayed first writes and
+    // byte-level shredding instead of a single tiny-record mode.
+    // ============================================================================
+
+    /**
+     * MCI / Hamrah-e-Aval steel — strictest mobile DPI in Iran.
+     * GFW-knocker packet-split outer, the official skip-fragment delay pair in the middle (the
+     * hop XTLS ships for operators that reassemble the first few ms), finished by the 517-byte
+     * full-fragment. 3-stage, no tlshello record rewriting (servers RST that shape).
+     */
+    val HAMRAH_STEEL: FragmentRecipe = FragmentRecipe(
+        packets = "1-1",
+        length = "1-3",
+        interval = "5-10",
+        maxSplit = "4",
+        middlePackets = "1-1",
+        middleLength = "130",
+        middleInterval = "560",
+        middleMaxSplit = "4",
+        innerPackets = "1-1",
+        innerLength = "1",
+        innerInterval = "4",
+        innerMaxSplit = "517",
+        rank = 9,
+        description = "MCI/Hamrah-e-Aval steel • split → skip-fragment 130/560 → full-fragment 517"
+    )
+
+    /**
+     * MTN Irancell steel — heavy volume-based endpoint blocking and ~50% packet-loss throttling
+     * on weak endpoints. Delayed first write plus the official _chain-skip then full-fragment,
+     * with aggressive UDP noise configured by the preset layer.
+     */
+    val IRANCELL_STEEL: FragmentRecipe = FragmentRecipe(
+        packets = "1-1",
+        length = "130",
+        interval = "560",
+        maxSplit = "4",
+        middlePackets = "2-4",
+        middleLength = "1",
+        middleInterval = "4",
+        middleMaxSplit = "130",
+        innerPackets = "1-1",
+        innerLength = "1",
+        innerInterval = "4",
+        innerMaxSplit = "517",
+        rank = 9,
+        description = "MTN Irancell steel • skip-fragment → _chain-skip → full-fragment 517"
+    )
+
+    /**
+     * Shatel steel — private fixed-line ISP that tracks MCI's blocking decisions closely.
+     * GFW-knocker outer split, official _chain-skip, 517-byte full-fragment.
+     */
+    val SHATEL_STEEL: FragmentRecipe = FragmentRecipe(
+        packets = "1-1",
+        length = "1-3",
+        interval = "5-10",
+        maxSplit = "4",
+        middlePackets = "2-4",
+        middleLength = "1",
+        middleInterval = "4",
+        middleMaxSplit = "130",
+        innerPackets = "1-1",
+        innerLength = "1",
+        innerInterval = "4",
+        innerMaxSplit = "517",
+        rank = 8,
+        description = "Shatel steel • packet-split outer → _chain-skip → full-fragment 517"
+    )
+
+    /**
+     * Rightel steel — third mobile operator; follows national policy with a lag, so its profile
+     * keeps the proven record-split middle hop while still ending in the 517-byte shred.
+     */
+    val RIGHTEL_STEEL: FragmentRecipe = FragmentRecipe(
+        packets = "1-1",
+        length = "1-3",
+        interval = "5-10",
+        maxSplit = "4",
+        middlePackets = "1-3",
+        middleLength = "10-30",
+        middleInterval = "5-10",
+        middleMaxSplit = "768",
+        innerPackets = "1-1",
+        innerLength = "1",
+        innerInterval = "4",
+        innerMaxSplit = "517",
+        rank = 7,
+        description = "Rightel steel • split outer → record-split middle → full-fragment 517"
+    )
+
+    private val OPERATOR_PRESETS = mapOf(
+        FreedomPreset.HAMRAH_AVAL to HAMRAH_STEEL,
+        FreedomPreset.IRANCELL to IRANCELL_STEEL,
+        FreedomPreset.SHATEL to SHATEL_STEEL,
+        FreedomPreset.RIGHTEL to RIGHTEL_STEEL
+    )
+
+    /** True for the four per-operator steel presets. */
+    fun isOperatorPreset(preset: FreedomPreset): Boolean = preset in OPERATOR_PRESETS
+
+    /** Human label used by the Freedom settings UI (Persian operator names kept alongside). */
+    fun operatorPresetLabel(preset: FreedomPreset): String = when (preset) {
+        FreedomPreset.SHATEL -> "Shatel"
+        FreedomPreset.HAMRAH_AVAL -> "MCI • همراه اول"
+        FreedomPreset.IRANCELL -> "Irancell"
+        FreedomPreset.RIGHTEL -> "Rightel"
+        else -> preset.name
+    }
+
+    /**
+     * Map a detected Iranian operator to its steel preset.
+     *
+     * Matching uses the curated ASN table first (MCI 197207, Irancell 44244, Rightel 57218,
+     * Shatel 31549) and falls back to operator-name fingerprints so regional ASNs of the same
+     * operator still get the right profile.
+     */
+    fun operatorPresetFor(isp: IranIsp?): FreedomPreset? {
+        if (isp == null) return null
+        val asn = isp.asn
+        if (asn in setOf(197207)) return FreedomPreset.HAMRAH_AVAL
+        if (asn in setOf(44244)) return FreedomPreset.IRANCELL
+        if (asn in setOf(57218)) return FreedomPreset.RIGHTEL
+        if (asn in setOf(31549)) return FreedomPreset.SHATEL
+
+        val name = "${isp.name} ${isp.shortName} ${isp.persianName}".lowercase()
+        return when {
+            "hamrah" in name || "mci" in name || "mobile communication company" in name ||
+                "hamrah-e aval" in name -> FreedomPreset.HAMRAH_AVAL
+            "irancell" in name || "iran cell" in name || "mtn" in name ->
+                FreedomPreset.IRANCELL
+            "rightel" in name -> FreedomPreset.RIGHTEL
+            "shatel" in name || "aria shatel" in name -> FreedomPreset.SHATEL
+            else -> null
+        }
+    }
+
     fun freedomRecipe(settings: AppSettings, state: IranModeState = IranModeState()): FragmentRecipe {
         return when (settings.freedomPreset) {
             com.marbleng.app.model.FreedomPreset.MULTI_LAYER_CASCADE -> MULTI_LAYER_CASCADE
             com.marbleng.app.model.FreedomPreset.SNI_SHREDDER -> TLSHELLO_SNI
             com.marbleng.app.model.FreedomPreset.AGGRESSIVE_RECORD_SPLIT -> AGGRESSIVE_CASCADE
             com.marbleng.app.model.FreedomPreset.EXTREME_ANTI_DPI -> EXTREME_ANTI_DPI
+            // Explicit user-pinned operator steel profile always wins over auto-detection.
+            com.marbleng.app.model.FreedomPreset.SHATEL -> SHATEL_STEEL
+            com.marbleng.app.model.FreedomPreset.HAMRAH_AVAL -> HAMRAH_STEEL
+            com.marbleng.app.model.FreedomPreset.IRANCELL -> IRANCELL_STEEL
+            com.marbleng.app.model.FreedomPreset.RIGHTEL -> RIGHTEL_STEEL
             com.marbleng.app.model.FreedomPreset.CUSTOM -> FragmentRecipe(
                 packets = settings.freedomOuterPackets.ifBlank { "1-1" },
                 length = settings.freedomOuterLength.ifBlank { "1-3" },
@@ -206,6 +355,17 @@ object DpiEvasionPolicy {
                 description = "Custom user-configured multi-layer fragment"
             )
             com.marbleng.app.model.FreedomPreset.SMART_ADAPTIVE -> {
+                // MARBLE_OPERATOR_FREEDOM_V91: match the detected Iranian operator to its steel
+                // profile before the generic severity ladder. This is what makes Smart Auto feel
+                // tuned per carrier without any user action.
+                val operatorPreset = if (settings.freedomOperatorAuto) {
+                    operatorPresetFor(state.isp)
+                } else {
+                    null
+                }
+                val operatorRecipe = operatorPreset?.let { OPERATOR_PRESETS[it] }
+                if (operatorRecipe != null) return operatorRecipe
+
                 val tier = IranShield.tier(state)
                 when {
                     // Extreme operators: official skip-fragment delay pair (no middle hop).

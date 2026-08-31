@@ -226,6 +226,7 @@ class AppStore(context: Context) {
         fragmentInnerMaxSplit = prefs.getString("fragmentInnerMaxSplit", "517") ?: "517",
 
         freedomPreset = enumValue("freedomPreset", FreedomPreset.SMART_ADAPTIVE),
+        freedomOperatorAuto = prefs.getBoolean("freedomOperatorAuto", true),
         freedomLayerCount = prefs.getInt("freedomLayerCount", 2).coerceIn(1, 3),
         // GFW-knocker packet-split defaults (1-1 / 1-3 / 5-10); see Models.kt comment.
         freedomOuterPackets = prefs.getString("freedomOuterPackets", "1-1") ?: "1-1",
@@ -414,6 +415,7 @@ class AppStore(context: Context) {
         .putString("fragmentInnerMaxSplit", s.fragmentInnerMaxSplit)
 
         .putString("freedomPreset", s.freedomPreset.name)
+        .putBoolean("freedomOperatorAuto", s.freedomOperatorAuto)
         .putInt("freedomLayerCount", s.freedomLayerCount.coerceIn(1, 3))
         .putString("freedomOuterPackets", s.freedomOuterPackets)
         .putString("freedomOuterLength", s.freedomOuterLength)

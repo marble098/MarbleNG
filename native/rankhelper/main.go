@@ -271,10 +271,14 @@ func executeMarbleRank(cmd *base.Command, args []string) {
     }
     workers := batch.Workers
     if workers <= 0 {
-        workers = 16
+        workers = 64
     }
-    if workers > 32 {
-        workers = 32
+    // MARBLE_TURBO_RANK_V91: one in-process Xray core per node with a tiny trimming (outbound +
+    // dispatcher + dns) is far lighter than a CLI child, so the batch can dial every node in the
+    // same wave. 128 workers keep ALL nodes parallel even on large subscriptions while leaving
+    // headroom for the Android process.
+    if workers > 128 {
+        workers = 128
     }
     if workers > len(batch.Jobs) {
         workers = len(batch.Jobs)

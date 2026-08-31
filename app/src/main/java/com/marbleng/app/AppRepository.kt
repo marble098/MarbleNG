@@ -2371,9 +2371,11 @@ private fun postToMain(block: () -> Unit) {
         }
 
         // MARBLE_PROFILE_QUARANTINE_V1: a structurally broken profile (e.g. a VLESS/TLS config
-        // that fails xray-start validation) must never join the benchmark pool and poison
-        // ranking. Quarantine it before PattRankEngine sees it and surface it in diagnostics.
-        val (validCandidates, invalidCandidates) =
+        // that fails xray-start validation) must never poison ranking or selection. MARBLE_TURBO_RANK_V91:
+        // quarantine is no longer a hard gate — every node gets the real tunnel probe and its
+        // result is shown; broken/unsafe nodes are only pinned to the bottom of the selection
+        // ordering. This is what measures ALL nodes in one parallel wave, with no strict gate.
+        val (_, invalidCandidates) =
             ProfilePreflightValidator.partition(securitySafe, crossCheckSources)
         if (invalidCandidates.isNotEmpty()) {
                 diagnostics.event(
@@ -2389,30 +2391,12 @@ private fun postToMain(block: () -> Unit) {
                         ProfilePreflightValidator.validateAll(candidates)
                     )
                 )
-                message = "Rank • $scope • quarantined ${invalidCandidates.size} invalid profile(s) • ranking valid ones"
+                message = "Rank • $scope • preflight flagged ${invalidCandidates.size} • testing all nodes"
             }
 
-            // MARBLE_SMART_RANK_V90: if preflight quarantined more than half of the pool, the
-            // subscription is stale or broken — stop, show the Persian refresh prompt, and
-            // auto-offer a subscription refresh. Never silently finish empty.
-            val total = candidates.size
-            val excluded = invalidCandidates.size + deprecated.size
-            val majorityQuarantined = ProfilePreflightValidator.isMajorityQuarantined(
-                invalidCandidates.size, securitySafe.size
-            )
-            if (majorityQuarantined || (total > 0 && excluded * 2 > total) || validCandidates.isEmpty()) {
-                diagnostics.event(
-                    "BENCHMARK", "rank-stopped-stale-subscriptions",
-                    "source" to sourceId.take(24),
-                    "total" to total,
-                    "quarantined" to invalidCandidates.size,
-                    "deprecated" to deprecated.size,
-                    "reasons" to invalidCandidates.map { it.second.reason }.distinct().joinToString(",")
-                )
-                message = MarbleFreedomSmartRanker.STALE_SUBSCRIPTIONS_MESSAGE
-                return
-            }
-            val scoped = validCandidates
+            // MARBLE_TURBO_RANK_V91: the whole enabled pool is tested in one parallel real-tunnel
+            // wave. No node is excluded; quarantine and security-deprecation only affect ordering.
+            val scoped = candidates
 
             // Keep the last known measurements visible while fresh evidence streams in.
             // Clearing first made every latency/result chip disappear and then pop back into place.
@@ -2421,7 +2405,9 @@ private fun postToMain(block: () -> Unit) {
                 benchCandidates = scoped.size.coerceAtLeast(1),
                 benchSamples = 2,
                 benchTimeoutSec = settings.benchTimeoutSec.coerceIn(4, 6),
-                tcpWorkers = settings.tcpWorkers.coerceIn(4, 16),
+                // MARBLE_TURBO_RANK_V91: full-wave parallelism — every node dials at once inside
+                // the helper (capped at 128), instead of 4-16 sequential waves.
+                tcpWorkers = maxOf(settings.tcpWorkers, 64).coerceAtMost(128),
                 probeMethod = ProbeMethod.TUNNEL,
                 probeSpeedTest = false,
                 verifiedPerformanceTuning = false,
@@ -2461,8 +2447,12 @@ private fun postToMain(block: () -> Unit) {
 
             // MARBLE_SURVIVAL_FIRST_RANK_V80: survival-first re-rank for Iran. A node whose short
             // HTTPS generate204 probe timed out is NOT hard-failed if it carries strong historical
-            // success evidence. Quarantined profiles are pinned to the end and never selected.
-            val quarantinedIds = invalidCandidates.mapTo(mutableSetOf()) { it.first.id }
+            // success evidence. Quarantined + deprecated profiles are still measured and shown but
+            // pinned to the end so they are never auto-selected.
+            val quarantinedIds = buildSet {
+                invalidCandidates.forEach { add(it.first.id) }
+                deprecated.forEach { add(it.first.id) }
+            }
             val healthHistories = intelligence.healthSnapshot().entries
                 .mapNotNull { e -> SurvivalFirstRanker.fromNodeHealth(e.value)?.let { e.key to it } }
                 .toMap()

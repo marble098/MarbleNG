@@ -2,6 +2,7 @@ package com.marbleng.app.core
 
 import com.marbleng.app.model.AppSettings
 import com.marbleng.app.model.BenchmarkResult
+import com.marbleng.app.model.FreedomPreset
 import com.marbleng.app.model.ProxyProfile
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -30,6 +31,10 @@ object MarbleFreedomSmartRanker {
      */
     const val STALE_SUBSCRIPTIONS_MESSAGE =
         "پروفایل‌ها به‌روز نیستند، لطفاً Refresh Subscriptions را بزنید"
+
+    /** MARBLE_OPERATOR_FREEDOM_V91: profile id emitted for an operator steel preset. */
+    private fun operatorProfileId(preset: FreedomPreset): String =
+        "${ServerlessFreedomEngine.PROFILE_ID}-operator-${preset.name.lowercase()}"
 
     /**
      * Latest decision snapshot for diagnostics. Set at the end of [bestProfile] so Bug Finder /
@@ -68,10 +73,39 @@ object MarbleFreedomSmartRanker {
         val allProfiles = ServerlessFreedomEngine.profiles(settings, iranMode)
         if (allProfiles.isEmpty()) return defaultProfile()
 
+        // MARBLE_OPERATOR_FREEDOM_V91: Smart Auto with a detected Iranian carrier skips the probe
+        // ladder and picks that carrier's researched steel profile immediately — this is both the
+        // per-operator boost and the fastest possible connect.
+        if (settings.freedomOperatorAuto) {
+            val detectedPreset = DpiEvasionPolicy.operatorPresetFor(iranMode.isp)
+            if (detectedPreset != null) {
+                allProfiles.firstOrNull { it.id == operatorProfileId(detectedPreset) }?.let { matched ->
+                    onProgress(
+                        "Smart Aegis: ${DpiEvasionPolicy.operatorPresetLabel(detectedPreset)} " +
+                            "steel profile → ${matched.name}"
+                    )
+                    lastRankingDecision = DiagnosticsSummary.RankingDecision(
+                        selectedProfileId = matched.id,
+                        decisionReason = "operator-matched-${detectedPreset.name.lowercase()}",
+                        healthCount = 1, uncertainCount = 0, failedCount = 0
+                    )
+                    return matched
+                }
+            }
+        }
+        // When auto mode has no carrier match, probe only the tier ladder; the operator rows stay
+        // selectable in Library but are not raced against generic tiers.
+        val probePool = if (settings.freedomOperatorAuto) {
+            allProfiles.filterNot(ServerlessFreedomEngine::isOperatorProfile)
+        } else {
+            allProfiles
+        }
+        if (probePool.isEmpty()) return defaultProfile()
+
         // MARBLE_SMART_RANK_V90: remove censorship-unsafe nodes (VLESS without TLS/REALITY, VMess
         // without forward secrecy) before they can fail a benchmark, then cross-check each
         // candidate's address against the local cache + fresh subscription before quarantining.
-        val (securitySafe, deprecated) = ProfileSecurityAuditor.partitionForRank(allProfiles)
+        val (securitySafe, deprecated) = ProfileSecurityAuditor.partitionForRank(probePool)
         if (deprecated.isNotEmpty()) {
             onProgress(
                 "Smart Aegis: hidden ${deprecated.size} unsafe profile(s): " +

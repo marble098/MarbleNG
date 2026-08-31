@@ -114,6 +114,11 @@ class MarbleVpnService : VpnService() {
         // Failed XHTTP probes can leave expensive pending work inside the core. Retry slowly
         // instead of creating a new synthetic dial every telemetry tick.
         private const val VERIFIED_RTT_BACKOFF_MS = 60_000L
+        // MARBLE_LIVE_QUALITY_V91: during the route warm-up window a miss is usually just Xray/HEV
+        // still warming TLS state, not a real outage. Backing off for 60s there is what left the
+        // Live Quality panel blank for the first minute; a short retry gets verified numbers on
+        // screen almost immediately.
+        private const val VERIFIED_RTT_SHORT_BACKOFF_MS = 8_000L
         // Synthetic endpoints are advisory. Process death is handled immediately; route failure
         // requires normally-spaced misses plus a second independent confirmation.
         private const val PROBE_FAILURES_BEFORE_RECOVERY = 4
@@ -1735,9 +1740,23 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         if (rttSamples.isNotEmpty()) {
             verifiedRttBackoffUntilMs = 0L
         } else {
-            verifiedRttBackoffUntilMs = nowMs + VERIFIED_RTT_BACKOFF_MS
+            val routeAgeMs = (
+                (System.nanoTime() - connectStartedNs) / 1_000_000L
+            ).coerceAtLeast(0L)
+            val trafficMoving =
+                activeMode == MODE_TUN && hevActive &&
+                    lastTrafficProgressAt > 0L &&
+                    (System.currentTimeMillis() - lastTrafficProgressAt) <= RECENT_TRAFFIC_GRACE_MS
+            // MARBLE_LIVE_QUALITY_V91: warm-up/moving-traffic misses retry quickly so Live
+            // Quality appears within seconds; a settled silent route keeps the slow 60s cadence.
+            val backoffMs = if (routeAgeMs >= ROUTE_FAILURE_WARMUP_MS && !trafficMoving) {
+                VERIFIED_RTT_BACKOFF_MS
+            } else {
+                VERIFIED_RTT_SHORT_BACKOFF_MS
+            }
+            verifiedRttBackoffUntilMs = nowMs + backoffMs
             repo.updateRouteProbeStatus(
-                "Verified HTTPS RTT unavailable • retrying in 60s • no synthetic ping shown"
+                "Verified HTTPS RTT unavailable • retrying in ${backoffMs / 1000}s • no synthetic ping shown"
             )
         }
 

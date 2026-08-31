@@ -152,13 +152,23 @@ object RoutingDefaults {
 /** How Iran Mode decides whether the anti-filtering engine should run. */
 enum class IranModePolicy { AUTO, ALWAYS_ON, OFF }
 
-/** Presets for Marble Freedom anti-DPI fragmentation engine. */
+/**
+ * Presets for Marble Freedom anti-DPI fragmentation engine.
+ *
+ * The four operator presets are researched, per-carrier steel profiles (MCI/Hamrah-e-Aval,
+ * MTN Irancell, Shatel, Rightel). They are auto-applied by Marble Freedom while
+ * [AppSettings.freedomOperatorAuto] is on and Iran Mode has identified the operator.
+ */
 enum class FreedomPreset {
     SMART_ADAPTIVE,
     MULTI_LAYER_CASCADE,
     SNI_SHREDDER,
     AGGRESSIVE_RECORD_SPLIT,
     EXTREME_ANTI_DPI,
+    SHATEL,
+    HAMRAH_AVAL,
+    IRANCELL,
+    RIGHTEL,
     CUSTOM
 }
 
@@ -285,6 +295,12 @@ data class AppSettings(
 
     // Marble Freedom Anti-DPI Multi-Layer Fragmentation & Smart Multi-DNS
     val freedomPreset: FreedomPreset = FreedomPreset.SMART_ADAPTIVE,
+    /**
+     * When on (default), Marble Freedom matches the detected Iranian operator (MCI/Hamrah-e-Aval,
+     * MTN Irancell, Shatel, Rightel) to its researched steel recipe automatically while the preset
+     * is SMART_ADAPTIVE. A user-pinned operator preset always wins.
+     */
+    val freedomOperatorAuto: Boolean = true,
     // Default is the official XTLS 2-hop chain (outer → full-fragment). A middle hop is
     // Custom-only; the previous 3-layer default stalled multi-CDN first flights.
     val freedomLayerCount: Int = 2,

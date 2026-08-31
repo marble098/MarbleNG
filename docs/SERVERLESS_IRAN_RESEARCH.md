@@ -295,3 +295,47 @@ failed Reddit entirely, and never opened YouTube.
 - `GFW-knocker/gfw_resist_HTTPS_proxy` `ServerLess_TLSFrag_Xray_Config_New.json` (youtube.com → google.com hosts remap; 1-1/1-3/5-10 fragment)
 
 MitM domain-fronting (cert install) remains out of scope for Freedom — it requires a trusted CA on the device. The non-MitM path above is what the official basic config uses for general HTTPS.
+
+## 8. Per-operator steel profiles — MARBLE_OPERATOR_FREEDOM_V91 (2026-08-31)
+
+User requirement: dedicated serverless profiles per Iranian operator (Shatel, MCI / Hamrah-e-Aval,
+MTN Irancell, Rightel, …) with steel-grade DPI resistance, and the searches behind them must use
+different "serverless" keywords.
+
+### Keyword searches performed (all different formulations)
+
+| Query (keyword set) | What it established |
+| --- | --- |
+| `Xray serverless fragment Iran DPI MCI Irancell anti censorship` | Xray-core discussion #5969: 2026-04 field notes on MCI / Irancell / Shatel — plain `tlshello` TCP fragmentation is reassembled by the current national DPI before SNI inspection; real bypass moved to delay-based first writes (skip-fragment) and sequence shaping. |
+| `serverless V2Ray fragment Iran operator shutdown DPI bypass` | Official XTLS `Serverless-for-Iran` shape + deepwiki description: multi-stage TCP/TLS fragmentation chain + UDP noise; real-IP egress. |
+| `"serverless" Xray fragment "Shatel" OR "Rightel" OR "Irancell" DPI noise udp` | Per-carrier field reports: MCI blocks CDN IPs by branch, Irancell throttles weak endpoints ~50% packet loss; both use SNI reassembly. |
+| `XTLS serverless for Iran config fragment skip-fragment full-fragment noise packets length interval` | Exact official chain parameters: `skip-fragment` 1-1/130/560/4 → `_chain-skip` 2-4/1/4/130 → `full-fragment` 1-1/1/4/517 (Xray-examples, patterniha configs); UDP noise 1250/10. |
+| `patterniha Serverless-for-Iran jsonc fragment skip-fragment full-fragment rand noises` | Confirms the config family and `rand` noise entries used on QUIC/UDP-443. |
+| `Iran MCI Irancell DPI 2026 fragmentation tlshello bypass serverless freedom fix` | net4people #628 (2026-06): Iranian DPI performs full TCP reassembly + stateful inspection, so the fix is multi-stage delay/shred chains, not single `tlshello`. |
+
+### What was built
+
+`DpiEvasionPolicy` now exposes four researched `FragmentRecipe`s, all multi-stage (no plain
+`tlshello`-only mode, because servers and current DPI both defeat it):
+
+| Operator | Recipe | Parameters |
+| --- | --- | --- |
+| MCI / Hamrah-e-Aval (`AS197207`) | `HAMRAH_STEEL` (rank 9) | outer 1-1/1-3/5-10/4 → **skip-fragment** 1-1/130/560/4 → full-fragment 1-1/1/4/517 |
+| MTN Irancell (`AS44244`) | `IRANCELL_STEEL` (rank 9) | outer 1-1/130/560/4 → **\_chain-skip** 2-4/1/4/130 → full-fragment 1-1/1/4/517 |
+| Shatel (`AS31549`) | `SHATEL_STEEL` (rank 8) | outer 1-1/1-3/5-10/4 → **\_chain-skip** 2-4/1/4/130 → full-fragment 1-1/1/4/517 |
+| Rightel (`AS57218`) | `RIGHTEL_STEEL` (rank 7) | outer 1-1/1-3/5-10/4 → record-split middle 1-3/10-30/5-10/768 → full-fragment 1-1/1/4/517 |
+
+- `FreedomPreset` gained `SHATEL`, `HAMRAH_AVAL`, `IRANCELL`, `RIGHTEL` plus a persisted
+  `freedomOperatorAuto` switch (default on).
+- `DpiEvasionPolicy.freedomRecipe` auto-matches `state.isp` (curated ASN + name fingerprints) on
+  Smart Auto; an explicit operator preset always wins.
+- `ServerlessFreedomEngine.profiles()` emits the four operator rows alongside the tier ladder;
+  `buildExtremeChain` now emits the real 3-stage chain (outer → middle → inner) exactly as XTLS
+  ships it (previously the middle hop was dropped and outer/inner hard-coded).
+- `MarbleFreedomSmartRanker.bestProfile` skips the whole probe ladder when the detected carrier
+  matches an operator profile — fastest possible Aegis connect and correct per-carrier choice.
+- Settings UI: "Operator profile" section with the four steel tiles + auto-apply switch.
+
+Interop notes: the emitted chain uses the same `freedom` outbound protocol and `fragment` /
+`maxSplit` / `sockopt.dialerProxy` fields already validated against Xray v26.7.28 parsers (see §2),
+so the pinned core continues to accept these configs.
