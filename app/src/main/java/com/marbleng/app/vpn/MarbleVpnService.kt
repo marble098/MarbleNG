@@ -107,8 +107,8 @@ class MarbleVpnService : VpnService() {
             "cp.cloudflare.com" to "/generate_204",
             "www.google.com" to "/generate_204"
         )
-        private const val LIVE_RTT_BURST_SAMPLES = 3
-        private const val LIVE_RTT_BURST_GAP_MS = 45L
+        private const val LIVE_RTT_BURST_SAMPLES = 2
+        private const val LIVE_RTT_BURST_GAP_MS = 20L
         private const val LIVE_RTT_TIMEOUT_MS = 1_250
         private const val LIVE_DOMAIN_RTT_TIMEOUT_MS = 3_500
         // Failed XHTTP probes can leave expensive pending work inside the core. Retry slowly

@@ -4161,7 +4161,7 @@ private fun LibrarySortChoice(
         label=text,
         selected=selected,
         tone=color,
-        modifier=modifier,
+        modifier=modifier.widthIn(min=0.dp),
         minHeight=48.dp,
         onClick=onClick
     )

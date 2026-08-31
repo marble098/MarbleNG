@@ -2247,7 +2247,7 @@ private fun postToMain(block: () -> Unit) {
                 benchMode = BenchMode.CUSTOM,
                 benchCandidates = scoped.size.coerceAtLeast(1),
                 benchSamples = 2,
-                benchTimeoutSec = settings.benchTimeoutSec.coerceIn(4, 6),
+                benchTimeoutSec = settings.benchTimeoutSec.coerceIn(3, 5),
                 tcpWorkers = settings.tcpWorkers.coerceIn(4, 16),
                 probeMethod = ProbeMethod.TUNNEL,
                 probeSpeedTest = false,

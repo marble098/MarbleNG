@@ -170,7 +170,7 @@ func marbleMedian(v []float64) float64 { if len(v)==0{return 0};x:=append([]floa
 func marblePct(v []float64,q float64) float64 { if len(v)==0{return 0};x:=append([]float64(nil),v...);sort.Float64s(x);i:=int(math.Ceil(float64(len(x))*q))-1;if i<0{i=0};if i>=len(x){i=len(x)-1};return x[i] }
 func marbleProbeTarget(client *http.Client,target string,timeout time.Duration)([]time.Duration,int,error){
     samples:=make([]time.Duration,0,3);attempts:=0;var firstErr error
-    for i:=0;i<3;i++{attempts++;d,err:=requestDelay(client,target,timeout);if err!=nil{if len(samples)==0{firstErr=err};break};samples=append(samples,d)}
+    for i:=0;i<2;i++{attempts++;d,err:=requestDelay(client,target,timeout);if err!=nil{if len(samples)==0{firstErr=err};break};samples=append(samples,d)}
     if len(samples)==0{return nil,attempts,firstErr};return samples,attempts,nil
 }
 func measure(job Job, primaryURL, fallbackURL string, timeout time.Duration) Event {

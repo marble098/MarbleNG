@@ -306,7 +306,7 @@ class PattRankEngine(
                     benchMode = BenchMode.CUSTOM,
                     benchCandidates = pendingLegacy.size,
                     benchSamples = 1,
-                    benchTimeoutSec = settings.benchTimeoutSec.coerceIn(4, 6),
+                    benchTimeoutSec = settings.benchTimeoutSec.coerceIn(3, 5),
                     tcpWorkers = pendingLegacy.size.coerceIn(1, 4),
                     probeMethod = ProbeMethod.TUNNEL,
                     probeSpeedTest = false,
