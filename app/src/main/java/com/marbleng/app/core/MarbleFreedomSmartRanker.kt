@@ -26,7 +26,7 @@ object MarbleFreedomSmartRanker {
         
         if (intelligence != null && settings.healthHistoryEnabled) {
             val scores = profiles.mapNotNull { p ->
-                val health = intelligence.get(p.id, networkKey)
+                val health = intelligence.healthOf(p.id)
                 if (health != null && health.successEwma >= 50.0 && health.latencyEwma < 9000.0) {
                     p to health.latencyEwma
                 } else null
