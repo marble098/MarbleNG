@@ -243,6 +243,23 @@ check("Home exact reconnect path exists", "repo.reconnectLastOrAuto(onConnect)" 
 check("Library exact active-row check exists", "repo.isActiveProfile(profile)" in files["ui"])
 check("Settings tabs render the selected workspace", "key(selectedTabIndex)" in files["ui"] and "SettingsTabPane(" in files["ui"] and "SettingsWorkspacePage(" in files["ui"])
 check("Settings workspace has explicit remaining-height viewport", "MARBLE_SETTINGS_CONTENT_VIEWPORT_HARDENING_V72" in files["ui"] and "modifier=Modifier.fillMaxSize()" in files["ui"])
+check(
+    "Settings workspace applies exactly one inset pass",
+    "imePadding()" in files["ui"]
+    and "windowInsetsPadding(WindowInsets.navigationBars)" not in files["ui"]
+    and "systemBarsPadding()" not in files["ui"],
+)
+check(
+    "Settings viewport tripwire and shared section source exist",
+    "viewport-degraded-fallback" in files["ui"]
+    and "SettingsSectionSpec" in files["ui"]
+    and "ExpertGateRow(" in files["ui"],
+)
+check(
+    "Routing focus never mutates Expert mode",
+    "selectedTabIndex = SettingsWorkspaceTab.NETWORK.ordinal" in files["ui"]
+    and "copy(expertMode=true)" not in files["ui"],
+)
 check("Library long names use overflow marquee", "basicMarquee(" in files["ui"])
 check("legacy global chain settings are removed", "chainEnabled" not in files["models"] + files["store"] + files["ui"])
 check("DNS settings keep their Compose boundary", "@Composable\nprivate fun DnsSettings(" in files["ui"])
