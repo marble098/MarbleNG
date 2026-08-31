@@ -2277,7 +2277,27 @@ private fun postToMain(block: () -> Unit) {
         }
 
         task("Smart rank • $scope") {
-            val scoped = candidates
+            // MARBLE_PROFILE_QUARANTINE_V1: a structurally broken profile (e.g. a VLESS/TLS config
+            // that fails xray-start validation) must never join the benchmark pool and poison
+            // ranking. Quarantine it before PattRankEngine sees it and surface it in diagnostics.
+            val (validCandidates, invalidCandidates) = ProfilePreflightValidator.partition(candidates)
+            if (invalidCandidates.isNotEmpty()) {
+                diagnostics.event(
+                    "BENCHMARK", "rank-preflight-quarantine",
+                    "source" to sourceId.take(24),
+                    "quarantined" to invalidCandidates.size,
+                    "profiles" to invalidCandidates.joinToString { it.first.name.take(40) },
+                    "reasons" to invalidCandidates.map { it.second.reason }.distinct().joinToString(",")
+                )
+                diagnostics.event(
+                    "BENCHMARK", "rank-preflight-report",
+                    "block" to ProfilePreflightValidator.renderMachineReadable(
+                        ProfilePreflightValidator.validateAll(candidates)
+                    )
+                )
+                message = "Rank • $scope • quarantined ${invalidCandidates.size} invalid profile(s) • ranking valid ones"
+            }
+            val scoped = validCandidates
 
             // Keep the last known measurements visible while fresh evidence streams in.
             // Clearing first made every latency/result chip disappear and then pop back into place.
@@ -2323,6 +2343,38 @@ private fun postToMain(block: () -> Unit) {
                 Thread.sleep(350L)
                 results = executeRank()
             }
+
+            // MARBLE_SURVIVAL_FIRST_RANK_V80: survival-first re-rank for Iran. A node whose short
+            // HTTPS generate204 probe timed out is NOT hard-failed if it carries strong historical
+            // success evidence. Quarantined profiles are pinned to the end and never selected.
+            val quarantinedIds = invalidCandidates.mapTo(mutableSetOf()) { it.first.id }
+            val healthHistories = intelligence.healthSnapshot().mapNotNull { (id, rec) ->
+                SurvivalFirstRanker.fromNodeHealth(rec)?.let { id to it }
+            }.toMap()
+            val iranActive = iranMode.active
+            val reordered = SurvivalFirstRanker.reorderResults(
+                results, healthHistories, settings, iranActive, quarantinedIds
+            )
+            val rankingDecision = SurvivalFirstRanker.categorize(
+                reordered, healthHistories, settings, iranActive, quarantinedIds
+            ).copy(selectedProfileId = reordered.firstOrNull()?.profileId.orEmpty())
+            results = reordered
+
+            diagnostics.event(
+                "BENCHMARK", "rank-survival-decision",
+                "reason" to rankingDecision.decisionReason.take(200),
+                "selected" to rankingDecision.selectedProfileId.take(24),
+                "healthy" to rankingDecision.healthCount,
+                "uncertain" to rankingDecision.uncertainCount,
+                "failed" to rankingDecision.failedCount,
+                "quarantined" to quarantinedIds.size,
+                "block" to DiagnosticsSummary.render(
+                    ResolverFailureSummary(),
+                    ProfilePreflightValidator.validateAll(candidates),
+                    rankingDecision,
+                    DiagnosticsSummary.ShutdownCounters()
+                ).take(1200)
+            )
 
             mergeBenchmarks(results)
 

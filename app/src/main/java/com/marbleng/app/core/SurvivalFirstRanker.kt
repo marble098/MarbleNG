@@ -32,15 +32,17 @@ import kotlin.math.min
 object SurvivalFirstRanker {
 
     /** Classification of a node's readiness under censorship. */
-    enum class NodeClassification {
+    enum class NodeClassification(val rank: Int) {
         /** Proven healthy: real session or multiple successful probes. */
-        HEALTHY,
+        HEALTHY(0),
         /** Uncertain: probe timed out but historical data suggests it may work. */
-        UNCERTAIN,
+        UNCERTAIN(1),
         /** Degraded: connects but with significant packet issues. */
-        DEGRADED,
+        DEGRADED(2),
         /** Proven dead: multiple failed probes with no historical evidence. */
-        DEAD
+        DEAD(3),
+        /** Structurally invalid; quarantined and excluded from selection. */
+        INVALID(4)
     }
 
     /** Extended scoring context with survival metrics. */
@@ -52,7 +54,9 @@ object SurvivalFirstRanker {
         val probeScore: Double,
         val historicalScore: Double,
         val penaltyReason: String = "",
-        val confidence: Double = 0.0
+        val confidence: Double = 0.0,
+        /** Human- and machine-readable reason for the final ranking decision. */
+        val rankingDecisionReason: String = ""
     )
 
     /** TCP stress metrics from a live session. */
@@ -93,7 +97,15 @@ object SurvivalFirstRanker {
         tcpStress: TcpStressMetrics?,
         connectedDurationMs: Long = 0,
         settings: AppSettings,
-        iranActive: Boolean = true
+        iranActive: Boolean = true,
+        /** Number of reconnect attempts for this node during the session (0 = first attempt). */
+        reconnectCount: Int = 0,
+        /** Resolver success ratio observed on this node (0.0-1.0); 1.0 = unknown/perfect. */
+        resolverSuccessRatio: Double = 1.0,
+        /** Whether the path MSS was stable during the session. */
+        mssStable: Boolean = true,
+        /** When true the profile is quarantined (INVALID) and never selected. */
+        quarantined: Boolean = false
     ): SurvivalScore {
         val probeScore = if (iranActive) {
             iranAdjustedProbeScore(probeResult)
@@ -104,12 +116,17 @@ object SurvivalFirstRanker {
         val historicalScore = computeHistoricalScore(historicalHealth)
         val longevityBonus = computeLongevityBonus(connectedDurationMs)
         val packetHealth = computePacketHealthScore(tcpStress)
-        val classification = classifyNode(
-            probeResult, historicalHealth, tcpStress, connectedDurationMs
-        )
+        val classification = if (quarantined) {
+            NodeClassification.INVALID
+        } else {
+            classifyNode(
+                probeResult, historicalHealth, tcpStress, connectedDurationMs
+            )
+        }
 
         // Weighted combination
         val weighted = when (classification) {
+            NodeClassification.INVALID -> 0.0
             NodeClassification.HEALTHY -> {
                 probeScore * PROBE_WEIGHT +
                     historicalScore * HISTORICAL_WEIGHT +
@@ -139,18 +156,39 @@ object SurvivalFirstRanker {
             }
         }.coerceIn(0.0, 100.0)
 
+        // Survival-first refinements: weigh real session evidence so a node that actually carries
+        // traffic outranks a synthetic probe that merely timed out.
+        val weightedWithSessionEvidence = when {
+            classification == NodeClassification.INVALID -> 0.0
+            // Repeated reconnects on the same node mean the path is unstable -> penalise.
+            reconnectCount >= 3 -> weighted * 0.85
+            reconnectCount >= 6 -> weighted * 0.70
+            else -> weighted
+        }.let { base ->
+            // Resolver pressure: a node whose resolver keeps failing is less survivable.
+            val resolverFactor = (resolverSuccessRatio.coerceIn(0.0, 1.0) * 0.30 + 0.70)
+            // MSS instability is a stress symptom; penalise survival score a little.
+            val mssFactor = if (mssStable) 1.0 else 0.94
+            (base * resolverFactor * mssFactor).coerceIn(0.0, 100.0)
+        }
+
         val confidence = computeConfidence(probeResult, historicalHealth, tcpStress)
         val penalty = determinePenalty(probeResult, tcpStress, classification)
+        val decisionReason = buildDecisionReason(
+            profile, classification, probeResult, historicalHealth, connectedDurationMs,
+            reconnectCount, resolverSuccessRatio, mssStable, quarantined
+        )
 
         return SurvivalScore(
             classification = classification,
-            survivalScore = weighted,
+            survivalScore = weightedWithSessionEvidence,
             longevityBonus = longevityBonus,
             packetHealthScore = packetHealth,
             probeScore = probeScore,
             historicalScore = historicalScore,
             penaltyReason = penalty,
-            confidence = confidence
+            confidence = confidence,
+            rankingDecisionReason = decisionReason
         )
     }
 
@@ -363,6 +401,136 @@ object SurvivalFirstRanker {
     }
 
     /**
+     * Build a stable, machine-readable ranking decision reason so diagnostics can explain why a
+     * node was selected (or why it was quarantined / not selected) without requiring raw numbers.
+     */
+    private fun buildDecisionReason(
+        profile: ProxyProfile,
+        classification: NodeClassification,
+        probe: BenchmarkResult?,
+        health: HealthHistory?,
+        connectedMs: Long,
+        reconnectCount: Int,
+        resolverSuccessRatio: Double,
+        mssStable: Boolean,
+        quarantined: Boolean
+    ): String {
+        val probeState = when {
+            quarantined -> "quarantined"
+            probe == null -> "no-probe"
+            probe.success > 0 -> "probe-ok"
+            probe.failureReason.contains("timeout") || probe.failureReason.contains("timed out") ->
+                "probe-timeout"
+            probe.failureReason.contains("xray-start") -> "xray-start-failure"
+            else -> "probe-failed"
+        }
+        val historyState = when {
+            health == null -> "no-history"
+            health.successEwma >= 60.0 -> "history-strong"
+            else -> "history-weak"
+        }
+        return buildString {
+            append("class=").append(classification.name.lowercase())
+            append("|probe=").append(probeState)
+            append("|history=").append(historyState)
+            if (connectedMs > 0) append("|connectedMs=").append(connectedMs)
+            if (reconnectCount > 0) append("|reconnects=").append(reconnectCount)
+            if (resolverSuccessRatio < 1.0) append("|resolverRate=").append(String.format("%.2f", resolverSuccessRatio))
+            if (!mssStable) append("|mss=unstable")
+        }
+    }
+
+    /** Minimal placeholder profile used when reordering pure BenchmarkResults without a Profile. */
+    private fun placeholderProfile(result: BenchmarkResult): ProxyProfile = ProxyProfile(
+        id = result.profileId,
+        name = result.name,
+        scheme = "",
+        raw = "",
+        configJson = "",
+        host = "",
+        port = 0
+    )
+
+    /**
+     * Re-order a finished Smart Rank result list for Iran-style censorship.
+     *
+     * The probe-driven result list is re-ranked survival-first: a node that timed out on the
+     * generate204 probe is NOT hard-failed if it carries strong historical success evidence, and
+     * quarantined/INVALID nodes are pushed to the very end. Healthy nodes keep their probe order.
+     *
+     * @param results the probe results as returned by the rank engine.
+     * @param healthHistories per-profile health history (profileId -> HealthHistory).
+     * @param settings app settings.
+     * @param iranActive whether Iran Mode is active.
+     * @param quarantinedIds profile ids that failed preflight and must never be selected.
+     * @return the same results, re-ordered survival-first.
+     */
+    fun reorderResults(
+        results: List<BenchmarkResult>,
+        healthHistories: Map<String, HealthHistory>,
+        settings: AppSettings,
+        iranActive: Boolean,
+        quarantinedIds: Set<String> = emptySet()
+    ): List<BenchmarkResult> {
+        return results
+            .map { result ->
+                val quarantined = result.profileId in quarantinedIds
+                val score = scoreForSurvival(
+                    profile = placeholderProfile(result),
+                    probeResult = result,
+                    historicalHealth = healthHistories[result.profileId],
+                    tcpStress = null,
+                    connectedDurationMs = 0,
+                    settings = settings,
+                    iranActive = iranActive,
+                    quarantined = quarantined
+                )
+                result to score
+            }
+            .sortedWith(
+                compareBy<Pair<BenchmarkResult, SurvivalScore>> {
+                    it.second.classification.rank
+                }.thenByDescending {
+                    it.second.survivalScore
+                }.thenBy {
+                    it.first.latencyMs
+                }
+            )
+            .map { it.first }
+    }
+
+    /** Categorise a result list into healthy / uncertain / failed counts for diagnostics. */
+    fun categorize(
+        results: List<BenchmarkResult>,
+        healthHistories: Map<String, HealthHistory>,
+        settings: AppSettings,
+        iranActive: Boolean,
+        quarantinedIds: Set<String> = emptySet()
+    ): DiagnosticsSummary.RankingDecision {
+        val uncert = results.count { r ->
+            r.profileId !in quarantinedIds &&
+                r.success <= 0 &&
+                (r.failureReason.contains("timeout") || r.failureReason.contains("timed out")) &&
+                (healthHistories[r.profileId]?.successEwma ?: 0.0) > 50.0
+        }
+        val healthy = results.count { it.success > 0 }
+        val failed = results.size - healthy - uncert
+        return DiagnosticsSummary.RankingDecision(
+            selectedProfileId = results.firstOrNull()?.profileId.orEmpty(),
+            decisionReason = results.firstOrNull()?.let {
+                scoreForSurvival(
+                    placeholderProfile(it), it,
+                    healthHistories[it.profileId], null, 0, settings, iranActive,
+                    quarantined = it.profileId in quarantinedIds
+                ).rankingDecisionReason
+            }.orEmpty(),
+            uncertainCount = uncert,
+            failedCount = failed,
+            healthCount = healthy
+        )
+    }
+
+    /**
      * Minimal health history representation for survival scoring.
      */
     data class HealthHistory(
@@ -400,7 +568,9 @@ object SurvivalFirstRanker {
         stressMetrics: Map<String, TcpStressMetrics>,
         connectedDurations: Map<String, Long>,
         settings: AppSettings,
-        iranActive: Boolean
+        iranActive: Boolean,
+        quarantinedIds: Set<String> = emptySet(),
+        reconnectCounts: Map<String, Int> = emptyMap()
     ): List<Pair<ProxyProfile, SurvivalScore>> {
         val resultById = results.associateBy { it.profileId }
         return profiles.map { profile ->
@@ -411,9 +581,14 @@ object SurvivalFirstRanker {
                 tcpStress = stressMetrics[profile.id],
                 connectedDurationMs = connectedDurations[profile.id] ?: 0,
                 settings = settings,
-                iranActive = iranActive
+                iranActive = iranActive,
+                reconnectCount = reconnectCounts[profile.id] ?: 0,
+                quarantined = profile.id in quarantinedIds
             )
             profile to score
-        }.sortedByDescending { it.second.survivalScore }
+        }.sortedWith(
+            compareBy<Pair<ProxyProfile, SurvivalScore>> { it.second.classification.rank }
+                .thenByDescending { it.second.survivalScore }
+        )
     }
 }

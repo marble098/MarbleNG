@@ -23,6 +23,14 @@ import kotlin.math.max
  */
 object MarbleFreedomSmartRanker {
 
+    /**
+     * Latest decision snapshot for diagnostics. Set at the end of [bestProfile] so Bug Finder /
+     * RuntimeDiagnostics can surface the ranking reason, uncertain/failed distinction and any
+     * quarantine without running a second expensive decision.
+     */
+    @Volatile
+    var lastRankingDecision: DiagnosticsSummary.RankingDecision? = null
+
     // Multiple diverse probe targets to avoid single-target false negatives
     private val FILTERED_TARGETS = listOf(
         "www.instagram.com" to "/",
@@ -48,8 +56,30 @@ object MarbleFreedomSmartRanker {
         intelligence: MarbleIntelligence?,
         onProgress: (String) -> Unit
     ): ProxyProfile {
-        val profiles = ServerlessFreedomEngine.profiles(settings, iranMode)
-        if (profiles.isEmpty()) return profiles.firstOrNull() ?: return defaultProfile()
+        val allProfiles = ServerlessFreedomEngine.profiles(settings, iranMode)
+        if (allProfiles.isEmpty()) return allProfiles.firstOrNull() ?: return defaultProfile()
+
+        // MARBLE_PROFILE_QUARANTINE_V1: preflight before any probe so a structurally broken
+        // profile (e.g. "Turkey 4-All" VLESS/TLS invalid-config) can never poison ranking or
+        // selection. Quarantined profiles are excluded from the probe set entirely.
+        val (profiles, invalid) = ProfilePreflightValidator.partition(allProfiles)
+        val quarantinedIds = invalid.mapTo(mutableSetOf()) { it.first.id }
+
+        if (invalid.isNotEmpty()) {
+            onProgress(
+                "Smart Aegis: quarantined ${invalid.size} invalid profile(s): " +
+                    invalid.joinToString { "${it.first.name}=${it.second.reason}" }
+            )
+        }
+        if (profiles.isEmpty()) {
+            onProgress("Smart Aegis: all profiles quarantined; nothing to rank")
+            lastRankingDecision = DiagnosticsSummary.RankingDecision(
+                decisionReason = "all-profiles-quarantined",
+                healthCount = 0, uncertainCount = 0,
+                failedCount = allProfiles.size
+            )
+            return profiles.firstOrNull() ?: defaultProfile()
+        }
 
         val iranActive = iranMode.active
         val networkKey = intelligence?.currentSnapshot()?.key() ?: "unknown"
@@ -59,6 +89,11 @@ object MarbleFreedomSmartRanker {
             val healthRanked = rankFromHistory(profiles, intelligence, settings)
             if (healthRanked != null) {
                 onProgress("Smart Aegis: Historical pick → ${healthRanked.name}")
+                lastRankingDecision = DiagnosticsSummary.RankingDecision(
+                    selectedProfileId = healthRanked.id,
+                    decisionReason = "historical-pick",
+                    healthCount = 1, uncertainCount = 0, failedCount = 0
+                )
                 return healthRanked
             }
         }
@@ -123,30 +158,70 @@ object MarbleFreedomSmartRanker {
             )
         }.sortedByDescending { it.score }
 
-        // MARBLE_SURVIVAL_FIRST_RANK_V80: Select best with uncertainty handling
-        val best = scored.firstOrNull() ?: return defaultProfile()
-
-        // If the best is uncertain but there's history, use historical data
-        if (best.probeResult != null && !best.probeResult.success &&
-            best.probeResult.isTimeout && intelligence != null) {
-            val historical = intelligence.healthOf(best.profile.id)
-            if (historical != null && historical.successEwma > 60.0) {
-                onProgress("Smart Aegis: Surviving on history → ${best.profile.name} (${String.format("%.0f", historical.successEwma)}% EWMA)")
-                return best.profile
-            }
+        // MARBLE_SURVIVAL_FIRST_RANK_V80: Align Aegis decisions with the survival rank engine so
+        // the Smart Aegis timeout improvements and the Smart Rank engine never contradict each
+        // other. Build a probe BenchmarkResult for each scored profile and re-rank survival-first.
+        val probeResults = scored.map { sp ->
+            sp.profile to BenchmarkResult(
+                profileId = sp.profile.id,
+                name = sp.profile.name,
+                success = if (sp.probeResult?.success == true) 100 else 0,
+                latencyMs = sp.probeResult?.latencyMs ?: 9_999.0,
+                bytesPerSecond = 0.0,
+                score = sp.score,
+                probeKind = "TUNNEL",
+                failureReason = sp.probeResult?.error ?: ""
+            )
         }
 
+        val healthHistories = profiles.associate { p ->
+            p.id to (intelligence?.let { SurvivalFirstRanker.fromNodeHealth(it.healthOf(p.id)) })
+        }.filterValues { it != null }
+
+        val reRanked = probeResults.sortedWith(
+            compareBy<Pair<ProxyProfile, BenchmarkResult>> { pair ->
+                val (p, r) = pair
+                val score = SurvivalFirstRanker.scoreForSurvival(
+                    profile = p,
+                    probeResult = r,
+                    historicalHealth = healthHistories[p.id],
+                    tcpStress = null,
+                    connectedDurationMs = 0,
+                    settings = settings,
+                    iranActive = iranActive,
+                    quarantined = p.id in quarantinedIds
+                )
+                score.classification.rank
+            }.thenByDescending { pair ->
+                val (p, r) = pair
+                SurvivalFirstRanker.scoreForSurvival(
+                    profile = p,
+                    probeResult = r,
+                    historicalHealth = healthHistories[p.id],
+                    tcpStress = null,
+                    connectedDurationMs = 0,
+                    settings = settings,
+                    iranActive = iranActive,
+                    quarantined = p.id in quarantinedIds
+                ).survivalScore
+            }
+        )
+
+        val bestResult = reRanked.firstOrNull()
+        val bestProfileObj = bestResult?.first ?: return defaultProfile()
+        val bestProbe = scored.firstOrNull { it.profile.id == bestProfileObj.id }
+
         // MARBLE_SURVIVAL_FIRST_RANK_V80: Record the result
-        if (best.probeResult?.success == true && intelligence != null && settings.healthHistoryEnabled) {
+        if (bestProbe?.probeResult?.success == true && intelligence != null && settings.healthHistoryEnabled) {
             intelligence.recordBenchmark(
-                best.profile,
+                bestProfileObj,
                 BenchmarkResult(
-                    profileId = best.profile.id,
-                    name = best.profile.name,
+                    profileId = bestProfileObj.id,
+                    name = bestProfileObj.name,
                     success = 100,
-                    latencyMs = best.probeResult.latencyMs,
+                    latencyMs = bestProbe.probeResult.latencyMs,
                     bytesPerSecond = 0.0,
-                    score = best.score,
+                    score = bestProbe.score,
                     probeKind = "TUNNEL"
                 ),
                 settings
@@ -161,8 +236,38 @@ object MarbleFreedomSmartRanker {
             onProgress("Smart Aegis: ${uncertain.size} uncertain nodes kept for passive eval")
         }
 
-        onProgress("Smart Aegis: Selected ${best.profile.name} (score: ${String.format("%.1f", best.score)})")
-        return best.profile
+        // Machine-readable decision snapshot for diagnostics.
+        lastRankingDecision = DiagnosticsSummary.RankingDecision(
+            selectedProfileId = bestProfileObj.id,
+            decisionReason = SurvivalFirstRanker.scoreForSurvival(
+                profile = bestProfileObj,
+                probeResult = bestResult?.second,
+                historicalHealth = healthHistories[bestProfileObj.id],
+                tcpStress = null,
+                connectedDurationMs = 0,
+                settings = settings,
+                iranActive = iranActive,
+                quarantined = bestProfileObj.id in quarantinedIds
+            ).rankingDecisionReason,
+            healthCount = scored.count { it.probeResult?.success == true },
+            uncertainCount = uncertain.size,
+            failedCount = scored.count { it.probeResult?.success != true } - uncertain.size
+        )
+
+        onProgress(
+            "Smart Aegis: Selected ${bestProfileObj.name} " +
+                "(class: ${SurvivalFirstRanker.scoreForSurvival(
+                    profile = bestProfileObj,
+                    probeResult = bestResult?.second,
+                    historicalHealth = healthHistories[bestProfileObj.id],
+                    tcpStress = null,
+                    connectedDurationMs = 0,
+                    settings = settings,
+                    iranActive = iranActive,
+                    quarantined = bestProfileObj.id in quarantinedIds
+                ).classification})"
+        )
+        return bestProfileObj
     }
 
     /**

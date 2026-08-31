@@ -417,32 +417,37 @@ class BugFinder(private val context: Context, private val xray: XrayManager) {
             )
         }
 
-        // MARBLE_RESOLVER_HEALTH_V38
+        // MARBLE_RESOLVER_HEALTH_V38 / MARBLE_DIAGNOSTICS_CONSISTENCY_V1
         // xray.log rotates on every live start, so this classifies current-session resolver
         // degradation instead of silently burying it inside the raw ERROR INDEX.
-        val dohDeadlineCount = xrayLog.lineSequence().count { line ->
-            line.contains("context deadline exceeded", ignoreCase = true) &&
-                line.contains("dns-query", ignoreCase = true)
-        }
-        val dnsEofCount = xrayLog.lineSequence().count { line ->
-            line.contains(
-                "app/dns: failed to read response length > EOF",
-                ignoreCase = true
-            )
-        }
-        val resolverErrors = dohDeadlineCount + dnsEofCount
+        // The summary is derived from the SAME raw lines via the shared classifier, so a category
+        // can never report 0 while the raw log clearly contains it (the old narrow substring match
+        // reported "0 DNS EOF" on DoH "unexpected EOF" lines).
+        val rawLines = xrayLog.lineSequence().filter { it.isNotBlank() }.toList()
+        val resolverSummary = ResolverFailureClassifier.summarize(rawLines)
+        val resolverErrors = resolverSummary.transportFailures
+        val dohDeadlineCount = resolverSummary.deadlineCount
+        val dnsEofCount = resolverSummary.eofCount
+        val certExpired = resolverSummary.certExpiredCount
 
         checks += when {
+            certExpired > 0 -> BugCheck(
+                "Resolver health",
+                BugSeverity.WARN,
+                "$certExpired expired-certificate resolver event(s) observed in the current Xray session",
+                "Endpoint quarantine is active; an expired resolver will not stay in rotation silently"
+            )
             resolverErrors == 0 -> BugCheck(
                 "Resolver health",
                 BugSeverity.PASS,
-                "No current-session DoH deadline or DNS EOF burst observed"
+                "No current-session DoH deadline, DNS EOF or TLS resolver failure observed"
             )
             resolverErrors >= 8 -> BugCheck(
                 "Resolver health",
                 BugSeverity.WARN,
                 "$resolverErrors retained latest-session resolver errors • " +
-                    "$dohDeadlineCount DoH deadlines • $dnsEofCount DNS EOF",
+                    "$dohDeadlineCount DoH deadlines • $dnsEofCount DNS EOF • " +
+                    "${resolverSummary.tlsCount} TLS • $certExpired cert-expired",
                 "Encrypted fallback remains active; re-run after the next route/session if it repeats"
             )
             else -> BugCheck(
