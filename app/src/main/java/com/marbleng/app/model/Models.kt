@@ -94,7 +94,16 @@ data class BenchmarkResult(
     /** RTT while a bounded throughput probe was in flight; zero means unknown. */
     val loadedLatencyMs: Double = 0.0,
     /** Compact stage evidence retained for Bug Finder; never shown as a synthetic ping. */
-    val failureReason: String = ""
+    val failureReason: String = "",
+    /**
+     * MARBLE_SMART_RANK_V90: successful handshakes / total attempts across the 2-3 backoff
+     * retries the rank probe performs before it settles on a verdict. 0.0 means unknown (legacy
+     * single-shot paths). This is the TCP-handshake-success signal in the weighted multi-signal
+     * score, so one HTTPS timeout can no longer fail an otherwise healthy node.
+     */
+    val tcpHandshakeSuccessRatio: Double = 0.0,
+    /** MARBLE_SMART_RANK_V90: total handshake attempts the probe performed before settling. */
+    val handshakeAttempts: Int = 0
 )
 
 data class ConnectionRecord(val profileId: String, val name: String, val at: Long, val reason: String)

@@ -25,6 +25,8 @@ class IranModeEngine {
     val tcpStressMonitor = TcpStressMonitor()
     val leakGuard = LeakGuard()
     val flapGuard = ProfileFlapGuard(iranAware = true)
+    /** MARBLE_SMART_RANK_V90: continuous per-network adaptive scorer (Marble Freedom Aegis). */
+    val adaptiveScorer = AdaptiveAegisScorer()
     private var routeOptimizer: ContinuousRouteOptimizer? = null
 
     // State
@@ -64,6 +66,8 @@ class IranModeEngine {
         // Update Iran mode awareness in subsystems
         flapGuard.let { /* iranAware is set at construction */ }
         routeOptimizer?.setIranMode(iranState.active)
+        // MARBLE_SMART_RANK_V90: the optimizer feeds the per-network adaptive scorer.
+        routeOptimizer?.setAdaptiveScorer(adaptiveScorer, adaptiveFingerprint())
 
         // Pre-compute security assessments
         securityAssessments = ProfileSecurityAuditor.batchAssess(profiles)
@@ -151,6 +155,46 @@ class IranModeEngine {
     }
 
     /**
+     * MARBLE_SMART_RANK_V90: hashed, non-identifying per-network fingerprint for the adaptive
+     * scorer. SSID / mobile-network-code are optional and are only ever stored as SHA-256 hashes,
+     * matching the privacy boundary documented in MarbleIntelligence.
+     */
+    fun adaptiveFingerprint(ssid: String? = null, mobileNetworkCode: String? = null): String =
+        NetworkFingerprint.compose(networkKey, ssid, mobileNetworkCode)
+
+    /**
+     * MARBLE_SMART_RANK_V90: feed one live quality re-measurement (RTT, loss, jitter, stress flag)
+     * into the adaptive scorer and return the soft-migration decision for the active route.
+     */
+    fun observeLiveQuality(
+        profileId: String,
+        quality: AdaptiveAegisScorer.Quality,
+        candidateScores: Map<String, Double>,
+        ssid: String? = null,
+        mobileNetworkCode: String? = null
+    ): AdaptiveAegisScorer.Decision =
+        adaptiveScorer.evaluate(
+            adaptiveFingerprint(ssid, mobileNetworkCode),
+            profileId,
+            quality,
+            candidateScores
+        )
+
+    /** MARBLE_SMART_RANK_V90: persist a learned score for one profile on the current network. */
+    fun recordAdaptiveScore(
+        profileId: String,
+        score: Double,
+        state: AdaptiveAegisScorer.State = AdaptiveAegisScorer.State.HEALTHY
+    ) {
+        adaptiveScorer.recordScore(adaptiveFingerprint(), profileId, score, state)
+    }
+
+    /** MARBLE_SMART_RANK_V90: mark an adaptive switch so the 90s dwell hysteresis starts here. */
+    fun noteAdaptiveSwitch(profileId: String) {
+        adaptiveScorer.noteSwitch(profileId, adaptiveFingerprint())
+    }
+
+    /**
      * Get the recommended MTU/MSS settings based on current stress level.
      */
     fun recommendedMtuMss(
@@ -199,6 +243,13 @@ class IranModeEngine {
             "tcpStress" to tcpStressMonitor.snapshot(),
             "flapGuard" to flapGuard.status(now),
             "securityProfiles" to securityAssessments.size,
+            "adaptiveAegis" to adaptiveScorer.tableFor(adaptiveFingerprint()).let { table ->
+                mapOf(
+                    "fingerprint" to table.fingerprint,
+                    "scores" to table.scores.size,
+                    "states" to table.states.map { (k, v) -> "$k=${v.name.lowercase()}" }
+                )
+            },
             "initialized" to initialized
         )
     }
@@ -236,6 +287,7 @@ class IranModeEngine {
 
         measures += "Leak Guard: Active continuous IP/DNS monitoring"
         measures += "Flap Guard: Anti-oscillation with ${if (iranState.active) "3-minute" else "90-second"} minimum dwell"
+        measures += "Aegis adaptive selector: per-network learned scores, 90s dwell hysteresis, catastrophic override"
 
         return measures
     }

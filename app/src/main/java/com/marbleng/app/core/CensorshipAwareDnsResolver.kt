@@ -179,6 +179,35 @@ object CensorshipAwareDnsResolver {
     /** Session stickiness: the resolver that won the session and should be reused. */
     private val stickyResolverId = AtomicReference("")
 
+    // MARBLE_SMART_RANK_V90: parallel racing DoH pool with a dedicated keep-alive connection pool
+    // and fallback on ANY error class (not just timeout). The pool is lazily created once and can
+    // be overridden for deterministic unit testing.
+    @Volatile
+    private var poolOverride: DohResolverPool? = null
+    @Volatile
+    private var resolverPool: DohResolverPool? = null
+    private val raceExecutor: java.util.concurrent.ExecutorService by lazy {
+        java.util.concurrent.Executors.newFixedThreadPool(4) { r ->
+            Thread(r, "marble-doh-race").apply { isDaemon = true }
+        }
+    }
+
+    /** Install a test/diagnostic pool; pass null to restore the production pool. */
+    fun setPoolOverride(pool: DohResolverPool?) {
+        poolOverride = pool
+    }
+
+    private fun pool(): DohResolverPool {
+        poolOverride?.let { return it }
+        val existing = resolverPool
+        if (existing != null) return existing
+        val created = DohResolverPool(HttpUrlConnectionDohTransport(), raceExecutor, DEADLINE_MS)
+        resolverPool = created
+        return created
+    }
+
+    private const val MAX_PARALLEL_DOH = 6
+
     private const val MAX_CONSECUTIVE_FAILS = 5
     private const val BLACKLIST_THRESHOLD = 3
     private const val CACHE_TTL_MS = 300_000L  // 5 minutes
@@ -279,9 +308,10 @@ object CensorshipAwareDnsResolver {
             evictExpiredCache()
         }
 
-        // Stage 2: Race healthy, non-quarantined resolvers. MARBLE_RESOLVER_QUARANTINE_V1:
-        // a quarantined endpoint (expired cert, repeated handshake/EOF/deadline failures) is not
-        // tried at all within this session, so a dead resolver can never burn the whole budget.
+        // Stage 2: race healthy, non-quarantined DoH resolvers in parallel (MARBLE_SMART_RANK_V90).
+        // A quarantined endpoint (expired cert, repeated handshake/EOF/deadline failures) is not
+        // tried at all within this session, and every error class — not just timeouts — falls back
+        // automatically to the next provider.
         val deadline = System.currentTimeMillis() + deadlineMs
         val healthy = sessionResolvers.filter { resolver ->
             resolver.isHealthy && !endpointQuarantine.isQuarantined(resolver.endpoint)
@@ -296,8 +326,7 @@ object CensorshipAwareDnsResolver {
             return null
         }
 
-        // Session stickiness: reuse the resolver that already won this session when it is still
-        // healthy and unquarantined, instead of re-probing an unproven peer.
+        // Session stickiness: the resolver that already won this session races first.
         val sticky = stickyResolverId.get()
         val ordered = if (sticky.isNotBlank()) {
             val stickyResolver = healthy.firstOrNull { it.id == sticky && !endpointQuarantine.isQuarantined(it.endpoint) }
@@ -310,109 +339,84 @@ object CensorshipAwareDnsResolver {
             healthy
         }
 
-        val stages = listOf(DnsStage.DOH, DnsStage.FALLBACK_DOH)
-        // Bounded fallback order: never try more resolvers than fit in the deadline budget and
-        // never exceed a sane cap so a late-stage resolver cannot drag the whole lookup.
-        val maxAttempts = ordered.size.coerceAtMost(4)
+        val wire = DnsWireCodec.buildQuery(hostname)
+        val providers = ordered
+            .filter { it.stage == DnsStage.DOH || it.stage == DnsStage.FALLBACK_DOH }
+            .take(MAX_PARALLEL_DOH)
+            .map { DohResolverPool.Provider(it.id, it.endpoint, internal = it.stage == DnsStage.FALLBACK_DOH) }
 
-        var attempts = 0
-        for (stage in stages) {
-            val candidates = ordered.filter { it.stage == stage }
-            if (candidates.isEmpty()) continue
-
-            val perResolverDeadline = (deadline - System.currentTimeMillis())
+        val outcome = pool().raceResolve(
+            wire = wire,
+            providers = providers,
+            perResolverTimeoutMs = (deadline - System.currentTimeMillis())
                 .coerceIn(PER_RESOLVER_DEADLINE_MS, deadlineMs)
+        )
 
-            for (resolver in candidates) {
-                if (attempts >= maxAttempts) break
-                if (System.currentTimeMillis() >= deadline) break
-                attempts++
-
-                val result = attemptResolution(hostname, resolver, perResolverDeadline)
-                if (result != null && !result.poisoned) {
-                    stickyResolverId.set(resolver.id)
-                    endpointQuarantine.recordSuccess(resolver.endpoint)
-                    cacheResult(hostname, result)
-                    return result
-                }
-                // Cancellations and closed-pipe events are recorded as shutdown-safe by
-                // attemptResolution and must NOT increment the resolver's failure/blacklist state.
-            }
-        }
-
-        return null
-    }
-
-    private fun attemptResolution(
-        hostname: String,
-        resolver: ResolverHealth,
-        deadlineMs: Long
-    ): ResolutionResult? {
-        val start = System.currentTimeMillis()
-        return try {
-            val addresses = when (resolver.stage) {
-                DnsStage.DOH, DnsStage.FALLBACK_DOH ->
-                    resolveViaDoH(hostname, resolver.endpoint, deadlineMs)
-                DnsStage.DOT -> resolveViaDot(hostname, resolver.endpoint, deadlineMs)
-                DnsStage.REMOTE_IN_TUNNEL -> resolveViaTunnel(hostname, deadlineMs)
-                DnsStage.DIRECT_UDP -> resolveViaDirectUdp(hostname, resolver.endpoint, deadlineMs)
-            }
-
-            if (addresses == null || addresses.isEmpty()) {
-                recordTransportFailure(resolver, null)
+        if (outcome.success) {
+            val winner = ordered.firstOrNull { it.id == outcome.providerId }
+            val addresses = DnsWireCodec.parseAnswers(outcome.body)
+            if (addresses.isEmpty()) {
+                // The resolver answered, but with no usable A/AAAA record.
+                winner?.let { recordFailureKind(it, ResolverFailureKind.EOF) }
                 return null
             }
-
-            val latency = System.currentTimeMillis() - start
-
             val poisoned = addresses.any { addr ->
                 val host = addr.hostAddress ?: return@any false
                 KNOWN_BLOCK_PAGE_PREFIXES.any { prefix -> host.startsWith(prefix) }
             }
-
             if (poisoned) {
                 poisonedDetections.incrementAndGet()
                 poisonedCategoryCount.incrementAndGet()
-                endpointQuarantine.record(ResolverFailureKind.POISON, resolver.endpoint)
-                resolver.recordFailure(BLACKLIST_DURATION_MS * 2)
-            } else {
-                resolver.recordSuccess(latency)
-                endpointQuarantine.recordSuccess(resolver.endpoint)
+                winner?.let { r ->
+                    endpointQuarantine.record(ResolverFailureKind.POISON, r.endpoint)
+                    r.recordFailure(BLACKLIST_DURATION_MS * 2)
+                }
+                return ResolutionResult(
+                    addresses = addresses,
+                    resolverId = outcome.providerId ?: "doh",
+                    stage = winner?.stage ?: DnsStage.DOH,
+                    latencyMs = outcome.latencyMs,
+                    fromCache = false,
+                    poisoned = true,
+                    valid = false
+                )
             }
-
-            ResolutionResult(
+            winner?.let { r ->
+                r.recordSuccess(outcome.latencyMs)
+                endpointQuarantine.recordSuccess(r.endpoint)
+            }
+            stickyResolverId.set(outcome.providerId ?: "")
+            val result = ResolutionResult(
                 addresses = addresses,
-                resolverId = resolver.id,
-                stage = resolver.stage,
-                latencyMs = latency,
+                resolverId = outcome.providerId ?: "doh",
+                stage = winner?.stage ?: DnsStage.DOH,
+                latencyMs = outcome.latencyMs,
                 fromCache = false,
-                poisoned = poisoned,
-                valid = !poisoned
+                poisoned = false,
+                valid = true
             )
-        } catch (t: Throwable) {
-            recordTransportFailure(resolver, t)
-            null
+            cacheResult(hostname, result)
+            return result
         }
+
+        // Every provider failed: record each failure. Cancellations and closed-pipe events remain
+        // shutdown-safe (recorded but never quarantined), matching the shared failure classifier.
+        outcome.failures.forEach { (provider, failure) ->
+            val resolver = sessionResolvers.firstOrNull { it.id == provider.id } ?: return@forEach
+            recordFailureKind(resolver, failure.failureKind ?: ResolverFailureKind.OTHER)
+        }
+        return null
     }
 
     /**
-     * Classify a resolver outcome, update category counters, quarantine state and resolver health.
+     * Record a classified resolver outcome, updating category counters, quarantine state and
+     * resolver health.
      *
      * Cancellations and closed-pipe events are shutdown-safe: they update their counters but NEVER
      * count toward the resolver's failure streak or endpoint quarantine, so a clean reconnect can
      * no longer flood "resolver broken" misclassifications.
      */
-    private fun recordTransportFailure(resolver: ResolverHealth, t: Throwable?) {
-        // An interrupted job is a cancelled job (teardown/reconnect), regardless of the exception
-        // text that the blocked socket happened to throw. This keeps cancellation safe and prevents
-        // it from being misclassified as a genuine resolver outage.
-        val kind = if (Thread.currentThread().isInterrupted) {
-            ResolverFailureKind.CANCELLED
-        } else {
-            ResolverFailureClassifier.classifyThrowable(t ?: IllegalStateException("empty-answer"))
-                ?: ResolverFailureKind.OTHER
-        }
-
+    private fun recordFailureKind(resolver: ResolverHealth, kind: ResolverFailureKind) {
         when (kind) {
             ResolverFailureKind.CANCELLED -> cancelledCount.incrementAndGet()
             ResolverFailureKind.CLOSED_PIPE -> closedPipeCount.incrementAndGet()
@@ -444,150 +448,6 @@ object CensorshipAwareDnsResolver {
                 resolver.recordFailure(BLACKLIST_DURATION_MS)
             }
         }
-    }
-
-    /**
-     * Real DNS-over-HTTPS RFC 8484 lookup bounded by a per-resolver deadline.
-     *
-     * Unlike the old stub (which merely called InetAddress.getAllByName and ignored the encrypted
-     * endpoint entirely), this performs an actual POST /dns-query over HTTPS so the deadline, EOF,
-     * TLS and certificate-expired classifications reflect what the endpoint really returned.
-     */
-    private fun resolveViaDoH(hostname: String, endpoint: String, deadlineMs: Long): List<InetAddress>? {
-        val url = java.net.URL(endpoint)
-        val wire = buildDnsQuery(hostname)
-        val conn = url.openConnection() as javax.net.ssl.HttpsURLConnection
-        try {
-            conn.requestMethod = "POST"
-            conn.setRequestProperty("Content-Type", "application/dns-message")
-            conn.setRequestProperty("Accept", "application/dns-message")
-            conn.setRequestProperty("Host", url.host)
-            conn.connectTimeout = (deadlineMs / 2).coerceIn(1_000, 3_000).toInt()
-            conn.readTimeout = deadlineMs.coerceAtMost(3_000).toInt()
-            conn.doOutput = true
-            conn.outputStream.use { it.write(wire) }
-            val responseCode = conn.responseCode
-            if (responseCode != 200) {
-                throw IllegalStateException("doh http status $responseCode")
-            }
-            val body = conn.inputStream.use { it.readBytes() }
-            return parseDnsAnswers(body)
-        } catch (e: InterruptedException) {
-            // A cancelled resolver job is shutdown-safe, never a genuine resolver failure.
-            Thread.currentThread().interrupt()
-            cancelledCount.incrementAndGet()
-            return null
-        } finally {
-            conn.disconnect()
-        }
-    }
-
-    private fun resolveViaDot(hostname: String, endpoint: String, deadlineMs: Long): List<InetAddress>? {
-        // DoT endpoints are resolved over a bounded TLS handshake; degrade to the encrypted path
-        // deadline semantics so EOF/TLS/cert-expired are classified consistently.
-        return runCatching {
-            InetAddress.getAllByName(hostname).toList()
-        }.getOrNull()
-    }
-
-    private fun resolveViaTunnel(hostname: String, deadlineMs: Long): List<InetAddress>? {
-        return runCatching {
-            InetAddress.getAllByName(hostname).toList()
-        }.getOrNull()
-    }
-
-    private fun resolveViaDirectUdp(hostname: String, endpoint: String, deadlineMs: Long): List<InetAddress>? {
-        return runCatching {
-            InetAddress.getAllByName(hostname).toList()
-        }.getOrNull()
-    }
-
-    /** Build a minimal RFC 8484 DNS query (A + AAAA in one message) for a hostname. */
-    private fun buildDnsQuery(hostname: String): ByteArray {
-        val labels = hostname.trimEnd('.').split('.')
-            .filter { it.isNotBlank() }
-        return java.io.ByteArrayOutputStream().use { out ->
-            out.write(byteArrayOf(0x00, 0x01)) // transaction id
-            out.write(byteArrayOf(0x01, 0x00)) // flags: RD
-            out.write(byteArrayOf(0x00, 0x01)) // QDCOUNT
-            out.write(byteArrayOf(0x00, 0x00)) // ANCOUNT
-            out.write(byteArrayOf(0x00, 0x00)) // NSCOUNT
-            out.write(byteArrayOf(0x00, 0x00)) // ARCOUNT
-            labels.forEach { label ->
-                val bytes = label.toByteArray(Charsets.US_ASCII)
-                out.write(bytes.size)
-                out.write(bytes)
-            }
-            out.write(0)
-            out.write(byteArrayOf(0x00, 0x01)) // QTYPE A
-            out.write(byteArrayOf(0x00, 0x01)) // QCLASS IN
-            out.toByteArray()
-        }
-    }
-
-    /**
-     * Parse A (type 1) and AAAA (type 28) answers from a DNS wire message.
-     * Returns an empty list when no usable answer was returned (caller treats it as a failure).
-     */
-    private fun parseDnsAnswers(message: ByteArray): List<InetAddress> {
-        if (message.size < 12) return emptyList()
-        val rcode = message[3].toInt() and 0x0F
-        if (rcode != 0) return emptyList() // NXDOMAIN/SERVFAIL -> empty (treated as failure)
-
-        val answers = ((message[6].toInt() and 0xFF) shl 8) or (message[7].toInt() and 0xFF)
-        if (answers == 0) return emptyList()
-
-        val out = mutableListOf<InetAddress>()
-        var offset = 12
-        // Skip question section (one question).
-        var qdCount = ((message[4].toInt() and 0xFF) shl 8) or (message[5].toInt() and 0xFF)
-        while (qdCount > 0 && offset < message.size) {
-            offset = skipName(message, offset)
-            if (offset + 4 > message.size) return out
-            offset += 4
-            qdCount--
-        }
-        var remaining = answers
-        while (remaining > 0 && offset + 11 < message.size) {
-            offset = skipName(message, offset)
-            if (offset + 10 > message.size) break
-            val type = ((message[offset].toInt() and 0xFF) shl 8) or (message[offset + 1].toInt() and 0xFF)
-            val dataLen = ((message[offset + 8].toInt() and 0xFF) shl 8) or (message[offset + 9].toInt() and 0xFF)
-            offset += 10
-            if (offset + dataLen > message.size) break
-            val data = message.copyOfRange(offset, offset + dataLen)
-            when {
-                type == 1 && dataLen == 4 -> runCatching { out += InetAddress.getByAddress(data) }
-                type == 28 && dataLen == 16 -> runCatching { out += InetAddress.getByAddress(data) }
-            }
-            offset += dataLen
-            remaining--
-        }
-        return out
-    }
-
-    /** Advance past a possibly-compressed DNS name at [offset], returning the next byte offset. */
-    private fun skipName(message: ByteArray, start: Int): Int {
-        var offset = start
-        var jumped = false
-        var firstJump = start
-        var guard = 0
-        while (offset < message.size && guard < 64) {
-            guard++
-            val len = message[offset].toInt() and 0xFF
-            if (len == 0) return if (jumped) firstJump + 2 else offset + 1
-            if ((len and 0xC0) == 0xC0) {
-                val pointer = ((len and 0x3F) shl 8) or (message[offset + 1].toInt() and 0xFF)
-                if (!jumped) {
-                    firstJump = offset
-                    jumped = true
-                }
-                offset = pointer
-            } else {
-                offset += 1 + len
-            }
-        }
-        return if (jumped) firstJump + 2 else offset
     }
 
     private fun cacheResult(hostname: String, result: ResolutionResult) {
