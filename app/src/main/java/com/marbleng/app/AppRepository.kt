@@ -881,7 +881,11 @@ fun resetTelemetry() {
      * independent rows; engine callers may intentionally resolve by canonical config id only.
      */
     fun profile(id: String, sourceId: String? = null): ProxyProfile? {
-        if (ServerlessFreedomEngine.matches(id, sourceId)) return serverlessProfile()
+        if (ServerlessFreedomEngine.matches(id, sourceId)) {
+            val shielded = IranShield.apply(settings, null, iranMode, geoIpReady())
+            val allFreedom = ServerlessFreedomEngine.profiles(shielded, iranMode)
+            return allFreedom.firstOrNull { it.id == id } ?: allFreedom.first()
+        }
         return if (!sourceId.isNullOrBlank()) {
             profiles.firstOrNull { it.id == id && it.subscriptionId == sourceId }
         } else {
@@ -891,7 +895,9 @@ fun resetTelemetry() {
 
     fun serverlessProfile(): ProxyProfile {
         val shielded = IranShield.apply(settings, null, iranMode, geoIpReady())
-        return ServerlessFreedomEngine.profile(shielded, iranMode)
+        val allFreedom = ServerlessFreedomEngine.profiles(shielded, iranMode)
+        // Prefer the actively connected one so the UI shows the correct tier
+        return allFreedom.firstOrNull { it.id == activeProfileId } ?: allFreedom.first()
     }
 
     /** True only for the exact Library row currently carrying traffic. */
@@ -2096,13 +2102,29 @@ private fun postToMain(block: () -> Unit) {
             updateSettings(settings.copy(serverlessModeEnabled = false))
         }
         runCatching { scanIranMode() }
-        setRuntimeState("CONNECTING", p.name)
-        val intent = Intent(context, MarbleVpnService::class.java)
-            .setAction(MarbleVpnService.ACTION_START)
-            .putExtra(MarbleVpnService.EXTRA_PROFILE, p.id)
-            .putExtra(MarbleVpnService.EXTRA_PROFILE_SOURCE, p.subscriptionId)
-            .putExtra(MarbleVpnService.EXTRA_MODE, MarbleVpnService.MODE_TUN)
-        launchConnectionService(intent, p.name)
+        
+        if (ServerlessFreedomEngine.isServerless(p)) {
+            setRuntimeState("CONNECTING", "Smart Aegis Check...")
+            connectDecisionWorker.execute {
+                val best = MarbleFreedomSmartRanker.bestProfile(settings, iranMode, xray, intelligence) { progress ->
+                    setRuntimeState("CONNECTING", progress)
+                }
+                val intent = Intent(context, MarbleVpnService::class.java)
+                    .setAction(MarbleVpnService.ACTION_START)
+                    .putExtra(MarbleVpnService.EXTRA_PROFILE, best.id)
+                    .putExtra(MarbleVpnService.EXTRA_PROFILE_SOURCE, best.subscriptionId)
+                    .putExtra(MarbleVpnService.EXTRA_MODE, MarbleVpnService.MODE_TUN)
+                launchConnectionService(intent, best.name)
+            }
+        } else {
+            setRuntimeState("CONNECTING", p.name)
+            val intent = Intent(context, MarbleVpnService::class.java)
+                .setAction(MarbleVpnService.ACTION_START)
+                .putExtra(MarbleVpnService.EXTRA_PROFILE, p.id)
+                .putExtra(MarbleVpnService.EXTRA_PROFILE_SOURCE, p.subscriptionId)
+                .putExtra(MarbleVpnService.EXTRA_MODE, MarbleVpnService.MODE_TUN)
+            launchConnectionService(intent, p.name)
+        }
     }
 
     fun startLocalProxy(p: ProxyProfile) {
@@ -2111,13 +2133,29 @@ private fun postToMain(block: () -> Unit) {
             updateSettings(settings.copy(serverlessModeEnabled = false))
         }
         runCatching { scanIranMode() }
-        setRuntimeState("CONNECTING", p.name)
-        val intent = Intent(context, MarbleVpnService::class.java)
-            .setAction(MarbleVpnService.ACTION_START)
-            .putExtra(MarbleVpnService.EXTRA_PROFILE, p.id)
-            .putExtra(MarbleVpnService.EXTRA_PROFILE_SOURCE, p.subscriptionId)
-            .putExtra(MarbleVpnService.EXTRA_MODE, MarbleVpnService.MODE_PROXY)
-        launchConnectionService(intent, p.name)
+        
+        if (ServerlessFreedomEngine.isServerless(p)) {
+            setRuntimeState("CONNECTING", "Smart Aegis Check...")
+            connectDecisionWorker.execute {
+                val best = MarbleFreedomSmartRanker.bestProfile(settings, iranMode, xray, intelligence) { progress ->
+                    setRuntimeState("CONNECTING", progress)
+                }
+                val intent = Intent(context, MarbleVpnService::class.java)
+                    .setAction(MarbleVpnService.ACTION_START)
+                    .putExtra(MarbleVpnService.EXTRA_PROFILE, best.id)
+                    .putExtra(MarbleVpnService.EXTRA_PROFILE_SOURCE, best.subscriptionId)
+                    .putExtra(MarbleVpnService.EXTRA_MODE, MarbleVpnService.MODE_PROXY)
+                launchConnectionService(intent, best.name)
+            }
+        } else {
+            setRuntimeState("CONNECTING", p.name)
+            val intent = Intent(context, MarbleVpnService::class.java)
+                .setAction(MarbleVpnService.ACTION_START)
+                .putExtra(MarbleVpnService.EXTRA_PROFILE, p.id)
+                .putExtra(MarbleVpnService.EXTRA_PROFILE_SOURCE, p.subscriptionId)
+                .putExtra(MarbleVpnService.EXTRA_MODE, MarbleVpnService.MODE_PROXY)
+            launchConnectionService(intent, p.name)
+        }
     }
 
     private fun launchConnectionService(intent: Intent, profileName: String) {

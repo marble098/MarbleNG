@@ -62,12 +62,34 @@ object ServerlessFreedomEngine {
     )
 
     fun matches(id: String, sourceId: String? = null): Boolean {
-        if (id != PROFILE_ID) return false
+        if (!id.startsWith(PROFILE_ID)) return false
         return sourceId.isNullOrBlank() || sourceId == SOURCE_ID
     }
 
     fun isServerless(profile: ProxyProfile): Boolean =
         matches(profile.id, profile.subscriptionId) || profile.scheme.equals("freedom", true)
+
+    fun profiles(
+        settings: AppSettings = AppSettings(),
+        iranMode: IranModeState = IranModeState()
+    ): List<ProxyProfile> {
+        return AegisTier.entries.map { tier ->
+            ProxyProfile(
+                id = "$PROFILE_ID-${tier.name.lowercase()}",
+                name = "$DISPLAY_NAME - ${tier.name}",
+                scheme = "freedom",
+                raw = "freedom://aegis-${tier.name.lowercase()}",
+                configJson = configJson(settings, iranMode, AegisState(tier = tier)),
+                host = "",
+                port = 443,
+                transport = "fragment",
+                security = "tlshello",
+                subscriptionId = SOURCE_ID,
+                subscriptionName = "Marble Freedom",
+                sourceManaged = true
+            )
+        }
+    }
 
     fun profile(
         settings: AppSettings = AppSettings(),
