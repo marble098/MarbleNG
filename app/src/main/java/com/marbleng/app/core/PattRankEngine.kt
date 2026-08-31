@@ -92,12 +92,15 @@ class PattRankEngine(
             }
 
             if (jobs.length() > 0) {
+                // MARBLE_RANK_SPEED_V78 — aggressive concurrency for fast throughput without
+                // Android ANR risk; more workers = fewer sequential waves = faster overall rank.
                 val workers = settings.tcpWorkers
-                    .coerceIn(4, 16)
+                    .coerceIn(8, 24)
                     .coerceAtMost(jobs.length())
 
+                // Tight per-node timeout so a single unresponsive node can't slow a whole wave.
                 val timeoutMs = (settings.benchTimeoutSec * 1000)
-                    .coerceIn(4_000, 6_000)
+                    .coerceIn(3_500, 5_000)
 
                 val input = File.createTempFile("marble-rank-", ".json", context.cacheDir)
                 try {
