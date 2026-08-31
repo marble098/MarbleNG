@@ -78,6 +78,12 @@ object DpiAwareFetcher {
     /**
      * Direct Chrome-UA attempt, then GitHub mirrors, then the caller's fragment SOCKS bridge.
      * Never retries over HTTP.
+     *
+     * MARBLE_FETCH_RELIABILITY_V78 — smarter fallback order:
+     *  1. Direct with browser UA first (covers most unfiltered networks)
+     *  2. Mirror URLs for GitHub-blocked networks
+     *  3. SOCKS path (connected or Freedom bridge) for fully filtered environments
+     *  4. Secondary UA with all mirrors for extreme cases
      */
     fun fetch(
         url: String,
@@ -87,31 +93,52 @@ object DpiAwareFetcher {
         throughSocks: ((candidateUrl: String, userAgent: String) -> Payload)? = null
     ): Payload {
         val urls = candidateUrls(url)
-        val agents = if (iranActive) {
-            listOf(DpiEvasionPolicy.BROWSER_UA, DpiEvasionPolicy.MARBLE_UA)
-        } else {
-            listOf(DpiEvasionPolicy.MARBLE_UA, DpiEvasionPolicy.BROWSER_UA)
-        }
+        // Prefer browser UA on any network, add Marble UA only as secondary fallback
+        val primaryAgent = DpiEvasionPolicy.BROWSER_UA
+        val secondaryAgent = DpiEvasionPolicy.MARBLE_UA
         var last: Throwable? = null
+
+        // Pass 1: direct with primary UA (fast path for most networks)
         if (allowDirect) {
-            for (agent in agents) {
-                for (candidate in urls) {
-                    val attempt = runCatching { fetchDirect(candidate, maxBytes, agent) }
-                    if (attempt.isSuccess) return attempt.getOrThrow()
-                    last = attempt.exceptionOrNull()
+            for (candidate in urls) {
+                val attempt = runCatching {
+                    fetchDirect(candidate, maxBytes, primaryAgent, connectTimeoutMs = 10_000, readTimeoutMs = 25_000)
                 }
+                if (attempt.isSuccess) return attempt.getOrThrow()
+                last = attempt.exceptionOrNull()
             }
         }
+
+        // Pass 2: SOCKS with primary UA (connected/Iran mode)
         if (throughSocks != null) {
-            for (agent in agents) {
-                for (candidate in urls) {
-                    val attempt = runCatching { throughSocks(candidate, agent) }
-                    if (attempt.isSuccess) return attempt.getOrThrow()
-                    last = attempt.exceptionOrNull()
-                }
+            for (candidate in urls) {
+                val attempt = runCatching { throughSocks(candidate, primaryAgent) }
+                if (attempt.isSuccess) return attempt.getOrThrow()
+                last = attempt.exceptionOrNull()
             }
         }
-        throw last ?: IllegalStateException("Subscription fetch failed")
+
+        // Pass 3: direct with secondary UA
+        if (allowDirect) {
+            for (candidate in urls) {
+                val attempt = runCatching {
+                    fetchDirect(candidate, maxBytes, secondaryAgent, connectTimeoutMs = 12_000, readTimeoutMs = 30_000)
+                }
+                if (attempt.isSuccess) return attempt.getOrThrow()
+                last = attempt.exceptionOrNull()
+            }
+        }
+
+        // Pass 4: SOCKS with secondary UA
+        if (throughSocks != null) {
+            for (candidate in urls) {
+                val attempt = runCatching { throughSocks(candidate, secondaryAgent) }
+                if (attempt.isSuccess) return attempt.getOrThrow()
+                last = attempt.exceptionOrNull()
+            }
+        }
+
+        throw last ?: IllegalStateException("Subscription fetch failed after all fallback paths")
     }
 
     internal fun githubRawMirror(url: String): String? {
