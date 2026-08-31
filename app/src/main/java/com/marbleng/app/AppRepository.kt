@@ -2441,8 +2441,14 @@ private fun postToMain(block: () -> Unit) {
                     "to" to finishedNetwork
                 )
                 message = "Network changed • restarting Rank once"
-                Thread.sleep(350L)
-                results = executeRank()
+                try {
+                    Thread.sleep(350L)
+                } catch (_: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                }
+                if (!Thread.currentThread().isInterrupted) {
+                    results = executeRank()
+                }
             }
 
             // MARBLE_SURVIVAL_FIRST_RANK_V80: survival-first re-rank for Iran. A node whose short
