@@ -132,8 +132,7 @@ class ResolverEndpointQuarantine(
 
     /** Ordered candidate endpoints: sticky + unquarantined first, then unproven, then quarantined. */
     fun preferredOrder(endpoints: List<String>, stickyTtlMs: Long = 10 * 60_000L): List<String> {
-        val nowMs = now()
-        return endpoints.sortedWith(
+        val orderedPairs = endpoints.map { it to states[it] }.sortedWith(
             compareBy<Pair<String, EndpointState?>> { pair ->
                 val (endpoint, st) = pair
                 when {
@@ -146,7 +145,8 @@ class ResolverEndpointQuarantine(
                 val st = pair.second
                 -(st?.decisiveFailures ?: 0)
             }
-        ).map { it.first }
+        )
+        return orderedPairs.map { it.first }
     }
 
     /** Snapshot of every tracked endpoint for diagnostics. */

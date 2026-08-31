@@ -141,7 +141,7 @@ object ProfilePreflightValidator {
             // Xray at config-load (seen as the "Turkey 4-All" xray-start invalid-config family).
             val stream = dialer.optJSONObject("streamSettings")
             val security = stream?.optString("security", "")?.lowercase()
-            if (security in TLS_REQUIRING_SECURITY) {
+            if (stream != null && security != null && security in TLS_REQUIRING_SECURITY) {
                 val tlsSettings = stream.optJSONObject("tlsSettings")
                 val serverName = tlsSettings?.optString("serverName", "").orEmpty()
                 if (serverName.isBlank()) {
