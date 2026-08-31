@@ -1632,18 +1632,19 @@ private fun HomeServerSelector(
                 )
             }
         }
-        Box(
-            Modifier
-                .size(36.dp)
-                .clip(CircleShape)
-                .background(tone.copy(alpha=.09f)),
-            contentAlignment=Alignment.Center
-        ) {
-            HomeVectorIcon(
-                HomeIcon.DETAILS,
-                tone,
-                Modifier.size(18.dp)
-            )
+            Box(
+                Modifier
+                    .size(36.dp)
+                    .clip(CircleShape)
+                    .background(tone.copy(alpha=.09f)),
+                contentAlignment=Alignment.Center
+            ) {
+                HomeVectorIcon(
+                    HomeIcon.DETAILS,
+                    tone,
+                    Modifier.size(18.dp)
+                )
+            }
         }
     }
 }
