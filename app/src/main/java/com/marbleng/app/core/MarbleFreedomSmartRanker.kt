@@ -24,6 +24,14 @@ import kotlin.math.max
 object MarbleFreedomSmartRanker {
 
     /**
+     * MARBLE_SMART_RANK_V90: exact user-facing prompt shown when a majority of the candidate pool
+     * is quarantined with stale/broken data. Rank stops instead of silently finishing empty and the
+     * message auto-offers a subscription refresh.
+     */
+    const val STALE_SUBSCRIPTIONS_MESSAGE =
+        "پروفایل‌ها به‌روز نیستند، لطفاً Refresh Subscriptions را بزنید"
+
+    /**
      * Latest decision snapshot for diagnostics. Set at the end of [bestProfile] so Bug Finder /
      * RuntimeDiagnostics can surface the ranking reason, uncertain/failed distinction and any
      * quarantine without running a second expensive decision.
@@ -54,15 +62,27 @@ object MarbleFreedomSmartRanker {
         iranMode: IranModeState,
         xray: XrayManager,
         intelligence: MarbleIntelligence?,
+        crossCheckSources: ProfileAddressCrossCheck.CrossCheckSources = ProfileAddressCrossCheck.CrossCheckSources(),
         onProgress: (String) -> Unit
     ): ProxyProfile {
         val allProfiles = ServerlessFreedomEngine.profiles(settings, iranMode)
-        if (allProfiles.isEmpty()) return allProfiles.firstOrNull() ?: return defaultProfile()
+        if (allProfiles.isEmpty()) return defaultProfile()
+
+        // MARBLE_SMART_RANK_V90: remove censorship-unsafe nodes (VLESS without TLS/REALITY, VMess
+        // without forward secrecy) before they can fail a benchmark, then cross-check each
+        // candidate's address against the local cache + fresh subscription before quarantining.
+        val (securitySafe, deprecated) = ProfileSecurityAuditor.partitionForRank(allProfiles)
+        if (deprecated.isNotEmpty()) {
+            onProgress(
+                "Smart Aegis: hidden ${deprecated.size} unsafe profile(s): " +
+                    deprecated.joinToString { "${it.first.name}=${it.second}" }
+            )
+        }
 
         // MARBLE_PROFILE_QUARANTINE_V1: preflight before any probe so a structurally broken
         // profile (e.g. "Turkey 4-All" VLESS/TLS invalid-config) can never poison ranking or
         // selection. Quarantined profiles are excluded from the probe set entirely.
-        val (profiles, invalid) = ProfilePreflightValidator.partition(allProfiles)
+        val (profiles, invalid) = ProfilePreflightValidator.partition(securitySafe, crossCheckSources)
         val quarantinedIds = invalid.mapTo(mutableSetOf()) { it.first.id }
 
         if (invalid.isNotEmpty()) {
@@ -71,14 +91,27 @@ object MarbleFreedomSmartRanker {
                     invalid.joinToString { "${it.first.name}=${it.second.reason}" }
             )
         }
-        if (profiles.isEmpty()) {
-            onProgress("Smart Aegis: all profiles quarantined; nothing to rank")
+
+        // MARBLE_SMART_RANK_V90: a majority quarantine means the subscription is stale/broken, not
+        // that the nodes are dead. Stop, show the Persian refresh prompt, and auto-offer a
+        // subscription refresh — never silently finish empty.
+        val majorityQuarantined = ProfilePreflightValidator.isMajorityQuarantined(
+            invalid.size, securitySafe.size
+        )
+        val majorityExcluded = allProfiles.isNotEmpty() &&
+            (invalid.size + deprecated.size) * 2 > allProfiles.size
+        if (majorityQuarantined || majorityExcluded || profiles.isEmpty()) {
+            onProgress(STALE_SUBSCRIPTIONS_MESSAGE)
             lastRankingDecision = DiagnosticsSummary.RankingDecision(
-                decisionReason = "all-profiles-quarantined",
+                decisionReason = if (majorityQuarantined || majorityExcluded) {
+                    "stale-subscriptions-majority-excluded"
+                } else {
+                    "all-profiles-quarantined"
+                },
                 healthCount = 0, uncertainCount = 0,
                 failedCount = allProfiles.size
             )
-            return profiles.firstOrNull() ?: defaultProfile()
+            return defaultProfile()
         }
 
         val iranActive = iranMode.active
@@ -318,20 +351,32 @@ object MarbleFreedomSmartRanker {
 
         for (target in targets) {
             var targetMs = -1.0
-            val targetResult = runCatching {
-                xray.temporary(profile, 0, settings.copy(benchSamples = 1)) { port ->
-                    val r = SocksHttpClient.get(port, target.first, target.second, timeoutMs, 8192)
-                    if (r.status in 200..499) {
-                        targetMs = r.elapsedMs
+            // MARBLE_SMART_RANK_V90: up to 2 attempts per target with exponential backoff so a
+            // single HTTPS timeout can never fail a node (timeouts are rampant under Iran's
+            // throttling). Refused/reset errors are deterministic and are not retried.
+            var attempt = 0
+            while (attempt < 2 && targetMs <= 0) {
+                attempt++
+                val targetResult = runCatching {
+                    xray.temporary(profile, 0, settings.copy(benchSamples = 1)) { port ->
+                        val r = SocksHttpClient.get(port, target.first, target.second, timeoutMs, 8192)
+                        if (r.status in 200..499) {
+                            targetMs = r.elapsedMs
+                        }
                     }
                 }
+
+                targetResult.onFailure { error ->
+                    lastError = error.message ?: error::class.java.simpleName
+                }
+
+                val retriable = targetMs <= 0 &&
+                    lastError.contains("timeout", true) &&
+                    attempt < 2
+                if (retriable) Thread.sleep(120L * attempt)
             }
 
-            targetResult.onFailure { error ->
-                lastError = error.message ?: error::class.java.simpleName
-            }
-
-            if (targetResult.isSuccess && targetMs > 0 && targetMs < bestMs) {
+            if (targetMs > 0 && targetMs < bestMs) {
                 bestMs = targetMs
                 success = true
             }

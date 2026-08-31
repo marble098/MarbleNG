@@ -47,12 +47,72 @@ class HandoverCoordinator {
     // MARBLE_ANTI_FLAP_V80: Iran mode flag
     private var iranModeActive = false
 
+    // MARBLE_SMART_RANK_V90: per-network adaptive scorer consulted for soft session migration.
+    private var adaptiveScorer: AdaptiveAegisScorer? = null
+    private var adaptiveFingerprint: String = ""
+
     /**
      * Set whether Iran Mode is active (affects dwell times and hysteresis).
      */
     @Synchronized
     fun setIranMode(active: Boolean) {
         iranModeActive = active
+    }
+
+    /**
+     * MARBLE_SMART_RANK_V90: attach the per-network adaptive scorer (hashed
+     * [NetworkFingerprint]) used to decide soft session migration. The scorer enforces the 90s
+     * dwell hysteresis and the catastrophic override; this coordinator translates its decision
+     * into a make-before-break action so migration is never a raw reconnect.
+     */
+    @Synchronized
+    fun setAdaptiveScorer(scorer: AdaptiveAegisScorer?, fingerprint: String) {
+        adaptiveScorer = scorer
+        adaptiveFingerprint = fingerprint
+    }
+
+    /** MARBLE_SMART_RANK_V90: result of consulting the adaptive scorer for a soft migration. */
+    data class AdaptiveMigration(
+        val action: Action,
+        val target: String,
+        val decision: AdaptiveAegisScorer.Decision
+    )
+
+    /**
+     * MARBLE_SMART_RANK_V90: consult the per-network adaptive scorer and, when it authorises a
+     * migration, translate its decision into a make-before-break action (soft session migration,
+     * not a raw reconnect). Catastrophic degradation bypasses dwell/cooldown via [forceBegin];
+     * otherwise [begin] still enforces the anti-flap dwell/cooldown/window budget.
+     */
+    @Synchronized
+    fun consultAdaptiveMigration(
+        activeRoute: String,
+        quality: AdaptiveAegisScorer.Quality,
+        candidateScores: Map<String, Double>,
+        nowMs: Long = System.currentTimeMillis()
+    ): AdaptiveMigration {
+        val scorer = adaptiveScorer
+        if (scorer == null || adaptiveFingerprint.isBlank()) {
+            return AdaptiveMigration(
+                action = Action.NONE,
+                target = "",
+                decision = AdaptiveAegisScorer.Decision(
+                    keep = true, switchTo = null, state = AdaptiveAegisScorer.State.HEALTHY,
+                    uncertain = false, catastrophic = false, reason = "adaptive scorer not configured"
+                )
+            )
+        }
+        val decision = scorer.evaluate(adaptiveFingerprint, activeRoute, quality, candidateScores, nowMs)
+        val target = decision.switchTo
+        if (decision.keep || target.isNullOrBlank() || target == activeRoute) {
+            return AdaptiveMigration(action = Action.NONE, target = "", decision = decision)
+        }
+        val action = if (decision.catastrophic) {
+            forceBegin(activeRoute, target)
+        } else {
+            begin(activeRoute, target, identityGuard = false)
+        }
+        return AdaptiveMigration(action = action, target = target, decision = decision)
     }
 
     /**

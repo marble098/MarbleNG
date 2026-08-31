@@ -39,14 +39,27 @@ type Batch struct {
 }
 
 type Event struct {
-    Event string `json:"event"`; ID string `json:"id"`; OK bool `json:"ok,omitempty"`
-    LatencyMS float64 `json:"latencyMs,omitempty"`; WarmupMS float64 `json:"warmupMs,omitempty"`
-    P90LatencyMS float64 `json:"p90LatencyMs,omitempty"`; P95LatencyMS float64 `json:"p95LatencyMs,omitempty"`
-    JitterMS float64 `json:"jitterMs,omitempty"`; MedianJitterMS float64 `json:"medianJitterMs,omitempty"`
-    P95JitterMS float64 `json:"p95JitterMs,omitempty"`; MADLatencyMS float64 `json:"madLatencyMs,omitempty"`
-    LossPercent float64 `json:"lossPercent,omitempty"`; SpikePercent float64 `json:"spikePercent,omitempty"`
-    Attempts int `json:"attempts,omitempty"`; Samples int `json:"samples,omitempty"`; Target string `json:"target,omitempty"`
-    Error string `json:"error,omitempty"`; Jobs int `json:"jobs,omitempty"`; Workers int `json:"workers,omitempty"`
+    Event                string  `json:"event"`
+    ID                   string  `json:"id"`
+    OK                   bool    `json:"ok,omitempty"`
+    LatencyMS            float64 `json:"latencyMs,omitempty"`
+    WarmupMS             float64 `json:"warmupMs,omitempty"`
+    P90LatencyMS         float64 `json:"p90LatencyMs,omitempty"`
+    P95LatencyMS         float64 `json:"p95LatencyMs,omitempty"`
+    JitterMS             float64 `json:"jitterMs,omitempty"`
+    MedianJitterMS       float64 `json:"medianJitterMs,omitempty"`
+    P95JitterMS          float64 `json:"p95JitterMs,omitempty"`
+    MADLatencyMS         float64 `json:"madLatencyMs,omitempty"`
+    LossPercent          float64 `json:"lossPercent,omitempty"`
+    SpikePercent         float64 `json:"spikePercent,omitempty"`
+    Attempts             int     `json:"attempts,omitempty"`
+    Samples              int     `json:"samples,omitempty"`
+    Target               string  `json:"target,omitempty"`
+    HandshakeSuccessRatio float64 `json:"handshakeSuccessRatio,omitempty"`
+    RttMedianMS          float64 `json:"rttMedianMs,omitempty"`
+    Error                string  `json:"error,omitempty"`
+    Jobs                 int     `json:"jobs,omitempty"`
+    Workers              int     `json:"workers,omitempty"`
 }
 
 var emitMu sync.Mutex
@@ -168,10 +181,37 @@ func safeMeasure(job Job, primaryURL, fallbackURL string, timeout time.Duration)
 func marbleMS(v time.Duration) float64 { return float64(v.Microseconds()) / 1000.0 }
 func marbleMedian(v []float64) float64 { if len(v)==0{return 0};x:=append([]float64(nil),v...);sort.Float64s(x);return x[len(x)/2] }
 func marblePct(v []float64,q float64) float64 { if len(v)==0{return 0};x:=append([]float64(nil),v...);sort.Float64s(x);i:=int(math.Ceil(float64(len(x))*q))-1;if i<0{i=0};if i>=len(x){i=len(x)-1};return x[i] }
-func marbleProbeTarget(client *http.Client,target string,timeout time.Duration)([]time.Duration,int,error){
-    samples:=make([]time.Duration,0,3);attempts:=0;var firstErr error
-    for i:=0;i<3;i++{attempts++;d,err:=requestDelay(client,target,timeout);if err!=nil{if len(samples)==0{firstErr=err};break};samples=append(samples,d)}
-    if len(samples)==0{return nil,attempts,firstErr};return samples,attempts,nil
+// marbleProbeTarget performs 2-3 attempts against one target with exponential backoff, so a
+// single HTTPS timeout can never fail a node on its own. It returns the successful latency
+// samples, the total number of attempts, and the first error (used when every attempt failed).
+func marbleProbeTarget(client *http.Client, target string, timeout time.Duration) ([]time.Duration, int, error) {
+    samples := make([]time.Duration, 0, 3)
+    attempts := 0
+    var firstErr error
+    backoff := 250 * time.Millisecond
+    for i := 0; i < 3; i++ {
+        attempts++
+        d, err := requestDelay(client, target, timeout)
+        if err != nil {
+            if firstErr == nil {
+                firstErr = err
+            }
+            if i < 2 {
+                time.Sleep(backoff)
+                backoff *= 2
+            }
+            continue
+        }
+        samples = append(samples, d)
+        // Two clean samples are enough to prove the route; stop burning the rank budget.
+        if len(samples) >= 2 {
+            break
+        }
+    }
+    if len(samples) == 0 {
+        return nil, attempts, firstErr
+    }
+    return samples, attempts, nil
 }
 func measure(job Job, primaryURL, fallbackURL string, timeout time.Duration) Event {
     inst,err:=newInstance(job.Config);if err!=nil{return Event{Event:"result",ID:job.ID,Error:compactError(err)}};defer inst.Close()
@@ -186,8 +226,12 @@ func measure(job Job, primaryURL, fallbackURL string, timeout time.Duration) Eve
     med:=marbleMedian(ms);dev:=make([]float64,0,len(ms));for _,v:=range ms{dev=append(dev,math.Abs(v-med))};mad:=marbleMedian(dev)
     th:=math.Max(15,math.Max(med*.25,mad*3));spikes:=0;for _,v:=range deltas{if v>=th{spikes++}};spikePct:=0.0;if len(deltas)>0{spikePct=float64(spikes)*100/float64(len(deltas))}
     lossPct:=0.0;if attempts>0{lossPct=float64(attempts-len(samples))*100/float64(attempts)}
+    // MARBLE_SMART_RANK_V90: successful handshakes / total attempts feeds the weighted multi-signal
+    // score so one timeout among 2-3 backoff attempts never fails the node.
+    handshakeRatio:=0.0;if attempts>0{handshakeRatio=float64(len(samples))/float64(attempts)}
     return Event{Event:"result",ID:job.ID,OK:true,LatencyMS:best,WarmupMS:ms[0],P90LatencyMS:marblePct(ms,.90),P95LatencyMS:marblePct(ms,.95),
-        JitterMS:ewma,MedianJitterMS:marbleMedian(deltas),P95JitterMS:marblePct(deltas,.95),MADLatencyMS:mad,LossPercent:lossPct,SpikePercent:spikePct,Attempts:attempts,Samples:len(samples),Target:target}
+        JitterMS:ewma,MedianJitterMS:marbleMedian(deltas),P95JitterMS:marblePct(deltas,.95),MADLatencyMS:mad,LossPercent:lossPct,SpikePercent:spikePct,
+        Attempts:attempts,Samples:len(samples),Target:target,HandshakeSuccessRatio:handshakeRatio,RttMedianMS:med}
 }
 
 var cmdMarbleRank = &base.Command{

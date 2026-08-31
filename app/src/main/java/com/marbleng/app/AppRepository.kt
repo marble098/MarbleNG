@@ -99,6 +99,10 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     // `busy` is UI state, not a cross-thread lock. This atomic gate is the actual task mutex.
     private val taskInFlight = AtomicBoolean(false)
 
+    // MARBLE_SMART_RANK_V90: debounce + single-flight gate for the Rank action, so a tap storm can
+    // never re-run the whole preflight + benchmark pool (observed: 9 triggers in 7s, zero results).
+    private val rankGate = SmartRankGate()
+
     // Iran Mode scanning runs on its own thread so a detection sweep can never block or be blocked
     // by a user-visible task such as a subscription refresh.
     private val iranScanner = Executors.newSingleThreadExecutor()
@@ -2106,8 +2110,18 @@ private fun postToMain(block: () -> Unit) {
         if (ServerlessFreedomEngine.isServerless(p)) {
             setRuntimeState("CONNECTING", "Smart Aegis Check...")
             connectDecisionWorker.execute {
-                val best = MarbleFreedomSmartRanker.bestProfile(settings, iranMode, xray, intelligence) { progress ->
+                val best = MarbleFreedomSmartRanker.bestProfile(
+                    settings, iranMode, xray, intelligence, rankCrossCheckSources()
+                ) { progress ->
                     setRuntimeState("CONNECTING", progress)
+                }
+                // MARBLE_SMART_RANK_V90: surface the stale-subscriptions prompt through the Snackbar
+                // channel too (bestProfile can only report through onProgress, which becomes the
+                // connecting-status text).
+                if (MarbleFreedomSmartRanker.lastRankingDecision?.decisionReason ==
+                    "stale-subscriptions-majority-excluded"
+                ) {
+                    message = MarbleFreedomSmartRanker.STALE_SUBSCRIPTIONS_MESSAGE
                 }
                 val intent = Intent(context, MarbleVpnService::class.java)
                     .setAction(MarbleVpnService.ACTION_START)
@@ -2137,8 +2151,15 @@ private fun postToMain(block: () -> Unit) {
         if (ServerlessFreedomEngine.isServerless(p)) {
             setRuntimeState("CONNECTING", "Smart Aegis Check...")
             connectDecisionWorker.execute {
-                val best = MarbleFreedomSmartRanker.bestProfile(settings, iranMode, xray, intelligence) { progress ->
+                val best = MarbleFreedomSmartRanker.bestProfile(
+                    settings, iranMode, xray, intelligence, rankCrossCheckSources()
+                ) { progress ->
                     setRuntimeState("CONNECTING", progress)
+                }
+                if (MarbleFreedomSmartRanker.lastRankingDecision?.decisionReason ==
+                    "stale-subscriptions-majority-excluded"
+                ) {
+                    message = MarbleFreedomSmartRanker.STALE_SUBSCRIPTIONS_MESSAGE
                 }
                 val intent = Intent(context, MarbleVpnService::class.java)
                     .setAction(MarbleVpnService.ACTION_START)
@@ -2269,19 +2290,92 @@ private fun postToMain(block: () -> Unit) {
      * Unknown source ids fail closed to zero candidates instead of falling back to all profiles.
      */
     fun smartRankSource(sourceId: String) {
+        // MARBLE_SMART_RANK_V90: debounce + single-flight. A Rank tap storm can never re-run the
+        // full preflight + benchmark pool more than once per cooldown.
+        val gate = rankGate.tryAcquire()
+        if (gate.verdict != SmartRankGate.Verdict.ACCEPTED) {
+            message = gate.message
+            diagnostics.event(
+                "BENCHMARK", "rank-gate-rejected",
+                "verdict" to gate.verdict.name,
+                "source" to sourceId.take(24)
+            )
+            return
+        }
+
         val candidates = libraryScopeSnapshot(sourceId).distinctBy { it.id }
         val scope = libraryScopeLabel(sourceId)
         if (candidates.isEmpty()) {
+            rankGate.release()
             message = "Nothing enabled to rank in $scope"
             return
         }
 
-        task("Smart rank • $scope") {
-            // MARBLE_PROFILE_QUARANTINE_V1: a structurally broken profile (e.g. a VLESS/TLS config
-            // that fails xray-start validation) must never join the benchmark pool and poison
-            // ranking. Quarantine it before PattRankEngine sees it and surface it in diagnostics.
-            val (validCandidates, invalidCandidates) = ProfilePreflightValidator.partition(candidates)
-            if (invalidCandidates.isNotEmpty()) {
+        val accepted = task("Smart rank • $scope") {
+            try {
+                smartRankRun(sourceId, scope, candidates)
+            } finally {
+                rankGate.release()
+            }
+        }
+        // If the global task mutex rejected us, the block never ran and the rank gate would be
+        // stuck in-flight forever — release it immediately so Rank stays triggerable.
+        if (!accepted) rankGate.release()
+    }
+
+    /** MARBLE_SMART_RANK_V90: fresh-subscription evidence for profile address cross-checking. */
+    private fun rankCrossCheckSources(): ProfileAddressCrossCheck.CrossCheckSources =
+        ProfileAddressCrossCheck.CrossCheckSources(
+            freshSubscriptionProfiles = profiles.toList(),
+            freshSubscriptionRaw = subscriptions.joinToString("\n") { sub ->
+                runCatching { subscriptionRawText(sub.id) }.getOrDefault("")
+            }
+        )
+
+    /** MARBLE_SMART_RANK_V90: map a benchmark result to the weighted multi-signal signals. */
+    private fun multiSignalSignals(r: BenchmarkResult): MultiSignalRankScorer.Signals =
+        MultiSignalRankScorer.Signals(
+            tcpHandshakeSuccessRatio = r.tcpHandshakeSuccessRatio.coerceIn(0.0, 1.0),
+            handshakeAttempts = r.handshakeAttempts.coerceAtLeast(0),
+            rttMedianMs = r.latencyMs.takeIf { it in 1.0..9_000.0 }
+                ?: MultiSignalRankScorer.UNKNOWN_RTT,
+            rttP95Ms = r.p95LatencyMs.takeIf { it in 1.0..9_000.0 }
+                ?: MultiSignalRankScorer.UNKNOWN_RTT,
+            jitterMs = r.jitterMs.takeIf { it >= 0.0 } ?: 0.0,
+            retransmitRate = 0.0,
+            lossRate = r.lossPercent.coerceIn(0.0, 100.0) / 100.0,
+            sessionLifetimeMs = 0L,
+            uncertain = r.success <= 0 && r.failureReason.isNotBlank() &&
+                (r.failureReason.contains("inconclusive", true) ||
+                    r.failureReason.contains("backoff", true) ||
+                    (r.failureReason.contains("timeout", true) &&
+                        r.handshakeAttempts < MultiSignalRankScorer.MIN_ATTEMPTS_TO_CONVICT))
+        )
+
+    private fun smartRankRun(sourceId: String, scope: String, candidates: List<ProxyProfile>) {
+        // MARBLE_SMART_RANK_V90: fresh-subscription evidence so a stale/blank emitted config is
+        // classified precisely (malformed-config / stale-subscription / address-resolved-but-invalid)
+        // instead of the old blanket "missing-address".
+        val crossCheckSources = rankCrossCheckSources()
+
+        // MARBLE_SMART_RANK_V90: remove censorship-unsafe nodes (VLESS without TLS/REALITY, VMess
+        // without forward secrecy) before they can fail a benchmark.
+        val (securitySafe, deprecated) = ProfileSecurityAuditor.partitionForRank(candidates)
+        if (deprecated.isNotEmpty()) {
+            diagnostics.event(
+                "BENCHMARK", "rank-deprecated-hidden",
+                "source" to sourceId.take(24),
+                "hidden" to deprecated.size,
+                "profiles" to deprecated.joinToString { "${it.first.name.take(40)}=${it.second}" }
+            )
+        }
+
+        // MARBLE_PROFILE_QUARANTINE_V1: a structurally broken profile (e.g. a VLESS/TLS config
+        // that fails xray-start validation) must never join the benchmark pool and poison
+        // ranking. Quarantine it before PattRankEngine sees it and surface it in diagnostics.
+        val (validCandidates, invalidCandidates) =
+            ProfilePreflightValidator.partition(securitySafe, crossCheckSources)
+        if (invalidCandidates.isNotEmpty()) {
                 diagnostics.event(
                     "BENCHMARK", "rank-preflight-quarantine",
                     "source" to sourceId.take(24),
@@ -2296,6 +2390,27 @@ private fun postToMain(block: () -> Unit) {
                     )
                 )
                 message = "Rank • $scope • quarantined ${invalidCandidates.size} invalid profile(s) • ranking valid ones"
+            }
+
+            // MARBLE_SMART_RANK_V90: if preflight quarantined more than half of the pool, the
+            // subscription is stale or broken — stop, show the Persian refresh prompt, and
+            // auto-offer a subscription refresh. Never silently finish empty.
+            val total = candidates.size
+            val excluded = invalidCandidates.size + deprecated.size
+            val majorityQuarantined = ProfilePreflightValidator.isMajorityQuarantined(
+                invalidCandidates.size, securitySafe.size
+            )
+            if (majorityQuarantined || (total > 0 && excluded * 2 > total) || validCandidates.isEmpty()) {
+                diagnostics.event(
+                    "BENCHMARK", "rank-stopped-stale-subscriptions",
+                    "source" to sourceId.take(24),
+                    "total" to total,
+                    "quarantined" to invalidCandidates.size,
+                    "deprecated" to deprecated.size,
+                    "reasons" to invalidCandidates.map { it.second.reason }.distinct().joinToString(",")
+                )
+                message = MarbleFreedomSmartRanker.STALE_SUBSCRIPTIONS_MESSAGE
+                return
             }
             val scoped = validCandidates
 
@@ -2360,6 +2475,28 @@ private fun postToMain(block: () -> Unit) {
             ).copy(selectedProfileId = reordered.firstOrNull()?.profileId.orEmpty())
             results = reordered
 
+            // MARBLE_SMART_RANK_V90: attach the weighted multi-signal score (TCP handshake success
+            // ratio, RTT median/p95, jitter, loss) so Library reflects the composite instead of the
+            // old single short HTTPS probe. Ordering stays survival-first; only healthy nodes with
+            // real handshake evidence have their score upgraded to the multi-signal composite.
+            val multiSignal = results.associate { r ->
+                r.profileId to MultiSignalRankScorer.score(multiSignalSignals(r))
+            }
+            diagnostics.event(
+                "BENCHMARK", "rank-multi-signal",
+                "source" to sourceId.take(24),
+                "nodes" to multiSignal.size,
+                "healthy" to multiSignal.count { it.value.classification == MultiSignalRankScorer.Classification.HEALTHY },
+                "degraded" to multiSignal.count { it.value.classification == MultiSignalRankScorer.Classification.DEGRADED },
+                "uncertain" to multiSignal.count { it.value.classification == MultiSignalRankScorer.Classification.UNCERTAIN },
+                "dead" to multiSignal.count { it.value.classification == MultiSignalRankScorer.Classification.DEAD },
+                "invalid" to multiSignal.count { it.value.classification == MultiSignalRankScorer.Classification.INVALID }
+            )
+            results = results.map { r ->
+                val ms = multiSignal[r.profileId]
+                if (r.success > 0 && r.handshakeAttempts > 0 && ms != null) r.copy(score = ms.score) else r
+            }
+
             diagnostics.event(
                 "BENCHMARK", "rank-survival-decision",
                 "reason" to rankingDecision.decisionReason.take(200),
@@ -2408,7 +2545,6 @@ private fun postToMain(block: () -> Unit) {
                 "Rank • $scope • $healthy/${scoped.size} reachable • " +
                     "${best.name} • ${best.latencyMs.toInt()} ms"
             }
-        }
     }
 
     fun fullTest(p: ProxyProfile) {
@@ -2728,11 +2864,12 @@ private fun postToMain(block: () -> Unit) {
     fun clearMessage() { message = "" }
     fun readLogs(): String = RuntimeDiagnostics(context).bundle(xray.logFile)
 
-    private fun task(label: String, block: () -> Unit) {
+    /** Returns true when the task was accepted and will run; false when the mutex rejected it. */
+    private fun task(label: String, block: () -> Unit): Boolean {
         if (!taskInFlight.compareAndSet(false, true)) {
             message = "MarbleNG is busy • finish the current task before starting another"
             diagnostics.event("APP", "task-rejected-busy", "label" to label)
-            return
+            return false
         }
 
         postToMain {
@@ -2758,6 +2895,7 @@ private fun postToMain(block: () -> Unit) {
                 }
             }
         }
+        return true
     }
 
     private data class SubscriptionPayload(

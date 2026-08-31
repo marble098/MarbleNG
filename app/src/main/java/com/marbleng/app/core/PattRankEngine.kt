@@ -202,19 +202,26 @@ class PattRankEngine(
                                         }
 
                                         val latency = event.optDouble("latencyMs", 9_999.0)
+                                        val samples = event.optInt("samples", 0)
+                                        val attempts = event.optInt("attempts", 0)
                                         val rawResult = BenchmarkResult(
                                             profileId = profile.id, name = profile.name,
                                             success = (100.0 - event.optDouble("lossPercent", 0.0)).toInt().coerceIn(1, 100),
                                             latencyMs = latency, bytesPerSecond = 0.0, score = 0.0, probeKind = "TUNNEL",
                                             jitterMs = event.optDouble("jitterMs", 0.0), warmupMs = event.optDouble("warmupMs", 0.0),
-                                            sampleCount = event.optInt("samples", 0),
+                                            sampleCount = samples,
                                             p90LatencyMs = event.optDouble("p90LatencyMs", latency),
                                             p95LatencyMs = event.optDouble("p95LatencyMs", latency),
                                             medianJitterMs = event.optDouble("medianJitterMs", 0.0),
                                             p95JitterMs = event.optDouble("p95JitterMs", 0.0),
                                             madLatencyMs = event.optDouble("madLatencyMs", 0.0),
                                             lossPercent = event.optDouble("lossPercent", 0.0),
-                                            spikePercent = event.optDouble("spikePercent", 0.0), failureReason = "")
+                                            spikePercent = event.optDouble("spikePercent", 0.0), failureReason = "",
+                                            tcpHandshakeSuccessRatio = event.optDouble(
+                                                "handshakeSuccessRatio",
+                                                if (attempts > 0) samples.toDouble() / attempts else 0.0
+                                            ),
+                                            handshakeAttempts = attempts)
                                         val quality = RealtimeQualityEngine.score(rawResult, settings.workloadProfile, settings.benchMode)
                                         publish(profile, rawResult.copy(score = quality.selected,
                                             interactiveScore = quality.interactive, streamingScore = quality.streaming,

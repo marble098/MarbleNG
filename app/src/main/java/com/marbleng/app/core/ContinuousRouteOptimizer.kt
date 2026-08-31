@@ -58,6 +58,9 @@ class ContinuousRouteOptimizer(
     private var pendingWins = 0
     /** MARBLE_IRAN_OPTIMIZER_V80 */
     private var iranModeActive = false
+    /** MARBLE_SMART_RANK_V90: per-network adaptive scorer consulted for soft session migration. */
+    private var adaptiveScorer: AdaptiveAegisScorer? = null
+    private var adaptiveFingerprint: String = ""
 
     /**
      * MARBLE_IRAN_OPTIMIZER_V80: Set Iran mode state.
@@ -65,6 +68,44 @@ class ContinuousRouteOptimizer(
     @Synchronized
     fun setIranMode(active: Boolean) {
         iranModeActive = active
+    }
+
+    /**
+     * MARBLE_SMART_RANK_V90: attach the continuous per-network adaptive scorer (hashed
+     * [NetworkFingerprint]). The optimizer records measured scores into it on every cycle and can
+     * consult it for degradation-triggered soft session migration with 90s dwell hysteresis.
+     */
+    @Synchronized
+    fun setAdaptiveScorer(scorer: AdaptiveAegisScorer?, fingerprint: String) {
+        adaptiveScorer = scorer
+        adaptiveFingerprint = fingerprint
+    }
+
+    /**
+     * MARBLE_SMART_RANK_V90: ask the per-network adaptive scorer whether the active route should
+     * migrate (soft session migration) given the latest re-measured quality and candidate scores.
+     * Inconclusive measurements stay `uncertain` and are never penalised; catastrophic degradation
+     * bypasses the dwell hysteresis.
+     */
+    @Synchronized
+    fun evaluateAdaptiveMigration(
+        active: ProxyProfile,
+        quality: AdaptiveAegisScorer.Quality,
+        candidateScores: Map<String, Double>,
+        now: Long = System.currentTimeMillis()
+    ): AdaptiveAegisScorer.Decision {
+        val scorer = adaptiveScorer
+            ?: return AdaptiveAegisScorer.Decision(
+                keep = true, switchTo = null, state = AdaptiveAegisScorer.State.HEALTHY,
+                uncertain = false, catastrophic = false, reason = "adaptive scorer not configured"
+            )
+        if (adaptiveFingerprint.isBlank()) {
+            return AdaptiveAegisScorer.Decision(
+                keep = true, switchTo = null, state = AdaptiveAegisScorer.State.HEALTHY,
+                uncertain = false, catastrophic = false, reason = "network fingerprint unavailable"
+            )
+        }
+        return scorer.evaluate(adaptiveFingerprint, active.id, quality, candidateScores, now)
     }
 
     @Synchronized
@@ -136,6 +177,20 @@ class ContinuousRouteOptimizer(
     ): OptimizerDecision {
         val cur = results.firstOrNull { it.profileId == active.id }
             ?: return OptimizerDecision(summary = "Autopilot • active route verification unavailable")
+
+        // MARBLE_SMART_RANK_V90: feed measured scores into the per-network adaptive scorer so the
+        // continuous loop learns per network. Purely additive — it never blocks or changes the
+        // existing gain-based decision, only populates the learned score table.
+        adaptiveScorer?.let { scorer ->
+            if (adaptiveFingerprint.isNotBlank()) {
+                results.forEach { r ->
+                    if (r.success > 0) {
+                        scorer.recordScore(adaptiveFingerprint, r.profileId, r.score.coerceIn(0.0, 100.0))
+                    }
+                }
+            }
+        }
+
         val best = results.asSequence()
             .filter { it.profileId != active.id && it.success >= 75 }
             .maxByOrNull { it.score }
@@ -236,6 +291,11 @@ class ContinuousRouteOptimizer(
 
         // MARBLE_IRAN_OPTIMIZER_V80: Notify flap guard of the switch
         flapGuard?.noteSwitch(now)
+
+        // MARBLE_SMART_RANK_V90: mark the adaptive scorer switch so dwell hysteresis starts here.
+        adaptiveScorer?.let { scorer ->
+            if (adaptiveFingerprint.isNotBlank()) scorer.noteSwitch(target.id, adaptiveFingerprint, now)
+        }
 
         return OptimizerDecision(
             target = target,
