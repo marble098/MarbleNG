@@ -1,7 +1,11 @@
-@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@file:OptIn(
+    androidx.compose.foundation.layout.ExperimentalLayoutApi::class,
+    androidx.compose.foundation.ExperimentalFoundationApi::class
+)
 
 package com.marbleng.app.ui
 
+// Marble Product UI v78 • Swipe tabs · Smart Library · Lean Home · Provider Link
 // Marble Product UI v12 • Solid White command surface
 // Compatibility baseline retained for CI: Marble Product UI v9.1.0
 // MARBLE_LIBRARY_UI_V10
@@ -95,6 +99,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -129,6 +134,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import com.marbleng.app.AppRepository
 import com.marbleng.app.R
 import com.marbleng.app.core.AddressFamilyPolicy
@@ -142,6 +149,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import android.net.Uri
 import java.text.DateFormat
 import java.util.Date
 import kotlin.math.PI
@@ -169,13 +177,28 @@ fun Aether2026App(
     onConnect: (ProxyProfile) -> Unit,
     onImportFile: () -> Unit
 ) {
-    var tab by remember { mutableStateOf(rememberedSpatialTab(repo.lastAppTab)) }
+    val tabs = SpatialTab.entries
+    val initialIndex = rememberedSpatialTab(repo.lastAppTab).ordinal
+    val pagerState = rememberPagerState(initialPage = initialIndex) { tabs.size }
     var dialog by remember { mutableStateOf<String?>(null) }
     var settingsFocus by remember { mutableStateOf<String?>(null) }
     var detailProfile by remember { mutableStateOf<ProxyProfile?>(null) }
     BackHandler(enabled = detailProfile != null) { detailProfile = null }
     val snackbar = remember { SnackbarHostState() }
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    // Sync pager → tab name for persistence
+    LaunchedEffect(pagerState.currentPage) {
+        repo.rememberAppTab(tabs[pagerState.currentPage].name)
+    }
+
+    // Routing focus from Home: jump to Settings tab
+    LaunchedEffect(settingsFocus) {
+        if (settingsFocus == "Routing") {
+            pagerState.animateScrollToPage(SpatialTab.SETTINGS.ordinal)
+        }
+    }
 
     LaunchedEffect(repo.message, repo.busy) {
         if (!repo.busy && repo.message.isNotBlank()) {
@@ -184,19 +207,15 @@ fun Aether2026App(
         }
     }
 
-    LaunchedEffect(tab) {
-        repo.rememberAppTab(tab.name)
-    }
-
     Scaffold(
         containerColor = Aether.Void,
         bottomBar = {
             FloatingSpatialDock(
-                selected = tab,
+                selected = tabs[pagerState.currentPage],
                 onSelect = { next ->
                     detailProfile = null
                     settingsFocus = null
-                    tab = next
+                    scope.launch { pagerState.animateScrollToPage(next.ordinal) }
                 }
             )
         }
@@ -209,30 +228,12 @@ fun Aether2026App(
         ) {
             DeepSpaceBackdrop(Modifier.matchParentSize())
 
-            AnimatedContent(
-                targetState = tab,
-                transitionSpec = {
-                    val forward = targetState.ordinal > initialState.ordinal
-                    val enterOffset: (Int) -> Int = { width -> if (forward) width / 9 else -width / 9 }
-                    val exitOffset: (Int) -> Int = { width -> if (forward) -width / 13 else width / 13 }
-                    (
-                        slideInHorizontally(
-                            animationSpec = MarbleMotionSpecs.Spatial,
-                            initialOffsetX = enterOffset
-                        ) +
-                            fadeIn(animationSpec = MarbleMotionSpecs.ResponseFloat) +
-                            scaleIn(initialScale = .985f, animationSpec = MarbleMotionSpecs.ResponseFloat)
-                    ) togetherWith (
-                        slideOutHorizontally(
-                            animationSpec = MarbleMotionSpecs.SpatialExit,
-                            targetOffsetX = exitOffset
-                        ) +
-                            fadeOut(animationSpec = MarbleMotionSpecs.ExitFloat) +
-                            scaleOut(targetScale = .992f, animationSpec = MarbleMotionSpecs.ExitFloat)
-                    )
-                },
-                label = "marble-page-transition-fast"
-            ) { page ->
+            HorizontalPager(
+                state = pagerState,
+                modifier = Modifier.fillMaxSize(),
+                userScrollEnabled = true,
+                beyondViewportPageCount = 1
+            ) { pageIndex ->
                 Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.TopCenter
@@ -243,22 +244,22 @@ fun Aether2026App(
                             .widthIn(max = 820.dp)
                             .fillMaxWidth()
                     ) {
-                        when (page) {
+                        when (tabs[pageIndex]) {
                     SpatialTab.DECK -> CyberDeck(
                         repo = repo,
                         onConnect = onConnect,
-                        onLibrary = { tab = SpatialTab.LIBRARY },
+                        onLibrary = { scope.launch { pagerState.animateScrollToPage(SpatialTab.LIBRARY.ordinal) } },
                         onPrivacy = {
                             repo.audit()
                             dialog = "Privacy"
                         },
                         onRouting = {
                             settingsFocus = "Routing"
-                            tab = SpatialTab.SETTINGS
+                            scope.launch { pagerState.animateScrollToPage(SpatialTab.SETTINGS.ordinal) }
                         },
                         onDetails = {
                             val profile = repo.profile(repo.activeProfileId, repo.activeProfileSourceId) ?: repo.lastProfile()
-                            if (profile != null) detailProfile = profile else tab = SpatialTab.LIBRARY
+                            if (profile != null) detailProfile = profile else scope.launch { pagerState.animateScrollToPage(SpatialTab.LIBRARY.ordinal) }
                         }
                     )
                     SpatialTab.LIBRARY -> CyberLibrary(
@@ -1547,34 +1548,36 @@ private fun HomeServerSelector(
     activeName: String,
     connected: Boolean,
     onLibrary: () -> Unit,
-    serverless: Boolean = false
+    serverless: Boolean = false,
+    livePingMs: Int = 0
 ) {
-    val displayName=stripLeadingFlag(activeName).ifBlank { "Choose a route" }
-    val shape=RoundedCornerShape(21.dp)
+    val displayName = stripLeadingFlag(activeName).ifBlank { "Choose a route" }
+    val tone = if (connected) Aether.Emerald else Aether.Cyan
+    val shape = RoundedCornerShape(21.dp)
 
-    Row(
-        modifier=Modifier
+    // MARBLE_CONNECTED_CARD_V78 — live ping readout + polished visual rhythm
+    Column(
+        modifier = Modifier
             .fillMaxWidth()
             .prismElevated(
-                shape=shape,
-                tone=if(connected) Aether.Emerald else Aether.Cyan,
-                selected=connected,
-                tint=Brush.horizontalGradient(
+                shape = shape,
+                tone = tone,
+                selected = connected,
+                tint = Brush.horizontalGradient(
                     listOf(
-                        if(connected) {
-                            Aether.Emerald.copy(alpha=.10f)
-                        } else {
-                            Aether.Cyan.copy(alpha=.075f)
-                        },
+                        tone.copy(alpha = if (connected) .12f else .075f),
                         Color.Transparent
                     )
                 )
             )
-            .kineticClickable(role=Role.Button, boundedShape=shape, onClick=onLibrary)
+            .kineticClickable(role = Role.Button, boundedShape = shape, onClick = onLibrary)
             .padding(12.dp),
-        verticalAlignment=Alignment.CenterVertically,
-        horizontalArrangement=Arrangement.spacedBy(12.dp)
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
         MarbleServerAvatar(profile=profile,active=connected)
         Column(Modifier.weight(1f)) {
             Text(
@@ -1603,16 +1606,39 @@ private fun HomeServerSelector(
                 overflow=TextOverflow.Ellipsis
             )
         }
+        // Live ping badge when connected
+        if (connected && livePingMs > 0) {
+            val pingTone = when {
+                livePingMs < 100 -> Aether.Emerald
+                livePingMs < 250 -> Aether.Amber
+                else -> Aether.Danger
+            }
+            Surface(
+                shape = RoundedCornerShape(10.dp),
+                color = pingTone.copy(alpha = .13f),
+                tonalElevation = 0.dp
+            ) {
+                Text(
+                    "${livePingMs}ms",
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                    color = pingTone,
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold
+                    )
+                )
+            }
+        }
         Box(
             Modifier
                 .size(36.dp)
                 .clip(CircleShape)
-                .background(Aether.Cyan.copy(alpha=.09f)),
+                .background(tone.copy(alpha=.09f)),
             contentAlignment=Alignment.Center
         ) {
             HomeVectorIcon(
                 HomeIcon.DETAILS,
-                Aether.Cyan,
+                tone,
                 Modifier.size(18.dp)
             )
         }
@@ -1686,83 +1712,113 @@ private fun MarbleConnectionQualityRing(
 
 @Composable
 private fun HomeMetricBento(repo: AppRepository) {
-    val pingHistory=remember { mutableStateListOf<Int>() }
+    // MARBLE_LIVE_QUALITY_BENTO_V78 — robust sparkline + correct live state guards
+    val pingHistory = remember { mutableStateListOf<Int>() }
 
+    // Accumulate ping samples; only add when there is a real measurement
     LaunchedEffect(repo.livePingMs) {
-        val value=repo.livePingMs
-        if(value > 0 && (pingHistory.lastOrNull() != value || pingHistory.size < 2)) {
-            pingHistory += value
-            while(pingHistory.size > 36) pingHistory.removeAt(0)
+        val value = repo.livePingMs
+        if (value > 0) {
+            if (pingHistory.lastOrNull() != value || pingHistory.size < 2) {
+                pingHistory += value
+                while (pingHistory.size > 36) pingHistory.removeAt(0)
+            }
+        } else if (repo.state != "CONNECTED") {
+            // Clear sparkline when disconnected so stale history doesn't linger
+            pingHistory.clear()
         }
     }
 
-    val pingTone=marbleMetricTone(pingMetricBand(repo.livePingMs))
-    val jitterTone=marbleMetricTone(
-        jitterMetricBand(repo.liveJitterMs,repo.liveJitterSamples)
-    )
-    val qualityTone=marbleMetricTone(qualityMetricBand(repo.liveRouteScore))
+    // Clear on disconnect so values don't freeze
+    val isConnected = repo.state == "CONNECTED"
+    val pingMs = if (isConnected) repo.livePingMs else 0
+    val jitterMs = if (isConnected) repo.liveJitterMs else 0
+    val jitterSamples = if (isConnected) repo.liveJitterSamples else 0
+    val routeScore = if (isConnected) repo.liveRouteScore else -1
+    val liveStatus = when {
+        isConnected && pingMs > 0 -> "LIVE"
+        isConnected -> "MEASURING"
+        else -> "WAITING"
+    }
+    val liveStatusColor = when (liveStatus) {
+        "LIVE" -> Aether.Emerald
+        "MEASURING" -> Aether.Amber
+        else -> Aether.InkMuted
+    }
 
-    // MARBLE_HOME_PUZZLE_GRID_V77 — Ping/Jitter/Quality now share one panel, so the three
-    // cells interlock like a bento instead of floating as three independent cards.
+    val pingTone = marbleMetricTone(pingMetricBand(pingMs))
+    val jitterTone = marbleMetricTone(jitterMetricBand(jitterMs, jitterSamples))
+    val qualityTone = marbleMetricTone(qualityMetricBand(routeScore))
+
+    // MARBLE_HOME_PUZZLE_GRID_V77 — Ping/Jitter/Quality share one panel bento
     PrismPanel(
-        modifier=Modifier.fillMaxWidth(),
-        accent=Aether.Cyan,
-        contentPadding=PaddingValues(12.dp)
+        modifier = Modifier.fillMaxWidth(),
+        accent = if (isConnected && pingMs > 0) pingTone else Aether.Cyan,
+        selected = isConnected && pingMs > 0,
+        contentPadding = PaddingValues(12.dp)
     ) {
         Row(
-            modifier=Modifier.fillMaxWidth(),
-            verticalAlignment=Alignment.CenterVertically
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
         ) {
             SectionLabel("Live quality")
             Spacer(Modifier.weight(1f))
-            if(repo.state == "CONNECTED") {
-                PrismBadge("LIVE",Aether.Emerald)
-            } else {
-                PrismBadge("WAITING",Aether.InkMuted)
-            }
+            PrismBadge(liveStatus, liveStatusColor, strong = liveStatus == "LIVE")
         }
 
         Row(
-            modifier=Modifier
+            modifier = Modifier
                 .fillMaxWidth()
                 .height(158.dp),
-            horizontalArrangement=Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             MarbleMetricCard(
-                title="Ping",
-                value=if(repo.livePingMs > 0) repo.livePingMs.toString() else "—",
-                unit=if(repo.livePingMs > 0) "ms" else "",
-                tone=pingTone,
-                sparkline=pingHistory,
-                modifier=Modifier
+                title = "Ping",
+                value = if (pingMs > 0) pingMs.toString() else "—",
+                unit = if (pingMs > 0) "ms" else "",
+                tone = pingTone,
+                sparkline = if (pingHistory.isNotEmpty()) pingHistory else mutableStateListOf(),
+                modifier = Modifier
                     .weight(1.08f)
                     .fillMaxHeight()
             )
             Column(
-                modifier=Modifier
+                modifier = Modifier
                     .weight(.92f)
                     .fillMaxHeight(),
-                verticalArrangement=Arrangement.spacedBy(8.dp)
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 MarbleMetricCard(
-                    title="Jitter",
-                    value=if(repo.liveJitterSamples > 0) repo.liveJitterMs.toString() else "—",
-                    unit=if(repo.liveJitterSamples > 0) "ms" else "",
-                    tone=jitterTone,
-                    modifier=Modifier
+                    title = "Jitter",
+                    value = if (jitterSamples > 0 && isConnected) jitterMs.toString() else "—",
+                    unit = if (jitterSamples > 0 && isConnected) "ms" else "",
+                    tone = jitterTone,
+                    modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth()
                 )
                 MarbleMetricCard(
-                    title="Quality",
-                    value=if(repo.liveRouteScore >= 0) repo.liveRouteScore.toString() else "—",
-                    unit=if(repo.liveRouteScore >= 0) "%" else "",
-                    tone=qualityTone,
-                    modifier=Modifier
+                    title = "Quality",
+                    value = if (routeScore >= 0) routeScore.toString() else "—",
+                    unit = if (routeScore >= 0) "%" else "",
+                    tone = qualityTone,
+                    modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth()
                 )
             }
+        }
+
+        // Live probe status line
+        if (isConnected && repo.liveRouteProbeStatus.isNotBlank()) {
+            Text(
+                repo.liveRouteProbeStatus,
+                color = Aether.InkFaint,
+                style = MaterialTheme.typography.labelSmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.fillMaxWidth()
+            )
         }
     }
 }
@@ -1833,6 +1889,7 @@ private fun HomeQuickSettingRow(
 // DECK
 // =================================================================================================
 
+@Suppress("UNUSED_PARAMETER")
 @Composable
 private fun CyberDeck(
     repo: AppRepository,
@@ -1901,19 +1958,13 @@ private fun CyberDeck(
                     },
                     connected = connected,
                     onLibrary = onLibrary,
-                    serverless = repo.settings.serverlessModeEnabled
+                    serverless = repo.settings.serverlessModeEnabled,
+                    livePingMs = repo.livePingMs
                 )
             }
         }
 
-        if (repo.settings.homeShowRouteDetails) {
-            item {
-                HomeRouteDetailsRow(
-                    connected = connected,
-                    onDetails = onDetails
-                )
-            }
-        }
+        // MARBLE_ROUTE_DETAILS_ROW_REMOVED_V78 — source route details row removed
 
         if (repo.settings.homeShowLiveQuality) {
             item {
@@ -1925,35 +1976,7 @@ private fun CyberDeck(
             item { ServerIntelHomeCard(repo) }
         }
 
-        if (repo.settings.homeShowSummaryMetrics) {
-            item {
-                val verifiedXray = repo.benchmarks.count {
-                    it.probeKind == "TUNNEL" && it.success > 0
-                }
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    MiniMetric(
-                        "Nodes", repo.libraryProfiles.size.toString(), "", Modifier.weight(1f),
-                        accent = Aether.Amethyst, icon = HomeIcon.NODES
-                    )
-                    MiniMetric(
-                        "Xray OK", verifiedXray.toString(), "", Modifier.weight(1f),
-                        accent = if (verifiedXray > 0) Aether.Emerald else Aether.Amber,
-                        icon = HomeIcon.VERIFIED
-                    )
-                    MiniMetric(
-                        "Mode",
-                        if (repo.settings.connectionMode == ConnectionMode.FULL_TUN) "TUN" else "SOCKS",
-                        "",
-                        Modifier.weight(1f),
-                        accent = Aether.Cyan,
-                        icon = HomeIcon.MODE
-                    )
-                }
-            }
-        }
+        // MARBLE_SUMMARY_METRICS_REMOVED_V78 — Nodes/Xray OK/Mode box removed
 
         if (repo.probeActive) {
             item {
@@ -2010,38 +2033,7 @@ private fun CyberDeck(
             }
         }
 
-        if (repo.settings.homeShowQuickActions) {
-            item {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        HomeVectorIcon(HomeIcon.SPARK, Aether.Cyan, Modifier.size(15.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text("QUICK ACTIONS", color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        HomeActionPortal(
-                            HomeIcon.RANK, "Rank all",
-                            "${repo.libraryProfiles.size}",
-                            Aether.Cyan, Modifier.weight(1f)
-                        ) { repo.smartRank() }
-                        HomeActionPortal(
-                            HomeIcon.LIBRARY, "Library", "${repo.libraryProfiles.size}",
-                            Aether.Amethyst, Modifier.weight(1f), onLibrary
-                        )
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        HomeActionPortal(
-                            HomeIcon.PRIVACY, "Privacy", "",
-                            Aether.Emerald, Modifier.weight(1f), onPrivacy
-                        )
-                        HomeActionPortal(
-                            HomeIcon.ROUTING, "Routing", "",
-                            Aether.Amber, Modifier.weight(1f), onRouting
-                        )
-                    }
-                }
-            }
-        }
+        // MARBLE_QUICK_ACTIONS_REMOVED_V78 — Quick Actions section removed
 
         if (repo.settings.homeShowRouteRibbon) {
             item { HomeRouteRibbon(repo) }
@@ -2738,7 +2730,6 @@ private fun CyberLibrary(
     val clipboard = LocalClipboardManager.current
     var search by remember { mutableStateOf("") }
     var addOpen by remember { mutableStateOf(false) }
-    var filterSheetOpen by remember { mutableStateOf(false) }
     var addMode by remember { mutableStateOf("subscription") }
     var url by remember { mutableStateOf("") }
     var sourceName by remember { mutableStateOf("") }
@@ -3029,34 +3020,57 @@ private fun CyberLibrary(
         )
     }
 
-    if(filterSheetOpen) {
-        LibraryFilterSheet(
-            repo=repo,
-            sourceFilter=sourceFilter,
-            onSourceFilter={ repo.selectLibrarySource(it) },
-            onManageSubscription={ sub ->
-                editSubscriptionName=sub.name
-                editSubscriptionUrl=sub.url
-                manageSubscription=sub
-                filterSheetOpen=false
-            },
-            onDismiss={ filterSheetOpen=false }
-        )
+    // MARBLE_LIBRARY_INTEGRATED_FILTERS_V78 — subscription tabs merged inline; no separate sheet needed
+    // Build ordered source list for swipeable tabs
+    val librarySources: List<Pair<String, String>> = buildList {
+        add("all" to "All (${repo.libraryProfiles.size})")
+        if (repo.settings.manualSourceEnabled) {
+            add("manual" to "Manual (${repo.libraryProfiles.count { it.subscriptionId == "manual" }})")
+        }
+        repo.subscriptions.forEach { sub ->
+            add(sub.id to "${sub.name} (${repo.subscriptionNodeCount(sub.id)})")
+        }
+    }
+
+    val sourceCount = librarySources.size
+    val initialSourceIndex = librarySources.indexOfFirst { it.first == sourceFilter }.coerceAtLeast(0)
+    val sourcePager = rememberPagerState(initialPage = initialSourceIndex) { sourceCount }
+    val scopeLib = rememberCoroutineScope()
+
+    // Keep sourceFilter in sync with pager swipe
+    LaunchedEffect(sourcePager.currentPage) {
+        val newSourceId = librarySources.getOrNull(sourcePager.currentPage)?.first ?: "all"
+        if (newSourceId != sourceFilter) {
+            repo.selectLibrarySource(newSourceId)
+        }
+    }
+
+    // Keep pager in sync when sourceFilter changes externally
+    LaunchedEffect(sourceFilter) {
+        val idx = librarySources.indexOfFirst { it.first == sourceFilter }.coerceAtLeast(0)
+        if (idx != sourcePager.currentPage) {
+            sourcePager.animateScrollToPage(idx)
+        }
     }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        // Prism v54: compact rhythm with a shared visual gutter.
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 6.dp, bottom = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         item {
             MarbleCompactTopBar(
-                title="Library",
-                subtitle="${visible.size} visible • ${repo.libraryProfiles.size} total",
-                actionLabel="Filters",
-                actionIcon=HomeIcon.MODE,
-                onAction={ filterSheetOpen=true }
+                title = "Library",
+                subtitle = "${visible.size} visible • ${repo.libraryProfiles.size} total"
+            )
+        }
+
+        // Inline source tabs — swipeable pill strip
+        stickyHeader(key = "library-source-tabs") {
+            LibrarySourceTabStrip(
+                sources = librarySources,
+                selectedIndex = sourcePager.currentPage,
+                onSelect = { idx -> scopeLib.launch { sourcePager.animateScrollToPage(idx) } }
             )
         }
 
@@ -3067,16 +3081,16 @@ private fun CyberLibrary(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 PrismSearchField(
-                    value=search,
-                    onValueChange={ search=it },
-                    placeholder="Search nodes, host or protocol",
-                    modifier=Modifier.weight(1f)
+                    value = search,
+                    onValueChange = { search = it },
+                    placeholder = "Search nodes, host or protocol",
+                    modifier = Modifier.weight(1f)
                 )
 
                 CyberButton(
                     label = if (addOpen) "Close" else "Add",
                     color = Aether.Cyan,
-                    modifier = Modifier.widthIn(min = 96.dp),
+                    modifier = Modifier.widthIn(min = 88.dp),
                     variant = if (addOpen) PrismButtonVariant.Secondary else PrismButtonVariant.Primary,
                     icon = if (addOpen) null else HomeIcon.SPARK,
                     onClick = { addOpen = !addOpen }
@@ -3195,15 +3209,17 @@ private fun CyberLibrary(
             }
         }
 
-
         item {
             LibraryControlDeck(
-                repo=repo,
-                sourceFilter=sourceFilter
+                repo = repo,
+                sourceFilter = sourceFilter
             )
         }
 
-        item { SectionLabel("Nodes") }
+        // Sort chips — inline, no sheet needed
+        item {
+            LibraryInlineSortBar(repo = repo)
+        }
 
         if (visible.isEmpty()) {
             item {
@@ -3213,26 +3229,156 @@ private fun CyberLibrary(
                         color = Aether.Ink,
                         style = MaterialTheme.typography.titleMedium
                     )
-
                 }
             }
         }
 
         // The source remains part of the key because the same share link can exist
         // in more than one subscription.
-        items(visible,key={ "${it.subscriptionId}:${it.id}" }) { profile ->
+        items(visible, key = { "${it.subscriptionId}:${it.id}" }) { profile ->
             SpatialServerCard(
-                profile=profile,
-                repo=repo,
-                result=benchmarkById[profile.id],
-                active=repo.isActiveProfile(profile),
-                probeState=repo.probeStateOf(profile.id),
-                onConnect=onConnect,
-                onEdit={
-                    renameTarget=profile
-                    renameText=profile.name
+                profile = profile,
+                repo = repo,
+                result = benchmarkById[profile.id],
+                active = repo.isActiveProfile(profile),
+                probeState = repo.probeStateOf(profile.id),
+                onConnect = onConnect,
+                onEdit = {
+                    renameTarget = profile
+                    renameText = profile.name
                 },
-                onDetails={ onDetails(profile) }
+                onDetails = { onDetails(profile) }
+            )
+        }
+    }
+}
+
+// MARBLE_LIBRARY_SOURCE_TAB_STRIP_V78 — swipeable subscription tabs
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
+private fun LibrarySourceTabStrip(
+    sources: List<Pair<String, String>>,
+    selectedIndex: Int,
+    onSelect: (Int) -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Aether.Void)
+            .padding(vertical = 6.dp)
+    ) {
+        LazyRow(
+            modifier = Modifier.fillMaxWidth(),
+            contentPadding = PaddingValues(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(7.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            itemsIndexed(sources, key = { _, item -> item.first }) { index, (id, label) ->
+                val selected = index == selectedIndex
+                val tone by animateColorAsState(
+                    if (selected) Aether.Cyan else Aether.InkMuted,
+                    MarbleMotionSpecs.Color,
+                    label = "lib-tab-tone-$id"
+                )
+                val bg by animateColorAsState(
+                    if (selected) Aether.Cyan.copy(alpha = .12f) else Aether.GlassStrong,
+                    MarbleMotionSpecs.Color,
+                    label = "lib-tab-bg-$id"
+                )
+                val borderColor by animateColorAsState(
+                    if (selected) Aether.Cyan.copy(alpha = .38f) else Aether.GlassBorder,
+                    MarbleMotionSpecs.Color,
+                    label = "lib-tab-border-$id"
+                )
+                val shape = RoundedCornerShape(18.dp)
+                Box(
+                    modifier = Modifier
+                        .heightIn(min = 38.dp)
+                        .clip(shape)
+                        .background(bg)
+                        .border(1.dp, borderColor, shape)
+                        .semantics {
+                            this.selected = selected
+                            contentDescription = "$label tab"
+                        }
+                        .kineticClickable(role = Role.Tab) { onSelect(index) }
+                        .padding(horizontal = 13.dp, vertical = 8.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        label,
+                        color = tone,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                        maxLines = 1
+                    )
+                }
+            }
+        }
+    }
+}
+
+// MARBLE_LIBRARY_INLINE_SORT_V78 — compact sort strip, no separate filter sheet
+@Composable
+private fun LibraryInlineSortBar(repo: AppRepository) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(7.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            "SORT:",
+            color = Aether.InkFaint,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold
+        )
+        NodeSortMode.entries.forEach { mode ->
+            val selected = repo.settings.nodeSortMode == mode
+            val label = when (mode) {
+                NodeSortMode.PING -> "Ping"
+                NodeSortMode.SCORE -> "Score"
+                NodeSortMode.NAME -> "Name"
+                NodeSortMode.PROTOCOL -> "Protocol"
+                NodeSortMode.SOURCE -> "Source"
+            }
+            val tone = if (selected) Aether.Cyan else Aether.InkMuted
+            val shape = RoundedCornerShape(14.dp)
+            Box(
+                modifier = Modifier
+                    .heightIn(min = 34.dp)
+                    .clip(shape)
+                    .background(if (selected) Aether.Cyan.copy(alpha = .11f) else Color.Transparent)
+                    .border(1.dp, if (selected) Aether.Cyan.copy(alpha = .35f) else Aether.GlassBorder, shape)
+                    .kineticClickable(role = Role.Button) {
+                        repo.updateSettings(repo.settings.copy(nodeSortMode = mode, nodeSortReverse = false))
+                    }
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(label, color = tone, style = MaterialTheme.typography.labelSmall, fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium)
+            }
+        }
+        // Reverse toggle
+        val revShape = RoundedCornerShape(14.dp)
+        Box(
+            modifier = Modifier
+                .heightIn(min = 34.dp)
+                .clip(revShape)
+                .background(if (repo.settings.nodeSortReverse) Aether.Amber.copy(alpha = .11f) else Color.Transparent)
+                .border(1.dp, if (repo.settings.nodeSortReverse) Aether.Amber.copy(alpha = .35f) else Aether.GlassBorder, revShape)
+                .kineticClickable(role = Role.Button) {
+                    repo.updateSettings(repo.settings.copy(nodeSortReverse = !repo.settings.nodeSortReverse))
+                }
+                .padding(horizontal = 10.dp, vertical = 6.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                if (repo.settings.nodeSortReverse) "↑ Rev" else "↓",
+                color = if (repo.settings.nodeSortReverse) Aether.Amber else Aether.InkMuted,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Medium
             )
         }
     }
@@ -5686,14 +5832,6 @@ private fun AppearanceSettings(repo: AppRepository) {
     SectionLabel("Home layout")
 
     SettingSwitch(
-        "Summary metrics on Home",
-        "",
-        repo.settings.homeShowSummaryMetrics
-    ) {
-        repo.updateSettings(repo.settings.copy(homeShowSummaryMetrics=it))
-    }
-
-    SettingSwitch(
         "Server info card on Home",
         "",
         repo.settings.serverIntelEnabled
@@ -5711,14 +5849,6 @@ private fun AppearanceSettings(repo: AppRepository) {
     }
 
     SettingSwitch(
-        "Quick Actions on Home",
-        "",
-        repo.settings.homeShowQuickActions
-    ) {
-        repo.updateSettings(repo.settings.copy(homeShowQuickActions=it))
-    }
-
-    SettingSwitch(
         "Live quality on Home",
         "",
         repo.settings.homeShowLiveQuality
@@ -5732,14 +5862,6 @@ private fun AppearanceSettings(repo: AppRepository) {
         repo.settings.homeShowServerSelector
     ) {
         repo.updateSettings(repo.settings.copy(homeShowServerSelector=it))
-    }
-
-    SettingSwitch(
-        "Route details on Home",
-        "",
-        repo.settings.homeShowRouteDetails
-    ) {
-        repo.updateSettings(repo.settings.copy(homeShowRouteDetails=it))
     }
 
     SettingSwitch(
@@ -6392,8 +6514,68 @@ private fun ServerIntelHomeCard(repo: AppRepository) {
                     if(current.proxy) HoloBadge("PROXY",Aether.Amber,compact=true)
                     if(current.vpn) HoloBadge("VPN",Aether.Amber,compact=true)
                     if(current.tor) HoloBadge("TOR",Aether.Danger,compact=true)
-                    current.domain.takeIf(String::isNotBlank)?.let {
-                        HoloBadge(it,Aether.InkMuted,compact=true)
+                }
+
+                // MARBLE_SERVER_PROVIDER_LINK_V78 — Provider website link
+                val providerDomain = current.domain.ifBlank {
+                    current.isp
+                        .lowercase()
+                        .replace(Regex("[^a-z0-9.-]"), "")
+                        .takeIf { it.contains(".") }
+                        .orEmpty()
+                }
+                if (providerDomain.isNotBlank()) {
+                    val providerUrl = when {
+                        providerDomain.startsWith("http") -> providerDomain
+                        else -> "https://$providerDomain"
+                    }
+                    val context = LocalContext.current
+                    val shape = RoundedCornerShape(14.dp)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(shape)
+                            .background(Aether.Cyan.copy(alpha = .06f))
+                            .border(1.dp, Aether.Cyan.copy(alpha = .16f), shape)
+                            .kineticClickable(role = Role.Button) {
+                                runCatching {
+                                    context.startActivity(
+                                        Intent(Intent.ACTION_VIEW, Uri.parse(providerUrl))
+                                    )
+                                }
+                            }
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Box(
+                            Modifier
+                                .size(32.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Aether.Cyan.copy(alpha = .11f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            HomeVectorIcon(HomeIcon.DETAILS, Aether.Cyan, Modifier.size(16.dp))
+                        }
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                "Visit provider website",
+                                color = Aether.Ink,
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1
+                            )
+                            Text(
+                                providerDomain,
+                                color = Aether.Cyan,
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    fontFamily = FontFamily.Monospace
+                                ),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        HomeVectorIcon(HomeIcon.DETAILS, Aether.Cyan.copy(alpha = .55f), Modifier.size(14.dp))
                     }
                 }
             } ?: Text(

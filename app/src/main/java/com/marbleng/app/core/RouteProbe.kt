@@ -18,8 +18,9 @@ object RouteProbe {
     // MARBLE_DIRECT_PING_RETRY_V33
 
     const val UNREACHABLE = 99_999.0
-    private const val FAST_FAILURE_RETRY_WINDOW_MS = 180L
-    private const val FAST_FAILURE_RETRY_DELAY_MS = 90L
+    // MARBLE_PROBE_RELIABILITY_V78 — wider retry window catches more transient failures
+    private const val FAST_FAILURE_RETRY_WINDOW_MS = 300L
+    private const val FAST_FAILURE_RETRY_DELAY_MS = 120L
 
     data class Sample(val successPercent: Int, val latencyMs: Double)
 
@@ -29,24 +30,26 @@ object RouteProbe {
         timeoutMs: Int,
         plan: IpFamilyPlan
     ): Double {
-        // Resolving first and dialling in policy order is what makes the ping describe the path the
-        // tunnel will actually take; `InetSocketAddress(host, port)` dials whichever record the OS
-        // resolver returned first, which is how an IPv6-preferred node kept being scored on IPv4.
+        // MARBLE_PROBE_RELIABILITY_V78 — resolve once, try all candidates to avoid single-address
+        // transient failures on flaky links; keep time budget tight so we don't stall a wave.
         val candidates = AddressFamilyPolicy.resolveCandidates(host, plan)
         if (candidates.isEmpty()) return UNREACHABLE
         val started = System.nanoTime()
+        // Per-address budget: share the total budget across candidates, min 300ms each
+        val perAddressMs = (timeoutMs / candidates.size).coerceIn(300, timeoutMs)
         candidates.forEachIndexed { index, address ->
             val spentMs = ((System.nanoTime() - started) / 1_000_000L).toInt()
             val remainingMs = timeoutMs - spentMs
+            if (remainingMs <= 0) return UNREACHABLE
             val attemptMs = when {
                 candidates.size == 1 -> timeoutMs
-                index == candidates.lastIndex -> maxOf(remainingMs, 250)
-                else -> minOf(maxOf(remainingMs, 250), 1_200)
+                index == candidates.lastIndex -> maxOf(remainingMs, 300)
+                else -> minOf(perAddressMs, maxOf(remainingMs, 300))
             }
-            if (attemptMs <= 0) return UNREACHABLE
             val connected = runCatching {
                 Socket().use { socket ->
                     socket.tcpNoDelay = true
+                    socket.soTimeout = attemptMs
                     socket.connect(InetSocketAddress(address, port), attemptMs)
                 }
             }.isSuccess
