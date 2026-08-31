@@ -1781,7 +1781,10 @@ private fun HomeMetricBento(repo: AppRepository) {
                 value = if (pingMs > 0) pingMs.toString() else "—",
                 unit = if (pingMs > 0) "ms" else "",
                 tone = pingTone,
-                sparkline = if (pingHistory.isNotEmpty()) pingHistory else mutableStateListOf(),
+                // MARBLE_LIVE_QUALITY_BENTO_V91: pass the remembered snapshot list itself — a fresh
+                // mutableStateListOf() per recomposition churned memory and made the sparkline
+                // flicker/glitch on every live update.
+                sparkline = pingHistory,
                 modifier = Modifier
                     .weight(1.08f)
                     .fillMaxHeight()
@@ -3312,67 +3315,86 @@ private fun LibrarySourceTabStrip(
 }
 
 // MARBLE_LIBRARY_INLINE_SORT_V78 — compact sort strip, no separate filter sheet
+// MARBLE_SORT_ROW_FRAME_V91: the reverse toggle is pinned inside the same framed surface as the
+// mode chips and the chips wrap onto a second line, so nothing can fall outside the card frame.
 @Composable
 private fun LibraryInlineSortBar(repo: AppRepository) {
-    Row(
+    val frameShape = RoundedCornerShape(16.dp)
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(7.dp),
-        verticalAlignment = Alignment.CenterVertically
+            .clip(frameShape)
+            .background(Aether.Glass.copy(alpha = .38f))
+            .border(1.dp, Aether.GlassBorder.copy(alpha = .65f), frameShape)
+            .padding(horizontal = MarbleSpacing.S, vertical = MarbleSpacing.S)
     ) {
-        Text(
-            "SORT:",
-            color = Aether.InkFaint,
-            style = MaterialTheme.typography.labelSmall,
-            fontWeight = FontWeight.Bold
-        )
-        NodeSortMode.entries.forEach { mode ->
-            val selected = repo.settings.nodeSortMode == mode
-            val label = when (mode) {
-                NodeSortMode.PING -> "Ping"
-                NodeSortMode.SCORE -> "Score"
-                NodeSortMode.NAME -> "Name"
-                NodeSortMode.PROTOCOL -> "Protocol"
-                NodeSortMode.SOURCE -> "Source"
-            }
-            val tone = if (selected) Aether.Cyan else Aether.InkMuted
-            val shape = RoundedCornerShape(14.dp)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(7.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                "SORT:",
+                color = Aether.InkFaint,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold
+            )
+            Spacer(Modifier.weight(1f))
+            // Reverse toggle stays inside the frame, always visible, never clipped off-screen.
+            val revShape = RoundedCornerShape(14.dp)
             Box(
                 modifier = Modifier
                     .heightIn(min = 34.dp)
-                    .clip(shape)
-                    .background(if (selected) Aether.Cyan.copy(alpha = .11f) else Color.Transparent)
-                    .border(1.dp, if (selected) Aether.Cyan.copy(alpha = .35f) else Aether.GlassBorder, shape)
+                    .clip(revShape)
+                    .background(if (repo.settings.nodeSortReverse) Aether.Amber.copy(alpha = .13f) else Color.Transparent)
+                    .border(1.dp, if (repo.settings.nodeSortReverse) Aether.Amber.copy(alpha = .38f) else Aether.GlassBorder, revShape)
                     .kineticClickable(role = Role.Button) {
-                        repo.updateSettings(repo.settings.copy(nodeSortMode = mode, nodeSortReverse = false))
+                        repo.updateSettings(repo.settings.copy(nodeSortReverse = !repo.settings.nodeSortReverse))
                     }
                     .padding(horizontal = 10.dp, vertical = 6.dp),
                 contentAlignment = Alignment.Center
             ) {
-                Text(label, color = tone, style = MaterialTheme.typography.labelSmall, fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium)
+                Text(
+                    if (repo.settings.nodeSortReverse) "↑ Rev" else "↓ Rev",
+                    color = if (repo.settings.nodeSortReverse) Aether.Amber else Aether.InkMuted,
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Medium
+                )
             }
         }
-        // Reverse toggle
-        val revShape = RoundedCornerShape(14.dp)
-        Box(
-            modifier = Modifier
-                .heightIn(min = 34.dp)
-                .clip(revShape)
-                .background(if (repo.settings.nodeSortReverse) Aether.Amber.copy(alpha = .11f) else Color.Transparent)
-                .border(1.dp, if (repo.settings.nodeSortReverse) Aether.Amber.copy(alpha = .35f) else Aether.GlassBorder, revShape)
-                .kineticClickable(role = Role.Button) {
-                    repo.updateSettings(repo.settings.copy(nodeSortReverse = !repo.settings.nodeSortReverse))
-                }
-                .padding(horizontal = 10.dp, vertical = 6.dp),
-            contentAlignment = Alignment.Center
+        Spacer(Modifier.height(MarbleSpacing.XS))
+        @OptIn(ExperimentalLayoutApi::class)
+        FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(7.dp),
+            verticalArrangement = Arrangement.spacedBy(7.dp)
         ) {
-            Text(
-                if (repo.settings.nodeSortReverse) "↑ Rev" else "↓ Rev",
-                color = if (repo.settings.nodeSortReverse) Aether.Amber else Aether.InkMuted,
-                style = MaterialTheme.typography.labelSmall,
-                fontWeight = FontWeight.Medium
-            )
+            NodeSortMode.entries.forEach { mode ->
+                val selected = repo.settings.nodeSortMode == mode
+                val label = when (mode) {
+                    NodeSortMode.PING -> "Ping"
+                    NodeSortMode.SCORE -> "Score"
+                    NodeSortMode.NAME -> "Name"
+                    NodeSortMode.PROTOCOL -> "Protocol"
+                    NodeSortMode.SOURCE -> "Source"
+                }
+                val tone = if (selected) Aether.Cyan else Aether.InkMuted
+                val shape = RoundedCornerShape(14.dp)
+                Box(
+                    modifier = Modifier
+                        .heightIn(min = 34.dp)
+                        .clip(shape)
+                        .background(if (selected) Aether.Cyan.copy(alpha = .11f) else Color.Transparent)
+                        .border(1.dp, if (selected) Aether.Cyan.copy(alpha = .35f) else Aether.GlassBorder, shape)
+                        .kineticClickable(role = Role.Button) {
+                            repo.updateSettings(repo.settings.copy(nodeSortMode = mode, nodeSortReverse = false))
+                        }
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(label, color = tone, style = MaterialTheme.typography.labelSmall, fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium)
+                }
+            }
         }
     }
 }
@@ -8155,6 +8177,45 @@ private fun FreedomSettings(repo: AppRepository) {
         }
     }
 
+    // ── Per-operator steel profiles (MARBLE_OPERATOR_FREEDOM_V91) ─────────────
+    FreedomSectionHeader(
+        title = "Operator profile",
+        subtitle = "Steel serverless chains per Iranian carrier • Smart Auto applies the detected one",
+        tone = Aether.Amethyst
+    )
+    SettingSwitch(
+        title = "Auto-apply detected operator",
+        subtitle = "On Smart Auto, Marble matches MCI / Irancell / Rightel / Shatel by detected ASN",
+        checked = s.freedomOperatorAuto
+    ) { repo.updateSettings(s.copy(freedomOperatorAuto = it)) }
+    val operatorPresets = listOf(
+        Triple(FreedomPreset.SHATEL, "Shatel", "Fixed-line steel chain"),
+        Triple(FreedomPreset.HAMRAH_AVAL, "MCI • همراه اول", "Strictest mobile DPI"),
+        Triple(FreedomPreset.IRANCELL, "Irancell", "Throttle-heavy steel"),
+        Triple(FreedomPreset.RIGHTEL, "Rightel", "Third mobile steel chain")
+    )
+    operatorPresets.chunked(2).forEach { row ->
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            row.forEach { (preset, title, detail) ->
+                val selected = s.freedomPreset == preset
+                PrismSelectionTile(
+                    label = title,
+                    selected = selected,
+                    tone = Aether.Amethyst,
+                    modifier = Modifier.weight(1f),
+                    detail = detail,
+                    minHeight = 58.dp,
+                    alignment = Alignment.CenterStart
+                ) {
+                    repo.updateSettings(freedomPresetSettings(s, preset))
+                }
+            }
+        }
+    }
+
     HorizontalDivider(color = Aether.GlassBorderSoft)
 
     // ── Fragment layers ──────────────────────────────────────────────────────
@@ -8479,6 +8540,88 @@ private fun freedomPresetSettings(s: AppSettings, preset: FreedomPreset): AppSet
         freedomOuterInterval = "5-10",
         freedomOuterMaxSplit = "4",
         freedomMiddleEnabled = false,
+        freedomInnerEnabled = true,
+        freedomInnerPackets = "1-1",
+        freedomInnerLength = "1",
+        freedomInnerInterval = "4",
+        freedomInnerMaxSplit = "517",
+        freedomUdpNoiseEnabled = true,
+        freedomUdpNoiseCount = 10
+    )
+    // MARBLE_OPERATOR_FREEDOM_V91: per-operator steel chains. These wire the same parameters the
+    // DpiEvasionPolicy recipes use, so the Freedom settings sheet and the engine never disagree.
+    FreedomPreset.SHATEL -> s.copy(
+        freedomPreset = preset,
+        freedomLayerCount = 3,
+        freedomOuterPackets = "1-1",
+        freedomOuterLength = "1-3",
+        freedomOuterInterval = "5-10",
+        freedomOuterMaxSplit = "4",
+        freedomMiddleEnabled = true,
+        freedomMiddlePackets = "2-4",
+        freedomMiddleLength = "1",
+        freedomMiddleInterval = "4",
+        freedomMiddleMaxSplit = "130",
+        freedomInnerEnabled = true,
+        freedomInnerPackets = "1-1",
+        freedomInnerLength = "1",
+        freedomInnerInterval = "4",
+        freedomInnerMaxSplit = "517",
+        freedomUdpNoiseEnabled = true,
+        freedomUdpNoiseCount = 12
+    )
+    FreedomPreset.HAMRAH_AVAL -> s.copy(
+        freedomPreset = preset,
+        freedomLayerCount = 3,
+        freedomOuterPackets = "1-1",
+        freedomOuterLength = "1-3",
+        freedomOuterInterval = "5-10",
+        freedomOuterMaxSplit = "4",
+        freedomMiddleEnabled = true,
+        freedomMiddlePackets = "1-1",
+        freedomMiddleLength = "130",
+        freedomMiddleInterval = "560",
+        freedomMiddleMaxSplit = "4",
+        freedomInnerEnabled = true,
+        freedomInnerPackets = "1-1",
+        freedomInnerLength = "1",
+        freedomInnerInterval = "4",
+        freedomInnerMaxSplit = "517",
+        freedomUdpNoiseEnabled = true,
+        freedomUdpNoiseCount = 16
+    )
+    FreedomPreset.IRANCELL -> s.copy(
+        freedomPreset = preset,
+        freedomLayerCount = 3,
+        freedomOuterPackets = "1-1",
+        freedomOuterLength = "130",
+        freedomOuterInterval = "560",
+        freedomOuterMaxSplit = "4",
+        freedomMiddleEnabled = true,
+        freedomMiddlePackets = "2-4",
+        freedomMiddleLength = "1",
+        freedomMiddleInterval = "4",
+        freedomMiddleMaxSplit = "130",
+        freedomInnerEnabled = true,
+        freedomInnerPackets = "1-1",
+        freedomInnerLength = "1",
+        freedomInnerInterval = "4",
+        freedomInnerMaxSplit = "517",
+        freedomUdpNoiseEnabled = true,
+        freedomUdpNoiseCount = 14
+    )
+    FreedomPreset.RIGHTEL -> s.copy(
+        freedomPreset = preset,
+        freedomLayerCount = 3,
+        freedomOuterPackets = "1-1",
+        freedomOuterLength = "1-3",
+        freedomOuterInterval = "5-10",
+        freedomOuterMaxSplit = "4",
+        freedomMiddleEnabled = true,
+        freedomMiddlePackets = "1-3",
+        freedomMiddleLength = "10-30",
+        freedomMiddleInterval = "5-10",
+        freedomMiddleMaxSplit = "768",
         freedomInnerEnabled = true,
         freedomInnerPackets = "1-1",
         freedomInnerLength = "1",

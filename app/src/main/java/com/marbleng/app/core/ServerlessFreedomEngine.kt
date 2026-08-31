@@ -1,6 +1,7 @@
 package com.marbleng.app.core
 
 import com.marbleng.app.model.AppSettings
+import com.marbleng.app.model.FreedomPreset
 import com.marbleng.app.model.ProxyProfile
 import org.json.JSONArray
 import org.json.JSONObject
@@ -73,7 +74,7 @@ object ServerlessFreedomEngine {
         settings: AppSettings = AppSettings(),
         iranMode: IranModeState = IranModeState()
     ): List<ProxyProfile> {
-        return AegisTier.entries.map { tier ->
+        val tierProfiles = AegisTier.entries.map { tier ->
             ProxyProfile(
                 id = "$PROFILE_ID-${tier.name.lowercase()}",
                 name = "$DISPLAY_NAME - ${tier.name}",
@@ -89,7 +90,39 @@ object ServerlessFreedomEngine {
                 sourceManaged = true
             )
         }
+
+        // MARBLE_OPERATOR_FREEDOM_V91: dedicated per-operator steel profiles. With Smart Auto on
+        // all four are offered (Iran Mode matches the detected carrier automatically); with a
+        // user-pinned operator preset only that carrier remains in the set.
+        val operatorProfiles = listOf(
+            FreedomPreset.SHATEL,
+            FreedomPreset.HAMRAH_AVAL,
+            FreedomPreset.IRANCELL,
+            FreedomPreset.RIGHTEL
+        ).mapNotNull { preset ->
+            if (!settings.freedomOperatorAuto && settings.freedomPreset != preset) return@mapNotNull null
+            val forcedSettings = settings.copy(freedomPreset = preset)
+            ProxyProfile(
+                id = "$PROFILE_ID-operator-${preset.name.lowercase()}",
+                name = "$DISPLAY_NAME - ${DpiEvasionPolicy.operatorPresetLabel(preset)} Steel",
+                scheme = "freedom",
+                raw = "freedom://aegis-operator-${preset.name.lowercase()}",
+                configJson = configJson(forcedSettings, iranMode, AegisState(tier = AegisTier.EXTREME)),
+                host = "",
+                port = 443,
+                transport = "fragment",
+                security = "steel-chain",
+                subscriptionId = SOURCE_ID,
+                subscriptionName = "Marble Freedom",
+                sourceManaged = true
+            )
+        }
+        return tierProfiles + operatorProfiles
     }
+
+    /** True for the dedicated per-operator steel profiles emitted by [profiles]. */
+    fun isOperatorProfile(profile: ProxyProfile): Boolean =
+        profile.id.startsWith("$PROFILE_ID-operator-")
 
     fun profile(
         settings: AppSettings = AppSettings(),
@@ -146,11 +179,11 @@ object ServerlessFreedomEngine {
                 buildAggressiveChain(outbounds, jitteredRecipe, settings)
             }
             AegisTier.EXTREME -> {
-                // Extreme: 2-hop + warmup + noise + anti-fingerprint
+                // Extreme: 2-hop or 3-stage operator steel chain + anti-fingerprint.
                 buildExtremeChain(outbounds, jitteredRecipe, settings, aegisState)
             }
             AegisTier.NUCLEAR -> {
-                // Nuclear: everything + circuit breaker + parallel probes + SNI obfuscation
+                // Nuclear: everything + circuit breaker + parallel probes + SNI shield.
                 buildNuclearChain(outbounds, jitteredRecipe, settings, aegisState)
             }
         }
@@ -205,6 +238,9 @@ object ServerlessFreedomEngine {
         settings: AppSettings,
         iranMode: IranModeState
     ): AegisTier {
+        // MARBLE_OPERATOR_FREEDOM_V91: a pinned per-operator steel preset always emits the full
+        // researched chain, even before Iran Mode finishes its scan.
+        if (DpiEvasionPolicy.isOperatorPreset(settings.freedomPreset)) return AegisTier.EXTREME
         // Circuit breaker: too many failures → escalate
         if (state.consecutiveFailures >= 5) return AegisTier.NUCLEAR
         if (state.consecutiveFailures >= 3) return AegisTier.EXTREME
@@ -350,22 +386,14 @@ object ServerlessFreedomEngine {
         settings: AppSettings,
         state: AegisState
     ) {
-        // Extreme: micro-fragment on both hops + anti-fingerprint sockopt
-        val extremeRecipe = recipe.copy(
-            packets = "1-1",
-            length = "1-3",
-            interval = "5-10",
-            maxSplit = "4",
-            innerPackets = "1-1",
-            innerLength = "1",
-            innerInterval = "4",
-            innerMaxSplit = "517"
-        )
-
-        // Outer with TCP fingerprint masquerade
+        // Extreme: micro-fragment on all hops + anti-fingerprint sockopt.
+        // MARBLE_OPERATOR_FREEDOM_V91: when the recipe carries a middle hop (operator steel
+        // profiles) the official 3-stage Serverless-for-Iran chain is emitted exactly as XTLS
+        // ships it: outer → _chain-skip middle → full-fragment inner.
         val outerFragment = fragmentObject(
-            extremeRecipe.packets, extremeRecipe.length, extremeRecipe.interval, extremeRecipe.maxSplit
+            recipe.packets, recipe.length, recipe.interval, recipe.maxSplit
         )
+        val outerDialProxy = if (recipe.middleEnabled) MIDDLE_TAG else INNER_TAG
         val outer = JSONObject()
             .put("tag", "proxy")
             .put("protocol", "freedom")
@@ -374,15 +402,35 @@ object ServerlessFreedomEngine {
                 "streamSettings",
                 JSONObject().put(
                     "sockopt",
-                    buildAntiFingerprintSockopt(INNER_TAG, state)
+                    buildAntiFingerprintSockopt(outerDialProxy, state)
                 )
             )
         outbounds.put(outer)
 
+        if (recipe.middleEnabled) {
+            // Middle _chain-skip hop: delays first writes then hands to the full-fragment.
+            val middleFragment = fragmentObject(
+                recipe.middlePackets, recipe.middleLength,
+                recipe.middleInterval, recipe.middleMaxSplit
+            )
+            val middle = JSONObject()
+                .put("tag", MIDDLE_TAG)
+                .put("protocol", "freedom")
+                .put("settings", JSONObject().put("fragment", middleFragment))
+                .put(
+                    "streamSettings",
+                    JSONObject().put(
+                        "sockopt",
+                        buildAntiFingerprintSockopt(INNER_TAG, state)
+                    )
+                )
+            outbounds.put(middle)
+        }
+
         // Inner with same protections
         val innerFragment = fragmentObject(
-            extremeRecipe.innerPackets, extremeRecipe.innerLength, 
-            extremeRecipe.innerInterval, extremeRecipe.innerMaxSplit
+            recipe.innerPackets, recipe.innerLength,
+            recipe.innerInterval, recipe.innerMaxSplit
         )
         val inner = JSONObject()
             .put("tag", INNER_TAG)
@@ -412,9 +460,19 @@ object ServerlessFreedomEngine {
         // Then the extreme chain behind it
         buildExtremeChain(outbounds, recipe, settings, state)
 
-        // Re-wire outer to dial through Aegis shield instead of directly
-        val outer = outbounds.getJSONObject(outbounds.length() - 2)
-        outer.optJSONObject("streamSettings")?.optJSONObject("sockopt")?.put("dialerProxy", AEGIS_TAG)
+        // Re-wire the entry hop (outer, or middle when a 3-stage chain was emitted) to dial
+        // through the Aegis shield instead of directly.
+        val chainEntry = if (recipe.middleEnabled) MIDDLE_TAG else INNER_TAG
+        for (index in outbounds.length() - 1 downTo 0) {
+            val candidate = outbounds.optJSONObject(index)
+            val sockopt = candidate
+                ?.optJSONObject("streamSettings")
+                ?.optJSONObject("sockopt")
+            if (sockopt?.optString("dialerProxy", "") == chainEntry) {
+                sockopt.put("dialerProxy", AEGIS_TAG)
+                break
+            }
+        }
     }
 
     private fun buildWarmupOutbound(settings: AppSettings): JSONObject {
