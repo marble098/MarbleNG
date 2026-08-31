@@ -115,7 +115,9 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.semantics.Role
@@ -209,30 +211,28 @@ fun Aether2026App(
         ) {
             DeepSpaceBackdrop(Modifier.matchParentSize())
 
-            AnimatedContent(
-                targetState = tab,
-                transitionSpec = {
-                    val forward = targetState.ordinal > initialState.ordinal
-                    val enterOffset: (Int) -> Int = { width -> if (forward) width / 9 else -width / 9 }
-                    val exitOffset: (Int) -> Int = { width -> if (forward) -width / 13 else width / 13 }
-                    (
-                        slideInHorizontally(
-                            animationSpec = MarbleMotionSpecs.Spatial,
-                            initialOffsetX = enterOffset
-                        ) +
-                            fadeIn(animationSpec = MarbleMotionSpecs.ResponseFloat) +
-                            scaleIn(initialScale = .985f, animationSpec = MarbleMotionSpecs.ResponseFloat)
-                    ) togetherWith (
-                        slideOutHorizontally(
-                            animationSpec = MarbleMotionSpecs.SpatialExit,
-                            targetOffsetX = exitOffset
-                        ) +
-                            fadeOut(animationSpec = MarbleMotionSpecs.ExitFloat) +
-                            scaleOut(targetScale = .992f, animationSpec = MarbleMotionSpecs.ExitFloat)
-                    )
-                },
-                label = "marble-page-transition-fast"
-            ) { page ->
+            val pagerState = rememberPagerState(initialPage = tab.ordinal, pageCount = { SpatialTab.entries.size })
+            LaunchedEffect(tab) {
+                if (pagerState.currentPage != tab.ordinal) {
+                    pagerState.animateScrollToPage(tab.ordinal)
+                }
+            }
+            LaunchedEffect(pagerState.currentPage, pagerState.isScrollInProgress) {
+                if (pagerState.isScrollInProgress || pagerState.currentPage != tab.ordinal) {
+                    val newTab = SpatialTab.entries.getOrNull(pagerState.currentPage)
+                    if (newTab != null && newTab != tab) {
+                        detailProfile = null
+                        settingsFocus = null
+                        tab = newTab
+                    }
+                }
+            }
+
+            HorizontalPager(
+                state = pagerState,
+                modifier = Modifier.fillMaxSize()
+            ) { pageIndex ->
+                val page = SpatialTab.entries[pageIndex]
                 Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.TopCenter
@@ -244,34 +244,30 @@ fun Aether2026App(
                             .fillMaxWidth()
                     ) {
                         when (page) {
-                    SpatialTab.DECK -> CyberDeck(
-                        repo = repo,
-                        onConnect = onConnect,
-                        onLibrary = { tab = SpatialTab.LIBRARY },
-                        onPrivacy = {
-                            repo.audit()
-                            dialog = "Privacy"
-                        },
-                        onRouting = {
-                            settingsFocus = "Routing"
-                            tab = SpatialTab.SETTINGS
-                        },
-                        onDetails = {
-                            val profile = repo.profile(repo.activeProfileId, repo.activeProfileSourceId) ?: repo.lastProfile()
-                            if (profile != null) detailProfile = profile else tab = SpatialTab.LIBRARY
-                        }
-                    )
-                    SpatialTab.LIBRARY -> CyberLibrary(
-                        repo = repo,
-                        onConnect = onConnect,
-                        onImportFile = onImportFile,
-                        onDetails = { detailProfile = it }
-                    )
-                    SpatialTab.SETTINGS -> SpatialSettings(
-                        repo = repo,
-                        onDialog = { dialog = it },
-                        focusSection = settingsFocus
-                    )
+                            SpatialTab.DECK -> CyberDeck(
+                                repo = repo,
+                                onConnect = onConnect,
+                                onLibrary = { tab = SpatialTab.LIBRARY },
+                                onPrivacy = {
+                                    repo.audit()
+                                    dialog = "Privacy"
+                                },
+                                onRouting = {
+                                    settingsFocus = "Routing"
+                                    tab = SpatialTab.SETTINGS
+                                }
+                            )
+                            SpatialTab.LIBRARY -> CyberLibrary(
+                                repo = repo,
+                                onConnect = onConnect,
+                                onImportFile = onImportFile,
+                                onDetails = { detailProfile = it }
+                            )
+                            SpatialTab.SETTINGS -> SpatialSettings(
+                                repo = repo,
+                                onDialog = { dialog = it },
+                                focusSection = settingsFocus
+                            )
                         }
                     }
                 }
@@ -1839,8 +1835,7 @@ private fun CyberDeck(
     onConnect: (ProxyProfile) -> Unit,
     onLibrary: () -> Unit,
     onPrivacy: () -> Unit,
-    onRouting: () -> Unit,
-    onDetails: () -> Unit
+    onRouting: () -> Unit
 ) {
     val connected = repo.state == "CONNECTED"
     val connecting = repo.state == "CONNECTING"
@@ -1906,15 +1901,6 @@ private fun CyberDeck(
             }
         }
 
-        if (repo.settings.homeShowRouteDetails) {
-            item {
-                HomeRouteDetailsRow(
-                    connected = connected,
-                    onDetails = onDetails
-                )
-            }
-        }
-
         if (repo.settings.homeShowLiveQuality) {
             item {
                 HomeMetricBento(repo)
@@ -1923,36 +1909,6 @@ private fun CyberDeck(
 
         if (repo.settings.serverIntelEnabled) {
             item { ServerIntelHomeCard(repo) }
-        }
-
-        if (repo.settings.homeShowSummaryMetrics) {
-            item {
-                val verifiedXray = repo.benchmarks.count {
-                    it.probeKind == "TUNNEL" && it.success > 0
-                }
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    MiniMetric(
-                        "Nodes", repo.libraryProfiles.size.toString(), "", Modifier.weight(1f),
-                        accent = Aether.Amethyst, icon = HomeIcon.NODES
-                    )
-                    MiniMetric(
-                        "Xray OK", verifiedXray.toString(), "", Modifier.weight(1f),
-                        accent = if (verifiedXray > 0) Aether.Emerald else Aether.Amber,
-                        icon = HomeIcon.VERIFIED
-                    )
-                    MiniMetric(
-                        "Mode",
-                        if (repo.settings.connectionMode == ConnectionMode.FULL_TUN) "TUN" else "SOCKS",
-                        "",
-                        Modifier.weight(1f),
-                        accent = Aether.Cyan,
-                        icon = HomeIcon.MODE
-                    )
-                }
-            }
         }
 
         if (repo.probeActive) {
@@ -2007,39 +1963,6 @@ private fun CyberDeck(
                     exit = fadeOut(MarbleMotionSpecs.ExitFloat) +
                         shrinkVertically(MarbleMotionSpecs.Layout)
                 ) { IranModeStatusPill(repo.iranMode) }
-            }
-        }
-
-        if (repo.settings.homeShowQuickActions) {
-            item {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        HomeVectorIcon(HomeIcon.SPARK, Aether.Cyan, Modifier.size(15.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text("QUICK ACTIONS", color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        HomeActionPortal(
-                            HomeIcon.RANK, "Rank all",
-                            "${repo.libraryProfiles.size}",
-                            Aether.Cyan, Modifier.weight(1f)
-                        ) { repo.smartRank() }
-                        HomeActionPortal(
-                            HomeIcon.LIBRARY, "Library", "${repo.libraryProfiles.size}",
-                            Aether.Amethyst, Modifier.weight(1f), onLibrary
-                        )
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        HomeActionPortal(
-                            HomeIcon.PRIVACY, "Privacy", "",
-                            Aether.Emerald, Modifier.weight(1f), onPrivacy
-                        )
-                        HomeActionPortal(
-                            HomeIcon.ROUTING, "Routing", "",
-                            Aether.Amber, Modifier.weight(1f), onRouting
-                        )
-                    }
-                }
             }
         }
 
@@ -3081,6 +3004,63 @@ private fun CyberLibrary(
                     icon = if (addOpen) null else HomeIcon.SPARK,
                     onClick = { addOpen = !addOpen }
                 )
+            }
+        }
+
+        item {
+            val allSources = buildList {
+                add(Triple("all", "All", repo.libraryProfiles.size))
+                if (repo.settings.manualSourceEnabled) {
+                    add(Triple("manual", "Manual", repo.libraryProfiles.count { it.subscriptionId == "manual" }))
+                }
+                repo.subscriptions.forEach { sub ->
+                    add(Triple(sub.id, sub.name, repo.subscriptionNodeCount(sub.id)))
+                }
+            }
+            LazyRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                contentPadding = PaddingValues(vertical = 2.dp)
+            ) {
+                items(allSources, key = { it.first }) { (id, name, count) ->
+                    val selected = sourceFilter == id
+                    val tone = if (selected) Aether.Cyan else Aether.InkMuted
+                    val shape = RoundedCornerShape(16.dp)
+                    Surface(
+                        modifier = Modifier
+                            .clip(shape)
+                            .kineticClickable(role = Role.Tab) {
+                                repo.selectLibrarySource(id)
+                            },
+                        shape = shape,
+                        color = if (selected) Aether.Cyan.copy(alpha = .16f) else Aether.VoidElevated,
+                        border = androidx.compose.foundation.BorderStroke(
+                            1.dp,
+                            if (selected) Aether.Cyan.copy(alpha = .6f) else Aether.GlassBorder
+                        ),
+                        tonalElevation = 0.dp
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Box(
+                                Modifier
+                                    .size(6.dp)
+                                    .clip(CircleShape)
+                                    .background(tone)
+                            )
+                            Text(
+                                name,
+                                color = if (selected) Aether.Cyan else Aether.Ink,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium
+                            )
+                            PrismBadge(count.toString(), tone, compact = true)
+                        }
+                    }
+                }
             }
         }
 
@@ -5686,14 +5666,6 @@ private fun AppearanceSettings(repo: AppRepository) {
     SectionLabel("Home layout")
 
     SettingSwitch(
-        "Summary metrics on Home",
-        "",
-        repo.settings.homeShowSummaryMetrics
-    ) {
-        repo.updateSettings(repo.settings.copy(homeShowSummaryMetrics=it))
-    }
-
-    SettingSwitch(
         "Server info card on Home",
         "",
         repo.settings.serverIntelEnabled
@@ -5711,14 +5683,6 @@ private fun AppearanceSettings(repo: AppRepository) {
     }
 
     SettingSwitch(
-        "Quick Actions on Home",
-        "",
-        repo.settings.homeShowQuickActions
-    ) {
-        repo.updateSettings(repo.settings.copy(homeShowQuickActions=it))
-    }
-
-    SettingSwitch(
         "Live quality on Home",
         "",
         repo.settings.homeShowLiveQuality
@@ -5732,14 +5696,6 @@ private fun AppearanceSettings(repo: AppRepository) {
         repo.settings.homeShowServerSelector
     ) {
         repo.updateSettings(repo.settings.copy(homeShowServerSelector=it))
-    }
-
-    SettingSwitch(
-        "Route details on Home",
-        "",
-        repo.settings.homeShowRouteDetails
-    ) {
-        repo.updateSettings(repo.settings.copy(homeShowRouteDetails=it))
     }
 
     SettingSwitch(
@@ -6396,6 +6352,29 @@ private fun ServerIntelHomeCard(repo: AppRepository) {
                         HoloBadge(it,Aether.InkMuted,compact=true)
                     }
                 }
+
+                val providerUrl = when {
+                    current.domain.isNotBlank() && current.domain.contains('.') -> "https://${current.domain}"
+                    current.ip.isNotBlank() -> "https://ipinfo.io/${current.ip}"
+                    endpoint.isNotBlank() && endpoint.contains('.') -> "https://$endpoint"
+                    else -> "https://ipapi.co"
+                }
+                val uriHandler = LocalUriHandler.current
+                CyberButton(
+                    label = "Visit provider website",
+                    color = Aether.Cyan,
+                    modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
+                    icon = HomeIcon.SPARK,
+                    variant = PrismButtonVariant.Primary,
+                    compact = true,
+                    onClick = {
+                        runCatching {
+                            uriHandler.openUri(providerUrl)
+                        }.onFailure {
+                            repo.setRuntimeMessage("Could not open provider website")
+                        }
+                    }
+                )
             } ?: Text(
                 if(repo.serverIntelLoading) {
                     "Resolving the selected server and loading public network metadata…"
