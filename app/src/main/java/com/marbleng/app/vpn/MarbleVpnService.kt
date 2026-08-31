@@ -1522,8 +1522,8 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
      * sample; the new target starts a fresh IPDV baseline.
      */
     private fun shouldSampleRoute(tick: Int): Boolean {
-        // Three sparse warm-up samples establish a baseline without a burst immediately on connect.
-        if (tick == 2 || tick == 5 || tick == 9) return true
+        // Fast warm-up samples to establish baseline and show ping/jitter/quality quickly to the user.
+        if (tick == 1 || tick == 2 || tick == 3) return true
 
         val repo = (application as MarbleApplication).repo
         val throughput = repo.liveDownBps + repo.liveUpBps

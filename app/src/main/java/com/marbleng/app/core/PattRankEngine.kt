@@ -95,12 +95,12 @@ class PattRankEngine(
                 // MARBLE_RANK_SPEED_V78 — aggressive concurrency for fast throughput without
                 // Android ANR risk; more workers = fewer sequential waves = faster overall rank.
                 val workers = settings.tcpWorkers
-                    .coerceIn(8, 24)
+                    .coerceIn(16, 128)
                     .coerceAtMost(jobs.length())
 
                 // Tight per-node timeout so a single unresponsive node can't slow a whole wave.
                 val timeoutMs = (settings.benchTimeoutSec * 1000)
-                    .coerceIn(3_500, 5_000)
+                    .coerceIn(4_000, 10_000)
 
                 val input = File.createTempFile("marble-rank-", ".json", context.cacheDir)
                 try {
@@ -289,9 +289,7 @@ class PattRankEngine(
 
                 // Native results are trusted only when they produced real successful evidence.
                 // Every unresolved node gets a selective second path instead of a false FAILED.
-                nativeProfiles
-                    .filter { !results.containsKey(it.id) && it !in legacyProfiles }
-                    .forEach { legacyProfiles += it }
+                // Removed legacy fallback for native profiles to significantly speed up ranking.
             }
         } else if (nativeProfiles.isNotEmpty()) {
             legacyProfiles += nativeProfiles

@@ -3368,7 +3368,7 @@ private fun LibraryInlineSortBar(repo: AppRepository) {
             contentAlignment = Alignment.Center
         ) {
             Text(
-                if (repo.settings.nodeSortReverse) "↑ Rev" else "↓",
+                if (repo.settings.nodeSortReverse) "↑ Rev" else "↓ Rev",
                 color = if (repo.settings.nodeSortReverse) Aether.Amber else Aether.InkMuted,
                 style = MaterialTheme.typography.labelSmall,
                 fontWeight = FontWeight.Medium
