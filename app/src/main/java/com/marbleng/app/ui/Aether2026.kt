@@ -45,6 +45,8 @@ package com.marbleng.app.ui
 // MARBLE_LIBRARY_CONTROL_GRADE_UI_V65
 // MARBLE_CONNECTED_PING_READOUT_UI_V65
 // MARBLE_UNIFIED_SURFACE_SYSTEM_UI_V65
+// MARBLE_NAVY_BRAND_UI_V77
+// MARBLE_HOME_PUZZLE_GRID_V77
 
 import android.Manifest
 import android.content.Intent
@@ -735,12 +737,20 @@ private fun FloatingSpatialDock(
                     animationSpec=MarbleMotionSpecs.Color,
                     label="dock-indicator-${item.name}"
                 )
+                // MARBLE_NAVY_BRAND_UI_V77 — the active tab gets a soft ice-blue pill
+                // (M3 Expressive floating-nav pattern) instead of colour alone.
+                val itemBg by animateColorAsState(
+                    targetValue=if(active) Aether.Cyan.copy(alpha=.10f) else Color.Transparent,
+                    animationSpec=MarbleMotionSpecs.Color,
+                    label="dock-bg-${item.name}"
+                )
 
                 Column(
                     modifier=Modifier
                         .weight(1f)
                         .height(60.dp)
                         .clip(itemShape)
+                        .background(itemBg)
                         .kineticClickable(
                             boundedShape=itemShape,
                             role=Role.Button
@@ -1086,8 +1096,11 @@ private fun HomeVectorIcon(
         val w = size.width
         val h = size.height
         val m = size.minDimension
-        val stroke = (m * .085f).coerceAtLeast(1.65f)
-        val fine = (stroke * .78f).coerceAtLeast(1.35f)
+        // MARBLE_HOME_VECTOR_ICONS_V36 + V77 — size-aware weight. The stroke stays
+        // proportional to the glyph, so an icon scales up or down with its slot and keeps
+        // the same optical weight: thin at micro/inline sizes, confident at hero sizes.
+        val stroke = (m * .082f).coerceIn(1.35f, 3.4f)
+        val fine = (stroke * .78f).coerceIn(1.15f, 2.6f)
         val line = Stroke(width = stroke, cap = StrokeCap.Round)
         val fineLine = Stroke(width = fine, cap = StrokeCap.Round)
 
@@ -1312,11 +1325,23 @@ private fun HomeVectorIcon(
 
 @Composable
 private fun HomeIconTile(icon: HomeIcon, color: Color, modifier: Modifier = Modifier) {
+    // MARBLE_NAVY_BRAND_UI_V77 — tiles carry a soft tone gradient + hairline so icon
+    // "chips" read as crafted glass rather than flat tinted squares.
+    val shape = RoundedCornerShape(13.dp)
     Box(
         modifier
             .size(38.dp)
-            .clip(RoundedCornerShape(13.dp))
-            .background(color.copy(alpha = .105f)),
+            .clip(shape)
+            .background(
+                Brush.linearGradient(
+                    listOf(
+                        color.copy(alpha = .18f),
+                        color.copy(alpha = .06f),
+                        color.copy(alpha = .12f)
+                    )
+                )
+            )
+            .border(1.dp, color.copy(alpha = .22f), shape),
         contentAlignment = Alignment.Center
     ) {
         HomeVectorIcon(icon, color, Modifier.size(20.dp))
@@ -1677,7 +1702,13 @@ private fun HomeMetricBento(repo: AppRepository) {
     )
     val qualityTone=marbleMetricTone(qualityMetricBand(repo.liveRouteScore))
 
-    Column(verticalArrangement=Arrangement.spacedBy(8.dp)) {
+    // MARBLE_HOME_PUZZLE_GRID_V77 — Ping/Jitter/Quality now share one panel, so the three
+    // cells interlock like a bento instead of floating as three independent cards.
+    PrismPanel(
+        modifier=Modifier.fillMaxWidth(),
+        accent=Aether.Cyan,
+        contentPadding=PaddingValues(12.dp)
+    ) {
         Row(
             modifier=Modifier.fillMaxWidth(),
             verticalAlignment=Alignment.CenterVertically
@@ -1823,7 +1854,10 @@ private fun CyberDeck(
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 6.dp, bottom = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+        // MARBLE_HOME_PUZZLE_GRID_V77 — one shared 10dp gutter. Every Home card sits on the
+        // same 8dp/10dp rhythm with matching radii, so the stack interlocks like puzzle pieces
+        // instead of drifting as a list of unrelated floating panels.
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         item {
             MarbleCompactTopBar(
@@ -1898,7 +1932,7 @@ private fun CyberDeck(
                 }
                 Row(
                     Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(7.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     MiniMetric(
                         "Nodes", repo.libraryProfiles.size.toString(), "", Modifier.weight(1f),
@@ -1978,13 +2012,13 @@ private fun CyberDeck(
 
         if (repo.settings.homeShowQuickActions) {
             item {
-                Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         HomeVectorIcon(HomeIcon.SPARK, Aether.Cyan, Modifier.size(15.dp))
                         Spacer(Modifier.width(6.dp))
                         Text("QUICK ACTIONS", color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
                     }
-                    Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         HomeActionPortal(
                             HomeIcon.RANK, "Rank all",
                             "${repo.libraryProfiles.size}",
@@ -1995,7 +2029,7 @@ private fun CyberDeck(
                             Aether.Amethyst, Modifier.weight(1f), onLibrary
                         )
                     }
-                    Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         HomeActionPortal(
                             HomeIcon.PRIVACY, "Privacy", "",
                             Aether.Emerald, Modifier.weight(1f), onPrivacy

@@ -122,7 +122,9 @@ internal fun PrismBackdrop(
     val base=Aether.Void
     val cyan=Aether.Cyan
     val violet=Aether.Amethyst
-    val emerald=Aether.Emerald
+    // MARBLE_NAVY_BRAND_THEME_V77 — the ambient glow stays inside the blue ramp
+    // (electric + bright) so the backdrop reads as deep ice rather than a multicolour wash.
+    val second=Aether.CyanBright
     val dot=Aether.InkFaint
 
     Canvas(modifier) {
@@ -158,18 +160,18 @@ internal fun PrismBackdrop(
             center=violetCenter
         )
 
-        val emeraldCenter=Offset(size.width*.84f,size.height*.88f)
+        val secondCenter=Offset(size.width*.84f,size.height*.88f)
         drawCircle(
             brush=Brush.radialGradient(
                 colors=listOf(
-                    emerald.copy(alpha=.055f),
+                    second.copy(alpha=.055f),
                     Color.Transparent
                 ),
-                center=emeraldCenter,
+                center=secondCenter,
                 radius=size.width*.56f
             ),
             radius=size.width*.56f,
-            center=emeraldCenter
+            center=secondCenter
         )
 
         val step=30.dp.toPx()
@@ -245,7 +247,8 @@ internal object PrismSurface {
  */
 internal fun prismOnColor(base: Color): Color {
     val luminance = .2126f * base.red + .7152f * base.green + .0722f * base.blue
-    return if (luminance > .60f) Color(0xFF061321) else Color(0xFFF7FBFF)
+    // MARBLE_NAVY_BRAND_THEME_V77 — ink on a filled brand surface is deep navy or alice blue.
+    return if (luminance > .60f) Color(0xFF001144) else Color(0xFFF0F8FF)
 }
 
 /** Shared elevation + hairline + fill stack, for containers that cannot be a [PrismPanel]. */
@@ -1398,9 +1401,11 @@ internal fun PrismThemeChoice(
     onClick: () -> Unit
 ) {
     val shape=RoundedCornerShape(20.dp)
-    val previewBg=if(darkPreview) Color(0xFF0B1320) else Color(0xFFF6F9FD)
-    val previewSurface=if(darkPreview) Color(0xFF172337) else Color.White
-    val previewText=if(darkPreview) Color(0xFFEAF1FB) else Color(0xFF152339)
+    // MARBLE_NAVY_BRAND_THEME_V77 — previews paint the real Marble surfaces so the
+    // selector previews the identity, not a generic gray wireframe.
+    val previewBg=if(darkPreview) Color(0xFF000033) else Color(0xFFF0F8FF)
+    val previewSurface=if(darkPreview) Color(0xFF001144) else Color.White
+    val previewText=if(darkPreview) Color(0xFFF0F8FF) else Color(0xFF001144)
     val selectionTone=Aether.Cyan
     val border=if(selected) selectionTone.copy(alpha=.52f) else accent.copy(alpha=.20f)
 
