@@ -34,7 +34,7 @@ It focuses on real proxy verification, fast one-tap connection, fail-closed rout
 - Full-device Android TUN mode or local SOCKS proxy mode.
 - Fast TCP reachability tests and real Xray tunnel verification.
 - Smart ranking for the whole Library or one selected source.
-- Solid White, Dark, and System themes.
+- Navy/ice/electric-blue brand identity shared by the Solid White, Dark, and System themes.
 - Font-independent Canvas vector icons for critical actions.
 - Smart GitHub Release update checks.
 - Signed multi-ABI APKs built by GitHub Actions.

@@ -5,6 +5,11 @@ package com.marbleng.app.ui
 // MARBLE_REFINED_PRODUCT_UI_V52
 // MARBLE_M3_EXPRESSIVE_THEME_V53
 // MARBLE_PRISM_THEME_V54
+// MARBLE_NAVY_BRAND_THEME_V77
+// The whole identity is re-anchored on the Marble navy/ice/electric blue ramp:
+//   #000033 deep navy  •  #001144 dark navy  •  #0066CC electric  •  #3399FF bright
+//   #ADD8E6 ice        •  #E0FFFF ice white   •  #F0F8FF alice     •  #FFFFFF white
+// Light and Dark are the same formal color system; only the surface/ink roles swap.
 
 import android.app.Activity
 import android.os.Build
@@ -22,6 +27,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
@@ -63,54 +69,76 @@ private data class AetherPalette(
     val inkFaint: Color
 )
 
+/**
+ * The eight Marble brand colors. Every tint below is one of these exact hues composited with
+ * alpha over a surface — never a foreign hue — so Light and Dark both stay inside the same
+ * identity even where a role needs a softer or deeper step.
+ */
+private object Brand {
+    val NavyDeep = Color(0xFF000033)   // deep navy
+    val NavyDark = Color(0xFF001144)   // dark navy
+    val Electric = Color(0xFF0066CC)   // electric blue
+    val Bright = Color(0xFF3399FF)     // bright blue
+    val Ice = Color(0xFFADD8E6)        // ice blue
+    val IceWhite = Color(0xFFE0FFFF)   // ice white
+    val Alice = Color(0xFFF0F8FF)      // alice blue
+    val White = Color(0xFFFFFFFF)      // white
+}
+
 /*
  * Light surfaces are deliberately opaque. The previous translucent stack produced visible
  * rectangular compositing bands on several Android GPUs and weakened the information hierarchy.
  * Depth now comes from spacing, a single soft outline and state colour—not nested glass layers.
+ *
+ * MARBLE_NAVY_BRAND_THEME_V77
+ * Background, surfaces, borders and ink are the Marble navy/ice ramp. The two accents are the
+ * electric blue (primary) and deep navy (secondary), so the product reads as one continuous
+ * blue system in both themes. Emerald/Amber/Danger stay as *functional* state colours only:
+ * a VPN must never dress "blocked" or "connected" in the brand hue.
  */
 private val LightPalette = AetherPalette(
-    void = Color(0xFFF4F7FC),
-    voidElevated = Color(0xFFFFFFFF),
-    glass = Color(0xFFFBFCFF),
-    glassStrong = Color(0xFFEEF3FA),
-    glassBorder = Color(0xFFD4DFED),
-    glassBorderSoft = Color(0xFFE1E8F2),
-    amethyst = Color(0xFF7556F5),
-    amethystBright = Color(0xFF927BFF),
-    cyan = Color(0xFF0C6FFF),
-    cyanBright = Color(0xFF2B8CFF),
-    slate = Color(0xFFE8EEF7),
-    slateBright = Color(0xFF5A6C85),
+    void = Brand.Alice,
+    voidElevated = Brand.White,
+    glass = Brand.IceWhite,
+    glassStrong = Brand.Ice.compositeOver(Brand.White),
+    glassBorder = Brand.Electric.copy(alpha = .30f).compositeOver(Brand.White),
+    glassBorderSoft = Brand.Ice.copy(alpha = .40f).compositeOver(Brand.White),
+    amethyst = Brand.NavyDark,
+    amethystBright = Brand.Electric,
+    cyan = Brand.Electric,
+    cyanBright = Brand.Bright,
+    slate = Brand.Ice.copy(alpha = .42f).compositeOver(Brand.White),
+    slateBright = Brand.NavyDark.copy(alpha = .55f).compositeOver(Brand.White),
     danger = Color(0xFFE23D5B),
     dangerBright = Color(0xFFF26079),
     emerald = Color(0xFF009A74),
     amber = Color(0xFFD98200),
-    ink = Color(0xFF0D1C31),
-    inkMuted = Color(0xFF50647E),
-    inkFaint = Color(0xFF7B8DA5)
+    ink = Brand.NavyDeep,
+    inkMuted = Brand.NavyDeep.copy(alpha = .70f).compositeOver(Brand.White),
+    inkFaint = Brand.NavyDeep.copy(alpha = .42f).compositeOver(Brand.White)
 )
 
 /* Dark remains an explicit accessibility/user choice and mirrors the same formal color identity. */
 private val DarkPalette = AetherPalette(
-    void = Color(0xFF060B13),
-    voidElevated = Color(0xFF0D1624),
-    glass = Color(0xFF111D2D),
-    glassStrong = Color(0xFF152338),
-    glassBorder = Color(0xFF2E415D),
-    glassBorderSoft = Color(0xFF22334A),
-    amethyst = Color(0xFFA58CFF),
-    amethystBright = Color(0xFFC0AEFF),
-    cyan = Color(0xFF6DA8FF),
-    cyanBright = Color(0xFF8FC0FF),
-    slate = Color(0xFF26364D),
-    slateBright = Color(0xFFA6B6CC),
+    void = Brand.NavyDeep,
+    voidElevated = Brand.NavyDark,
+    glass = Brand.NavyDark,
+    glassStrong = Brand.Electric.copy(alpha = .18f).compositeOver(Brand.NavyDeep),
+    glassBorder = Brand.Electric.copy(alpha = .38f).compositeOver(Brand.NavyDeep),
+    glassBorderSoft = Brand.Ice.copy(alpha = .16f).compositeOver(Brand.NavyDeep),
+    amethyst = Brand.Electric,
+    amethystBright = Brand.Bright,
+    cyan = Brand.Bright,
+    cyanBright = Brand.Ice,
+    slate = Brand.NavyDark,
+    slateBright = Brand.Ice,
     danger = Color(0xFFFF718B),
     dangerBright = Color(0xFFFF99AA),
     emerald = Color(0xFF55D7B4),
     amber = Color(0xFFF2B45F),
-    ink = Color(0xFFF4F7FC),
-    inkMuted = Color(0xFFC1CDDD),
-    inkFaint = Color(0xFF8D9DB3)
+    ink = Brand.Alice,
+    inkMuted = Brand.Ice.copy(alpha = .85f).compositeOver(Brand.NavyDeep),
+    inkFaint = Brand.Ice.copy(alpha = .55f).compositeOver(Brand.NavyDeep)
 )
 
 private val LocalAetherPalette = staticCompositionLocalOf { LightPalette }
@@ -278,7 +306,7 @@ fun AetherFlowTheme(
     } else {
         darkColorScheme(
             primary=palette.cyan,
-            onPrimary=Color(0xFF061329),
+            onPrimary=Brand.NavyDeep,
             primaryContainer=palette.cyan.copy(alpha=.14f),
             onPrimaryContainer=palette.ink,
             secondary=palette.emerald,

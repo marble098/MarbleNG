@@ -21,7 +21,7 @@
         <path
             android:fillColor="#00000000"
             android:pathData="M22,54 a32,12.5 0 1,0 64,0 a32,12.5 0 1,0 -64,0"
-            android:strokeColor="#8CBBFF"
+            android:strokeColor="#3399FF"
             android:strokeAlpha="0.55"
             android:strokeWidth="3.2" />
 
@@ -36,15 +36,15 @@
                     android:endY="74"
                     android:type="linear">
                     <item android:offset="0" android:color="#FFFFFFFF" />
-                    <item android:offset="0.55" android:color="#FFE4ECFF" />
-                    <item android:offset="1" android:color="#FFB9CCF6" />
+                    <item android:offset="0.55" android:color="#FFE0FFFF" />
+                    <item android:offset="1" android:color="#FFADD8E6" />
                 </gradient>
             </aapt:attr>
         </path>
 
         <!-- inner shading so the sphere reads round, not as a flat dot -->
         <path
-            android:fillColor="#3F6BD8"
+            android:fillColor="#0066CC"
             android:fillAlpha="0.20"
             android:pathData="M54,76 a22,22 0 0,0 20.5,-30.5 a26,26 0 0,1 -34,29.2 a22,22 0 0,0 13.5,1.3 z" />
 
