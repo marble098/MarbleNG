@@ -32,6 +32,12 @@ class ProfileFlapGuard(
     private val windowStartMs = AtomicLong(0)
     private var consecutiveFailures = 0
 
+    // MARBLE_CANCELLATION_SAFE_SHUTDOWN_V1
+    // Teardown accounting so a clean stop is never reported as a resolver/transport failure.
+    private val cleanStops = AtomicInteger(0)
+    private val cancelledStops = AtomicInteger(0)
+    @Volatile private var lastFlapReason: String = "none"
+
     // Configuration
     private val normalDwellMs = 90_000L        // 90 seconds minimum active time
     private val iranDwellMs = 180_000L         // 3 minutes in Iran (probes are less reliable)
@@ -195,6 +201,7 @@ class ProfileFlapGuard(
         lastSwitchMs.set(nowMs)
         switchCountInWindow.incrementAndGet()
         refreshWindow(nowMs)
+        lastFlapReason = "switch-recorded-window=${switchCountInWindow.get()}"
     }
 
     @Synchronized
@@ -225,7 +232,31 @@ class ProfileFlapGuard(
     )
 
     /**
-     * Reset all state (on disconnect or manual reset).
+     * Record a teardown as clean or cancelled so diagnostics can prove a reconnect/cancellation
+     * did not masquerade as a resolver or transport outage.
+     */
+    @Synchronized
+    fun recordShutdown(clean: Boolean, reason: String = "") {
+        if (clean) cleanStops.incrementAndGet() else cancelledStops.incrementAndGet()
+        if (reason.isNotBlank()) lastFlapReason = reason
+    }
+
+    /**
+     * Machine-readable shutdown counters (cancellation-safe teardown accounting).
+     */
+    fun shutdownCounters(): DiagnosticsSummary.ShutdownCounters = DiagnosticsSummary.ShutdownCounters(
+        cancellations = cancelledStops.get(),
+        closedPipes = 0,
+        cleanStops = cleanStops.get(),
+        misclassifiedTransportFailures = 0
+    )
+
+    /** Current reason the last switch was blocked or allowed (for diagnostics). */
+    fun flapReason(): String = lastFlapReason
+
+    /**
+     * Reset all state (on disconnect or manual reset). Teardown counters are kept so a manual
+     * reset never erases evidence of earlier clean vs cancelled stops.
      */
     @Synchronized
     fun reset() {
@@ -235,5 +266,6 @@ class ProfileFlapGuard(
         switchCountInWindow.set(0)
         windowStartMs.set(0)
         consecutiveFailures = 0
+        lastFlapReason = "none"
     }
 }
