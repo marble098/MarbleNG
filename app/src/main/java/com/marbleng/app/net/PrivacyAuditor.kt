@@ -1,6 +1,7 @@
 package com.marbleng.app.net
 
 import android.net.Network
+import com.marbleng.app.core.LeakGuard
 import com.marbleng.app.core.SocksHttpClient
 import java.io.ByteArrayOutputStream
 import java.net.URL
@@ -17,7 +18,9 @@ data class PrivacyReport(
     val dnsLeakScore: Int,
     val overallScore: Int,
     val healthy: Boolean,
-    val note: String
+    val note: String,
+    /** MARBLE_LEAK_GUARD_V80: additional leak assessment from continuous monitoring */
+    val leakAssessment: LeakGuard.LeakAssessment? = null
 )
 
 object PrivacyAuditor {
@@ -31,7 +34,7 @@ object PrivacyAuditor {
      * The direct view is never scheduled in the background and is used only to prove that an
      * international destination sees a different address through the selected proxy.
      */
-    fun audit(port: Int, underlay: Network?): PrivacyReport {
+    fun audit(port: Int, underlay: Network?, leakGuard: LeakGuard? = null): PrivacyReport {
         val proxyTrace = runCatching {
             val response = SocksHttpClient.get(port, "www.cloudflare.com", "/cdn-cgi/trace", 6_000, 8_192)
             if (response.status in 200..399) String(response.body) else ""
@@ -92,6 +95,24 @@ object PrivacyAuditor {
             }
         }
 
+        // MARBLE_LEAK_GUARD_V80: Feed the report into the continuous LeakGuard
+        val leakAssessment = leakGuard?.let { guard ->
+            val report = PrivacyReport(
+                proxyIp = proxyIp,
+                underlayIp = underlayIp,
+                cloudflareLocation = location,
+                dnsServers = dnsObservation,
+                ipLeakScore = ipScore,
+                dnsLeakScore = dnsScore,
+                overallScore = overall,
+                healthy = healthy,
+                note = note
+            )
+            guard.setKnownProxyIp(proxyIp)
+            guard.setKnownUnderlayIp(underlayIp)
+            guard.processReport(report)
+        }
+
         return PrivacyReport(
             proxyIp = proxyIp,
             underlayIp = underlayIp,
@@ -101,7 +122,8 @@ object PrivacyAuditor {
             dnsLeakScore = dnsScore,
             overallScore = overall,
             healthy = healthy,
-            note = note
+            note = note,
+            leakAssessment = leakAssessment
         )
     }
 

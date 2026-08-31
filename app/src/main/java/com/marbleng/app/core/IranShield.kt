@@ -218,12 +218,19 @@ object IranShield {
         val out = mutableListOf<String>()
 
         out += fragmentProfile(state).description
-        out += "Encrypted DoH resolution with measured provider order and bounded serial fallback"
+        // MARBLE_V80: Updated descriptions reflecting new capabilities
+        out += "Multi-layer censorship-aware DNS with parallel resolution, anti-poisoning, and automatic blacklist of degraded providers"
         out += "Plaintext :53 hijacked into the tunnel so the ISP resolver cannot inject block pages"
         out += "Transport preference: REALITY/XTLS-Vision and CDN-frontable transports on port 443"
         out += "Endpoint hostnames resolved inside Xray only — no lookups leak to Iranian resolvers"
+        out += "Survival-first ranking: timeout-probed nodes are kept as 'uncertain', not eliminated"
+        out += "Profile flap guard: minimum 3-minute dwell time prevents rapid switching under uncertainty"
+        out += "TCP stress monitor: automatic MTU/MSS step-down when retransmission or loss is detected"
+        out += "Continuous IP/DNS leak guard: periodic verification and automatic alerting"
         out += "Wide connection race with at least five standby routes and fast blackout failover"
         out += "Domestic (geoip:ir) traffic routed direct to cut tunnel volume and extend node lifetime"
+        out += "Profile security audit: VMess without forward secrecy is deprioritized"
+        out += "Iran-aware optimizer: 2.5x longer cooldowns and higher switch thresholds"
 
         if (CensorTechnique.UDP_BLOCKED in state.techniques || tier >= 3) {
             out += "QUIC/UDP-443 rejected at the tunnel so apps fall back to TCP instead of stalling"
