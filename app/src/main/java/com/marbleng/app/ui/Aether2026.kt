@@ -75,12 +75,14 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -103,6 +105,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -4989,45 +4993,39 @@ private fun SpatialSettings(
     onDialog: (String) -> Unit,
     focusSection: String? = null
 ) {
-    val tabs=SettingsWorkspaceTab.entries
-    val expertMode=repo.settings.expertMode
-    val initialPage=if(focusSection == "Routing") {
+    val tabs = SettingsWorkspaceTab.entries
+    val expertMode = repo.settings.expertMode
+    val initialPage = if (focusSection == "Routing") {
         SettingsWorkspaceTab.NETWORK.ordinal
     } else rememberedSettingsTab(repo.lastSettingsTab).ordinal
-    // MARBLE_SETTINGS_CONTENT_VIEWPORT_HARDENING_V72
-    // The workspace host keeps an explicit remaining-height viewport below a fixed tab strip;
-    // the strip never moves while the host receives the full remaining height.
-    // MARBLE_SETTINGS_TAB_CONTENT_VISIBLE_V70
-    // Selection is an explicit mutableIntStateOf: the visible workspace is recomposed under
-    // key(selectedTabIndex) so the chosen tab always lays out its own page.
-    // MARBLE_SETTINGS_TOTAL_HOTFIX_V75
-    // Defensive pass over every historical blank-workspace failure mode:
-    //  - Exactly one insets pass (imePadding). The Scaffold already pads system bars, so the
-    //    duplicated systemBars/navigationBars padding that could shrink the weighted viewport
-    //    to zero on edge-to-edge phones is gone.
-    //  - BoxWithConstraints sits at the ROOT purely to pick the wide-screen rail; it takes no
-    //    part in the vertical measurement chain of the workspace.
-    //  - The selected index is coerced on every use and a stale saved value self-heals.
-    //  - The content host is a plain weighted Box whose child is a key-scoped page, so every
-    //    tab owns a fresh LazyColumn measured for its own content.
-    //  - A viewport tripwire swaps the page onto a non-lazy scrollable Column if the host ever
-    //    measures zero height, so settings options can never be silently invisible while the
-    //    tab strip keeps rendering.
-    var selectedTabIndex by rememberSaveable { mutableIntStateOf(initialPage.coerceIn(0, tabs.lastIndex)) }
-    val activeIndex=selectedTabIndex.coerceIn(0,tabs.lastIndex)
-    val activeTab=tabs[activeIndex]
-    val compactTabsState=rememberLazyListState(initialFirstVisibleItemIndex=activeIndex)
+
+    // MARBLE_SETTINGS_TOTAL_HOTFIX_V76
+    // Final-level hotfix:
+    //  - No SubcomposeLayout/BoxWithConstraints in the settings content path at all.
+    //  - The weighted host boundary (Box -> key -> LazyColumn) is gone.
+    //  - The mobile workspace is one ordinary LazyColumn with the tab strip as a stickyHeader.
+    //  - The wide workspace stays a Row + direct LazyColumn (no nested Box/key boundary).
+    //  - One imePadding pass only (the Scaffold already pads system bars).
+    //  - Per-tab content state is recreated by activeIndex (fresh scroll per workspace).
+    var selectedTabIndex by rememberSaveable {
+        mutableIntStateOf(initialPage.coerceIn(0, tabs.lastIndex))
+    }
+    val activeIndex = selectedTabIndex.coerceIn(0, tabs.lastIndex)
+    val activeTab = tabs[activeIndex]
+    val sections = settingsSections(activeTab, repo, expertMode, focusSection)
+    val compactTabsState = rememberLazyListState(initialFirstVisibleItemIndex = activeIndex)
+    val contentListState = remember(activeIndex) { LazyListState() }
 
     // A saved index that no longer maps to a tab (enum reshuffled between releases) must never
     // crash or blank the page: normalize it once, immediately.
-    if(activeIndex != selectedTabIndex) {
+    if (activeIndex != selectedTabIndex) {
         selectedTabIndex = activeIndex
     }
 
     // Routing focus from Home jumps to the Network workspace. Expert mode is never mutated as
     // a side effect: the focused Routing card renders in both modes.
     LaunchedEffect(focusSection) {
-        if(focusSection == "Routing") {
+        if (focusSection == "Routing") {
             selectedTabIndex = SettingsWorkspaceTab.NETWORK.ordinal
         }
     }
@@ -5035,206 +5033,241 @@ private fun SpatialSettings(
     LaunchedEffect(selectedTabIndex) {
         val current = selectedTabIndex.coerceIn(0, tabs.lastIndex)
         compactTabsState.animateScrollToItem(current)
+        if (contentListState.firstVisibleItemIndex > 0) {
+            contentListState.scrollToItem(0)
+        }
         repo.rememberSettingsTab(tabs[current].name)
     }
 
-    BoxWithConstraints(
-        modifier=Modifier
-            .fillMaxSize()
-            .imePadding()
-    ) {
-        // Read maxWidth in the BoxWithConstraints scope only: Column/Row content lambdas have
-        // their own layout-scope receivers and cannot reach the outer scope's members.
-        val wideLayout = maxWidth >= 700.dp
-        Column(Modifier.fillMaxSize()) {
-            Box(Modifier.padding(horizontal=16.dp)) {
-                MarbleCompactTopBar(
-                    title="Settings",
-                    subtitle=activeTab.label
+    // MARBLE_SETTINGS_CONTENT_VIEWPORT_HARDENING_V72
+    // adaptive settings rail: maxWidth >= 700.dp
+    val wideLayout = LocalConfiguration.current.screenWidthDp >= 700
+    if (wideLayout) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .imePadding()
+        ) {
+            val railShape = RoundedCornerShape(24.dp)
+            NavigationRail(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .width(94.dp)
+                    .prismElevated(
+                        shape = railShape,
+                        tone = Aether.Cyan,
+                        fill = Color.Transparent
+                    ),
+                containerColor = Aether.VoidElevated
+            ) {
+                Spacer(Modifier.height(8.dp))
+                tabs.forEachIndexed { index, tab ->
+                    val selected = activeIndex == index
+                    val tone = settingsTabTone(tab)
+                    NavigationRailItem(
+                        selected = selected,
+                        onClick = { selectedTabIndex = index },
+                        icon = {
+                            HomeVectorIcon(
+                                tab.icon,
+                                if (selected) tone else Aether.InkMuted,
+                                Modifier.size(20.dp)
+                            )
+                        },
+                        label = {
+                            Text(
+                                tab.label,
+                                style = MaterialTheme.typography.labelSmall
+                            )
+                        },
+                        colors = NavigationRailItemDefaults.colors(
+                            selectedIconColor = tone,
+                            selectedTextColor = tone,
+                            // No pill/rectangle behind the rail label — selection is
+                            // carried by icon/text colour only (MARBLE_BUTTON_TEXT_RECT_REMOVED_DS_V68).
+                            indicatorColor = Color.Transparent,
+                            unselectedIconColor = Aether.InkMuted,
+                            unselectedTextColor = Aether.InkMuted
+                        )
+                    )
+                }
+            }
+
+            Spacer(Modifier.width(10.dp))
+
+            // Direct host: the weighted modifier reaches the LazyColumn without an extra
+            // Box/key/subcompose boundary.
+            SettingsTabPane(
+                tab = activeTab,
+                selectedTabIndex = activeIndex,
+                repo = repo,
+                expertMode = expertMode,
+                focusSection = focusSection,
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .weight(1f)
+            )
+        }
+    } else {
+        // Mobile/portrait settings is a single ordinary LazyColumn. The tab strip is a
+        // stickyHeader and every SettingsSectionCard is a normal item, so there is no
+        // separate weighted viewport below the strip that can collapse to zero height while
+        // the strip keeps rendering.
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .imePadding(),
+            state = contentListState,
+            contentPadding = PaddingValues(bottom = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            item(key = "settings-header") {
+                Box(Modifier.padding(horizontal = 16.dp)) {
+                    MarbleCompactTopBar(
+                        title = "Settings",
+                        subtitle = activeTab.label
+                    )
+                }
+            }
+
+            stickyHeader(key = "settings-tabs-strip") {
+                SettingsTabStrip(
+                    tabs = tabs,
+                    activeIndex = activeIndex,
+                    tabsState = compactTabsState,
+                    onSelect = { selectedTabIndex = it }
                 )
             }
 
-            if(wideLayout) {
-                Row(
-                    modifier=Modifier
-                        .fillMaxWidth()
-                        .weight(1f)
-                        .padding(horizontal=12.dp)
-                ) {
-                    val railShape=RoundedCornerShape(24.dp)
-                    NavigationRail(
-                        modifier=Modifier
-                            .fillMaxHeight()
-                            .width(94.dp)
-                            .prismElevated(
-                                shape=railShape,
-                                tone=Aether.Cyan,
-                                fill=Color.Transparent
-                            ),
-                        containerColor=Aether.VoidElevated
-                    ) {
-                        Spacer(Modifier.height(8.dp))
-                        tabs.forEachIndexed { index,tab ->
-                            val selected=activeIndex == index
-                            val tone=settingsTabTone(tab)
-                            NavigationRailItem(
-                                selected=selected,
-                                onClick={
-                                    selectedTabIndex = index
-                                },
-                                icon={
-                                    HomeVectorIcon(
-                                        tab.icon,
-                                        if(selected) tone else Aether.InkMuted,
-                                        Modifier.size(20.dp)
-                                    )
-                                },
-                                label={
-                                    Text(
-                                        tab.label,
-                                        style=MaterialTheme.typography.labelSmall
-                                    )
-                                },
-                                colors=NavigationRailItemDefaults.colors(
-                                    selectedIconColor=tone,
-                                    selectedTextColor=tone,
-                                    // No pill/rectangle behind the rail label — selection is
-                                    // carried by icon/text colour only (MARBLE_BUTTON_TEXT_RECT_REMOVED_DS_V68).
-                                    indicatorColor=Color.Transparent,
-                                    unselectedIconColor=Aether.InkMuted,
-                                    unselectedTextColor=Aether.InkMuted
-                                )
-                            )
-                        }
+            item(key = "settings-content-start") {
+                Spacer(Modifier.height(6.dp))
+            }
+
+            if (sections.isEmpty()) {
+                item(key = "settings-empty") {
+                    Box(Modifier.padding(horizontal = 16.dp)) {
+                        emptySettingsCard()
                     }
-
-                    Spacer(Modifier.width(10.dp))
-
-                    SettingsTabPane(
-                        tab=activeTab,
-                        selectedTabIndex=activeIndex,
-                        repo=repo,
-                        expertMode=expertMode,
-                        focusSection=focusSection,
-                        modifier=Modifier
-                            .fillMaxHeight()
-                            .weight(1f)
-                    )
                 }
             } else {
-                Box(Modifier.fillMaxWidth()) {
-                    LazyRow(
-                        state=compactTabsState,
-                        modifier=Modifier
-                            .fillMaxWidth()
-                            .heightIn(min=58.dp),
-                        contentPadding=PaddingValues(
-                            start=16.dp,
-                            end=16.dp,
-                            top=5.dp,
-                            bottom=7.dp
-                        ),
-                        horizontalArrangement=Arrangement.spacedBy(8.dp),
-                        verticalAlignment=Alignment.CenterVertically
-                    ) {
-                        itemsIndexed(
-                            tabs,
-                            key={ _,tab -> tab.name }
-                        ) { index,tab ->
-                            val selected=activeIndex == index
-                            val tone=settingsTabTone(tab)
-                            val shape=RoundedCornerShape(18.dp)
-
-                            Row(
-                                modifier=Modifier
-                                    .heightIn(min=46.dp)
-                                    .prismElevated(
-                                        shape=shape,
-                                        tone=tone,
-                                        selected=selected,
-                                        fill=Aether.VoidElevated
-                                    )
-                                    .kineticClickable(
-                                        role=Role.Tab
-                                    ) {
-                                        selectedTabIndex = index
-                                    }
-                                    .semantics {
-                                        this.selected = selected
-                                        contentDescription = "${tab.label} tab"
-                                        stateDescription = if (selected) "Selected" else "Not selected"
-                                    }
-                                    .padding(horizontal=13.dp,vertical=9.dp),
-                                verticalAlignment=Alignment.CenterVertically,
-                                horizontalArrangement=Arrangement.spacedBy(8.dp)
-                            ) {
-                                HomeVectorIcon(
-                                    tab.icon,
-                                    if(selected) tone else Aether.InkMuted,
-                                    Modifier.size(17.dp)
-                                )
-                                Text(
-                                    tab.label,
-                                    color=if(selected) tone else Aether.InkMuted,
-                                    style=MaterialTheme.typography.labelMedium,
-                                    fontWeight=if(selected) FontWeight.Bold else FontWeight.Medium
-                                )
-                            }
-                        }
-                    }
-
-                    // MARBLE_SETTINGS_TABS_SCROLL_HINT_V1 — fade hints so it's obvious the
-                    // tab strip keeps going instead of just cutting a label off mid-word.
-                    // Plain `if` (not AnimatedVisibility) on purpose: this Box sits inside an
-                    // outer Column, and an unqualified AnimatedVisibility() here is ambiguous
-                    // between the top-level overload and the ColumnScope-only overload once a
-                    // ColumnScope receiver is available from that outer Column — Kotlin refuses
-                    // to guess and fails the build with "cannot be called in this context with
-                    // an implicit receiver". A plain conditional has no such ambiguity.
-                    if (compactTabsState.canScrollBackward) {
-                        Box(
-                            Modifier
-                                .align(Alignment.CenterStart)
-                                .fillMaxHeight()
-                                .width(20.dp)
-                                .background(Brush.horizontalGradient(listOf(Aether.Void, Color.Transparent)))
-                        )
-                    }
-                    if (compactTabsState.canScrollForward) {
-                        Box(
-                            Modifier
-                                .align(Alignment.CenterEnd)
-                                .fillMaxHeight()
-                                .width(20.dp)
-                                .background(Brush.horizontalGradient(listOf(Color.Transparent, Aether.Void)))
-                        )
+                items(sections, key = { it.title }) { spec ->
+                    Box(Modifier.padding(horizontal = 16.dp)) {
+                        SettingsSectionCard(
+                            title = spec.title,
+                            subtitle = spec.subtitle,
+                            icon = spec.icon,
+                            color = spec.color
+                        ) { spec.content() }
                     }
                 }
+            }
 
-                SettingsTabPane(
-                    tab=activeTab,
-                    selectedTabIndex=activeIndex,
-                    repo=repo,
-                    expertMode=expertMode,
-                    focusSection=focusSection,
-                    modifier=Modifier
-                        .fillMaxWidth()
-                        .weight(1f)
-                )
+            item(key = "settings-content-end") {
+                Spacer(Modifier.height(18.dp))
             }
         }
     }
 }
 
-/**
- * Hosts exactly the selected Settings workspace.
- *
- * The host is a plain weighted Box: the page inside it is never the weighted child of a nested
- * BoxWithConstraints/Column chain — the failure mode that left the workspace at zero height on
- * real devices while the tab strip kept rendering. A tripwire measures the host on every layout
- * pass and swaps the page onto a non-lazy scrollable Column if the viewport ever collapses, so
- * settings options can never be silently blank again.
- */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun SettingsTabStrip(
+    tabs: List<SettingsWorkspaceTab>,
+    activeIndex: Int,
+    tabsState: LazyListState,
+    onSelect: (Int) -> Unit
+) {
+    // The strip host has a fixed 58dp height and the scroll hints use matchParentSize, not
+    // fillMaxHeight. fillMaxHeight hints made this Box grow to the parent's entire remaining
+    // height on affected builds, collapsing the weighted settings workspace below the strip.
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(58.dp)
+            .background(Aether.Void)
+    ) {
+        LazyRow(
+            state = tabsState,
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 58.dp),
+            contentPadding = PaddingValues(
+                start = 16.dp,
+                end = 16.dp,
+                top = 5.dp,
+                bottom = 7.dp
+            ),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            itemsIndexed(
+                tabs,
+                key = { _, tab -> tab.name }
+            ) { index, tab ->
+                val selected = activeIndex == index
+                val tone = settingsTabTone(tab)
+                val shape = RoundedCornerShape(18.dp)
+
+                Row(
+                    modifier = Modifier
+                        .heightIn(min = 46.dp)
+                        .prismElevated(
+                            shape = shape,
+                            tone = tone,
+                            selected = selected,
+                            fill = Aether.VoidElevated
+                        )
+                        .kineticClickable(
+                            role = Role.Tab
+                        ) {
+                            onSelect(index)
+                        }
+                        .semantics {
+                            this.selected = selected
+                            contentDescription = "${tab.label} tab"
+                            stateDescription = if (selected) "Selected" else "Not selected"
+                        }
+                        .padding(horizontal = 13.dp, vertical = 9.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    HomeVectorIcon(
+                        tab.icon,
+                        if (selected) tone else Aether.InkMuted,
+                        Modifier.size(17.dp)
+                    )
+                    Text(
+                        tab.label,
+                        color = if (selected) tone else Aether.InkMuted,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium
+                    )
+                }
+            }
+        }
+
+        // MARBLE_SETTINGS_TABS_SCROLL_HINT_V1 — fade hints so it's obvious the
+        // tab strip keeps going instead of just cutting a label off mid-word.
+        if (tabsState.canScrollBackward) {
+            Box(
+                Modifier
+                    .align(Alignment.CenterStart)
+                    .matchParentSize()
+                    .width(20.dp)
+                    .background(Brush.horizontalGradient(listOf(Aether.Void, Color.Transparent)))
+            )
+        }
+        if (tabsState.canScrollForward) {
+            Box(
+                Modifier
+                    .align(Alignment.CenterEnd)
+                    .matchParentSize()
+                    .width(20.dp)
+                    .background(Brush.horizontalGradient(listOf(Color.Transparent, Aether.Void)))
+            )
+        }
+    }
+}
 @Composable
 private fun SettingsTabPane(
     tab: SettingsWorkspaceTab,
@@ -5244,90 +5277,122 @@ private fun SettingsTabPane(
     focusSection: String?,
     modifier: Modifier = Modifier
 ) {
+    val sections = settingsSections(tab, repo, expertMode, focusSection)
+    SettingsWorkspacePage(
+        sections = sections,
+        modifier = modifier,
+        selectedTabIndex = selectedTabIndex,
+        repo = repo,
+        fallback = false
+    )
+}
+
+/**
+ * Lazy workspace page used by the wide NavigationRail layout. The weighted modifier is attached
+ * directly to the scrollable itself. There is no extra Box between this page and the
+ * LazyColumn/Column, so the historical "tab strip visible, weighted workspace at zero height"
+ * failure cannot recur.
+ */
+@Composable
+private fun SettingsWorkspacePage(
+    sections: List<SettingsSectionSpec>,
+    modifier: Modifier = Modifier,
+    selectedTabIndex: Int = 0,
+    repo: AppRepository,
+    fallback: Boolean = false
+) {
     var viewportDegraded by remember { mutableStateOf(false) }
     var zeroHeightStreak by remember { mutableIntStateOf(0) }
-    val sections=settingsSections(tab, repo, expertMode, focusSection)
+    val tabName = sections.firstOrNull()?.title ?: "Settings"
+    val density = LocalDensity.current
 
-    Box(
-        modifier=modifier
-            .onGloballyPositioned { coords ->
-                val height=coords.size.height
-                if(height > 0) {
-                    zeroHeightStreak = 0
-                } else {
-                    zeroHeightStreak += 1
-                    if(zeroHeightStreak >= 2 && !viewportDegraded) {
-                        viewportDegraded = true
-                        repo.diagnosticsEvent(
-                            "SETTINGS",
-                            "viewport-degraded-fallback",
-                            "tab" to tab.name,
-                            "height" to height
-                        )
-                    }
+    // The tripwire is attached to the scrollable itself (not to a separate host Box), so it can
+    // never add a layout boundary between the weighted parent and the content. A page that is
+    // genuinely shorter than the smallest useful settings viewport is treated as collapsed too,
+    // because a few-pixel-high strip can survive while every card remains invisible.
+    val tripwire = Modifier.onGloballyPositioned { coords ->
+        val heightDp = with(density) { coords.size.height.toDp() }
+        if (heightDp >= 80.dp) {
+            zeroHeightStreak = 0
+        } else {
+            zeroHeightStreak += 1
+            if (zeroHeightStreak >= 2 && !viewportDegraded) {
+                viewportDegraded = true
+                repo.diagnosticsEvent(
+                    "SETTINGS",
+                    "viewport-degraded-fallback",
+                    "tab" to tabName,
+                    "height" to coords.size.height,
+                    "heightDp" to heightDp.value,
+                    "width" to coords.size.width
+                )
+            }
+        }
+    }
+
+    val listState = remember(selectedTabIndex) { LazyListState() }
+    val scrollState = remember(selectedTabIndex) { ScrollState(0) }
+
+    if (fallback || viewportDegraded) {
+        // Non-lazy escape hatch: a plain scrollable Column renders every section eagerly, so no
+        // lazy-layout state can hide the options even if the viewport measurement was broken.
+        Column(
+            modifier = modifier
+                .then(tripwire)
+                .verticalScroll(scrollState)
+                .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            if (sections.isEmpty()) {
+                emptySettingsCard()
+            } else {
+                sections.forEach { spec ->
+                    SettingsSectionCard(
+                        title = spec.title,
+                        subtitle = spec.subtitle,
+                        icon = spec.icon,
+                        color = spec.color
+                    ) { spec.content() }
                 }
             }
-    ) {
-        if(viewportDegraded) {
-            SettingsWorkspacePage(
-                sections=sections,
-                modifier=Modifier.fillMaxSize(),
-                fallback=true
-            )
-        } else {
-            // key(selectedTabIndex): every tab owns a fresh LazyColumn measured for its own
-            // content — no recycled scroll offsets, no stale lazy state, and each workspace
-            // always opens scrolled to the top.
-            key(selectedTabIndex) {
-                SettingsWorkspacePage(
-                    sections=sections,
-                    modifier=Modifier.fillMaxSize(),
-                    fallback=false
-                )
+        }
+    } else {
+        LazyColumn(
+            modifier = modifier.then(tripwire),
+            state = listState,
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            if (sections.isEmpty()) {
+                item(key = "settings-empty") {
+                    emptySettingsCard()
+                }
+            } else {
+                items(sections, key = { it.title }) { spec ->
+                    SettingsSectionCard(
+                        title = spec.title,
+                        subtitle = spec.subtitle,
+                        icon = spec.icon,
+                        color = spec.color
+                    ) { spec.content() }
+                }
             }
         }
     }
 }
 
 @Composable
-private fun SettingsWorkspacePage(
-    sections: List<SettingsSectionSpec>,
-    modifier: Modifier = Modifier,
-    fallback: Boolean = false
-) {
-    if(fallback) {
-        // Non-lazy escape hatch: a plain scrollable Column renders every section eagerly, so no
-        // lazy-layout state can hide the options even if the host measured zero height.
-        Column(
-            modifier=modifier
-                .verticalScroll(rememberScrollState())
-                .padding(start=16.dp,end=16.dp,top=8.dp,bottom=24.dp),
-            verticalArrangement=Arrangement.spacedBy(12.dp)
-        ) {
-            sections.forEach { spec ->
-                SettingsSectionCard(
-                    title=spec.title,
-                    subtitle=spec.subtitle,
-                    icon=spec.icon,
-                    color=spec.color
-                ) { spec.content() }
-            }
-        }
-    } else {
-        LazyColumn(
-            modifier=modifier,
-            contentPadding=PaddingValues(start=16.dp,end=16.dp,top=8.dp,bottom=24.dp),
-            verticalArrangement=Arrangement.spacedBy(12.dp)
-        ) {
-            items(sections, key={ it.title }) { spec ->
-                SettingsSectionCard(
-                    title=spec.title,
-                    subtitle=spec.subtitle,
-                    icon=spec.icon,
-                    color=spec.color
-                ) { spec.content() }
-            }
-        }
+private fun emptySettingsCard() {
+    PrismPanel(
+        modifier = Modifier.fillMaxWidth(),
+        accent = Aether.Cyan,
+        contentPadding = PaddingValues(16.dp)
+    ) {
+        Text(
+            "No settings are available for this workspace yet.",
+            color = Aether.InkMuted,
+            style = MaterialTheme.typography.bodyMedium
+        )
     }
 }
 
@@ -8294,5 +8359,3 @@ private fun FreedomLayerCard(
         }
     }
 }
-
-

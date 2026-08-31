@@ -241,8 +241,11 @@ check("Bug Finder reports passive and external leak scores separately", "Passive
 # UI / Home.
 check("Home exact reconnect path exists", "repo.reconnectLastOrAuto(onConnect)" in files["ui"])
 check("Library exact active-row check exists", "repo.isActiveProfile(profile)" in files["ui"])
-check("Settings tabs render the selected workspace", "key(selectedTabIndex)" in files["ui"] and "SettingsTabPane(" in files["ui"] and "SettingsWorkspacePage(" in files["ui"])
-check("Settings workspace has explicit remaining-height viewport", "MARBLE_SETTINGS_CONTENT_VIEWPORT_HARDENING_V72" in files["ui"] and "modifier=Modifier.fillMaxSize()" in files["ui"])
+check("Settings tabs render the selected workspace", "SettingsTabPane(" in files["ui"] and "SettingsWorkspacePage(" in files["ui"] and "SettingsSectionCard(" in files["ui"])
+check("Settings workspace has explicit remaining-height viewport", "MARBLE_SETTINGS_CONTENT_VIEWPORT_HARDENING_V72" in files["ui"] and "MARBLE_SETTINGS_TOTAL_HOTFIX_V76" in files["ui"] and "modifier = Modifier.fillMaxSize()" in files["ui"])
+check("Settings mobile workspace uses a direct sticky LazyColumn", "stickyHeader(key = \"settings-tabs-strip\")" in files["ui"] and "SettingsTabStrip(" in files["ui"] and "remember(activeIndex) { LazyListState() }" in files["ui"])
+check("Settings tab strip host is height-bounded", ".height(58.dp)" in files["ui"] and ".matchParentSize()" in files["ui"])
+check("Settings workspace has no SubcomposeLayout content boundary", "BoxWithConstraints(" not in files["ui"])
 check(
     "Settings workspace applies exactly one inset pass",
     "imePadding()" in files["ui"]

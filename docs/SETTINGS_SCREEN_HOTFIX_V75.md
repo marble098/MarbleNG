@@ -1,5 +1,10 @@
 # Settings Screen Total Hotfix — V75 (2026-08-31)
 
+> **Superseded by [SETTINGS_SCREEN_HOTFIX_V76.md](SETTINGS_SCREEN_HOTFIX_V76.md).** V75
+> removed duplicate insets and added the viewport tripwire but still kept the tab-strip
+> `fillMaxHeight()` fades and a weighted `Box → key → LazyColumn` content host, which are the
+> two remaining zero-viewport paths fixed in V76.
+
 > Symptom reported on device: the Settings workspace **tab strip renders and responds to
 > clicks, but the content area below it stays empty for every tab** (General, Freedom,
 > Testing, Network, Engine, System).
