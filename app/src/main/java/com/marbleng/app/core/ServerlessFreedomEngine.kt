@@ -39,6 +39,12 @@ object ServerlessFreedomEngine {
     const val FALLBACK_TAG = "fallback-direct"
     const val AEGIS_TAG = "aegis-shield"
 
+    // Official XTLS serverless_for_Iran.jsonc uses targetStrategy: ForceIPv6v4 on every hop
+    // that dials the real socket. The hardener rewrites this to the user's AddressFamilyPolicy
+    // plan, but keeping it in the emitted JSON makes the serverless config self-contained and
+    // faithful to the upstream reference.
+    private const val DATA_PATH_TARGET_STRATEGY = "ForceIPv6v4"
+
     // Secure random for all jitter calculations — not reproducible across sessions
     private val secureRandom = SecureRandom()
 
@@ -311,10 +317,18 @@ object ServerlessFreedomEngine {
     // ==================== OUTBOUND BUILDERS ====================
 
     private fun buildDirectOutbound(tag: String, recipe: DpiEvasionPolicy.FragmentRecipe): JSONObject {
+        // The NORMAL tier is a plain serverless Freedom exit. Keep the official XTLS
+        // targetStrategy shape at the outbound level; the hardener always rewrites it to the
+        // user's AddressFamilyPolicy plan before the config reaches the engine.
         return JSONObject()
             .put("tag", tag)
             .put("protocol", "freedom")
-            .put("settings", JSONObject().put("domainStrategy", "UseIP"))
+            .put(
+                "settings",
+                JSONObject()
+                    .put("domainStrategy", DATA_PATH_TARGET_STRATEGY)
+                    .put("targetStrategy", DATA_PATH_TARGET_STRATEGY)
+            )
     }
 
     private fun buildFragmentOutbound(
@@ -330,10 +344,18 @@ object ServerlessFreedomEngine {
             if (isOuter) recipe.maxSplit else recipe.innerMaxSplit
         )
 
+        val settingsObject = JSONObject().put("fragment", fragment)
+        // Only the hop that opens the real socket resolves the user's destination. The dialer
+        // hops just bridge, so they must not carry an outbound resolution strategy.
+        if (dialerProxy.isBlank()) {
+            settingsObject
+                .put("domainStrategy", DATA_PATH_TARGET_STRATEGY)
+                .put("targetStrategy", DATA_PATH_TARGET_STRATEGY)
+        }
         val outbound = JSONObject()
             .put("tag", tag)
             .put("protocol", "freedom")
-            .put("settings", JSONObject().put("fragment", fragment))
+            .put("settings", settingsObject)
 
         if (dialerProxy.isNotBlank()) {
             outbound.put(
@@ -432,10 +454,14 @@ object ServerlessFreedomEngine {
             recipe.innerPackets, recipe.innerLength,
             recipe.innerInterval, recipe.innerMaxSplit
         )
+        val innerSettings = JSONObject()
+            .put("fragment", innerFragment)
+            .put("domainStrategy", DATA_PATH_TARGET_STRATEGY)
+            .put("targetStrategy", DATA_PATH_TARGET_STRATEGY)
         val inner = JSONObject()
             .put("tag", INNER_TAG)
             .put("protocol", "freedom")
-            .put("settings", JSONObject().put("fragment", innerFragment))
+            .put("settings", innerSettings)
             .put(
                 "streamSettings",
                 JSONObject().put(
@@ -483,7 +509,8 @@ object ServerlessFreedomEngine {
             .put(
                 "settings",
                 JSONObject()
-                    .put("domainStrategy", "UseIP")
+                    .put("domainStrategy", DATA_PATH_TARGET_STRATEGY)
+                    .put("targetStrategy", DATA_PATH_TARGET_STRATEGY)
                     .put(
                         "fragment",
                         JSONObject()
@@ -500,7 +527,12 @@ object ServerlessFreedomEngine {
         return JSONObject()
             .put("tag", FALLBACK_TAG)
             .put("protocol", "freedom")
-            .put("settings", JSONObject().put("domainStrategy", "UseIP"))
+            .put(
+                "settings",
+                JSONObject()
+                    .put("domainStrategy", DATA_PATH_TARGET_STRATEGY)
+                    .put("targetStrategy", DATA_PATH_TARGET_STRATEGY)
+            )
     }
 
     private fun buildAegisShieldOutbound(settings: AppSettings): JSONObject {
@@ -514,7 +546,8 @@ object ServerlessFreedomEngine {
             .put(
                 "settings",
                 JSONObject()
-                    .put("domainStrategy", "UseIP")
+                    .put("domainStrategy", DATA_PATH_TARGET_STRATEGY)
+                    .put("targetStrategy", DATA_PATH_TARGET_STRATEGY)
                     .put(
                         "fragment",
                         JSONObject()
@@ -605,13 +638,24 @@ object ServerlessFreedomEngine {
             )
         }
 
+        // Official XTLS serverless_for_Iran.jsonc names this field targetStrategy (ForceIPv6v4
+        // for a dual-stack PathWriter). XrayConfigHardener rewrites it to the exact
+        // AddressFamilyPolicy plan for the current underlay/IPv6 switch, so keep a faithful
+        // dual-stack default here and let the hardener enforce the user's real policy.
+        val udpTargetStrategy =
+            if (!settings.ipv6Enabled || settings.dnsQueryStrategy.equals("UseIPv4", true)) {
+                "ForceIPv4"
+            } else {
+                "ForceIPv6v4"
+            }
         return JSONObject()
             .put("tag", UDP_NOISES_TAG)
             .put("protocol", "freedom")
             .put(
                 "settings",
                 JSONObject()
-                    .put("domainStrategy", "UseIP")
+                    .put("domainStrategy", udpTargetStrategy)
+                    .put("targetStrategy", udpTargetStrategy)
                     .put("noises", array)
             )
     }

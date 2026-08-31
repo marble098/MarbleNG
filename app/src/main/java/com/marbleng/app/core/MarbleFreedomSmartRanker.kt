@@ -407,7 +407,14 @@ object MarbleFreedomSmartRanker {
                 val retriable = targetMs <= 0 &&
                     lastError.contains("timeout", true) &&
                     attempt < 2
-                if (retriable) Thread.sleep(120L * attempt)
+                if (retriable) {
+                    try {
+                        Thread.sleep(120L * attempt)
+                    } catch (_: InterruptedException) {
+                        Thread.currentThread().interrupt()
+                        break
+                    }
+                }
             }
 
             if (targetMs > 0 && targetMs < bestMs) {

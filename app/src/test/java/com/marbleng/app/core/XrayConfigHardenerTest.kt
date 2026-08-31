@@ -74,7 +74,14 @@ class XrayConfigHardenerTest {
         // Dedicated UDP-noises outbound is kept and also resolves through Xray DNS.
         val noise = outbound(hardened, ServerlessFreedomEngine.UDP_NOISES_TAG)
         assertTrue((noise.optJSONObject("settings")?.optJSONArray("noises")?.length() ?: 0) > 0)
-        assertTrue(noise.optJSONObject("settings")?.has("domainStrategy") == true)
+        val noiseSettings = noise.optJSONObject("settings")
+        assertTrue(noiseSettings?.has("domainStrategy") == true)
+        // Official XTLS gives the dedicated UDP path targetStrategy (ForceIPv6v4). Marble must
+        // emit the same outbound-level field so the PacketWriter resolves through Xray DNS.
+        assertTrue(noiseSettings?.has("targetStrategy") == true)
+        assertTrue(
+            noiseSettings!!.optString("targetStrategy") in AddressFamilyPolicy.ENDPOINT_STRATEGIES
+        )
     }
 
     /**
@@ -222,5 +229,37 @@ class XrayConfigHardenerTest {
         assertFalse(recipe.packets.equals("tlshello", ignoreCase = true))
         assertFalse(recipe.middleEnabled)
         assertTrue(recipe.innerEnabled)
+    }
+
+    /**
+     * Minimal serverless Freedom configs (NORMAL tier or a hand-imported freedom-only custom JSON)
+     * contain no proxy besides a freedom/direct outbound. The hardener must treat that as the exit
+     * instead of rejecting it with "No proxy outbound".
+     */
+    @Test
+    fun `freedom only config without fragment is accepted as serverless normal`() {
+        val source = JSONObject()
+            .put(
+                "outbounds",
+                org.json.JSONArray().put(
+                    JSONObject()
+                        .put("tag", "proxy")
+                        .put("protocol", "freedom")
+                        .put(
+                            "settings",
+                            JSONObject()
+                                .put("domainStrategy", "ForceIPv6v4")
+                                .put("targetStrategy", "ForceIPv6v4")
+                        )
+                )
+            )
+            .toString()
+        val hardened = harden(AppSettings(serverlessModeEnabled = true), source)
+
+        assertEquals("freedom", outbound(hardened, "proxy").optString("protocol"))
+        assertEquals("blackhole", outbound(hardened, "block").optString("protocol"))
+        val proxySettings = outbound(hardened, "proxy").optJSONObject("settings")
+        assertTrue(proxySettings?.has("targetStrategy") == true)
+        assertTrue(proxySettings!!.optString("targetStrategy") in AddressFamilyPolicy.ENDPOINT_STRATEGIES)
     }
 }

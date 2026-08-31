@@ -166,6 +166,13 @@ object XrayConfigHardener {
             byTag[tag] = outbound
             if (protocol !in infra && selectedTag.isBlank()) selectedTag = tag
         }
+        // Match the serverless Freedom path: a config may legitimately contain only freedom/direct
+        // outbounds (NORMAL tier). Treat the first one as the exit when no non-infra proxy exists.
+        if (selectedTag.isBlank()) {
+            selectedTag = byTag.entries.firstOrNull { (_, outbound) ->
+                outbound.optString("protocol").lowercase() in setOf("freedom", "direct")
+            }?.key.orEmpty()
+        }
         require(selectedTag.isNotBlank()) { "No proxy outbound for delay test" }
 
         val required = linkedSetOf<String>()
@@ -183,9 +190,29 @@ object XrayConfigHardener {
         required.forEach { tag ->
             byTag[tag]?.let { outbound ->
                 outbound.remove("mux")
+                val protocol = outbound.optString("protocol").lowercase()
+                val dialerProxy = outbound.optJSONObject("streamSettings")
+                    ?.optJSONObject("sockopt")
+                    ?.optString("dialerProxy")
+                    .orEmpty()
+                val chained = outbound.optJSONObject("proxySettings")
+                    ?.optString("tag")
+                    ?.isNotBlank() == true || dialerProxy.isNotBlank()
                 // Same family plan as the tunnel, so a measured delay describes the path the user
-                // will actually get instead of the one the OS resolver happened to prefer.
-                if (endpointDomains(outbound).isNotEmpty()) {
+                // will actually get instead of the one the OS resolver happened to prefer. A
+                // serverless freedom/direct hop has no proxy endpoint to resolve, so it needs the
+                // outbound-level plan when it is the hop that opens the real socket.
+                if (protocol in setOf("freedom", "direct") && !chained) {
+                    val plan = AddressFamilyPolicy.plan(
+                        settings = settings,
+                        underlayHasIpv6 = underlayHasIpv6,
+                        tcpTransport = true
+                    )
+                    val settingsObject = outbound.optJSONObject("settings")
+                        ?: JSONObject().also { outbound.put("settings", it) }
+                    settingsObject.put("domainStrategy", plan.endpointStrategy)
+                    settingsObject.put("targetStrategy", plan.endpointStrategy)
+                } else if (endpointDomains(outbound).isNotEmpty()) {
                     applyAddressFamily(outbound, settings, underlayHasIpv6)
                 }
                 outbounds.put(outbound)
@@ -290,6 +317,16 @@ object XrayConfigHardener {
             clone.put("tag", tag)
             byTag[tag] = clone
             if (isSelectableProxy(clone) && firstTag.isBlank()) firstTag = tag
+        }
+        // Serverless Freedom can intentionally emit a plain freedom/direct outbound (NORMAL tier
+        // or a hand-imported Freedom-only JSON). Xray accepts that as a valid exit; the generic
+        // "freedom is infrastructure" rule must only apply when a real proxy outbound also exists.
+        // Otherwise the whole config is rejected as "No proxy outbound" and Marble Freedom fails.
+        if (firstTag.isBlank()) {
+            firstTag = byTag.values.firstOrNull { outbound ->
+                val protocol = outbound.optString("protocol").lowercase()
+                protocol in setOf("freedom", "direct")
+            }?.optString("tag").orEmpty()
         }
         require(firstTag.isNotBlank()) { "No proxy outbound" }
 
@@ -588,7 +625,11 @@ object XrayConfigHardener {
             val protocol = outbound.optString("protocol").lowercase()
             if (protocol != "freedom" && protocol != "direct") return@forEach
             val isNoiseOnly = hasNoises(outbound) && !hasFragment(outbound)
-            if (!hasFragment(outbound) && !isNoiseOnly) return@forEach
+            val isPlainServerlessExit = !hasFragment(outbound) &&
+                !isNoiseOnly &&
+                tag == firstTag &&
+                protocol in setOf("freedom", "direct")
+            if (!hasFragment(outbound) && !isNoiseOnly && !isPlainServerlessExit) return@forEach
             val chained = outbound.optJSONObject("proxySettings")
                 ?.optString("tag")
                 ?.isNotBlank() == true ||
@@ -597,13 +638,26 @@ object XrayConfigHardener {
                     ?.optString("dialerProxy")
                     ?.isNotBlank() == true
             if (chained) return@forEach
-            val hopPlan = applyAddressFamily(outbound, settings, underlayHasIpv6)
+            // UDP dials use the outbound-level targetStrategy/domainStrategy; TCP uses
+            // sockopt.domainStrategy + Happy Eyeballs. The official XTLS config writes
+            // targetStrategy: ForceIPv6v4 on udp-noises, so the two paths must be planned
+            // differently instead of pretending a UDP PacketWriter can race.
+            val hopPlan = if (isNoiseOnly) {
+                AddressFamilyPolicy.plan(
+                    settings = settings,
+                    underlayHasIpv6 = underlayHasIpv6,
+                    tcpTransport = false
+                )
+            } else {
+                applyAddressFamily(outbound, settings, underlayHasIpv6)
+            }
             // UDP packets are resolved by the hop's native PacketWriter, which reads the
             // outbound-level (settings) strategy rather than sockopt. Write both, as the
             // GFW-knocker config does, so TCP and UDP agree on the same plan.
             val settingsObject = outbound.optJSONObject("settings")
                 ?: JSONObject().also { outbound.put("settings", it) }
             settingsObject.put("domainStrategy", hopPlan.endpointStrategy)
+            settingsObject.put("targetStrategy", hopPlan.endpointStrategy)
         }
 
         if (tlsFragmentOutbound != null) out.put(tlsFragmentOutbound)
@@ -620,7 +674,9 @@ object XrayConfigHardener {
                     .put("protocol", "freedom")
                     .put(
                         "settings",
-                        JSONObject().put("domainStrategy", dnsPlan.dnsQueryStrategy)
+                        JSONObject()
+                            .put("domainStrategy", dnsPlan.endpointStrategy)
+                            .put("targetStrategy", dnsPlan.endpointStrategy)
                     )
             )
         }

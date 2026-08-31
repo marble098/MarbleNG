@@ -9,7 +9,10 @@ import com.marbleng.app.model.ProxyProfile
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.io.IOException
+import java.io.InterruptedIOException
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
@@ -141,94 +144,132 @@ class PattRankEngine(
                         }
                         .start()
 
+                    val readerDone = CountDownLatch(1)
                     val reader = Thread({
-                        process.inputStream.bufferedReader().useLines { lines ->
-                            lines.forEach { line ->
-                                if (!line.startsWith(PREFIX)) {
-                                    if (line.isNotBlank()) lastNoise.set(line.take(220))
-                                    return@forEach
-                                }
-
-                                val event = runCatching {
-                                    JSONObject(line.removePrefix(PREFIX))
-                                }.getOrNull() ?: return@forEach
-
-                                when (event.optString("event")) {
-                                    "batch" -> {
-                                        protocolSeen.set(true)
-                                        diagnostics.event(
-                                            "BENCHMARK",
-                                            "rank-integrated-ready",
-                                            "jobs" to event.optInt("jobs", jobs.length()),
-                                            "workers" to event.optInt("workers", workers)
-                                        )
-                                    }
-
-                                    "done" -> {
-                                        protocolSeen.set(true)
-                                        doneSeen.set(true)
-                                    }
-
-                                    "fatal" -> {
-                                        protocolSeen.set(true)
-                                        integratedFailure.set(
-                                            event.optString("error")
-                                                .take(180)
-                                                .ifBlank { "integrated-rank-fatal" }
-                                        )
-                                    }
-
-                                    "start" -> {
-                                        protocolSeen.set(true)
-                                        val profile = profileById[event.optString("id")]
-                                            ?: return@forEach
-                                        nativeStarts.incrementAndGet()
-                                        onStart(profile)
-                                    }
-
-                                    "result" -> {
-                                        protocolSeen.set(true)
-                                        val profile = profileById[event.optString("id")]
-                                            ?: return@forEach
-                                        nativeEvents.incrementAndGet()
-
-                                        val ok = event.optBoolean("ok", false)
-                                        if (!ok) {
-                                            nativeFailureReasons[profile.id] =
-                                                event.optString("error")
-                                                    .take(180)
-                                                    .ifBlank { "native-probe-failed" }
+                        try {
+                            process.inputStream.bufferedReader().useLines { lines ->
+                                lines.forEach { line ->
+                                    // Any malformed event / callback failure on this reader thread must never
+                                    // escape the Thread body. The default uncaught exception handler kills the
+                                    // whole app, so a single broken result can turn a Rank click into a crash.
+                                    try {
+                                        if (!line.startsWith(PREFIX)) {
+                                            if (line.isNotBlank()) lastNoise.set(line.take(220))
                                             return@forEach
                                         }
 
-                                        val latency = event.optDouble("latencyMs", 9_999.0)
-                                        val samples = event.optInt("samples", 0)
-                                        val attempts = event.optInt("attempts", 0)
-                                        val rawResult = BenchmarkResult(
-                                            profileId = profile.id, name = profile.name,
-                                            success = (100.0 - event.optDouble("lossPercent", 0.0)).toInt().coerceIn(1, 100),
-                                            latencyMs = latency, bytesPerSecond = 0.0, score = 0.0, probeKind = "TUNNEL",
-                                            jitterMs = event.optDouble("jitterMs", 0.0), warmupMs = event.optDouble("warmupMs", 0.0),
-                                            sampleCount = samples,
-                                            p90LatencyMs = event.optDouble("p90LatencyMs", latency),
-                                            p95LatencyMs = event.optDouble("p95LatencyMs", latency),
-                                            medianJitterMs = event.optDouble("medianJitterMs", 0.0),
-                                            p95JitterMs = event.optDouble("p95JitterMs", 0.0),
-                                            madLatencyMs = event.optDouble("madLatencyMs", 0.0),
-                                            lossPercent = event.optDouble("lossPercent", 0.0),
-                                            spikePercent = event.optDouble("spikePercent", 0.0), failureReason = "",
-                                            tcpHandshakeSuccessRatio = event.optDouble(
-                                                "handshakeSuccessRatio",
-                                                if (attempts > 0) samples.toDouble() / attempts else 0.0
-                                            ),
-                                            handshakeAttempts = attempts)
-                                        val quality = RealtimeQualityEngine.score(rawResult, settings.workloadProfile, settings.benchMode)
-                                        publish(profile, rawResult.copy(score = quality.selected,
-                                            interactiveScore = quality.interactive, streamingScore = quality.streaming,
-                                            stabilityScore = quality.stability, resilienceScore = quality.resilience))
+                                        val event = runCatching {
+                                            JSONObject(line.removePrefix(PREFIX))
+                                        }.getOrNull() ?: return@forEach
+
+                                        when (event.optString("event")) {
+                                            "batch" -> {
+                                                protocolSeen.set(true)
+                                                diagnostics.event(
+                                                    "BENCHMARK",
+                                                    "rank-integrated-ready",
+                                                    "jobs" to event.optInt("jobs", jobs.length()),
+                                                    "workers" to event.optInt("workers", workers)
+                                                )
+                                            }
+
+                                            "done" -> {
+                                                protocolSeen.set(true)
+                                                doneSeen.set(true)
+                                            }
+
+                                            "fatal" -> {
+                                                protocolSeen.set(true)
+                                                integratedFailure.set(
+                                                    event.optString("error")
+                                                        .take(180)
+                                                        .ifBlank { "integrated-rank-fatal" }
+                                                )
+                                            }
+
+                                            "start" -> {
+                                                protocolSeen.set(true)
+                                                val profile = profileById[event.optString("id")]
+                                                    ?: return@forEach
+                                                nativeStarts.incrementAndGet()
+                                                onStart(profile)
+                                            }
+
+                                            "result" -> {
+                                                protocolSeen.set(true)
+                                                val profile = profileById[event.optString("id")]
+                                                    ?: return@forEach
+                                                nativeEvents.incrementAndGet()
+
+                                                val ok = event.optBoolean("ok", false)
+                                                if (!ok) {
+                                                    nativeFailureReasons[profile.id] =
+                                                        event.optString("error")
+                                                            .take(180)
+                                                            .ifBlank { "native-probe-failed" }
+                                                    return@forEach
+                                                }
+
+                                                val latency = event.optDouble("latencyMs", 9_999.0)
+                                                val samples = event.optInt("samples", 0)
+                                                val attempts = event.optInt("attempts", 0)
+                                                val rawResult = BenchmarkResult(
+                                                    profileId = profile.id, name = profile.name,
+                                                    success = (100.0 - event.optDouble("lossPercent", 0.0)).toInt().coerceIn(1, 100),
+                                                    latencyMs = latency, bytesPerSecond = 0.0, score = 0.0, probeKind = "TUNNEL",
+                                                    jitterMs = event.optDouble("jitterMs", 0.0), warmupMs = event.optDouble("warmupMs", 0.0),
+                                                    sampleCount = samples,
+                                                    p90LatencyMs = event.optDouble("p90LatencyMs", latency),
+                                                    p95LatencyMs = event.optDouble("p95LatencyMs", latency),
+                                                    medianJitterMs = event.optDouble("medianJitterMs", 0.0),
+                                                    p95JitterMs = event.optDouble("p95JitterMs", 0.0),
+                                                    madLatencyMs = event.optDouble("madLatencyMs", 0.0),
+                                                    lossPercent = event.optDouble("lossPercent", 0.0),
+                                                    spikePercent = event.optDouble("spikePercent", 0.0), failureReason = "",
+                                                    tcpHandshakeSuccessRatio = event.optDouble(
+                                                        "handshakeSuccessRatio",
+                                                        if (attempts > 0) samples.toDouble() / attempts else 0.0
+                                                    ),
+                                                    handshakeAttempts = attempts)
+                                                val quality = RealtimeQualityEngine.score(rawResult, settings.workloadProfile, settings.benchMode)
+                                                publish(profile, rawResult.copy(score = quality.selected,
+                                                    interactiveScore = quality.interactive, streamingScore = quality.streaming,
+                                                    stabilityScore = quality.stability, resilienceScore = quality.resilience))
+                                            }
+                                        }
+                                    } catch (eventError: Throwable) {
+                                        diagnostics.event(
+                                            "BENCHMARK",
+                                            "rank-reader-event-error",
+                                            "error" to (eventError.message.orEmpty().take(160).ifBlank {
+                                                eventError::class.java.simpleName
+                                            })
+                                        )
                                     }
                                 }
                             }
+                        } catch (t: Throwable) {
+                            // process.destroy()/destroyForcibly() closes the pipe while this daemon
+                            // thread is blocked in BufferedReader.readLine(). A closed pipe surfaces as
+                            // java.io.InterruptedIOException: "read interrupted by close() on another thread"
+                            // and previously escaped this Thread body, killing the app through the default
+                            // uncaught handler. That is a normal Rank teardown signal, not a fatal error.
+                            val expectedShutdown = t is InterruptedIOException || t is IOException
+                            lastNoise.set(
+                                if (expectedShutdown) {
+                                    "reader-closed"
+                                } else {
+                                    "${t::class.java.simpleName}:${t.message.orEmpty().take(160)}"
+                                }
+                            )
+                            diagnostics.event(
+                                "BENCHMARK",
+                                "rank-reader-closed",
+                                "expected" to expectedShutdown,
+                                "error" to lastNoise.get().take(180)
+                            )
+                        } finally {
+                            readerDone.countDown()
                         }
                     }, "marble-rank-reader")
                     reader.isDaemon = true
@@ -241,16 +282,43 @@ class PattRankEngine(
                         ).coerceAtMost(180_000L)
 
                     var timedOut = false
-                    if (!process.waitFor(maxWaitMs, TimeUnit.MILLISECONDS)) {
+                    val exited = try {
+                        process.waitFor(maxWaitMs, TimeUnit.MILLISECONDS)
+                    } catch (_: InterruptedException) {
+                        Thread.currentThread().interrupt()
+                        false
+                    }
+                    if (!exited) {
                         timedOut = true
                         integratedFailure.compareAndSet("", "integrated-rank-timeout")
                         process.destroy()
-                        if (!process.waitFor(800L, TimeUnit.MILLISECONDS)) {
-                            process.destroyForcibly()
+                        try {
+                            if (!process.waitFor(800L, TimeUnit.MILLISECONDS)) {
+                                process.destroyForcibly()
+                            }
+                        } catch (_: InterruptedException) {
+                            Thread.currentThread().interrupt()
+                            runCatching { process.destroyForcibly() }
                         }
                     }
 
-                    reader.join(2_000L)
+                    // The reader can still be blocked in readLine() while the child is being reaped.
+                    // Interrupt it, then force-close the pipe only if it has not drained. The close is
+                    // expected to raise InterruptedIOException inside the reader, which its try/catch
+                    // handles and records as "reader-closed" instead of a process-killing uncaught error.
+                    reader.interrupt()
+                    try {
+                        if (!readerDone.await(2_000L, TimeUnit.MILLISECONDS)) {
+                            runCatching { process.inputStream.close() }
+                            reader.interrupt()
+                            if (!readerDone.await(1_000L, TimeUnit.MILLISECONDS)) {
+                                lastNoise.set("reader-stuck")
+                            }
+                        }
+                    } catch (_: InterruptedException) {
+                        Thread.currentThread().interrupt()
+                        runCatching { process.inputStream.close() }
+                    }
 
                     val exitCode = if (process.isAlive) {
                         -999
