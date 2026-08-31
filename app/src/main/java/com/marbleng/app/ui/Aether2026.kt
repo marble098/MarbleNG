@@ -111,8 +111,10 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
@@ -4972,8 +4974,12 @@ private fun rememberedSettingsTab(name: String): SettingsWorkspaceTab =
 
 @Composable
 private fun settingsTabTone(tab: SettingsWorkspaceTab): Color = when (tab) {
+    SettingsWorkspaceTab.GENERAL -> Aether.Cyan
     SettingsWorkspaceTab.FREEDOM -> Aether.Cyan
-    else -> Aether.Cyan
+    SettingsWorkspaceTab.TESTS -> Aether.Amethyst
+    SettingsWorkspaceTab.NETWORK -> Aether.Emerald
+    SettingsWorkspaceTab.ENGINE -> Aether.Amber
+    SettingsWorkspaceTab.SYSTEM -> Aether.Cyan
 }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -4989,23 +4995,39 @@ private fun SpatialSettings(
         SettingsWorkspaceTab.NETWORK.ordinal
     } else rememberedSettingsTab(repo.lastSettingsTab).ordinal
     // MARBLE_SETTINGS_CONTENT_VIEWPORT_HARDENING_V72
-// Keep the selected workspace inside an explicit remaining-height viewport.
-// This avoids relying on a nested BoxWithConstraints -> Column -> weight chain for
-// the LazyColumn's height on real phone builds; the tab strip remains fixed while
-// the workspace host receives the full remaining viewport.
-// MARBLE_SETTINGS_TAB_CONTENT_VISIBLE_V70
-    // The previous pager-based tabs kept the selected workspace invisible on real devices: the
-    // tab strip updated while the page area stayed empty for every tab. Selection is now an
-    // explicit mutableIntStateOf and the visible tab is recomposed under key(selectedTabIndex),
-    // so the chosen workspace always lays out its own SettingsWorkspacePage.
+    // The workspace host keeps an explicit remaining-height viewport below a fixed tab strip;
+    // the strip never moves while the host receives the full remaining height.
+    // MARBLE_SETTINGS_TAB_CONTENT_VISIBLE_V70
+    // Selection is an explicit mutableIntStateOf: the visible workspace is recomposed under
+    // key(selectedTabIndex) so the chosen tab always lays out its own page.
+    // MARBLE_SETTINGS_TOTAL_HOTFIX_V75
+    // Defensive pass over every historical blank-workspace failure mode:
+    //  - Exactly one insets pass (imePadding). The Scaffold already pads system bars, so the
+    //    duplicated systemBars/navigationBars padding that could shrink the weighted viewport
+    //    to zero on edge-to-edge phones is gone.
+    //  - BoxWithConstraints sits at the ROOT purely to pick the wide-screen rail; it takes no
+    //    part in the vertical measurement chain of the workspace.
+    //  - The selected index is coerced on every use and a stale saved value self-heals.
+    //  - The content host is a plain weighted Box whose child is a key-scoped page, so every
+    //    tab owns a fresh LazyColumn measured for its own content.
+    //  - A viewport tripwire swaps the page onto a non-lazy scrollable Column if the host ever
+    //    measures zero height, so settings options can never be silently invisible while the
+    //    tab strip keeps rendering.
     var selectedTabIndex by rememberSaveable { mutableIntStateOf(initialPage.coerceIn(0, tabs.lastIndex)) }
-    val compactTabsState=rememberLazyListState(initialFirstVisibleItemIndex=selectedTabIndex)
+    val activeIndex=selectedTabIndex.coerceIn(0,tabs.lastIndex)
+    val activeTab=tabs[activeIndex]
+    val compactTabsState=rememberLazyListState(initialFirstVisibleItemIndex=activeIndex)
 
+    // A saved index that no longer maps to a tab (enum reshuffled between releases) must never
+    // crash or blank the page: normalize it once, immediately.
+    if(activeIndex != selectedTabIndex) {
+        selectedTabIndex = activeIndex
+    }
+
+    // Routing focus from Home jumps to the Network workspace. Expert mode is never mutated as
+    // a side effect: the focused Routing card renders in both modes.
     LaunchedEffect(focusSection) {
         if(focusSection == "Routing") {
-            if(!repo.settings.expertMode) {
-                repo.updateSettings(repo.settings.copy(expertMode=true))
-            }
             selectedTabIndex = SettingsWorkspaceTab.NETWORK.ordinal
         }
     }
@@ -5016,29 +5038,27 @@ private fun SpatialSettings(
         repo.rememberSettingsTab(tabs[current].name)
     }
 
-    Column(
-        Modifier
+    BoxWithConstraints(
+        modifier=Modifier
             .fillMaxSize()
             .imePadding()
-            .systemBarsPadding()
-            .windowInsetsPadding(WindowInsets.navigationBars)
     ) {
-        Box(Modifier.padding(horizontal=16.dp)) {
-            MarbleCompactTopBar(
-                title="Settings",
-                subtitle=""
-            )
-        }
+        // Read maxWidth in the BoxWithConstraints scope only: Column/Row content lambdas have
+        // their own layout-scope receivers and cannot reach the outer scope's members.
+        val wideLayout = maxWidth >= 700.dp
+        Column(Modifier.fillMaxSize()) {
+            Box(Modifier.padding(horizontal=16.dp)) {
+                MarbleCompactTopBar(
+                    title="Settings",
+                    subtitle=activeTab.label
+                )
+            }
 
-        BoxWithConstraints(
-            modifier=Modifier
-                .fillMaxWidth()
-                .weight(1f)
-        ) {
-            if(maxWidth >= 700.dp) {
+            if(wideLayout) {
                 Row(
                     modifier=Modifier
-                        .fillMaxSize()
+                        .fillMaxWidth()
+                        .weight(1f)
                         .padding(horizontal=12.dp)
                 ) {
                     val railShape=RoundedCornerShape(24.dp)
@@ -5055,7 +5075,8 @@ private fun SpatialSettings(
                     ) {
                         Spacer(Modifier.height(8.dp))
                         tabs.forEachIndexed { index,tab ->
-                            val selected=selectedTabIndex == index
+                            val selected=activeIndex == index
+                            val tone=settingsTabTone(tab)
                             NavigationRailItem(
                                 selected=selected,
                                 onClick={
@@ -5064,7 +5085,7 @@ private fun SpatialSettings(
                                 icon={
                                     HomeVectorIcon(
                                         tab.icon,
-                                        if(selected) Aether.Cyan else Aether.InkMuted,
+                                        if(selected) tone else Aether.InkMuted,
                                         Modifier.size(20.dp)
                                     )
                                 },
@@ -5075,8 +5096,8 @@ private fun SpatialSettings(
                                     )
                                 },
                                 colors=NavigationRailItemDefaults.colors(
-                                    selectedIconColor=Aether.Cyan,
-                                    selectedTextColor=Aether.Cyan,
+                                    selectedIconColor=tone,
+                                    selectedTextColor=tone,
                                     // No pill/rectangle behind the rail label — selection is
                                     // carried by icon/text colour only (MARBLE_BUTTON_TEXT_RECT_REMOVED_DS_V68).
                                     indicatorColor=Color.Transparent,
@@ -5090,8 +5111,9 @@ private fun SpatialSettings(
                     Spacer(Modifier.width(10.dp))
 
                     SettingsTabPane(
-                        tab=tabs[selectedTabIndex],
-                                                repo=repo,
+                        tab=activeTab,
+                        selectedTabIndex=activeIndex,
+                        repo=repo,
                         expertMode=expertMode,
                         focusSection=focusSection,
                         modifier=Modifier
@@ -5100,8 +5122,7 @@ private fun SpatialSettings(
                     )
                 }
             } else {
-                Column(Modifier.fillMaxSize()) {
-                    Box(Modifier.fillMaxWidth()) {
+                Box(Modifier.fillMaxWidth()) {
                     LazyRow(
                         state=compactTabsState,
                         modifier=Modifier
@@ -5120,7 +5141,7 @@ private fun SpatialSettings(
                             tabs,
                             key={ _,tab -> tab.name }
                         ) { index,tab ->
-                            val selected=selectedTabIndex == index
+                            val selected=activeIndex == index
                             val tone=settingsTabTone(tab)
                             val shape=RoundedCornerShape(18.dp)
 
@@ -5134,9 +5155,14 @@ private fun SpatialSettings(
                                         fill=Aether.VoidElevated
                                     )
                                     .kineticClickable(
-                                        role=Role.Button
+                                        role=Role.Tab
                                     ) {
                                         selectedTabIndex = index
+                                    }
+                                    .semantics {
+                                        this.selected = selected
+                                        contentDescription = "${tab.label} tab"
+                                        stateDescription = if (selected) "Selected" else "Not selected"
                                     }
                                     .padding(horizontal=13.dp,vertical=9.dp),
                                 verticalAlignment=Alignment.CenterVertically,
@@ -5183,110 +5209,244 @@ private fun SpatialSettings(
                                 .background(Brush.horizontalGradient(listOf(Color.Transparent, Aether.Void)))
                         )
                     }
-                    }
-
-                    SettingsTabPane(
-                        tab=tabs[selectedTabIndex],
-                        repo=repo,
-                        expertMode=expertMode,
-                        focusSection=focusSection,
-                        modifier=Modifier
-                            .fillMaxWidth()
-                            .weight(1f)
-                    )
                 }
+
+                SettingsTabPane(
+                    tab=activeTab,
+                    selectedTabIndex=activeIndex,
+                    repo=repo,
+                    expertMode=expertMode,
+                    focusSection=focusSection,
+                    modifier=Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                )
             }
         }
     }
 }
 
-
 /**
  * Hosts exactly the selected Settings workspace.
  *
- * Each Settings tab used to be a page of a shared HorizontalPager; on real devices the pager
- * updated its index while the page area stayed empty, so every workspace looked blank. A plain
- * [key]-scoped SettingsWorkspacePage keeps the visible tab and its content in lockstep — no
- * shared pager scroll state, no offscreen page.
+ * The host is a plain weighted Box: the page inside it is never the weighted child of a nested
+ * BoxWithConstraints/Column chain — the failure mode that left the workspace at zero height on
+ * real devices while the tab strip kept rendering. A tripwire measures the host on every layout
+ * pass and swaps the page onto a non-lazy scrollable Column if the viewport ever collapses, so
+ * settings options can never be silently blank again.
  */
 @Composable
 private fun SettingsTabPane(
     tab: SettingsWorkspaceTab,
+    selectedTabIndex: Int,
     repo: AppRepository,
     expertMode: Boolean,
     focusSection: String?,
     modifier: Modifier = Modifier
 ) {
-    // MARBLE_SETTINGS_DIRECT_CONTENT_HOST_V73
-    // Keep the weighted mobile host directly attached to the LazyColumn.
-    // The previous Box/key boundary could resolve to a zero-height child on
-    // affected Android builds while the Settings tab strip stayed visible.
-    SettingsWorkspacePage(
-        tab=tab,
-        repo=repo,
-        expertMode=expertMode,
-        focusSection=focusSection,
+    var viewportDegraded by remember { mutableStateOf(false) }
+    var zeroHeightStreak by remember { mutableIntStateOf(0) }
+    val sections=settingsSections(tab, repo, expertMode, focusSection)
+
+    Box(
         modifier=modifier
-    )
+            .onGloballyPositioned { coords ->
+                val height=coords.size.height
+                if(height > 0) {
+                    zeroHeightStreak = 0
+                } else {
+                    zeroHeightStreak += 1
+                    if(zeroHeightStreak >= 2 && !viewportDegraded) {
+                        viewportDegraded = true
+                        repo.diagnosticsEvent(
+                            "SETTINGS",
+                            "viewport-degraded-fallback",
+                            "tab" to tab.name,
+                            "height" to height
+                        )
+                    }
+                }
+            }
+    ) {
+        if(viewportDegraded) {
+            SettingsWorkspacePage(
+                sections=sections,
+                modifier=Modifier.fillMaxSize(),
+                fallback=true
+            )
+        } else {
+            // key(selectedTabIndex): every tab owns a fresh LazyColumn measured for its own
+            // content — no recycled scroll offsets, no stale lazy state, and each workspace
+            // always opens scrolled to the top.
+            key(selectedTabIndex) {
+                SettingsWorkspacePage(
+                    sections=sections,
+                    modifier=Modifier.fillMaxSize(),
+                    fallback=false
+                )
+            }
+        }
+    }
 }
 
 @Composable
 private fun SettingsWorkspacePage(
+    sections: List<SettingsSectionSpec>,
+    modifier: Modifier = Modifier,
+    fallback: Boolean = false
+) {
+    if(fallback) {
+        // Non-lazy escape hatch: a plain scrollable Column renders every section eagerly, so no
+        // lazy-layout state can hide the options even if the host measured zero height.
+        Column(
+            modifier=modifier
+                .verticalScroll(rememberScrollState())
+                .padding(start=16.dp,end=16.dp,top=8.dp,bottom=24.dp),
+            verticalArrangement=Arrangement.spacedBy(12.dp)
+        ) {
+            sections.forEach { spec ->
+                SettingsSectionCard(
+                    title=spec.title,
+                    subtitle=spec.subtitle,
+                    icon=spec.icon,
+                    color=spec.color
+                ) { spec.content() }
+            }
+        }
+    } else {
+        LazyColumn(
+            modifier=modifier,
+            contentPadding=PaddingValues(start=16.dp,end=16.dp,top=8.dp,bottom=24.dp),
+            verticalArrangement=Arrangement.spacedBy(12.dp)
+        ) {
+            items(sections, key={ it.title }) { spec ->
+                SettingsSectionCard(
+                    title=spec.title,
+                    subtitle=spec.subtitle,
+                    icon=spec.icon,
+                    color=spec.color
+                ) { spec.content() }
+            }
+        }
+    }
+}
+
+/**
+ * One section card worth of content, shared by the lazy page and the zero-viewport fallback so
+ * the two render paths can never drift apart.
+ */
+private class SettingsSectionSpec(
+    val title: String,
+    val subtitle: String,
+    val icon: HomeIcon,
+    val color: Color,
+    val content: @Composable () -> Unit
+)
+
+/**
+ * The single source of truth for what each Settings workspace shows.
+ *
+ * Every tab is guaranteed at least one real card in both expert and standard modes, and the
+ * Home -> Routing focus flow renders its target card without mutating Expert mode.
+ */
+@Composable
+private fun settingsSections(
     tab: SettingsWorkspaceTab,
     repo: AppRepository,
     expertMode: Boolean,
-    focusSection: String?,
-    modifier: Modifier = Modifier
-) {
-    LazyColumn(
-        modifier = modifier,
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        when (tab) {
-            SettingsWorkspaceTab.GENERAL -> {
-                item { SettingsSectionCard("Appearance & layout", "Theme, expertise and Home composition", HomeIcon.MODE, Aether.Cyan) { AppearanceSettings(repo) } }
-                item { SettingsSectionCard("Connection", "Full-device tunnel or local SOCKS proxy", HomeIcon.TUNNEL, Aether.Cyan) { ConnectionSettings(repo) } }
-                item { SettingsSectionCard("Subscriptions", "Automatic refresh cadence and source behavior", HomeIcon.LIBRARY, Aether.Amethyst) { SubscriptionSettings(repo) } }
-            }
-            SettingsWorkspaceTab.FREEDOM -> {
-                item { SettingsSectionCard("Marble Freedom Engine", "Serverless DPI bypass, multi-layer fragmentation & smart multi-DNS", HomeIcon.SHIELD, Aether.Cyan) { FreedomSettings(repo) } }
-            }
-            SettingsWorkspaceTab.TESTS -> {
-                item { SettingsSectionCard("Testing & ping", "Real tunnel, TCP and ICMP evidence policy", HomeIcon.BENCHMARK, Aether.Amethyst) { ProbeSettings(repo) } }
-                if (expertMode) {
-                    item { SettingsSectionCard("Marble Intelligence", "Adaptive route history, recovery and optimizer policy", HomeIcon.SPARK, Aether.Cyan) { IntelligenceSettings(repo) } }
-                } else {
-                    item { ExpertWorkspaceHint() }
-                }
-            }
-            SettingsWorkspaceTab.NETWORK -> {
-                item { SettingsSectionCard("Split tunneling", "Choose exactly which apps use or bypass the tunnel", HomeIcon.PRIVACY, Aether.Emerald) { SplitTunnelSettings(repo) } }
-                if (expertMode) {
-                    if (focusSection == "Routing") {
-                        item { SettingsSectionCard("Routing", "Geo assets, direct rules and blocking policy", HomeIcon.ROUTING, Aether.Emerald) { RoutingSettings(repo) } }
-                    }
-                    item { SettingsSectionCard("Regional protection", "Iran Mode detection and countermeasures", HomeIcon.SHIELD, Aether.Emerald) { IranModeSettings(repo) } }
-                    item { SettingsSectionCard("DNS", "TUN resolvers and encrypted DoH path", HomeIcon.NETWORK, Aether.Cyan) { DnsSettings(repo) } }
-                    if (focusSection != "Routing") {
-                        item { SettingsSectionCard("Routing", "Geo assets, direct rules and blocking policy", HomeIcon.ROUTING, Aether.Emerald) { RoutingSettings(repo) } }
-                    }
-                } else {
-                    item { ExpertWorkspaceHint() }
-                }
-            }
-            SettingsWorkspaceTab.ENGINE -> {
-                if (expertMode) {
-                    item { SettingsSectionCard("Fragmentation & Mux", "DPI resilience and connection reuse", HomeIcon.SPARK, Aether.Amber) { FragmentMuxSettings(repo) } }
-                } else {
-                    item { ExpertWorkspaceHint() }
-                }
-            }
-            SettingsWorkspaceTab.SYSTEM -> {
-                item { SettingsSectionCard("Notifications", "Connection, recovery and privacy alerts", HomeIcon.STATUS, Aether.Cyan) { NotificationSettings(repo) } }
-                item { SettingsSectionCard("Bug Finder", "Deep Xray, SOCKS, TUN and HEV diagnostics", HomeIcon.DETAILS, Aether.Danger) { BugFinderSettings(repo) } }
+    focusSection: String?
+): List<SettingsSectionSpec> {
+    fun card(
+        title: String,
+        subtitle: String,
+        icon: HomeIcon,
+        color: Color,
+        content: @Composable () -> Unit
+    ): SettingsSectionSpec = SettingsSectionSpec(title, subtitle, icon, color, content)
+
+    val routingFocused = focusSection == "Routing"
+    val expertGate = card(
+        "Expert workspace",
+        "This tab's full option set unlocks when Expert controls are on",
+        HomeIcon.SHIELD,
+        Aether.Amethyst
+    ) { ExpertGateRow(repo) }
+
+    return when (tab) {
+        SettingsWorkspaceTab.GENERAL -> listOf(
+            card("Appearance & layout","Theme, expertise and Home composition",HomeIcon.MODE,Aether.Cyan) { AppearanceSettings(repo) },
+            card("Connection","Full-device tunnel or local SOCKS proxy",HomeIcon.TUNNEL,Aether.Cyan) { ConnectionSettings(repo) },
+            card("Subscriptions","Automatic refresh cadence and source behavior",HomeIcon.LIBRARY,Aether.Amethyst) { SubscriptionSettings(repo) }
+        )
+        SettingsWorkspaceTab.FREEDOM -> listOf(
+            card("Marble Freedom Engine","Serverless DPI bypass, multi-layer fragmentation & smart multi-DNS",HomeIcon.SHIELD,Aether.Cyan) { FreedomSettings(repo) }
+        )
+        SettingsWorkspaceTab.TESTS -> buildList {
+            add(card("Testing & ping","Real tunnel, TCP and ICMP evidence policy",HomeIcon.BENCHMARK,Aether.Amethyst) { ProbeSettings(repo) })
+            if(expertMode) {
+                add(card("Marble Intelligence","Adaptive route history, recovery and optimizer policy",HomeIcon.SPARK,Aether.Cyan) { IntelligenceSettings(repo) })
+            } else {
+                add(expertGate)
             }
         }
+        SettingsWorkspaceTab.NETWORK -> buildList {
+            add(card("Split tunneling","Choose exactly which apps use or bypass the tunnel",HomeIcon.PRIVACY,Aether.Emerald) { SplitTunnelSettings(repo) })
+            if(expertMode) {
+                if(routingFocused) {
+                    add(card("Routing","Geo assets, direct rules and blocking policy",HomeIcon.ROUTING,Aether.Emerald) { RoutingSettings(repo) })
+                }
+                add(card("Regional protection","Iran Mode detection and countermeasures",HomeIcon.SHIELD,Aether.Emerald) { IranModeSettings(repo) })
+                add(card("DNS","TUN resolvers and encrypted DoH path",HomeIcon.NETWORK,Aether.Cyan) { DnsSettings(repo) })
+                if(!routingFocused) {
+                    add(card("Routing","Geo assets, direct rules and blocking policy",HomeIcon.ROUTING,Aether.Emerald) { RoutingSettings(repo) })
+                }
+            } else {
+                if(routingFocused) {
+                    add(card("Routing","Geo assets, direct rules and blocking policy",HomeIcon.ROUTING,Aether.Emerald) { RoutingSettings(repo) })
+                }
+                add(expertGate)
+            }
+        }
+        SettingsWorkspaceTab.ENGINE -> listOf(
+            if(expertMode) {
+                card("Fragmentation & Mux","DPI resilience and connection reuse",HomeIcon.SPARK,Aether.Amber) { FragmentMuxSettings(repo) }
+            } else expertGate
+        )
+        SettingsWorkspaceTab.SYSTEM -> listOf(
+            card("Notifications","Connection, recovery and privacy alerts",HomeIcon.STATUS,Aether.Cyan) { NotificationSettings(repo) },
+            card("Bug Finder","Deep Xray, SOCKS, TUN and HEV diagnostics",HomeIcon.DETAILS,Aether.Danger) { BugFinderSettings(repo) }
+        )
+    }
+}
+
+@Composable
+private fun ExpertGateRow(repo: AppRepository) {
+    Row(
+        modifier=Modifier.fillMaxWidth(),
+        verticalAlignment=Alignment.CenterVertically,
+        horizontalArrangement=Arrangement.spacedBy(10.dp)
+    ) {
+        Column(
+            Modifier.weight(1f),
+            verticalArrangement=Arrangement.spacedBy(2.dp)
+        ) {
+            Text(
+                "Expert controls are off",
+                color=Aether.Ink,
+                style=MaterialTheme.typography.bodyMedium,
+                fontWeight=FontWeight.SemiBold
+            )
+            Text(
+                "Turn them on to see every option in this workspace.",
+                color=Aether.InkMuted,
+                style=MaterialTheme.typography.bodySmall
+            )
+        }
+        Switch(
+            checked=repo.settings.expertMode,
+            onCheckedChange={ enabled -> repo.updateSettings(repo.settings.copy(expertMode=enabled)) },
+            colors=marbleSwitchColors()
+        )
     }
 }
 
@@ -5358,24 +5518,6 @@ private fun SettingsSectionCard(
     }
 }
 
-
-@Composable
-private fun ExpertWorkspaceHint() {
-    Row(
-        modifier=Modifier.fillMaxWidth().padding(vertical=10.dp),
-        verticalAlignment=Alignment.CenterVertically,
-        horizontalArrangement=Arrangement.Center
-    ) {
-        HomeVectorIcon(HomeIcon.SHIELD,Aether.InkFaint,Modifier.size(18.dp))
-        Spacer(Modifier.width(7.dp))
-        Text(
-            "Expert mode off",
-            color=Aether.InkFaint,
-            style=MaterialTheme.typography.labelMedium,
-            fontWeight=FontWeight.SemiBold
-        )
-    }
-}
 
 @Composable
 private fun AppearanceSettings(repo: AppRepository) {
@@ -7336,6 +7478,8 @@ private fun NumberSetting(
     suffix: String = "",
     onValue: (Int) -> Unit
 ) {
+    // Stale or corrupted stored values must never render or step outside the legal range.
+    val shown = value.coerceIn(range)
     PrismWell(
         modifier = Modifier.fillMaxWidth(),
         tone = Aether.Cyan,
@@ -7354,7 +7498,7 @@ private fun NumberSetting(
             )
 
             PrismIconButton(
-                onClick = { onValue((value - 1).coerceAtLeast(range.first)) },
+                onClick = { onValue((shown - 1).coerceAtLeast(range.first)) },
                 tone = Aether.InkMuted,
                 size = 34.dp,
                 descriptiveLabel = "Decrease $title"
@@ -7363,7 +7507,7 @@ private fun NumberSetting(
             }
 
             Text(
-                "$value$suffix",
+                "$shown$suffix",
                 color = Aether.Cyan,
                 style = MaterialTheme.typography.labelLarge.copy(
                     fontFamily = FontFamily.Monospace,
@@ -7374,7 +7518,7 @@ private fun NumberSetting(
             )
 
             PrismIconButton(
-                onClick = { onValue((value + 1).coerceAtMost(range.last)) },
+                onClick = { onValue((shown + 1).coerceAtMost(range.last)) },
                 tone = Aether.Cyan,
                 selected = true,
                 size = 34.dp,

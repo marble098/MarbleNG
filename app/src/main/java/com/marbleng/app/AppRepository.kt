@@ -150,6 +150,11 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         store.setLastSettingsTab(normalized)
     }
 
+    /** Public diagnostics hook for UI-level tripwires (e.g. the Settings viewport fallback). */
+    fun diagnosticsEvent(component: String, event: String, vararg fields: Pair<String, Any?>) {
+        diagnostics.event(component, event, *fields)
+    }
+
     fun selectLibrarySource(id: String) {
         val normalized = normalizeLibrarySourceFilter(id)
         if (librarySourceFilter == normalized) return
