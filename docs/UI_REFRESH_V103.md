@@ -107,3 +107,25 @@ The dark palette was navy (`#000033`). It is now a real AMOLED theme.
 - `values-night/styles.xml` makes the *launch* theme black too, removing the full-screen white
   cold-start flash on a device in dark mode.
 - The theme picker's dark swatch previews `#000000` and is labelled **Black / AMOLED**.
+
+---
+
+## Integrity invariants
+
+`scripts/system-integrity-check.py` guards several layout regressions that this refresh had to
+work *with* rather than around:
+
+- **`Settings tab strip host is height-bounded`** — the strip host keeps its fixed `58.dp` height
+  and `matchParentSize` scroll-fade hints. `fillMaxHeight` hints previously grew the host to the
+  parent's entire remaining height and collapsed the workspace below it. Five tabs fit most
+  phones, but a large font scale can still overflow, so the fades stay.
+- **`Settings workspace has no SubcomposeLayout content boundary`** — `BoxWithConstraints` is
+  banned in this file. The dock measures its own width with `onSizeChanged` on a plain `Box`,
+  which yields the same number without subcomposing.
+- **`Routing focus never mutates Expert mode`** — pins the enum constant
+  `SettingsWorkspaceTab.NETWORK`. The constant names are also the SharedPreferences keys written
+  by `rememberSettingsTab`, so the re-cut keeps them stable and changes only the labels: the
+  "Connection" tab is still `NETWORK` internally.
+
+`release publishing is immutable, verified and tag-atomic` fails on this branch, but it fails
+identically on `main` at `5fc1cc5` and is untouched here — see the PR description.
