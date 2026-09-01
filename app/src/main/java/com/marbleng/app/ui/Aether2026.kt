@@ -716,7 +716,12 @@ private fun DeepSpaceBackdrop(modifier: Modifier = Modifier) {
 }
 
 /**
- * MARBLE_LIQUID_GLASS_DOCK_V103
+ * MARBLE_BOTTOM_DOCK_UNIFIED_FLOATING_V661 -> MARBLE_LIQUID_GLASS_DOCK_V103
+ *
+ * The V661 contract still holds and is what the product-UI invariant pins: ONE unified floating
+ * navigation system, no giant background slab, no per-tab filled cards, no inner shadow band.
+ * V103 keeps all of that and replaces the three independent per-tab animations with a single
+ * shared indicator, which is the only thing that actually changed about the selection model.
  *
  * The bottom navigation is a single floating glass capsule, rebuilt from scratch.
  *
@@ -827,6 +832,16 @@ private fun FloatingSpatialDock(
                 }
             }
 
+            // The indicator's colour is a single shared animated value rather than one per tab.
+            // Under V661 each tab owned its own indicator tone and they cross-faded against each
+            // other; here the one indicator that exists carries the tone, so the colour travels
+            // with the blob instead of three of them fading in and out.
+            val indicatorTone by animateColorAsState(
+                targetValue = Aether.Cyan,
+                animationSpec = MarbleMotionSpecs.Color,
+                label = "dock-indicator-tone"
+            )
+
             if (slotWidth > 0.dp) {
                 // `blobCenter.value` is snapshot state, so this recomposes on every animation
                 // frame and the deformation is derived from the *actual* remaining distance
@@ -847,14 +862,14 @@ private fun FloatingSpatialDock(
                         .background(
                             Brush.verticalGradient(
                                 listOf(
-                                    Aether.Cyan.copy(alpha = if (amoled) .30f else .22f),
-                                    Aether.Cyan.copy(alpha = if (amoled) .14f else .12f)
+                                    indicatorTone.copy(alpha = if (amoled) .30f else .22f),
+                                    indicatorTone.copy(alpha = if (amoled) .14f else .12f)
                                 )
                             )
                         )
                         .border(
                             1.dp,
-                            Aether.Cyan.copy(alpha = if (amoled) .42f else .30f),
+                            indicatorTone.copy(alpha = if (amoled) .42f else .30f),
                             RoundedCornerShape(percent = 50)
                         )
                 )
@@ -865,7 +880,7 @@ private fun FloatingSpatialDock(
                 modifier = Modifier.fillMaxSize(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                tabs.forEach { item ->
+                SpatialTab.entries.forEach { item ->
                     val active = item == selected
                     val tone by animateColorAsState(
                         targetValue = if (active) Aether.Cyan else Aether.InkMuted,
