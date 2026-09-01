@@ -248,6 +248,7 @@ internal object PrismSurface {
 internal fun prismOnColor(base: Color): Color {
     val luminance = .2126f * base.red + .7152f * base.green + .0722f * base.blue
     // MARBLE_NAVY_BRAND_THEME_V77 — ink on a filled brand surface is deep navy or alice blue.
+    // Near-black dark surfaces (luminance ~= 0) fall to the alice-blue branch, keeping text readable.
     return if (luminance > .60f) Color(0xFF001144) else Color(0xFFF0F8FF)
 }
 
@@ -1402,9 +1403,10 @@ internal fun PrismThemeChoice(
 ) {
     val shape=RoundedCornerShape(20.dp)
     // MARBLE_NAVY_BRAND_THEME_V77 — previews paint the real Marble surfaces so the
-    // selector previews the identity, not a generic gray wireframe.
-    val previewBg=if(darkPreview) Color(0xFF000033) else Color(0xFFF0F8FF)
-    val previewSurface=if(darkPreview) Color(0xFF001144) else Color.White
+    // selector previews the identity, not a generic gray wireframe. Dark preview now uses the
+    // true-black surface the theme actually ships, so the thumbnail matches the live dark pane.
+    val previewBg=if(darkPreview) Color(0xFF000000) else Color(0xFFF0F8FF)
+    val previewSurface=if(darkPreview) Color(0xFF0A0A0A) else Color.White
     val previewText=if(darkPreview) Color(0xFFF0F8FF) else Color(0xFF001144)
     val selectionTone=Aether.Cyan
     val border=if(selected) selectionTone.copy(alpha=.52f) else accent.copy(alpha=.20f)

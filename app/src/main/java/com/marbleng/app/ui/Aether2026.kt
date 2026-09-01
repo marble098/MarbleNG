@@ -707,86 +707,182 @@ private fun FloatingSpatialDock(
     selected: SpatialTab,
     onSelect: (SpatialTab) -> Unit
 ) {
-    // MARBLE_BOTTOM_DOCK_UNIFIED_FLOATING_V661
-    // Design intent:
-    // - one unified floating navigation system
-    // - no giant background slab
-    // - no per-tab filled cards
-    // - no inner shadow band
-    // - active state shown by tone + minimal underline only
+    // MARBLE_NAVY_BRAND_UI_V77 + MARBLE_FLOATING_GLASS_DOCK_V78
+    // A single floating glass pill that hovers above the backdrop, never a slab.
+    // Each tab is a soft glass chip with ambient motion, rounded corners and a subtle
+    // translucency so the deep-space backdrop shows through in both themes.
+    val dockSpacing = 6.dp
+    val itemHeight = 64.dp
+    val itemShape = RoundedCornerShape(22.dp)
+    val baseTone = Aether.GlassStrong.copy(alpha = .52f)
+    val borderBase = Aether.GlassBorder.copy(alpha = .45f)
+    val glowColor = Aether.Cyan
+
     Box(
-        modifier=Modifier
+        modifier = Modifier
             .fillMaxWidth()
             .navigationBarsPadding()
-            .padding(horizontal=18.dp,vertical=10.dp),
-        contentAlignment=Alignment.Center
+            .padding(horizontal = 20.dp, vertical = 12.dp),
+        contentAlignment = Alignment.Center
     ) {
+        // Soft shadow under the whole dock row — one unified float, not per-tab
+        val ambientMotion = MarbleMotion.current
+        val floatPhase = ambientMotion.loop(3_200)
+        val floatLift = 2.2.dp + 0.6.dp * ambientMotion.breathe(2_400)
+        val shadowAlpha = .18f + .08f * ambientMotion.breathe(3_100)
+
         Row(
-            modifier=Modifier
-                .widthIn(max=520.dp)
+            modifier = Modifier
+                .widthIn(max = 540.dp)
                 .fillMaxWidth(),
-            horizontalArrangement=Arrangement.SpaceEvenly,
-            verticalAlignment=Alignment.CenterVertically
+            horizontalArrangement = Arrangement.spacedBy(dockSpacing),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            SpatialTab.entries.forEach { item ->
-                val active=item == selected
-                val itemShape=RoundedCornerShape(18.dp)
-                val contentTone by animateColorAsState(
-                    targetValue=if(active) Aether.Cyan else Aether.InkMuted,
-                    animationSpec=MarbleMotionSpecs.Color,
-                    label="dock-tone-${item.name}"
+            // Background glass strip that every tab shares — pours translucency + blur cue
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .shadow(
+                        elevation = floatLift,
+                        shape = itemShape,
+                        clip = false,
+                        ambientColor = glowColor.copy(alpha = shadowAlpha),
+                        spotColor = glowColor.copy(alpha = shadowAlpha * .6f)
+                    )
+            )
+
+            SpatialTab.entries.forEachIndexed { index, item ->
+                val active = item == selected
+                val itemTone by animateColorAsState(
+                    targetValue = if (active) Aether.Cyan else Aether.InkMuted,
+                    animationSpec = MarbleMotionSpecs.Color,
+                    label = "dock-tone-${item.name}"
+                )
+                val itemBg by animateColorAsState(
+                    targetValue = if (active)
+                        Aether.Cyan.copy(alpha = .14f)
+                    else
+                        baseTone,
+                    animationSpec = MarbleMotionSpecs.Color.copy(
+                        durationMillis = if (active) 420 else 320
+                    ),
+                    label = "dock-bg-${item.name}"
+                )
+                val itemBorder by animateColorAsState(
+                    targetValue = if (active)
+                        Aether.Cyan.copy(alpha = .42f)
+                    else
+                        borderBase,
+                    animationSpec = MarbleMotionSpecs.Color,
+                    label = "dock-border-${item.name}"
                 )
                 val indicatorTone by animateColorAsState(
-                    targetValue=if(active) Aether.Cyan.copy(alpha=.92f) else Color.Transparent,
-                    animationSpec=MarbleMotionSpecs.Color,
-                    label="dock-indicator-${item.name}"
+                    targetValue = if (active)
+                        Aether.Cyan.copy(alpha = .96f)
+                    else
+                        Color.Transparent,
+                    animationSpec = MarbleMotionSpecs.Color,
+                    label = "dock-indicator-${item.name}"
                 )
-                // MARBLE_NAVY_BRAND_UI_V77 — the active tab gets a soft ice-blue pill
-                // (M3 Expressive floating-nav pattern) instead of colour alone.
-                val itemBg by animateColorAsState(
-                    targetValue=if(active) Aether.Cyan.copy(alpha=.10f) else Color.Transparent,
-                    animationSpec=MarbleMotionSpecs.Color,
-                    label="dock-bg-${item.name}"
+                // Ambient shimmer only on the active chip — a slow material glow reads as living glass
+                val shimmerAlpha by animateFloatAsState(
+                    targetValue = if (active) .12f else .0f,
+                    animationSpec = MarbleMotionSpecs.Color.copy(
+                        durationMillis = 700,
+                        stiffness = 480f
+                    ),
+                    label = "dock-shimmer-${item.name}"
                 )
 
                 Column(
-                    modifier=Modifier
+                    modifier = Modifier
                         .weight(1f)
-                        .height(60.dp)
+                        .height(itemHeight)
                         .clip(itemShape)
                         .background(itemBg)
+                        .border(1.dp, itemBorder, itemShape)
                         .kineticClickable(
-                            boundedShape=itemShape,
-                            role=Role.Button
+                            boundedShape = itemShape,
+                            role = Role.Button,
+                            pressScale = .97f
                         ) { onSelect(item) }
-                        .padding(horizontal=8.dp,vertical=4.dp),
-                    horizontalAlignment=Alignment.CenterHorizontally,
-                    verticalArrangement=Arrangement.Center
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                        .compositingStrategy(CompositingStrategy.Offscreen) // software-blur cue + translucency
+                        // When active, a soft background shimmer lives behind the content for a glass feel
+                        .then(
+                            if (shimmerAlpha > 0f)
+                                Modifier
+                                    .background(
+                                        Brush.horizontalGradient(
+                                            listOf(
+                                                Aether.Cyan.copy(alpha = .06f),
+                                                Color.Transparent,
+                                                Aether.Cyan.copy(alpha = .04f)
+                                            )
+                                        )
+                                    )
+                            else
+                                Modifier
+                        ),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
                 ) {
+                    // Ambient motion ring: a slow orbiting arc only on the active tab
+                    if (active) {
+                        val orbitAlpha = .28f + .14f * ambientMotion.loop(2_600, offset = index * .33f)
+                        Canvas(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(8.dp)
+                                .padding(4.dp)
+                        ) {
+                            val w = size.width
+                            val h = size.height
+                            val radius = (w * .7f).coerceAtLeast(h * .7f)
+                            val cx = w / 2f
+                            val cy = h / 2f
+                            val angle = 360f * floatPhase
+                            val startAngle = -90f + angle
+                            val sweep = 240f
+                            val strokeW = 1.6.dp.toPx()
+                            drawArc(
+                                color = Aether.Cyan.copy(alpha = orbitAlpha),
+                                startAngle = startAngle,
+                                sweepAngle = sweep,
+                                useCenter = false,
+                                topLeft = Offset(cx - radius, cy - radius),
+                                size = Size(radius * 2, radius * 2),
+                                style = Stroke(width = strokeW, cap = StrokeCap.Round)
+                            )
+                        }
+                    }
+
                     MarbleTabIcon(
-                        tab=item,
-                        color=contentTone,
-                        active=active,
-                        modifier=Modifier.size(21.dp)
+                        tab = item,
+                        color = itemTone,
+                        active = active,
+                        modifier = Modifier.size(22.dp)
                     )
 
-                    Spacer(Modifier.height(5.dp))
+                    Spacer(Modifier.height(6.dp))
 
                     Text(
                         item.label,
-                        color=contentTone,
-                        style=MaterialTheme.typography.labelMedium,
-                        fontWeight=if(active) FontWeight.SemiBold else FontWeight.Medium,
-                        maxLines=1
+                        color = itemTone,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium,
+                        maxLines = 1,
+                        letterSpacing = (.02f).sp
                     )
 
-                    Spacer(Modifier.height(5.dp))
+                    Spacer(Modifier.height(4.dp))
 
+                    // Active indicator: a soft pill under the label, rounded and glassy
                     Box(
-                        modifier=Modifier
-                            .width(22.dp)
+                        modifier = Modifier
+                            .width(26.dp)
                             .height(3.dp)
-                            .clip(RoundedCornerShape(2.dp))
+                            .clip(RoundedCornerShape(999.dp))
                             .background(indicatorTone)
                     )
                 }
@@ -2534,19 +2630,8 @@ private fun ConnectionCore(
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        when {
-                            connecting -> "Tap the orb to cancel"
-                            connected -> "Tap the orb to disconnect"
-                            blocked -> "Tap the orb to retry"
-                            else -> "Tap the orb to start"
-                        },
-                        color = statusColor,
-                        style = MaterialTheme.typography.labelSmall
-                    )
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     if (detailsAvailable) {
-                        Spacer(Modifier.width(6.dp))
                         PrismButton(
                             label = "Details",
                             onClick = onDetails,
@@ -2899,12 +2984,6 @@ private fun CyberLibrary(
                         pruneFailedTarget = target to "TUNNEL"
                         manageSubscription = null
                     }
-                    Text(
-                        "Only nodes with a stored failed result of that exact test type are removed.",
-                        color = Aether.InkFaint,
-                        style = MaterialTheme.typography.labelSmall
-                    )
-
                     Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                         CyberButton(
                             label = "VIEW NODES",
@@ -5781,12 +5860,8 @@ private fun SettingsSectionCard(
 
 @Composable
 private fun AppearanceSettings(repo: AppRepository) {
-    Text(
-        "Theme",
-        color=Aether.Ink,
-        style=MaterialTheme.typography.titleSmall,
-        fontWeight=FontWeight.Bold
-    )
+    val s = repo.settings
+    SectionLabel("Theme")
     Row(
         modifier=Modifier.fillMaxWidth(),
         horizontalArrangement=Arrangement.spacedBy(8.dp)
@@ -5794,7 +5869,7 @@ private fun AppearanceSettings(repo: AppRepository) {
         PrismThemeChoice(
             label="System",
             detail="Material You",
-            selected=repo.settings.theme.equals("system",true),
+            selected=s.theme.equals("system",true),
             darkPreview=false,
             accent=Aether.Amethyst,
             modifier=Modifier.weight(1f)
@@ -5804,7 +5879,7 @@ private fun AppearanceSettings(repo: AppRepository) {
         PrismThemeChoice(
             label="White",
             detail="Prism Light",
-            selected=repo.settings.theme.equals("light",true),
+            selected=s.theme.equals("light",true),
             darkPreview=false,
             accent=Aether.Cyan,
             modifier=Modifier.weight(1f)
@@ -5814,7 +5889,7 @@ private fun AppearanceSettings(repo: AppRepository) {
         PrismThemeChoice(
             label="Dark",
             detail="Prism Night",
-            selected=repo.settings.theme.equals("dark",true),
+            selected=s.theme.equals("dark",true),
             darkPreview=true,
             accent=Aether.Emerald,
             modifier=Modifier.weight(1f)
@@ -5825,18 +5900,20 @@ private fun AppearanceSettings(repo: AppRepository) {
 
     HorizontalDivider(color=Aether.GlassBorderSoft)
 
+    // Expert controls and app updates are single-row tiles: bigger tap area, no desktop-style
+    // label/scroll grouping. Each tile is its own decision.
     SettingSwitch(
         "Expert controls",
-        "",
-        repo.settings.expertMode
+        "Full option set across every workspace",
+        s.expertMode
     ) {
         repo.updateSettings(repo.settings.copy(expertMode=it))
     }
 
     SettingSwitch(
         "Automatic app update checks",
-        "",
-        repo.settings.appUpdateCheckEnabled
+        "Check GitHub for new signed releases",
+        s.appUpdateCheckEnabled
     ) { enabled ->
         repo.updateSettings(
             repo.settings.copy(appUpdateCheckEnabled=enabled)
@@ -5845,11 +5922,11 @@ private fun AppearanceSettings(repo: AppRepository) {
     }
 
     SectionLabel("Home layout")
-
+    // Home composition tiles share the same single-row rhythm so the whole page reads as one grid.
     SettingSwitch(
         "Server info card on Home",
-        "",
-        repo.settings.serverIntelEnabled
+        "Provider IP, ASN, country and datacenter on the home screen",
+        s.serverIntelEnabled
     ) { enabled ->
         repo.updateSettings(repo.settings.copy(serverIntelEnabled=enabled))
         if(enabled) repo.refreshServerIntel()
@@ -5857,40 +5934,40 @@ private fun AppearanceSettings(repo: AppRepository) {
 
     SettingSwitch(
         "Iran Mode card on Home",
-        "",
-        repo.settings.homeShowIranMode
+        "ISP detection and countermeasure status at a glance",
+        s.homeShowIranMode
     ) {
         repo.updateSettings(repo.settings.copy(homeShowIranMode=it))
     }
 
     SettingSwitch(
         "Live quality on Home",
-        "",
-        repo.settings.homeShowLiveQuality
+        "Ping, jitter and route-quality sparkline on the home screen",
+        s.homeShowLiveQuality
     ) {
         repo.updateSettings(repo.settings.copy(homeShowLiveQuality=it))
     }
 
     SettingSwitch(
         "Server selector on Home",
-        "",
-        repo.settings.homeShowServerSelector
+        "Active node card: scheme, host and live ping",
+        s.homeShowServerSelector
     ) {
         repo.updateSettings(repo.settings.copy(homeShowServerSelector=it))
     }
 
     SettingSwitch(
         "Route ribbon on Home",
-        "",
-        repo.settings.homeShowRouteRibbon
+        "Current throughput and one-tap TUN / IPv6 / MTU controls",
+        s.homeShowRouteRibbon
     ) {
         repo.updateSettings(repo.settings.copy(homeShowRouteRibbon=it))
     }
 
     SettingSwitch(
         "Marble Freedom on Home",
-        "",
-        repo.settings.homeShowFreedomSwitch
+        "Serverless DPI bypass status and hop count",
+        s.homeShowFreedomSwitch
     ) {
         repo.updateSettings(repo.settings.copy(homeShowFreedomSwitch=it))
     }
@@ -6687,7 +6764,6 @@ private fun SplitTunnelSettings(repo:AppRepository){
         TextField(search,{search=it},placeholder={Text("Search installed apps")},singleLine=true,modifier=Modifier.fillMaxWidth(),shape=RoundedCornerShape(18.dp),colors=TextFieldDefaults.colors(focusedTextColor=Aether.Ink,unfocusedTextColor=Aether.Ink,cursorColor=Aether.Cyan,focusedContainerColor=Aether.GlassStrong,unfocusedContainerColor=Aether.GlassStrong,disabledContainerColor=Aether.GlassStrong,focusedIndicatorColor=Color.Transparent,unfocusedIndicatorColor=Color.Transparent))
         Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=Alignment.CenterVertically){Text(if(apps.isEmpty())"Loading installed apps…" else "${visibleApps.size} apps",color=Aether.InkFaint,style=MaterialTheme.typography.bodySmall);HoloBadge("${selected.size} selected",Aether.Emerald,true)}
         LazyColumn(Modifier.fillMaxWidth().height(360.dp).clip(RoundedCornerShape(18.dp)).background(Aether.Glass.copy(alpha=.70f)),contentPadding=PaddingValues(vertical=6.dp),verticalArrangement=Arrangement.spacedBy(2.dp),userScrollEnabled=true){items(visibleApps,key={it.packageName}){app->SplitTunnelAppRow(app,app.packageName in selected){toggle(app.packageName)}}}
-        Text("Changes apply on the next Full TUN connection.",color=Aether.InkFaint,style=MaterialTheme.typography.bodySmall)
     }
 }
 @Composable private fun SplitTunnelAppRow(app:InstalledApp,checked:Boolean,onToggle:()->Unit){
@@ -7322,7 +7398,7 @@ private fun RoutingSettings(repo: AppRepository) {
 private fun SubscriptionSettings(repo: AppRepository) {
     SettingSwitch(
         title = "Manual source",
-        subtitle = "Show and enable the built-in Manual source. Off by default; stored Manual nodes stay dormant until enabled.",
+        subtitle = "Show and enable the built-in Manual source",
         checked = repo.settings.manualSourceEnabled
     ) {
         repo.updateSettings(repo.settings.copy(manualSourceEnabled = it))
@@ -7334,6 +7410,15 @@ private fun SubscriptionSettings(repo: AppRepository) {
         checked = repo.settings.subscriptionAutoRefresh
     ) {
         repo.updateSettings(repo.settings.copy(subscriptionAutoRefresh = it))
+    }
+
+    NumberSetting(
+        title = "Refresh cadence",
+        value = repo.settings.subscriptionRefreshHours,
+        range = 1..168,
+        suffix = "h"
+    ) {
+        repo.updateSettings(repo.settings.copy(subscriptionRefreshHours = it))
     }
 
     NumberSetting(
@@ -7546,7 +7631,7 @@ private fun ProbeSettings(repo: AppRepository) {
 
     SettingSwitch(
         title = "Also measure download speed",
-        subtitle = "Downloads a sample file through each tested node. Much slower and uses data",
+        subtitle = "Download sample files through tested nodes — slower, uses data",
         checked = s.probeSpeedTest
     ) { repo.updateSettings(repo.settings.copy(probeSpeedTest = it)) }
 
@@ -7777,10 +7862,12 @@ private fun NumberSetting(
     // Stale or corrupted stored values must never render or step outside the legal range.
     val shown = value.coerceIn(range)
     PrismWell(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 48.dp),
         tone = Aether.Cyan,
         radius = PrismSurface.TileRadius,
-        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 5.dp)
+        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -7838,7 +7925,7 @@ private fun TinyField(
         onValueChange = onValue,
         label = { Text(label) },
         singleLine = true,
-        modifier = modifier,
+        modifier = modifier.heightIn(min = 48.dp),
         shape = RoundedCornerShape(17.dp),
         colors = marbleOutlinedTextFieldColors()
     )

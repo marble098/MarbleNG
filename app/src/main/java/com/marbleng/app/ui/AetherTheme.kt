@@ -83,6 +83,7 @@ private object Brand {
     val IceWhite = Color(0xFFE0FFFF)   // ice white
     val Alice = Color(0xFFF0F8FF)      // alice blue
     val White = Color(0xFFFFFFFF)      // white
+    val Black = Color(0xFF000000)      // true black — dark surface base
 }
 
 /*
@@ -119,26 +120,28 @@ private val LightPalette = AetherPalette(
 )
 
 /* Dark remains an explicit accessibility/user choice and mirrors the same formal color identity. */
+// True-black dark theme: base surface is solid #000000, elevated cards and glass layers stay
+// inside a near-black ramp so the OLED black holds while cards and state tints still separate.
 private val DarkPalette = AetherPalette(
-    void = Brand.NavyDeep,
-    voidElevated = Brand.NavyDark,
-    glass = Brand.NavyDark,
-    glassStrong = Brand.Electric.copy(alpha = .18f).compositeOver(Brand.NavyDeep),
-    glassBorder = Brand.Electric.copy(alpha = .38f).compositeOver(Brand.NavyDeep),
-    glassBorderSoft = Brand.Ice.copy(alpha = .16f).compositeOver(Brand.NavyDeep),
+    void = Brand.Black,
+    voidElevated = Color(0xFF0A0A0A),
+    glass = Color(0xFF060606),
+    glassStrong = Brand.Electric.copy(alpha = .18f).compositeOver(Brand.Black),
+    glassBorder = Brand.Electric.copy(alpha = .38f).compositeOver(Brand.Black),
+    glassBorderSoft = Brand.Ice.copy(alpha = .16f).compositeOver(Brand.Black),
     amethyst = Brand.Electric,
     amethystBright = Brand.Bright,
     cyan = Brand.Bright,
     cyanBright = Brand.Ice,
-    slate = Brand.NavyDark,
+    slate = Color(0xFF0A0A0A),
     slateBright = Brand.Ice,
     danger = Color(0xFFFF718B),
     dangerBright = Color(0xFFFF99AA),
     emerald = Color(0xFF55D7B4),
     amber = Color(0xFFF2B45F),
     ink = Brand.Alice,
-    inkMuted = Brand.Ice.copy(alpha = .85f).compositeOver(Brand.NavyDeep),
-    inkFaint = Brand.Ice.copy(alpha = .55f).compositeOver(Brand.NavyDeep)
+    inkMuted = Brand.Ice.copy(alpha = .85f).compositeOver(Brand.Black),
+    inkFaint = Brand.Ice.copy(alpha = .55f).compositeOver(Brand.Black)
 )
 
 private val LocalAetherPalette = staticCompositionLocalOf { LightPalette }
@@ -306,7 +309,7 @@ fun AetherFlowTheme(
     } else {
         darkColorScheme(
             primary=palette.cyan,
-            onPrimary=Brand.NavyDeep,
+            onPrimary=Brand.Alice,
             primaryContainer=palette.cyan.copy(alpha=.14f),
             onPrimaryContainer=palette.ink,
             secondary=palette.emerald,
