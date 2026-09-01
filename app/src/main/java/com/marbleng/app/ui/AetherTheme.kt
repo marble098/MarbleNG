@@ -48,6 +48,7 @@ fun parseAppTheme(id: String): AppTheme = when {
 }
 
 private data class AetherPalette(
+    val isDark: Boolean,
     val void: Color,
     val voidElevated: Color,
     val glass: Color,
@@ -97,6 +98,7 @@ private object Brand {
  * a VPN must never dress "blocked" or "connected" in the brand hue.
  */
 private val LightPalette = AetherPalette(
+    isDark = false,
     void = Brand.Alice,
     voidElevated = Brand.White,
     glass = Brand.IceWhite,
@@ -118,32 +120,60 @@ private val LightPalette = AetherPalette(
     inkFaint = Brand.NavyDeep.copy(alpha = .42f).compositeOver(Brand.White)
 )
 
-/* Dark remains an explicit accessibility/user choice and mirrors the same formal color identity. */
+/*
+ * MARBLE_AMOLED_BLACK_THEME_V103
+ *
+ * Dark is a true AMOLED theme, not a navy tint.
+ *
+ *  - The base surface is pure #000000 so OLED pixels are physically off. That is the whole point
+ *    of the theme: battery, infinite contrast, and a product that disappears into the bezel.
+ *  - Depth is built by *near-black* steps (#000 -> #08090C -> #0E1118 -> #151A24), never by a
+ *    coloured slab. Each step is ~3-4% luminance apart, which is the smallest difference that
+ *    still reads as a separate plane on an OLED panel without introducing a grey haze.
+ *  - Borders are ice-blue at very low alpha over black, so hairlines stay visible on black
+ *    without turning into the bright rings that a navy background used to hide.
+ *  - Ink is intentionally NOT pure white: #EAF2FF at full and softer steps below it. Pure white
+ *    on pure black smears on OLED and raises perceived glare on a VPN app that is often opened
+ *    at night.
+ *  - The accents stay on Marble's blue ramp, one step brighter than in Light, because a
+ *    saturated colour on black loses apparent brightness.
+ */
+private object Amoled {
+    val Black = Color(0xFF000000)          // true AMOLED base — pixels off
+    val Raised = Color(0xFF08090C)         // cards / elevated planes
+    val Panel = Color(0xFF0E1118)          // panels, wells
+    val PanelStrong = Color(0xFF151A24)    // strongest inset step
+    val Ink = Color(0xFFEAF2FF)            // primary ink (not pure white, on purpose)
+}
+
 private val DarkPalette = AetherPalette(
-    void = Brand.NavyDeep,
-    voidElevated = Brand.NavyDark,
-    glass = Brand.NavyDark,
-    glassStrong = Brand.Electric.copy(alpha = .18f).compositeOver(Brand.NavyDeep),
-    glassBorder = Brand.Electric.copy(alpha = .38f).compositeOver(Brand.NavyDeep),
-    glassBorderSoft = Brand.Ice.copy(alpha = .16f).compositeOver(Brand.NavyDeep),
-    amethyst = Brand.Electric,
-    amethystBright = Brand.Bright,
+    isDark = true,
+    void = Amoled.Black,
+    voidElevated = Amoled.Raised,
+    glass = Amoled.Panel,
+    glassStrong = Amoled.PanelStrong,
+    glassBorder = Brand.Bright.copy(alpha = .26f).compositeOver(Amoled.Black),
+    glassBorderSoft = Brand.Ice.copy(alpha = .11f).compositeOver(Amoled.Black),
+    amethyst = Brand.Bright,
+    amethystBright = Brand.Ice,
     cyan = Brand.Bright,
     cyanBright = Brand.Ice,
-    slate = Brand.NavyDark,
+    slate = Amoled.Panel,
     slateBright = Brand.Ice,
-    danger = Color(0xFFFF718B),
-    dangerBright = Color(0xFFFF99AA),
-    emerald = Color(0xFF55D7B4),
-    amber = Color(0xFFF2B45F),
-    ink = Brand.Alice,
-    inkMuted = Brand.Ice.copy(alpha = .85f).compositeOver(Brand.NavyDeep),
-    inkFaint = Brand.Ice.copy(alpha = .55f).compositeOver(Brand.NavyDeep)
+    danger = Color(0xFFFF7089),
+    dangerBright = Color(0xFFFF9CAD),
+    emerald = Color(0xFF3FE0B0),
+    amber = Color(0xFFFFC061),
+    ink = Amoled.Ink,
+    inkMuted = Amoled.Ink.copy(alpha = .68f).compositeOver(Amoled.Black),
+    inkFaint = Amoled.Ink.copy(alpha = .40f).compositeOver(Amoled.Black)
 )
 
 private val LocalAetherPalette = staticCompositionLocalOf { LightPalette }
 
 object Aether {
+    /** True when the AMOLED (black) palette is active — surfaces must stay near #000000. */
+    val IsDark: Boolean @Composable get() = LocalAetherPalette.current.isDark
     val Void: Color @Composable get() = LocalAetherPalette.current.void
     val VoidElevated: Color @Composable get() = LocalAetherPalette.current.voidElevated
     val Glass: Color @Composable get() = LocalAetherPalette.current.glass
@@ -306,21 +336,27 @@ fun AetherFlowTheme(
     } else {
         darkColorScheme(
             primary=palette.cyan,
-            onPrimary=Brand.NavyDeep,
+            onPrimary=Amoled.Black,
             primaryContainer=palette.cyan.copy(alpha=.14f),
             onPrimaryContainer=palette.ink,
             secondary=palette.emerald,
-            onSecondary=Color(0xFF061711),
+            onSecondary=Amoled.Black,
             secondaryContainer=palette.emerald.copy(alpha=.12f),
             onSecondaryContainer=palette.ink,
             tertiary=palette.amethyst,
             background=palette.void,
             onBackground=palette.ink,
-            surface=palette.voidElevated,
+            surface=palette.void,
             onSurface=palette.ink,
-            surfaceVariant=palette.glassStrong,
+            surfaceContainerLowest=palette.void,
+            surfaceContainerLow=palette.voidElevated,
+            surfaceContainer=palette.voidElevated,
+            surfaceContainerHigh=palette.glass,
+            surfaceContainerHighest=palette.glassStrong,
+            surfaceVariant=palette.glass,
             onSurfaceVariant=palette.inkMuted,
             surfaceTint=Color.Transparent,
+            scrim=Color.Black,
             error=palette.danger,
             outline=palette.glassBorder,
             outlineVariant=palette.glassBorderSoft
@@ -329,7 +365,20 @@ fun AetherFlowTheme(
 
     val scheme=when {
         dynamicColor && light -> dynamicLightColorScheme(context)
-        dynamicColor && !light -> dynamicDarkColorScheme(context)
+        // Even under Material You, dark stays AMOLED: only the accents come from the wallpaper,
+        // the surface stack is forced back to true black.
+        dynamicColor && !light -> dynamicDarkColorScheme(context).copy(
+            background=palette.void,
+            surface=palette.void,
+            surfaceContainerLowest=palette.void,
+            surfaceContainerLow=palette.voidElevated,
+            surfaceContainer=palette.voidElevated,
+            surfaceContainerHigh=palette.glass,
+            surfaceContainerHighest=palette.glassStrong,
+            surfaceVariant=palette.glass,
+            surfaceTint=Color.Transparent,
+            scrim=Color.Black
+        )
         else -> fallback
     }
 
@@ -340,8 +389,10 @@ fun AetherFlowTheme(
             val controller=WindowCompat.getInsetsController(window,view)
             controller.isAppearanceLightStatusBars=light
             controller.isAppearanceLightNavigationBars=light
-            window.statusBarColor=scheme.background.toArgb()
-            window.navigationBarColor=scheme.background.toArgb()
+            // System bars are painted with the exact app background so an AMOLED build has no
+            // visible seam between the app and the gesture bar.
+            window.statusBarColor=palette.void.toArgb()
+            window.navigationBarColor=palette.void.toArgb()
             if(Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 window.isStatusBarContrastEnforced=false
                 window.isNavigationBarContrastEnforced=false

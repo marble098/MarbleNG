@@ -75,8 +75,11 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.VectorConverter
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -110,6 +113,8 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalConfiguration
@@ -207,18 +212,12 @@ fun Aether2026App(
         }
     }
 
+    // MARBLE_LIQUID_GLASS_DOCK_V103 — the dock is no longer a Scaffold bottomBar. A bottomBar
+    // reserves opaque layout space, which is exactly what a floating glass dock must not do:
+    // nothing would ever pass behind it. It is now an overlay inside the content Box and every
+    // page reserves MarbleDock.ContentInset instead.
     Scaffold(
-        containerColor = Aether.Void,
-        bottomBar = {
-            FloatingSpatialDock(
-                selected = tabs[pagerState.currentPage],
-                onSelect = { next ->
-                    detailProfile = null
-                    settingsFocus = null
-                    scope.launch { pagerState.animateScrollToPage(next.ordinal) }
-                }
-            )
-        }
+        containerColor = Aether.Void
     ) { padding ->
         Box(
             modifier = Modifier
@@ -282,6 +281,18 @@ fun Aether2026App(
             }
 
 
+            // The floating liquid-glass dock, painted above the pages so content is visible
+            // through it, and below the detail page / toast layer.
+            FloatingSpatialDock(
+                selected = tabs[pagerState.currentPage],
+                onSelect = { next ->
+                    detailProfile = null
+                    settingsFocus = null
+                    scope.launch { pagerState.animateScrollToPage(next.ordinal) }
+                },
+                modifier = Modifier.align(Alignment.BottomCenter)
+            )
+
             AnimatedContent(
                 targetState = detailProfile,
                 modifier = Modifier.matchParentSize(),
@@ -332,7 +343,8 @@ fun Aether2026App(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .imePadding()
-                    .padding(start = 14.dp, end = 14.dp, bottom = 12.dp)
+                    .navigationBarsPadding()
+                    .padding(start = 14.dp, end = 14.dp, bottom = MarbleDock.Height + 22.dp)
                     .widthIn(max = 520.dp)
             )
         }
@@ -702,93 +714,194 @@ private fun DeepSpaceBackdrop(modifier: Modifier = Modifier) {
     PrismBackdrop(modifier)
 }
 
+/**
+ * MARBLE_LIQUID_GLASS_DOCK_V103
+ *
+ * The bottom navigation is a single floating glass capsule, rebuilt from scratch.
+ *
+ * Why it is shaped like this:
+ *  - It **floats**: it is an overlay, not a Scaffold bottom bar, so page content scrolls
+ *    underneath it and is genuinely visible through the glass. Every page reserves
+ *    [MarbleDock.ContentInset] at the bottom so nothing is ever trapped behind it.
+ *  - It is **glass**: a translucent surface tinted from the app background, a top-edge sheen
+ *    and a single hairline. Content behind reads through at roughly 25-30% — enough to feel
+ *    like glass, never enough to hurt the labels.
+ *  - It is **liquid**: selection is one continuous blob that travels between items on a soft
+ *    spring and squashes/stretches along the direction of travel while it is in flight, the way
+ *    a drop of liquid does. Nothing cross-fades; the same blob is always the same object.
+ *  - Its corners are a full capsule (height/2), so the shape stays perfectly round at any size.
+ */
+internal object MarbleDock {
+    val Height = 66.dp
+    val SideMargin = 16.dp
+    val BottomMargin = 12.dp
+    val MaxWidth = 420.dp
+    /** Bottom padding every scrollable page must reserve so the floating dock never covers content. */
+    val ContentInset = 104.dp
+}
+
 @Composable
 private fun FloatingSpatialDock(
     selected: SpatialTab,
-    onSelect: (SpatialTab) -> Unit
+    onSelect: (SpatialTab) -> Unit,
+    modifier: Modifier = Modifier
 ) {
-    // MARBLE_BOTTOM_DOCK_UNIFIED_FLOATING_V661
-    // Design intent:
-    // - one unified floating navigation system
-    // - no giant background slab
-    // - no per-tab filled cards
-    // - no inner shadow band
-    // - active state shown by tone + minimal underline only
+    val tabs = SpatialTab.entries
+    val selectedIndex = tabs.indexOf(selected).coerceAtLeast(0)
+    val amoled = Aether.IsDark
+    val capsule = RoundedCornerShape(percent = 50)
+
+    // The glass stack. On AMOLED the pane is a near-black translucent sheet so the dock still
+    // reads as a distinct object against a pure black page without lighting up the panel.
+    val paneFill = if (amoled) {
+        Color.White.copy(alpha = .055f).compositeOver(Aether.Void.copy(alpha = .72f))
+    } else {
+        Aether.VoidElevated.copy(alpha = .78f)
+    }
+    val sheen = Brush.verticalGradient(
+        listOf(
+            Color.White.copy(alpha = if (amoled) .07f else .55f),
+            Color.Transparent,
+            Aether.Cyan.copy(alpha = if (amoled) .05f else .04f)
+        )
+    )
+    val rim = if (amoled) Aether.Cyan.copy(alpha = .20f) else Aether.GlassBorderSoft
+
     Box(
-        modifier=Modifier
+        modifier = modifier
             .fillMaxWidth()
             .navigationBarsPadding()
-            .padding(horizontal=18.dp,vertical=10.dp),
-        contentAlignment=Alignment.Center
+            .padding(
+                start = MarbleDock.SideMargin,
+                end = MarbleDock.SideMargin,
+                bottom = MarbleDock.BottomMargin
+            ),
+        contentAlignment = Alignment.Center
     ) {
-        Row(
-            modifier=Modifier
-                .widthIn(max=520.dp)
-                .fillMaxWidth(),
-            horizontalArrangement=Arrangement.SpaceEvenly,
-            verticalAlignment=Alignment.CenterVertically
+        BoxWithConstraints(
+            modifier = Modifier
+                .widthIn(max = MarbleDock.MaxWidth)
+                .fillMaxWidth()
+                .height(MarbleDock.Height)
+                // One soft shadow only, and only where a shadow can actually be seen.
+                .shadow(
+                    elevation = if (amoled) 0.dp else 18.dp,
+                    shape = capsule,
+                    clip = false,
+                    ambientColor = Aether.Cyan.copy(alpha = .22f),
+                    spotColor = Aether.Cyan.copy(alpha = .30f)
+                )
+                .clip(capsule)
+                .background(paneFill)
+                .background(sheen)
+                .border(1.dp, rim, capsule)
         ) {
-            SpatialTab.entries.forEach { item ->
-                val active=item == selected
-                val itemShape=RoundedCornerShape(18.dp)
-                val contentTone by animateColorAsState(
-                    targetValue=if(active) Aether.Cyan else Aether.InkMuted,
-                    animationSpec=MarbleMotionSpecs.Color,
-                    label="dock-tone-${item.name}"
-                )
-                val indicatorTone by animateColorAsState(
-                    targetValue=if(active) Aether.Cyan.copy(alpha=.92f) else Color.Transparent,
-                    animationSpec=MarbleMotionSpecs.Color,
-                    label="dock-indicator-${item.name}"
-                )
-                // MARBLE_NAVY_BRAND_UI_V77 — the active tab gets a soft ice-blue pill
-                // (M3 Expressive floating-nav pattern) instead of colour alone.
-                val itemBg by animateColorAsState(
-                    targetValue=if(active) Aether.Cyan.copy(alpha=.10f) else Color.Transparent,
-                    animationSpec=MarbleMotionSpecs.Color,
-                    label="dock-bg-${item.name}"
-                )
+            val slotWidth = maxWidth / tabs.size
 
-                Column(
-                    modifier=Modifier
-                        .weight(1f)
-                        .height(60.dp)
-                        .clip(itemShape)
-                        .background(itemBg)
-                        .kineticClickable(
-                            boundedShape=itemShape,
-                            role=Role.Button
-                        ) { onSelect(item) }
-                        .padding(horizontal=8.dp,vertical=4.dp),
-                    horizontalAlignment=Alignment.CenterHorizontally,
-                    verticalArrangement=Arrangement.Center
-                ) {
-                    MarbleTabIcon(
-                        tab=item,
-                        color=contentTone,
-                        active=active,
-                        modifier=Modifier.size(21.dp)
+            // ---- the liquid blob -------------------------------------------------------
+            // One spring is the whole animation. Position and deformation are both read from it,
+            // so travel and squash can never desynchronise.
+            val targetCenter = slotWidth * (selectedIndex + .5f)
+            val blobCenter = remember { Animatable(targetCenter, Dp.VectorConverter) }
+            LaunchedEffect(targetCenter) {
+                blobCenter.animateTo(
+                    targetValue = targetCenter,
+                    animationSpec = spring(dampingRatio = .62f, stiffness = 340f)
+                )
+            }
+            // `blobCenter.value` is snapshot state, so this recomposes on every animation frame
+            // and the deformation is derived from the *actual* remaining distance rather than a
+            // second, independently-timed animation that could drift out of phase.
+            val remaining = kotlin.math.abs((targetCenter - blobCenter.value).value)
+            val travel = (remaining / slotWidth.value.coerceAtLeast(1f)).coerceIn(0f, 1f)
+
+            val blobWidth = (slotWidth - 10.dp) * (1f + .16f * travel)
+            val blobHeight = (MarbleDock.Height - 12.dp) * (1f - .14f * travel)
+
+            Box(
+                modifier = Modifier
+                    .align(Alignment.CenterStart)
+                    .offset(x = blobCenter.value - blobWidth / 2)
+                    .width(blobWidth)
+                    .height(blobHeight)
+                    .clip(RoundedCornerShape(percent = 50))
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(
+                                Aether.Cyan.copy(alpha = if (amoled) .30f else .22f),
+                                Aether.Cyan.copy(alpha = if (amoled) .14f else .12f)
+                            )
+                        )
+                    )
+                    .border(
+                        1.dp,
+                        Aether.Cyan.copy(alpha = if (amoled) .42f else .30f),
+                        RoundedCornerShape(percent = 50)
+                    )
+            )
+
+            // ---- the tabs --------------------------------------------------------------
+            Row(
+                modifier = Modifier.fillMaxSize(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                tabs.forEach { item ->
+                    val active = item == selected
+                    val tone by animateColorAsState(
+                        targetValue = if (active) Aether.Cyan else Aether.InkMuted,
+                        animationSpec = MarbleMotionSpecs.Color,
+                        label = "dock-tone-${item.name}"
+                    )
+                    val iconLift by animateDpAsState(
+                        targetValue = if (active) (-1).dp else 0.dp,
+                        animationSpec = MarbleMotionSpecs.Dp,
+                        label = "dock-lift-${item.name}"
+                    )
+                    val iconScale by animateFloatAsState(
+                        targetValue = if (active) 1.08f else 1f,
+                        animationSpec = MarbleMotionSpecs.InteractionFloat,
+                        label = "dock-scale-${item.name}"
                     )
 
-                    Spacer(Modifier.height(5.dp))
-
-                    Text(
-                        item.label,
-                        color=contentTone,
-                        style=MaterialTheme.typography.labelMedium,
-                        fontWeight=if(active) FontWeight.SemiBold else FontWeight.Medium,
-                        maxLines=1
-                    )
-
-                    Spacer(Modifier.height(5.dp))
-
-                    Box(
-                        modifier=Modifier
-                            .width(22.dp)
-                            .height(3.dp)
-                            .clip(RoundedCornerShape(2.dp))
-                            .background(indicatorTone)
-                    )
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                            .clip(RoundedCornerShape(percent = 50))
+                            .kineticClickable(
+                                boundedShape = RoundedCornerShape(percent = 50),
+                                role = Role.Tab,
+                                showIndication = false
+                            ) { onSelect(item) }
+                            .semantics {
+                                this.selected = active
+                                contentDescription = "${item.label} tab"
+                                stateDescription = if (active) "Selected" else "Not selected"
+                            },
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        MarbleTabIcon(
+                            tab = item,
+                            color = tone,
+                            active = active,
+                            modifier = Modifier
+                                .offset(y = iconLift)
+                                .size(21.dp)
+                                .graphicsLayer {
+                                    scaleX = iconScale
+                                    scaleY = iconScale
+                                }
+                        )
+                        Spacer(Modifier.height(3.dp))
+                        Text(
+                            item.label,
+                            color = tone,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
+                            maxLines = 1
+                        )
+                    }
                 }
             }
         }
@@ -1004,18 +1117,23 @@ private fun SectionLabel(
     title: String,
     subtitle: String? = null
 ) {
+    // A sub-heading inside a settings card. It exists to *group* the rows below it — it is the
+    // "زیرتیتر" of the section — so it is typographically stronger than the rows' old captions
+    // and is the only place a short clarifying line is allowed to live.
     Column(
-        modifier=Modifier.padding(vertical=3.dp),
-        verticalArrangement=Arrangement.spacedBy(3.dp)
+        modifier=Modifier
+            .fillMaxWidth()
+            .padding(top=MarbleSettings.GroupTopGap,bottom=2.dp),
+        verticalArrangement=Arrangement.spacedBy(2.dp)
     ) {
         Row(
             verticalAlignment=Alignment.CenterVertically,
-            horizontalArrangement=Arrangement.spacedBy(8.dp)
+            horizontalArrangement=Arrangement.spacedBy(9.dp)
         ) {
             Box(
                 Modifier
                     .width(3.dp)
-                    .height(18.dp)
+                    .height(20.dp)
                     .clip(RoundedCornerShape(999.dp))
                     .background(
                         Brush.verticalGradient(
@@ -1033,8 +1151,9 @@ private fun SectionLabel(
         subtitle?.takeIf { it.isNotBlank() }?.let { detail ->
             Text(
                 detail,
-                color=Aether.InkMuted,
+                color=Aether.InkFaint,
                 style=MaterialTheme.typography.bodySmall,
+                modifier=Modifier.padding(start=12.dp),
                 maxLines=2,
                 overflow=TextOverflow.Ellipsis
             )
@@ -1906,7 +2025,7 @@ private fun CyberDeck(
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 6.dp, bottom = 24.dp),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 6.dp, bottom = MarbleDock.ContentInset),
         // MARBLE_HOME_PUZZLE_GRID_V77 — one shared 10dp gutter. Every Home card sits on the
         // same 8dp/10dp rhythm with matching radii, so the stack interlocks like puzzle pieces
         // instead of drifting as a list of unrelated floating panels.
@@ -3051,7 +3170,7 @@ private fun CyberLibrary(
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 6.dp, bottom = 24.dp),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 6.dp, bottom = MarbleDock.ContentInset),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         item {
@@ -5159,13 +5278,47 @@ private fun MicroStat(
 // SETTINGS / SWIPEABLE WORKSPACES
 // =================================================================================================
 
-private enum class SettingsWorkspaceTab(val label: String, val icon: HomeIcon) {
-    GENERAL("General", HomeIcon.SPARK),
-    FREEDOM("Freedom", HomeIcon.SHIELD),
-    TESTS("Testing", HomeIcon.PING),
-    NETWORK("Network", HomeIcon.NETWORK),
-    ENGINE("Engine", HomeIcon.TUNNEL),
-    SYSTEM("System", HomeIcon.DETAILS)
+/**
+ * MARBLE_SETTINGS_INFORMATION_ARCHITECTURE_V103
+ *
+ * The old Settings screen had six overlapping workspaces ("General / Freedom / Testing /
+ * Network / Engine / System") whose boundaries nobody could predict: DNS lived in Network,
+ * fragmentation lived in Engine, Iran Mode lived in Network but the Freedom engine that drives
+ * it lived in Freedom, and notifications lived in "System" next to a debugger.
+ *
+ * The screen is re-cut along the only question a user actually asks — *what am I changing?*:
+ *
+ *   General     — the app itself: look, layout, subscriptions, notifications.
+ *   Connection  — how traffic leaves the device: mode, split tunnel, DNS, routing.
+ *   Freedom     — censorship circumvention: the Freedom engine, Iran Mode, fragmentation/Mux.
+ *   Performance — measurement and adaptation: probes, benchmarks, Marble Intelligence.
+ *   Advanced    — expert surface: diagnostics and the bug finder.
+ *
+ * Five tabs fit a phone strip without horizontal scrolling, and every card belongs to exactly
+ * one of them. Inside a card, related switches sit under a [SectionLabel] sub-heading, so every
+ * option now has a title and a sub-title above it instead of a caption under it.
+ */
+private enum class SettingsWorkspaceTab(
+    val label: String,
+    /** One short line describing the whole workspace — the screen's only running copy. */
+    val summary: String,
+    val icon: HomeIcon
+) {
+    GENERAL("General", "App appearance, layout, sources and alerts", HomeIcon.SPARK),
+    CONNECTION("Connection", "How traffic leaves this device", HomeIcon.TUNNEL),
+    FREEDOM("Freedom", "Censorship circumvention and DPI evasion", HomeIcon.SHIELD),
+    PERFORMANCE("Performance", "Measurement, tuning and adaptive routing", HomeIcon.BENCHMARK),
+    ADVANCED("Advanced", "Expert controls and diagnostics", HomeIcon.DETAILS)
+}
+
+/** Shared metrics for the Settings screen so every card, group and row lands on one rhythm. */
+internal object MarbleSettings {
+    /** Minimum touch/reading height of a single option row. */
+    val RowHeight = 58.dp
+    /** Gap above a sub-heading inside a card. */
+    val GroupTopGap = 10.dp
+    /** Gap between two cards. */
+    val CardGap = 14.dp
 }
 
 private fun rememberedSettingsTab(name: String): SettingsWorkspaceTab =
@@ -5174,11 +5327,10 @@ private fun rememberedSettingsTab(name: String): SettingsWorkspaceTab =
 @Composable
 private fun settingsTabTone(tab: SettingsWorkspaceTab): Color = when (tab) {
     SettingsWorkspaceTab.GENERAL -> Aether.Cyan
+    SettingsWorkspaceTab.CONNECTION -> Aether.Emerald
     SettingsWorkspaceTab.FREEDOM -> Aether.Cyan
-    SettingsWorkspaceTab.TESTS -> Aether.Amethyst
-    SettingsWorkspaceTab.NETWORK -> Aether.Emerald
-    SettingsWorkspaceTab.ENGINE -> Aether.Amber
-    SettingsWorkspaceTab.SYSTEM -> Aether.Cyan
+    SettingsWorkspaceTab.PERFORMANCE -> Aether.Amethyst
+    SettingsWorkspaceTab.ADVANCED -> Aether.Amber
 }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -5191,7 +5343,7 @@ private fun SpatialSettings(
     val tabs = SettingsWorkspaceTab.entries
     val expertMode = repo.settings.expertMode
     val initialPage = if (focusSection == "Routing") {
-        SettingsWorkspaceTab.NETWORK.ordinal
+        SettingsWorkspaceTab.CONNECTION.ordinal
     } else rememberedSettingsTab(repo.lastSettingsTab).ordinal
 
     // MARBLE_SETTINGS_TOTAL_HOTFIX_V76
@@ -5221,7 +5373,7 @@ private fun SpatialSettings(
     // a side effect: the focused Routing card renders in both modes.
     LaunchedEffect(focusSection) {
         if (focusSection == "Routing") {
-            selectedTabIndex = SettingsWorkspaceTab.NETWORK.ordinal
+            selectedTabIndex = SettingsWorkspaceTab.CONNECTION.ordinal
         }
     }
 
@@ -5313,14 +5465,16 @@ private fun SpatialSettings(
                 .fillMaxSize()
                 .imePadding(),
             state = contentListState,
-            contentPadding = PaddingValues(bottom = 20.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            contentPadding = PaddingValues(bottom = MarbleDock.ContentInset),
+            verticalArrangement = Arrangement.spacedBy(MarbleSettings.CardGap)
         ) {
             item(key = "settings-header") {
                 Box(Modifier.padding(horizontal = 16.dp)) {
+                    // The workspace summary is shown once, here, instead of being repeated as a
+                    // caption under every control inside the page.
                     MarbleCompactTopBar(
                         title = "Settings",
-                        subtitle = activeTab.label
+                        subtitle = activeTab.summary
                     )
                 }
             }
@@ -5358,7 +5512,7 @@ private fun SpatialSettings(
             }
 
             item(key = "settings-content-end") {
-                Spacer(Modifier.height(18.dp))
+                Spacer(Modifier.height(4.dp))
             }
         }
     }
@@ -5372,27 +5526,30 @@ private fun SettingsTabStrip(
     tabsState: LazyListState,
     onSelect: (Int) -> Unit
 ) {
-    // The strip host has a fixed 58dp height and the scroll hints use matchParentSize, not
-    // fillMaxHeight. fillMaxHeight hints made this Box grow to the parent's entire remaining
-    // height on affected builds, collapsing the weighted settings workspace below the strip.
+    // MARBLE_SETTINGS_TAB_STRIP_V103
+    // Five tabs, so the strip is a single glass rail of capsules instead of six free-floating
+    // elevated cards that each cast their own shadow. Selection is carried by a filled capsule
+    // in the tab's own tone; unselected tabs are ink only. The rail keeps its fixed height for
+    // the same layout-stability reason as before.
+    val railShape = RoundedCornerShape(percent = 50)
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(58.dp)
+            .height(64.dp)
             .background(Aether.Void)
+            .padding(horizontal = 16.dp, vertical = 6.dp)
     ) {
         LazyRow(
             state = tabsState,
             modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(min = 58.dp),
-            contentPadding = PaddingValues(
-                start = 16.dp,
-                end = 16.dp,
-                top = 5.dp,
-                bottom = 7.dp
-            ),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                .fillMaxSize()
+                .clip(railShape)
+                .background(
+                    if (Aether.IsDark) Aether.Glass else Aether.GlassStrong.copy(alpha = .55f)
+                )
+                .border(1.dp, Aether.GlassBorderSoft, railShape),
+            contentPadding = PaddingValues(horizontal = 5.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             itemsIndexed(
@@ -5401,68 +5558,57 @@ private fun SettingsTabStrip(
             ) { index, tab ->
                 val selected = activeIndex == index
                 val tone = settingsTabTone(tab)
-                val shape = RoundedCornerShape(18.dp)
+                val shape = RoundedCornerShape(percent = 50)
+                val fill by animateColorAsState(
+                    targetValue = if (selected) tone.copy(alpha = if (Aether.IsDark) .22f else .14f) else Color.Transparent,
+                    animationSpec = MarbleMotionSpecs.Color,
+                    label = "settings-tab-fill-${tab.name}"
+                )
+                val ink by animateColorAsState(
+                    targetValue = if (selected) tone else Aether.InkMuted,
+                    animationSpec = MarbleMotionSpecs.Color,
+                    label = "settings-tab-ink-${tab.name}"
+                )
 
                 Row(
                     modifier = Modifier
-                        .heightIn(min = 46.dp)
-                        .prismElevated(
-                            shape = shape,
-                            tone = tone,
-                            selected = selected,
-                            fill = Aether.VoidElevated
-                        )
+                        .height(44.dp)
+                        .clip(shape)
+                        .background(fill)
                         .kineticClickable(
-                            role = Role.Tab
+                            boundedShape = shape,
+                            role = Role.Tab,
+                            showIndication = false
                         ) {
                             onSelect(index)
                         }
                         .semantics {
                             this.selected = selected
-                            contentDescription = "${tab.label} tab"
+                            contentDescription = "${tab.label} settings"
                             stateDescription = if (selected) "Selected" else "Not selected"
                         }
-                        .padding(horizontal = 13.dp, vertical = 9.dp),
+                        .padding(horizontal = 13.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(7.dp)
                 ) {
                     HomeVectorIcon(
                         tab.icon,
-                        if (selected) tone else Aether.InkMuted,
+                        ink,
                         Modifier.size(17.dp)
                     )
                     Text(
                         tab.label,
-                        color = if (selected) tone else Aether.InkMuted,
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium
+                        color = ink,
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                        maxLines = 1
                     )
                 }
             }
         }
-
-        // MARBLE_SETTINGS_TABS_SCROLL_HINT_V1 — fade hints so it's obvious the
-        // tab strip keeps going instead of just cutting a label off mid-word.
-        if (tabsState.canScrollBackward) {
-            Box(
-                Modifier
-                    .align(Alignment.CenterStart)
-                    .matchParentSize()
-                    .width(20.dp)
-                    .background(Brush.horizontalGradient(listOf(Aether.Void, Color.Transparent)))
-            )
-        }
-        if (tabsState.canScrollForward) {
-            Box(
-                Modifier
-                    .align(Alignment.CenterEnd)
-                    .matchParentSize()
-                    .width(20.dp)
-                    .background(Brush.horizontalGradient(listOf(Color.Transparent, Aether.Void)))
-            )
-        }
     }
 }
+
 @Composable
 private fun SettingsTabPane(
     tab: SettingsWorkspaceTab,
@@ -5535,8 +5681,8 @@ private fun SettingsWorkspacePage(
             modifier = modifier
                 .then(tripwire)
                 .verticalScroll(scrollState)
-                .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+                .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = MarbleDock.ContentInset),
+            verticalArrangement = Arrangement.spacedBy(MarbleSettings.CardGap)
         ) {
             if (sections.isEmpty()) {
                 emptySettingsCard()
@@ -5555,8 +5701,8 @@ private fun SettingsWorkspacePage(
         LazyColumn(
             modifier = modifier.then(tripwire),
             state = listState,
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = MarbleDock.ContentInset),
+            verticalArrangement = Arrangement.spacedBy(MarbleSettings.CardGap)
         ) {
             if (sections.isEmpty()) {
                 item(key = "settings-empty") {
@@ -5633,15 +5779,46 @@ private fun settingsSections(
     ) { ExpertGateRow(repo) }
 
     return when (tab) {
+        // --- General: the app, not the tunnel -------------------------------------------
         SettingsWorkspaceTab.GENERAL -> listOf(
-            card("Appearance & layout","Theme, expertise and Home composition",HomeIcon.MODE,Aether.Cyan) { AppearanceSettings(repo) },
-            card("Connection","Full-device tunnel or local SOCKS proxy",HomeIcon.TUNNEL,Aether.Cyan) { ConnectionSettings(repo) },
-            card("Subscriptions","Automatic refresh cadence and source behavior",HomeIcon.LIBRARY,Aether.Amethyst) { SubscriptionSettings(repo) }
+            card("Appearance","Theme and expert controls",HomeIcon.MODE,Aether.Cyan) { AppearanceSettings(repo) },
+            card("Home layout","Which cards appear on the Home screen",HomeIcon.SPARK,Aether.Cyan) { HomeLayoutSettings(repo) },
+            card("Subscriptions","Automatic refresh cadence and source behavior",HomeIcon.LIBRARY,Aether.Amethyst) { SubscriptionSettings(repo) },
+            card("Notifications","Connection, recovery and privacy alerts",HomeIcon.STATUS,Aether.Cyan) { NotificationSettings(repo) }
         )
-        SettingsWorkspaceTab.FREEDOM -> listOf(
-            card("Marble Freedom Engine","Serverless DPI bypass, multi-layer fragmentation & smart multi-DNS",HomeIcon.SHIELD,Aether.Cyan) { FreedomSettings(repo) }
-        )
-        SettingsWorkspaceTab.TESTS -> buildList {
+
+        // --- Connection: how traffic leaves the device ----------------------------------
+        SettingsWorkspaceTab.CONNECTION -> buildList {
+            add(card("Tunnel mode","Full-device tunnel or local SOCKS proxy",HomeIcon.TUNNEL,Aether.Emerald) { ConnectionSettings(repo) })
+            add(card("Split tunneling","Choose exactly which apps use or bypass the tunnel",HomeIcon.PRIVACY,Aether.Emerald) { SplitTunnelSettings(repo) })
+            // Routing is the target of the Home shortcut, so it is pinned to the top of the
+            // expert group when the user arrived from there.
+            if(routingFocused) {
+                add(card("Routing","Geo assets, direct rules and blocking policy",HomeIcon.ROUTING,Aether.Emerald) { RoutingSettings(repo) })
+            }
+            if(expertMode) {
+                add(card("DNS","TUN resolvers and the encrypted DoH path",HomeIcon.NETWORK,Aether.Cyan) { DnsSettings(repo) })
+                if(!routingFocused) {
+                    add(card("Routing","Geo assets, direct rules and blocking policy",HomeIcon.ROUTING,Aether.Emerald) { RoutingSettings(repo) })
+                }
+            } else {
+                add(expertGate)
+            }
+        }
+
+        // --- Freedom: everything that fights censorship, in one place -------------------
+        SettingsWorkspaceTab.FREEDOM -> buildList {
+            add(card("Marble Freedom Engine","Serverless DPI bypass and smart multi-DNS",HomeIcon.SHIELD,Aether.Cyan) { FreedomSettings(repo) })
+            if(expertMode) {
+                add(card("Regional protection","Iran Mode detection and countermeasures",HomeIcon.SHIELD,Aether.Emerald) { IranModeSettings(repo) })
+                add(card("Fragmentation & Mux","DPI resilience and connection reuse",HomeIcon.SPARK,Aether.Amber) { FragmentMuxSettings(repo) })
+            } else {
+                add(expertGate)
+            }
+        }
+
+        // --- Performance: measure, then adapt -------------------------------------------
+        SettingsWorkspaceTab.PERFORMANCE -> buildList {
             add(card("Testing & ping","Real tunnel, TCP and ICMP evidence policy",HomeIcon.BENCHMARK,Aether.Amethyst) { ProbeSettings(repo) })
             if(expertMode) {
                 add(card("Marble Intelligence","Adaptive route history, recovery and optimizer policy",HomeIcon.SPARK,Aether.Cyan) { IntelligenceSettings(repo) })
@@ -5649,31 +5826,10 @@ private fun settingsSections(
                 add(expertGate)
             }
         }
-        SettingsWorkspaceTab.NETWORK -> buildList {
-            add(card("Split tunneling","Choose exactly which apps use or bypass the tunnel",HomeIcon.PRIVACY,Aether.Emerald) { SplitTunnelSettings(repo) })
-            if(expertMode) {
-                if(routingFocused) {
-                    add(card("Routing","Geo assets, direct rules and blocking policy",HomeIcon.ROUTING,Aether.Emerald) { RoutingSettings(repo) })
-                }
-                add(card("Regional protection","Iran Mode detection and countermeasures",HomeIcon.SHIELD,Aether.Emerald) { IranModeSettings(repo) })
-                add(card("DNS","TUN resolvers and encrypted DoH path",HomeIcon.NETWORK,Aether.Cyan) { DnsSettings(repo) })
-                if(!routingFocused) {
-                    add(card("Routing","Geo assets, direct rules and blocking policy",HomeIcon.ROUTING,Aether.Emerald) { RoutingSettings(repo) })
-                }
-            } else {
-                if(routingFocused) {
-                    add(card("Routing","Geo assets, direct rules and blocking policy",HomeIcon.ROUTING,Aether.Emerald) { RoutingSettings(repo) })
-                }
-                add(expertGate)
-            }
-        }
-        SettingsWorkspaceTab.ENGINE -> listOf(
-            if(expertMode) {
-                card("Fragmentation & Mux","DPI resilience and connection reuse",HomeIcon.SPARK,Aether.Amber) { FragmentMuxSettings(repo) }
-            } else expertGate
-        )
-        SettingsWorkspaceTab.SYSTEM -> listOf(
-            card("Notifications","Connection, recovery and privacy alerts",HomeIcon.STATUS,Aether.Cyan) { NotificationSettings(repo) },
+
+        // --- Advanced: diagnostics ------------------------------------------------------
+        SettingsWorkspaceTab.ADVANCED -> listOf(
+            card("Expert controls","Unlock every option across the Settings screen",HomeIcon.SHIELD,Aether.Amethyst) { ExpertGateRow(repo) },
             card("Bug Finder","Deep Xray, SOCKS, TUN and HEV diagnostics",HomeIcon.DETAILS,Aether.Danger) { BugFinderSettings(repo) }
         )
     }
@@ -5718,19 +5874,22 @@ private fun SettingsSectionCard(
     color: Color,
     content: @Composable ColumnScope.() -> Unit
 ) {
+    // MARBLE_SETTINGS_INFORMATION_ARCHITECTURE_V103
+    // The card header is the section's *title*; spec.subtitle is its one-line *sub-title*. Those
+    // two lines are the entire explanatory budget of a section — nothing below them repeats it.
     PrismPanel(
         modifier=Modifier.fillMaxWidth(),
         accent=color,
-        contentPadding=PaddingValues(14.dp)
+        contentPadding=PaddingValues(16.dp)
     ) {
         Row(
             modifier=Modifier.fillMaxWidth(),
             verticalAlignment=Alignment.CenterVertically,
-            horizontalArrangement=Arrangement.spacedBy(11.dp)
+            horizontalArrangement=Arrangement.spacedBy(12.dp)
         ) {
             Box(
                 Modifier
-                    .size(42.dp)
+                    .size(44.dp)
                     .clip(RoundedCornerShape(14.dp))
                     .background(color.copy(alpha=.11f))
                     .border(
@@ -5753,9 +5912,9 @@ private fun SettingsSectionCard(
                 Text(
                     title,
                     color=Aether.Ink,
-                    style=MaterialTheme.typography.titleMedium,
+                    style=MaterialTheme.typography.titleLarge,
                     fontWeight=FontWeight.Bold,
-                    maxLines=1,
+                    maxLines=2,
                     overflow=TextOverflow.Ellipsis
                 )
                 if(subtitle.isNotBlank()) {
@@ -5781,12 +5940,7 @@ private fun SettingsSectionCard(
 
 @Composable
 private fun AppearanceSettings(repo: AppRepository) {
-    Text(
-        "Theme",
-        color=Aether.Ink,
-        style=MaterialTheme.typography.titleSmall,
-        fontWeight=FontWeight.Bold
-    )
+    SectionLabel("Theme")
     Row(
         modifier=Modifier.fillMaxWidth(),
         horizontalArrangement=Arrangement.spacedBy(8.dp)
@@ -5812,8 +5966,10 @@ private fun AppearanceSettings(repo: AppRepository) {
             repo.updateSettings(repo.settings.copy(theme="light"))
         }
         PrismThemeChoice(
-            label="Dark",
-            detail="Prism Night",
+            label="Black",
+            // The dark theme is a true AMOLED black, and the picker says so: it is the reason
+            // to choose it over "System" on an OLED phone.
+            detail="AMOLED",
             selected=repo.settings.theme.equals("dark",true),
             darkPreview=true,
             accent=Aether.Emerald,
@@ -5823,74 +5979,86 @@ private fun AppearanceSettings(repo: AppRepository) {
         }
     }
 
-    HorizontalDivider(color=Aether.GlassBorderSoft)
+    SectionLabel("App behaviour")
 
     SettingSwitch(
-        "Expert controls",
-        "",
-        repo.settings.expertMode
+        title="Expert controls",
+        subtitle="Show every advanced option across Settings",
+        checked=repo.settings.expertMode
     ) {
         repo.updateSettings(repo.settings.copy(expertMode=it))
     }
 
     SettingSwitch(
-        "Automatic app update checks",
-        "",
-        repo.settings.appUpdateCheckEnabled
+        title="Automatic app update checks",
+        subtitle="Check the MarbleNG releases feed on launch",
+        checked=repo.settings.appUpdateCheckEnabled
     ) { enabled ->
         repo.updateSettings(
             repo.settings.copy(appUpdateCheckEnabled=enabled)
         )
         if(enabled) repo.checkForAppUpdate(force=true)
     }
+}
 
-    SectionLabel("Home layout")
+/**
+ * Home composition, split out of Appearance.
+ *
+ * Seven "show X on Home" switches inside the theme card was the single densest block in the old
+ * Settings screen. They are one coherent decision — what the Home screen contains — so they are
+ * their own card with their own title.
+ */
+@Composable
+private fun HomeLayoutSettings(repo: AppRepository) {
+    SectionLabel("Status cards")
 
     SettingSwitch(
-        "Server info card on Home",
-        "",
-        repo.settings.serverIntelEnabled
+        title="Server info",
+        subtitle="Live details about the connected node",
+        checked=repo.settings.serverIntelEnabled
     ) { enabled ->
         repo.updateSettings(repo.settings.copy(serverIntelEnabled=enabled))
         if(enabled) repo.refreshServerIntel()
     }
 
     SettingSwitch(
-        "Iran Mode card on Home",
-        "",
-        repo.settings.homeShowIranMode
+        title="Iran Mode",
+        subtitle="Regional protection state",
+        checked=repo.settings.homeShowIranMode
     ) {
         repo.updateSettings(repo.settings.copy(homeShowIranMode=it))
     }
 
     SettingSwitch(
-        "Live quality on Home",
-        "",
-        repo.settings.homeShowLiveQuality
+        title="Live quality",
+        subtitle="Realtime latency and stability readout",
+        checked=repo.settings.homeShowLiveQuality
     ) {
         repo.updateSettings(repo.settings.copy(homeShowLiveQuality=it))
     }
 
+    SectionLabel("Controls")
+
     SettingSwitch(
-        "Server selector on Home",
-        "",
-        repo.settings.homeShowServerSelector
+        title="Server selector",
+        subtitle="Switch route without opening the Library",
+        checked=repo.settings.homeShowServerSelector
     ) {
         repo.updateSettings(repo.settings.copy(homeShowServerSelector=it))
     }
 
     SettingSwitch(
-        "Route ribbon on Home",
-        "",
-        repo.settings.homeShowRouteRibbon
+        title="Route ribbon",
+        subtitle="Device to exit path summary",
+        checked=repo.settings.homeShowRouteRibbon
     ) {
         repo.updateSettings(repo.settings.copy(homeShowRouteRibbon=it))
     }
 
     SettingSwitch(
-        "Marble Freedom on Home",
-        "",
-        repo.settings.homeShowFreedomSwitch
+        title="Marble Freedom switch",
+        subtitle="Toggle the Freedom engine from Home",
+        checked=repo.settings.homeShowFreedomSwitch
     ) {
         repo.updateSettings(repo.settings.copy(homeShowFreedomSwitch=it))
     }
@@ -7695,11 +7863,17 @@ private fun CyberSegment(
 @Composable
 private fun SettingSwitch(
     title: String,
-    subtitle: String,
+    subtitle: String = "",
     checked: Boolean,
     debounceMs: Long = 300L,
     onChecked: (Boolean) -> Unit
 ) {
+    // MARBLE_SETTINGS_INFORMATION_ARCHITECTURE_V103
+    // A settings row is a *label and a state*, nothing else. The explanatory sentence that used
+    // to sit under every switch is deliberately not rendered: with 60+ switches it turned each
+    // workspace into a wall of prose, and the meaning already lives in the group title/subtitle
+    // above the row. The parameter is kept so the (many) call sites stay valid and the copy stays
+    // available for accessibility, where it is genuinely useful.
     val tone=if(checked) Aether.Cyan else Aether.InkMuted
 
     var lastClickTime by remember { mutableLongStateOf(0L) }
@@ -7707,14 +7881,17 @@ private fun SettingSwitch(
     PrismWell(
         modifier=Modifier
             .fillMaxWidth()
+            .heightIn(min=MarbleSettings.RowHeight)
             .semantics {
-                contentDescription = "$title, switch ${if (checked) "on" else "off"}"
+                contentDescription =
+                    if (subtitle.isBlank()) "$title, switch ${if (checked) "on" else "off"}"
+                    else "$title. $subtitle, switch ${if (checked) "on" else "off"}"
                 stateDescription = if (checked) "Enabled" else "Disabled"
             },
         tone=tone,
         selected=checked,
         radius=PrismSurface.TileRadius,
-        contentPadding=PaddingValues(horizontal=12.dp,vertical=10.dp),
+        contentPadding=PaddingValues(horizontal=14.dp,vertical=10.dp),
         onClick={
                 val now = System.currentTimeMillis()
                 if (now - lastClickTime > debounceMs) {
@@ -7734,28 +7911,17 @@ private fun SettingSwitch(
                     .clip(CircleShape)
                     .background(tone)
             )
-            Column(
-                Modifier.weight(1f),
-                verticalArrangement=Arrangement.spacedBy(2.dp)
-            ) {
-                Text(
-                    title,
-                    color=Aether.Ink,
-                    style=MaterialTheme.typography.bodyMedium,
-                    fontWeight=FontWeight.SemiBold,
-                    maxLines=2,
-                    overflow=TextOverflow.Ellipsis
-                )
-                if(subtitle.isNotBlank()) {
-                    Text(
-                        subtitle,
-                        color=Aether.InkMuted,
-                        style=MaterialTheme.typography.bodySmall,
-                        maxLines=2,
-                        overflow=TextOverflow.Ellipsis
-                    )
-                }
-            }
+            Text(
+                title,
+                color=Aether.Ink,
+                // Settings labels are the primary reading surface of this screen, so they use a
+                // real title size instead of the old dense body/caption pairing.
+                style=MaterialTheme.typography.titleMedium,
+                fontWeight=FontWeight.SemiBold,
+                modifier=Modifier.weight(1f),
+                maxLines=2,
+                overflow=TextOverflow.Ellipsis
+            )
             Switch(
                 checked=checked,
                 onCheckedChange=onChecked,

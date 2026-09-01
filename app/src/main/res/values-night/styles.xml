@@ -1,0 +1,19 @@
+<resources>
+    <!--
+        MARBLE_AMOLED_BLACK_THEME_V103
+
+        The launch theme in dark mode must already be true black. Without this, a device in
+        dark mode showed a bright #F0F8FF window for the whole cold-start frame before Compose
+        painted the AMOLED palette — a full-screen white flash on an OLED phone at night.
+    -->
+    <style name="Theme.MarbleNG" parent="android:style/Theme.Material.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+        <item name="android:windowBackground">#000000</item>
+        <item name="android:colorBackground">#000000</item>
+        <item name="android:statusBarColor">#000000</item>
+        <item name="android:navigationBarColor">#000000</item>
+        <item name="android:windowActionModeOverlay">true</item>
+    </style>
+</resources>

@@ -126,6 +126,11 @@ internal fun PrismBackdrop(
     // (electric + bright) so the backdrop reads as deep ice rather than a multicolour wash.
     val second=Aether.CyanBright
     val dot=Aether.InkFaint
+    // MARBLE_AMOLED_BLACK_THEME_V103 — on AMOLED the backdrop must stay physically black.
+    // The ambient glows drop to a whisper and the dot grid is switched off entirely, because
+    // any lit pixel on an otherwise black panel is visible as banding/haze in a dark room.
+    val amoled=Aether.IsDark
+    val glowScale=if(amoled) .34f else 1f
 
     Canvas(modifier) {
         drawRect(base)
@@ -134,8 +139,8 @@ internal fun PrismBackdrop(
         drawCircle(
             brush=Brush.radialGradient(
                 colors=listOf(
-                    cyan.copy(alpha=.095f),
-                    cyan.copy(alpha=.035f),
+                    cyan.copy(alpha=.095f*glowScale),
+                    cyan.copy(alpha=.035f*glowScale),
                     Color.Transparent
                 ),
                 center=cyanCenter,
@@ -149,8 +154,8 @@ internal fun PrismBackdrop(
         drawCircle(
             brush=Brush.radialGradient(
                 colors=listOf(
-                    violet.copy(alpha=.075f),
-                    violet.copy(alpha=.025f),
+                    violet.copy(alpha=.075f*glowScale),
+                    violet.copy(alpha=.025f*glowScale),
                     Color.Transparent
                 ),
                 center=violetCenter,
@@ -164,7 +169,7 @@ internal fun PrismBackdrop(
         drawCircle(
             brush=Brush.radialGradient(
                 colors=listOf(
-                    second.copy(alpha=.055f),
+                    second.copy(alpha=.055f*glowScale),
                     Color.Transparent
                 ),
                 center=secondCenter,
@@ -174,20 +179,22 @@ internal fun PrismBackdrop(
             center=secondCenter
         )
 
-        val step=30.dp.toPx()
-        val radius=.72.dp.toPx()
-        var y=step*.5f
-        while(y<size.height) {
-            var x=step*.5f
-            while(x<size.width) {
-                drawCircle(
-                    color=dot.copy(alpha=.038f),
-                    radius=radius,
-                    center=Offset(x,y)
-                )
-                x+=step
+        if(!amoled) {
+            val step=30.dp.toPx()
+            val radius=.72.dp.toPx()
+            var y=step*.5f
+            while(y<size.height) {
+                var x=step*.5f
+                while(x<size.width) {
+                    drawCircle(
+                        color=dot.copy(alpha=.038f),
+                        radius=radius,
+                        center=Offset(x,y)
+                    )
+                    x+=step
+                }
+                y+=step
             }
-            y+=step
         }
     }
 }
@@ -260,13 +267,25 @@ internal fun Modifier.prismElevated(
     fill: Color = Aether.VoidElevated,
     tint: Brush? = null
 ): Modifier {
+    // MARBLE_AMOLED_BLACK_THEME_V103
+    // A drop shadow is invisible against #000000 — it only produces a dirty grey smear on OLED.
+    // On the AMOLED palette, depth is carried by the hairline and the surface step instead, so
+    // elevation collapses to (almost) nothing and the outline gains contrast.
+    val amoled=Aether.IsDark
     val elevation by animateDpAsState(
-        targetValue=if (selected) PrismSurface.RaisedElevation else PrismSurface.RestingElevation,
+        targetValue=when {
+            amoled -> 0.dp
+            selected -> PrismSurface.RaisedElevation
+            else -> PrismSurface.RestingElevation
+        },
         animationSpec=MarbleMotionSpecs.Dp,
         label="prism-elevation"
     )
     val hairline by animateColorAsState(
-        targetValue=tone.copy(alpha=if (selected) .44f else .18f),
+        targetValue=when {
+            amoled -> tone.copy(alpha=if (selected) .50f else .16f)
+            else -> tone.copy(alpha=if (selected) .44f else .18f)
+        },
         animationSpec=MarbleMotionSpecs.Color,
         label="prism-elevation-hairline"
     )
@@ -300,8 +319,15 @@ internal fun Modifier.prismWell(
     tone: Color = Aether.Cyan,
     selected: Boolean = false
 ): Modifier {
+    // On AMOLED the well is an opaque near-black step, not a translucent wash: alpha over black
+    // simply produced an invisible surface with a floating hairline.
+    val amoled=Aether.IsDark
     val fill by animateColorAsState(
-        targetValue=if (selected) tone.copy(alpha=.085f) else Aether.GlassStrong.copy(alpha=.45f),
+        targetValue=when {
+            selected -> tone.copy(alpha=if (amoled) .12f else .085f)
+            amoled -> Aether.Glass
+            else -> Aether.GlassStrong.copy(alpha=.45f)
+        },
         animationSpec=MarbleMotionSpecs.Color,
         label="prism-well-fill"
     )
@@ -336,8 +362,11 @@ internal fun PrismPanel(
         animationSpec=MarbleMotionSpecs.ResponseFloat,
         label="prism-selected-energy"
     )
+    // MARBLE_AMOLED_BLACK_THEME_V103 — same rule as prismElevated: a shadow on #000000 is only a
+    // grey smear, so on AMOLED a card is separated from the page by its surface step and rim.
+    val amoled=Aether.IsDark
     val elevation by animateDpAsState(
-        targetValue=PrismSurface.RestingElevation +
+        targetValue=if(amoled) 0.dp else PrismSurface.RestingElevation +
             (PrismSurface.RaisedElevation - PrismSurface.RestingElevation) * selectedProgress,
         animationSpec=MarbleMotionSpecs.Dp,
         label="prism-panel-elevation"
@@ -345,7 +374,7 @@ internal fun PrismPanel(
     val shape=RoundedCornerShape(radius)
     val surface=Aether.VoidElevated
     val violet=Aether.Amethyst
-    val glowAlpha=.022f + .033f*selectedProgress
+    val glowAlpha=(.022f + .033f*selectedProgress) * (if(amoled) .5f else 1f)
     // MARBLE_BUTTON_TEXT_RECT_REMOVED_DS_V68
     // GlassBorderSoft in the panel rim composited as a pale rectangular band on light themes —
     // especially around Settings section cards and the Library filter sheet panels that host the
@@ -1403,9 +1432,11 @@ internal fun PrismThemeChoice(
     val shape=RoundedCornerShape(20.dp)
     // MARBLE_NAVY_BRAND_THEME_V77 — previews paint the real Marble surfaces so the
     // selector previews the identity, not a generic gray wireframe.
-    val previewBg=if(darkPreview) Color(0xFF000033) else Color(0xFFF0F8FF)
-    val previewSurface=if(darkPreview) Color(0xFF001144) else Color.White
-    val previewText=if(darkPreview) Color(0xFFF0F8FF) else Color(0xFF001144)
+    // MARBLE_AMOLED_BLACK_THEME_V103 — the dark swatch previews the real AMOLED black,
+    // otherwise the picker promises navy and delivers #000000.
+    val previewBg=if(darkPreview) Color(0xFF000000) else Color(0xFFF0F8FF)
+    val previewSurface=if(darkPreview) Color(0xFF0E1118) else Color.White
+    val previewText=if(darkPreview) Color(0xFFEAF2FF) else Color(0xFF001144)
     val selectionTone=Aether.Cyan
     val border=if(selected) selectionTone.copy(alpha=.52f) else accent.copy(alpha=.20f)
 
