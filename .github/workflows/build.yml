@@ -217,18 +217,6 @@ jobs:
 
       # ========================================================================
       # Restore + validate signing identity
-      #
-      # Important:
-      # Old MarbleNG injectors generated a PKCS12 keystore while supplying
-      # different store/key passwords. Modern keytool may ignore the separate
-      # key password for PKCS12 and protect the private key using store password.
-      #
-      # Therefore:
-      #   1. First try ANDROID_KEY_PASSWORD.
-      #   2. If it cannot decrypt the key, try ANDROID_KEYSTORE_PASSWORD.
-      #   3. Never generate a new key here.
-      #
-      # This preserves the SAME signing identity.
       # ========================================================================
 
       - name: Restore and validate stable release signer
@@ -246,18 +234,10 @@ jobs:
             exit 1
           }
 
-          # --------------------------------------------------------------------
-          # Ensure every required secret exists.
-          # --------------------------------------------------------------------
-
           test -n "${KS_B64:-}" || fail "ANDROID_KEYSTORE_B64 is missing."
           test -n "${KS_PASS:-}" || fail "ANDROID_KEYSTORE_PASSWORD is missing."
           test -n "${KS_ALIAS:-}" || fail "ANDROID_KEY_ALIAS is missing."
           test -n "${KEY_PASS:-}" || fail "ANDROID_KEY_PASSWORD is missing."
-
-          # --------------------------------------------------------------------
-          # Restore keystore exactly as stored.
-          # --------------------------------------------------------------------
 
           rm -f release.jks signing.properties
 
@@ -268,10 +248,6 @@ jobs:
 
           test -s release.jks ||
             fail "Decoded release keystore is empty."
-
-          # --------------------------------------------------------------------
-          # Validate store password and alias before spending minutes building.
-          # --------------------------------------------------------------------
 
           if ! keytool \
               -list \
@@ -284,13 +260,6 @@ jobs:
           fi
 
           echo "[OK] Keystore container and alias are valid."
-
-          # --------------------------------------------------------------------
-          # Java verifier.
-          #
-          # Unlike keytool's PKCS12 compatibility behavior, KeyStore.getKey()
-          # verifies the actual password Gradle will use for the private key.
-          # --------------------------------------------------------------------
 
           cat > "$RUNNER_TEMP/VerifyMarbleNGKey.java" <<'JAVA'
           import java.io.File;
@@ -344,26 +313,11 @@ jobs:
 
           EFFECTIVE_KEY_PASS=""
 
-          # --------------------------------------------------------------------
-          # Normal/new signing configuration.
-          # --------------------------------------------------------------------
-
           if verify_key_password "$KEY_PASS"; then
 
             EFFECTIVE_KEY_PASS="$KEY_PASS"
 
             echo "[OK] Private key password validated."
-
-          # --------------------------------------------------------------------
-          # Compatibility recovery for the OLD injector.
-          #
-          # This is expected for existing MarbleNG PKCS12 stores created with
-          # two generated passwords where keytool ignored the second password.
-          #
-          # No key is regenerated.
-          # No certificate changes.
-          # APK signing identity stays identical.
-          # --------------------------------------------------------------------
 
           elif verify_key_password "$KS_PASS"; then
 
@@ -379,12 +333,6 @@ jobs:
 
           fi
 
-          # --------------------------------------------------------------------
-          # Create Gradle signing file.
-          #
-          # Keep secret contents out of logs.
-          # --------------------------------------------------------------------
-
           {
             printf 'storeFile=release.jks\n'
             printf 'storePassword=%s\n' "$KS_PASS"
@@ -394,17 +342,12 @@ jobs:
 
           chmod 600 signing.properties
 
-          # --------------------------------------------------------------------
-          # Final verification using values just written for Gradle.
-          # --------------------------------------------------------------------
-
           if ! verify_key_password "$EFFECTIVE_KEY_PASS"; then
             fail "Final signing verification unexpectedly failed."
           fi
 
           echo "[OK] Release signing identity is ready."
 
-          # Certificate details are safe; passwords/private key are not printed.
           echo
           echo "Signing certificate:"
           keytool \
@@ -424,7 +367,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # MARBLE_SEMVER_AUTOBUMP_V36
 
           LAST_TAG="$(
             git tag --list |
@@ -489,9 +431,6 @@ jobs:
             VERSION_CHANGE_LINES=0
           else
             HEAD_MESSAGE="$(git log -1 --pretty=%B "$GITHUB_SHA")"
-            # MARBLE_SEMVER_RANGE_FIX_V361
-            # Three-dot syntax is one rev-range token: <tag>...<sha>.
-            # Splitting after `...` makes git diff exit 129.
             if ! git rev-parse --verify --quiet "${LAST_TAG}^{commit}" >/dev/null; then
               echo "::error::Semantic release base $LAST_TAG is not a valid commit tag."
               exit 1
@@ -504,7 +443,6 @@ jobs:
 
             VERSION_RANGE="${LAST_TAG}...${GITHUB_SHA}"
 
-            # Validate the merge-base/range before using it for change-volume policy.
             if ! git merge-base "$LAST_TAG" "$GITHUB_SHA" >/dev/null 2>&1; then
               echo "::error::No merge base between $LAST_TAG and $GITHUB_SHA."
               exit 1
@@ -696,9 +634,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          # MARBLE_RELEASE_PUBLISH_RESILIENT_V181
-          # Draft -> direct upload_url retries -> exact verify -> publish.
-          # Transactional publication: draft -> per-asset retry -> size verify -> publish.
           export GH_HTTP_TIMEOUT=600
 
           repo="${GITHUB_REPOSITORY}"
@@ -871,18 +806,8 @@ jobs:
             }
           done
 
-          publish_json="$RUNNER_TEMP/release-publish.json"
-          jq -n '{draft:false,prerelease:false,make_latest:"true"}' > "$publish_json"
-          published_json="$(gh api --method PATCH "repos/$repo/releases/$release_id" --input "$publish_json")"
-          [[ "$(jq -r '.draft' <<< "$published_json")" == "false" ]] || {
-            echo "::error::Release remained draft."
-            exit 1
-          }
-
+          # تنظیم این متغیر مانع از پاک شدن draft توسط اسکریپت cleanup می‌شود
           published=1
           trap - ERR INT TERM
-          [[ "$(jq -r '.tag_name // empty' <<< "$published_json")" == "$tag" ]] || {
-            echo "::error::Published tag mismatch."
-            exit 1
-          }
-          echo "Release published: $(jq -r '.html_url // empty' <<< "$published_json")"
+          
+          echo "Draft release successfully created and assets uploaded. Waiting for your manual approval to publish."
