@@ -30,6 +30,11 @@ looked like three unrelated fades rather than one object moving.
   because they read from one source.
 - **Rounded.** `RoundedCornerShape(percent = 50)` on both the pane and the blob — a true capsule at
   any height, not a fixed dp radius that breaks when the height changes.
+- The pane measures itself with `onSizeChanged`, **not** `BoxWithConstraints`: the
+  `MARBLE_SETTINGS_TOTAL_HOTFIX_V76` invariant keeps SubcomposeLayout out of this file entirely,
+  and a plain `Box` + `onSizeChanged` yields the same width without a measurement boundary. The
+  blob snaps (never animates) into place on the first real measurement, so it does not fly in
+  from the left edge on the first frame.
 - On AMOLED the shadow is dropped to `0.dp` (a shadow on `#000000` is only a grey smear) and the
   pane becomes a near-black translucent sheet with a brighter rim instead.
 
@@ -55,6 +60,10 @@ labels were the smallest text on screen.
 
 Five tabs fit a phone strip without horizontal scrolling, and every card belongs to exactly one.
 
+The enum *constant* names are unchanged (the "Connection" tab is still `NETWORK` internally):
+they are the SharedPreferences keys written by `rememberSettingsTab`, so renaming them would
+silently reset every existing user's last-opened tab. Only the labels and grouping moved.
+
 **Hierarchy.** Every option now has a title and a sub-title *above* it, never a caption below it:
 
 1. workspace summary — one line, shown once in the top bar;
@@ -71,7 +80,10 @@ The seven "show X on Home" switches were split out of the theme card into their 
 card with *Status cards* / *Controls* sub-headings.
 
 The tab strip is now one glass rail of capsules with an animated filled selection, instead of six
-free-floating elevated cards each casting its own shadow.
+free-floating elevated cards each casting its own shadow. Its host keeps the fixed 58dp height and
+the `matchParentSize` scroll-fade hints required by `MARBLE_SETTINGS_TABS_SCROLL_HINT_V1` /
+`TOTAL_HOTFIX_V76` — five tabs fit most phones, but a large font scale can still overflow, and
+`fillMaxHeight` hints previously collapsed the whole workspace below the strip.
 
 ## 3. Dark theme — `MARBLE_AMOLED_BLACK_THEME_V103`
 

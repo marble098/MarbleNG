@@ -128,6 +128,7 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
@@ -778,11 +779,21 @@ private fun FloatingSpatialDock(
             ),
         contentAlignment = Alignment.Center
     ) {
-        BoxWithConstraints(
+        // MARBLE_SETTINGS_TOTAL_HOTFIX_V76 keeps SubcomposeLayout (BoxWithConstraints) out of this
+        // file entirely, so the dock measures itself with onSizeChanged instead. A plain Box does
+        // not subcompose, cannot introduce a measurement boundary, and gives the same number.
+        val density = LocalDensity.current
+        var paneWidth by remember { mutableStateOf(0.dp) }
+
+        Box(
             modifier = Modifier
                 .widthIn(max = MarbleDock.MaxWidth)
                 .fillMaxWidth()
                 .height(MarbleDock.Height)
+                .onSizeChanged { size ->
+                    val measured = with(density) { size.width.toDp() }
+                    if (measured != paneWidth) paneWidth = measured
+                }
                 // One soft shadow only, and only where a shadow can actually be seen.
                 .shadow(
                     elevation = if (amoled) 0.dp else 18.dp,
@@ -796,49 +807,58 @@ private fun FloatingSpatialDock(
                 .background(sheen)
                 .border(1.dp, rim, capsule)
         ) {
-            val slotWidth = maxWidth / tabs.size
+            val slotWidth = paneWidth / tabs.size
 
             // ---- the liquid blob -------------------------------------------------------
             // One spring is the whole animation. Position and deformation are both read from it,
             // so travel and squash can never desynchronise.
             val targetCenter = slotWidth * (selectedIndex + .5f)
-            val blobCenter = remember { Animatable(targetCenter, Dp.VectorConverter) }
+            val blobCenter = remember { Animatable(0.dp, Dp.VectorConverter) }
             LaunchedEffect(targetCenter) {
-                blobCenter.animateTo(
-                    targetValue = targetCenter,
-                    animationSpec = spring(dampingRatio = .62f, stiffness = 340f)
-                )
+                if (targetCenter <= 0.dp) return@LaunchedEffect
+                if (blobCenter.value <= 0.dp) {
+                    // First real measurement: place the blob, never animate it in from the edge.
+                    blobCenter.snapTo(targetCenter)
+                } else {
+                    blobCenter.animateTo(
+                        targetValue = targetCenter,
+                        animationSpec = spring(dampingRatio = .62f, stiffness = 340f)
+                    )
+                }
             }
-            // `blobCenter.value` is snapshot state, so this recomposes on every animation frame
-            // and the deformation is derived from the *actual* remaining distance rather than a
-            // second, independently-timed animation that could drift out of phase.
-            val remaining = kotlin.math.abs((targetCenter - blobCenter.value).value)
-            val travel = (remaining / slotWidth.value.coerceAtLeast(1f)).coerceIn(0f, 1f)
 
-            val blobWidth = (slotWidth - 10.dp) * (1f + .16f * travel)
-            val blobHeight = (MarbleDock.Height - 12.dp) * (1f - .14f * travel)
+            if (slotWidth > 0.dp) {
+                // `blobCenter.value` is snapshot state, so this recomposes on every animation
+                // frame and the deformation is derived from the *actual* remaining distance
+                // rather than a second, independently-timed animation that could drift.
+                val remaining = kotlin.math.abs((targetCenter - blobCenter.value).value)
+                val travel = (remaining / slotWidth.value.coerceAtLeast(1f)).coerceIn(0f, 1f)
 
-            Box(
-                modifier = Modifier
-                    .align(Alignment.CenterStart)
-                    .offset(x = blobCenter.value - blobWidth / 2)
-                    .width(blobWidth)
-                    .height(blobHeight)
-                    .clip(RoundedCornerShape(percent = 50))
-                    .background(
-                        Brush.verticalGradient(
-                            listOf(
-                                Aether.Cyan.copy(alpha = if (amoled) .30f else .22f),
-                                Aether.Cyan.copy(alpha = if (amoled) .14f else .12f)
+                val blobWidth = (slotWidth - 10.dp) * (1f + .16f * travel)
+                val blobHeight = (MarbleDock.Height - 12.dp) * (1f - .14f * travel)
+
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.CenterStart)
+                        .offset(x = blobCenter.value - blobWidth / 2)
+                        .width(blobWidth)
+                        .height(blobHeight)
+                        .clip(RoundedCornerShape(percent = 50))
+                        .background(
+                            Brush.verticalGradient(
+                                listOf(
+                                    Aether.Cyan.copy(alpha = if (amoled) .30f else .22f),
+                                    Aether.Cyan.copy(alpha = if (amoled) .14f else .12f)
+                                )
                             )
                         )
-                    )
-                    .border(
-                        1.dp,
-                        Aether.Cyan.copy(alpha = if (amoled) .42f else .30f),
-                        RoundedCornerShape(percent = 50)
-                    )
-            )
+                        .border(
+                            1.dp,
+                            Aether.Cyan.copy(alpha = if (amoled) .42f else .30f),
+                            RoundedCornerShape(percent = 50)
+                        )
+                )
+            }
 
             // ---- the tabs --------------------------------------------------------------
             Row(
@@ -5299,13 +5319,19 @@ private fun MicroStat(
  * option now has a title and a sub-title above it instead of a caption under it.
  */
 private enum class SettingsWorkspaceTab(
+    /**
+     * NOTE: the enum *constant* names are the persistence keys written to SharedPreferences by
+     * [AppRepository.rememberSettingsTab], so they are deliberately kept stable across this
+     * re-cut even where the user-facing label changed (NETWORK is now shown as "Connection").
+     * Renaming the constant would silently reset every existing user's last-opened tab.
+     */
     val label: String,
     /** One short line describing the whole workspace — the screen's only running copy. */
     val summary: String,
     val icon: HomeIcon
 ) {
     GENERAL("General", "App appearance, layout, sources and alerts", HomeIcon.SPARK),
-    CONNECTION("Connection", "How traffic leaves this device", HomeIcon.TUNNEL),
+    NETWORK("Connection", "How traffic leaves this device", HomeIcon.TUNNEL),
     FREEDOM("Freedom", "Censorship circumvention and DPI evasion", HomeIcon.SHIELD),
     PERFORMANCE("Performance", "Measurement, tuning and adaptive routing", HomeIcon.BENCHMARK),
     ADVANCED("Advanced", "Expert controls and diagnostics", HomeIcon.DETAILS)
@@ -5327,7 +5353,7 @@ private fun rememberedSettingsTab(name: String): SettingsWorkspaceTab =
 @Composable
 private fun settingsTabTone(tab: SettingsWorkspaceTab): Color = when (tab) {
     SettingsWorkspaceTab.GENERAL -> Aether.Cyan
-    SettingsWorkspaceTab.CONNECTION -> Aether.Emerald
+    SettingsWorkspaceTab.NETWORK -> Aether.Emerald
     SettingsWorkspaceTab.FREEDOM -> Aether.Cyan
     SettingsWorkspaceTab.PERFORMANCE -> Aether.Amethyst
     SettingsWorkspaceTab.ADVANCED -> Aether.Amber
@@ -5343,7 +5369,7 @@ private fun SpatialSettings(
     val tabs = SettingsWorkspaceTab.entries
     val expertMode = repo.settings.expertMode
     val initialPage = if (focusSection == "Routing") {
-        SettingsWorkspaceTab.CONNECTION.ordinal
+        SettingsWorkspaceTab.NETWORK.ordinal
     } else rememberedSettingsTab(repo.lastSettingsTab).ordinal
 
     // MARBLE_SETTINGS_TOTAL_HOTFIX_V76
@@ -5373,7 +5399,7 @@ private fun SpatialSettings(
     // a side effect: the focused Routing card renders in both modes.
     LaunchedEffect(focusSection) {
         if (focusSection == "Routing") {
-            selectedTabIndex = SettingsWorkspaceTab.CONNECTION.ordinal
+            selectedTabIndex = SettingsWorkspaceTab.NETWORK.ordinal
         }
     }
 
@@ -5528,27 +5554,33 @@ private fun SettingsTabStrip(
 ) {
     // MARBLE_SETTINGS_TAB_STRIP_V103
     // Five tabs, so the strip is a single glass rail of capsules instead of six free-floating
-    // elevated cards that each cast their own shadow. Selection is carried by a filled capsule
-    // in the tab's own tone; unselected tabs are ink only. The rail keeps its fixed height for
-    // the same layout-stability reason as before.
+    // elevated cards that each cast their own shadow. Selection is a filled capsule in the tab's
+    // own tone; unselected tabs are ink only.
+    //
+    // The host keeps its fixed 58dp height and the scroll hints keep using matchParentSize rather
+    // than fillMaxHeight (MARBLE_SETTINGS_TABS_SCROLL_HINT_V1 / TOTAL_HOTFIX_V76): fillMaxHeight
+    // hints made this Box grow to the parent's entire remaining height on affected builds and
+    // collapsed the settings workspace below the strip. Five tabs fit most phones, but a large
+    // font scale or a narrow device can still overflow, so the fades stay.
     val railShape = RoundedCornerShape(percent = 50)
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(64.dp)
+            .height(58.dp)
             .background(Aether.Void)
-            .padding(horizontal = 16.dp, vertical = 6.dp)
     ) {
         LazyRow(
             state = tabsState,
             modifier = Modifier
-                .fillMaxSize()
+                .fillMaxWidth()
+                .heightIn(min = 58.dp)
+                .padding(horizontal = 16.dp, vertical = 5.dp)
                 .clip(railShape)
                 .background(
                     if (Aether.IsDark) Aether.Glass else Aether.GlassStrong.copy(alpha = .55f)
                 )
                 .border(1.dp, Aether.GlassBorderSoft, railShape),
-            contentPadding = PaddingValues(horizontal = 5.dp),
+            contentPadding = PaddingValues(horizontal = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -5572,7 +5604,7 @@ private fun SettingsTabStrip(
 
                 Row(
                     modifier = Modifier
-                        .height(44.dp)
+                        .height(40.dp)
                         .clip(shape)
                         .background(fill)
                         .kineticClickable(
@@ -5587,7 +5619,7 @@ private fun SettingsTabStrip(
                             contentDescription = "${tab.label} settings"
                             stateDescription = if (selected) "Selected" else "Not selected"
                         }
-                        .padding(horizontal = 13.dp),
+                        .padding(horizontal = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(7.dp)
                 ) {
@@ -5605,6 +5637,27 @@ private fun SettingsTabStrip(
                     )
                 }
             }
+        }
+
+        // MARBLE_SETTINGS_TABS_SCROLL_HINT_V1 — fade hints so it is obvious the rail keeps
+        // going instead of just cutting a label off mid-word.
+        if (tabsState.canScrollBackward) {
+            Box(
+                Modifier
+                    .align(Alignment.CenterStart)
+                    .matchParentSize()
+                    .width(20.dp)
+                    .background(Brush.horizontalGradient(listOf(Aether.Void, Color.Transparent)))
+            )
+        }
+        if (tabsState.canScrollForward) {
+            Box(
+                Modifier
+                    .align(Alignment.CenterEnd)
+                    .matchParentSize()
+                    .width(20.dp)
+                    .background(Brush.horizontalGradient(listOf(Color.Transparent, Aether.Void)))
+            )
         }
     }
 }
@@ -5788,7 +5841,7 @@ private fun settingsSections(
         )
 
         // --- Connection: how traffic leaves the device ----------------------------------
-        SettingsWorkspaceTab.CONNECTION -> buildList {
+        SettingsWorkspaceTab.NETWORK -> buildList {
             add(card("Tunnel mode","Full-device tunnel or local SOCKS proxy",HomeIcon.TUNNEL,Aether.Emerald) { ConnectionSettings(repo) })
             add(card("Split tunneling","Choose exactly which apps use or bypass the tunnel",HomeIcon.PRIVACY,Aether.Emerald) { SplitTunnelSettings(repo) })
             // Routing is the target of the Home shortcut, so it is pinned to the top of the
