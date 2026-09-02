@@ -38,6 +38,7 @@ private data class PermissionCopy(
     val tone: Color
 )
 
+@Composable
 private fun permissionCopy(step: ConnectionPermissionStep): PermissionCopy = when (step) {
     ConnectionPermissionStep.VPN -> PermissionCopy(
         title = "Allow VPN access",

@@ -2170,6 +2170,7 @@ private fun HomeConnectionButton(
 ) {
     val shape = CircleShape
     val pulse = if (connecting) .72f + MarbleMotion.current.breathe(1_150) * .28f else 1f
+    val progressAngle = if (connecting) MarbleMotion.current.loop(950) * 360f else 0f
     val label = when {
         connected -> "Disconnect"
         connecting -> "Cancel"
@@ -2202,7 +2203,7 @@ private fun HomeConnectionButton(
                 if (connecting) {
                     drawArc(
                         color = tone,
-                        startAngle = -90f + MarbleMotion.current.loop(950) * 360f,
+                        startAngle = -90f + progressAngle,
                         sweepAngle = 108f,
                         useCenter = false,
                         style = Stroke(width = 5.dp.toPx(), cap = StrokeCap.Round)
