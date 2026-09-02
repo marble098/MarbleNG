@@ -1,4 +1,4 @@
-# MARBLE_RELEASE_PUBLISH_IMMUTABLE_V200
+# MARBLE_RELEASE_PUBLISH_RESILIENT_V182
 name: Build signed Android APKs
 
 on:
@@ -15,6 +15,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
+  # Xray's own go.mod decides the actual Go toolchain.
   GOTOOLCHAIN: auto
 
 jobs:
@@ -24,6 +25,10 @@ jobs:
     timeout-minutes: 60
 
     steps:
+      # ========================================================================
+      # Checkout
+      # ========================================================================
+
       - name: Checkout repository
         uses: actions/checkout@v7
         with:
@@ -35,11 +40,19 @@ jobs:
           set -euo pipefail
           python3 scripts/system-integrity-check.py
 
+      # ========================================================================
+      # Java
+      # ========================================================================
+
       - name: Set up JDK 17
         uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
+
+      # ========================================================================
+      # Android SDK
+      # ========================================================================
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4
@@ -48,32 +61,49 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+
           yes | sdkmanager --licenses >/dev/null || true
+
           sdkmanager \
             'platforms;android-36' \
             'build-tools;36.0.0' \
             'ndk;28.2.13676358'
-          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/28.2.13676358" >> "$GITHUB_ENV"
-          echo "ANDROID_NDK_ROOT=$ANDROID_SDK_ROOT/ndk/28.2.13676358" >> "$GITHUB_ENV"
+
+          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/28.2.13676358" \
+            >> "$GITHUB_ENV"
+
+          echo "ANDROID_NDK_ROOT=$ANDROID_SDK_ROOT/ndk/28.2.13676358" \
+            >> "$GITHUB_ENV"
+
+      # ========================================================================
+      # Determine Go version directly from pinned Xray
+      # ========================================================================
 
       - name: Clone pinned Xray metadata
         shell: bash
         run: |
           set -euo pipefail
+
           rm -rf .bootstrap
           mkdir -p .bootstrap
+
           XRAY_TAG="$(jq -r '.xray.tag' core-lock.json)"
+
           test -n "$XRAY_TAG"
           test "$XRAY_TAG" != "null"
+
           echo "Pinned Xray: $XRAY_TAG"
+
           git clone \
             --quiet \
             --depth 1 \
             --branch "$XRAY_TAG" \
             https://github.com/XTLS/Xray-core.git \
             .bootstrap/xray
+
           test -s .bootstrap/xray/go.mod
           test -s .bootstrap/xray/go.sum
+
           echo "Xray Go requirement:"
           grep '^go ' .bootstrap/xray/go.mod
 
@@ -88,14 +118,21 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+
           echo "Bootstrap Go:"
           go version
+
           echo
           echo "GOTOOLCHAIN:"
           echo "$GOTOOLCHAIN"
+
           echo
           echo "Pinned Xray go.mod:"
           grep '^go ' .bootstrap/xray/go.mod
+
+      # ========================================================================
+      # Native Xray + HEV + JNI
+      # ========================================================================
 
       - name: Prepare all native ABIs
         shell: bash
@@ -103,13 +140,19 @@ jobs:
           GOTOOLCHAIN: auto
         run: |
           set -euo pipefail
+
           chmod +x scripts/prepare-native.sh
           ./scripts/prepare-native.sh
+
+      # ========================================================================
+      # Verified routing data bundled into the APK
+      # ========================================================================
 
       - name: Bundle verified Iran routing assets
         shell: bash
         run: |
           set -euo pipefail
+
           DEST="app/src/main/assets/xray"
           TMP="$(mktemp -d)"
           trap 'rm -rf "$TMP"' EXIT
@@ -141,6 +184,7 @@ jobs:
           fetch_one "$TMP/geoip.sha256" \
             "https://raw.githubusercontent.com/Chocolate4U/Iran-v2ray-rules/release/geoip.dat.sha256sum" \
             "https://cdn.jsdelivr.net/gh/chocolate4u/Iran-v2ray-rules@release/geoip.dat.sha256sum"
+
           fetch_one "$DEST/geosite.dat" \
             "https://raw.githubusercontent.com/Chocolate4U/Iran-v2ray-rules/release/geosite.dat" \
             "https://cdn.jsdelivr.net/gh/chocolate4u/Iran-v2ray-rules@release/geosite.dat"
@@ -152,19 +196,29 @@ jobs:
           expected_geosite="$(awk 'NF {print $1; exit}' "$TMP/geosite.sha256")"
           actual_geoip="$(sha256sum "$DEST/geoip.dat" | awk '{print $1}')"
           actual_geosite="$(sha256sum "$DEST/geosite.dat" | awk '{print $1}')"
+
           test -n "$expected_geoip"
           test -n "$expected_geosite"
           test "$actual_geoip" = "$expected_geoip"
           test "$actual_geosite" = "$expected_geosite"
           test "$(stat -c '%s' "$DEST/geoip.dat")" -gt 1024
           test "$(stat -c '%s' "$DEST/geosite.dat")" -gt 1024
+
           echo "[OK] geoip.dat   $actual_geoip"
           echo "[OK] geosite.dat $actual_geosite"
+
+      # ========================================================================
+      # Gradle
+      # ========================================================================
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.5.1'
+
+      # ========================================================================
+      # Restore + validate signing identity
+      # ========================================================================
 
       - name: Restore and validate stable release signer
         shell: bash
@@ -175,84 +229,172 @@ jobs:
           KEY_PASS: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           set -euo pipefail
+
           fail() {
             echo "::error::$*"
             exit 1
           }
+
           test -n "${KS_B64:-}" || fail "ANDROID_KEYSTORE_B64 is missing."
           test -n "${KS_PASS:-}" || fail "ANDROID_KEYSTORE_PASSWORD is missing."
           test -n "${KS_ALIAS:-}" || fail "ANDROID_KEY_ALIAS is missing."
           test -n "${KEY_PASS:-}" || fail "ANDROID_KEY_PASSWORD is missing."
+
           rm -f release.jks signing.properties
-          printf '%s' "$KS_B64" | base64 --decode > release.jks
+
+          printf '%s' "$KS_B64" |
+            base64 --decode > release.jks
+
           chmod 600 release.jks
-          test -s release.jks || fail "Decoded release keystore is empty."
-          if ! keytool -list -keystore release.jks -storepass "$KS_PASS" -alias "$KS_ALIAS" >/dev/null 2>&1; then
+
+          test -s release.jks ||
+            fail "Decoded release keystore is empty."
+
+          if ! keytool \
+              -list \
+              -keystore release.jks \
+              -storepass "$KS_PASS" \
+              -alias "$KS_ALIAS" \
+              >/dev/null 2>&1
+          then
             fail "Keystore/store password/alias validation failed."
           fi
+
           echo "[OK] Keystore container and alias are valid."
+
           cat > "$RUNNER_TEMP/VerifyMarbleNGKey.java" <<'JAVA'
           import java.io.File;
           import java.security.Key;
           import java.security.KeyStore;
+
           public final class VerifyMarbleNGKey {
               public static void main(String[] args) throws Exception {
-                  if (args.length != 4) throw new IllegalArgumentException("Expected: <keystore> <storePass> <alias> <keyPass>");
+                  if (args.length != 4) {
+                      throw new IllegalArgumentException(
+                          "Expected: <keystore> <storePass> <alias> <keyPass>"
+                      );
+                  }
+
                   File file = new File(args[0]);
-                  KeyStore store = KeyStore.getInstance(file, args[1].toCharArray());
-                  if (!store.containsAlias(args[2])) throw new IllegalStateException("Signing alias does not exist");
-                  Key key = store.getKey(args[2], args[3].toCharArray());
-                  if (key == null) throw new IllegalStateException("Private signing key could not be loaded");
+
+                  KeyStore store = KeyStore.getInstance(
+                      file,
+                      args[1].toCharArray()
+                  );
+
+                  if (!store.containsAlias(args[2])) {
+                      throw new IllegalStateException(
+                          "Signing alias does not exist"
+                      );
+                  }
+
+                  Key key = store.getKey(
+                      args[2],
+                      args[3].toCharArray()
+                  );
+
+                  if (key == null) {
+                      throw new IllegalStateException(
+                          "Private signing key could not be loaded"
+                      );
+                  }
               }
           }
           JAVA
+
           verify_key_password() {
-            java "$RUNNER_TEMP/VerifyMarbleNGKey.java" "$PWD/release.jks" "$KS_PASS" "$KS_ALIAS" "$1" >/dev/null 2>&1
+            java \
+              "$RUNNER_TEMP/VerifyMarbleNGKey.java" \
+              "$PWD/release.jks" \
+              "$KS_PASS" \
+              "$KS_ALIAS" \
+              "$1" \
+              >/dev/null 2>&1
           }
+
           EFFECTIVE_KEY_PASS=""
+
           if verify_key_password "$KEY_PASS"; then
+
             EFFECTIVE_KEY_PASS="$KEY_PASS"
+
             echo "[OK] Private key password validated."
+
           elif verify_key_password "$KS_PASS"; then
+
             EFFECTIVE_KEY_PASS="$KS_PASS"
+
             echo "::warning::Legacy MarbleNG PKCS12 password mismatch detected."
             echo "::warning::Using the store password as the effective private-key password."
             echo "[OK] Existing signing identity recovered without key rotation."
+
           else
+
             fail "Private signing key cannot be decrypted with either configured password. Do NOT regenerate the keystore if preserving the app signature matters."
+
           fi
+
           {
             printf 'storeFile=release.jks\n'
             printf 'storePassword=%s\n' "$KS_PASS"
             printf 'keyAlias=%s\n' "$KS_ALIAS"
             printf 'keyPassword=%s\n' "$EFFECTIVE_KEY_PASS"
           } > signing.properties
+
           chmod 600 signing.properties
+
           if ! verify_key_password "$EFFECTIVE_KEY_PASS"; then
             fail "Final signing verification unexpectedly failed."
           fi
+
           echo "[OK] Release signing identity is ready."
+
           echo
           echo "Signing certificate:"
-          keytool -list -v -keystore release.jks -storepass "$KS_PASS" -alias "$KS_ALIAS" |
+          keytool \
+            -list \
+            -v \
+            -keystore release.jks \
+            -storepass "$KS_PASS" \
+            -alias "$KS_ALIAS" |
             grep -E 'Alias name:|Owner:|Issuer:|SHA256:' |
             head -n 8 || true
 
-      - name: Generate immutable semantic version
+      # ========================================================================
+      # Version  (SMART, COLLISION-PROOF SEMANTIC VERSIONING)
+      # ========================================================================
+
+      - name: Generate smart semantic version
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          export GH_HTTP_TIMEOUT=600
 
-          LAST_TAG="$(git tag --list | awk '/^v[0-9]+\.[0-9]+\.[0-9]+$/' | sort -V | tail -n 1)"
+          repo="${GITHUB_REPOSITORY}"
+
+          # Fetch all tags AND all remote tags/releases so local git state
+          # can never drift from what actually exists on GitHub. This is the
+          # root fix for "tag/release already exists" failures: previously
+          # the workflow only trusted local git tags, which can lag behind
+          # remote releases (e.g. a draft release created without a matching
+          # local tag fetch, or a tag pushed by a different run).
+          git fetch --tags --force origin >/dev/null 2>&1 || true
+
+          LAST_TAG="$(
+            git tag --list |
+              awk '/^v[0-9]+\.[0-9]+\.[0-9]+$/' |
+              sort -V |
+              tail -n 1
+          )"
           LAST_VERSION="${LAST_TAG#v}"
 
           version_lt() {
             local a="$1" b="$2"
-            [[ "$a" != "$b" ]] && [[ "$(printf '%s\n%s\n' "$a" "$b" | sort -V | head -n1)" == "$a" ]]
+            [[ "$a" != "$b" ]] &&
+              [[ "$(printf '%s\n%s\n' "$a" "$b" | sort -V | head -n1)" == "$a" ]]
           }
+
           normalize_policy() {
             local major="$1" minor="$2" patch="$3"
             if (( minor >= 9 )); then
@@ -262,6 +404,7 @@ jobs:
             fi
             printf '%d.%d.%d\n' "$major" "$minor" "$patch"
           }
+
           bump_patch() {
             local version="$1" steps="$2"
             local major minor patch i
@@ -280,39 +423,42 @@ jobs:
             done
             normalize_policy "$major" "$minor" "$patch"
           }
+
           bump_minor() {
             local major minor patch
             IFS=. read -r major minor patch <<< "$1"
             minor=$((minor + 1))
             normalize_policy "$major" "$minor" 0
           }
+
           bump_major() {
-            local major
-            IFS=. read -r major _ <<< "$1"
+            local major minor patch
+            IFS=. read -r major minor patch <<< "$1"
             printf '%d.0.0\n' "$((major + 1))"
           }
-          tag_exists_anywhere() {
-            local tag="$1"
-            git rev-parse -q --verify "refs/tags/$tag" >/dev/null 2>&1 && return 0
-            gh release view "$tag" >/dev/null 2>&1 && return 0
-            gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/$tag" >/dev/null 2>&1 && return 0
+
+          # --------------------------------------------------------------
+          # Smart existence check: a version is "taken" if EITHER a local/
+          # remote git tag OR a GitHub Release (draft or published) for it
+          # exists. This eliminates every class of "already exists" error,
+          # including stale drafts left behind by cancelled/failed runs.
+          # --------------------------------------------------------------
+          version_taken() {
+            local v="$1"
+            if git rev-parse -q --verify "refs/tags/v$v" >/dev/null 2>&1; then
+              return 0
+            fi
+            if gh api "repos/$repo/git/refs/tags/v$v" >/dev/null 2>&1; then
+              return 0
+            fi
+            if gh release view "v$v" >/dev/null 2>&1; then
+              return 0
+            fi
             return 1
-          }
-          next_free_semver() {
-            local candidate="$1" attempts=0
-            while tag_exists_anywhere "v$candidate"; do
-              candidate="$(bump_patch "$candidate" 1)"
-              attempts=$((attempts + 1))
-              if (( attempts > 200 )); then
-                echo "::error::Unable to find a free semantic version after 200 attempts."
-                exit 1
-              fi
-            done
-            printf '%s\n' "$candidate"
           }
 
           if [[ -z "$LAST_VERSION" ]] || version_lt "$LAST_VERSION" "1.0.2"; then
-            BASE_VERSION="1.0.2"
+            CANDIDATE="1.0.2"
             VERSION_BUMP_KIND="bootstrap"
             VERSION_CHANGE_FILES=0
             VERSION_CHANGE_LINES=0
@@ -322,19 +468,37 @@ jobs:
               echo "::error::Semantic release base $LAST_TAG is not a valid commit tag."
               exit 1
             fi
+
             if ! git rev-parse --verify --quiet "${GITHUB_SHA}^{commit}" >/dev/null; then
               echo "::error::Workflow commit $GITHUB_SHA is not available in checkout."
               exit 1
             fi
+
             VERSION_RANGE="${LAST_TAG}...${GITHUB_SHA}"
+
             if ! git merge-base "$LAST_TAG" "$GITHUB_SHA" >/dev/null 2>&1; then
               echo "::error::No merge base between $LAST_TAG and $GITHUB_SHA."
               exit 1
             fi
-            VERSION_CHANGE_FILES="$(git diff --name-only "$VERSION_RANGE" -- | awk 'NF' | wc -l | tr -d ' ')"
-            VERSION_CHANGE_LINES="$(git diff --numstat "$VERSION_RANGE" -- | awk '$1 ~ /^[0-9]+$/ { a += $1 } $2 ~ /^[0-9]+$/ { d += $2 } END { print a + d + 0 }')"
+
+            VERSION_CHANGE_FILES="$(
+              git diff --name-only "$VERSION_RANGE" -- |
+                awk 'NF' |
+                wc -l |
+                tr -d ' '
+            )"
+            VERSION_CHANGE_LINES="$(
+              git diff --numstat "$VERSION_RANGE" -- |
+                awk '
+                  $1 ~ /^[0-9]+$/ { a += $1 }
+                  $2 ~ /^[0-9]+$/ { d += $2 }
+                  END { print a + d + 0 }
+                '
+            )"
+
             VERSION_BUMP_KIND=""
             PATCH_STEPS=0
+
             if grep -Eqi '\[version:major\]' <<< "$HEAD_MESSAGE"; then
               VERSION_BUMP_KIND="major"
             elif grep -Eqi '\[version:minor\]' <<< "$HEAD_MESSAGE"; then
@@ -346,6 +510,7 @@ jobs:
               VERSION_BUMP_KIND="patch"
               PATCH_STEPS=1
             fi
+
             if [[ -z "$VERSION_BUMP_KIND" ]]; then
               if (( VERSION_CHANGE_FILES >= 25 || VERSION_CHANGE_LINES >= 3000 )); then
                 VERSION_BUMP_KIND="major"
@@ -359,16 +524,41 @@ jobs:
                 PATCH_STEPS=1
               fi
             fi
+
             case "$VERSION_BUMP_KIND" in
-              major) BASE_VERSION="$(bump_major "$LAST_VERSION")" ;;
-              minor) BASE_VERSION="$(bump_minor "$LAST_VERSION")" ;;
-              patch) BASE_VERSION="$(bump_patch "$LAST_VERSION" "${PATCH_STEPS:-1}")" ;;
+              major) CANDIDATE="$(bump_major "$LAST_VERSION")" ;;
+              minor) CANDIDATE="$(bump_minor "$LAST_VERSION")" ;;
+              patch) CANDIDATE="$(bump_patch "$LAST_VERSION" "${PATCH_STEPS:-1}")" ;;
               *) echo "::error::Unknown version bump class"; exit 1 ;;
             esac
           fi
 
-          VERSION_NAME="$(next_free_semver "$BASE_VERSION")"
+          # --------------------------------------------------------------
+          # SMART COLLISION-RESOLUTION ALGORITHM
+          # If the computed candidate is already taken (tag OR release,
+          # local OR remote), keep advancing by one patch step until a
+          # completely free version is found. Bounded to 500 attempts as
+          # a sane safety valve against infinite loops.
+          # --------------------------------------------------------------
+          ATTEMPTS=0
+          ORIGINAL_CANDIDATE="$CANDIDATE"
+          while version_taken "$CANDIDATE"; do
+            ATTEMPTS=$((ATTEMPTS + 1))
+            if (( ATTEMPTS > 500 )); then
+              echo "::error::Could not find a free version after 500 attempts starting from $ORIGINAL_CANDIDATE."
+              exit 1
+            fi
+            echo "::warning::Version v$CANDIDATE already exists (tag or release). Auto-advancing..."
+            CANDIDATE="$(bump_patch "$CANDIDATE" 1)"
+          done
+
+          if (( ATTEMPTS > 0 )); then
+            echo "Resolved version collision: $ORIGINAL_CANDIDATE -> $CANDIDATE (skipped $ATTEMPTS taken version(s))."
+          fi
+
+          VERSION_NAME="$CANDIDATE"
           VERSION_CODE="$(date -u +%s)"
+
           if (( VERSION_CODE <= 0 || VERSION_CODE > 2100000000 )); then
             echo "::error::Android versionCode is outside accepted range: $VERSION_CODE"
             exit 1
@@ -379,53 +569,105 @@ jobs:
           echo "VERSION_BUMP_KIND=$VERSION_BUMP_KIND" >> "$GITHUB_ENV"
           echo "VERSION_CHANGE_FILES=${VERSION_CHANGE_FILES:-0}" >> "$GITHUB_ENV"
           echo "VERSION_CHANGE_LINES=${VERSION_CHANGE_LINES:-0}" >> "$GITHUB_ENV"
-          echo "BASE_VERSION=$BASE_VERSION" >> "$GITHUB_ENV"
 
           echo "Previous semantic release: ${LAST_VERSION:-legacy/none}"
-          [[ -n "${LAST_TAG:-}" ]] && echo "Version diff range: ${VERSION_RANGE:-bootstrap}"
-          echo "Requested bump kind: $VERSION_BUMP_KIND"
-          echo "Base version candidate: $BASE_VERSION"
-          echo "Resolved immutable version: $VERSION_NAME"
+          if [[ -n "${LAST_TAG:-}" ]]; then
+            echo "Version diff range: ${VERSION_RANGE:-bootstrap}"
+          fi
+          echo "Version bump: $VERSION_BUMP_KIND"
           echo "Changed files: ${VERSION_CHANGE_FILES:-0}"
           echo "Changed lines: ${VERSION_CHANGE_LINES:-0}"
+          echo "Version name: $VERSION_NAME"
           echo "Android versionCode: $VERSION_CODE"
+
+      # ========================================================================
+      # Android release
+      # ========================================================================
 
       - name: Build signed release APKs
         shell: bash
         run: |
           set -euo pipefail
-          gradle --no-daemon clean assembleRelease \
+
+          gradle \
+            --no-daemon \
+            clean \
+            assembleRelease \
             -PVERSION_NAME="$VERSION_NAME" \
             -PVERSION_CODE="$VERSION_CODE"
+
+      # ========================================================================
+      # Collect APKs
+      # ========================================================================
 
       - name: Collect and verify APKs
         shell: bash
         run: |
           set -euo pipefail
+
           rm -rf dist
           mkdir -p dist
+
           count=0
+
           while IFS= read -r -d '' apk; do
+
             original="$(basename "$apk")"
+
             output="dist/MarbleNG-${VERSION_NAME}-${original#app-}"
+
             cp -f "$apk" "$output"
+
             count=$((count + 1))
-          done < <(find app/build/outputs/apk/release -type f -name '*.apk' -print0)
+
+          done < <(
+            find \
+              app/build/outputs/apk/release \
+              -type f \
+              -name '*.apk' \
+              -print0
+          )
+
           if (( count == 0 )); then
             echo "::error::No release APK was produced."
             exit 1
           fi
+
           echo "Collected $count APK(s)."
-          (cd dist && sha256sum *.apk > SHA256SUMS.txt)
+
+          (
+            cd dist
+            sha256sum *.apk > SHA256SUMS.txt
+          )
+
           APKSIGNER="$ANDROID_SDK_ROOT/build-tools/36.0.0/apksigner"
+
           test -x "$APKSIGNER"
+
           : > dist/SIGNING-CERTS.txt
+
           for apk in dist/*.apk; do
+
             echo "Verifying $(basename "$apk")"
-            "$APKSIGNER" verify --verbose --print-certs "$apk" >> dist/SIGNING-CERTS.txt
-            echo "===== $(basename "$apk") =====" >> dist/SIGNING-CERTS.txt
+
+            "$APKSIGNER" \
+              verify \
+              --verbose \
+              --print-certs \
+              "$apk" \
+              >> dist/SIGNING-CERTS.txt
+
+            echo \
+              "===== $(basename "$apk") =====" \
+              >> dist/SIGNING-CERTS.txt
+
           done
+
           ls -lh dist
+
+      # ========================================================================
+      # Artifact
+      # ========================================================================
 
       - name: Upload APK artifacts
         uses: actions/upload-artifact@v4
@@ -434,7 +676,11 @@ jobs:
           path: dist/*
           if-no-files-found: error
 
-      - name: Publish GitHub Release with immutable smart collision handling
+      # ========================================================================
+      # GitHub Release (SMART, SELF-HEALING PUBLISH)
+      # ========================================================================
+
+      - name: Publish GitHub Release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -443,6 +689,7 @@ jobs:
           export GH_HTTP_TIMEOUT=600
 
           repo="${GITHUB_REPOSITORY}"
+          tag="v$VERSION_NAME"
           shopt -s nullglob
           assets=(dist/*)
           apks=(dist/*.apk)
@@ -454,61 +701,38 @@ jobs:
           test -s dist/SHA256SUMS.txt
           test -s dist/SIGNING-CERTS.txt
 
-          bump_patch_once() {
-            local version="$1"
-            local major minor patch
-            IFS=. read -r major minor patch <<< "$version"
-            patch=$((patch + 1))
-            if (( patch > 9 )); then
-              patch=0
-              minor=$((minor + 1))
-            fi
-            if (( minor >= 9 )); then
-              major=$((major + 1))
-              minor=0
-              patch=0
-            fi
-            printf '%d.%d.%d\n' "$major" "$minor" "$patch"
-          }
-          tag_exists_anywhere() {
-            local tag="$1"
-            git rev-parse -q --verify "refs/tags/$tag" >/dev/null 2>&1 && return 0
-            gh release view "$tag" >/dev/null 2>&1 && return 0
-            gh api "repos/$repo/git/ref/tags/$tag" >/dev/null 2>&1 && return 0
-            return 1
-          }
-          reserve_unique_tag() {
-            local version="$1" tag attempts=0
-            while :; do
-              tag="v$version"
-              if ! tag_exists_anywhere "$tag"; then
-                echo "$version"
-                return 0
-              fi
-              version="$(bump_patch_once "$version")"
-              attempts=$((attempts + 1))
-              if (( attempts > 200 )); then
-                echo "::error::Unable to reserve a unique release tag after 200 attempts."
+          # --------------------------------------------------------------
+          # SELF-HEALING GUARD: because the version step already resolved
+          # any tag/release collision with a smart auto-advancing
+          # algorithm, this tag should be free. However, if a *stale
+          # incomplete draft* exists for it (e.g. left over from a
+          # different concurrent workflow instance), we detect it here
+          # and clean it up automatically instead of hard-failing the
+          # whole pipeline forever.
+          # --------------------------------------------------------------
+          if git rev-parse -q --verify "refs/tags/$tag" >/dev/null || \
+             gh api "repos/$repo/git/refs/tags/$tag" >/dev/null 2>&1; then
+            echo "::warning::Tag $tag unexpectedly exists at publish time. Attempting self-heal."
+            existing_release_id="$(gh api "repos/$repo/releases" --paginate 2>/dev/null | jq -r --arg t "$tag" '[.[] | select(.tag_name == $t)][0].id // empty')"
+            if [[ -n "$existing_release_id" ]]; then
+              existing_published="$(gh api "repos/$repo/releases/$existing_release_id" 2>/dev/null | jq -r '.draft == false')"
+              if [[ "$existing_published" == "true" ]]; then
+                echo "::error::Release $tag is already published; refusing to touch it. Re-run the workflow to get a fresh version."
                 exit 1
               fi
-            done
-          }
-
-          VERSION_NAME="$(reserve_unique_tag "$VERSION_NAME")"
-          tag="v$VERSION_NAME"
-          echo "VERSION_NAME=$VERSION_NAME" >> "$GITHUB_ENV"
-          echo "Final publish tag: $tag"
+              echo "::warning::Removing stale unpublished draft for $tag."
+              gh api --method DELETE "repos/$repo/releases/$existing_release_id" >/dev/null 2>&1 || true
+            fi
+            gh api --method DELETE "repos/$repo/git/refs/tags/$tag" >/dev/null 2>&1 || true
+          fi
 
           XRAY_VERSION="$(jq -r '.xray.tag' core-lock.json)"
           HEV_VERSION="$(jq -r '.hev.tag' core-lock.json)"
           notes_file="$RUNNER_TEMP/marbleng-release-notes.md"
           previous_tag="$(git tag --list | awk '/^v[0-9]+\.[0-9]+\.[0-9]+$/' | sort -V | tail -n 1)"
+
           {
             printf '## MarbleNG %s\n\n' "$VERSION_NAME"
-            printf '### Release resolution\n'
-            printf -- '- Requested base version: `%s`\n' "${BASE_VERSION:-$VERSION_NAME}"
-            printf -- '- Final immutable release version: `%s`\n' "$VERSION_NAME"
-            printf -- '- Collision policy: automatic semantic patch escalation until a free tag is found.\n'
             printf '### Changes in this release\n'
             if [[ -n "$previous_tag" ]]; then
               git log --no-merges --pretty='- %s' "${previous_tag}..${GITHUB_SHA}"
@@ -531,54 +755,22 @@ jobs:
             --arg target "$GITHUB_SHA" \
             --arg name "MarbleNG $VERSION_NAME" \
             --rawfile body "$notes_file" \
-            '{tag_name:$tag,target_commitish:$target,name:$name,body:$body,draft:true,prerelease:false}' > "$create_json"
+            '{tag_name:$tag,target_commitish:$target,name:$name,body:$body,draft:true,prerelease:false}' \
+            > "$create_json"
 
-          create_release_with_recovery() {
-            local attempts=0 payload="$1" out code msg current
-            while (( attempts < 10 )); do
-              attempts=$((attempts + 1))
-              out="$RUNNER_TEMP/release-create-response-$attempts.json"
-              code="$(curl --silent --show-error --location --output "$out" --write-out '%{http_code}' \
-                --request POST \
-                --header "Authorization: Bearer $GH_TOKEN" \
-                --header "Accept: application/vnd.github+json" \
-                --header "X-GitHub-Api-Version: 2022-11-28" \
-                --header "Content-Type: application/json" \
-                --data-binary "@$payload" \
-                "https://api.github.com/repos/$repo/releases")"
-              if [[ "$code" =~ ^20[01]$ ]]; then
-                cat "$out"
-                return 0
-              fi
-              msg="$(jq -r '.message // empty' "$out" 2>/dev/null || true)"
-              if grep -Eqi 'already_exists|already exists|Validation Failed' <<< "$msg"; then
-                current="${tag#v}"
-                current="$(reserve_unique_tag "$(bump_patch_once "$current")")"
-                tag="v$current"
-                VERSION_NAME="$current"
-                echo "Collision detected while creating release. Escalating to $tag"
-                jq -n \
-                  --arg tag "$tag" \
-                  --arg target "$GITHUB_SHA" \
-                  --arg name "MarbleNG $VERSION_NAME" \
-                  --rawfile body "$notes_file" \
-                  '{tag_name:$tag,target_commitish:$target,name:$name,body:$body,draft:true,prerelease:false}' > "$payload"
-                continue
-              fi
-              echo "::error::Release create failed (http=$code message=$msg)"
-              return 1
-            done
-            echo "::error::Release create retries exhausted."
-            return 1
-          }
-
-          release_json="$(create_release_with_recovery "$create_json")"
+          release_json="$(gh api --method POST "repos/$repo/releases" --input "$create_json")"
           release_id="$(jq -r '.id // empty' <<< "$release_json")"
           release_upload_url="$(jq -r '.upload_url // empty' <<< "$release_json")"
           upload_base="${release_upload_url%%\{*}"
 
-          [[ "$release_id" =~ ^[0-9]+$ ]] || { echo "::error::Invalid draft release id."; exit 1; }
-          [[ "$upload_base" == https://uploads.github.com/* ]] || { echo "::error::Invalid draft upload URL."; exit 1; }
+          [[ "$release_id" =~ ^[0-9]+$ ]] || {
+            echo "::error::Invalid draft release id."
+            exit 1
+          }
+          [[ "$upload_base" == https://uploads.github.com/* ]] || {
+            echo "::error::Invalid draft upload URL."
+            exit 1
+          }
 
           published=0
           cleanup_failed_release() {
@@ -598,17 +790,21 @@ jobs:
             gh api "repos/$repo/releases/$release_id/assets?per_page=100" |
               jq -c --arg name "$name" '[.[] | select(.name == $name)] | if length == 0 then null else .[0] end'
           }
+
           urlencode_asset_name() {
             jq -rn --arg value "$1" '$value|@uri'
           }
+
           upload_one_asset() {
             local asset="$1" name name_q local_size attempt existing existing_id existing_size remote remote_size
             local response_file http_code curl_rc api_message
             name="$(basename "$asset")"
             local_size="$(stat -c '%s' "$asset")"
             (( local_size > 0 )) || { echo "::error::Empty asset: $name"; return 1; }
+
             for attempt in 1 2 3 4 5 6; do
               echo "Uploading $name (${local_size} bytes), attempt $attempt/6"
+
               existing="$(remote_asset_json "$name")"
               if [[ "$existing" != "null" ]]; then
                 existing_id="$(jq -r '.id // empty' <<< "$existing")"
@@ -621,17 +817,27 @@ jobs:
                   gh api --method DELETE "repos/$repo/releases/assets/$existing_id" >/dev/null || true
                 fi
               fi
+
               name_q="$(urlencode_asset_name "$name")"
               response_file="$RUNNER_TEMP/release-upload-${attempt}.json"
               curl_rc=0
-              http_code="$(curl --silent --show-error --location --output "$response_file" --write-out '%{http_code}' \
-                --request POST \
-                --header "Authorization: Bearer $GH_TOKEN" \
-                --header "Accept: application/vnd.github+json" \
-                --header "X-GitHub-Api-Version: 2022-11-28" \
-                --header "Content-Type: application/octet-stream" \
-                --data-binary "@$asset" \
-                "${upload_base}?name=${name_q}")" || curl_rc=$?
+
+              http_code="$(
+                curl \
+                  --silent \
+                  --show-error \
+                  --location \
+                  --output "$response_file" \
+                  --write-out '%{http_code}' \
+                  --request POST \
+                  --header "Authorization: Bearer $GH_TOKEN" \
+                  --header "Accept: application/vnd.github+json" \
+                  --header "X-GitHub-Api-Version: 2022-11-28" \
+                  --header "Content-Type: application/octet-stream" \
+                  --data-binary "@$asset" \
+                  "${upload_base}?name=${name_q}"
+              )" || curl_rc=$?
+
               if (( curl_rc == 0 )) && [[ "$http_code" =~ ^20[01]$ ]]; then
                 remote="$(remote_asset_json "$name")"
                 remote_size="$(jq -r '.size // 0' <<< "$remote")"
@@ -644,6 +850,7 @@ jobs:
                 api_message="$(jq -r '.message // empty' "$response_file" 2>/dev/null || true)"
                 echo "::warning::Upload attempt $attempt failed: $name (curl=$curl_rc http=$http_code $api_message)"
               fi
+
               if (( attempt < 6 )); then
                 case "$attempt" in
                   1) sleep 5 ;;
@@ -654,6 +861,7 @@ jobs:
                 esac
               fi
             done
+
             echo "::error::Upload retries exhausted: $name"
             return 1
           }
@@ -667,6 +875,7 @@ jobs:
             echo "::error::Remote asset count mismatch."
             exit 1
           fi
+
           for asset in "${assets[@]}"; do
             name="$(basename "$asset")"
             local_size="$(stat -c '%s' "$asset")"
@@ -677,6 +886,8 @@ jobs:
             }
           done
 
+          # تنظیم این متغیر مانع از پاک شدن draft توسط اسکریپت cleanup می‌شود
           published=1
           trap - ERR INT TERM
-          echo "Draft release successfully created and assets uploaded under $tag."
+
+          echo "Draft release successfully created and assets uploaded. Waiting for your manual approval to publish."
