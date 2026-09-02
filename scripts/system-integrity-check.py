@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # MarbleNG source-wide architecture/integration preflight.
+# Compatible with MARBLE_RELEASE_PUBLISH_RESILIENT_V182.
 #
 # Gradle/Kotlin/native compilers remain the syntax/type/link authority. This checker catches
 # structural drift between subsystems before expensive native compilation starts.
@@ -154,7 +155,7 @@ check(
     and "ipDetails" in files["strings"],
 )
 
-# MARBLE_HOME_STYLE_V110 — four presentations of one connection surface.
+# MARBLE_HOME_STYLE_V110 â€” four presentations of one connection surface.
 home_styles = ("BIOLUMINESCENT", "COSMIC_ORBIT", "COSMIC_IMMERSION", "PARAMETRIC")
 check(
     "all four Home styles are modelled and persisted",
@@ -216,7 +217,7 @@ check(
     and "rememberUptimeLabel(" in files["homeStyles"],
 )
 
-# MARBLE_BILINGUAL_V110 — English/Persian with a device-locale default.
+# MARBLE_BILINGUAL_V110 â€” English/Persian with a device-locale default.
 check(
     "product is bilingual with a device-locale default",
     "enum class AppLanguage" in files["models"]
@@ -529,7 +530,7 @@ check(
 build_release = files["build"]
 
 check(
-    "release publishing is immutable, verified and tag-atomic",
+    "release publishing is immutable, verified and collision-resilient",
     "draft:true" in build_release
     and "target_commitish:$target" in build_release
     and "release_upload_url" in build_release
@@ -539,10 +540,38 @@ check(
     and "Remote asset count mismatch." in build_release
     and "Remote release verification failed: $name" in build_release
     and "cleanup_failed_release" in build_release
-    and 'git rev-parse -q --verify "refs/tags/$tag"' in build_release
-    and 'gh release view "$tag"' in build_release
+    and "version_taken()" in build_release
+    and "git fetch --tags --force origin" in build_release
+    and "repos/$repo/git/refs/tags/v$v" in build_release
+    and 'gh release view "v$v"' in build_release
+    and "SMART COLLISION-RESOLUTION ALGORITHM" in build_release
+    and "Could not find a free version after 500 attempts" in build_release
+    and "SELF-HEALING GUARD" in build_release
+    and "Release $tag is already published; refusing to touch it." in build_release
     and 'gh release upload "$tag"' not in build_release
     and 'git push origin "$tag"' not in build_release,
+)
+
+check(
+    "release version discovery checks GitHub drafts and remote tags",
+    "version_taken()" in build_release
+    and "repos/$repo/git/refs/tags/v$v" in build_release
+    and 'gh release view "v$v"' in build_release
+    and "git fetch --tags --force origin" in build_release,
+)
+
+check(
+    "release collision algorithm advances rather than hard-failing",
+    'while version_taken "$CANDIDATE"; do' in build_release
+    and 'CANDIDATE="$(bump_patch "$CANDIDATE" 1)"' in build_release
+    and "ATTEMPTS > 500" in build_release,
+)
+
+check(
+    "stale unpublished draft releases are self-healed safely",
+    "Removing stale unpublished draft for $tag." in build_release
+    and "existing_published" in build_release
+    and "Release $tag is already published; refusing to touch it." in build_release,
 )
 
 check(
