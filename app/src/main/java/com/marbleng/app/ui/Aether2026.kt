@@ -84,6 +84,7 @@ import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
@@ -2926,7 +2927,137 @@ private fun HoloActionPill(
 // LIBRARY
 // =================================================================================================
 
-@OptIn(ExperimentalMaterial3Api::class)
+// =============================================================================
+// MARBLE_LIBRARY_STYLE_V113 — the Library is rebuilt as a grouped, collapsible,
+// per-style surface. Sources fold shut and remember it across visits; every
+// subscription carries its own refresh and edit actions; a single smart floating
+// button owns adding servers/subscriptions plus the revealed sort & Freedom
+// controls; and both the chrome and the connected state follow the Home style.
+// =============================================================================
+
+private enum class LibraryGroupKind { SUBSCRIPTION, MANUAL, FREEDOM }
+
+private data class LibraryGroup(
+    val sourceId: String,
+    val title: String,
+    val kind: LibraryGroupKind,
+    val profiles: List<ProxyProfile>
+)
+
+/**
+ * Per-Home-style Library identity. Each skin picks its own accent, glow, group
+ * silhouette and the exact wording of the live-route badge so the connected
+ * state reads as a dedicated, professional treatment on every theme.
+ */
+private data class LibraryChrome(
+    val accent: Color,
+    val glow: Color,
+    val headerShape: RoundedCornerShape,
+    val connectedLabel: String,
+    val securingLabel: String,
+    val connectedTone: Color,
+    val headerTitle: String,
+    val freedomTone: Color
+)
+
+@Composable
+private fun libraryChromeFor(flavor: HomeFlavor): LibraryChrome = when (flavor) {
+    HomeFlavor.PRO -> LibraryChrome(
+        accent = Aether.Cyan,
+        glow = Aether.CyanBright,
+        headerShape = RoundedCornerShape(16.dp),
+        connectedLabel = "CONNECTED",
+        securingLabel = "SECURING",
+        connectedTone = Aether.Emerald,
+        headerTitle = "SIGNATURE LIBRARY",
+        freedomTone = Aether.Cyan
+    )
+    HomeFlavor.ORGANIC -> LibraryChrome(
+        accent = Aether.Emerald,
+        glow = Aether.Emerald,
+        headerShape = RoundedCornerShape(topStart = 26.dp, topEnd = 14.dp, bottomStart = 14.dp, bottomEnd = 26.dp),
+        connectedLabel = "BIOLUMINESCENT",
+        securingLabel = "GERMINATING",
+        connectedTone = Aether.Emerald,
+        headerTitle = "ORGANIC LIBRARY",
+        freedomTone = Aether.Amethyst
+    )
+    HomeFlavor.ORBIT -> LibraryChrome(
+        accent = Aether.Cyan,
+        glow = Aether.Amber,
+        headerShape = RoundedCornerShape(18.dp),
+        connectedLabel = "IN ORBIT",
+        securingLabel = "ACQUIRING",
+        connectedTone = Aether.Cyan,
+        headerTitle = "ORBITAL MANIFEST",
+        freedomTone = Aether.Amber
+    )
+    HomeFlavor.NEBULA -> LibraryChrome(
+        accent = Aether.Amethyst,
+        glow = Aether.AmethystBright,
+        headerShape = RoundedCornerShape(20.dp),
+        connectedLabel = "IMMERSED",
+        securingLabel = "NEBULIZING",
+        connectedTone = Aether.AmethystBright,
+        headerTitle = "NEBULA LIBRARY",
+        freedomTone = Aether.Amethyst
+    )
+    HomeFlavor.BLUEPRINT -> LibraryChrome(
+        accent = Aether.Cyan,
+        glow = Aether.Slate,
+        headerShape = RoundedCornerShape(6.dp),
+        connectedLabel = "PARAMETRIC",
+        securingLabel = "DRAFTING",
+        connectedTone = Aether.SlateBright,
+        headerTitle = "BLUEPRINT LIBRARY",
+        freedomTone = Aether.Slate
+    )
+}
+
+private fun profileMatchesSearch(profile: ProxyProfile, query: String): Boolean =
+    query.isBlank() ||
+        profile.name.contains(query, true) ||
+        profile.scheme.contains(query, true) ||
+        profile.host.contains(query, true) ||
+        profile.transport.contains(query, true) ||
+        profile.security.contains(query, true)
+
+private fun sortLibraryProfiles(
+    profiles: List<ProxyProfile>,
+    benchmarkById: Map<String, BenchmarkResult>,
+    mode: NodeSortMode,
+    reverse: Boolean
+): List<ProxyProfile> {
+    val sorted = when (mode) {
+        NodeSortMode.PING -> profiles.sortedWith(
+            compareBy<ProxyProfile> { profile ->
+                benchmarkById[profile.id]
+                    ?.takeIf { it.success > 0 }
+                    ?.latencyMs
+                    ?: Double.MAX_VALUE
+            }.thenBy { it.name.lowercase() }
+        )
+        NodeSortMode.SCORE -> profiles.sortedWith(
+            compareByDescending<ProxyProfile> { profile ->
+                benchmarkById[profile.id]
+                    ?.takeIf { it.success > 0 }
+                    ?.score
+                    ?: -1.0
+            }.thenBy { it.name.lowercase() }
+        )
+        NodeSortMode.NAME -> profiles.sortedBy { it.name.lowercase() }
+        NodeSortMode.PROTOCOL -> profiles.sortedWith(
+            compareBy<ProxyProfile> { it.scheme.lowercase() }
+                .thenBy { it.name.lowercase() }
+        )
+        NodeSortMode.SOURCE -> profiles.sortedWith(
+            compareBy<ProxyProfile> { it.subscriptionName.lowercase() }
+                .thenBy { it.name.lowercase() }
+        )
+    }
+    return if (reverse) sorted.asReversed() else sorted
+}
+
 @Composable
 private fun CyberLibrary(
     repo: AppRepository,
@@ -2938,71 +3069,67 @@ private fun CyberLibrary(
     val clipboard = LocalClipboardManager.current
     val contentListState = rememberLazyListState()
     var search by remember { mutableStateOf("") }
-    var addOpen by remember { mutableStateOf(false) }
-    var addMode by remember { mutableStateOf("subscription") }
-    var url by remember { mutableStateOf("") }
-    var sourceName by remember { mutableStateOf("") }
     var renameTarget by remember { mutableStateOf<ProxyProfile?>(null) }
     var renameText by remember { mutableStateOf("") }
-    val sourceFilter = repo.librarySourceFilter
     var manageSubscription by remember { mutableStateOf<Subscription?>(null) }
     var editSubscriptionName by remember { mutableStateOf("") }
     var editSubscriptionUrl by remember { mutableStateOf("") }
     var deleteSubscription by remember { mutableStateOf<Subscription?>(null) }
     var pruneFailedTarget by remember { mutableStateOf<Pair<Subscription, String>?>(null) }
+    var addOpen by remember { mutableStateOf(false) }
+    var sortOpen by remember { mutableStateOf(false) }
 
-    val sourceIds = repo.subscriptions.map { it.id } + ServerlessFreedomEngine.SOURCE_ID
-    LaunchedEffect(sourceIds, repo.settings.manualSourceEnabled) {
-        repo.ensureLibrarySourceSelectionValid()
-    }
+    val flavor = homeFlavorFor(parseHomeStyle(repo.settings.homeStyle))
+    val chrome = libraryChromeFor(flavor)
+
     LaunchedEffect(contentListState.isScrollInProgress) {
         onContentScrollChanged(contentListState.isScrollInProgress)
     }
 
     val benchmarkById = repo.benchmarks.associateBy { it.profileId }
-    val filtered = repo.libraryProfiles.filter {
-        val sourceMatches = when (sourceFilter) {
-            "all" -> true
-            "manual" -> it.subscriptionId == "manual"
-            else -> it.subscriptionId == sourceFilter
+    val searched = repo.libraryProfiles.filter { profileMatchesSearch(it, search) }
+
+    // Subscription groups always render so a freshly added source stays reachable; Manual and
+    // Marble Freedom render only when they actually hold nodes. Freedom is hidden until the
+    // user reveals it from the smart floating button.
+    val groups: List<LibraryGroup> = buildList {
+        repo.subscriptions.forEach { sub ->
+            val nodes = searched.filter { it.subscriptionId == sub.id }
+            if (nodes.isNotEmpty() || search.isBlank()) {
+                add(LibraryGroup(sub.id, sub.name, LibraryGroupKind.SUBSCRIPTION, nodes))
+            }
         }
-        sourceMatches && (
-            search.isBlank() ||
-                it.name.contains(search, true) ||
-                it.scheme.contains(search, true) ||
-                it.host.contains(search, true) ||
-                it.transport.contains(search, true) ||
-                it.security.contains(search, true)
+        if (repo.settings.manualSourceEnabled) {
+            val nodes = searched.filter { it.subscriptionId == "manual" }
+            if (nodes.isNotEmpty()) {
+                add(LibraryGroup("manual", "Manual", LibraryGroupKind.MANUAL, nodes))
+            }
+        }
+        if (!repo.libraryFreedomHidden) {
+            val nodes = searched.filter { it.subscriptionId == ServerlessFreedomEngine.SOURCE_ID }
+            if (nodes.isNotEmpty()) {
+                add(
+                    LibraryGroup(
+                        ServerlessFreedomEngine.SOURCE_ID,
+                        "Marble Freedom",
+                        LibraryGroupKind.FREEDOM,
+                        nodes
+                    )
+                )
+            }
+        }
+    }
+
+    val grouped = groups.map { group ->
+        group.copy(
+            profiles = sortLibraryProfiles(
+                group.profiles,
+                benchmarkById,
+                repo.settings.nodeSortMode,
+                repo.settings.nodeSortReverse
+            )
         )
     }
-    val naturalOrder = when (repo.settings.nodeSortMode) {
-        NodeSortMode.PING -> filtered.sortedWith(
-            compareBy<ProxyProfile> { profile ->
-                benchmarkById[profile.id]
-                    ?.takeIf { it.success > 0 }
-                    ?.latencyMs
-                    ?: Double.MAX_VALUE
-            }.thenBy { it.name.lowercase() }
-        )
-        NodeSortMode.SCORE -> filtered.sortedWith(
-            compareByDescending<ProxyProfile> { profile ->
-                benchmarkById[profile.id]
-                    ?.takeIf { it.success > 0 }
-                    ?.score
-                    ?: -1.0
-            }.thenBy { it.name.lowercase() }
-        )
-        NodeSortMode.NAME -> filtered.sortedBy { it.name.lowercase() }
-        NodeSortMode.PROTOCOL -> filtered.sortedWith(
-            compareBy<ProxyProfile> { it.scheme.lowercase() }
-                .thenBy { it.name.lowercase() }
-        )
-        NodeSortMode.SOURCE -> filtered.sortedWith(
-            compareBy<ProxyProfile> { it.subscriptionName.lowercase() }
-                .thenBy { it.name.lowercase() }
-        )
-    }
-    val visible = if (repo.settings.nodeSortReverse) naturalOrder.asReversed() else naturalOrder
 
     renameTarget?.let { target ->
         AlertDialog(
@@ -3021,18 +3148,18 @@ private fun CyberLibrary(
             },
             confirmButton = {
                 MarbleDialogAction(
-                    label="Save",
-                    tone=Aether.Cyan,
-                    variant=PrismButtonVariant.Primary,
-                    enabled=renameText.isNotBlank(),
-                    onClick={
+                    label = "Save",
+                    tone = Aether.Cyan,
+                    variant = PrismButtonVariant.Primary,
+                    enabled = renameText.isNotBlank(),
+                    onClick = {
                         repo.renameProfile(target.id, renameText, target.subscriptionId)
                         renameTarget = null
                     }
                 )
             },
             dismissButton = {
-                MarbleDialogAction(label="Cancel", tone=Aether.InkMuted, onClick={ renameTarget = null })
+                MarbleDialogAction(label = "Cancel", tone = Aether.InkMuted, onClick = { renameTarget = null })
             }
         )
     }
@@ -3144,11 +3271,11 @@ private fun CyberLibrary(
             },
             confirmButton = {
                 MarbleDialogAction(
-                    label="Save",
-                    tone=Aether.Cyan,
-                    variant=PrismButtonVariant.Primary,
-                    enabled=!repo.busy,
-                    onClick={
+                    label = "Save",
+                    tone = Aether.Cyan,
+                    variant = PrismButtonVariant.Primary,
+                    enabled = !repo.busy,
+                    onClick = {
                         if (repo.updateSubscription(target.id, editSubscriptionName, editSubscriptionUrl)) {
                             manageSubscription = null
                         }
@@ -3156,17 +3283,17 @@ private fun CyberLibrary(
                 )
             },
             dismissButton = {
-                Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     MarbleDialogAction(
-                        label="Delete",
-                        tone=Aether.Danger,
-                        enabled=!repo.busy,
-                        onClick={
+                        label = "Delete",
+                        tone = Aether.Danger,
+                        enabled = !repo.busy,
+                        onClick = {
                             deleteSubscription = target
                             manageSubscription = null
                         }
                     )
-                    MarbleDialogAction(label="Close", tone=Aether.InkMuted, onClick={ manageSubscription = null })
+                    MarbleDialogAction(label = "Close", tone = Aether.InkMuted, onClick = { manageSubscription = null })
                 }
             }
         )
@@ -3188,17 +3315,17 @@ private fun CyberLibrary(
             },
             confirmButton = {
                 MarbleDialogAction(
-                    label="Remove failed",
-                    tone=Aether.Danger,
-                    enabled=!repo.busy && failedCount > 0 && repo.state == "DISCONNECTED",
-                    onClick={
+                    label = "Remove failed",
+                    tone = Aether.Danger,
+                    enabled = !repo.busy && failedCount > 0 && repo.state == "DISCONNECTED",
+                    onClick = {
                         repo.removeFailedSubscriptionNodes(target.id, kind)
                         pruneFailedTarget = null
                     }
                 )
             },
             dismissButton = {
-                MarbleDialogAction(label="Cancel", tone=Aether.InkMuted, onClick={ pruneFailedTarget = null })
+                MarbleDialogAction(label = "Cancel", tone = Aether.InkMuted, onClick = { pruneFailedTarget = null })
             }
         )
     }
@@ -3216,255 +3343,574 @@ private fun CyberLibrary(
             },
             confirmButton = {
                 MarbleDialogAction(
-                    label="Delete source",
-                    tone=Aether.Danger,
-                    enabled=!repo.busy,
-                    onClick={
-                        if (sourceFilter == target.id) repo.selectLibrarySource("all")
+                    label = "Delete source",
+                    tone = Aether.Danger,
+                    enabled = !repo.busy,
+                    onClick = {
+                        if (repo.librarySourceFilter == target.id) repo.selectLibrarySource("all")
                         repo.removeSubscription(target.id)
                         deleteSubscription = null
                     }
                 )
             },
             dismissButton = {
-                MarbleDialogAction(label="Cancel", tone=Aether.InkMuted, onClick={ deleteSubscription = null })
+                MarbleDialogAction(label = "Cancel", tone = Aether.InkMuted, onClick = { deleteSubscription = null })
             }
         )
     }
 
-    // MARBLE_LIBRARY_INTEGRATED_FILTERS_V78 — subscription tabs merged inline; no separate sheet needed
-    // Build ordered source list for swipeable tabs
-    val librarySources: List<Pair<String, String>> = buildList {
-        add("all" to "All (${repo.libraryProfiles.size})")
-        val freedomCount = repo.libraryProfiles.count {
-            it.subscriptionId == ServerlessFreedomEngine.SOURCE_ID
-        }
-        add(ServerlessFreedomEngine.SOURCE_ID to "Freedom ($freedomCount)")
-        if (repo.settings.manualSourceEnabled) {
-            add("manual" to "Manual (${repo.libraryProfiles.count { it.subscriptionId == "manual" }})")
-        }
-        repo.subscriptions.forEach { sub ->
-            add(sub.id to "${sub.name} (${repo.subscriptionNodeCount(sub.id)})")
-        }
-    }
+    Box(modifier = Modifier.fillMaxSize()) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            state = contentListState,
+            contentPadding = PaddingValues(
+                start = 16.dp,
+                end = 16.dp,
+                top = 6.dp,
+                bottom = dockClearance() + 92.dp
+            ),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            item {
+                MarbleCompactTopBar(
+                    title = "Library",
+                    subtitle = "${chrome.headerTitle} • ${repo.libraryProfiles.size} nodes"
+                )
+            }
 
-    val sourceCount = librarySources.size
-    val initialSourceIndex = librarySources.indexOfFirst { it.first == sourceFilter }.coerceAtLeast(0)
-    val sourcePager = rememberPagerState(initialPage = initialSourceIndex) { sourceCount }
-    val scopeLib = rememberCoroutineScope()
-
-    // Keep sourceFilter in sync with pager swipe
-    LaunchedEffect(sourcePager.currentPage) {
-        val newSourceId = librarySources.getOrNull(sourcePager.currentPage)?.first ?: "all"
-        if (newSourceId != sourceFilter) {
-            repo.selectLibrarySource(newSourceId)
-        }
-    }
-
-    // Keep pager in sync when sourceFilter changes externally
-    LaunchedEffect(sourceFilter) {
-        val idx = librarySources.indexOfFirst { it.first == sourceFilter }.coerceAtLeast(0)
-        if (idx != sourcePager.currentPage) {
-            sourcePager.animateScrollToPage(idx)
-        }
-    }
-
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        state = contentListState,
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 6.dp, bottom = dockClearance()),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        item {
-            MarbleCompactTopBar(
-                title = "Library",
-                subtitle = "${visible.size} visible • ${repo.libraryProfiles.size} total"
-            )
-        }
-
-        // Inline source tabs — swipeable pill strip
-        stickyHeader(key = "library-source-tabs") {
-            LibrarySourceTabStrip(
-                sources = librarySources,
-                selectedIndex = sourcePager.currentPage,
-                onSelect = { idx -> scopeLib.launch { sourcePager.animateScrollToPage(idx) } }
-            )
-        }
-
-        item {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
+            item {
                 PrismSearchField(
                     value = search,
                     onValueChange = { search = it },
                     placeholder = "Search nodes, host or protocol",
-                    modifier = Modifier.weight(1f)
-                )
-
-                CyberButton(
-                    label = if (addOpen) "Close" else "Add",
-                    color = Aether.Cyan,
-                    modifier = Modifier.widthIn(min = 88.dp),
-                    variant = if (addOpen) PrismButtonVariant.Secondary else PrismButtonVariant.Primary,
-                    icon = if (addOpen) null else HomeIcon.SPARK,
-                    onClick = { addOpen = !addOpen }
+                    modifier = Modifier.fillMaxWidth()
                 )
             }
-        }
 
-        item {
-            AnimatedVisibility(
-                visible = addOpen,
-                enter = fadeIn(MarbleMotionSpecs.ResponseFloat) +
-                    expandVertically(MarbleMotionSpecs.Layout),
-                exit = fadeOut(MarbleMotionSpecs.ExitFloat) +
-                    shrinkVertically(MarbleMotionSpecs.Layout)
-            ) {
-                HoloGlass(
-                    modifier = Modifier.fillMaxWidth(),
-                    contentPadding = PaddingValues(12.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        LibraryModeSegment(
-                            text = "Subscription",
-                            selected = addMode == "subscription",
-                            tone = Aether.Cyan,
-                            modifier = Modifier.weight(1f)
-                        ) { addMode = "subscription" }
-                        LibraryModeSegment(
-                            text = "Manual config",
-                            selected = addMode == "manual",
-                            tone = Aether.Cyan,
-                            modifier = Modifier.weight(1f)
-                        ) { addMode = "manual" }
+            // Global deck: refresh / ping / rank everything, plus the live probe progress.
+            item {
+                LibraryControlDeck(repo = repo, sourceFilter = "all")
+            }
+
+            if (grouped.isEmpty()) {
+                item {
+                    HoloGlass(modifier = Modifier.fillMaxWidth()) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(
+                                if (repo.libraryProfiles.isEmpty()) "No connections yet" else "Nothing matches",
+                                color = Aether.Ink,
+                                style = MaterialTheme.typography.titleMedium
+                            )
+                            Text(
+                                trx("Use the floating + button to add a subscription, paste configs or import a file."),
+                                color = Aether.InkFaint,
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
                     }
-                    AnimatedContent(
-                        targetState = addMode,
-                        transitionSpec = {
-                            (
-                                fadeIn(MarbleMotionSpecs.ResponseFloat) +
-                                    slideInHorizontally(MarbleMotionSpecs.Spatial) { it / 12 }
-                            ) togetherWith (
-                                fadeOut(MarbleMotionSpecs.ExitFloat) +
-                                    slideOutHorizontally(MarbleMotionSpecs.SpatialExit) { -it / 14 }
-                            )
-                        },
-                        label = "library-add-mode-v20"
-                    ) { mode ->
-                        if (mode == "manual") {
-                            ManualAddEditor(
-                                repo = repo,
-                                targetSourceId = sourceFilter,
-                                onSaved = { addOpen = false }
-                            )
-                        } else {
-                            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                OutlinedTextField(
-                                    value = url,
-                                    onValueChange = { url = it },
-                                    label = { Text(trx("Subscription URL • optional")) },
-                                    singleLine = true,
-                                    modifier = Modifier.fillMaxWidth(),
-                                    shape = RoundedCornerShape(18.dp),
-                                    colors = marbleOutlinedTextFieldColors()
-                                )
-                                OutlinedTextField(
-                                    value = sourceName,
-                                    onValueChange = { sourceName = it },
-                                    label = { Text(trx("Name • optional")) },
-                                    singleLine = true,
-                                    modifier = Modifier.fillMaxWidth(),
-                                    shape = RoundedCornerShape(18.dp),
-                                    colors = marbleOutlinedTextFieldColors()
-                                )
-                                CyberButton(
-                                    variant = PrismButtonVariant.Primary,
-                                    label = if (url.isBlank()) "Create local source" else "Add subscription",
-                                    color = Aether.Cyan,
-                                    modifier = Modifier.fillMaxWidth(),
-                                    enabled = !repo.busy && (
-                                        url.isBlank() ||
-                                            url.startsWith("https://", true)
-                                        )
-                                ) {
-                                    repo.addSubscription(sourceName, url)
-                                    url = ""
-                                    sourceName = ""
-                                }
+                }
+            }
+
+            grouped.forEach { group ->
+                val collapsed = group.sourceId in repo.libraryCollapsedSources
+                item(key = "group-${group.sourceId}") {
+                    LibraryGroupHeader(
+                        group = group,
+                        chrome = chrome,
+                        repo = repo,
+                        collapsed = collapsed,
+                        onToggle = { repo.setLibrarySourceCollapsed(group.sourceId, !collapsed) },
+                        onEdit = {
+                            manageSubscription = repo.subscriptions.firstOrNull { it.id == group.sourceId }
+                            if (manageSubscription != null) {
+                                editSubscriptionName = manageSubscription?.name.orEmpty()
+                                editSubscriptionUrl = manageSubscription?.url.orEmpty()
                             }
                         }
-                    }
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        LibraryMicroAction(
-                            icon = HomeIcon.SPARK,
-                            label = "Paste",
-                            color = Aether.Emerald,
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            repo.importClipboard(
-                                clipboard.getText()?.text.orEmpty(),
-                                sourceFilter
-                            )
-                        }
-                        LibraryMicroAction(
-                            icon = HomeIcon.DOWNLOAD,
-                            label = "Import",
-                            color = Aether.Amethyst,
-                            modifier = Modifier.weight(1f)
-                        ) { onImportFile() }
+                    )
+                }
+                if (!collapsed) {
+                    items(group.profiles, key = { "${group.sourceId}:${it.id}" }) { profile ->
+                        SpatialServerCard(
+                            profile = profile,
+                            repo = repo,
+                            result = benchmarkById[profile.id],
+                            active = repo.isActiveProfile(profile),
+                            probeState = repo.probeStateOf(profile.id),
+                            flavor = flavor,
+                            onConnect = onConnect,
+                            onEdit = {
+                                renameTarget = profile
+                                renameText = profile.name
+                            },
+                            onDetails = { onDetails(profile) }
+                        )
                     }
                 }
             }
         }
 
-        item {
-            LibraryControlDeck(
-                repo = repo,
-                sourceFilter = sourceFilter
+        LibrarySmartFab(
+            repo = repo,
+            chrome = chrome,
+            modifier = Modifier.align(Alignment.BottomEnd),
+            onAdd = { addOpen = true },
+            onSort = { sortOpen = true }
+        )
+    }
+
+    if (addOpen) {
+        LibraryAddSheet(
+            repo = repo,
+            onImportFile = onImportFile,
+            onDismiss = { addOpen = false }
+        )
+    }
+
+    if (sortOpen) {
+        LibrarySortSheet(
+            repo = repo,
+            onDismiss = { sortOpen = false }
+        )
+    }
+}
+
+@Composable
+private fun LibraryChevron(collapsed: Boolean, color: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier) {
+        val w = size.width
+        val h = size.height
+        val m = size.minDimension
+        val line = Stroke(width = (m * .13f).coerceAtLeast(1.4f), cap = StrokeCap.Round)
+        val p = Path()
+        if (collapsed) {
+            p.moveTo(w * .38f, h * .22f)
+            p.lineTo(w * .66f, h * .50f)
+            p.lineTo(w * .38f, h * .78f)
+        } else {
+            p.moveTo(w * .30f, h * .38f)
+            p.lineTo(w * .50f, h * .66f)
+            p.lineTo(w * .70f, h * .38f)
+        }
+        drawPath(p, color, style = line)
+    }
+}
+
+@Composable
+private fun LibraryGroupHeader(
+    group: LibraryGroup,
+    chrome: LibraryChrome,
+    repo: AppRepository,
+    collapsed: Boolean,
+    onToggle: () -> Unit,
+    onEdit: () -> Unit
+) {
+    val isSubscription = group.kind == LibraryGroupKind.SUBSCRIPTION
+    val sub = repo.subscriptions.firstOrNull { it.id == group.sourceId }
+    val local = isSubscription && sub?.url?.isBlank() == true
+    val refreshing = isSubscription && group.sourceId in repo.refreshingSources
+    val subtitle = when (group.kind) {
+        LibraryGroupKind.SUBSCRIPTION -> {
+            val age = if (local) "LOCAL" else relativeTime(sub?.updatedAt ?: 0L)
+            "${group.profiles.size} nodes • $age"
+        }
+        LibraryGroupKind.MANUAL -> "${group.profiles.size} nodes • Manual"
+        LibraryGroupKind.FREEDOM -> "Freedom (${group.profiles.size}) • Local engine"
+    }
+    val shape = chrome.headerShape
+    val accent = when (group.kind) {
+        LibraryGroupKind.FREEDOM -> chrome.freedomTone
+        else -> chrome.accent
+    }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(Aether.VoidElevated.copy(alpha = .94f))
+            .border(1.dp, accent.copy(alpha = if (collapsed) .20f else .34f), shape)
+            .padding(start = 12.dp, end = 8.dp, top = 9.dp, bottom = 9.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // Whole title block toggles the fold; the chevron is its own hit target too.
+        Box(
+            modifier = Modifier
+                .size(34.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(accent.copy(alpha = .10f))
+                .kineticClickable(
+                    role = Role.Button,
+                    boundedShape = RoundedCornerShape(10.dp),
+                    onClick = onToggle
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            LibraryChevron(collapsed, accent, Modifier.size(16.dp))
+        }
+        Spacer(Modifier.width(10.dp))
+
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .kineticClickable(role = Role.Button, onClick = onToggle),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            Text(
+                group.title,
+                color = Aether.Ink,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                subtitle,
+                color = if (collapsed) Aether.InkFaint else accent.copy(alpha = .85f),
+                style = MaterialTheme.typography.labelSmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         }
 
-        // Sort chips — inline, no sheet needed
-        item {
-            LibraryInlineSortBar(repo = repo)
-        }
-
-        if (visible.isEmpty()) {
-            item {
-                HoloGlass(modifier = Modifier.fillMaxWidth()) {
-                    Text(
-                        if (repo.libraryProfiles.isEmpty()) "No connections yet" else "Nothing matches",
-                        color = Aether.Ink,
-                        style = MaterialTheme.typography.titleMedium
+        if (isSubscription) {
+            Box(
+                modifier = Modifier
+                    .size(38.dp)
+                    .clip(CircleShape)
+                    .semantics { contentDescription = "Refresh ${group.title}" }
+                    .kineticClickable(
+                        enabled = !repo.busy && !local,
+                        role = Role.Button,
+                        onClick = { repo.refresh(group.sourceId) }
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                if (refreshing) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(17.dp),
+                        color = Aether.Amethyst,
+                        strokeWidth = 2.dp
+                    )
+                } else {
+                    HomeVectorIcon(
+                        HomeIcon.RESET,
+                        if (local) Aether.InkFaint else Aether.Amethyst,
+                        Modifier.size(18.dp)
                     )
                 }
             }
+            Box(
+                modifier = Modifier
+                    .size(38.dp)
+                    .clip(CircleShape)
+                    .semantics { contentDescription = "Edit ${group.title}" }
+                    .kineticClickable(
+                        enabled = !repo.busy,
+                        role = Role.Button,
+                        onClick = onEdit
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                HomeVectorIcon(HomeIcon.MODE, Aether.Cyan, Modifier.size(17.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun LibraryFabAction(
+    icon: HomeIcon,
+    label: String,
+    tone: Color,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(999.dp))
+            .shadow(10.dp, RoundedCornerShape(999.dp), spotColor = Color.Black.copy(alpha = .24f))
+            .background(Aether.VoidElevated.copy(alpha = .97f))
+            .border(1.dp, tone.copy(alpha = .42f), RoundedCornerShape(999.dp))
+            .kineticClickable(role = Role.Button, onClick = onClick)
+            .padding(horizontal = 15.dp, vertical = 11.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(9.dp)
+    ) {
+        HomeVectorIcon(icon, tone, Modifier.size(18.dp))
+        Text(
+            trx(label),
+            color = Aether.Ink,
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1
+        )
+    }
+}
+
+@Composable
+private fun LibrarySmartFab(
+    repo: AppRepository,
+    chrome: LibraryChrome,
+    modifier: Modifier = Modifier,
+    onAdd: () -> Unit,
+    onSort: () -> Unit
+) {
+    var revealed by remember { mutableStateOf(false) }
+    val freedomHidden = repo.libraryFreedomHidden
+
+    Column(
+        modifier = modifier.padding(end = 18.dp, bottom = dockClearance() + 12.dp),
+        horizontalAlignment = Alignment.End,
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        AnimatedVisibility(
+            visible = revealed,
+            enter = fadeIn(MarbleMotionSpecs.ResponseFloat) +
+                slideInVertically(MarbleMotionSpecs.Spatial) { it },
+            exit = fadeOut(MarbleMotionSpecs.ExitFloat) +
+                slideOutVertically(MarbleMotionSpecs.SpatialExit) { it }
+        ) {
+            Column(
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                LibraryFabAction(
+                    icon = HomeIcon.RANK,
+                    label = "Sort nodes",
+                    tone = chrome.accent,
+                    onClick = {
+                        revealed = false
+                        onSort()
+                    }
+                )
+                LibraryFabAction(
+                    icon = HomeIcon.SHIELD,
+                    label = if (freedomHidden) "Show Marble Freedom" else "Hide Marble Freedom",
+                    tone = chrome.freedomTone,
+                    onClick = { repo.updateLibraryFreedomHidden(!freedomHidden) }
+                )
+            }
         }
 
-        // The source remains part of the key because the same share link can exist
-        // in more than one subscription.
-        items(visible, key = { "${it.subscriptionId}:${it.id}" }) { profile ->
-            SpatialServerCard(
-                profile = profile,
-                repo = repo,
-                result = benchmarkById[profile.id],
-                active = repo.isActiveProfile(profile),
-                probeState = repo.probeStateOf(profile.id),
-                onConnect = onConnect,
-                onEdit = {
-                    renameTarget = profile
-                    renameText = profile.name
+        val fabShape = CircleShape
+        Box(
+            modifier = Modifier
+                .size(58.dp)
+                .shadow(
+                    elevation = 14.dp,
+                    shape = fabShape,
+                    spotColor = chrome.glow.copy(alpha = .45f),
+                    ambientColor = chrome.glow.copy(alpha = .30f)
+                )
+                .clip(fabShape)
+                .background(
+                    Brush.linearGradient(
+                        listOf(chrome.glow, chrome.accent)
+                    )
+                )
+                .combinedClickable(
+                    onClick = { if (revealed) revealed = false else onAdd() },
+                    onLongClick = { revealed = true }
+                )
+                .semantics { contentDescription = if (revealed) "Close library actions" else "Add to library" },
+            contentAlignment = Alignment.Center
+        ) {
+            HomeVectorIcon(
+                if (revealed) HomeIcon.CANCEL else HomeIcon.SPARK,
+                Color.White,
+                Modifier.size(24.dp)
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun LibrarySheetHandle() {
+    Box(
+        Modifier
+            .padding(top = 10.dp, bottom = 6.dp)
+            .width(42.dp)
+            .height(4.dp)
+            .clip(RoundedCornerShape(999.dp))
+            .background(Aether.InkFaint.copy(alpha = .55f))
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun LibraryAddSheet(
+    repo: AppRepository,
+    onImportFile: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    var mode by remember { mutableStateOf("subscription") }
+    var url by remember { mutableStateOf("") }
+    var sourceName by remember { mutableStateOf("") }
+    val clipboard = LocalClipboardManager.current
+    // A valid intake target: the Manual source when it is enabled, otherwise the first
+    // subscription so pasted/imported configs always have a home.
+    val intakeTarget = when {
+        repo.settings.manualSourceEnabled -> "manual"
+        else -> repo.subscriptions.firstOrNull()?.id ?: "manual"
+    }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = Aether.VoidElevated,
+        dragHandle = { LibrarySheetHandle() }
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp)
+                .padding(bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Text(
+                trx("Add to Library"),
+                color = Aether.Ink,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                LibraryModeSegment(
+                    text = "Subscription",
+                    selected = mode == "subscription",
+                    tone = Aether.Cyan,
+                    modifier = Modifier.weight(1f)
+                ) { mode = "subscription" }
+                LibraryModeSegment(
+                    text = "Manual config",
+                    selected = mode == "manual",
+                    tone = Aether.Amethyst,
+                    modifier = Modifier.weight(1f)
+                ) { mode = "manual" }
+            }
+
+            AnimatedContent(
+                targetState = mode,
+                transitionSpec = {
+                    (
+                        fadeIn(MarbleMotionSpecs.ResponseFloat) +
+                            slideInHorizontally(MarbleMotionSpecs.Spatial) { it / 12 }
+                    ) togetherWith (
+                        fadeOut(MarbleMotionSpecs.ExitFloat) +
+                            slideOutHorizontally(MarbleMotionSpecs.SpatialExit) { -it / 14 }
+                    )
                 },
-                onDetails = { onDetails(profile) }
+                label = "library-add-mode-v113"
+            ) { selectedMode ->
+                if (selectedMode == "manual") {
+                    ManualAddEditor(
+                        repo = repo,
+                        targetSourceId = intakeTarget,
+                        onSaved = onDismiss
+                    )
+                } else {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        OutlinedTextField(
+                            value = url,
+                            onValueChange = { url = it },
+                            label = { Text(trx("Subscription URL • optional")) },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(18.dp),
+                            colors = marbleOutlinedTextFieldColors()
+                        )
+                        OutlinedTextField(
+                            value = sourceName,
+                            onValueChange = { sourceName = it },
+                            label = { Text(trx("Name • optional")) },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(18.dp),
+                            colors = marbleOutlinedTextFieldColors()
+                        )
+                        CyberButton(
+                            variant = PrismButtonVariant.Primary,
+                            label = if (url.isBlank()) "Create local source" else "Add subscription",
+                            color = Aether.Cyan,
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = !repo.busy && (
+                                url.isBlank() || url.startsWith("https://", true)
+                            )
+                        ) {
+                            repo.addSubscription(sourceName, url)
+                            url = ""
+                            sourceName = ""
+                            onDismiss()
+                        }
+                    }
+                }
+            }
+
+            HorizontalDivider(color = Aether.GlassBorderSoft)
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                LibraryMicroAction(
+                    icon = HomeIcon.SPARK,
+                    label = "Paste",
+                    color = Aether.Emerald,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    repo.importClipboard(
+                        clipboard.getText()?.text.orEmpty(),
+                        intakeTarget
+                    )
+                }
+                LibraryMicroAction(
+                    icon = HomeIcon.DOWNLOAD,
+                    label = "Import",
+                    color = Aether.Amethyst,
+                    modifier = Modifier.weight(1f)
+                ) { onImportFile() }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun LibrarySortSheet(
+    repo: AppRepository,
+    onDismiss: () -> Unit
+) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = Aether.VoidElevated,
+        dragHandle = { LibrarySheetHandle() }
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp)
+                .padding(bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Text(
+                trx("Sort nodes"),
+                color = Aether.Ink,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+            LibraryInlineSortBar(repo = repo)
+            CyberButton(
+                label = "Done",
+                color = Aether.Cyan,
+                modifier = Modifier.fillMaxWidth(),
+                variant = PrismButtonVariant.Primary,
+                onClick = onDismiss
             )
         }
     }
@@ -4792,6 +5238,7 @@ private fun SpatialServerCard(
     result: BenchmarkResult?,
     active: Boolean,
     probeState: ProbeState,
+    flavor: HomeFlavor = HomeFlavor.PRO,
     onConnect: (ProxyProfile) -> Unit,
     onEdit: () -> Unit,
     onDetails: () -> Unit
@@ -4808,7 +5255,10 @@ private fun SpatialServerCard(
         repo.state == "CONNECTING" &&
         repo.stateDetail == profile.name
     val emphasized=active || securing
-    val routeTone=if(active) Aether.Emerald else Aether.Amethyst
+    // MARBLE_LIBRARY_STYLE_V113 — the connected treatment is skinned per Home style: each theme
+    // names its live route with its own vocabulary and its own accent instead of one shared pill.
+    val chrome=libraryChromeFor(flavor)
+    val routeTone=if(active) chrome.connectedTone else chrome.accent
     val builtInFreedom = ServerlessFreedomEngine.isServerless(profile)
     val clipboard=LocalClipboardManager.current
 
@@ -5069,7 +5519,7 @@ private fun SpatialServerCard(
                                             .background(routeTone)
                                     )
                                     Text(
-                                        if(active) "CONNECTED" else "SECURING",
+                                        if(active) chrome.connectedLabel else chrome.securingLabel,
                                         color=routeTone,
                                         style=MaterialTheme.typography.labelSmall,
                                         fontWeight=FontWeight.Bold,

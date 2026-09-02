@@ -191,6 +191,15 @@ internal data class HomeProContext(
  */
 internal enum class HomeFlavor { ORGANIC, ORBIT, NEBULA, BLUEPRINT, PRO }
 
+/** The single source of truth for which presentation skin a [HomeStyle] renders through. */
+internal fun homeFlavorFor(style: HomeStyle): HomeFlavor = when (style) {
+    HomeStyle.PRO -> HomeFlavor.PRO
+    HomeStyle.BIOLUMINESCENT -> HomeFlavor.ORGANIC
+    HomeStyle.COSMIC_ORBIT -> HomeFlavor.ORBIT
+    HomeStyle.COSMIC_IMMERSION -> HomeFlavor.NEBULA
+    HomeStyle.PARAMETRIC -> HomeFlavor.BLUEPRINT
+}
+
 @Composable
 internal fun homeTone(evidence: HomeEvidence): Color = when {
     evidence.connected -> Aether.Emerald
@@ -297,10 +306,13 @@ internal fun loopFade(t: Float): Float = sin((t.coerceIn(0f, 1f)) * PI.toFloat()
 /**
  * MARBLE_HOME_PING_AUTOFIT_V112 — one value renderer for every stat readout (uptime, ping).
  *
- * The ping must never escape its box: long values ("no response", Persian "بدون پاسخ",
+ * The value must never escape its box: long values ("no response", Persian "بدون پاسخ",
  * "اندازه‌گیری…", "1234 ms") step down through progressively smaller sizes derived from the
  * caller's base style, then clamp to a single ellipsized line. Short values keep the full
  * hero size, so nothing about the classic styles changes.
+ *
+ * The face now follows the product typeface chosen in Settings: by default [fontFamily] is
+ * null, so the value inherits the family already baked into [baseStyle] by AetherTheme.
  */
 @Composable
 internal fun HomeStatValueText(
@@ -308,7 +320,9 @@ internal fun HomeStatValueText(
     tone: Color,
     baseStyle: androidx.compose.ui.text.TextStyle,
     modifier: Modifier = Modifier,
-    fontFamily: FontFamily? = FontFamily.Monospace
+    fontFamily: FontFamily? = null,
+    weight: FontWeight = FontWeight.Bold,
+    sizeScale: Float = 1f
 ) {
     // Length-driven auto-shrink: full size up to 7 glyphs, then two quieter steps.
     val resolvedStyle = when {
@@ -316,11 +330,16 @@ internal fun HomeStatValueText(
         value.length <= 10 -> baseStyle.copy(fontSize = baseStyle.fontSize * .86f)
         else -> baseStyle.copy(fontSize = baseStyle.fontSize * .70f)
     }
+    val sized = if (sizeScale == 1f) {
+        resolvedStyle
+    } else {
+        resolvedStyle.copy(fontSize = (resolvedStyle.fontSize.value * sizeScale).sp)
+    }
     Text(
         value,
         color = tone,
-        style = if (fontFamily == null) resolvedStyle else resolvedStyle.copy(fontFamily = fontFamily),
-        fontWeight = FontWeight.Bold,
+        style = if (fontFamily == null) sized else sized.copy(fontFamily = fontFamily),
+        fontWeight = weight,
         maxLines = 1,
         softWrap = false,
         overflow = TextOverflow.Ellipsis,
@@ -1085,7 +1104,9 @@ internal fun HomeSessionStats(
                 spinning = measuring,
                 hint = hint,
                 onClick = actions.onTestPing.takeIf { tappable },
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.weight(1f),
+                valueWeight = FontWeight.Light,
+                valueSizeScale = 0.82f
             )
         }
 
@@ -1105,7 +1126,9 @@ internal fun HomeSessionStats(
                 tone = pingTone,
                 hint = hint,
                 onClick = actions.onTestPing.takeIf { tappable },
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.weight(1f),
+                valueWeight = FontWeight.Light,
+                valueSizeScale = 0.82f
             )
         }
 
@@ -1133,7 +1156,9 @@ internal fun HomeSessionStats(
                 },
                 hint = hint,
                 onClick = actions.onTestPing.takeIf { tappable },
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.weight(1f),
+                valueWeight = FontWeight.Light,
+                valueSizeScale = 0.82f
             )
         }
 
@@ -1158,7 +1183,9 @@ internal fun HomeSessionStats(
                     else -> 0f
                 },
                 onClick = actions.onTestPing.takeIf { tappable },
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.weight(1f),
+                valueWeight = FontWeight.Light,
+                valueSizeScale = 0.82f
             )
         }
 
@@ -1184,7 +1211,9 @@ internal fun HomeSessionStats(
                 },
                 hint = hint,
                 onClick = actions.onTestPing.takeIf { tappable },
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.weight(1f),
+                valueWeight = FontWeight.Light,
+                valueSizeScale = 0.82f
             )
         }
     }
@@ -1205,7 +1234,9 @@ private fun SignatureStatCell(
     modifier: Modifier = Modifier,
     fillFraction: Float = 0f,
     hint: String = "",
-    onClick: (() -> Unit)? = null
+    onClick: (() -> Unit)? = null,
+    valueWeight: FontWeight = FontWeight.Bold,
+    valueSizeScale: Float = 1f
 ) {
     val fill by animateFloatAsState(
         targetValue = fillFraction.coerceIn(0f, 1f),
@@ -1250,7 +1281,9 @@ private fun SignatureStatCell(
                 value = value,
                 tone = tone,
                 baseStyle = MaterialTheme.typography.titleLarge,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                weight = valueWeight,
+                sizeScale = valueSizeScale
             )
             // Latency health underlay: a thin graded bar that settles with the measurement.
             Canvas(Modifier.fillMaxWidth().height(4.dp)) {
@@ -1294,7 +1327,9 @@ private fun OrganicStatCell(
     spinning: Boolean,
     modifier: Modifier = Modifier,
     hint: String = "",
-    onClick: (() -> Unit)? = null
+    onClick: (() -> Unit)? = null,
+    valueWeight: FontWeight = FontWeight.Bold,
+    valueSizeScale: Float = 1f
 ) {
     val shape = RoundedCornerShape(topStart = 26.dp, topEnd = 14.dp, bottomStart = 14.dp, bottomEnd = 26.dp)
     val spin = MarbleMotion.current.loop(5_200)
@@ -1348,7 +1383,9 @@ private fun OrganicStatCell(
                 value = value,
                 tone = tone,
                 baseStyle = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                weight = valueWeight,
+                sizeScale = valueSizeScale
             )
             if (hint.isNotBlank()) {
                 Text(
@@ -1368,7 +1405,9 @@ private fun OrbitOdometer(
     label: String,
     value: String,
     tone: Color,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    valueWeight: FontWeight = FontWeight.Bold,
+    valueSizeScale: Float = 1f
 ) {
     Column(
         modifier = modifier
@@ -1396,7 +1435,9 @@ private fun OrbitOdometer(
             value = value,
             tone = tone,
             baseStyle = MaterialTheme.typography.headlineSmall,
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
+            weight = valueWeight,
+            sizeScale = valueSizeScale
         )
         // Segment baseline under the digits, like a cockpit LCD.
         Canvas(Modifier.fillMaxWidth().height(3.dp)) {
@@ -1419,7 +1460,9 @@ private fun OrbitPingGauge(
     tone: Color,
     hint: String,
     onClick: (() -> Unit)?,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    valueWeight: FontWeight = FontWeight.Bold,
+    valueSizeScale: Float = 1f
 ) {
     val measuring = evidence.pingState == ConnectionPingState.MEASURING
     // MARBLE_SEAMLESS_LOOPS_V112 — the radar sweep rotates a full 360° so it never snaps back.
@@ -1516,7 +1559,9 @@ private fun OrbitPingGauge(
                 value = value,
                 tone = tone,
                 baseStyle = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.widthIn(max = 92.dp)
+                modifier = Modifier.widthIn(max = 92.dp),
+                weight = valueWeight,
+                sizeScale = valueSizeScale
             )
             if (hint.isNotBlank()) {
                 Text(
@@ -1540,7 +1585,9 @@ private fun NebulaStatRing(
     modifier: Modifier = Modifier,
     fillFraction: Float = 0f,
     hint: String = "",
-    onClick: (() -> Unit)? = null
+    onClick: (() -> Unit)? = null,
+    valueWeight: FontWeight = FontWeight.Bold,
+    valueSizeScale: Float = 1f
 ) {
     val spin = MarbleMotion.current.loop(7_400)
     val fastSpin = MarbleMotion.current.loop(1_200)
@@ -1608,7 +1655,8 @@ private fun NebulaStatRing(
                     tone = tone,
                     baseStyle = MaterialTheme.typography.labelLarge,
                     modifier = Modifier.width(86.dp),
-                    fontFamily = FontFamily.Monospace
+                    weight = valueWeight,
+                    sizeScale = valueSizeScale
                 )
                 if (hint.isNotBlank()) {
                     Text(
@@ -1640,7 +1688,9 @@ private fun BlueprintDataSlab(
     hint: String = "",
     measuring: Boolean = false,
     barFraction: Float = -1f,
-    onClick: (() -> Unit)? = null
+    onClick: (() -> Unit)? = null,
+    valueWeight: FontWeight = FontWeight.Bold,
+    valueSizeScale: Float = 1f
 ) {
     val scan = MarbleMotion.current.loop(1_400)
     val bar by animateFloatAsState(
@@ -1690,7 +1740,9 @@ private fun BlueprintDataSlab(
                 value = value,
                 tone = tone,
                 baseStyle = MaterialTheme.typography.titleLarge,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                weight = valueWeight,
+                sizeScale = valueSizeScale
             )
             // Engineering scale: measured latency as a dimension bar on a graded rule.
             Canvas(Modifier.fillMaxWidth().height(6.dp)) {

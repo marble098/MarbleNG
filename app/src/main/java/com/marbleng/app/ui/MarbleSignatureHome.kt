@@ -67,7 +67,6 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -481,11 +480,12 @@ internal fun SignatureStatusBanner(
             evidence.connected -> rememberUptimeLabel(evidence.connectedSinceMs)
             else -> "—"
         }
+        // MARBLE_SYSTEM_FONT_V113 — the measured ping / session uptime follows the typeface
+        // chosen in Settings instead of a hard-wired monospace face.
         Text(
             readout,
             color = Aether.Ink,
             style = MaterialTheme.typography.labelMedium.copy(
-                fontFamily = FontFamily.Monospace,
                 fontWeight = FontWeight.Bold
             ),
             maxLines = 1,
@@ -1022,11 +1022,12 @@ internal fun SignatureFloatingConnectOverlay(
                     Modifier.size(20.dp)
                 )
                 if (evidence.connected && evidence.pingState == ConnectionPingState.MEASURED) {
+                    // MARBLE_SYSTEM_FONT_V113 — the live latency follows the Settings typeface.
                     Text(
                         "${evidence.pingMs}",
                         color = animatedTone,
                         style = MaterialTheme.typography.labelSmall.copy(
-                            fontFamily = FontFamily.Monospace
+                            fontWeight = FontWeight.Bold
                         ),
                         fontWeight = FontWeight.Bold,
                         maxLines = 1,
