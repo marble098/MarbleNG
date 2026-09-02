@@ -158,17 +158,17 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # MARBLE_RELEASE_PUBLISH_VERIFY_V181
+          # MARBLE_RELEASE_PUBLISH_VERIFY_V182
           python3 - <<'PY'
           from pathlib import Path
           build=Path('.github/workflows/build.yml').read_text()
           required={
-              'resilient marker':'MARBLE_RELEASE_PUBLISH_RESILIENT_V181' in build,
+              'resilient marker':'MARBLE_RELEASE_PUBLISH_RESILIENT_V182' in build,
               'notes JSON':'--rawfile body "$notes_file"' in build,
               'target JSON':'--arg target "$GITHUB_SHA"' in build and 'target_commitish:$target' in build,
               'assets':'"${assets[@]}"' in build,
               'tag guard':'git rev-parse -q --verify "refs/tags/$tag"' in build,
-              'release guard':'gh release view "$tag"' in build,
+              'release guard':'gh release view "v$v"' in build,
               'no tag push':'git push origin "$tag"' not in build,
               'no inline notes':'--notes "## MarbleNG $VERSION_NAME' not in build,
           }
