@@ -1487,6 +1487,7 @@ internal fun HomePowerControl(
                 .semantics { contentDescription = "$label connection button" },
             contentAlignment = Alignment.Center
         ) {
+            val amethyst = Aether.Amethyst
             Canvas(Modifier.matchParentSize().padding(10.dp)) {
                 val r = size.minDimension / 2f
                 val c = Offset(size.width / 2f, size.height / 2f)
@@ -1556,7 +1557,7 @@ internal fun HomePowerControl(
                                     listOf(
                                         Color.Transparent,
                                         animatedTone.copy(alpha = .55f),
-                                        Aether.Amethyst.copy(alpha = .40f),
+                                        amethyst.copy(alpha = .40f),
                                         Color.Transparent
                                     ),
                                     center = c
