@@ -147,14 +147,17 @@ check(
 # DNS, routing and identity.
 check(
     "endpoint bootstrap is encrypted local DoH",
-    # Both bootstrap surfaces must be encrypted, and the literal has to be bracketed when the
-    # underlay only has an IPv6 resolver (MARBLE_UNIFIED_ADDRESS_FAMILY_V65).
     "https+local://${dnsHostLiteral(ip)}/dns-query" in files["hardener"]
     and "https+local://${dnsHostLiteral(resolver)}/dns-query" in files["hardener"],
 )
 check("ordinary Xray DNS has no plaintext tcp53 fallback", '"tcp://$ip:53"' not in files["hardener"])
 check("Xray encrypted DNS fallback is bounded and serial", 'put("enableParallelQuery", false)' in files["hardener"])
-check("adaptive resolver test sends a real DNS wire query", 'application/dns-message' in files["intel"] and '"POST"' in files["intel"] and "dnsQuery" in files["intel"])
+check(
+    "adaptive resolver test sends a real DNS wire query",
+    'application/dns-message' in files["intel"]
+    and '"POST"' in files["intel"]
+    and "dnsQuery" in files["intel"],
+)
 check(
     "built-in DNS is routed through selected proxy",
     '.put("inboundTag", JSONArray().put("xgc-dns"))' in files["hardener"]
@@ -175,8 +178,17 @@ failures = integer_constant(files["vpn"], "PROBE_FAILURES_BEFORE_RECOVERY")
 
 check("degraded probe cadence is faster", 1 <= degraded < normal)
 check("heavy-traffic probing is slower", heavy > normal)
-check("route outcome window records misses", "routeOutcomeWindow" in files["vpn"] and "else -1" in files["vpn"])
-check("live RTT rotates provider-diverse literal targets", "JITTER_PROBE_TARGETS" in files["vpn"] and "1.1.1.1" in files["vpn"] and "8.8.8.8" in files["vpn"] and "9.9.9.9" in files["vpn"])
+check(
+    "route outcome window records misses",
+    "routeOutcomeWindow" in files["vpn"] and "else -1" in files["vpn"],
+)
+check(
+    "live RTT rotates provider-diverse literal targets",
+    "JITTER_PROBE_TARGETS" in files["vpn"]
+    and "1.1.1.1" in files["vpn"]
+    and "8.8.8.8" in files["vpn"]
+    and "9.9.9.9" in files["vpn"],
+)
 check(
     "live RTT never publishes SOCKS CONNECT setup as ping",
     "socks-connect-estimate" not in files["vpn"]
@@ -192,9 +204,22 @@ check(
     "MARBLE_TRANSPORT_AWARE_FRAGMENT_V50" in files["shield"]
     and '"1-5"' not in files["shield"],
 )
-check("Home hides verbose live RTT evidence", "liveRouteProbeStatus" in files["repo"] and "repo.liveRouteProbeStatus" not in files["ui"])
-check("upload-only HEV stalls need route confirmation", "confirmRouteUnavailable" in files["vpn"] and "datapath-stall-suspected" in files["vpn"] and "datapath-stalled-confirmed" in files["vpn"])
-check("quality uses success and tail evidence", "successPercent" in files["repo"] and "tailLatencyMs" in files["repo"])
+check(
+    "Home hides verbose live RTT evidence",
+    "liveRouteProbeStatus" in files["repo"]
+    and "repo.liveRouteProbeStatus" not in files["ui"],
+)
+check(
+    "upload-only HEV stalls need route confirmation",
+    "confirmRouteUnavailable" in files["vpn"]
+    and "datapath-stall-suspected" in files["vpn"]
+    and "datapath-stalled-confirmed" in files["vpn"],
+)
+check(
+    "quality uses success and tail evidence",
+    "successPercent" in files["repo"]
+    and "tailLatencyMs" in files["repo"],
+)
 check("RTT burst fits rolling window", 2 <= burst <= rtt_window)
 check("route recovery needs repeated failure evidence", failures >= 3)
 check(
@@ -215,37 +240,86 @@ check("benchmark feeds persistent intelligence", "recordBenchmark" in files["ben
 check("Turbo uses Xray callback live port", "{ livePort ->" in files["tuner"])
 check("optimizer has switch cooldown", "optimizerSwitchCooldownSec" in files["optimizer"])
 check("intelligence exposes health snapshot", "healthSnapshot" in files["intel"])
-check("intelligence learns jitter with schema migration", "jitter_ewma" in files["intel"] and "oldVersion < 2" in files["intel"])
-check("intelligence applies conservative confidence", "val wilson" in files["intel"] and "effectiveFailureStreak" in files["intel"])
+check(
+    "intelligence learns jitter with schema migration",
+    "jitter_ewma" in files["intel"] and "oldVersion < 2" in files["intel"],
+)
+check(
+    "intelligence applies conservative confidence",
+    "val wilson" in files["intel"] and "effectiveFailureStreak" in files["intel"],
+)
 check(
     "SSH is a real bridge, not fake Xray protocol",
-    "ManualProtocol.SSH" in files["manual"] and "class SshTransportManager" in files["ssh"],
+    "ManualProtocol.SSH" in files["manual"]
+    and "class SshTransportManager" in files["ssh"],
 )
 check("SOCKS HTTPS verifies endpoint identity", "endpointIdentificationAlgorithm" in files["socks"])
 check("UDP probe validates STUN transaction", "STUN transaction mismatch" in files["udp"])
 
 # Diagnostics.
 check("Bug Finder classifies resolver health", "MARBLE_RESOLVER_HEALTH_V38" in files["bug"])
-check("Bug Finder detects missing live quality evidence", "MARBLE_LIVE_METRIC_OBSERVABILITY_V47" in files["bug"])
+check(
+    "Bug Finder detects missing live quality evidence",
+    "MARBLE_LIVE_METRIC_OBSERVABILITY_V47" in files["bug"],
+)
 check(
     "Bug Finder distinguishes verified RTT from legacy estimates",
     "MARBLE_VERIFIED_EVIDENCE_CLASSIFICATION_V50" in files["bug"],
 )
-check("privacy audit compares proxy and Android underlay", "underlayIp" in files["privacy"] and "network.openConnection" in files["privacy"])
-check("privacy audit reports separate IP and DNS scores", "ipLeakScore" in files["privacy"] and "dnsLeakScore" in files["privacy"])
+check(
+    "privacy audit compares proxy and Android underlay",
+    "underlayIp" in files["privacy"]
+    and "network.openConnection" in files["privacy"],
+)
+check(
+    "privacy audit reports separate IP and DNS scores",
+    "ipLeakScore" in files["privacy"]
+    and "dnsLeakScore" in files["privacy"],
+)
 check("diagnostics queue is bounded", "ArrayBlockingQueue" in files["diag"])
 check("diagnostics redaction exists", "fun redact" in files["diag"])
-check("Bug Finder raw evidence stays out of Settings", "current.evidence.joinToString" not in files["ui"] and "SHOW CHECKS" in files["ui"])
-check("Bug Finder reports passive and external leak scores separately", "Passive leak containment" in files["bug"] and "External anti-leak audit" in files["bug"] and "ipLeakScore" in files["bug"])
+check(
+    "Bug Finder raw evidence stays out of Settings",
+    "current.evidence.joinToString" not in files["ui"]
+    and "SHOW CHECKS" in files["ui"],
+)
+check(
+    "Bug Finder reports passive and external leak scores separately",
+    "Passive leak containment" in files["bug"]
+    and "External anti-leak audit" in files["bug"]
+    and "ipLeakScore" in files["bug"],
+)
 
 # UI / Home.
 check("Home exact reconnect path exists", "repo.reconnectLastOrAuto(onConnect)" in files["ui"])
 check("Library exact active-row check exists", "repo.isActiveProfile(profile)" in files["ui"])
-check("Settings tabs render the selected workspace", "SettingsTabPane(" in files["ui"] and "SettingsWorkspacePage(" in files["ui"] and "SettingsSectionCard(" in files["ui"])
-check("Settings workspace has explicit remaining-height viewport", "MARBLE_SETTINGS_CONTENT_VIEWPORT_HARDENING_V72" in files["ui"] and "MARBLE_SETTINGS_TOTAL_HOTFIX_V76" in files["ui"] and "modifier = Modifier.fillMaxSize()" in files["ui"])
-check("Settings mobile workspace uses a direct sticky LazyColumn", "stickyHeader(key = \"settings-tabs-strip\")" in files["ui"] and "SettingsTabStrip(" in files["ui"] and "remember(activeIndex) { LazyListState() }" in files["ui"])
-check("Settings tab strip host is height-bounded", ".height(58.dp)" in files["ui"] and ".matchParentSize()" in files["ui"])
-check("Settings workspace has no SubcomposeLayout content boundary", "BoxWithConstraints(" not in files["ui"])
+check(
+    "Settings tabs render the selected workspace",
+    "SettingsTabPane(" in files["ui"]
+    and "SettingsWorkspacePage(" in files["ui"]
+    and "SettingsSectionCard(" in files["ui"],
+)
+check(
+    "Settings workspace has explicit remaining-height viewport",
+    "MARBLE_SETTINGS_CONTENT_VIEWPORT_HARDENING_V72" in files["ui"]
+    and "MARBLE_SETTINGS_TOTAL_HOTFIX_V76" in files["ui"]
+    and "modifier = Modifier.fillMaxSize()" in files["ui"],
+)
+check(
+    "Settings mobile workspace uses a direct sticky LazyColumn",
+    'stickyHeader(key = "settings-tabs-strip")' in files["ui"]
+    and "SettingsTabStrip(" in files["ui"]
+    and "remember(activeIndex) { LazyListState() }" in files["ui"],
+)
+check(
+    "Settings tab strip host is height-bounded",
+    ".height(58.dp)" in files["ui"]
+    and ".matchParentSize()" in files["ui"],
+)
+check(
+    "Settings workspace has no SubcomposeLayout content boundary",
+    "BoxWithConstraints(" not in files["ui"],
+)
 check(
     "Settings workspace applies exactly one inset pass",
     "imePadding()" in files["ui"]
@@ -264,11 +338,28 @@ check(
     and "copy(expertMode=true)" not in files["ui"],
 )
 check("Library long names use overflow marquee", "basicMarquee(" in files["ui"])
-check("legacy global chain settings are removed", "chainEnabled" not in files["models"] + files["store"] + files["ui"])
+check(
+    "legacy global chain settings are removed",
+    "chainEnabled" not in files["models"] + files["store"] + files["ui"],
+)
 check("DNS settings keep their Compose boundary", "@Composable\nprivate fun DnsSettings(" in files["ui"])
-check("Manual Library supports unbounded saved chains", "fun composeChain(sources: List<String>)" in files["hardener"] and "addManualChain" in files["repo"] and "ManualChainEditor" in files["ui"])
-check("Quick Tile reconnects exact last profile", "lastProfile()" in files["tile"] and "ACTION_CONNECT_LAST" in files["tile"] and "lastProfileSourceId" in files["store"])
-check("Quick Tile service is permission protected", "android.permission.BIND_QUICK_SETTINGS_TILE" in files["manifest"] and ".quicktile.MarbleQuickTileService" in files["manifest"])
+check(
+    "Manual Library supports unbounded saved chains",
+    "fun composeChain(sources: List<String>)" in files["hardener"]
+    and "addManualChain" in files["repo"]
+    and "ManualChainEditor" in files["ui"],
+)
+check(
+    "Quick Tile reconnects exact last profile",
+    "lastProfile()" in files["tile"]
+    and "ACTION_CONNECT_LAST" in files["tile"]
+    and "lastProfileSourceId" in files["store"],
+)
+check(
+    "Quick Tile service is permission protected",
+    "android.permission.BIND_QUICK_SETTINGS_TILE" in files["manifest"]
+    and ".quicktile.MarbleQuickTileService" in files["manifest"],
+)
 
 # CI/release.
 check("signed build checks out complete history", "fetch-depth: 0" in files["build"])
@@ -289,23 +380,34 @@ check(
     and action_uses_minimum(workflow_sources, "actions/setup-go", 7)
     and action_uses_minimum(workflow_sources, "android-actions/setup-android", 4),
 )
+
+build_release = files["build"]
+
 check(
     "release publishing is immutable, verified and tag-atomic",
-    "MARBLE_RELEASE_PUBLISH_RESILIENT_V181" in files["build"]
-    and "draft:true" in files["build"]
-    and "target_commitish:$target" in files["build"]
-    and "release_upload_url" in files["build"]
-    and "https://uploads.github.com/" in files["build"]
-    and "for attempt in 1 2 3 4 5 6; do" in files["build"]
-    and "repos/$repo/releases/assets/$existing_id" in files["build"]
-    and "Remote asset count mismatch." in files["build"]
-    and "Remote release verification failed: $name" in files["build"]
-    and "cleanup_failed_release" in files["build"]
-    and "draft:false" in files["build"]
-    and 'git rev-parse -q --verify "refs/tags/$tag"' in files["build"]
-    and 'gh release view "$tag"' in files["build"]
-    and 'gh release upload "$tag"' not in files["build"]
-    and 'git push origin "$tag"' not in files["build"],
+    "MARBLE_RELEASE_PUBLISH_RESILIENT_V181" in build_release
+    and "draft:true" in build_release
+    and "target_commitish:$target" in build_release
+    and "release_upload_url" in build_release
+    and "https://uploads.github.com/" in build_release
+    and "for attempt in 1 2 3 4 5 6; do" in build_release
+    and "repos/$repo/releases/assets/$existing_id" in build_release
+    and "Remote asset count mismatch." in build_release
+    and "Remote release verification failed: $name" in build_release
+    and "cleanup_failed_release" in build_release
+    and 'git rev-parse -q --verify "refs/tags/$tag"' in build_release
+    and 'gh release view "$tag"' in build_release
+    and 'gh release upload "$tag"' not in build_release
+    and 'git push origin "$tag"' not in build_release,
+)
+
+check(
+    "successful build never auto-publishes a draft release",
+    'gh release edit "$tag" --draft=false' not in build_release
+    and "gh release edit $tag --draft=false" not in build_release
+    and 'gh release edit "$tag" -p' not in build_release
+    and "gh release edit $tag -p" not in build_release
+    and "draft:false" not in build_release,
 )
 
 # Global concurrency smells.
