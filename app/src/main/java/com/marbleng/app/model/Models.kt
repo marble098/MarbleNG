@@ -115,6 +115,48 @@ enum class SplitTunnelMode { ALL_APPS, ONLY_SELECTED, BYPASS_SELECTED }
 enum class WorkloadProfile { AUTO, INTERACTIVE, STREAMING, STABILITY, STEALTH }
 enum class NodeSortMode { PING, SCORE, NAME, PROTOCOL, SOURCE }
 
+/**
+ * MARBLE_HOME_STYLE_V110
+ *
+ * The four user-selectable Home (connection) presentations. Every style renders exactly the same
+ * runtime evidence — node, source, IP + flag + three actions, session uptime and the one-shot
+ * connection ping — so switching a style is purely a presentation choice and never changes what
+ * the user can see or do.
+ */
+enum class HomeStyle(val id: String) {
+    /** Organic bioluminescence: glowing seed, nerve-like data tendrils, pastel green/purple. */
+    BIOLUMINESCENT("bioluminescent"),
+
+    /** Cosmic orbit dashboard: orbiting system card plus a network-speed graph. */
+    COSMIC_ORBIT("cosmic_orbit"),
+
+    /** Cosmic orbit, full-screen immersion: orbit above, cosmic energy flower below. */
+    COSMIC_IMMERSION("cosmic_immersion"),
+
+    /** Minimalist parametric architecture: isometric glass structure, precise modular panels. */
+    PARAMETRIC("parametric")
+}
+
+fun parseHomeStyle(raw: String): HomeStyle =
+    HomeStyle.entries.firstOrNull { it.id.equals(raw.trim(), ignoreCase = true) }
+        ?: HomeStyle.BIOLUMINESCENT
+
+/**
+ * MARBLE_BILINGUAL_V110
+ *
+ * Product language. SYSTEM follows the Android device locale on every launch; EN/FA are explicit
+ * user overrides that persist like any other preference.
+ */
+enum class AppLanguage(val id: String) {
+    SYSTEM("system"),
+    ENGLISH("en"),
+    PERSIAN("fa")
+}
+
+fun parseAppLanguage(raw: String): AppLanguage =
+    AppLanguage.entries.firstOrNull { it.id.equals(raw.trim(), ignoreCase = true) }
+        ?: AppLanguage.SYSTEM
+
 /** User-selectable product typefaces. The default keeps Persian text readable on every device. */
 enum class AppFont(val id: String, val label: String) {
     VAZIR("vazir", "Vazir"),
@@ -125,6 +167,14 @@ enum class AppFont(val id: String, val label: String) {
 fun parseAppFont(raw: String): AppFont =
     AppFont.entries.firstOrNull { it.id.equals(raw.trim(), ignoreCase = true) }
         ?: AppFont.VAZIR
+
+/**
+ * MARBLE_HOME_SESSION_EVIDENCE_V110
+ *
+ * Lifecycle of the one-shot Home connection ping. FAILED is a first-class outcome: a probe that
+ * got no verified response must say so instead of displaying an estimate.
+ */
+enum class ConnectionPingState { IDLE, MEASURING, MEASURED, FAILED }
 
 /** Live state of one node inside a running test batch, shown on the node's own card. */
 enum class ProbeState { IDLE, QUEUED, TESTING }
@@ -437,6 +487,12 @@ data class AppSettings(
     val theme: String = "light",
     /** Product typeface selected in the standard Settings workspace. */
     val fontFamily: String = AppFont.VAZIR.id,
+
+    /** MARBLE_HOME_STYLE_V110 — which of the four Home presentations the user picked. */
+    val homeStyle: String = HomeStyle.BIOLUMINESCENT.id,
+
+    /** MARBLE_BILINGUAL_V110 — "system" follows the device locale; "en"/"fa" are overrides. */
+    val appLanguage: String = AppLanguage.SYSTEM.id,
 
     /** Settings screen reveals the low-level Xray/tunnel controls. Persisted like any other choice. */
     val expertMode: Boolean = false,

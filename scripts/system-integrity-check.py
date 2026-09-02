@@ -47,6 +47,9 @@ files = {
     "bug": read("app/src/main/java/com/marbleng/app/core/BugFinder.kt"),
     "diag": read("app/src/main/java/com/marbleng/app/core/RuntimeDiagnostics.kt"),
     "ui": read("app/src/main/java/com/marbleng/app/ui/Aether2026.kt"),
+    "homeStyles": read("app/src/main/java/com/marbleng/app/ui/MarbleHomeStyles.kt"),
+    "strings": read("app/src/main/java/com/marbleng/app/ui/MarbleStrings.kt"),
+    "marbleApp": read("app/src/main/java/com/marbleng/app/ui/MarbleApp.kt"),
     "tile": read("app/src/main/java/com/marbleng/app/quicktile/MarbleQuickTileService.kt"),
     "manifest": read("app/src/main/AndroidManifest.xml"),
     "security": read("app/src/main/res/xml/network_security_config.xml"),
@@ -146,9 +149,98 @@ check(
 )
 check(
     "connected Home exposes in-app IP details",
-    "HomeConnectedRouteSummary" in files["ui"]
+    "HomeIpRow(" in files["homeStyles"]
     and "IpDetailsDialog" in files["ui"]
-    and "Show complete IP information" in files["ui"],
+    and "ipDetails" in files["strings"],
+)
+
+# MARBLE_HOME_STYLE_V110 — four presentations of one connection surface.
+home_styles = ("BIOLUMINESCENT", "COSMIC_ORBIT", "COSMIC_IMMERSION", "PARAMETRIC")
+check(
+    "all four Home styles are modelled and persisted",
+    "enum class HomeStyle" in files["models"]
+    and all(style in files["models"] for style in home_styles)
+    and "homeStyle" in files["store"]
+    and "homeStyle = style.id" in files["ui"],
+)
+check(
+    "every Home style has an implementation and is reachable",
+    all(
+        name in files["homeStyles"]
+        for name in (
+            "HomeStyleBioluminescent",
+            "HomeStyleCosmicOrbit",
+            "HomeStyleCosmicImmersion",
+            "HomeStyleParametric",
+        )
+    )
+    and "HomeStyleSurface(" in files["homeStyles"]
+    and "HomeStyleSurface(" in files["ui"],
+)
+check(
+    "every Home style renders the same evidence through one shared model",
+    "data class HomeEvidence" in files["homeStyles"]
+    and "buildHomeEvidence(" in files["ui"]
+    and all(
+        files["homeStyles"].count(widget) >= 4
+        for widget in ("HomeIdentityBlock(", "HomeIpRow(", "HomeSessionStats(", "HomePowerControl(")
+    ),
+)
+check(
+    "Home evidence covers node, source, IP+flag+3 actions, uptime and ping",
+    all(
+        field in files["homeStyles"]
+        for field in ("nodeName", "sourceName", "flag", "connectedSinceMs", "pingState")
+    )
+    and all(
+        action in files["homeStyles"]
+        for action in ("onCopyIp", "onRefreshIp", "onIpDetails", "onTestPing")
+    ),
+)
+check(
+    "no Home style wraps the connect control in a quality indicator",
+    "PrismConnectionStage(" not in files["homeStyles"]
+    and "qualityScore" not in files["homeStyles"]
+    and "liveRouteScore" not in files["homeStyles"],
+)
+check(
+    "connection ping is one-shot and never a background timer",
+    "fun measureConnectionPing()" in files["repo"]
+    and "connectionPingInFlight" in files["repo"]
+    and "enum class ConnectionPingState" in files["models"]
+    and "ConnectionPingState.FAILED" in files["repo"],
+)
+check(
+    "session uptime comes from the repository, not the UI clock",
+    "connectedSinceMs" in files["repo"]
+    and "rememberUptimeLabel(" in files["homeStyles"],
+)
+
+# MARBLE_BILINGUAL_V110 — English/Persian with a device-locale default.
+check(
+    "product is bilingual with a device-locale default",
+    "enum class AppLanguage" in files["models"]
+    and "SYSTEM" in files["models"]
+    and "appLanguage" in files["store"]
+    and "ProvideMarbleLanguage(" in files["strings"]
+    and "ProvideMarbleLanguage(repo.settings.appLanguage)" in files["marbleApp"],
+)
+check(
+    "Persian selection mirrors the layout direction",
+    "LocalLayoutDirection provides direction" in files["strings"]
+    and "LayoutDirection.Rtl" in files["strings"],
+)
+check(
+    "both languages define the same string surface",
+    "EnglishStrings = MarbleStrings(" in files["strings"]
+    and "PersianStrings = MarbleStrings(" in files["strings"]
+    and files["strings"].count("language = MarbleLanguage") >= 2,
+)
+check(
+    "language and Home style are user-changeable in Settings",
+    "appLanguage = language.id" in files["ui"]
+    and "AppLanguage.entries.forEach" in files["ui"]
+    and "HomeStyle.entries.chunked(2)" in files["ui"],
 )
 check(
     "AMOLED navigation surface is transparent",

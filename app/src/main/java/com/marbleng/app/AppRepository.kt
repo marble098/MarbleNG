@@ -394,6 +394,16 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         refreshingSources = refreshingSources - id
     }
 
+    // MARBLE_HOME_SESSION_EVIDENCE_V110
+    // Wall-clock start of the session currently carrying traffic. Every Home style reads this one
+    // value, so the uptime readout can never disagree between presentations.
+    var connectedSinceMs by mutableStateOf(0L); private set
+
+    /** One-shot connection ping. It is measured on demand, never on a repeating timer. */
+    var connectionPingMs by mutableStateOf(0); private set
+    var connectionPingState by mutableStateOf(ConnectionPingState.IDLE); private set
+    private val connectionPingInFlight = AtomicBoolean(false)
+
     var livePingMs by mutableStateOf(0); private set
     var liveJitterMs by mutableStateOf(0); private set
     var liveDownBps by mutableStateOf(0L); private set
@@ -936,6 +946,9 @@ fun resetTelemetry() {
             if (s != "CONNECTED") {
                 activeProfileId = ""
                 activeProfileSourceId = ""
+                connectedSinceMs = 0L
+                connectionPingMs = 0
+                connectionPingState = ConnectionPingState.IDLE
                 livePingMs = 0
                 liveJitterMs = 0
                 liveDownBps = 0L
@@ -1285,6 +1298,69 @@ private fun postToMain(block: () -> Unit) {
         message = when (mode) {
             ConnectionMode.FULL_TUN -> "Full-device TUN selected"
             ConnectionMode.LOCAL_PROXY -> "Local SOCKS5 proxy selected • 127.0.0.1:${settings.localProxyPort}"
+        }
+    }
+
+    /**
+     * MARBLE_HOME_SESSION_EVIDENCE_V110 — the Home connection ping.
+     *
+     * This is deliberately a *single* verified HTTPS round trip through the live Xray path,
+     * triggered by the user (or once automatically when a style first shows a fresh session).
+     * It never becomes a background timer, so it cannot add traffic to a metered connection, and
+     * it never substitutes an estimate: a failed probe reports FAILED instead of a fake number.
+     */
+    fun measureConnectionPing() {
+        if (state != "CONNECTED") {
+            postToMain {
+                connectionPingMs = 0
+                connectionPingState = ConnectionPingState.IDLE
+            }
+            return
+        }
+        if (!connectionPingInFlight.compareAndSet(false, true)) return
+
+        postToMain { connectionPingState = ConnectionPingState.MEASURING }
+        val port = activeProxyPort()
+        val sessionAtStart = connectedSinceMs
+
+        io.execute {
+            val measured = runCatching {
+                SocksHttpClient.tunnelRttBatch(
+                    port = port,
+                    host = "www.gstatic.com",
+                    path = "/generate_204",
+                    samples = 2,
+                    timeoutMs = 6_000
+                )
+            }.getOrNull()
+                ?.samplesMs
+                ?.filter { it.isFinite() && it > 0.0 }
+                ?.minOrNull()
+                ?.roundToInt()
+                ?.coerceIn(1, 10_000)
+                ?: -1
+
+            diagnostics.event(
+                "APP",
+                "home-connection-ping",
+                "measured" to measured,
+                "port" to port
+            )
+
+            postToMain {
+                // A disconnect or reconnect while the probe was in flight invalidates the result.
+                if (state != "CONNECTED" || connectedSinceMs != sessionAtStart) {
+                    connectionPingMs = 0
+                    connectionPingState = ConnectionPingState.IDLE
+                } else if (measured > 0) {
+                    connectionPingMs = measured
+                    connectionPingState = ConnectionPingState.MEASURED
+                } else {
+                    connectionPingMs = 0
+                    connectionPingState = ConnectionPingState.FAILED
+                }
+                connectionPingInFlight.set(false)
+            }
         }
     }
 
@@ -2075,6 +2151,13 @@ private fun postToMain(block: () -> Unit) {
             stateDetail = p.name
             activeProfileId = p.id
             activeProfileSourceId = p.subscriptionId
+            // A reconnect onto the same node restarts the session clock; a redundant
+            // markConnected for an already-running session must not.
+            if (previousState != "CONNECTED" || connectedSinceMs <= 0L) {
+                connectedSinceMs = System.currentTimeMillis()
+                connectionPingMs = 0
+                connectionPingState = ConnectionPingState.IDLE
+            }
 
             history += ConnectionRecord(
                 p.id,

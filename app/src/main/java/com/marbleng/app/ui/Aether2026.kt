@@ -166,6 +166,14 @@ private enum class SpatialTab(val label: String) {
     SETTINGS("Settings")
 }
 
+/** MARBLE_BILINGUAL_V110 — the dock renders translated tab names, never the enum label. */
+@Composable
+private fun spatialTabLabel(tab: SpatialTab): String = when (tab) {
+    SpatialTab.DECK -> Tr.now.tabHome
+    SpatialTab.LIBRARY -> Tr.now.tabLibrary
+    SpatialTab.SETTINGS -> Tr.now.tabSettings
+}
+
 private fun rememberedSpatialTab(name: String): SpatialTab =
     runCatching { SpatialTab.valueOf(name) }.getOrDefault(SpatialTab.DECK)
 
@@ -936,7 +944,7 @@ private fun FloatingSpatialDock(
                     )
                     Spacer(Modifier.width(7.dp))
                     Text(
-                        item.label,
+                        spatialTabLabel(item),
                         color = inkTone,
                         style = MaterialTheme.typography.labelMedium,
                         fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
@@ -2048,15 +2056,16 @@ private fun CyberDeck(
     onIpDetails: () -> Unit,
     onContentScrollChanged: (Boolean) -> Unit
 ) {
-    // MARBLE_HOME_FOCUS_V103 — Home is intentionally a calm command surface. Library owns
-    // nodes and diagnostics; Home owns one action, the live route identity and its resolved IP.
+    // MARBLE_HOME_STYLE_V110 — Home is one evidence model rendered by one of four presentations.
+    // The style is a pure presentation choice made in Settings; the runtime facts (node, source,
+    // IP + flag + three actions, session uptime, one-shot ping) are identical in all four.
     val connected = repo.state == "CONNECTED"
-    val connecting = repo.state == "CONNECTING"
-    val blocked = repo.state == "BLOCKED"
     val active = repo.profile(
         repo.activeProfileId,
         repo.activeProfileSourceId
     ) ?: repo.lastProfile()
+    // Identity always comes from the selected profile, never from the runtime state detail
+    // string (which carries engine progress copy and is not a node name).
     val activeName = active?.name ?: "Choose a route"
     val endpoint = active?.host?.trim()?.removeSurrounding("[", "]").orEmpty()
     val serverless = active?.let { ServerlessFreedomEngine.isServerless(it) }
@@ -2065,8 +2074,6 @@ private fun CyberDeck(
         serverless || (endpoint.isNotBlank() && it.endpoint.equals(endpoint, ignoreCase = true))
     }
 
-    // Home no longer has a vertical card stack, so it explicitly releases the dock's scroll
-    // material state whenever this page is selected.
     LaunchedEffect(Unit) { onContentScrollChanged(false) }
     LaunchedEffect(connected, active?.id, active?.subscriptionId, endpoint) {
         if (connected && active != null && (serverless || endpoint.isNotBlank())) {
@@ -2074,230 +2081,54 @@ private fun CyberDeck(
         }
     }
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(start = 20.dp, end = 20.dp, top = 6.dp, bottom = dockClearance())
-    ) {
-        Box(Modifier.align(Alignment.TopCenter).fillMaxWidth()) {
-            MarbleCompactTopBar(
-                title = "MarbleNG",
-                subtitle = "",
-                actionLabel = "Library",
-                actionIcon = HomeIcon.LIBRARY,
-                onAction = onLibrary
-            )
-        }
-
-        Column(
-            modifier = Modifier
-                .align(Alignment.Center)
-                .fillMaxWidth()
-                .padding(horizontal = 8.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(13.dp)
-        ) {
-            HomeConnectionButton(
-                tone = when {
-                    connected -> Aether.Emerald
-                    connecting -> Aether.Amethyst
-                    blocked -> Aether.Danger
-                    else -> Aether.Cyan
-                },
-                connected = connected,
-                connecting = connecting,
-                blocked = blocked,
-                onToggle = {
-                    if (connected || connecting || blocked) repo.stopVpn()
-                    else repo.reconnectLastOrAuto(onConnect)
-                }
-            )
-
-            Text(
-                when {
-                    connected -> "Protected"
-                    connecting -> "Securing route"
-                    blocked -> "Connection stopped"
-                    else -> "Ready to connect"
-                },
-                color = Aether.Ink,
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold
-            )
-
-            if (!connected && active != null) {
-                Text(
-                    stripLeadingFlag(activeName),
-                    color = Aether.InkMuted,
-                    style = MaterialTheme.typography.bodySmall,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-
-            if (connected && active != null) {
-                HomeConnectedRouteSummary(
-                    profile = active,
-                    info = serverInfo,
-                    loading = repo.serverIntelLoading,
-                    error = repo.serverIntelError,
-                    onIpDetails = onIpDetails
-                )
-            }
-
-            if (blocked && repo.stateDetail.isNotBlank()) {
-                Text(
-                    compactInAppMessage(repo.stateDetail),
-                    color = Aether.Danger,
-                    style = MaterialTheme.typography.bodySmall,
-                    textAlign = TextAlign.Center,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
+    // One automatic measurement per session; every later measurement is user-initiated.
+    LaunchedEffect(repo.connectedSinceMs) {
+        if (repo.connectedSinceMs > 0L) {
+            delay(1_800)
+            if (repo.connectionPingState == ConnectionPingState.IDLE) repo.measureConnectionPing()
         }
     }
-}
 
-/** One circular action only; no hero card, device illustration or decorative frame surrounds it. */
-@Composable
-private fun HomeConnectionButton(
-    tone: Color,
-    connected: Boolean,
-    connecting: Boolean,
-    blocked: Boolean,
-    onToggle: () -> Unit
-) {
-    val shape = CircleShape
-    val pulse = if (connecting) .72f + MarbleMotion.current.breathe(1_150) * .28f else 1f
-    val progressAngle = if (connecting) MarbleMotion.current.loop(950) * 360f else 0f
-    val label = when {
-        connected -> "Disconnect"
-        connecting -> "Cancel"
-        blocked -> "Reset"
-        else -> "Connect"
-    }
+    val evidence = buildHomeEvidence(
+        repo = repo,
+        profile = active,
+        displayName = active?.let { stripLeadingFlag(activeName) }.orEmpty(),
+        info = serverInfo,
+        fallbackFlag = leadingFlagGlyph(activeName)
+    )
+    val copyIp = rememberCopyIpAction(repo, evidence.ip)
+    val actions = HomeActions(
+        onToggleConnection = {
+            if (evidence.connected || evidence.connecting || evidence.blocked) repo.stopVpn()
+            else repo.reconnectLastOrAuto(onConnect)
+        },
+        onCopyIp = copyIp,
+        onRefreshIp = { repo.refreshServerIntel(active, force = true) },
+        onIpDetails = onIpDetails,
+        onTestPing = { repo.measureConnectionPing() },
+        onLibrary = onLibrary
+    )
 
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Box(
-            modifier = Modifier
-                .size(154.dp)
-                .shadow(
-                    elevation = 12.dp,
-                    shape = shape,
-                    clip = false,
-                    ambientColor = tone.copy(alpha = .20f),
-                    spotColor = tone.copy(alpha = .28f)
-                )
-                .clip(shape)
-                .background(tone.copy(alpha = .11f * pulse))
-                .kineticClickable(
-                    role = Role.Button,
-                    pressScale = .95f,
-                    onClick = onToggle
-                )
-                .semantics { contentDescription = "$label connection button" },
-            contentAlignment = Alignment.Center
-        ) {
-            Canvas(Modifier.matchParentSize().padding(13.dp)) {
-                if (connecting) {
-                    drawArc(
-                        color = tone,
-                        startAngle = -90f + progressAngle,
-                        sweepAngle = 108f,
-                        useCenter = false,
-                        style = Stroke(width = 5.dp.toPx(), cap = StrokeCap.Round)
-                    )
-                } else if (connected) {
-                    drawArc(
-                        color = tone.copy(alpha = .76f),
-                        startAngle = -90f,
-                        sweepAngle = 300f,
-                        useCenter = false,
-                        style = Stroke(width = 4.dp.toPx(), cap = StrokeCap.Round)
-                    )
-                }
-            }
-            HomeVectorIcon(
-                if (connected) HomeIcon.CHECK else if (blocked) HomeIcon.RESET else HomeIcon.POWER,
-                tone,
-                Modifier.size(34.dp)
-            )
-        }
-        Spacer(Modifier.height(9.dp))
-        Text(
-            label,
-            color = tone,
-            style = MaterialTheme.typography.labelMedium,
-            fontWeight = FontWeight.Bold
+    Box(Modifier.fillMaxSize()) {
+        HomeStyleSurface(
+            style = parseHomeStyle(repo.settings.homeStyle),
+            evidence = evidence,
+            actions = actions,
+            bottomClearance = dockClearance()
         )
-    }
-}
 
-@Composable
-private fun HomeConnectedRouteSummary(
-    profile: ProxyProfile,
-    info: com.marbleng.app.ServerIntelInfo?,
-    loading: Boolean,
-    error: String,
-    onIpDetails: () -> Unit
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 8.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(7.dp)
-    ) {
-        Text(
-            "CONNECTED VIA",
-            color = Aether.Emerald,
-            style = MaterialTheme.typography.labelSmall,
-            fontWeight = FontWeight.Bold
-        )
-        Text(
-            "${profile.subscriptionName.ifBlank { "Library" }}  •  ${stripLeadingFlag(profile.name)}",
-            color = Aether.InkMuted,
-            style = MaterialTheme.typography.bodySmall,
-            textAlign = TextAlign.Center,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis
-        )
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
+        if (evidence.blocked && repo.stateDetail.isNotBlank()) {
             Text(
-                "IP  ${when {
-                    info != null -> info.ip
-                    loading -> "resolving…"
-                    else -> profile.host.ifBlank { "unavailable" }
-                }}",
-                color = Aether.Ink,
-                style = MaterialTheme.typography.bodySmall.copy(
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.SemiBold
-                ),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Spacer(Modifier.width(7.dp))
-            PrismIconButton(
-                onClick = onIpDetails,
-                tone = Aether.InkMuted,
-                size = 32.dp,
-                descriptiveLabel = "Show complete IP information"
-            ) {
-                HomeVectorIcon(HomeIcon.MORE, Aether.InkMuted, Modifier.size(16.dp))
-            }
-        }
-        if (error.isNotBlank() && info == null) {
-            Text(
-                "IP details unavailable • tap the menu to retry",
-                color = Aether.Amber,
-                style = MaterialTheme.typography.labelSmall,
-                textAlign = TextAlign.Center
+                compactInAppMessage(repo.stateDetail),
+                color = Aether.Danger,
+                style = MaterialTheme.typography.bodySmall,
+                textAlign = TextAlign.Center,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(horizontal = 24.dp)
+                    .padding(bottom = dockClearance())
             )
         }
     }
@@ -6123,7 +5954,89 @@ private fun SettingsSectionCard(
 
 
 @Composable
+private fun homeStyleLabel(style: HomeStyle): String = when (style) {
+    HomeStyle.BIOLUMINESCENT -> Tr.now.styleBioluminescent
+    HomeStyle.COSMIC_ORBIT -> Tr.now.styleCosmicOrbit
+    HomeStyle.COSMIC_IMMERSION -> Tr.now.styleCosmicImmersion
+    HomeStyle.PARAMETRIC -> Tr.now.styleParametric
+}
+
+@Composable
+private fun homeStyleDetail(style: HomeStyle): String = when (style) {
+    HomeStyle.BIOLUMINESCENT -> Tr.now.styleBioluminescentDetail
+    HomeStyle.COSMIC_ORBIT -> Tr.now.styleCosmicOrbitDetail
+    HomeStyle.COSMIC_IMMERSION -> Tr.now.styleCosmicImmersionDetail
+    HomeStyle.PARAMETRIC -> Tr.now.styleParametricDetail
+}
+
+@Composable
 private fun AppearanceSettings(repo: AppRepository) {
+    val t = Tr.now
+
+    // MARBLE_HOME_STYLE_V110 — the Home presentation is the first appearance decision, because it
+    // is the screen the user sees on every launch.
+    SectionLabel(t.homeStyleTitle)
+    Text(
+        t.homeStyleDetail,
+        color = Aether.InkMuted,
+        style = MaterialTheme.typography.bodySmall
+    )
+    val selectedHomeStyle = parseHomeStyle(repo.settings.homeStyle)
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        HomeStyle.entries.chunked(2).forEach { row ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                row.forEach { style ->
+                    CyberSegment(
+                        label = homeStyleLabel(style),
+                        detail = homeStyleDetail(style),
+                        selected = selectedHomeStyle == style,
+                        color = Aether.Amethyst,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        repo.updateSettings(repo.settings.copy(homeStyle = style.id))
+                    }
+                }
+                if (row.size == 1) Spacer(Modifier.weight(1f))
+            }
+        }
+    }
+
+    // MARBLE_BILINGUAL_V110 — default is the device language; an explicit choice always wins.
+    SectionLabel(t.languageTitle)
+    Text(
+        t.languageDetail,
+        color = Aether.InkMuted,
+        style = MaterialTheme.typography.bodySmall
+    )
+    val selectedLanguage = parseAppLanguage(repo.settings.appLanguage)
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        AppLanguage.entries.forEach { language ->
+            CyberSegment(
+                label = when (language) {
+                    AppLanguage.SYSTEM -> t.languageSystem
+                    AppLanguage.ENGLISH -> t.languageEnglish
+                    AppLanguage.PERSIAN -> t.languagePersian
+                },
+                detail = when (language) {
+                    AppLanguage.SYSTEM -> t.languageSystemDetail
+                    AppLanguage.ENGLISH -> "EN"
+                    AppLanguage.PERSIAN -> "FA"
+                },
+                selected = selectedLanguage == language,
+                color = Aether.Cyan,
+                modifier = Modifier.weight(1f)
+            ) {
+                repo.updateSettings(repo.settings.copy(appLanguage = language.id))
+            }
+        }
+    }
+
     // Standard settings intentionally keeps the useful decisions above the expert gate.
     SectionLabel("Theme")
     Row(
