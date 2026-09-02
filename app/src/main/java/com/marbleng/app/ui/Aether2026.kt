@@ -716,6 +716,7 @@ private fun FloatingSpatialDock(
     selected: SpatialTab,
     onSelect: (SpatialTab) -> Unit
 ) {
+    // MARBLE_BOTTOM_DOCK_UNIFIED_FLOATING_V661 — unified floating navigation lineage
     // MARBLE_IOS_FLOATING_DOCK_V81 — a genuinely detached, frosted-glass tab bar:
     //  - rendered as an overlay (no Scaffold bottomBar slot), so pages scroll under it
     //    and whatever is behind shines through the translucent material
@@ -774,6 +775,13 @@ private fun FloatingSpatialDock(
                     animationSpec = MarbleMotionSpecs.Color,
                     label = "dock-pill-${item.name}"
                 )
+                // The selected segment carries a soft outline on top of its wash — the
+                // segmented-control cue, kept colour-animated so it lands with the pill.
+                val indicatorTone by animateColorAsState(
+                    targetValue = if (active) Aether.Cyan.copy(alpha = .34f) else Color.Transparent,
+                    animationSpec = MarbleMotionSpecs.Color,
+                    label = "dock-indicator-${item.name}"
+                )
 
                 Row(
                     modifier = Modifier
@@ -785,6 +793,7 @@ private fun FloatingSpatialDock(
                         }
                         .clip(glassShape)
                         .background(pillBg)
+                        .border(1.dp, indicatorTone, glassShape)
                         .kineticClickable(
                             boundedShape = glassShape,
                             role = Role.Tab,
