@@ -149,12 +149,12 @@ class BugFinder(private val context: Context, private val xray: XrayManager) {
         }
 
         checks += when {
-            profiles.isEmpty() -> BugCheck("Config library", BugSeverity.FAIL, "No profiles installed")
+            profiles.isEmpty() -> BugCheck("Server inventory", BugSeverity.FAIL, "No profiles installed")
             connected && activeProfileId.isBlank() ->
                 BugCheck("Active profile", BugSeverity.FAIL, "CONNECTED but activeProfileId is empty", "Safe runtime reset")
             connected && profiles.none { it.id == activeProfileId } ->
-                BugCheck("Active profile", BugSeverity.FAIL, "Connected profile no longer exists", "Reconnect a valid node")
-            else -> BugCheck("Config library", BugSeverity.PASS, "${profiles.size} profiles • ${stateDetail.ifBlank { "idle" }}")
+                BugCheck("Active profile", BugSeverity.FAIL, "Connected profile no longer exists", "Reconnect a valid server")
+            else -> BugCheck("Server inventory", BugSeverity.PASS, "${profiles.size} profiles • ${stateDetail.ifBlank { "idle" }}")
         }
 
         checks += BugCheck("Android underlay", BugSeverity.INFO, networkLabel.ifBlank { "Unknown network" })
@@ -598,15 +598,15 @@ class BugFinder(private val context: Context, private val xray: XrayManager) {
                 .filterIsInstance<Inet6Address>()
                 .firstOrNull()
             when {
-                candidate == null -> "node publishes no AAAA record • IPv4 is the only honest path"
+                candidate == null -> "server publishes no AAAA record • IPv4 is the only honest path"
                 Socket().use { socket ->
                     runCatching {
                         socket.connect(InetSocketAddress(candidate, profile.port), 900)
                     }.isSuccess
-                } -> "node answers on IPv6 ${candidate.hostAddress}"
-                else -> "node advertises IPv6 but the v6 connect failed • v6 quality here is suspect"
+                } -> "server answers on IPv6 ${candidate.hostAddress}"
+                else -> "server advertises IPv6 but the v6 connect failed • v6 quality here is suspect"
             }
-        }.getOrDefault("node IPv6 probe unavailable")
+        }.getOrDefault("server IPv6 probe unavailable")
     }
 
     private fun systemSection(settings: AppSettings, status: DiagnosticEngineStatus): String {

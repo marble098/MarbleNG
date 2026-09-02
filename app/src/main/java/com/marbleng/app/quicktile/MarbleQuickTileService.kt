@@ -33,7 +33,7 @@ class MarbleQuickTileService : TileService() {
 
             val profile = repo.lastProfile()
             if (profile == null) {
-                repo.setRuntimeMessage("Choose and connect a Library node once to arm Quick Tile")
+                repo.setRuntimeMessage("Choose and connect a server once to arm Quick Tile")
                 openApp(connectLast = false)
                 return@unlockAndRun
             }
@@ -77,7 +77,7 @@ class MarbleQuickTileService : TileService() {
             tile.contentDescription = when {
                 repo.state == "CONNECTED" -> "Disconnect MarbleNG from ${repo.stateDetail}"
                 last != null -> "Connect MarbleNG to ${last.name}"
-                else -> "Open MarbleNG and choose a node"
+                else -> "Open MarbleNG and choose a server"
             }
         }
         tile.updateTile()

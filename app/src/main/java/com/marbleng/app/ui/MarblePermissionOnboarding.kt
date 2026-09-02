@@ -43,7 +43,7 @@ private fun permissionCopy(step: ConnectionPermissionStep): PermissionCopy = whe
     ConnectionPermissionStep.VPN -> PermissionCopy(
         title = "Allow VPN access",
         reason = "MarbleNG needs Android's VPN permission to arm its protected connection service. " +
-            "It only routes traffic through the node you choose; it cannot read your messages or files.",
+            "It only routes traffic through the server you choose; it cannot read your messages or files.",
         detail = "Required before protected connections start",
         tone = Aether.Cyan
     )

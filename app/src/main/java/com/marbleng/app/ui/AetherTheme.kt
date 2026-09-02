@@ -243,12 +243,20 @@ object Aether {
 // sans face. When Persian is the active product language the whole typography ramp switches
 // to Vazirmatn regardless of the selected Latin font, so no Persian glyph ever renders in a
 // mismatched face.
-private val VazirFamily = FontFamily(
+// MARBLE_VAZIR_LANGUAGE_KEY_V114 — internal, not private: the Persian language choice in Settings
+// must render in Vazir in *every* state (idle, selected, pressed, English UI, Persian UI), and that
+// button lives in another file. Nothing else may reach for the face directly; the typography ramp
+// below stays the only place a whole screen switches fonts.
+internal val VazirFamily = FontFamily(
     Font(R.font.vazirmatn_regular, FontWeight.Normal),
     Font(R.font.vazirmatn_medium, FontWeight.Medium),
     Font(R.font.vazirmatn_semibold, FontWeight.SemiBold),
     Font(R.font.vazirmatn_bold, FontWeight.Bold)
 )
+
+// MARBLE_SETTINGS_HUB_V114 — the Typeface page shows each candidate in its own face, which needs
+// the resolver outside this file. It returns a family only; nothing here changes the active theme.
+internal fun previewFontFamily(id: String): FontFamily = selectedFontFamily(id)
 
 private fun selectedFontFamily(id: String): FontFamily = when (parseAppFont(id)) {
     // The real bundled Vazirmatn face — Persian and Latin both ship inside the TTF.

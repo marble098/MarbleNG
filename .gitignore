@@ -11,3 +11,7 @@ signing.properties
 *.jks
 *.keystore
 .DS_Store
+
+# Python byte-cache from the dev tools in tools/ and scripts/
+__pycache__/
+*.pyc

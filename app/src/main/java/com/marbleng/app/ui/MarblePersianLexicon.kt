@@ -39,7 +39,7 @@ internal fun faTranslate(text: String): String {
 private val FaLexicon: Map<String, String> = mapOf(
     // ------------------------------------------------------------------ navigation & common verbs
     "Home" to "خانه",
-    "Library" to "کتابخانه",
+    "Servers" to "سرورها",
     "Settings" to "تنظیمات",
     "Routing" to "مسیریابی",
     "Privacy" to "حریم خصوصی",
@@ -92,7 +92,6 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Amber" to "کهربایی",
     "Ice" to "یخی",
     "Manual" to "دستی",
-    "Freedom" to "فریدام",
     "Signature" to "سیگنچر",
     "Pro studio" to "استودیو حرفه‌ای",
     "System font" to "فونت سیستم",
@@ -131,12 +130,12 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Scanning…" to "در حال پویش…",
     "Refreshing" to "در حال به‌روزرسانی",
     "Syncing" to "در حال همگام‌سازی",
-    "Testing node" to "در حال تست نود",
-    "Node queued" to "نود در صف تست",
+    "Testing server" to "در حال تست سرور",
+    "Server queued" to "سرور در صف تست",
     "Unknown host" to "میزبان ناشناخته",
     "Choose a route" to "یک مسیر انتخاب کنید",
     "Choose a server" to "یک سرور انتخاب کنید",
-    "No node selected" to "هیچ نودی انتخاب نشده",
+    "No server selected" to "هیچ سروری انتخاب نشده",
     "Connection issue" to "مشکل اتصال",
     "Heads up" to "توجه",
     "Completed" to "انجام شد",
@@ -172,7 +171,7 @@ private val FaLexicon: Map<String, String> = mapOf(
 
     // ------------------------------------------------------------------ IP details dialog
     "IP details" to "جزئیات آی‌پی",
-    "Public route information for the connected node" to "اطلاعات مسیر عمومی نود متصل",
+    "Public route information for the connected server" to "اطلاعات مسیر عمومی سرور متصل",
     "Resolving the public IP…" to "در حال دریافت آی‌پی عمومی…",
     "Destination" to "مقصد",
     "Type" to "نوع",
@@ -210,14 +209,13 @@ private val FaLexicon: Map<String, String> = mapOf(
     "No data yet" to "هنوز داده‌ای نیست",
 
     // ------------------------------------------------------------------ library
-    "Search nodes, host or protocol" to "جستجوی نود، میزبان یا پروتکل",
-    "Search nodes" to "جستجوی نودها",
+    "Search servers, host or protocol" to "جستجوی سرور، میزبان یا پروتکل",
+    "Search servers" to "جستجوی سرورها",
     "Subscription" to "اشتراک",
     "Manual config" to "پیکربندی دستی",
-    "Manual node" to "نود دستی",
+    "Manual server" to "سرور دستی",
     "Chain proxy" to "پروکسی زنجیره‌ای",
     "All" to "همه",
-    "Manual" to "دستی",
     "Reverse" to "معکوس",
     "Rank" to "رتبه‌بندی",
     "Score" to "امتیاز",
@@ -231,18 +229,18 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Nothing matches" to "چیزی مطابقت ندارد",
     "Nothing here yet." to "هنوز چیزی اینجا نیست.",
     "Filter & sort" to "فیلتر و مرتب‌سازی",
-    "Focus the Library without changing any node" to "تمرکز روی کتابخانه بدون تغییر هیچ نودی",
+    "Focus Servers without changing any server" to "تمرکز روی سرورها بدون تغییر هیچ سروری",
     "Select one subscription or show everything" to "یک اشتراک را انتخاب کنید یا همه را ببینید",
     "Fastest, strongest or easiest to find" to "سریع‌ترین، قوی‌ترین یا آسان‌ترین برای یافتن",
-    "VIEW NODES" to "مشاهده نودها",
+    "VIEW SERVERS" to "مشاهده سرورها",
     "Remove failed" to "حذف ناموفق‌ها",
     "Delete source" to "حذف منبع",
     "Copy URL" to "کپی لینک",
     "Subscription URL copied" to "لینک اشتراک کپی شد",
-    "Copy nodes" to "کپی نودها",
+    "Copy servers" to "کپی سرورها",
     "Clean failed tests" to "پاک‌سازی تست‌های ناموفق",
-    "Only nodes with a stored failed result of that exact test type are removed." to
-        "فقط نودهایی حذف می‌شوند که نتیجه ناموفق ذخیره‌شده از همان نوع تست دارند.",
+    "Only servers with a stored failed result of that exact test type are removed." to
+        "فقط سرورهایی حذف می‌شوند که نتیجه ناموفق ذخیره‌شده از همان نوع تست دارند.",
     "Local source" to "منبع محلی",
     "Create local source" to "ساخت منبع محلی",
     "Add subscription" to "افزودن اشتراک",
@@ -252,33 +250,33 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Manage subscription" to "مدیریت اشتراک",
     "Source name" to "نام منبع",
     "Subscription URL" to "لینک اشتراک",
-    "Edit node" to "ویرایش نود",
+    "Edit server" to "ویرایش سرور",
     "Edit Xray JSON" to "ویرایش JSON اکس‌ری",
     "Effective config JSON" to "JSON پیکربندی نهایی",
-    "Manual node • edits are stored locally." to "نود دستی • ویرایش‌ها به‌صورت محلی ذخیره می‌شوند.",
+    "Manual server • edits are stored locally." to "سرور دستی • ویرایش‌ها به‌صورت محلی ذخیره می‌شوند.",
     "Save JSON" to "ذخیره JSON",
-    "Delete node?" to "این نود حذف شود؟",
+    "Delete server?" to "این سرور حذف شود؟",
     "Swipe never deletes silently." to "کشیدن هرگز بی‌صدا حذف نمی‌کند.",
     "Copy config link" to "کپی لینک پیکربندی",
     "Copy Xray JSON" to "کپی JSON اکس‌ری",
     "Duplicate to Manual" to "کپی به منبع دستی",
-    "Test this node" to "تست این نود",
+    "Test this server" to "تست این سرور",
     "Copy config" to "کپی پیکربندی",
     "Config copied" to "پیکربندی کپی شد",
     "Copy JSON" to "کپی JSON",
     "Xray JSON copied" to "JSON اکس‌ری کپی شد",
     "Local Freedom engine" to "موتور آزادی محلی",
-    "Back to library" to "بازگشت به کتابخانه",
+    "Back to servers" to "بازگشت به سرورها",
     "Chain name • optional" to "نام زنجیره • اختیاری",
-    "Choose at least two nodes below." to "دست‌کم دو نود را در پایین انتخاب کنید.",
+    "Choose at least two servers below." to "دست‌کم دو سرور را در پایین انتخاب کنید.",
     "Move hop up" to "جابه‌جایی گام به بالا",
     "Move hop down" to "جابه‌جایی گام به پایین",
     "Remove hop" to "حذف گام",
-    "Showing 24 nodes • search to find any other node" to
-        "نمایش ۲۴ نود • برای یافتن نودهای دیگر جستجو کنید",
-    "Select one Library source first, or enable Manual source." to
-        "ابتدا یک منبع کتابخانه انتخاب کنید یا منبع دستی را فعال کنید.",
-    "Select one Library source first" to "ابتدا یک منبع کتابخانه انتخاب کنید",
+    "Showing 24 servers • search to find any other server" to
+        "نمایش ۲۴ سرور • برای یافتن سرورهای دیگر جستجو کنید",
+    "Select one server source first, or enable Manual source." to
+        "ابتدا یک منبع سرور انتخاب کنید یا منبع دستی را فعال کنید.",
+    "Select one server source first" to "ابتدا یک منبع سرور انتخاب کنید",
     "Will be added to the selected source and kept across refreshes." to
         "به منبع انتخاب‌شده افزوده می‌شود و با به‌روزرسانی‌ها حفظ خواهد شد.",
     "All sources is only a view. Select a source chip first, then add the config." to
@@ -583,13 +581,13 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Most accurate" to "دقیق‌ترین",
     "Fastest" to "سریع‌ترین",
     "Classic ping" to "پینگ کلاسیک",
-    "Pings per node" to "پینگ برای هر نود",
+    "Pings per server" to "پینگ برای هر سرور",
     "Timeout per try" to "مهلت هر تلاش",
-    "Nodes per test run" to "نود در هر دور تست",
+    "Servers per test run" to "سرور در هر دور تست",
     "Also measure download speed" to "اندازه‌گیری سرعت دانلود هم",
     "Slower, uses data" to "کندتر، مصرف داده دارد",
     "Grow the speed sample" to "رشد نمونه سرعت",
-    "More only from fast nodes" to "بیشتر فقط از نودهای سریع",
+    "More only from fast servers" to "بیشتر فقط از سرورهای سریع",
     "TCP/ICMP bypass the proxy; only Real tunnel proves the route." to
         "‏TCP/ICMP از پروکسی عبور نمی‌کنند؛ فقط تونل واقعی مسیر را ثابت می‌کند.",
 
@@ -690,8 +688,8 @@ private val FaLexicon: Map<String, String> = mapOf(
 
     // ------------------------------------------------------------------ permission onboarding
     "Allow VPN access" to "اجازه دسترسی VPN",
-    "MarbleNG needs Android's VPN permission to arm its protected connection service. It only routes traffic through the node you choose; it cannot read your messages or files." to
-        "MarbleNG برای فعال‌سازی سرویس اتصال محافظت‌شده به مجوز VPN اندروید نیاز دارد. فقط ترافیک را از نودی که انتخاب می‌کنید عبور می‌دهد؛ نمی‌تواند پیام‌ها یا فایل‌های شما را بخواند.",
+    "MarbleNG needs Android's VPN permission to arm its protected connection service. It only routes traffic through the server you choose; it cannot read your messages or files." to
+        "MarbleNG برای فعال‌سازی سرویس اتصال محافظت‌شده به مجوز VPN اندروید نیاز دارد. فقط ترافیک را از سروری که انتخاب می‌کنید عبور می‌دهد؛ نمی‌تواند پیام‌ها یا فایل‌های شما را بخواند.",
     "Required before protected connections start" to "پیش از شروع اتصال محافظت‌شده لازم است",
     "Allow connection notifications" to "اجازه اعلان‌های اتصال",
     "Android requires notification access for MarbleNG to keep the active tunnel visible and to tell you when a connection changes while the app is in the background." to
@@ -706,6 +704,87 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Not now" to "حالا نه",
     "Freedom" to "فریدم",
 
+    // ------------------------------------------------------- MARBLE_SERVERS_V114 / SETTINGS HUB V114
+    // The Servers screen: one frosted module per source, compact rows, a clipboard magic button.
+    "Server" to "سرور",
+    "1 server" to "یک سرور",
+    "shown" to "نمایان",
+    "End of source" to "پایان منبع",
+    "Colony complete" to "کلونی کامل است",
+    "END OF MANIFEST" to "پایان فهرست",
+    "Field edge" to "لبه میدان",
+    "END OF SHEET" to "پایان برگه",
+    "ms" to "میلی‌ثانیه",
+    "Hold for actions" to "برای اکشن‌ها نگه دارید",
+    "Add servers" to "افزودن سرور",
+    "Sort servers" to "مرتب‌سازی سرورها",
+    "SIGNATURE SERVERS" to "سرورهای سیگنچر",
+    "ORGANIC SERVERS" to "سرورهای ارگانیک",
+    "NEBULA SERVERS" to "سرورهای سحابی",
+    "BLUEPRINT SERVERS" to "سرورهای نقشه‌ای",
+    "ORBITAL MANIFEST" to "فهرست مداری",
+    "Not measured" to "اندازه‌گیری نشده",
+    "Show Marble Freedom" to "نمایش فریدم ماربل",
+    "Hide Marble Freedom" to "پنهان‌کردن فریدم ماربل",
+
+    // The settings hub: one page of titles, each opening its own page, plus the live quick rows.
+    "All settings" to "همه تنظیمات",
+    "Hub" to "مرکز",
+    "Language" to "زبان",
+    "English" to "انگلیسی",
+    "Information" to "اطلاعات",
+    "Every setting stays on this device." to "همه تنظیمات روی همین دستگاه می‌ماند.",
+    "Reconnect last server" to "اتصال مجدد به آخرین سرور",
+    "Resume the previous route on launch" to "ادامه مسیر قبلی هنگام اجرای برنامه",
+    "Auto-refresh sources" to "بروزرسانی خودکار منابع",
+    "Keep subscriptions up to date" to "اشتراک‌ها را به‌روز نگه می‌دارد",
+    "Smart alerts" to "اعلان‌های هوشمند",
+    "Notify only when something needs you" to "فقط وقتی چیزی به شما نیاز دارد اطلاع می‌دهد",
+    "Marble Intelligence" to "هوش ماربل",
+    "Compatibility checks and verified tuning" to "بررسی سازگاری و تنظیم اثبات‌شده",
+    "Expert mode" to "حالت تخصصی",
+    "Reveal the low-level tunnel controls" to "نمایش کنترل‌های سطح پایین تونل",
+    "Routing, Freedom, tests and servers" to "مسیریابی، فریدم، تست‌ها و سرورها",
+    "Theme, Home style, typeface and language" to "پوسته، سبک خانه، قلم و زبان",
+    "Notifications, engine, general and information" to "اعلان‌ها، موتور، عمومی و اطلاعات",
+    "Network & routing" to "شبکه و مسیریابی",
+    "DNS, split tunnel and geo rules" to "DNS، تونل تفکیکی و قوانین جغرافیایی",
+    "Tests & ranking" to "تست‌ها و رتبه‌بندی",
+    "Ping, speed and smart ranking" to "پینگ، سرعت و رتبه‌بندی هوشمند",
+    "General & servers" to "عمومی و سرورها",
+    "Alerts, live stats and cooldown" to "اعلان‌ها، آمار زنده و فاصله زمانی",
+    "Engine & tunnel" to "موتور و تونل",
+    "Xray, transport and adaptive buffers" to "Xray، انتقال و بافرهای تطبیقی",
+    "Home layout, sources and app updates" to "چیدمان خانه، منابع و به‌روزرسانی برنامه",
+    "Daylight" to "روشنایی روز",
+    "Dynamic" to "پویا",
+    "Dynamic phone" to "پویای گوشی",
+    "Wallpaper colors" to "رنگ‌های کاغذ دیواری",
+    "Home style" to "سبک خانه",
+    "The Latin face of the whole product" to "قلم لاتین کل محصول",
+    "Persian always shapes with Vazirmatn, whichever Latin face you pick." to
+        "فارسی همیشه با وزیرمتن نوشته می‌شود، هر قلم لاتینی که انتخاب کنید.",
+    "The Persian choice is written in Persian and always rendered with Vazirmatn." to
+        "گزینه فارسی به خط فارسی نوشته می‌شود و همیشه با وزیرمتن نمایش داده می‌شود.",
+    "Every layer of the Signature studio is customizable under General." to
+        "هر لایه از استودیوی سیگنچر در بخش عمومی قابل شخصی‌سازی است.",
+
+    // The Information page: real versions and links that open the browser directly.
+    "Versions" to "نسخه‌ها",
+    "App version" to "نسخه برنامه",
+    "Version code" to "کد نسخه",
+    "Xray core" to "هسته Xray",
+    "Tunnel core" to "هسته تونل",
+    "Build type" to "نوع ساخت",
+    "Links" to "پیوندها",
+    "Every link opens in your browser" to "هر پیوند در مرورگر شما باز می‌شود",
+    "Source code" to "کد منبع",
+    "Releases" to "انتشارها",
+    "Report an issue" to "گزارش مشکل",
+    "Copy details" to "کپی جزئیات",
+    "Copy the version details, or keep a continuous diagnostic export in Downloads/marbleng/report." to
+        "جزئیات نسخه را کپی کنید، یا خروجی تشخیص پیوسته را در Downloads/marbleng/report نگه دارید.",
+
     // suffix / unit fragments used by NumberSetting
     " ms" to " میلی‌ثانیه",
     " sec" to " ثانیه",
@@ -718,8 +797,15 @@ private val FaLexiconLower: Map<String, String> =
 
 // Compound runtime strings ("12 nodes", "3 visible • 40 total", "45 sec", …).
 private val FaPatterns: List<Pair<Regex, (MatchResult) -> String>> = listOf(
-    Regex("""^(\d+) nodes$""") to { m -> "${m.groupValues[1]} نود" },
-    Regex("""^(\d+) local nodes$""") to { m -> "${m.groupValues[1]} نود محلی" },
+    Regex("""^(\d+) servers$""") to { m -> "${m.groupValues[1]} سرور" },
+    // MARBLE_SERVERS_V114 — the source module reports its visible slice, the Freedom engine its own
+    // count, and the latency readout speaks its measurement to TalkBack.
+    Regex("""^(\d+) shown$""") to { m -> "${m.groupValues[1]} نمایان" },
+    Regex("""^Freedom \((\d+)\)$""") to { m -> "فریدم (${m.groupValues[1]})" },
+    Regex("""^Latency (\d+) milliseconds, (.+)$""") to { m ->
+        "تأخیر ${m.groupValues[1]} میلی‌ثانیه، ${m.groupValues[2]}"
+    },
+    Regex("""^(\d+) local servers$""") to { m -> "${m.groupValues[1]} سرور محلی" },
     Regex("""^(\d+) visible • (\d+) total$""") to { m ->
         "${m.groupValues[1]} نمایان • ${m.groupValues[2]} کل"
     },

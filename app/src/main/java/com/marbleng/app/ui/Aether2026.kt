@@ -54,6 +54,7 @@ package com.marbleng.app.ui
 
 import android.Manifest
 import android.content.Intent
+import com.marbleng.app.BuildConfig
 import android.content.pm.PackageManager
 import android.os.Build
 import android.provider.Settings
@@ -76,6 +77,7 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -111,6 +113,8 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.material3.dynamicLightColorScheme
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
@@ -120,6 +124,7 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -163,7 +168,7 @@ import kotlin.math.sin
 
 private enum class SpatialTab(val label: String) {
     DECK("Home"),
-    LIBRARY("Library"),
+    LIBRARY("Servers"),
     SETTINGS("Settings")
 }
 
@@ -553,7 +558,7 @@ private fun IpDetailsDialog(
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    trx("Public route information for the connected node"),
+                    trx("Public route information for the connected server"),
                     color = Aether.InkMuted,
                     style = MaterialTheme.typography.bodySmall
                 )
@@ -752,9 +757,9 @@ private fun compactInAppMessage(raw: String): String {
     val lower = message.lowercase()
     return when {
         "vless without tls or other encryption is prohibited" in lower ->
-            "Unsupported VLESS • pick a node with TLS/REALITY, or turn Marble Freedom back on"
+            "Unsupported VLESS • pick a server with TLS/REALITY, or turn Marble Freedom back on"
         "failed to build outbound config" in lower ->
-            "Xray rejected this node configuration • check protocol/TLS settings"
+            "Xray rejected this server configuration • check protocol/TLS settings"
         "context deadline exceeded" in lower && "dns-query" in lower ->
             "DNS resolver timed out • Marble is switching to a fallback path"
         message.length > 260 -> message.take(257) + "…"
@@ -1095,7 +1100,7 @@ private fun SpatialHeader(
 ) {
     // MARBLE_PAGE_TITLES_V37
     val icon = when (title) {
-        "Library" -> HomeIcon.LIBRARY
+        "Servers" -> HomeIcon.LIBRARY
         "Settings" -> HomeIcon.MODE
         else -> HomeIcon.DETAILS
     }
@@ -1213,32 +1218,21 @@ private fun SectionLabel(
     title: String,
     subtitle: String? = null
 ) {
+    // MARBLE_SETTINGS_QUIET_CHROME_V114 — the little gradient bar beside every settings heading is
+    // gone. Hierarchy now comes from type alone: a quiet caption above a lighter, smaller title.
+    // Colour markers next to settings read as status, and nothing here is a status.
     Column(
         modifier=Modifier.padding(vertical=3.dp),
         verticalArrangement=Arrangement.spacedBy(3.dp)
     ) {
-        Row(
-            verticalAlignment=Alignment.CenterVertically,
-            horizontalArrangement=Arrangement.spacedBy(8.dp)
-        ) {
-            Box(
-                Modifier
-                    .width(3.dp)
-                    .height(18.dp)
-                    .clip(RoundedCornerShape(999.dp))
-                    .background(
-                        Brush.verticalGradient(
-                            listOf(Aether.Cyan,Aether.Amethyst)
-                        )
-                    )
-            )
-            Text(
-                trx(title),
-                color=Aether.Ink,
-                style=MaterialTheme.typography.titleMedium,
-                fontWeight=FontWeight.Bold
-            )
-        }
+        Text(
+            trx(title),
+            color=Aether.Ink,
+            style=MaterialTheme.typography.titleSmall,
+            fontWeight=FontWeight.Medium,
+            maxLines=2,
+            overflow=TextOverflow.Ellipsis
+        )
         subtitle?.takeIf { it.isNotBlank() }?.let { detail ->
             Text(
                 trx(detail),
@@ -1263,23 +1257,15 @@ private fun FreedomSectionHeader(
             .padding(top=4.dp,bottom=1.dp),
         verticalArrangement=Arrangement.spacedBy(4.dp)
     ) {
-        Row(
-            verticalAlignment=Alignment.CenterVertically,
-            horizontalArrangement=Arrangement.spacedBy(9.dp)
-        ) {
-            Box(
-                Modifier
-                    .size(8.dp)
-                    .clip(CircleShape)
-                    .background(tone)
-            )
-            Text(
-                trx(title),
-                color=Aether.Ink,
-                style=MaterialTheme.typography.titleSmall,
-                fontWeight=FontWeight.SemiBold
-            )
-        }
+        // MARBLE_SETTINGS_QUIET_CHROME_V114 — no marker dot beside a settings heading either.
+        Text(
+            trx(title),
+            color=tone.copy(alpha=.92f),
+            style=MaterialTheme.typography.labelLarge,
+            fontWeight=FontWeight.Medium,
+            maxLines=2,
+            overflow=TextOverflow.Ellipsis
+        )
         Text(
             trx(subtitle),
             color=Aether.InkMuted,
@@ -1296,7 +1282,12 @@ private enum class HomeIcon {
     BRAND, POWER, STOP, CANCEL, RESET, SHIELD, TUNNEL, ROUTE,
     PING, JITTER, QUALITY, NODES, VERIFIED, CHECK, MODE, BENCHMARK,
     RANK, LIBRARY, PRIVACY, ROUTING, NETWORK, SERVER, DOWNLOAD, UPLOAD,
-    DETAILS, SPARK, STATUS, MORE
+    DETAILS, SPARK, STATUS, MORE,
+    // MARBLE_SERVERS_V114 — glyphs the rebuilt Servers screen and the Settings hub need:
+    // a clipboard for the floating magic button, an information mark, a palette for the
+    // theme preview, a globe for language/links, disclosure chevrons, a back arrow and a
+    // typeface mark for the font picker.
+    CLIPBOARD, INFO, PALETTE, GLOBE, CHEVRON, BACK, FONT
 }
 
 @Composable
@@ -1532,6 +1523,97 @@ private fun HomeVectorIcon(
                 drawCircle(color, m*.075f, Offset(w*.50f,h*.50f))
                 drawCircle(color, m*.075f, Offset(w*.75f,h*.50f))
             }
+
+            // MARBLE_SERVERS_V114 — a clipboard: the board, its clip and two captured lines.
+            HomeIcon.CLIPBOARD -> {
+                val board = Path().apply {
+                    moveTo(w*.28f,h*.24f)
+                    lineTo(w*.28f,h*.82f)
+                    lineTo(w*.72f,h*.82f)
+                    lineTo(w*.72f,h*.24f)
+                }
+                drawPath(board,color,style=fineLine)
+                drawPath(
+                    Path().apply {
+                        moveTo(w*.40f,h*.24f); lineTo(w*.40f,h*.17f)
+                        lineTo(w*.60f,h*.17f); lineTo(w*.60f,h*.24f)
+                    },
+                    color,style=line
+                )
+                drawLine(color,Offset(w*.38f,h*.44f),Offset(w*.62f,h*.44f),fine,StrokeCap.Round)
+                drawLine(color,Offset(w*.38f,h*.58f),Offset(w*.62f,h*.58f),fine,StrokeCap.Round)
+                drawLine(color,Offset(w*.38f,h*.71f),Offset(w*.54f,h*.71f),fine,StrokeCap.Round)
+            }
+
+            HomeIcon.INFO -> {
+                drawCircle(color,m*.38f,Offset(w*.50f,h*.50f),style=fineLine)
+                drawCircle(color,m*.055f,Offset(w*.50f,h*.32f))
+                drawLine(color,Offset(w*.50f,h*.45f),Offset(w*.50f,h*.70f),stroke,StrokeCap.Round)
+            }
+
+            // A painter's palette: the dish and three wells of colour.
+            HomeIcon.PALETTE -> {
+                drawPath(
+                    Path().apply {
+                        moveTo(w*.50f,h*.14f)
+                        cubicTo(w*.20f,h*.14f,w*.12f,h*.44f,w*.20f,h*.64f)
+                        cubicTo(w*.26f,h*.80f,w*.42f,h*.86f,w*.50f,h*.78f)
+                        cubicTo(w*.56f,h*.72f,w*.52f,h*.62f,w*.58f,h*.60f)
+                        cubicTo(w*.72f,h*.56f,w*.88f,h*.52f,w*.88f,h*.38f)
+                        cubicTo(w*.88f,h*.22f,w*.72f,h*.14f,w*.50f,h*.14f)
+                        close()
+                    },
+                    color,style=fineLine
+                )
+                drawCircle(color,m*.055f,Offset(w*.36f,h*.34f))
+                drawCircle(color,m*.055f,Offset(w*.52f,h*.28f))
+                drawCircle(color,m*.055f,Offset(w*.68f,h*.34f))
+                drawCircle(color,m*.055f,Offset(w*.34f,h*.54f))
+            }
+
+            HomeIcon.GLOBE -> {
+                drawCircle(color,m*.38f,Offset(w*.50f,h*.50f),style=fineLine)
+                drawPath(
+                    Path().apply {
+                        moveTo(w*.50f,h*.12f)
+                        cubicTo(w*.36f,h*.30f,w*.36f,h*.70f,w*.50f,h*.88f)
+                        cubicTo(w*.64f,h*.70f,w*.64f,h*.30f,w*.50f,h*.12f)
+                    },
+                    color,style=fineLine
+                )
+                drawLine(color,Offset(w*.14f,h*.50f),Offset(w*.86f,h*.50f),fine,StrokeCap.Round)
+            }
+
+            HomeIcon.CHEVRON -> {
+                drawPath(
+                    Path().apply {
+                        moveTo(w*.38f,h*.24f); lineTo(w*.64f,h*.50f); lineTo(w*.38f,h*.76f)
+                    },
+                    color,style=line
+                )
+            }
+
+            HomeIcon.BACK -> {
+                drawLine(color,Offset(w*.78f,h*.50f),Offset(w*.28f,h*.50f),stroke,StrokeCap.Round)
+                drawPath(
+                    Path().apply {
+                        moveTo(w*.46f,h*.30f); lineTo(w*.26f,h*.50f); lineTo(w*.46f,h*.70f)
+                    },
+                    color,style=line
+                )
+            }
+
+            // A typeface mark: a serif capital between two baselines.
+            HomeIcon.FONT -> {
+                drawLine(color,Offset(w*.20f,h*.78f),Offset(w*.80f,h*.78f),fine,StrokeCap.Round)
+                drawPath(
+                    Path().apply {
+                        moveTo(w*.32f,h*.68f); lineTo(w*.50f,h*.22f); lineTo(w*.68f,h*.68f)
+                    },
+                    color,style=line
+                )
+                drawLine(color,Offset(w*.40f,h*.54f),Offset(w*.60f,h*.54f),fine,StrokeCap.Round)
+            }
         }
     }
 }
@@ -1632,7 +1714,7 @@ private fun MarbleCompactTopBar(
             }
         } else {
             val icon=when(title) {
-                "Library" -> HomeIcon.LIBRARY
+                "Servers" -> HomeIcon.LIBRARY
                 "Settings" -> HomeIcon.MODE
                 else -> HomeIcon.DETAILS
             }
@@ -2969,7 +3051,7 @@ private fun libraryChromeFor(flavor: HomeFlavor): LibraryChrome = when (flavor) 
         connectedLabel = "CONNECTED",
         securingLabel = "SECURING",
         connectedTone = Aether.Emerald,
-        headerTitle = "SIGNATURE LIBRARY",
+        headerTitle = "SIGNATURE SERVERS",
         freedomTone = Aether.Cyan
     )
     HomeFlavor.ORGANIC -> LibraryChrome(
@@ -2979,7 +3061,7 @@ private fun libraryChromeFor(flavor: HomeFlavor): LibraryChrome = when (flavor) 
         connectedLabel = "BIOLUMINESCENT",
         securingLabel = "GERMINATING",
         connectedTone = Aether.Emerald,
-        headerTitle = "ORGANIC LIBRARY",
+        headerTitle = "ORGANIC SERVERS",
         freedomTone = Aether.Amethyst
     )
     HomeFlavor.ORBIT -> LibraryChrome(
@@ -2999,7 +3081,7 @@ private fun libraryChromeFor(flavor: HomeFlavor): LibraryChrome = when (flavor) 
         connectedLabel = "IMMERSED",
         securingLabel = "NEBULIZING",
         connectedTone = Aether.AmethystBright,
-        headerTitle = "NEBULA LIBRARY",
+        headerTitle = "NEBULA SERVERS",
         freedomTone = Aether.Amethyst
     )
     HomeFlavor.BLUEPRINT -> LibraryChrome(
@@ -3009,7 +3091,7 @@ private fun libraryChromeFor(flavor: HomeFlavor): LibraryChrome = when (flavor) 
         connectedLabel = "PARAMETRIC",
         securingLabel = "DRAFTING",
         connectedTone = Aether.SlateBright,
-        headerTitle = "BLUEPRINT LIBRARY",
+        headerTitle = "BLUEPRINT SERVERS",
         freedomTone = Aether.Slate
     )
 }
@@ -3135,7 +3217,7 @@ private fun CyberLibrary(
         AlertDialog(
             onDismissRequest = { renameTarget = null },
             containerColor = Aether.VoidElevated,
-            title = { Text(trx("Edit node"), color = Aether.Ink) },
+            title = { Text(trx("Edit server"), color = Aether.Ink) },
             text = {
                 OutlinedTextField(
                     value = renameText,
@@ -3174,7 +3256,7 @@ private fun CyberLibrary(
                 Column {
                     Text(trx("Manage subscription"), color = Aether.Ink)
                     Text(
-                        "${repo.subscriptionNodeCount(target.id)} nodes • ${relativeTime(target.updatedAt)}",
+                        "${repo.subscriptionNodeCount(target.id)} servers • ${relativeTime(target.updatedAt)}",
                         color = Aether.InkFaint,
                         style = MaterialTheme.typography.bodySmall
                     )
@@ -3209,13 +3291,13 @@ private fun CyberLibrary(
                             repo.setRuntimeMessage("Subscription URL copied")
                         }
                         CyberButton(
-                            "Copy nodes",
+                            "Copy servers",
                             Aether.Cyan,
                             Modifier.weight(1f),
                             enabled = repo.subscriptionNodeCount(target.id) > 0
                         ) {
                             clipboard.setText(AnnotatedString(repo.subscriptionRawText(target.id)))
-                            repo.setRuntimeMessage("${repo.subscriptionNodeCount(target.id)} node links copied")
+                            repo.setRuntimeMessage("${repo.subscriptionNodeCount(target.id)} server links copied")
                         }
                     }
                     HorizontalDivider(color = Aether.GlassBorderSoft)
@@ -3243,14 +3325,14 @@ private fun CyberLibrary(
                         manageSubscription = null
                     }
                     Text(
-                        trx("Only nodes with a stored failed result of that exact test type are removed."),
+                        trx("Only servers with a stored failed result of that exact test type are removed."),
                         color = Aether.InkFaint,
                         style = MaterialTheme.typography.labelSmall
                     )
 
                     Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                         CyberButton(
-                            label = "VIEW NODES",
+                            label = "VIEW SERVERS",
                             color = Aether.Cyan,
                             modifier = Modifier.weight(1f)
                         ) {
@@ -3306,10 +3388,10 @@ private fun CyberLibrary(
         AlertDialog(
             onDismissRequest = { pruneFailedTarget = null },
             containerColor = Aether.VoidElevated,
-            title = { Text("Remove failed $kind nodes?", color = Aether.Danger) },
+            title = { Text("Remove failed $kind servers?", color = Aether.Danger) },
             text = {
                 Text(
-                    "This removes $failedCount failed node${if (failedCount == 1) "" else "s"} from ${target.name}.",
+                    "This removes $failedCount failed server${if (failedCount == 1) "" else "s"} from ${target.name}.",
                     color = Aether.InkMuted
                 )
             },
@@ -3337,7 +3419,7 @@ private fun CyberLibrary(
             title = { Text("Delete ${target.name}?", color = Aether.Danger) },
             text = {
                 Text(
-                    "This removes the subscription and its ${repo.subscriptionNodeCount(target.id)} nodes.",
+                    "This removes the subscription and its ${repo.subscriptionNodeCount(target.id)} servers.",
                     color = Aether.InkMuted
                 )
             },
@@ -3368,33 +3450,48 @@ private fun CyberLibrary(
                 end = 16.dp,
                 top = 6.dp,
                 bottom = dockClearance() + 92.dp
-            ),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+            )
         ) {
+            // MARBLE_SERVERS_V114 — the list has no blanket item spacing any more. A source module is
+            // ONE container painted across several lazy items, so blanket gaps would cut it into
+            // slices; each item now owns the space above and below it instead.
             item {
-                MarbleCompactTopBar(
-                    title = "Library",
-                    subtitle = "${chrome.headerTitle} • ${repo.libraryProfiles.size} nodes"
-                )
+                Column {
+                    MarbleCompactTopBar(
+                        title = "Servers",
+                        // Each half is translated on its own: the count goes through the "N servers"
+                        // pattern, so Persian reads "سرورهای سیگنچر • 12 سرور" instead of one
+                        // unmatched English sentence.
+                        subtitle = "${trx(chrome.headerTitle)} • " +
+                            trx("${repo.libraryProfiles.size} servers")
+                    )
+                    Spacer(Modifier.height(10.dp))
+                }
             }
 
             item {
-                PrismSearchField(
-                    value = search,
-                    onValueChange = { search = it },
-                    placeholder = "Search nodes, host or protocol",
-                    modifier = Modifier.fillMaxWidth()
-                )
+                Column {
+                    PrismSearchField(
+                        value = search,
+                        onValueChange = { search = it },
+                        placeholder = "Search servers, host or protocol",
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(Modifier.height(10.dp))
+                }
             }
 
             // Global deck: refresh / ping / rank everything, plus the live probe progress.
             item {
-                LibraryControlDeck(repo = repo, sourceFilter = "all")
+                Column {
+                    LibraryControlDeck(repo = repo, sourceFilter = "all")
+                    Spacer(Modifier.height(12.dp))
+                }
             }
 
             if (grouped.isEmpty()) {
                 item {
-                    HoloGlass(modifier = Modifier.fillMaxWidth()) {
+                    HoloGlass(modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
                         Column(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalAlignment = Alignment.CenterHorizontally,
@@ -3415,26 +3512,59 @@ private fun CyberLibrary(
                 }
             }
 
-            grouped.forEach { group ->
+            grouped.forEachIndexed { groupIndex, group ->
                 val collapsed = group.sourceId in repo.libraryCollapsedSources
-                item(key = "group-${group.sourceId}") {
-                    LibraryGroupHeader(
-                        group = group,
-                        chrome = chrome,
-                        repo = repo,
-                        collapsed = collapsed,
-                        onToggle = { repo.setLibrarySourceCollapsed(group.sourceId, !collapsed) },
-                        onEdit = {
-                            manageSubscription = repo.subscriptions.firstOrNull { it.id == group.sourceId }
-                            if (manageSubscription != null) {
-                                editSubscriptionName = manageSubscription?.name.orEmpty()
-                                editSubscriptionUrl = manageSubscription?.url.orEmpty()
-                            }
-                        }
-                    )
+                val isSubscription = group.kind == LibraryGroupKind.SUBSCRIPTION
+                val accent = when (group.kind) {
+                    LibraryGroupKind.FREEDOM -> chrome.freedomTone
+                    else -> chrome.accent
                 }
-                if (!collapsed) {
-                    items(group.profiles, key = { "${group.sourceId}:${it.id}" }) { profile ->
+                val total = if (isSubscription) {
+                    repo.subscriptionNodeCount(group.sourceId)
+                } else {
+                    group.profiles.size
+                }
+                // MARBLE_SERVERS_V114 — a folded module keeps a few rows composed so the collapse can
+                // shrink and fade them; the rest leave the composition immediately. Eight rows is more
+                // than a viewport holds, so nothing that is on screen ever pops out of existence.
+                val rows = if (collapsed) {
+                    group.profiles.take(LIBRARY_FOLD_KEPT_ROWS)
+                } else {
+                    group.profiles
+                }
+
+                item(key = "group-${group.sourceId}") {
+                    Column {
+                        if (groupIndex > 0) Spacer(Modifier.height(13.dp))
+                        LibraryModuleHeader(
+                            group = group,
+                            chrome = chrome,
+                            flavor = flavor,
+                            repo = repo,
+                            collapsed = collapsed,
+                            searching = search.isNotBlank(),
+                            onToggle = { repo.setLibrarySourceCollapsed(group.sourceId, !collapsed) },
+                            onEdit = {
+                                manageSubscription = repo.subscriptions.firstOrNull { it.id == group.sourceId }
+                                if (manageSubscription != null) {
+                                    editSubscriptionName = manageSubscription?.name.orEmpty()
+                                    editSubscriptionUrl = manageSubscription?.url.orEmpty()
+                                }
+                            }
+                        )
+                    }
+                }
+
+                itemsIndexed(rows, key = { _, profile -> "${group.sourceId}:${profile.id}" }) { index, profile ->
+                    // The fold is animated: each row shrinks and fades in a short stagger, so a
+                    // subscription closes like a drawer instead of blinking out.
+                    AnimatedVisibility(
+                        visible = !collapsed,
+                        enter = fadeIn(tween(200, delayMillis = (index * 18).coerceAtMost(180))) +
+                            expandVertically(MarbleMotionSpecs.Layout),
+                        exit = fadeOut(tween(130)) +
+                            shrinkVertically(tween(210, delayMillis = (index * 9).coerceAtMost(90)))
+                    ) {
                         SpatialServerCard(
                             profile = profile,
                             repo = repo,
@@ -3442,6 +3572,9 @@ private fun CyberLibrary(
                             active = repo.isActiveProfile(profile),
                             probeState = repo.probeStateOf(profile.id),
                             flavor = flavor,
+                            ordinal = index,
+                            divider = index != rows.lastIndex,
+                            accent = accent,
                             onConnect = onConnect,
                             onEdit = {
                                 renameTarget = profile
@@ -3450,6 +3583,17 @@ private fun CyberLibrary(
                             onDetails = { onDetails(profile) }
                         )
                     }
+                }
+
+                item(key = "group-${group.sourceId}-tail") {
+                    LibraryModuleTail(
+                        group = group,
+                        flavor = flavor,
+                        accent = accent,
+                        collapsed = collapsed,
+                        shown = group.profiles.size,
+                        total = total
+                    )
                 }
             }
         }
@@ -3500,12 +3644,158 @@ private fun LibraryChevron(collapsed: Boolean, color: Color, modifier: Modifier 
     }
 }
 
+/**
+ * MARBLE_SERVERS_V114 — the source module: ONE frosted container per subscription, with every
+ * server of that subscription rendered as a compact row *inside* it.
+ *
+ * Three product rules shaped this:
+ *
+ *  - **No card per server.** Servers used to be individual glass cards with their own borders,
+ *    shadows and 16dp margins, so a 200-server subscription read as 200 boxes. They are now
+ *    back-to-back rows in a single poured-glass module, separated by a hairline.
+ *  - **The fold is a real animation.** Collapsing a source shrinks and fades its rows in a stagger
+ *    instead of deleting them, and the module's own height is animated, so the list never snaps.
+ *  - **Nothing about a source is hidden.** The name wraps to two lines, and the server count, the
+ *    visible-while-searching count and the time since the source was added each get their own chip
+ *    in a wrapping row — no ellipsis swallowing the facts.
+ *
+ * The lazy list still itemises per row (a 500-server source must not compose in one frame), so the
+ * container is drawn segment by segment: the header owns the top corners, every row owns a slice of
+ * the frost and one hairline, and the tail owns the bottom corners. Read together they are one box.
+ */
+private const val LIBRARY_FOLD_KEPT_ROWS = 8
+
+private val LibraryModuleRadius = 18.dp
+
+/** The frost every module segment is poured into: translucent, matte, and never a second shadow. */
 @Composable
-private fun LibraryGroupHeader(
+private fun libraryFrost(accent: Color, emphasized: Boolean): Brush = Brush.verticalGradient(
+    listOf(
+        Color.White.copy(alpha = if (emphasized) .055f else .038f),
+        accent.copy(alpha = if (emphasized) .075f else .030f),
+        Aether.VoidElevated.copy(alpha = .80f),
+        Aether.VoidElevated.copy(alpha = .88f)
+    )
+)
+
+/**
+ * One slice of a source module: the shared frost, the module hairline on the edges this slice owns,
+ * and (for rows) the divider to the next server.
+ */
+@Composable
+private fun LibraryModuleSegment(
+    accent: Color,
+    emphasized: Boolean,
+    modifier: Modifier = Modifier,
+    top: Boolean = false,
+    bottom: Boolean = false,
+    divider: Boolean = false,
+    content: @Composable BoxScope.() -> Unit
+) {
+    val radius = LibraryModuleRadius
+    val shape = RoundedCornerShape(
+        topStart = if (top) radius else 0.dp,
+        topEnd = if (top) radius else 0.dp,
+        bottomStart = if (bottom) radius else 0.dp,
+        bottomEnd = if (bottom) radius else 0.dp
+    )
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(libraryFrost(accent, emphasized))
+    ) {
+        content()
+        Canvas(Modifier.matchParentSize()) {
+            val hair = 1.dp.toPx()
+            val edge = accent.copy(alpha = if (emphasized) .40f else .22f)
+            val inset = 14.dp.toPx()
+            if (top) drawLine(edge, Offset(0f, hair / 2f), Offset(size.width, hair / 2f), hair)
+            if (bottom) {
+                drawLine(
+                    edge,
+                    Offset(0f, size.height - hair / 2f),
+                    Offset(size.width, size.height - hair / 2f),
+                    hair
+                )
+            }
+            drawLine(edge, Offset(hair / 2f, 0f), Offset(hair / 2f, size.height), hair)
+            drawLine(
+                edge,
+                Offset(size.width - hair / 2f, 0f),
+                Offset(size.width - hair / 2f, size.height),
+                hair
+            )
+            if (divider) {
+                // The divider is inset from both edges: servers sit in one column of glass, they are
+                // not individual cards, so the separator must not read as a card boundary.
+                drawLine(
+                    accent.copy(alpha = .13f),
+                    Offset(inset, size.height - hair / 2f),
+                    Offset(size.width - inset, size.height - hair / 2f),
+                    hair
+                )
+            }
+        }
+    }
+}
+
+/** A wrapping metadata chip: one fact, one chip, never a clipped sentence. */
+@Composable
+private fun LibraryMetaChip(
+    text: String,
+    tone: Color,
+    flavor: HomeFlavor,
+    icon: HomeIcon? = null
+) {
+    val monospace = flavor == HomeFlavor.ORBIT || flavor == HomeFlavor.BLUEPRINT
+    val shape = when (flavor) {
+        HomeFlavor.PRO -> RoundedCornerShape(999.dp)
+        HomeFlavor.ORGANIC -> RoundedCornerShape(
+            topStart = 11.dp,
+            topEnd = 6.dp,
+            bottomStart = 6.dp,
+            bottomEnd = 11.dp
+        )
+
+        HomeFlavor.ORBIT -> RoundedCornerShape(4.dp)
+        HomeFlavor.NEBULA -> RoundedCornerShape(999.dp)
+        HomeFlavor.BLUEPRINT -> RoundedCornerShape(2.dp)
+    }
+    Row(
+        modifier = Modifier
+            .clip(shape)
+            .background(tone.copy(alpha = .10f))
+            .border(1.dp, tone.copy(alpha = .24f), shape)
+            .padding(horizontal = 7.dp, vertical = 3.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        if (icon != null) HomeVectorIcon(icon, tone.copy(alpha = .92f), Modifier.size(10.dp))
+        val base = MaterialTheme.typography.labelSmall
+        Text(
+            trx(text),
+            color = tone.copy(alpha = .95f),
+            style = if (monospace) base.copy(fontFamily = FontFamily.Monospace) else base,
+            fontWeight = FontWeight.Medium,
+            maxLines = 1
+        )
+    }
+}
+
+/**
+ * The head of a source module. Each Home style gets its own treatment of the same facts: a Signature
+ * studio plate, a bioluminescent spore, a cockpit manifest line, a nebula orb and a drafting title
+ * block — but all five show the full name, the server count and the source age.
+ */
+@Composable
+private fun LibraryModuleHeader(
     group: LibraryGroup,
     chrome: LibraryChrome,
+    flavor: HomeFlavor,
     repo: AppRepository,
     collapsed: Boolean,
+    searching: Boolean,
     onToggle: () -> Unit,
     onEdit: () -> Unit
 ) {
@@ -3513,110 +3803,870 @@ private fun LibraryGroupHeader(
     val sub = repo.subscriptions.firstOrNull { it.id == group.sourceId }
     val local = isSubscription && sub?.url?.isBlank() == true
     val refreshing = isSubscription && group.sourceId in repo.refreshingSources
-    val subtitle = when (group.kind) {
-        LibraryGroupKind.SUBSCRIPTION -> {
-            val age = if (local) "LOCAL" else relativeTime(sub?.updatedAt ?: 0L)
-            "${group.profiles.size} nodes • $age"
-        }
-        LibraryGroupKind.MANUAL -> "${group.profiles.size} nodes • Manual"
-        LibraryGroupKind.FREEDOM -> "Freedom (${group.profiles.size}) • Local engine"
-    }
-    val shape = chrome.headerShape
     val accent = when (group.kind) {
         LibraryGroupKind.FREEDOM -> chrome.freedomTone
         else -> chrome.accent
     }
+    // The header always reports the real size of the source; while a search is running the visible
+    // slice is reported next to it, so "12 of 340" is a fact rather than a mystery.
+    val total = if (isSubscription) repo.subscriptionNodeCount(group.sourceId) else group.profiles.size
+    val emphasized = !collapsed && total > 0
+    val age = when {
+        !isSubscription -> ""
+        local -> "Local source"
+        else -> relativeTime(sub?.updatedAt ?: 0L)
+    }
+    val titleStyle = when (flavor) {
+        HomeFlavor.PRO -> MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Medium)
+        HomeFlavor.ORGANIC -> MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Light)
+        HomeFlavor.ORBIT -> MaterialTheme.typography.labelLarge.copy(
+            fontFamily = FontFamily.Monospace,
+            fontWeight = FontWeight.SemiBold,
+            letterSpacing = .8.sp
+        )
 
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(shape)
-            .background(Aether.VoidElevated.copy(alpha = .94f))
-            .border(1.dp, accent.copy(alpha = if (collapsed) .20f else .34f), shape)
-            .padding(start = 12.dp, end = 8.dp, top = 9.dp, bottom = 9.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        // Whole title block toggles the fold; the chevron is its own hit target too.
-        Box(
-            modifier = Modifier
-                .size(34.dp)
-                .clip(RoundedCornerShape(10.dp))
-                .background(accent.copy(alpha = .10f))
-                .kineticClickable(
-                    role = Role.Button,
-                    boundedShape = RoundedCornerShape(10.dp),
-                    onClick = onToggle
-                ),
-            contentAlignment = Alignment.Center
-        ) {
-            LibraryChevron(collapsed, accent, Modifier.size(16.dp))
-        }
-        Spacer(Modifier.width(10.dp))
+        HomeFlavor.NEBULA -> MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold)
+        HomeFlavor.BLUEPRINT -> MaterialTheme.typography.labelLarge.copy(
+            fontFamily = FontFamily.Monospace,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 1.1.sp
+        )
+    }
 
-        Column(
-            modifier = Modifier
-                .weight(1f)
-                .kineticClickable(role = Role.Button, onClick = onToggle),
-            verticalArrangement = Arrangement.spacedBy(2.dp)
-        ) {
-            Text(
-                group.title,
-                color = Aether.Ink,
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                subtitle,
-                color = if (collapsed) Aether.InkFaint else accent.copy(alpha = .85f),
-                style = MaterialTheme.typography.labelSmall,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
+    LibraryModuleSegment(accent = accent, emphasized = emphasized, top = true) {
+        Column(Modifier.fillMaxWidth()) {
+            // Per-style crown: the one decorative line that says which product this is.
+            when (flavor) {
+                HomeFlavor.ORBIT -> Canvas(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(5.dp)
+                ) {
+                    val y = size.height - 1.dp.toPx()
+                    var x = 6.dp.toPx()
+                    while (x < size.width - 6.dp.toPx()) {
+                        drawLine(
+                            accent.copy(alpha = if (collapsed) .18f else .34f),
+                            Offset(x, y),
+                            Offset(x, y - 3.dp.toPx()),
+                            1.dp.toPx()
+                        )
+                        x += 9.dp.toPx()
+                    }
+                }
 
-        if (isSubscription) {
-            Box(
-                modifier = Modifier
-                    .size(38.dp)
-                    .clip(CircleShape)
-                    .semantics { contentDescription = "Refresh ${group.title}" }
-                    .kineticClickable(
-                        enabled = !repo.busy && !local,
-                        role = Role.Button,
-                        onClick = { repo.refresh(group.sourceId) }
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                if (refreshing) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(17.dp),
-                        color = Aether.Amethyst,
-                        strokeWidth = 2.dp
+                HomeFlavor.NEBULA -> Canvas(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(4.dp)
+                ) {
+                    drawRect(
+                        Brush.horizontalGradient(
+                            listOf(
+                                Color.Transparent,
+                                accent.copy(alpha = if (collapsed) .25f else .60f),
+                                chrome.freedomTone.copy(alpha = if (collapsed) .12f else .34f),
+                                Color.Transparent
+                            )
+                        )
                     )
+                }
+
+                else -> Unit
+            }
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .kineticClickable(role = Role.Button, onClick = onToggle)
+                    .padding(start = 11.dp, end = 7.dp, top = 9.dp, bottom = 9.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Fold control: a chevron that rotates rather than swaps glyphs.
+                Box(
+                    modifier = Modifier
+                        .size(32.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(accent.copy(alpha = if (collapsed) .08f else .13f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Box(
+                        Modifier
+                            .graphicsLayer { rotationZ = if (collapsed) -90f else 0f }
+                            .size(15.dp)
+                    ) {
+                        LibraryChevron(collapsed = false, color = accent, modifier = Modifier.fillMaxSize())
+                    }
+                }
+                Spacer(Modifier.width(9.dp))
+
+                // Per-style leading mark.
+                when (flavor) {
+                    HomeFlavor.ORGANIC -> Box(
+                        Modifier.size(14.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Canvas(Modifier.fillMaxSize()) {
+                            val c = Offset(size.width / 2f, size.height / 2f)
+                            drawCircle(
+                                brush = Brush.radialGradient(
+                                    listOf(
+                                        accent.copy(alpha = if (collapsed) .35f else .85f),
+                                        Color.Transparent
+                                    ),
+                                    center = c,
+                                    radius = size.minDimension / 2f
+                                ),
+                                radius = size.minDimension / 2f,
+                                center = c
+                            )
+                        }
+                    }
+
+                    HomeFlavor.NEBULA -> Box(
+                        Modifier.size(15.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Canvas(Modifier.fillMaxSize()) {
+                            val c = Offset(size.width / 2f, size.height / 2f)
+                            drawCircle(accent.copy(alpha = .30f), size.minDimension / 2f, c, style = Stroke(1.dp.toPx()))
+                            drawCircle(accent.copy(alpha = .80f), size.minDimension / 5f, c)
+                        }
+                    }
+
+                    HomeFlavor.BLUEPRINT -> Text(
+                        "%02d".format(repo.subscriptions.indexOfFirst { it.id == group.sourceId } + 1),
+                        color = accent.copy(alpha = .80f),
+                        style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                        fontWeight = FontWeight.Bold
+                    )
+
+                    else -> Unit
+                }
+                if (flavor == HomeFlavor.ORGANIC || flavor == HomeFlavor.NEBULA ||
+                    flavor == HomeFlavor.BLUEPRINT
+                ) {
+                    Spacer(Modifier.width(7.dp))
+                }
+
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    // The full name, on up to two lines — a long subscription title is a fact the
+                    // user paid for, not something to ellipsize away.
+                    Text(
+                        if (flavor == HomeFlavor.ORBIT || flavor == HomeFlavor.BLUEPRINT) {
+                            group.title.uppercase()
+                        } else {
+                            group.title
+                        },
+                        color = Aether.Ink,
+                        style = titleStyle,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    // Count, visible slice and age each get their own chip in a row that wraps.
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(5.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                        maxItemsInEachRow = 4
+                    ) {
+                        LibraryMetaChip(
+                            // The Freedom engine is a selectable source in its own right, and it says
+                            // so with the same "Freedom (n)" wording the rest of the product uses.
+                            text = when (group.kind) {
+                                LibraryGroupKind.FREEDOM -> "Freedom ($total)"
+                                else -> if (total == 1) "1 server" else "$total servers"
+                            },
+                            tone = accent,
+                            flavor = flavor,
+                            icon = if (group.kind == LibraryGroupKind.FREEDOM) {
+                                HomeIcon.SHIELD
+                            } else {
+                                HomeIcon.SERVER
+                            }
+                        )
+                        if (searching) {
+                            LibraryMetaChip(
+                                text = "${group.profiles.size} shown",
+                                tone = Aether.InkMuted,
+                                flavor = flavor
+                            )
+                        }
+                        if (age.isNotBlank()) {
+                            LibraryMetaChip(
+                                text = age,
+                                tone = if (local) Aether.InkMuted else Aether.Amethyst,
+                                flavor = flavor,
+                                icon = HomeIcon.STATUS
+                            )
+                        }
+                        if (group.kind == LibraryGroupKind.FREEDOM) {
+                            LibraryMetaChip(
+                                text = "Local engine",
+                                tone = chrome.freedomTone,
+                                flavor = flavor,
+                                icon = HomeIcon.SHIELD
+                            )
+                        }
+                    }
+                }
+
+                if (isSubscription) {
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .semantics { contentDescription = "Refresh ${group.title}" }
+                            .kineticClickable(
+                                enabled = !repo.busy && !local,
+                                role = Role.Button,
+                                onClick = { repo.refresh(group.sourceId) }
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (refreshing) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                color = Aether.Amethyst,
+                                strokeWidth = 2.dp
+                            )
+                        } else {
+                            HomeVectorIcon(
+                                HomeIcon.RESET,
+                                if (local) Aether.InkFaint else Aether.Amethyst,
+                                Modifier.size(17.dp)
+                            )
+                        }
+                    }
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .semantics { contentDescription = "Edit ${group.title}" }
+                            .kineticClickable(
+                                enabled = !repo.busy,
+                                role = Role.Button,
+                                onClick = onEdit
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        HomeVectorIcon(HomeIcon.MODE, accent, Modifier.size(16.dp))
+                    }
                 } else {
-                    HomeVectorIcon(
-                        HomeIcon.RESET,
-                        if (local) Aether.InkFaint else Aether.Amethyst,
-                        Modifier.size(18.dp)
+                    Spacer(Modifier.width(6.dp))
+                    LibraryChevron(collapsed, accent, Modifier.size(14.dp))
+                    Spacer(Modifier.width(8.dp))
+                }
+            }
+
+            // MARBLE_SERVERS_V114 — a drafting dimension line closes the Blueprint title block.
+            if (flavor == HomeFlavor.BLUEPRINT && !collapsed) {
+                Canvas(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp)
+                        .height(6.dp)
+                ) {
+                    val y = size.height / 2f
+                    drawLine(accent.copy(alpha = .30f), Offset(0f, y), Offset(size.width, y), 1.dp.toPx())
+                    drawLine(accent.copy(alpha = .45f), Offset(0f, 0f), Offset(0f, size.height), 1.dp.toPx())
+                    drawLine(
+                        accent.copy(alpha = .45f),
+                        Offset(size.width, 0f),
+                        Offset(size.width, size.height),
+                        1.dp.toPx()
                     )
                 }
             }
-            Box(
+        }
+    }
+}
+
+/** The foot of a source module: closes the frost and reports the fold state. */
+@Composable
+private fun LibraryModuleTail(
+    group: LibraryGroup,
+    flavor: HomeFlavor,
+    accent: Color,
+    collapsed: Boolean,
+    shown: Int,
+    total: Int
+) {
+    AnimatedVisibility(
+        visible = !collapsed,
+        enter = fadeIn(MarbleMotionSpecs.ResponseFloat) +
+            expandVertically(MarbleMotionSpecs.Layout),
+        exit = fadeOut(MarbleMotionSpecs.ExitFloat) +
+            shrinkVertically(MarbleMotionSpecs.Layout)
+    ) {
+        LibraryModuleSegment(accent = accent, emphasized = false, bottom = true) {
+            Row(
                 modifier = Modifier
-                    .size(38.dp)
-                    .clip(CircleShape)
-                    .semantics { contentDescription = "Edit ${group.title}" }
-                    .kineticClickable(
-                        enabled = !repo.busy,
-                        role = Role.Button,
-                        onClick = onEdit
-                    ),
-                contentAlignment = Alignment.Center
+                    .fillMaxWidth()
+                    .padding(horizontal = 13.dp, vertical = 7.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(7.dp)
             ) {
-                HomeVectorIcon(HomeIcon.MODE, Aether.Cyan, Modifier.size(17.dp))
+                val monospace = flavor == HomeFlavor.ORBIT || flavor == HomeFlavor.BLUEPRINT
+                val base = MaterialTheme.typography.labelSmall
+                Text(
+                    trx(
+                        when (flavor) {
+                            HomeFlavor.PRO -> "End of source"
+                            HomeFlavor.ORGANIC -> "Colony complete"
+                            HomeFlavor.ORBIT -> "END OF MANIFEST"
+                            HomeFlavor.NEBULA -> "Field edge"
+                            HomeFlavor.BLUEPRINT -> "END OF SHEET"
+                        }
+                    ),
+                    color = Aether.InkFaint,
+                    style = if (monospace) base.copy(fontFamily = FontFamily.Monospace) else base,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1
+                )
+                Canvas(
+                    Modifier
+                        .weight(1f)
+                        .height(2.dp)
+                ) {
+                    val y = size.height / 2f
+                    drawLine(
+                        accent.copy(alpha = .18f),
+                        Offset(0f, y),
+                        Offset(size.width, y),
+                        1.dp.toPx(),
+                        pathEffect = PathEffect.dashPathEffect(floatArrayOf(3f, 5f))
+                    )
+                }
+                if (shown != total) {
+                    Text(
+                        "$shown/$total",
+                        color = accent.copy(alpha = .85f),
+                        style = if (monospace) {
+                            base.copy(fontFamily = FontFamily.Monospace)
+                        } else {
+                            base
+                        },
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1
+                    )
+                }
             }
+        }
+    }
+}
+
+/**
+ * One server, compact, inside its source module — skinned per Home style.
+ *
+ * Every flavor shows the same facts (flag or initial, name, protocol, measured latency, live state)
+ * but none of them shows them the same way: a Signature studio line, a bioluminescent spore row, a
+ * cockpit manifest entry with dotted leaders, a nebula capsule row with a ring gauge, and a drafting
+ * spec line with a dimension under the latency. Rows are 54–60dp tall and share one container.
+ */
+@Composable
+private fun LibraryServerRow(
+    profile: ProxyProfile,
+    flavor: HomeFlavor,
+    chrome: LibraryChrome,
+    active: Boolean,
+    securing: Boolean,
+    testing: Boolean,
+    latency: Int,
+    health: Color,
+    ordinal: Int,
+    divider: Boolean,
+    accent: Color,
+    enabled: Boolean,
+    onConnect: () -> Unit,
+    trailing: @Composable () -> Unit
+) {
+    val routeTone = if (active) chrome.connectedTone else accent
+    val name = stripLeadingFlag(profile.name)
+    val flag = leadingFlagGlyph(profile.name)
+        ?: countryGlyph(profile.host).takeIf { it.isNotBlank() && it != "◈" }
+    val initial = profile.scheme.trim().take(1).uppercase().ifBlank { "S" }
+    val protocol = listOfNotNull(
+        profile.scheme.uppercase(),
+        profile.transport.uppercase().takeIf { it.isNotBlank() && it != "NATIVE" },
+        profile.security.uppercase().takeIf { it.isNotBlank() && !it.equals("NONE", true) }
+    ).joinToString(" • ")
+    val rowHeight = when (flavor) {
+        HomeFlavor.PRO -> 60.dp
+        HomeFlavor.ORGANIC -> 58.dp
+        HomeFlavor.ORBIT -> 54.dp
+        HomeFlavor.NEBULA -> 60.dp
+        HomeFlavor.BLUEPRINT -> 54.dp
+    }
+
+    LibraryModuleSegment(
+        accent = accent,
+        emphasized = active || securing,
+        divider = divider
+    ) {
+        // State flood: painted under the content, so the measured box of the row never changes.
+        if (active || securing || testing) {
+            val tone = if (testing) Aether.Cyan else routeTone
+            Canvas(Modifier.matchParentSize()) {
+                drawRect(
+                    Brush.horizontalGradient(
+                        listOf(
+                            tone.copy(alpha = if (active) .16f else .10f),
+                            tone.copy(alpha = .03f),
+                            Color.Transparent
+                        )
+                    )
+                )
+            }
+        }
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(rowHeight)
+                .kineticClickable(
+                    enabled = enabled && !active,
+                    role = Role.Button,
+                    onClick = onConnect
+                )
+        ) {
+            when (flavor) {
+                // ------------------------------------------------ Signature studio line
+                HomeFlavor.PRO -> Row(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(start = 12.dp, end = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (active) {
+                        Box(
+                            Modifier
+                                .width(2.dp)
+                                .height(30.dp)
+                                .clip(RoundedCornerShape(999.dp))
+                                .background(routeTone)
+                        )
+                        Spacer(Modifier.width(9.dp))
+                    } else {
+                        Text(
+                            "%02d".format(ordinal + 1),
+                            color = Aether.InkFaint,
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontFamily = FontFamily.Monospace
+                            ),
+                            modifier = Modifier.width(20.dp)
+                        )
+                        Spacer(Modifier.width(7.dp))
+                    }
+                    Text(
+                        flag ?: initial,
+                        style = MaterialTheme.typography.titleSmall,
+                        maxLines = 1
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(1.dp)
+                    ) {
+                        Text(
+                            name,
+                            modifier = Modifier.basicMarquee(
+                                iterations = Int.MAX_VALUE,
+                                initialDelayMillis = 1600
+                            ),
+                            color = if (active) Aether.Ink else Aether.Ink.copy(alpha = .92f),
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium,
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Clip
+                        )
+                        Text(
+                            if (active) chrome.connectedLabel else protocol,
+                            color = if (active) routeTone.copy(alpha = .90f) else Aether.InkFaint,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    LibraryLatencyReadout(latency, health, testing, flavor)
+                    trailing()
+                }
+
+                // ------------------------------------------------ Bioluminescent spore row
+                HomeFlavor.ORGANIC -> Row(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(start = 13.dp, end = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(Modifier.size(16.dp), contentAlignment = Alignment.Center) {
+                        Canvas(Modifier.fillMaxSize()) {
+                            val c = Offset(size.width / 2f, size.height / 2f)
+                            val glow = if (active || testing) routeTone else accent
+                            drawCircle(
+                                brush = Brush.radialGradient(
+                                    listOf(
+                                        glow.copy(alpha = if (active) .80f else .34f),
+                                        Color.Transparent
+                                    ),
+                                    center = c,
+                                    radius = size.minDimension / 2f
+                                ),
+                                radius = size.minDimension / 2f,
+                                center = c
+                            )
+                            drawCircle(
+                                color = glow.copy(alpha = if (active) 1f else .55f),
+                                radius = size.minDimension * (if (active) .26f else .18f),
+                                center = c
+                            )
+                        }
+                    }
+                    Spacer(Modifier.width(10.dp))
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(1.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(5.dp)
+                        ) {
+                            if (flag != null) Text(flag, style = MaterialTheme.typography.labelLarge, maxLines = 1)
+                            Text(
+                                name,
+                                color = Aether.Ink,
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = if (active) FontWeight.SemiBold else FontWeight.Light,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false)
+                            )
+                        }
+                        Text(
+                            if (active) chrome.connectedLabel else protocol.lowercase(),
+                            color = if (active) routeTone else Aether.InkFaint,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Normal,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    LibraryLatencyReadout(latency, health, testing, flavor)
+                    trailing()
+                }
+
+                // ------------------------------------------------ Cockpit manifest entry
+                HomeFlavor.ORBIT -> Row(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(start = 12.dp, end = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        "%03d".format(ordinal + 1),
+                        color = if (active) routeTone else Aether.InkFaint,
+                        style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        name.uppercase(),
+                        color = if (active) Aether.Ink else Aether.Ink.copy(alpha = .90f),
+                        style = MaterialTheme.typography.labelLarge.copy(
+                            fontFamily = FontFamily.Monospace,
+                            letterSpacing = .4.sp
+                        ),
+                        fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    // Dotted leader: the manifest ties each entry to its measurement the way a
+                    // contents page ties a title to a page number.
+                    Canvas(
+                        Modifier
+                            .weight(1f)
+                            .padding(horizontal = 7.dp)
+                            .height(3.dp)
+                    ) {
+                        val y = size.height / 2f
+                        drawLine(
+                            (if (active) routeTone else Aether.InkFaint).copy(alpha = .38f),
+                            Offset(0f, y),
+                            Offset(size.width, y),
+                            1.2.dp.toPx(),
+                            pathEffect = PathEffect.dashPathEffect(floatArrayOf(1.5f, 4f))
+                        )
+                    }
+                    LibraryLatencyReadout(latency, health, testing, flavor)
+                    trailing()
+                }
+
+                // ------------------------------------------------ Nebula capsule row
+                HomeFlavor.NEBULA -> Row(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(start = 11.dp, end = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(30.dp)
+                            .clip(CircleShape)
+                            .background(
+                                Brush.linearGradient(
+                                    listOf(
+                                        routeTone.copy(alpha = if (active) .30f else .14f),
+                                        Aether.VoidElevated.copy(alpha = .55f)
+                                    )
+                                )
+                            )
+                            .border(
+                                1.dp,
+                                routeTone.copy(alpha = if (active) .55f else .26f),
+                                CircleShape
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            flag ?: initial,
+                            color = Aether.Ink,
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1
+                        )
+                    }
+                    Spacer(Modifier.width(9.dp))
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
+                        Text(
+                            name,
+                            color = Aether.Ink,
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            if (active) chrome.connectedLabel else protocol,
+                            color = if (active) routeTone else Aether.InkFaint,
+                            style = MaterialTheme.typography.labelSmall,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    LibraryLatencyReadout(latency, health, testing, flavor)
+                    trailing()
+                }
+
+                // ------------------------------------------------ Drafting spec line
+                HomeFlavor.BLUEPRINT -> Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(start = 12.dp, end = 4.dp),
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            "%02d".format(ordinal + 1),
+                            color = if (active) routeTone else accent.copy(alpha = .70f),
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontFamily = FontFamily.Monospace
+                            ),
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.width(20.dp)
+                        )
+                        if (flag != null) {
+                            Text(flag, style = MaterialTheme.typography.labelMedium, maxLines = 1)
+                            Spacer(Modifier.width(5.dp))
+                        }
+                        Text(
+                            name.uppercase(),
+                            color = if (active) Aether.Ink else Aether.Ink.copy(alpha = .88f),
+                            style = MaterialTheme.typography.labelLarge.copy(
+                                fontFamily = FontFamily.Monospace,
+                                letterSpacing = .6.sp
+                            ),
+                            fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false)
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        LibraryLatencyReadout(latency, health, testing, flavor)
+                        trailing()
+                    }
+                    // Dimension line under the spec: the drafting signature of this style.
+                    Canvas(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(start = 20.dp, end = 46.dp, top = 2.dp)
+                            .height(5.dp)
+                    ) {
+                        val y = size.height - 1.dp.toPx()
+                        val tone = if (active) routeTone else accent
+                        drawLine(tone.copy(alpha = .28f), Offset(0f, y), Offset(size.width, y), 1.dp.toPx())
+                        drawLine(tone.copy(alpha = .40f), Offset(0f, y - 3.dp.toPx()), Offset(0f, y), 1.dp.toPx())
+                        drawLine(
+                            tone.copy(alpha = .40f),
+                            Offset(size.width, y - 3.dp.toPx()),
+                            Offset(size.width, y),
+                            1.dp.toPx()
+                        )
+                        if (latency > 0) {
+                            val fraction = (latency / 500f).coerceIn(.04f, 1f)
+                            drawLine(
+                                health,
+                                Offset(0f, y),
+                                Offset(size.width * fraction, y),
+                                2.dp.toPx(),
+                                cap = StrokeCap.Round
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * The measured latency of one server, drawn the way its style draws instruments. Compact by design:
+ * a row must never grow because a benchmark landed.
+ */
+@Composable
+private fun LibraryLatencyReadout(
+    latency: Int,
+    health: Color,
+    testing: Boolean,
+    flavor: HomeFlavor
+) {
+    Box(
+        modifier = Modifier
+            .width(62.dp)
+            .height(30.dp)
+            // The number is painted; the judgement is spoken. TalkBack reads "148 ms, good" instead
+            // of a bare integer, and the row never grows to carry the word.
+            .semantics {
+                contentDescription = if (latency > 0) {
+                    "Latency $latency milliseconds, ${libraryPingQuality(latency)}"
+                } else if (testing) {
+                    "Testing server"
+                } else {
+                    "Not measured"
+                }
+            },
+        contentAlignment = Alignment.CenterEnd
+    ) {
+        when {
+            testing -> CircularProgressIndicator(
+                modifier = Modifier.size(14.dp),
+                color = Aether.Cyan,
+                strokeWidth = 1.8.dp
+            )
+
+            latency > 0 -> when (flavor) {
+                HomeFlavor.NEBULA -> Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    // A ring gauge instead of bars: the nebula measures in arcs.
+                    Canvas(Modifier.size(15.dp)) {
+                        val stroke = 1.8.dp.toPx()
+                        val inset = stroke
+                        val arc = Size(size.width - inset * 2, size.height - inset * 2)
+                        drawArc(
+                            color = health.copy(alpha = .22f),
+                            startAngle = -90f,
+                            sweepAngle = 360f,
+                            useCenter = false,
+                            topLeft = Offset(inset, inset),
+                            size = arc,
+                            style = Stroke(width = stroke)
+                        )
+                        drawArc(
+                            color = health,
+                            startAngle = -90f,
+                            sweepAngle = 360f * (1f - (latency / 500f).coerceIn(0f, .95f)),
+                            useCenter = false,
+                            topLeft = Offset(inset, inset),
+                            size = arc,
+                            style = Stroke(width = stroke, cap = StrokeCap.Round)
+                        )
+                    }
+                    Text(
+                        "$latency",
+                        color = health,
+                        style = MaterialTheme.typography.labelLarge.copy(
+                            fontWeight = FontWeight.Bold,
+                            fontFeatureSettings = "tnum"
+                        ),
+                        maxLines = 1
+                    )
+                }
+
+                HomeFlavor.ORGANIC -> Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(3.dp)
+                ) {
+                    // Three spores brighten with the measurement instead of a bar meter.
+                    val lit = libraryPingBars(latency)
+                    repeat(3) { index ->
+                        Box(
+                            Modifier
+                                .size((4 + index).dp)
+                                .clip(CircleShape)
+                                .background(
+                                    health.copy(alpha = if (index < lit) .85f else .18f)
+                                )
+                        )
+                    }
+                    Text(
+                        "$latency",
+                        color = health,
+                        style = MaterialTheme.typography.labelLarge.copy(
+                            fontWeight = FontWeight.SemiBold,
+                            fontFeatureSettings = "tnum"
+                        ),
+                        maxLines = 1
+                    )
+                }
+
+                else -> Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(3.dp)
+                ) {
+                    Text(
+                        "$latency",
+                        color = health,
+                        style = MaterialTheme.typography.labelLarge.copy(
+                            fontFamily = if (flavor == HomeFlavor.PRO) null else FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            fontFeatureSettings = "tnum"
+                        ),
+                        maxLines = 1
+                    )
+                    Text(
+                        trx("ms"),
+                        color = Aether.InkFaint,
+                        style = MaterialTheme.typography.labelSmall,
+                        maxLines = 1
+                    )
+                }
+            }
+
+            else -> Text(
+                "—",
+                color = Aether.InkFaint,
+                style = MaterialTheme.typography.labelLarge,
+                maxLines = 1
+            )
         }
     }
 }
@@ -3650,6 +4700,19 @@ private fun LibraryFabAction(
     }
 }
 
+/**
+ * MARBLE_SERVERS_V114 — the floating magic button of the Servers screen.
+ *
+ * Three rules, all of them from the product owner:
+ *
+ *  1. a single tap opens **nothing** — the old "tap to open the add page" behaviour is gone, so the
+ *     button can never fire by accident while the list is being scrolled;
+ *  2. *every* action floats and appears **above** the button, and only while the finger is held;
+ *  3. the button itself is a **clipboard**, because that is what it does: it collects servers.
+ *
+ * Releasing the finger (or tapping the dimmed field) folds the actions back. The hold is the only
+ * gesture, and the button says so with a small caption until it has been used once.
+ */
 @Composable
 private fun LibrarySmartFab(
     repo: AppRepository,
@@ -3659,70 +4722,131 @@ private fun LibrarySmartFab(
     onSort: () -> Unit
 ) {
     var revealed by remember { mutableStateOf(false) }
+    var hintShown by rememberSaveable { mutableStateOf(true) }
     val freedomHidden = repo.libraryFreedomHidden
+    val lift by animateFloatAsState(
+        targetValue = if (revealed) 1f else 0f,
+        animationSpec = MarbleMotionSpecs.ResponseFloat,
+        label = "servers-fab-lift"
+    )
 
-    Column(
-        modifier = modifier.padding(end = 18.dp, bottom = dockClearance() + 12.dp),
-        horizontalAlignment = Alignment.End,
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
+    Box(modifier = modifier.fillMaxSize()) {
+        // A dimmed field behind the revealed actions: it focuses the eye on the stack and gives the
+        // hold gesture an obvious way out.
         AnimatedVisibility(
             visible = revealed,
-            enter = fadeIn(MarbleMotionSpecs.ResponseFloat) +
-                slideInVertically(MarbleMotionSpecs.Spatial) { it },
-            exit = fadeOut(MarbleMotionSpecs.ExitFloat) +
-                slideOutVertically(MarbleMotionSpecs.SpatialExit) { it }
+            enter = fadeIn(MarbleMotionSpecs.ResponseFloat),
+            exit = fadeOut(MarbleMotionSpecs.ExitFloat)
         ) {
-            Column(
-                horizontalAlignment = Alignment.End,
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                LibraryFabAction(
-                    icon = HomeIcon.RANK,
-                    label = "Sort nodes",
-                    tone = chrome.accent,
-                    onClick = {
-                        revealed = false
-                        onSort()
-                    }
-                )
-                LibraryFabAction(
-                    icon = HomeIcon.SHIELD,
-                    label = if (freedomHidden) "Show Marble Freedom" else "Hide Marble Freedom",
-                    tone = chrome.freedomTone,
-                    onClick = { repo.updateLibraryFreedomHidden(!freedomHidden) }
-                )
-            }
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = .30f + .18f * lift))
+                    .kineticClickable(role = Role.Button, onClick = { revealed = false })
+            )
         }
 
-        val fabShape = CircleShape
-        Box(
+        Column(
             modifier = Modifier
-                .size(58.dp)
-                .shadow(
-                    elevation = 14.dp,
-                    shape = fabShape,
-                    spotColor = chrome.glow.copy(alpha = .45f),
-                    ambientColor = chrome.glow.copy(alpha = .30f)
-                )
-                .clip(fabShape)
-                .background(
-                    Brush.linearGradient(
-                        listOf(chrome.glow, chrome.accent)
-                    )
-                )
-                .combinedClickable(
-                    onClick = { if (revealed) revealed = false else onAdd() },
-                    onLongClick = { revealed = true }
-                )
-                .semantics { contentDescription = if (revealed) "Close library actions" else "Add to library" },
-            contentAlignment = Alignment.Center
+                .align(Alignment.BottomEnd)
+                .padding(end = 18.dp, bottom = dockClearance() + 12.dp),
+            horizontalAlignment = Alignment.End,
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            HomeVectorIcon(
-                if (revealed) HomeIcon.CANCEL else HomeIcon.SPARK,
-                Color.White,
-                Modifier.size(24.dp)
-            )
+            AnimatedVisibility(
+                visible = revealed,
+                enter = fadeIn(MarbleMotionSpecs.ResponseFloat) +
+                    slideInVertically(MarbleMotionSpecs.Spatial) { it },
+                exit = fadeOut(MarbleMotionSpecs.ExitFloat) +
+                    slideOutVertically(MarbleMotionSpecs.SpatialExit) { it }
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.End,
+                    verticalArrangement = Arrangement.spacedBy(9.dp)
+                ) {
+                    LibraryFabAction(
+                        icon = HomeIcon.SHIELD,
+                        label = if (freedomHidden) "Show Marble Freedom" else "Hide Marble Freedom",
+                        tone = chrome.freedomTone,
+                        onClick = {
+                            repo.updateLibraryFreedomHidden(!freedomHidden)
+                            revealed = false
+                        }
+                    )
+                    LibraryFabAction(
+                        icon = HomeIcon.RANK,
+                        label = "Sort servers",
+                        tone = chrome.accent,
+                        onClick = {
+                            revealed = false
+                            onSort()
+                        }
+                    )
+                    LibraryFabAction(
+                        icon = HomeIcon.CLIPBOARD,
+                        label = "Add servers",
+                        tone = chrome.glow,
+                        onClick = {
+                            revealed = false
+                            onAdd()
+                        }
+                    )
+                }
+            }
+
+            if (hintShown && !revealed) {
+                Text(
+                    trx("Hold for actions"),
+                    color = Aether.InkFaint,
+                    style = MaterialTheme.typography.labelSmall,
+                    maxLines = 1,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(Aether.VoidElevated.copy(alpha = .88f))
+                        .border(1.dp, Aether.GlassBorderSoft, RoundedCornerShape(999.dp))
+                        .padding(horizontal = 9.dp, vertical = 4.dp)
+                )
+            }
+
+            val fabShape = CircleShape
+            // MARBLE_SERVERS_V114 — a clipboard, lifting slightly while its actions are open.
+            Box(
+                modifier = Modifier
+                    .size(58.dp)
+                    .graphicsLayer {
+                        translationY = -6f * lift * density
+                        scaleX = 1f + .05f * lift
+                        scaleY = 1f + .05f * lift
+                    }
+                    .shadow(
+                        elevation = 14.dp + 8.dp * lift,
+                        shape = fabShape,
+                        spotColor = chrome.glow.copy(alpha = .45f),
+                        ambientColor = chrome.glow.copy(alpha = .30f)
+                    )
+                    .clip(fabShape)
+                    .background(
+                        Brush.linearGradient(
+                            listOf(chrome.glow, chrome.accent)
+                        )
+                    )
+                    .combinedClickable(
+                        // A single tap deliberately does nothing: no page, no sheet, no navigation.
+                        onClick = { hintShown = false },
+                        onLongClick = {
+                            hintShown = false
+                            revealed = true
+                        }
+                    )
+                    .semantics { contentDescription = "Hold for servers actions" },
+                contentAlignment = Alignment.Center
+            ) {
+                HomeVectorIcon(
+                    if (revealed) HomeIcon.CANCEL else HomeIcon.CLIPBOARD,
+                    Color.White,
+                    Modifier.size(24.dp)
+                )
+            }
         }
     }
 }
@@ -3771,7 +4895,7 @@ private fun LibraryAddSheet(
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             Text(
-                trx("Add to Library"),
+                trx("Add to Servers"),
                 color = Aether.Ink,
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold
@@ -3899,7 +5023,7 @@ private fun LibrarySortSheet(
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             Text(
-                trx("Sort nodes"),
+                trx("Sort servers"),
                 color = Aether.Ink,
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold
@@ -4124,18 +5248,18 @@ private fun ManualAddEditor(
     targetSourceId: String,
     onSaved: () -> Unit
 ) {
-    var mode by remember { mutableStateOf("node") }
+    var mode by remember { mutableStateOf("server") }
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             LibraryModeSegment(
-                text = "Manual node",
-                selected = mode == "node",
+                text = "Manual server",
+                selected = mode == "server",
                 tone = Aether.Amethyst,
                 modifier = Modifier.weight(1f)
-            ) { mode = "node" }
+            ) { mode = "server" }
             LibraryModeSegment(
                 text = "Chain proxy",
                 selected = mode == "chain",
@@ -4180,7 +5304,7 @@ private fun ManualChainEditor(
 
         Text("ORDERED HOPS • ${hops.size}", color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
         if (hops.isEmpty()) {
-            Text(trx("Choose at least two nodes below."), color = Aether.Amber, style = MaterialTheme.typography.bodySmall)
+            Text(trx("Choose at least two servers below."), color = Aether.Amber, style = MaterialTheme.typography.bodySmall)
         }
         hops.forEachIndexed { index, ref ->
             val profile = repo.profile(ref.second, ref.first)
@@ -4228,7 +5352,7 @@ private fun ManualChainEditor(
             }
         }
 
-        ManualField("Search nodes", search, { search = it })
+        ManualField("Search servers", search, { search = it })
         candidates.forEach { profile ->
             val chosen = hops.any { it.second == profile.id }
             PrismSelectionTile(
@@ -4249,7 +5373,7 @@ private fun ManualChainEditor(
             )
         }
         if (search.isBlank() && candidates.size >= 24) {
-            Text(trx("Showing 24 nodes • search to find any other node"), color = Aether.InkFaint, style = MaterialTheme.typography.bodySmall)
+            Text(trx("Showing 24 servers • search to find any other server"), color = Aether.InkFaint, style = MaterialTheme.typography.bodySmall)
         }
         CyberButton(
             variant = PrismButtonVariant.Primary,
@@ -4261,7 +5385,7 @@ private fun ManualChainEditor(
             if (repo.addManualChain(name, hops, targetSourceId)) onSaved()
         }
         if (!targetReady) {
-            Text(trx("Select one Library source first, or enable Manual source."), color = Aether.Amber, style = MaterialTheme.typography.bodySmall)
+            Text(trx("Select one server source first, or enable Manual source."), color = Aether.Amber, style = MaterialTheme.typography.bodySmall)
         }
     }
 }
@@ -4493,7 +5617,7 @@ private fun ManualConfigEditor(
             }
         }
 
-        SectionLabel("Save to", targetSourceName ?: "Select one Library source first")
+        SectionLabel("Save to", targetSourceName ?: "Select one server source first")
         Text(
             if (targetReady) {
                 "Will be added to the selected source and kept across refreshes."
@@ -4596,7 +5720,7 @@ private fun ConnectionDetailPage(
                 PrismIconButton(
                     onClick = onBack,
                     size = 38.dp,
-                    descriptiveLabel = "Back to library"
+                    descriptiveLabel = "Back to servers"
                 ) {
                     HomeVectorIcon(HomeIcon.DETAILS, Aether.Cyan, Modifier.size(17.dp))
                 }
@@ -4742,7 +5866,7 @@ private fun LibraryFilterSheet(
                         fontWeight=FontWeight.Bold
                     )
                     Text(
-                        trx("Focus the Library without changing any node"),
+                        trx("Focus Servers without changing any server"),
                         color=Aether.InkMuted,
                         style=MaterialTheme.typography.bodySmall
                     )
@@ -4776,7 +5900,7 @@ private fun LibraryFilterSheet(
                     item("source-all") {
                         SourceOrbitChip(
                             title="All",
-                            detail="${repo.libraryProfiles.size} nodes",
+                            detail="${repo.libraryProfiles.size} servers",
                             selected=sourceFilter == "all",
                             color=Aether.Cyan,
                             onClick={ onSourceFilter("all") }
@@ -4788,7 +5912,7 @@ private fun LibraryFilterSheet(
                         }
                         SourceOrbitChip(
                             title="Freedom",
-                            detail="$freedomCount local nodes",
+                            detail="$freedomCount local servers",
                             selected=sourceFilter == ServerlessFreedomEngine.SOURCE_ID,
                             color=Aether.Cyan,
                             onClick={ onSourceFilter(ServerlessFreedomEngine.SOURCE_ID) }
@@ -4798,7 +5922,7 @@ private fun LibraryFilterSheet(
                         item("source-manual") {
                             SourceOrbitChip(
                                 title="Manual",
-                                detail="$manualCount nodes",
+                                detail="$manualCount servers",
                                 selected=sourceFilter == "manual",
                                 color=Aether.Amber,
                                 onClick={ onSourceFilter("manual") }
@@ -4808,7 +5932,7 @@ private fun LibraryFilterSheet(
                     items(repo.subscriptions,key={ "sheet-${it.id}" }) { sub ->
                         SourceOrbitChip(
                             title=sub.name,
-                            detail="${repo.subscriptionNodeCount(sub.id)} nodes",
+                            detail="${repo.subscriptionNodeCount(sub.id)} servers",
                             selected=sourceFilter == sub.id,
                             color=if(sub.url.isBlank()) Aether.Emerald else Aether.Amethyst,
                             onClick={ onSourceFilter(sub.id) },
@@ -5210,7 +6334,7 @@ private fun SubscriptionManagerCard(
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(sub.name, color = Aether.Ink, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(
-                "$count nodes • ${if (local) "LOCAL" else relativeTime(sub.updatedAt)}${if (selected) " • VIEWING" else ""}",
+                "$count servers • ${if (local) "LOCAL" else relativeTime(sub.updatedAt)}${if (selected) " • VIEWING" else ""}",
                 color = accent,
                 style = MaterialTheme.typography.labelSmall,
                 maxLines = 1,
@@ -5239,6 +6363,9 @@ private fun SpatialServerCard(
     active: Boolean,
     probeState: ProbeState,
     flavor: HomeFlavor = HomeFlavor.PRO,
+    ordinal: Int = 0,
+    divider: Boolean = false,
+    accent: Color = Aether.Cyan,
     onConnect: (ProxyProfile) -> Unit,
     onEdit: () -> Unit,
     onDetails: () -> Unit
@@ -5317,9 +6444,9 @@ private fun SpatialServerCard(
                     )
                     Text(
                         if(profile.subscriptionId == "manual") {
-                            "Manual node • edits are stored locally."
+                            "Manual server • edits are stored locally."
                         } else {
-                            "Subscription node • refresh can replace this edit. " +
+                            "Subscription server • refresh can replace this edit. " +
                                 "Duplicate to Manual for a permanent fork."
                         },
                         color=MaterialTheme.colorScheme.onSurfaceVariant,
@@ -5351,7 +6478,7 @@ private fun SpatialServerCard(
     if(deleteBySwipe) {
         AlertDialog(
             onDismissRequest={ deleteBySwipe=false },
-            title={ Text(trx("Delete node?")) },
+            title={ Text(trx("Delete server?")) },
             text={
                 Text(
                     "Remove ${profile.name} from ${profile.subscriptionName}? " +
@@ -5405,421 +6532,122 @@ private fun SpatialServerCard(
             }
         }
     ) {
-        // The connected row must feel different without becoming a different component: the emphasis is
-        // painted on top of the finished card, so the measured box of the row never changes.
-        Box(modifier=Modifier.fillMaxWidth()) {
-            HoloGlass(
-                modifier=Modifier
-                    .fillMaxWidth()
-                    .animateContentSize(MarbleMotionSpecs.Layout)
-                    .kineticClickable(
-                        enabled=!repo.busy && !active,
-                        role=Role.Button
-                    ) { onConnect(profile) },
-                // Connection is a status, not a second selection mode. The row therefore keeps its exact
-                // radius, padding and measured box, and the live route is announced by painted layers:
-                // a state flood under the content and a halo on top of the finished card. An
-                // in-progress benchmark still gets its own temporary cyan edge.
-                borderColor=if(testing) Aether.Cyan.copy(alpha=.52f) else Color.Transparent,
-                tint=if(emphasized) {
-                    Brush.linearGradient(
-                        listOf(
-                            routeTone.copy(alpha=.10f),
-                            routeTone.copy(alpha=.035f),
-                            Color.Transparent
-                        )
+        // MARBLE_SERVERS_V114 — the server is no longer a card of its own. It is one compact line
+        // inside the frosted module of its source: the frost, the hairline, the state flood and the
+        // per-style artwork are painted by the module row, and what is left here is the row's own
+        // facts (name, protocol, measured latency) plus its actions.
+        LibraryServerRow(
+            profile = profile,
+            flavor = flavor,
+            chrome = chrome,
+            active = active,
+            securing = securing,
+            testing = testing,
+            latency = latency,
+            health = health,
+            ordinal = ordinal,
+            divider = divider,
+            accent = accent,
+            enabled = !repo.busy,
+            onConnect = { onConnect(profile) }
+        ) {
+            Box {
+                PrismIconButton(
+                    onClick = { menuOpen = true },
+                    tone = if (menuOpen) Aether.Cyan else Aether.InkMuted,
+                    selected = menuOpen,
+                    enabled = !repo.busy,
+                    size = 34.dp,
+                    descriptiveLabel = "More actions for ${profile.name}"
+                ) {
+                    HomeVectorIcon(
+                        HomeIcon.MORE,
+                        if (menuOpen) Aether.Cyan else Aether.InkMuted,
+                        Modifier.size(16.dp)
                     )
-                } else {
-                    null
-                },
-                contentPadding=PaddingValues(
-                    start=MarbleSpacing.M,
-                    top=MarbleSpacing.M,
-                    end=MarbleSpacing.S,
-                    bottom=MarbleSpacing.M
-                )
-            ) {
-                Row(
-                    modifier=Modifier.fillMaxWidth(),
-                    verticalAlignment=Alignment.CenterVertically
+                }
+
+                DropdownMenu(
+                    expanded = menuOpen,
+                    onDismissRequest = { menuOpen = false },
+                    containerColor = MaterialTheme.colorScheme.surface
                 ) {
-                    MarbleServerAvatar(
-                        profile=profile,
-                        active=active
+                    DropdownMenuItem(
+                        text = { Text(trx("Details")) },
+                        onClick = {
+                            menuOpen = false
+                            onDetails()
+                        }
                     )
-                    Spacer(Modifier.width(MarbleSpacing.M))
-
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            stripLeadingFlag(profile.name),
-                            modifier=Modifier.basicMarquee(
-                                iterations=Int.MAX_VALUE,
-                                initialDelayMillis=1200
-                            ),
-                            color=Aether.Ink,
-                            style=MaterialTheme.typography.titleMedium,
-                            fontWeight=FontWeight.SemiBold,
-                            maxLines=1,
-                            softWrap=false,
-                            overflow=TextOverflow.Clip
-                        )
-                        Spacer(Modifier.height(MarbleSpacing.Micro))
-                        val connectionLine=listOfNotNull(
-                            profile.scheme.uppercase(),
-                            profile.transport.uppercase().takeIf {
-                                it.isNotBlank() && it != "NATIVE"
-                            },
-                            profile.security.uppercase().takeIf {
-                                it.isNotBlank() && !it.equals("NONE",true)
-                            }
-                        ).joinToString(" • ")
-                        // The route pill shares the line with the protocol summary, and that line reserves
-                        // the pill height, so the badge appearing never resizes the row.
-                        Row(
-                            modifier=Modifier
-                                .fillMaxWidth()
-                                .heightIn(min=24.dp),
-                            verticalAlignment=Alignment.CenterVertically,
-                            horizontalArrangement=Arrangement.spacedBy(7.dp)
-                        ) {
-                            Text(
-                                connectionLine,
-                                modifier=Modifier.weight(1f),
-                                color=Aether.InkMuted,
-                                style=MaterialTheme.typography.labelSmall,
-                                maxLines=1,
-                                overflow=TextOverflow.Ellipsis
+                    DropdownMenuItem(
+                        text = { Text(trx("Copy config link")) },
+                        onClick = {
+                            menuOpen = false
+                            clipboard.setText(
+                                AnnotatedString(
+                                    profile.raw.trim().ifBlank {
+                                        profile.configJson
+                                    }
+                                )
                             )
-                            AnimatedVisibility(
-                                visible=emphasized,
-                                enter=fadeIn(MarbleMotionSpecs.ResponseFloat)+
-                                    scaleIn(initialScale=.72f,animationSpec=MarbleMotionSpecs.InteractionFloat)+
-                                    slideInHorizontally(MarbleMotionSpecs.Spatial) { it/2 },
-                                exit=fadeOut(MarbleMotionSpecs.ExitFloat)+
-                                    scaleOut(targetScale=.78f,animationSpec=MarbleMotionSpecs.ExitFloat)+
-                                    slideOutHorizontally(MarbleMotionSpecs.SpatialExit) { it/2 }
-                            ) {
-                                val pillShape=RoundedCornerShape(999.dp)
-                                Row(
-                                    modifier=Modifier
-                                        .semantics {
-                                            contentDescription=if(active) "Connected" else "Connecting"
-                                        }
-                                        .clip(pillShape)
-                                        .background(routeTone.copy(alpha=.14f))
-                                        .border(1.dp,routeTone.copy(alpha=.42f),pillShape)
-                                        .padding(horizontal=8.dp,vertical=4.dp),
-                                    verticalAlignment=Alignment.CenterVertically,
-                                    horizontalArrangement=Arrangement.spacedBy(5.dp)
-                                ) {
-                                    Box(
-                                        Modifier
-                                            .size(6.dp)
-                                            .clip(CircleShape)
-                                            .background(routeTone)
-                                    )
-                                    Text(
-                                        if(active) chrome.connectedLabel else chrome.securingLabel,
-                                        color=routeTone,
-                                        style=MaterialTheme.typography.labelSmall,
-                                        fontWeight=FontWeight.Bold,
-                                        maxLines=1
-                                    )
-                                }
-                            }
+                            repo.setRuntimeMessage("Config copied")
                         }
+                    )
+                    DropdownMenuItem(
+                        text = { Text(trx("Copy Xray JSON")) },
+                        onClick = {
+                            menuOpen = false
+                            clipboard.setText(AnnotatedString(profile.configJson))
+                            repo.setRuntimeMessage("Xray JSON copied")
+                        }
+                    )
+                    if (!builtInFreedom && !profile.scheme.equals("ssh", true)) {
+                        DropdownMenuItem(
+                            text = { Text(trx("Edit Xray JSON")) },
+                            onClick = {
+                                menuOpen = false
+                                jsonText = profile.configJson
+                                jsonOpen = true
+                            }
+                        )
                     }
-
-                    // The measured latency is the row's own instrument, not a second badge: it sits
-                    // flush against the trailing edge, divided off by a hairline, and never paints its
-                    // own pill. A connected row already owns a halo, a state flood and a status pill —
-                    // a fourth bordered box inside that frame is what made the card look broken.
-                    AnimatedVisibility(
-                        visible=latency > 0,
-                        enter=fadeIn(MarbleMotionSpecs.ResponseFloat)+
-                            scaleIn(initialScale=.92f,animationSpec=MarbleMotionSpecs.InteractionFloat),
-                        exit=fadeOut(MarbleMotionSpecs.ExitFloat)+
-                            scaleOut(targetScale=.95f,animationSpec=MarbleMotionSpecs.ExitFloat)
-                    ) {
-                        Row(verticalAlignment=Alignment.CenterVertically) {
-                            Box(
-                                Modifier
-                                    .width(1.dp)
-                                    .height(26.dp)
-                                    .background(Aether.GlassBorderSoft)
-                            )
-                            Spacer(Modifier.width(MarbleSpacing.SM))
-                            Column(horizontalAlignment=Alignment.End) {
-                                Row(
-                                    verticalAlignment=Alignment.CenterVertically,
-                                    horizontalArrangement=Arrangement.spacedBy(5.dp)
-                                ) {
-                                    PrismSignalMeter(
-                                        bars=libraryPingBars(latency),
-                                        tone=health,
-                                        modifier=Modifier.width(15.dp).height(12.dp)
-                                    )
-                                    AnimatedContent(
-                                        targetState=latency,
-                                        transitionSpec={
-                                            (fadeIn(MarbleMotionSpecs.ResponseFloat)+
-                                                slideInVertically(MarbleMotionSpecs.Spatial) { it/2 }) togetherWith
-                                                (fadeOut(MarbleMotionSpecs.ExitFloat)+
-                                                    slideOutVertically(MarbleMotionSpecs.SpatialExit) { -it/2 })
-                                        },
-                                        label="node-latency-value"
-                                    ) { value ->
-                                        Text(
-                                            "$value",
-                                            color=health,
-                                            style=MaterialTheme.typography.titleSmall.copy(
-                                                fontFamily=FontFamily.Monospace,
-                                                fontWeight=FontWeight.Bold
-                                            )
-                                        )
-                                    }
-                                    Text(
-                                        trx("ms"),
-                                        color=Aether.InkFaint,
-                                        style=MaterialTheme.typography.labelSmall,
-                                        fontWeight=FontWeight.SemiBold
-                                    )
-                                }
-                                Text(
-                                    libraryPingQuality(latency).uppercase(),
-                                    color=health.copy(alpha=.86f),
-                                    style=MaterialTheme.typography.labelSmall,
-                                    fontWeight=FontWeight.Bold,
-                                    maxLines=1
+                    if (repo.settings.manualSourceEnabled && !builtInFreedom) {
+                        DropdownMenuItem(
+                            text = { Text(trx("Duplicate to Manual")) },
+                            onClick = {
+                                menuOpen = false
+                                repo.duplicateProfile(
+                                    profile.id,
+                                    profile.subscriptionId
                                 )
                             }
-                            Spacer(Modifier.width(MarbleSpacing.SM))
-                        }
+                        )
                     }
-
-                    Box {
-                        PrismIconButton(
-                            onClick={ menuOpen=true },
-                            tone=if(menuOpen) Aether.Cyan else Aether.InkMuted,
-                            selected=menuOpen,
-                            enabled=!repo.busy,
-                            size=38.dp,
-                            descriptiveLabel="More actions for ${profile.name}"
-                        ) {
-                            HomeVectorIcon(
-                                HomeIcon.MORE,
-                                if(menuOpen) Aether.Cyan else Aether.InkMuted,
-                                Modifier.size(17.dp)
-                            )
+                    HorizontalDivider()
+                    DropdownMenuItem(
+                        text = { Text(trx("Test this server")) },
+                        onClick = {
+                            menuOpen = false
+                            repo.fullTest(profile)
                         }
-
-                        DropdownMenu(
-                            expanded=menuOpen,
-                            onDismissRequest={ menuOpen=false },
-                            containerColor=MaterialTheme.colorScheme.surface
-                        ) {
-                            DropdownMenuItem(
-                                text={ Text(trx("Details")) },
-                                onClick={
-                                    menuOpen=false
-                                    onDetails()
-                                }
-                            )
-                            DropdownMenuItem(
-                                text={ Text(trx("Copy config link")) },
-                                onClick={
-                                    menuOpen=false
-                                    clipboard.setText(
-                                        AnnotatedString(
-                                            profile.raw.trim().ifBlank {
-                                                profile.configJson
-                                            }
-                                        )
-                                    )
-                                    repo.setRuntimeMessage("Config copied")
-                                }
-                            )
-                            DropdownMenuItem(
-                                text={ Text(trx("Copy Xray JSON")) },
-                                onClick={
-                                    menuOpen=false
-                                    clipboard.setText(AnnotatedString(profile.configJson))
-                                    repo.setRuntimeMessage("Xray JSON copied")
-                                }
-                            )
-                            if(!builtInFreedom && !profile.scheme.equals("ssh",true)) {
-                                DropdownMenuItem(
-                                    text={ Text(trx("Edit Xray JSON")) },
-                                    onClick={
-                                        menuOpen=false
-                                        jsonText=profile.configJson
-                                        jsonOpen=true
-                                    }
-                                )
+                    )
+                    if (!builtInFreedom) {
+                        DropdownMenuItem(
+                            text = { Text(trx("Rename")) },
+                            onClick = {
+                                menuOpen = false
+                                onEdit()
                             }
-                            if(repo.settings.manualSourceEnabled && !builtInFreedom) {
-                                DropdownMenuItem(
-                                    text={ Text(trx("Duplicate to Manual")) },
-                                    onClick={
-                                        menuOpen=false
-                                        repo.duplicateProfile(
-                                            profile.id,
-                                            profile.subscriptionId
-                                        )
-                                    }
-                                )
+                        )
+                        DropdownMenuItem(
+                            text = { Text(trx("Delete"), color = Aether.Danger) },
+                            onClick = {
+                                menuOpen = false
+                                deleteBySwipe = true
                             }
-                            HorizontalDivider()
-                            DropdownMenuItem(
-                                text={ Text(trx("Test this node")) },
-                                onClick={
-                                    menuOpen=false
-                                    repo.fullTest(profile)
-                                }
-                            )
-                            if (!builtInFreedom) {
-                                DropdownMenuItem(
-                                    text={ Text(trx("Rename")) },
-                                    onClick={
-                                        menuOpen=false
-                                        onEdit()
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text={ Text(trx("Delete"),color=Aether.Danger) },
-                                    onClick={
-                                        menuOpen=false
-                                        deleteBySwipe=true
-                                    }
-                                )
-                            }
-                        }
-                    }
-                }
-
-                // The endpoint strip is the row's recessed instrument panel. It takes the route color
-                // so the live tunnel stays readable half off screen, and it is a well — never a second
-                // elevated box competing with the card that holds it.
-                val endpointTone=if(emphasized) routeTone else Aether.Cyan
-                PrismWell(
-                    modifier=Modifier.fillMaxWidth(),
-                    tone=endpointTone,
-                    selected=emphasized,
-                    radius=13.dp
-                ) {
-                    Row(
-                        modifier=Modifier.fillMaxWidth(),
-                        verticalAlignment=Alignment.CenterVertically,
-                        horizontalArrangement=Arrangement.spacedBy(MarbleSpacing.S)
-                    ) {
-                        Text(
-                            trx("HOST"),
-                            color=endpointTone,
-                            style=MaterialTheme.typography.labelSmall,
-                            fontWeight=FontWeight.Bold
-                        )
-                        Text(
-                            profile.host.trim().ifBlank {
-                                if (builtInFreedom) "Local Freedom engine" else "Unknown host"
-                            },
-                            modifier=Modifier.weight(1f),
-                            color=Aether.InkMuted,
-                            style=MaterialTheme.typography.labelSmall.copy(
-                                fontFamily=FontFamily.Monospace,
-                                fontWeight=FontWeight.SemiBold
-                            ),
-                            maxLines=1,
-                            overflow=TextOverflow.Ellipsis
-                        )
-                        VerticalDivider(
-                            Modifier.height(14.dp),
-                            color=Aether.GlassBorderSoft
-                        )
-                        Text(
-                            trx("PORT"),
-                            color=Aether.InkFaint,
-                            style=MaterialTheme.typography.labelSmall
-                        )
-                        Text(
-                            profile.port.takeIf { it > 0 }?.toString() ?: "—",
-                            color=Aether.Ink,
-                            style=MaterialTheme.typography.labelSmall.copy(
-                                fontFamily=FontFamily.Monospace,
-                                fontWeight=FontWeight.Bold
-                            )
                         )
                     }
                 }
-
-                AnimatedVisibility(
-                    visible=testing || queued,
-                    enter=fadeIn(MarbleMotionSpecs.ResponseFloat)+
-                        expandVertically(MarbleMotionSpecs.Layout),
-                    exit=fadeOut(MarbleMotionSpecs.ExitFloat)+
-                        shrinkVertically(MarbleMotionSpecs.Layout)
-                ) {
-                    Row(
-                        modifier=Modifier
-                            .fillMaxWidth()
-                            .semantics {
-                                contentDescription=if(testing) "Testing node" else "Node queued"
-                            },
-                        horizontalArrangement=Arrangement.spacedBy(MarbleSpacing.S),
-                        verticalAlignment=Alignment.CenterVertically
-                    ) {
-                        HomeVectorIcon(
-                            HomeIcon.BENCHMARK,
-                            if(testing) Aether.Cyan else Aether.InkFaint,
-                            Modifier.size(14.dp)
-                        )
-                        LiveProgressBar(
-                            fraction=if(testing) null else 0f,
-                            modifier=Modifier.weight(1f),
-                            color=Aether.Cyan
-                        )
-                    }
-                }
-
-                AnimatedVisibility(
-                    visible=measured != null || failedResult != null,
-                    enter=fadeIn(MarbleMotionSpecs.ResponseFloat)+
-                        expandVertically(MarbleMotionSpecs.Layout)+
-                        slideInVertically(MarbleMotionSpecs.Spatial) { it/2 },
-                    exit=fadeOut(MarbleMotionSpecs.ExitFloat)+
-                        shrinkVertically(MarbleMotionSpecs.Layout)
-                ) {
-                    Row(
-                        modifier=Modifier.fillMaxWidth(),
-                        horizontalArrangement=Arrangement.spacedBy(MarbleSpacing.S)
-                    ) {
-                        if(measured != null) {
-                            HoloBadge(
-                                measured.probeKind,
-                                if(measured.probeKind == "TUNNEL") Aether.Emerald else Aether.Cyan,
-                                compact=true
-                            )
-                            HoloBadge("${measured.success}%",Aether.Emerald,compact=true)
-                        } else if(failedResult != null) {
-                            HoloBadge("FAILED",Aether.Danger,compact=true)
-                        }
-                    }
-                }
-            }
-
-            // Painted after the card so a connected row is unmistakable, and matchParentSize so the halo
-            // never participates in measurement: the row's box stays identical in every state. The
-            // animation package is named explicitly because a Box scope has no AnimatedVisibility receiver
-            // of its own, and the star-imported layout overloads would otherwise win overload resolution.
-            androidx.compose.animation.AnimatedVisibility(
-                visible=emphasized,
-                modifier=Modifier.matchParentSize(),
-                enter=fadeIn(MarbleMotionSpecs.ResponseFloat),
-                exit=fadeOut(MarbleMotionSpecs.ExitFloat)
-            ) {
-                PrismRouteFrame(
-                    tone=routeTone,
-                    modifier=Modifier.fillMaxSize()
-                )
             }
         }
     }
@@ -5891,6 +6719,1275 @@ private fun settingsTabTone(tab: SettingsWorkspaceTab): Color = when (tab) {
     SettingsWorkspaceTab.SYSTEM -> Aether.Cyan
 }
 
+
+/**
+ * MARBLE_SETTINGS_HUB_V114 — the four theme choices with their real miniature previews, shared by
+ * the Appearance workspace and the dedicated Theme page so the two can never drift apart.
+ * "Dynamic phone" paints the phone's own Material You palette (wallpaper colors) instead of a
+ * fixed brand swatch, which is the whole point of that mode.
+ */
+@Composable
+private fun SettingsThemeGrid(repo: AppRepository) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        listOf(
+            Triple("System", "Follow device", false) to { repo.updateSettings(repo.settings.copy(theme = "system")) },
+            Triple("Light", "Daylight", false) to { repo.updateSettings(repo.settings.copy(theme = "light")) },
+            Triple("AMOLED", "Pure black", true) to { repo.updateSettings(repo.settings.copy(theme = "dark")) },
+            Triple("Dynamic phone", "Wallpaper colors", false) to { repo.updateSettings(repo.settings.copy(theme = "phone")) }
+        ).chunked(2).forEach { row ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                row.forEach { (spec, action) ->
+                    val (label, detail, darkPreview) = spec
+                    PrismThemeChoice(
+                        label = label,
+                        detail = detail,
+                        // Selection compares the canonical stored id through parseAppTheme so
+                        // legacy values ("system"/"light"/"dark", "dynamic") all light up their
+                        // own card — AMOLED stores "dark", never "amoled".
+                        selected = parseAppTheme(repo.settings.theme) == when (label) {
+                            "System" -> AppTheme.SYSTEM
+                            "Light" -> AppTheme.LIGHT
+                            "AMOLED" -> AppTheme.DARK
+                            else -> AppTheme.PHONE_DYNAMIC
+                        },
+                        darkPreview = darkPreview,
+                        accent = when (label) {
+                            "AMOLED" -> Aether.Emerald
+                            "Light" -> Aether.Cyan
+                            else -> Aether.Amethyst
+                        },
+                        dynamicPreview = label == "Dynamic phone",
+                        modifier = Modifier.weight(1f)
+                    ) { action() }
+                }
+                if (row.size == 1) Spacer(Modifier.weight(1f))
+            }
+        }
+    }
+}
+
+// =================================================================================================
+// MARBLE_SETTINGS_HUB_V114 — Settings is ONE hub page; every title opens its own sub-page.
+// =================================================================================================
+//
+// The workspace tabs did not disappear, they moved down a level: the hub is a hierarchy of titles
+// (Connection / Appearance / System), each title carries a small live preview of what it controls,
+// and tapping one slides its own page in. The handful of decisions people touch every day — theme,
+// Home style, expert mode, auto-reconnect, auto-refresh, smart alerts, the Intelligence engine —
+// stay on the hub itself and apply immediately, so the extra level never costs a tap for them.
+//
+// Type is deliberately lighter here than anywhere else in the product: settings is a reading
+// surface, not a dashboard, so titles are Medium at titleSmall and copy is Normal at labelSmall.
+
+/** Page keys for the settings navigator. Plain strings so the page survives process death. */
+private object SettingsPages {
+    const val HUB = "hub"
+    const val THEME = "theme"
+    const val HOME_STYLE = "home-style"
+    const val TYPEFACE = "typeface"
+    const val LANGUAGE = "language"
+    const val INFORMATION = "information"
+    private const val WORKSPACE = "workspace"
+
+    fun workspace(tab: SettingsWorkspaceTab, focus: String? = null): String =
+        listOf(WORKSPACE, tab.name, focus.orEmpty()).joinToString(":")
+
+    fun isWorkspace(page: String): Boolean = page.startsWith("$WORKSPACE:")
+
+    fun workspaceTab(page: String): SettingsWorkspaceTab =
+        rememberedSettingsTab(page.split(":").getOrElse(1) { "" })
+
+    fun workspaceFocus(page: String): String? =
+        page.split(":").getOrElse(2) { "" }.ifBlank { null }
+}
+
+/**
+ * The settings reading ramp: lighter and smaller than the product ramp on purpose. Settings is a
+ * reading surface, so nothing here is Bold and nothing is larger than it needs to be.
+ */
+@Composable
+private fun settingsTitleStyle(): TextStyle =
+    MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Medium)
+
+@Composable
+private fun settingsRowTitleStyle(): TextStyle =
+    MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Medium)
+
+@Composable
+private fun settingsBodyStyle(): TextStyle =
+    MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Normal)
+
+/** Opens a URL in the browser directly — no chooser sheet, no in-app page. */
+private fun openExternal(context: android.content.Context, url: String) {
+    runCatching {
+        context.startActivity(
+            Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        )
+    }
+}
+
+/**
+ * The shell of every settings sub-page: a back arrow, a light title, and one column of content.
+ * The hub owns the system back gesture, so this only draws the affordance.
+ */
+@Composable
+private fun SettingsSubPage(
+    title: String,
+    subtitle: String,
+    onBack: () -> Unit,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .imePadding(),
+        contentPadding = PaddingValues(
+            start = 16.dp,
+            end = 16.dp,
+            top = 8.dp,
+            bottom = dockClearance() + 20.dp
+        ),
+        verticalArrangement = Arrangement.spacedBy(11.dp)
+    ) {
+        item(key = "sub-header") {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                PrismIconButton(
+                    onClick = onBack,
+                    size = 36.dp,
+                    descriptiveLabel = "Back to settings"
+                ) {
+                    HomeVectorIcon(HomeIcon.BACK, Aether.Cyan, Modifier.size(16.dp))
+                }
+                Spacer(Modifier.width(9.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        trx(title),
+                        color = Aether.Ink,
+                        style = settingsTitleStyle(),
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        trx(subtitle),
+                        color = Aether.InkFaint,
+                        style = settingsBodyStyle(),
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+        }
+        item(key = "sub-body") {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(11.dp)
+            ) {
+                content()
+            }
+        }
+    }
+}
+
+/** A hub card: one quiet glass surface holding a titled group of rows. */
+@Composable
+private fun SettingsHubCard(
+    title: String,
+    tone: Color,
+    modifier: Modifier = Modifier,
+    subtitle: String? = null,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    val shape = RoundedCornerShape(18.dp)
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(Aether.VoidElevated.copy(alpha = .92f))
+            .border(1.dp, tone.copy(alpha = .16f), shape)
+            .padding(start = 13.dp, end = 13.dp, top = 11.dp, bottom = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(9.dp)
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            // MARBLE_SETTINGS_QUIET_CHROME_V114 — no marker bar, no status pip: the group is named
+            // in type and nothing else.
+            Text(
+                trx(title).uppercase(),
+                color = tone.copy(alpha = .92f),
+                style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 1.4.sp),
+                fontWeight = FontWeight.Medium,
+                maxLines = 1
+            )
+            if (!subtitle.isNullOrBlank()) {
+                Text(
+                    trx(subtitle),
+                    color = Aether.InkFaint,
+                    style = settingsBodyStyle(),
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+        content()
+    }
+}
+
+/**
+ * One navigable title on the hub: a light label, a one-line explanation, a small preview of the
+ * thing it controls, and a chevron. The preview is the point — most settings should be recognizable
+ * without opening them.
+ */
+@Composable
+private fun SettingsHubRow(
+    title: String,
+    subtitle: String,
+    tone: Color,
+    onClick: () -> Unit,
+    preview: @Composable () -> Unit
+) {
+    val shape = RoundedCornerShape(14.dp)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(Aether.Glass.copy(alpha = .45f))
+            .kineticClickable(role = Role.Button, boundedShape = shape, onClick = onClick)
+            .padding(horizontal = 11.dp, vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            Text(
+                trx(title),
+                color = Aether.Ink,
+                style = settingsRowTitleStyle(),
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                trx(subtitle),
+                color = Aether.InkMuted,
+                style = settingsBodyStyle(),
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        Spacer(Modifier.width(9.dp))
+        Box(
+            modifier = Modifier
+                .width(58.dp)
+                .height(30.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            preview()
+        }
+        Spacer(Modifier.width(7.dp))
+        HomeVectorIcon(HomeIcon.CHEVRON, tone.copy(alpha = .70f), Modifier.size(13.dp))
+    }
+}
+
+/** A live switch that stays on the hub: important enough not to hide behind a title. */
+@Composable
+private fun SettingsHubSwitch(
+    title: String,
+    subtitle: String,
+    checked: Boolean,
+    onChecked: (Boolean) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .kineticClickable(role = Role.Checkbox, onClick = { onChecked(!checked) })
+            .padding(horizontal = 11.dp, vertical = 5.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(1.dp)
+        ) {
+            Text(
+                trx(title),
+                color = Aether.Ink,
+                style = settingsRowTitleStyle(),
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                trx(subtitle),
+                color = Aether.InkMuted,
+                style = settingsBodyStyle(),
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        Spacer(Modifier.width(10.dp))
+        Switch(
+            checked = checked,
+            onCheckedChange = onChecked,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = Aether.Void,
+                checkedTrackColor = Aether.Cyan,
+                uncheckedThumbColor = Aether.InkFaint,
+                uncheckedTrackColor = Aether.GlassStrong
+            )
+        )
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Hub previews — a tiny picture of what each title controls
+// ---------------------------------------------------------------------------------------------
+
+/** Four theme swatches that apply immediately: the hub keeps the most-touched choice live. */
+@Composable
+private fun SettingsThemeMiniRow(repo: AppRepository) {
+    val active = parseAppTheme(repo.settings.theme)
+    val context = LocalContext.current
+    val dynamic = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        dynamicLightColorScheme(context)
+    } else {
+        null
+    }
+    val choices = listOf(
+        Triple(AppTheme.SYSTEM, "System", listOf(Color(0xFF0A0A14), Color(0xFFF0F8FF), Aether.Cyan)),
+        Triple(AppTheme.LIGHT, "Light", listOf(Color(0xFFF0F8FF), Color.White, Aether.Cyan)),
+        Triple(AppTheme.DARK, "AMOLED", listOf(Color(0xFF000000), Color(0xFF001144), Aether.Emerald)),
+        Triple(
+            AppTheme.PHONE_DYNAMIC,
+            "Dynamic",
+            listOf(
+                dynamic?.background ?: Color(0xFF101018),
+                dynamic?.surface ?: Color(0xFF1D1D27),
+                dynamic?.primary ?: Aether.Amethyst
+            )
+        )
+    )
+    Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+        Text(
+            trx("Theme"),
+            color = Aether.Ink,
+            style = settingsRowTitleStyle(),
+            maxLines = 1
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(7.dp)
+        ) {
+            choices.forEach { (theme, label, ramp) ->
+                val selected = active == theme
+                val shape = RoundedCornerShape(11.dp)
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(shape)
+                        .background(Aether.Glass.copy(alpha = .40f))
+                        .border(
+                            1.dp,
+                            if (selected) ramp[2].copy(alpha = .62f) else Aether.GlassBorderSoft.copy(alpha = .5f),
+                            shape
+                        )
+                        .kineticClickable(role = Role.Button, boundedShape = shape) {
+                            repo.updateSettings(
+                                repo.settings.copy(
+                                    theme = when (theme) {
+                                        AppTheme.SYSTEM -> "system"
+                                        AppTheme.LIGHT -> "light"
+                                        AppTheme.DARK -> "dark"
+                                        AppTheme.PHONE_DYNAMIC -> "phone"
+                                    }
+                                )
+                            )
+                        }
+                        .padding(6.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(5.dp)
+                ) {
+                    // The miniature is the real palette: background, surface and accent.
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(22.dp)
+                            .clip(RoundedCornerShape(7.dp))
+                            .background(ramp[0])
+                    ) {
+                        Box(
+                            Modifier
+                                .align(Alignment.CenterStart)
+                                .padding(start = 4.dp)
+                                .width(16.dp)
+                                .height(7.dp)
+                                .clip(RoundedCornerShape(999.dp))
+                                .background(ramp[1])
+                        )
+                        Box(
+                            Modifier
+                                .align(Alignment.CenterEnd)
+                                .padding(end = 4.dp)
+                                .size(7.dp)
+                                .clip(CircleShape)
+                                .background(ramp[2])
+                        )
+                    }
+                    Text(
+                        trx(label),
+                        color = if (selected) ramp[2] else Aether.InkFaint,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                        maxLines = 1
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** The five Home styles as live thumbnails — picking one repaints Home immediately. */
+@Composable
+private fun SettingsStyleMiniRow(repo: AppRepository) {
+    val active = parseHomeStyle(repo.settings.homeStyle)
+    Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+        Text(
+            trx("Home style"),
+            color = Aether.Ink,
+            style = settingsRowTitleStyle(),
+            maxLines = 1
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            HomeStyle.entries.forEach { style ->
+                val selected = active == style
+                val tone = when (style) {
+                    HomeStyle.PRO -> Aether.Cyan
+                    HomeStyle.BIOLUMINESCENT -> Aether.Emerald
+                    HomeStyle.COSMIC_ORBIT -> Aether.Amber
+                    HomeStyle.COSMIC_IMMERSION -> Aether.Amethyst
+                    HomeStyle.PARAMETRIC -> Aether.SlateBright
+                }
+                val shape = RoundedCornerShape(11.dp)
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(shape)
+                        .background(Aether.Glass.copy(alpha = .40f))
+                        .border(
+                            1.dp,
+                            if (selected) tone.copy(alpha = .62f) else Aether.GlassBorderSoft.copy(alpha = .5f),
+                            shape
+                        )
+                        .kineticClickable(role = Role.Button, boundedShape = shape) {
+                            repo.updateSettings(repo.settings.copy(homeStyle = style.id))
+                        }
+                        .padding(5.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    SettingsStyleMotif(style, tone, Modifier.fillMaxWidth().height(20.dp))
+                    Box(
+                        Modifier
+                            .size(5.dp)
+                            .clip(CircleShape)
+                            .background(if (selected) tone else Aether.InkFaint.copy(alpha = .35f))
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** A still miniature of each Home style's artwork, so the choice is recognizable at a glance. */
+@Composable
+private fun SettingsStyleMotif(style: HomeStyle, tone: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier) {
+        val w = size.width
+        val h = size.height
+        when (style) {
+            // Signature studio: a shutter bar over a quiet dot grid.
+            HomeStyle.PRO -> {
+                drawCircle(tone.copy(alpha = .45f), h * .30f, Offset(w * .50f, h * .42f))
+                drawLine(
+                    tone.copy(alpha = .80f),
+                    Offset(w * .18f, h * .82f),
+                    Offset(w * .82f, h * .82f),
+                    2.dp.toPx(),
+                    cap = StrokeCap.Round
+                )
+            }
+            // Abyss: light shafts and a seed.
+            HomeStyle.BIOLUMINESCENT -> {
+                drawLine(tone.copy(alpha = .45f), Offset(w * .28f, 0f), Offset(w * .38f, h), 1.6.dp.toPx())
+                drawLine(tone.copy(alpha = .30f), Offset(w * .58f, 0f), Offset(w * .70f, h), 1.6.dp.toPx())
+                drawCircle(tone, h * .22f, Offset(w * .50f, h * .55f))
+            }
+            // Command deck: orbits with one body.
+            HomeStyle.COSMIC_ORBIT -> {
+                val c = Offset(w * .50f, h * .50f)
+                drawCircle(tone.copy(alpha = .35f), h * .42f, c, style = Stroke(1.dp.toPx()))
+                drawCircle(tone.copy(alpha = .55f), h * .22f, c, style = Stroke(1.dp.toPx()))
+                drawCircle(tone, h * .10f, Offset(c.x + h * .42f, c.y))
+            }
+            // Nebula: a ring, a core and starfield specks.
+            HomeStyle.COSMIC_IMMERSION -> {
+                val c = Offset(w * .50f, h * .52f)
+                drawCircle(tone.copy(alpha = .28f), h * .46f, c, style = Stroke(1.4.dp.toPx()))
+                drawCircle(tone.copy(alpha = .80f), h * .16f, c)
+                drawCircle(tone.copy(alpha = .50f), 1.dp.toPx(), Offset(w * .20f, h * .22f))
+                drawCircle(tone.copy(alpha = .50f), 1.dp.toPx(), Offset(w * .80f, h * .28f))
+            }
+            // Blueprint: a grid with corner brackets.
+            HomeStyle.PARAMETRIC -> {
+                val inset = 2.dp.toPx()
+                drawLine(tone.copy(alpha = .28f), Offset(inset, inset), Offset(w - inset, inset), 1.dp.toPx())
+                drawLine(tone.copy(alpha = .28f), Offset(inset, h - inset), Offset(w - inset, h - inset), 1.dp.toPx())
+                drawLine(tone.copy(alpha = .28f), Offset(inset, inset), Offset(inset, h - inset), 1.dp.toPx())
+                drawLine(tone.copy(alpha = .28f), Offset(w - inset, inset), Offset(w - inset, h - inset), 1.dp.toPx())
+                drawLine(tone, Offset(w * .30f, h * .50f), Offset(w * .70f, h * .50f), 1.6.dp.toPx())
+            }
+        }
+    }
+}
+
+/** "Aa" in the candidate face — the cheapest honest preview of a typeface. */
+@Composable
+private fun SettingsTypefacePreview(fontId: String, tone: Color) {
+    Text(
+        "Aa",
+        color = tone,
+        style = MaterialTheme.typography.titleSmall.copy(fontFamily = previewFontFamily(fontId)),
+        maxLines = 1
+    )
+}
+
+/** EN beside فارسی, the Persian half always in Vazirmatn. */
+@Composable
+private fun SettingsLanguagePreview(tone: Color) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Text(
+            "EN",
+            color = tone.copy(alpha = .80f),
+            style = MaterialTheme.typography.labelSmall,
+            maxLines = 1
+        )
+        Text(
+            "فارسی",
+            color = tone,
+            // MARBLE_VAZIR_LANGUAGE_KEY_V114 — Vazir in every state, including this preview.
+            style = MaterialTheme.typography.labelSmall.copy(fontFamily = VazirFamily),
+            maxLines = 1
+        )
+    }
+}
+
+/** Direct versus proxied traffic, in three strokes. */
+@Composable
+private fun SettingsRoutingPreview(tone: Color) {
+    Canvas(Modifier.size(width = 34.dp, height = 20.dp)) {
+        val y = size.height / 2f
+        drawLine(tone.copy(alpha = .35f), Offset(0f, y), Offset(size.width, y), 1.2.dp.toPx())
+        drawLine(tone, Offset(0f, y), Offset(size.width * .38f, y), 2.dp.toPx(), cap = StrokeCap.Round)
+        drawLine(
+            tone.copy(alpha = .55f),
+            Offset(size.width * .55f, y),
+            Offset(size.width, y),
+            2.dp.toPx(),
+            cap = StrokeCap.Round,
+            pathEffect = PathEffect.dashPathEffect(floatArrayOf(3f, 3f))
+        )
+        drawCircle(tone.copy(alpha = .90f), 2.dp.toPx(), Offset(size.width * .46f, y))
+    }
+}
+
+/** Fragment shapes: what Marble Freedom actually does to a TLS hello. */
+@Composable
+private fun SettingsFreedomPreview(tone: Color) {
+    Canvas(Modifier.size(width = 34.dp, height = 20.dp)) {
+        val y = size.height / 2f
+        var x = 0f
+        var index = 0
+        while (x < size.width - 2.dp.toPx()) {
+            val width = (4 + (index % 3) * 3).dp.toPx()
+            drawLine(
+                tone.copy(alpha = .45f + .18f * (index % 3)),
+                Offset(x, y),
+                Offset(x + width, y),
+                3.dp.toPx(),
+                cap = StrokeCap.Round
+            )
+            x += width + 3.dp.toPx()
+            index += 1
+        }
+    }
+}
+
+/** A measurement ladder: what the Tests workspace runs. */
+@Composable
+private fun SettingsTestPreview(tone: Color) {
+    PrismSignalMeter(bars = 3, tone = tone, modifier = Modifier.size(width = 20.dp, height = 16.dp))
+}
+
+/** Version stamp for the Information title. */
+@Composable
+private fun SettingsVersionPreview(tone: Color) {
+    Text(
+        BuildConfig.VERSION_NAME,
+        color = tone,
+        style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+        maxLines = 1
+    )
+}
+
+// ---------------------------------------------------------------------------------------------
+// The hub
+// ---------------------------------------------------------------------------------------------
+
+@Composable
+private fun SettingsHub(
+    repo: AppRepository,
+    onNavigate: (String) -> Unit
+) {
+    val t = Tr.now
+    val settings = repo.settings
+    val activeTheme = parseAppTheme(settings.theme)
+    val activeStyle = parseHomeStyle(settings.homeStyle)
+    val activeFont = parseAppFont(settings.fontFamily)
+    val activeLanguage = parseAppLanguage(settings.appLanguage)
+
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .imePadding(),
+        contentPadding = PaddingValues(
+            start = 16.dp,
+            end = 16.dp,
+            top = 6.dp,
+            bottom = dockClearance() + 20.dp
+        ),
+        verticalArrangement = Arrangement.spacedBy(11.dp)
+    ) {
+        item(key = "hub-header") {
+            MarbleCompactTopBar(
+                title = "Settings",
+                subtitle = "${t.settingsSubtitle} • ${BuildConfig.VERSION_NAME}"
+            )
+        }
+
+        // The decisions people touch every day stay here and apply instantly.
+        item(key = "hub-quick") {
+            SettingsHubCard(
+                title = t.quickSettingsTitle,
+                subtitle = t.quickSettingsDetail,
+                tone = Aether.Cyan
+            ) {
+                SettingsThemeMiniRow(repo)
+                SettingsStyleMiniRow(repo)
+                HorizontalDivider(color = Aether.GlassBorderSoft.copy(alpha = .5f))
+                SettingsHubSwitch(
+                    title = "Reconnect last server",
+                    subtitle = "Resume the previous route on launch",
+                    checked = settings.rememberLast,
+                    onChecked = { enabled ->
+                        repo.updateSettings(settings.copy(rememberLast = enabled))
+                    }
+                )
+                SettingsHubSwitch(
+                    title = "Auto-refresh sources",
+                    subtitle = "Keep subscriptions up to date",
+                    checked = settings.subscriptionAutoRefresh,
+                    onChecked = { enabled ->
+                        repo.updateSettings(settings.copy(subscriptionAutoRefresh = enabled))
+                    }
+                )
+                SettingsHubSwitch(
+                    title = "Smart alerts",
+                    subtitle = "Notify only when something needs you",
+                    checked = settings.smartNotificationsEnabled,
+                    onChecked = { enabled ->
+                        repo.updateSettings(settings.copy(smartNotificationsEnabled = enabled))
+                    }
+                )
+                SettingsHubSwitch(
+                    title = "Marble Intelligence",
+                    subtitle = "Compatibility checks and verified tuning",
+                    checked = settings.intelligenceEnabled,
+                    onChecked = { enabled ->
+                        repo.updateSettings(settings.copy(intelligenceEnabled = enabled))
+                    }
+                )
+                SettingsHubSwitch(
+                    title = "Expert mode",
+                    subtitle = "Reveal the low-level tunnel controls",
+                    checked = settings.expertMode,
+                    onChecked = { enabled ->
+                        repo.updateSettings(settings.copy(expertMode = enabled))
+                    }
+                )
+            }
+        }
+
+        // ------------------------------------------------ Connection
+        item(key = "hub-connection") {
+            SettingsHubCard(
+                title = t.categoryConnection,
+                subtitle = "Routing, Freedom, tests and servers",
+                tone = Aether.Emerald
+            ) {
+                SettingsHubRow(
+                    title = "Network & routing",
+                    subtitle = "${trx("DNS, split tunnel and geo rules")} • ${
+                        // The same four words the Routing page itself uses, so the hub preview and
+                        // the page can never disagree about which mode is active.
+                        trx(
+                            when (settings.routingMode) {
+                                RoutingMode.PROXY_ALL -> "Proxy all"
+                                RoutingMode.BYPASS_PRIVATE -> "Private direct"
+                                RoutingMode.GEO_DIRECT -> "Geo direct"
+                                RoutingMode.CUSTOM -> "Custom"
+                            }
+                        )
+                    }",
+                    tone = Aether.Emerald,
+                    onClick = { onNavigate(SettingsPages.workspace(SettingsWorkspaceTab.NETWORK)) }
+                ) { SettingsRoutingPreview(Aether.Emerald) }
+                SettingsHubRow(
+                    title = "Marble Freedom",
+                    // Same wording the Freedom page uses for the active preset.
+                    subtitle = settings.freedomPreset.name.replace("_", " "),
+                    tone = Aether.Amethyst,
+                    onClick = { onNavigate(SettingsPages.workspace(SettingsWorkspaceTab.FREEDOM)) }
+                ) { SettingsFreedomPreview(Aether.Amethyst) }
+                SettingsHubRow(
+                    title = "Tests & ranking",
+                    subtitle = "Ping, speed and smart ranking",
+                    tone = Aether.Cyan,
+                    onClick = { onNavigate(SettingsPages.workspace(SettingsWorkspaceTab.TESTS)) }
+                ) { SettingsTestPreview(Aether.Cyan) }
+                SettingsHubRow(
+                    title = "General & servers",
+                    subtitle = trx("${repo.libraryProfiles.size} servers"),
+                    tone = Aether.SlateBright,
+                    onClick = { onNavigate(SettingsPages.workspace(SettingsWorkspaceTab.GENERAL)) }
+                ) { SettingsRoutingPreview(Aether.SlateBright) }
+            }
+        }
+
+        // ------------------------------------------------ Appearance
+        item(key = "hub-appearance") {
+            SettingsHubCard(
+                title = t.categoryAppearance,
+                subtitle = "Theme, Home style, typeface and language",
+                tone = Aether.Amethyst
+            ) {
+                SettingsHubRow(
+                    title = "Theme",
+                    subtitle = when (activeTheme) {
+                        AppTheme.SYSTEM -> "Follow device"
+                        AppTheme.LIGHT -> "Daylight"
+                        AppTheme.DARK -> "Pure black"
+                        AppTheme.PHONE_DYNAMIC -> t.themeDynamic
+                    },
+                    tone = Aether.Amethyst,
+                    onClick = { onNavigate(SettingsPages.THEME) }
+                ) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                        listOf(Aether.VoidElevated, Color.White, Aether.Amethyst).forEach { dot ->
+                            Box(
+                                Modifier
+                                    .size(9.dp)
+                                    .clip(CircleShape)
+                                    .background(dot)
+                                    .border(1.dp, Aether.GlassBorderSoft, CircleShape)
+                            )
+                        }
+                    }
+                }
+                SettingsHubRow(
+                    title = t.homeStyleTitle,
+                    subtitle = homeStyleLabel(activeStyle),
+                    tone = Aether.Cyan,
+                    onClick = { onNavigate(SettingsPages.HOME_STYLE) }
+                ) { SettingsStyleMotif(activeStyle, Aether.Cyan, Modifier.size(width = 34.dp, height = 20.dp)) }
+                SettingsHubRow(
+                    title = "Typeface",
+                    subtitle = activeFont.label,
+                    tone = Aether.Emerald,
+                    onClick = { onNavigate(SettingsPages.TYPEFACE) }
+                ) { SettingsTypefacePreview(settings.fontFamily, Aether.Emerald) }
+                SettingsHubRow(
+                    title = t.languageTitle,
+                    subtitle = when (activeLanguage) {
+                        AppLanguage.SYSTEM -> t.languageSystemDetail
+                        AppLanguage.ENGLISH -> "English"
+                        AppLanguage.PERSIAN -> "فارسی"
+                    },
+                    tone = Aether.Amber,
+                    onClick = { onNavigate(SettingsPages.LANGUAGE) }
+                ) { SettingsLanguagePreview(Aether.Amber) }
+            }
+        }
+
+        // ------------------------------------------------ System
+        item(key = "hub-system") {
+            SettingsHubCard(
+                title = t.categorySystem,
+                subtitle = "Notifications, engine, general and information",
+                tone = Aether.SlateBright
+            ) {
+                SettingsHubRow(
+                    title = "Notifications",
+                    subtitle = "Alerts, live stats and cooldown",
+                    tone = Aether.Cyan,
+                    onClick = {
+                        onNavigate(
+                            SettingsPages.workspace(SettingsWorkspaceTab.SYSTEM, "Notifications")
+                        )
+                    }
+                ) { HomeVectorIcon(HomeIcon.STATUS, Aether.Cyan, Modifier.size(20.dp)) }
+                SettingsHubRow(
+                    title = "Engine & tunnel",
+                    subtitle = "Xray, transport and adaptive buffers",
+                    tone = Aether.Amber,
+                    onClick = { onNavigate(SettingsPages.workspace(SettingsWorkspaceTab.ENGINE)) }
+                ) { HomeVectorIcon(HomeIcon.TUNNEL, Aether.Amber, Modifier.size(20.dp)) }
+                SettingsHubRow(
+                    title = "General",
+                    subtitle = "Home layout, sources and app updates",
+                    tone = Aether.Emerald,
+                    onClick = { onNavigate(SettingsPages.workspace(SettingsWorkspaceTab.GENERAL)) }
+                ) { HomeVectorIcon(HomeIcon.MODE, Aether.Emerald, Modifier.size(20.dp)) }
+                SettingsHubRow(
+                    title = t.informationTitle,
+                    subtitle = t.informationDetail,
+                    tone = Aether.Amethyst,
+                    onClick = { onNavigate(SettingsPages.INFORMATION) }
+                ) { SettingsVersionPreview(Aether.Amethyst) }
+            }
+        }
+
+        item(key = "hub-foot") {
+            Text(
+                trx("Every setting stays on this device."),
+                color = Aether.InkFaint,
+                style = settingsBodyStyle(),
+                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+            )
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Sub-pages
+// ---------------------------------------------------------------------------------------------
+
+/** Theme & colours: the full-size previews, plus the frame personality and studio accent. */
+@Composable
+private fun SettingsThemePage(repo: AppRepository, onBack: () -> Unit) {
+    val t = Tr.now
+    SettingsSubPage(
+        title = "Theme",
+        subtitle = t.themeDetail,
+        onBack = onBack
+    ) {
+        SettingsHubCard(title = "Theme", subtitle = t.themeDetail, tone = Aether.Amethyst) {
+            SettingsThemeGrid(repo)
+        }
+        SettingsHubCard(
+            title = t.proNightOutlines,
+            subtitle = t.proNightOutlinesDetail,
+            tone = Aether.Cyan
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(5.dp)
+            ) {
+                DarkOutlineStyle.entries.forEach { outline ->
+                    CyberSegment(
+                        label = when (outline) {
+                            DarkOutlineStyle.SUBTLE -> "Subtle"
+                            DarkOutlineStyle.BOLD -> "Bold"
+                            DarkOutlineStyle.COLORED -> "Colored"
+                            DarkOutlineStyle.HIDDEN -> "Hidden"
+                        },
+                        detail = "",
+                        selected = parseDarkOutlineStyle(repo.settings.darkOutlineStyle) == outline,
+                        color = Aether.Amethyst,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        repo.updateSettings(repo.settings.copy(darkOutlineStyle = outline.id))
+                    }
+                }
+            }
+        }
+        SettingsHubCard(title = t.proAccentColor, tone = Aether.Emerald) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(5.dp)
+            ) {
+                ProAccent.entries.forEach { accent ->
+                    CyberSegment(
+                        label = accent.label,
+                        detail = "",
+                        selected = parseProAccent(repo.settings.proAccent) == accent,
+                        selectionTone = signatureAccentColor(accent),
+                        color = signatureAccentColor(accent),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        repo.updateSettings(repo.settings.copy(proAccent = accent.id))
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Home style: five thumbnails, each drawn from the style's own artwork. */
+@Composable
+private fun SettingsHomeStylePage(repo: AppRepository, onBack: () -> Unit) {
+    val t = Tr.now
+    val active = parseHomeStyle(repo.settings.homeStyle)
+    SettingsSubPage(
+        title = t.homeStyleTitle,
+        subtitle = t.homeStyleDetail,
+        onBack = onBack
+    ) {
+        SettingsHubCard(title = t.homeStyleTitle, subtitle = t.homeStyleDetail, tone = Aether.Cyan) {
+            Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                HomeStyle.entries.chunked(2).forEach { row ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(7.dp)
+                    ) {
+                        row.forEach { style ->
+                            val selected = active == style
+                            val tone = when (style) {
+                                HomeStyle.PRO -> Aether.Cyan
+                                HomeStyle.BIOLUMINESCENT -> Aether.Emerald
+                                HomeStyle.COSMIC_ORBIT -> Aether.Amber
+                                HomeStyle.COSMIC_IMMERSION -> Aether.Amethyst
+                                HomeStyle.PARAMETRIC -> Aether.SlateBright
+                            }
+                            val shape = RoundedCornerShape(14.dp)
+                            Column(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(shape)
+                                    .background(Aether.Glass.copy(alpha = .42f))
+                                    .border(
+                                        1.dp,
+                                        if (selected) tone.copy(alpha = .58f) else Aether.GlassBorderSoft.copy(alpha = .5f),
+                                        shape
+                                    )
+                                    .kineticClickable(role = Role.Button, boundedShape = shape) {
+                                        repo.updateSettings(repo.settings.copy(homeStyle = style.id))
+                                    }
+                                    .padding(10.dp),
+                                verticalArrangement = Arrangement.spacedBy(7.dp)
+                            ) {
+                                SettingsStyleMotif(
+                                    style,
+                                    tone,
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .height(38.dp)
+                                )
+                                Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                                    Text(
+                                        trx(homeStyleLabel(style)),
+                                        color = if (selected) tone else Aether.Ink,
+                                        style = settingsRowTitleStyle(),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Text(
+                                        trx(homeStyleDetail(style)),
+                                        color = Aether.InkFaint,
+                                        style = settingsBodyStyle(),
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                        }
+                        if (row.size == 1) Spacer(Modifier.weight(1f))
+                    }
+                }
+            }
+        }
+        if (active == HomeStyle.PRO) {
+            SettingsHubCard(title = t.proStudioTitle, subtitle = t.proStudioDetail, tone = Aether.Amethyst) {
+                Text(
+                    trx("Every layer of the Signature studio is customizable under General."),
+                    color = Aether.InkMuted,
+                    style = settingsBodyStyle()
+                )
+            }
+        }
+    }
+}
+
+/** Typeface: every candidate rendered in its own face. */
+@Composable
+private fun SettingsTypefacePage(repo: AppRepository, onBack: () -> Unit) {
+    val t = Tr.now
+    SettingsSubPage(
+        title = "Typeface",
+        subtitle = "The Latin face of the whole product",
+        onBack = onBack
+    ) {
+        SettingsHubCard(title = "Typeface", subtitle = "The Latin face of the whole product", tone = Aether.Emerald) {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                AppFont.entries.chunked(2).forEach { row ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        row.forEach { font ->
+                            val selected = repo.settings.fontFamily.equals(font.id, true)
+                            CyberSegment(
+                                label = font.label,
+                                detail = when (font) {
+                                    AppFont.VAZIR -> "Persian"
+                                    AppFont.SYSTEM -> "Device default"
+                                    AppFont.GOOGLE_SANS -> "Product sans"
+                                    AppFont.TIMES_NEW_ROMAN -> "Serif"
+                                },
+                                selected = selected,
+                                color = Aether.Emerald,
+                                modifier = Modifier.weight(1f),
+                                labelFontFamily = previewFontFamily(font.id)
+                            ) {
+                                repo.updateSettings(repo.settings.copy(fontFamily = font.id))
+                            }
+                        }
+                        if (row.size == 1) Spacer(Modifier.weight(1f))
+                    }
+                }
+            }
+            Text(
+                trx("Persian always shapes with Vazirmatn, whichever Latin face you pick."),
+                color = Aether.InkFaint,
+                style = settingsBodyStyle()
+            )
+        }
+    }
+}
+
+/** Language: the Persian key is written in Persian and set in Vazirmatn in every state. */
+@Composable
+private fun SettingsLanguagePage(repo: AppRepository, onBack: () -> Unit) {
+    val t = Tr.now
+    val selectedLanguage = parseAppLanguage(repo.settings.appLanguage)
+    SettingsSubPage(
+        title = t.languageTitle,
+        subtitle = t.languageDetail,
+        onBack = onBack
+    ) {
+        SettingsHubCard(title = t.languageTitle, subtitle = t.languageDetail, tone = Aether.Amber) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                AppLanguage.entries.forEach { language ->
+                    // MARBLE_VAZIR_LANGUAGE_KEY_V114
+                    val persianKey = language == AppLanguage.PERSIAN
+                    CyberSegment(
+                        label = when (language) {
+                            AppLanguage.SYSTEM -> t.languageSystem
+                            AppLanguage.ENGLISH -> t.languageEnglish
+                            AppLanguage.PERSIAN -> "فارسی"
+                        },
+                        detail = when (language) {
+                            AppLanguage.SYSTEM -> t.languageSystemDetail
+                            AppLanguage.ENGLISH -> "English"
+                            AppLanguage.PERSIAN -> "Persian"
+                        },
+                        selected = selectedLanguage == language,
+                        color = Aether.Amber,
+                        modifier = Modifier.weight(1f),
+                        labelFontFamily = if (persianKey) VazirFamily else null,
+                        rawLabel = persianKey
+                    ) {
+                        repo.updateSettings(repo.settings.copy(appLanguage = language.id))
+                    }
+                }
+            }
+            Text(
+                trx("The Persian choice is written in Persian and always rendered with Vazirmatn."),
+                color = Aether.InkFaint,
+                style = settingsBodyStyle()
+            )
+        }
+    }
+}
+
+/**
+ * Information: what this build actually is. App version, the pinned tunnel cores read from
+ * core-lock.json at build time, and the source repository — tapping a link opens the browser
+ * directly, never an in-app page.
+ */
+@Composable
+private fun SettingsInformationPage(repo: AppRepository, onBack: () -> Unit) {
+    val t = Tr.now
+    val context = LocalContext.current
+    val clipboard = LocalClipboardManager.current
+    SettingsSubPage(
+        title = t.informationTitle,
+        subtitle = t.informationDetail,
+        onBack = onBack
+    ) {
+        SettingsHubCard(title = "Versions", tone = Aether.Cyan) {
+            InformationRow("App version", BuildConfig.VERSION_NAME, Aether.Cyan)
+            InformationRow("Version code", BuildConfig.VERSION_CODE.toString(), Aether.InkMuted)
+            InformationRow("Xray core", BuildConfig.XRAY_CORE_TAG, Aether.Emerald)
+            InformationRow("Tunnel core", BuildConfig.HEV_CORE_TAG, Aether.Amber)
+            InformationRow("Build type", BuildConfig.BUILD_TYPE, Aether.InkMuted)
+        }
+        SettingsHubCard(title = "Links", subtitle = "Every link opens in your browser", tone = Aether.Amethyst) {
+            InformationLinkRow(
+                title = "Source code",
+                subtitle = BuildConfig.SOURCE_URL,
+                tone = Aether.Amethyst,
+                onClick = { openExternal(context, BuildConfig.SOURCE_URL) }
+            )
+            InformationLinkRow(
+                title = "Releases",
+                subtitle = "${BuildConfig.SOURCE_URL}/releases",
+                tone = Aether.Cyan,
+                onClick = { openExternal(context, "${BuildConfig.SOURCE_URL}/releases") }
+            )
+            InformationLinkRow(
+                title = "Report an issue",
+                subtitle = "${BuildConfig.SOURCE_URL}/issues",
+                tone = Aether.Emerald,
+                onClick = { openExternal(context, "${BuildConfig.SOURCE_URL}/issues") }
+            )
+            InformationLinkRow(
+                title = "Xray core",
+                subtitle = "https://github.com/${BuildConfig.XRAY_CORE_REPO}",
+                tone = Aether.Amber,
+                onClick = {
+                    openExternal(context, "https://github.com/${BuildConfig.XRAY_CORE_REPO}")
+                }
+            )
+            InformationLinkRow(
+                title = "Tunnel core",
+                subtitle = "https://github.com/${BuildConfig.HEV_CORE_REPO}",
+                tone = Aether.SlateBright,
+                onClick = {
+                    openExternal(context, "https://github.com/${BuildConfig.HEV_CORE_REPO}")
+                }
+            )
+        }
+        SettingsHubCard(title = "Diagnostics", tone = Aether.SlateBright) {
+            Text(
+                trx("Copy the version details, or keep a continuous diagnostic export in Downloads/marbleng/report."),
+                color = Aether.InkMuted,
+                style = settingsBodyStyle()
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                CyberButton(
+                    label = "Copy details",
+                    color = Aether.Cyan,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    clipboard.setText(
+                        AnnotatedString(
+                            "MarbleNG ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})\n" +
+                                "xray ${BuildConfig.XRAY_CORE_TAG}\n" +
+                                "hev-socks5-tunnel ${BuildConfig.HEV_CORE_TAG}"
+                        )
+                    )
+                    repo.setRuntimeMessage("Version details copied")
+                }
+                CyberButton(
+                    label = "Diagnostics",
+                    color = Aether.Amethyst,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    repo.updateSettings(repo.settings.copy(debugModeEnabled = !repo.settings.debugModeEnabled))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun InformationRow(label: String, value: String, tone: Color) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            trx(label),
+            color = Aether.InkMuted,
+            style = settingsBodyStyle(),
+            modifier = Modifier.weight(1f),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        Spacer(Modifier.width(9.dp))
+        Text(
+            value,
+            color = tone,
+            style = MaterialTheme.typography.labelMedium.copy(fontFamily = FontFamily.Monospace),
+            fontWeight = FontWeight.Medium,
+            maxLines = 1
+        )
+    }
+}
+
+@Composable
+private fun InformationLinkRow(
+    title: String,
+    subtitle: String,
+    tone: Color,
+    onClick: () -> Unit
+) {
+    val shape = RoundedCornerShape(13.dp)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(Aether.Glass.copy(alpha = .42f))
+            .kineticClickable(role = Role.Button, boundedShape = shape, onClick = onClick)
+            .padding(horizontal = 11.dp, vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            Text(
+                trx(title),
+                color = Aether.Ink,
+                style = settingsRowTitleStyle(),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                subtitle,
+                color = tone.copy(alpha = .88f),
+                style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        Spacer(Modifier.width(8.dp))
+        HomeVectorIcon(HomeIcon.GLOBE, tone, Modifier.size(16.dp))
+    }
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun SpatialSettings(
@@ -5899,11 +7996,87 @@ private fun SpatialSettings(
     focusSection: String? = null,
     onContentScrollChanged: (Boolean) -> Unit = {}
 ) {
+    // MARBLE_SETTINGS_HUB_V114 — Settings is one hub page. Every title below it opens its own page,
+    // and the pages are plain string keys so the navigator survives a saved-state restore.
+    var page by rememberSaveable { mutableStateOf(SettingsPages.HUB) }
+
+    // A deep link from Home ("Routing") still lands directly on the right workspace.
+    LaunchedEffect(focusSection) {
+        if (focusSection == "Routing") {
+            page = SettingsPages.workspace(SettingsWorkspaceTab.NETWORK, "Routing")
+        }
+    }
+
+    // System back walks up one level: sub-page → hub. It never leaves Settings by accident.
+    BackHandler(enabled = page != SettingsPages.HUB) { page = SettingsPages.HUB }
+
+    AnimatedContent(
+        targetState = page,
+        modifier = Modifier.fillMaxSize(),
+        transitionSpec = {
+            // Forward pages slide in from the trailing edge, back slides out to it: the direction of
+            // travel always matches the direction of the hierarchy.
+            val direction = if (targetState == SettingsPages.HUB) -1 else 1
+            (
+                slideInHorizontally(MarbleMotionSpecs.Spatial) { it / 7 * direction } +
+                    fadeIn(MarbleMotionSpecs.ResponseFloat)
+                ) togetherWith (
+                slideOutHorizontally(MarbleMotionSpecs.SpatialExit) { -it / 7 * direction } +
+                    fadeOut(MarbleMotionSpecs.ExitFloat)
+                )
+        },
+        label = "settings-page"
+    ) { target ->
+        when {
+            target == SettingsPages.HUB -> SettingsHub(
+                repo = repo,
+                onNavigate = { page = it }
+            )
+
+            SettingsPages.isWorkspace(target) -> SettingsWorkspaceHost(
+                repo = repo,
+                onDialog = onDialog,
+                openTab = SettingsPages.workspaceTab(target),
+                focusSection = SettingsPages.workspaceFocus(target),
+                onContentScrollChanged = onContentScrollChanged,
+                onBack = { page = SettingsPages.HUB }
+            )
+
+            target == SettingsPages.THEME -> SettingsThemePage(repo = repo, onBack = { page = SettingsPages.HUB })
+            target == SettingsPages.HOME_STYLE ->
+                SettingsHomeStylePage(repo = repo, onBack = { page = SettingsPages.HUB })
+
+            target == SettingsPages.TYPEFACE ->
+                SettingsTypefacePage(repo = repo, onBack = { page = SettingsPages.HUB })
+
+            target == SettingsPages.LANGUAGE ->
+                SettingsLanguagePage(repo = repo, onBack = { page = SettingsPages.HUB })
+
+            else -> SettingsInformationPage(repo = repo, onBack = { page = SettingsPages.HUB })
+        }
+    }
+}
+
+/**
+ * The classic settings workspace, now one level below the hub: a tab of grouped section cards.
+ * Nothing about its viewport hardening changed — it is still one ordinary LazyColumn with the tab
+ * strip as a stickyHeader on mobile and a rail + direct LazyColumn on wide screens.
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun SettingsWorkspaceHost(
+    repo: AppRepository,
+    onDialog: (String) -> Unit,
+    openTab: SettingsWorkspaceTab,
+    focusSection: String? = null,
+    onContentScrollChanged: (Boolean) -> Unit = {},
+    onBack: () -> Unit
+) {
     val tabs = SettingsWorkspaceTab.entries
     val expertMode = repo.settings.expertMode
     val initialPage = if (focusSection == "Routing") {
         SettingsWorkspaceTab.NETWORK.ordinal
-    } else rememberedSettingsTab(repo.lastSettingsTab).ordinal
+    } else openTab.ordinal
 
     // MARBLE_SETTINGS_TOTAL_HOTFIX_V76
     // Final-level hotfix:
@@ -5969,6 +8142,26 @@ private fun SpatialSettings(
                 containerColor = Color.Transparent
             ) {
                 Spacer(Modifier.height(8.dp))
+                // MARBLE_SETTINGS_HUB_V114 — the rail starts with the way back to the hub.
+                NavigationRailItem(
+                    selected = false,
+                    onClick = onBack,
+                    icon = {
+                        HomeVectorIcon(HomeIcon.BACK, Aether.InkMuted, Modifier.size(19.dp))
+                    },
+                    label = {
+                        Text(
+                            trx("Hub"),
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                    },
+                    colors = NavigationRailItemDefaults.colors(
+                        indicatorColor = Color.Transparent,
+                        unselectedIconColor = Aether.InkMuted,
+                        unselectedTextColor = Aether.InkMuted
+                    )
+                )
+                Spacer(Modifier.height(4.dp))
                 tabs.forEachIndexed { index, tab ->
                     val selected = activeIndex == index
                     val tone = settingsTabTone(tab)
@@ -6031,7 +8224,32 @@ private fun SpatialSettings(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             item(key = "settings-header") {
-                Box(Modifier.padding(horizontal = 16.dp)) {
+                Column(
+                    Modifier.padding(horizontal = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(3.dp)
+                ) {
+                    // MARBLE_SETTINGS_HUB_V114 — a workspace is a sub-page of the hub, so it says how
+                    // to get back before it says where you are.
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        PrismIconButton(
+                            onClick = onBack,
+                            size = 34.dp,
+                            descriptiveLabel = "Back to settings hub"
+                        ) {
+                            HomeVectorIcon(HomeIcon.BACK, Aether.Cyan, Modifier.size(15.dp))
+                        }
+                        Spacer(Modifier.width(7.dp))
+                        Text(
+                            trx("All settings"),
+                            color = Aether.InkMuted,
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Normal,
+                            maxLines = 1
+                        )
+                    }
                     MarbleCompactTopBar(
                         title = "Settings",
                         subtitle = trx(activeTab.label)
@@ -6759,20 +8977,25 @@ private fun AppearanceSettings(repo: AppRepository) {
         horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         AppLanguage.entries.forEach { language ->
+            // MARBLE_VAZIR_LANGUAGE_KEY_V114 — the Persian key is written in Persian and set in
+            // Vazirmatn in every state: unselected, selected, pressed, and under an English UI.
+            val persianKey = language == AppLanguage.PERSIAN
             CyberSegment(
                 label = when (language) {
                     AppLanguage.SYSTEM -> t.languageSystem
                     AppLanguage.ENGLISH -> t.languageEnglish
-                    AppLanguage.PERSIAN -> t.languagePersian
+                    AppLanguage.PERSIAN -> "فارسی"
                 },
                 detail = when (language) {
                     AppLanguage.SYSTEM -> t.languageSystemDetail
-                    AppLanguage.ENGLISH -> "EN"
-                    AppLanguage.PERSIAN -> "FA"
+                    AppLanguage.ENGLISH -> "English"
+                    AppLanguage.PERSIAN -> "Persian"
                 },
                 selected = selectedLanguage == language,
                 color = Aether.Cyan,
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.weight(1f),
+                labelFontFamily = if (persianKey) VazirFamily else null,
+                rawLabel = persianKey
             ) {
                 repo.updateSettings(repo.settings.copy(appLanguage = language.id))
             }
@@ -6784,44 +9007,7 @@ private fun AppearanceSettings(repo: AppRepository) {
     // MARBLE_PHONE_DYNAMIC_THEME_V113 — four themes now, each with a real miniature preview.
     // "Dynamic phone" borrows the phone's Material You palette (wallpaper colors) everywhere;
     // its thumbnail paints the live dynamic scheme, not a fixed brand swatch.
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        listOf(
-            Triple("System", "Follow device", false) to { repo.updateSettings(repo.settings.copy(theme = "system")) },
-            Triple("Light", "Daylight", false) to { repo.updateSettings(repo.settings.copy(theme = "light")) },
-            Triple("AMOLED", "Pure black", true) to { repo.updateSettings(repo.settings.copy(theme = "dark")) },
-            Triple("Dynamic phone", "Wallpaper colors", false) to { repo.updateSettings(repo.settings.copy(theme = "phone")) }
-        ).chunked(2).forEach { row ->
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                row.forEach { (spec, action) ->
-                    val (label, detail, darkPreview) = spec
-                    PrismThemeChoice(
-                        label = label,
-                        detail = detail,
-                        // Selection compares the canonical stored id through parseAppTheme so
-                        // legacy values ("system"/"light"/"dark", "dynamic") all light up their
-                        // own card — AMOLED stores "dark", never "amoled".
-                        selected = parseAppTheme(repo.settings.theme) == when (label) {
-                            "System" -> AppTheme.SYSTEM
-                            "Light" -> AppTheme.LIGHT
-                            "AMOLED" -> AppTheme.DARK
-                            else -> AppTheme.PHONE_DYNAMIC
-                        },
-                        darkPreview = darkPreview,
-                        accent = when (label) {
-                            "AMOLED" -> Aether.Emerald
-                            "Light" -> Aether.Cyan
-                            else -> Aether.Amethyst
-                        },
-                        dynamicPreview = label == "Dynamic phone",
-                        modifier = Modifier.weight(1f)
-                    ) { action() }
-                }
-            }
-        }
-    }
+    SettingsThemeGrid(repo)
 
     // MARBLE_SYSTEM_FONT_V112 — the device's own typeface is a first-class choice. Persian copy
     // keeps shaping with the bundled Vazirmatn regardless of this selection (AetherTheme pins
@@ -7436,7 +9622,7 @@ private fun ServerIntelHomeCard(repo: AppRepository) {
 
         if(selected == null || endpoint.isBlank()) {
             Text(
-                trx("No node selected"),
+                trx("No server selected"),
                 color=Aether.InkMuted,
                 style=MaterialTheme.typography.bodySmall
             )
@@ -8558,7 +10744,7 @@ private fun ProbeSettings(repo: AppRepository) {
     HorizontalDivider(color = Aether.GlassBorderSoft)
 
     NumberSetting(
-        title = "Pings per node",
+        title = "Pings per server",
         value = s.benchSamples,
         range = 1..8
     ) { repo.updateSettings(repo.settings.copy(benchSamples = it)) }
@@ -8571,7 +10757,7 @@ private fun ProbeSettings(repo: AppRepository) {
     ) { repo.updateSettings(repo.settings.copy(benchTimeoutSec = it)) }
 
     NumberSetting(
-        title = "Nodes per test run",
+        title = "Servers per test run",
         value = s.benchCandidates,
         range = 5..200
     ) { repo.updateSettings(repo.settings.copy(benchCandidates = it)) }
@@ -8586,7 +10772,7 @@ private fun ProbeSettings(repo: AppRepository) {
         Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
             SettingSwitch(
                 title = "Grow the speed sample",
-                subtitle = "More only from fast nodes",
+                subtitle = "More only from fast servers",
                 checked = s.adaptiveThroughputEnabled
             ) { repo.updateSettings(repo.settings.copy(adaptiveThroughputEnabled = it)) }
         }
@@ -8743,6 +10929,8 @@ private fun CyberSegment(
     color: Color,
     modifier: Modifier = Modifier,
     selectionTone: Color = Color.Unspecified,
+    labelFontFamily: FontFamily? = null,
+    rawLabel: Boolean = false,
     onClick: () -> Unit
 ) {
     // MARBLE_IOS_SIMPLIFY_V81 — a flat two-line segment tile for the few-per-row choices
@@ -8780,19 +10968,33 @@ private fun CyberSegment(
         verticalArrangement = Arrangement.spacedBy(2.dp),
         horizontalAlignment = Alignment.Start
     ) {
+        // MARBLE_VAZIR_LANGUAGE_KEY_V114 — a segment can own its face. The Persian language choice
+        // passes Vazir and [rawLabel] so the word "فارسی" is never routed through the translator and
+        // never borrows the currently selected product typeface: it reads as Persian, in Vazir,
+        // selected or not.
+        val labelStyle = MaterialTheme.typography.labelMedium
         Text(
-            trx(label),
+            if (rawLabel) label else trx(label),
             color = ink,
-            style = MaterialTheme.typography.labelMedium,
+            style = if (labelFontFamily == null) {
+                labelStyle
+            } else {
+                labelStyle.copy(fontFamily = labelFontFamily)
+            },
             fontWeight = if (selected) FontWeight.Bold else FontWeight.SemiBold,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
         if (detail.isNotBlank()) {
+            val detailStyle = MaterialTheme.typography.labelSmall
             Text(
-                trx(detail),
+                if (rawLabel) detail else trx(detail),
                 color = if (selected) tone.copy(alpha = .85f) else Aether.InkFaint,
-                style = MaterialTheme.typography.labelSmall,
+                style = if (labelFontFamily == null) {
+                    detailStyle
+                } else {
+                    detailStyle.copy(fontFamily = labelFontFamily)
+                },
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )

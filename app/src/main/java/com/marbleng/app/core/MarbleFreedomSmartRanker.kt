@@ -301,7 +301,7 @@ object MarbleFreedomSmartRanker {
             it.probeResult != null && !it.probeResult.success && it.probeResult.isTimeout
         }
         if (uncertain.isNotEmpty()) {
-            onProgress("Smart Aegis: ${uncertain.size} uncertain nodes kept for passive eval")
+            onProgress("Smart Aegis: ${uncertain.size} uncertain servers kept for passive eval")
         }
 
         // Machine-readable decision snapshot for diagnostics.
