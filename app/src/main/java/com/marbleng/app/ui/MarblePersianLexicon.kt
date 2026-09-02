@@ -160,8 +160,8 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Tor" to "تور",
     "Signals" to "نشانه‌ها",
     "No flags" to "بدون نشانه",
-    "Only the resolved public endpoint is queried; credentials and subscription data stay local."
-        to "فقط نقطه پایانی عمومی استعلام می‌شود؛ اطلاعات ورود و داده اشتراک‌ها محلی می‌مانند.",
+    "Only the resolved public endpoint is queried; credentials and subscription data stay local." to
+        "فقط نقطه پایانی عمومی استعلام می‌شود؛ اطلاعات ورود و داده اشتراک‌ها محلی می‌مانند.",
     "Server IP" to "آی‌پی سرور",
     "Family" to "خانواده",
     "City" to "شهر",
@@ -169,8 +169,8 @@ private val FaLexicon: Map<String, String> = mapOf(
     "HOSTING / DC" to "میزبانی / مرکز داده",
     "PUBLIC NETWORK" to "شبکه عمومی",
     "Visit provider website" to "مشاهده وب‌سایت ارائه‌دهنده",
-    "Resolving the selected server and loading public network metadata…"
-        to "در حال یافتن سرور انتخاب‌شده و بارگیری اطلاعات شبکه عمومی…",
+    "Resolving the selected server and loading public network metadata…" to
+        "در حال یافتن سرور انتخاب‌شده و بارگیری اطلاعات شبکه عمومی…",
     "Server metadata has not been loaded yet." to "اطلاعات سرور هنوز بارگیری نشده است.",
     "Server info" to "اطلاعات سرور",
     "Selected route" to "مسیر انتخاب‌شده",
@@ -217,8 +217,8 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Subscription URL copied" to "لینک اشتراک کپی شد",
     "Copy nodes" to "کپی نودها",
     "Clean failed tests" to "پاک‌سازی تست‌های ناموفق",
-    "Only nodes with a stored failed result of that exact test type are removed."
-        to "فقط نودهایی حذف می‌شوند که نتیجه ناموفق ذخیره‌شده از همان نوع تست دارند.",
+    "Only nodes with a stored failed result of that exact test type are removed." to
+        "فقط نودهایی حذف می‌شوند که نتیجه ناموفق ذخیره‌شده از همان نوع تست دارند.",
     "Local source" to "منبع محلی",
     "Create local source" to "ساخت منبع محلی",
     "Add subscription" to "افزودن اشتراک",
@@ -250,15 +250,15 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Move hop up" to "جابه‌جایی گام به بالا",
     "Move hop down" to "جابه‌جایی گام به پایین",
     "Remove hop" to "حذف گام",
-    "Showing 24 nodes • search to find any other node"
-        to "نمایش ۲۴ نود • برای یافتن نودهای دیگر جستجو کنید",
-    "Select one Library source first, or enable Manual source."
-        to "ابتدا یک منبع کتابخانه انتخاب کنید یا منبع دستی را فعال کنید.",
+    "Showing 24 nodes • search to find any other node" to
+        "نمایش ۲۴ نود • برای یافتن نودهای دیگر جستجو کنید",
+    "Select one Library source first, or enable Manual source." to
+        "ابتدا یک منبع کتابخانه انتخاب کنید یا منبع دستی را فعال کنید.",
     "Select one Library source first" to "ابتدا یک منبع کتابخانه انتخاب کنید",
-    "Will be added to the selected source and kept across refreshes."
-        to "به منبع انتخاب‌شده افزوده می‌شود و با به‌روزرسانی‌ها حفظ خواهد شد.",
-    "All sources is only a view. Select a source chip first, then add the config."
-        to "«همه» فقط یک نماست. ابتدا یک منبع را انتخاب کنید، سپس پیکربندی را بیفزایید.",
+    "Will be added to the selected source and kept across refreshes." to
+        "به منبع انتخاب‌شده افزوده می‌شود و با به‌روزرسانی‌ها حفظ خواهد شد.",
+    "All sources is only a view. Select a source chip first, then add the config." to
+        "«همه» فقط یک نماست. ابتدا یک منبع را انتخاب کنید، سپس پیکربندی را بیفزایید.",
     "Save SSH connection" to "ذخیره اتصال SSH",
     "Save manual config" to "ذخیره پیکربندی دستی",
     "Xray config / outbound JSON" to "پیکربندی اکس‌ری / JSON خروجی",
@@ -299,8 +299,8 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Short ID" to "شناسه کوتاه",
     "Spider X" to "اسپایدر X",
     "Save to" to "ذخیره در",
-    "`unsafe` uses native Go TLS; empty Cipher Suites = automatic."
-        to "گزینه unsafe از TLS بومی Go استفاده می‌کند؛ مجموعه رمز خالی یعنی خودکار.",
+    "`unsafe` uses native Go TLS; empty Cipher Suites = automatic." to
+        "گزینه unsafe از TLS بومی Go استفاده می‌کند؛ مجموعه رمز خالی یعنی خودکار.",
 
     // ------------------------------------------------------------------ settings hub
     "Expert workspace" to "میز کار حرفه‌ای",
@@ -334,8 +334,8 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Expert controls enabled" to "کنترل‌های حرفه‌ای فعال شد",
     "Advanced workspaces are visible" to "میزهای کار پیشرفته نمایان شدند",
     "If you're an expert, tap here" to "اگر حرفه‌ای هستید، اینجا بزنید",
-    "Reveal advanced routing, engine and diagnostic controls"
-        to "نمایش کنترل‌های پیشرفته مسیریابی، موتور و عیب‌یابی",
+    "Reveal advanced routing, engine and diagnostic controls" to
+        "نمایش کنترل‌های پیشرفته مسیریابی، موتور و عیب‌یابی",
 
     // appearance
     "Theme" to "پوسته",
@@ -349,8 +349,8 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Product sans" to "قلم استاندارد",
     "Serif" to "سریف",
     "Per-app proxy" to "پروکسی هر برنامه",
-    "Choose which installed apps use the tunnel. The complete app list is available in Network."
-        to "انتخاب کنید کدام برنامه‌ها از تونل استفاده کنند. فهرست کامل برنامه‌ها در بخش شبکه است.",
+    "Choose which installed apps use the tunnel. The complete app list is available in Network." to
+        "انتخاب کنید کدام برنامه‌ها از تونل استفاده کنند. فهرست کامل برنامه‌ها در بخش شبکه است.",
     "All apps" to "همه برنامه‌ها",
     "Only selected" to "فقط انتخاب‌شده‌ها",
     "Bypass" to "دورزدن",
@@ -566,8 +566,8 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Slower, uses data" to "کندتر، مصرف داده دارد",
     "Grow the speed sample" to "رشد نمونه سرعت",
     "More only from fast nodes" to "بیشتر فقط از نودهای سریع",
-    "TCP/ICMP bypass the proxy; only Real tunnel proves the route."
-        to "‏TCP/ICMP از پروکسی عبور نمی‌کنند؛ فقط تونل واقعی مسیر را ثابت می‌کند.",
+    "TCP/ICMP bypass the proxy; only Real tunnel proves the route." to
+        "‏TCP/ICMP از پروکسی عبور نمی‌کنند؛ فقط تونل واقعی مسیر را ثابت می‌کند.",
 
     // iran mode
     "Detect ISP" to "تشخیص اپراتور",
@@ -666,16 +666,16 @@ private val FaLexicon: Map<String, String> = mapOf(
 
     // ------------------------------------------------------------------ permission onboarding
     "Allow VPN access" to "اجازه دسترسی VPN",
-    "MarbleNG needs Android's VPN permission to arm its protected connection service. It only routes traffic through the node you choose; it cannot read your messages or files."
-        to "MarbleNG برای فعال‌سازی سرویس اتصال محافظت‌شده به مجوز VPN اندروید نیاز دارد. فقط ترافیک را از نودی که انتخاب می‌کنید عبور می‌دهد؛ نمی‌تواند پیام‌ها یا فایل‌های شما را بخواند.",
+    "MarbleNG needs Android's VPN permission to arm its protected connection service. It only routes traffic through the node you choose; it cannot read your messages or files." to
+        "MarbleNG برای فعال‌سازی سرویس اتصال محافظت‌شده به مجوز VPN اندروید نیاز دارد. فقط ترافیک را از نودی که انتخاب می‌کنید عبور می‌دهد؛ نمی‌تواند پیام‌ها یا فایل‌های شما را بخواند.",
     "Required before protected connections start" to "پیش از شروع اتصال محافظت‌شده لازم است",
     "Allow connection notifications" to "اجازه اعلان‌های اتصال",
-    "Android requires notification access for MarbleNG to keep the active tunnel visible and to tell you when a connection changes while the app is in the background."
-        to "اندروید برای نمایان نگه‌داشتن تونل فعال و اطلاع‌رسانی تغییرات اتصال در پس‌زمینه، به دسترسی اعلان نیاز دارد.",
+    "Android requires notification access for MarbleNG to keep the active tunnel visible and to tell you when a connection changes while the app is in the background." to
+        "اندروید برای نمایان نگه‌داشتن تونل فعال و اطلاع‌رسانی تغییرات اتصال در پس‌زمینه، به دسترسی اعلان نیاز دارد.",
     "Keeps tunnel status visible" to "وضعیت تونل را نمایان نگه می‌دارد",
     "Allow background connection" to "اجازه اتصال در پس‌زمینه",
-    "Battery optimization can suspend a VPN when the screen turns off. MarbleNG asks to be excluded so the connection remains stable; this does not disable battery saving for other apps."
-        to "بهینه‌سازی باتری می‌تواند VPN را با خاموش‌شدن صفحه متوقف کند. MarbleNG درخواست استثنا می‌کند تا اتصال پایدار بماند؛ این کار ذخیره باتری برنامه‌های دیگر را غیرفعال نمی‌کند.",
+    "Battery optimization can suspend a VPN when the screen turns off. MarbleNG asks to be excluded so the connection remains stable; this does not disable battery saving for other apps." to
+        "بهینه‌سازی باتری می‌تواند VPN را با خاموش‌شدن صفحه متوقف کند. MarbleNG درخواست استثنا می‌کند تا اتصال پایدار بماند؛ این کار ذخیره باتری برنامه‌های دیگر را غیرفعال نمی‌کند.",
     "Keeps the route alive when idle" to "مسیر را در حالت بیکار زنده نگه می‌دارد",
     "Only requested when you tap Connect" to "فقط هنگام زدن دکمه اتصال درخواست می‌شود",
     "Continue" to "ادامه",
