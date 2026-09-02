@@ -34,6 +34,8 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import com.marbleng.app.model.AppFont
+import com.marbleng.app.model.parseAppFont
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
@@ -130,19 +132,20 @@ private val LightPalette = AetherPalette(
 /* Dark remains an explicit accessibility/user choice with a true AMOLED black foundation. */
 private val DarkPalette = AetherPalette(
     void = Color(0xFF000000),          // pure AMOLED black
-    voidElevated = Color(0xFF080814),   // barely lifted black for elevation
-    glass = Color(0xFF0A0A14),          // very dark glass
-    glassStrong = Brand.Electric.copy(alpha = .12f).compositeOver(Color(0xFF000000)),
-    glassBorder = Brand.Electric.copy(alpha = .30f).compositeOver(Color(0xFF080814)),
-    glassBorderSoft = Brand.Ice.copy(alpha = .12f).compositeOver(Color(0xFF000000)),
-    barGlass = Color(0xFF0C0C16).copy(alpha = .68f),
-    barGlassBorder = Brand.Ice.copy(alpha = .16f),
-    barGlassHighlight = Brand.Ice.copy(alpha = .10f),
+    voidElevated = Color(0xFF020204),   // one barely lifted black step
+    glass = Color(0xFF030307),          // no gray wash on AMOLED panels
+    glassStrong = Color(0xFF05050A),
+    glassBorder = Brand.Electric.copy(alpha = .28f).compositeOver(Color(0xFF020204)),
+    glassBorderSoft = Color(0xFF101018),
+    // The dock is opaque while idle. Its translucent value is used only while content is moving.
+    barGlass = Color(0xD9000000),
+    barGlassBorder = Brand.Ice.copy(alpha = .14f),
+    barGlassHighlight = Brand.Ice.copy(alpha = .08f),
     amethyst = Brand.Electric,
     amethystBright = Brand.Bright,
     cyan = Brand.Bright,
     cyanBright = Brand.Ice,
-    slate = Color(0xFF0A0A14),
+    slate = Color(0xFF030307),
     slateBright = Brand.Ice,
     danger = Color(0xFFFF718B),
     dangerBright = Color(0xFFFF99AA),
@@ -180,95 +183,107 @@ object Aether {
     val InkFaint: Color @Composable get() = LocalAetherPalette.current.inkFaint
 }
 
-private val ProductSans = FontFamily.SansSerif
+private fun selectedFontFamily(id: String): FontFamily = when (parseAppFont(id)) {
+    // Vazir is intentionally mapped to the Android sans family here so Persian shaping remains
+    // available even on devices whose system font pack is smaller than the full Arabic set.
+    AppFont.VAZIR -> FontFamily.SansSerif
+    // Google Sans is the platform product sans fallback on Android; keeping it platform-backed
+    // avoids a network font download during a VPN connection or first launch.
+    AppFont.GOOGLE_SANS -> FontFamily.Default
+    // Android's serif face is the closest bundled, offline-compatible Times New Roman treatment.
+    AppFont.TIMES_NEW_ROMAN -> FontFamily.Serif
+}
 
-val AetherTypography = Typography(
+private fun aetherTypography(fontId: String): Typography {
+    val family = selectedFontFamily(fontId)
+    return Typography(
     displayLarge = TextStyle(
-        fontFamily = ProductSans,
+        fontFamily = family,
         fontWeight = FontWeight.Bold,
-        fontSize = 40.sp,
-        lineHeight = 46.sp,
+        fontSize = 36.sp,
+        lineHeight = 42.sp,
         letterSpacing = (-.74).sp
     ),
     headlineLarge = TextStyle(
-        fontFamily = ProductSans,
+        fontFamily = family,
         fontWeight = FontWeight.Bold,
-        fontSize = 28.sp,
-        lineHeight = 34.sp,
+        fontSize = 25.sp,
+        lineHeight = 31.sp,
         letterSpacing = (-.38).sp
     ),
     headlineMedium = TextStyle(
-        fontFamily = ProductSans,
+        fontFamily = family,
         fontWeight = FontWeight.SemiBold,
-        fontSize = 24.sp,
-        lineHeight = 30.sp,
+        fontSize = 22.sp,
+        lineHeight = 28.sp,
         letterSpacing = (-.26).sp
     ),
     headlineSmall = TextStyle(
-        fontFamily = ProductSans,
+        fontFamily = family,
         fontWeight = FontWeight.SemiBold,
-        fontSize = 20.sp,
-        lineHeight = 26.sp,
+        fontSize = 19.sp,
+        lineHeight = 24.sp,
         letterSpacing = (-.16).sp
     ),
     titleLarge = TextStyle(
-        fontFamily = ProductSans,
+        fontFamily = family,
         fontWeight = FontWeight.SemiBold,
-        fontSize = 18.sp,
-        lineHeight = 24.sp,
+        fontSize = 17.sp,
+        lineHeight = 22.sp,
         letterSpacing = (-.10).sp
     ),
     titleMedium = TextStyle(
-        fontFamily = ProductSans,
+        fontFamily = family,
         fontWeight = FontWeight.SemiBold,
-        fontSize = 15.5.sp,
-        lineHeight = 21.sp
+        fontSize = 15.sp,
+        lineHeight = 20.sp
     ),
     titleSmall = TextStyle(
-        fontFamily = ProductSans,
+        fontFamily = family,
         fontWeight = FontWeight.SemiBold,
         fontSize = 13.5.sp,
         lineHeight = 19.sp
     ),
     bodyLarge = TextStyle(
-        fontFamily = ProductSans,
+        fontFamily = family,
         fontWeight = FontWeight.Normal,
-        fontSize = 16.sp,
-        lineHeight = 23.sp
-    ),
-    bodyMedium = TextStyle(
-        fontFamily = ProductSans,
-        fontWeight = FontWeight.Normal,
-        fontSize = 14.5.sp,
+        fontSize = 15.sp,
         lineHeight = 21.sp
     ),
-    bodySmall = TextStyle(
-        fontFamily = ProductSans,
+    bodyMedium = TextStyle(
+        fontFamily = family,
         fontWeight = FontWeight.Normal,
-        fontSize = 12.5.sp,
-        lineHeight = 18.sp
+        fontSize = 14.sp,
+        lineHeight = 20.sp
+    ),
+    bodySmall = TextStyle(
+        fontFamily = family,
+        fontWeight = FontWeight.Normal,
+        fontSize = 12.sp,
+        lineHeight = 17.sp
     ),
     labelLarge = TextStyle(
-        fontFamily = ProductSans,
+        fontFamily = family,
         fontWeight = FontWeight.SemiBold,
         fontSize = 13.5.sp,
         lineHeight = 18.sp
     ),
     labelMedium = TextStyle(
-        fontFamily = ProductSans,
+        fontFamily = family,
         fontWeight = FontWeight.Medium,
         fontSize = 12.sp,
         lineHeight = 16.sp,
         letterSpacing = .04.sp
     ),
     labelSmall = TextStyle(
-        fontFamily = ProductSans,
+        fontFamily = family,
         fontWeight = FontWeight.Medium,
         fontSize = 10.5.sp,
         lineHeight = 14.sp,
         letterSpacing = .08.sp
     )
 )
+}
 
 val AetherShapes = Shapes(
     extraSmall = RoundedCornerShape(10.dp),
@@ -281,6 +296,7 @@ val AetherShapes = Shapes(
 @Composable
 fun AetherFlowTheme(
     themeId: String = "light",
+    fontId: String = AppFont.VAZIR.id,
     content: @Composable () -> Unit
 ) {
     val requested=parseAppTheme(themeId)
@@ -292,9 +308,9 @@ fun AetherFlowTheme(
 
     val palette=if(light) LightPalette else DarkPalette
     val context=LocalContext.current
-    val dynamicColor=
-        requested == AppTheme.SYSTEM &&
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+    // Dynamic system surfaces can turn a dark system theme gray. Keep the dark branch on the
+    // explicit AMOLED palette; only a light system theme may borrow Material You accents.
+    val dynamicColor = requested == AppTheme.SYSTEM && light && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
 
     val fallback=if(light) {
         lightColorScheme(
@@ -356,7 +372,13 @@ fun AetherFlowTheme(
             controller.isAppearanceLightStatusBars=light
             controller.isAppearanceLightNavigationBars=light
             window.statusBarColor=scheme.background.toArgb()
-            window.navigationBarColor=scheme.background.toArgb()
+            // The gesture/navigation surface must not paint a second horizontal strip below the app.
+            // Android still owns the gesture handle itself, but the app-controlled bar and divider
+            // are fully transparent on every navigation mode.
+            window.navigationBarColor=Color.Transparent.toArgb()
+            if(Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                window.setNavigationBarDividerColor(Color.Transparent.toArgb())
+            }
             if(Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 window.isStatusBarContrastEnforced=false
                 window.isNavigationBarContrastEnforced=false
@@ -367,7 +389,7 @@ fun AetherFlowTheme(
     CompositionLocalProvider(LocalAetherPalette provides palette) {
         MaterialTheme(
             colorScheme=scheme,
-            typography=AetherTypography,
+            typography=aetherTypography(fontId),
             shapes=AetherShapes
         ) {
             ProvideMarbleMotion(content)

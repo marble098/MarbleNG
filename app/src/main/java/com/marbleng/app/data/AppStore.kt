@@ -320,6 +320,7 @@ class AppStore(context: Context) {
         workloadProfile = enumValue("workloadProfile", WorkloadProfile.AUTO),
 
         theme = prefs.getString("theme", "light") ?: "light",
+        fontFamily = prefs.getString("fontFamily", AppFont.VAZIR.id) ?: AppFont.VAZIR.id,
         debugModeEnabled = prefs.getBoolean("debugModeEnabled", false),
         expertMode = prefs.getBoolean("expertMode", false)
         )
@@ -506,6 +507,7 @@ class AppStore(context: Context) {
         .putString("workloadProfile", s.workloadProfile.name)
 
         .putString("theme", s.theme)
+        .putString("fontFamily", s.fontFamily)
         .putBoolean("debugModeEnabled", s.debugModeEnabled)
         .putBoolean("expertMode", s.expertMode)
         .apply()

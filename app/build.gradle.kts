@@ -183,6 +183,20 @@ android {
     }
 }
 
+// Never let a developer accidentally install an unsigned release APK. Play Protect warnings on
+// sideloaded builds are commonly caused by a missing/rotated certificate; the CI workflow restores
+// the stable MarbleNG signer before assembleRelease. Debug/compile tasks remain usable locally.
+tasks.configureEach {
+    if (!signingConfigured && (name == "assembleRelease" || name == "bundleRelease")) {
+        doFirst {
+            throw GradleException(
+                "Release signing is not configured. Build the signed artifact in GitHub Actions " +
+                    "or provide signing.properties; unsigned APKs are not installable release deliverables."
+            )
+        }
+    }
+}
+
 dependencies {
 
     implementation(

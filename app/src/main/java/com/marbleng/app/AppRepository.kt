@@ -125,6 +125,7 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         id == "all" -> "all"
         id == "manual" && settings.manualSourceEnabled -> "manual"
         id == "manual" -> "all"
+        id == ServerlessFreedomEngine.SOURCE_ID -> ServerlessFreedomEngine.SOURCE_ID
         subscriptions.any { it.id == id } -> id
         else -> "all"
     }
@@ -186,34 +187,48 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     /** A concrete Library source can receive user imports; "all" is only a view. */
     private fun resolveLibraryTarget(id: String): LibraryTarget? = when {
         id == "manual" && settings.manualSourceEnabled -> LibraryTarget("manual", "Manual")
-        id == "manual" || id == "all" || id.isBlank() -> null
+        id == "manual" || id == "all" || id == ServerlessFreedomEngine.SOURCE_ID || id.isBlank() -> null
         else -> subscriptions.firstOrNull { it.id == id }?.let { LibraryTarget(it.id, it.name) }
     }
 
     private fun profileSourceEnabled(profile: ProxyProfile): Boolean =
         settings.manualSourceEnabled || profile.subscriptionId != "manual"
 
-    val libraryProfiles: List<ProxyProfile>
-        get() = profiles.filter(::profileSourceEnabled)
+    /**
+     * Library is also the chooser for the offline Marble Freedom engine. Freedom rows are
+     * generated locally, never persisted as subscription data, and remain selectable after a
+     * cold start even when the network is unavailable.
+     */
+    private fun freedomLibraryProfiles(): List<ProxyProfile> =
+        ServerlessFreedomEngine.profiles(settings, iranMode)
 
+    val libraryProfiles: List<ProxyProfile>
+        get() = (profiles.filter(::profileSourceEnabled) + freedomLibraryProfiles())
+            .distinctBy { it.id }
+
+    // Ranking/auto-connect keeps its historical contract: generated Freedom rows are selected
+    // through their own adaptive engine, never mixed into subscription benchmark waves.
     private fun enabledProfilesSnapshot(): List<ProxyProfile> =
-        profiles.filter(::profileSourceEnabled)
+        profiles.filter(::profileSourceEnabled).distinctBy { it.id }
 
     /**
      * Resolve the exact Library source selected by the user.
      *
      * Fail closed: a stale/unknown source id returns an empty set — never the whole Library.
-     * "all" is the only id allowed to expand to every enabled profile.
+     * "all" expands to every enabled subscription profile; Marble Freedom has its own local scope.
      */
     private fun libraryScopeSnapshot(sourceId: String): List<ProxyProfile> {
         val available = enabledProfilesSnapshot()
         return when (sourceId) {
+            // "All" remains the subscription test scope. Freedom has a dedicated source chip
+            // and a separate adaptive check, so it cannot poison a TCP/TUN wave with host="".
             "all" -> available
             "manual" -> if (settings.manualSourceEnabled) {
                 available.filter { it.subscriptionId == "manual" }
             } else {
                 emptyList()
             }
+            ServerlessFreedomEngine.SOURCE_ID -> freedomLibraryProfiles()
             else -> {
                 if (subscriptions.none { it.id == sourceId }) emptyList()
                 else available.filter { it.subscriptionId == sourceId }
@@ -224,6 +239,7 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     private fun libraryScopeLabel(sourceId: String): String = when (sourceId) {
         "all" -> "All sources"
         "manual" -> "Manual"
+        ServerlessFreedomEngine.SOURCE_ID -> "Marble Freedom"
         else -> subscriptions.firstOrNull { it.id == sourceId }?.name ?: "Missing source"
     }
 
@@ -423,20 +439,13 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
      * Resolve the selected endpoint and enrich only its public IP with coarse public metadata.
      *
      * Privacy boundary:
-     * - controlled by the Home-card visibility toggle; no request is started while off;
+     * - the request is intentionally available from the connected Home route, without a hidden
+     *   settings gate that could leave old installations with a permanently blank IP row;
      * - proxy config, UUID/password, SNI and subscription URL are never sent;
      * - only the already-public resolved server IP is queried at ipwho.is;
      * - a 15-minute per-endpoint cache avoids noisy/redundant lookups.
      */
     fun refreshServerIntel(targetProfile: ProxyProfile? = null, force: Boolean = false) {
-        if (!settings.serverIntelEnabled) {
-            postToMain {
-                serverIntelLoading = false
-                serverIntelError = ""
-            }
-            return
-        }
-
         val target = targetProfile
             ?: profile(activeProfileId, activeProfileSourceId)
             ?: lastProfile()
@@ -2290,6 +2299,19 @@ private fun postToMain(block: () -> Unit) {
      * Unknown source ids fail closed to zero candidates instead of falling back to all profiles.
      */
     fun smartRankSource(sourceId: String) {
+        if (sourceId == ServerlessFreedomEngine.SOURCE_ID) {
+            task("Marble Freedom • adaptive check") {
+                val best = MarbleFreedomSmartRanker.bestProfile(
+                    settings,
+                    iranMode,
+                    xray,
+                    intelligence,
+                    rankCrossCheckSources()
+                ) { progress -> message = progress }
+                message = "Marble Freedom ready • ${best.name}"
+            }
+            return
+        }
         // MARBLE_SMART_RANK_V90: debounce + single-flight. A Rank tap storm can never re-run the
         // full preflight + benchmark pool more than once per cooldown.
         val gate = rankGate.tryAcquire()
@@ -2544,6 +2566,19 @@ private fun postToMain(block: () -> Unit) {
     }
 
     fun fullTest(p: ProxyProfile) {
+        if (ServerlessFreedomEngine.isServerless(p)) {
+            task("Marble Freedom • adaptive check") {
+                val best = MarbleFreedomSmartRanker.bestProfile(
+                    settings,
+                    iranMode,
+                    xray,
+                    intelligence,
+                    rankCrossCheckSources()
+                ) { progress -> message = progress }
+                message = "Marble Freedom ready • ${best.name}"
+            }
+            return
+        }
         task("Full test ${p.name}") {
             val result = BenchmarkEngine(xray, intelligence).run(
                 listOf(p),
@@ -2580,6 +2615,10 @@ private fun postToMain(block: () -> Unit) {
      * fans the verified result back to every matching card. TUNNEL rank remains per-config.
      */
     fun testSource(sourceId: String) {
+        if (sourceId == ServerlessFreedomEngine.SOURCE_ID) {
+            message = "Marble Freedom is local • use Rank for its adaptive check"
+            return
+        }
         val scoped = libraryScopeSnapshot(sourceId).distinctBy { it.id }
         val scope = libraryScopeLabel(sourceId)
         if (scoped.isEmpty()) {

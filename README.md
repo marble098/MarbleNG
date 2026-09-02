@@ -464,6 +464,16 @@ The signed build workflow:
 
 No signing private key is committed to the repository.
 
+### Play Protect-safe installation
+
+Release packaging now refuses to produce an installable `assembleRelease`/`bundleRelease` artifact
+without `signing.properties`. This prevents an unsigned local APK from being mistaken for the
+trusted MarbleNG release. Install the APK from the signed GitHub Actions artifact, or upload that signed APK to Google Play
+internal testing while preserving the existing release certificate;
+do not rotate the certificate between builds. The workflow verifies the resulting APK certificate
+with `apksigner` before publishing it. Play Protect reputation still belongs to Google Play and
+cannot be bypassed by app code.
+
 ## Local build
 
 The GitHub Actions workflow is the reference build environment.
