@@ -5418,8 +5418,8 @@ private fun SettingsTabStrip(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(60.dp)
-            .padding(horizontal = 16.dp, vertical = 5.dp)
+            .height(58.dp)
+            .padding(horizontal = 16.dp, vertical = 4.dp)
     ) {
         val barShape = RoundedCornerShape(22.dp)
         Box(
