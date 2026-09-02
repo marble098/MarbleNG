@@ -112,6 +112,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
@@ -707,88 +708,112 @@ private fun FloatingSpatialDock(
     selected: SpatialTab,
     onSelect: (SpatialTab) -> Unit
 ) {
-    // MARBLE_BOTTOM_DOCK_UNIFIED_FLOATING_V661
-    // Design intent:
-    // - one unified floating navigation system
-    // - no giant background slab
-    // - no per-tab filled cards
-    // - no inner shadow band
-    // - active state shown by tone + minimal underline only
+    // MARBLE_BOTTOM_DOCK_UNIFIED_FLOATING_V661 — unified floating navigation
+    // MARBLE_FLOATING_GLASS_DOCK_V80 — redesigned floating glass navigation
+    // - true floating glass bar with liquid spring animations
+    // - semi-transparent glass so content shows through slightly
+    // - rounded pill shape with professional rounded corners
+    // - liquid color/scale animations on selection
     Box(
-        modifier=Modifier
+        modifier = Modifier
             .fillMaxWidth()
             .navigationBarsPadding()
-            .padding(horizontal=18.dp,vertical=10.dp),
-        contentAlignment=Alignment.Center
+            .padding(horizontal = 20.dp, vertical = 14.dp),
+        contentAlignment = Alignment.Center
     ) {
         Row(
-            modifier=Modifier
-                .widthIn(max=520.dp)
-                .fillMaxWidth(),
-            horizontalArrangement=Arrangement.SpaceEvenly,
-            verticalAlignment=Alignment.CenterVertically
+            modifier = Modifier
+                .widthIn(max = 480.dp)
+                .fillMaxWidth()
+                .height(68.dp)
+                .clip(RoundedCornerShape(32.dp))
+                .background(
+                    Color.Black.copy(alpha = 0.35f).compositeOver(Aether.Void)
+                )
+                .border(
+                    width = 1.dp,
+                    color = Aether.GlassBorderSoft.copy(alpha = 0.55f),
+                    shape = RoundedCornerShape(32.dp)
+                )
+                .shadow(
+                    elevation = 12.dp,
+                    shape = RoundedCornerShape(32.dp),
+                    ambientColor = Aether.Cyan.copy(alpha = 0.18f),
+                    spotColor = Aether.Cyan.copy(alpha = 0.22f)
+                )
+                .padding(horizontal = 14.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically
         ) {
             SpatialTab.entries.forEach { item ->
-                val active=item == selected
-                val itemShape=RoundedCornerShape(18.dp)
-                val contentTone by animateColorAsState(
-                    targetValue=if(active) Aether.Cyan else Aether.InkMuted,
-                    animationSpec=MarbleMotionSpecs.Color,
-                    label="dock-tone-${item.name}"
+                val active = item == selected
+                val glassShape = RoundedCornerShape(24.dp)
+
+                val activeScale by animateFloatAsState(
+                    targetValue = if (active) 1.08f else 1f,
+                    animationSpec = MarbleMotionSpecs.ResponseFloat,
+                    label = "dock-scale-${item.name}"
                 )
                 val indicatorTone by animateColorAsState(
-                    targetValue=if(active) Aether.Cyan.copy(alpha=.92f) else Color.Transparent,
-                    animationSpec=MarbleMotionSpecs.Color,
-                    label="dock-indicator-${item.name}"
+                    targetValue = if (active) Aether.Cyan.copy(alpha = .92f) else Color.Transparent,
+                    animationSpec = MarbleMotionSpecs.Color,
+                    label = "dock-indicator-${item.name}"
                 )
-                // MARBLE_NAVY_BRAND_UI_V77 — the active tab gets a soft ice-blue pill
-                // (M3 Expressive floating-nav pattern) instead of colour alone.
-                val itemBg by animateColorAsState(
-                    targetValue=if(active) Aether.Cyan.copy(alpha=.10f) else Color.Transparent,
-                    animationSpec=MarbleMotionSpecs.Color,
-                    label="dock-bg-${item.name}"
+                val activeTone by animateColorAsState(
+                    targetValue = if (active) Aether.Cyan else Aether.InkMuted,
+                    animationSpec = MarbleMotionSpecs.Color,
+                    label = "dock-tone-${item.name}"
+                )
+                val pillBg by animateColorAsState(
+                    targetValue = if (active) Aether.Cyan.copy(alpha = 0.14f) else Color.Transparent,
+                    animationSpec = MarbleMotionSpecs.Color,
+                    label = "dock-pill-${item.name}"
+                )
+                val iconTone by animateColorAsState(
+                    targetValue = if (active) Aether.CyanBright else Aether.InkMuted,
+                    animationSpec = MarbleMotionSpecs.Color,
+                    label = "dock-icon-${item.name}"
                 )
 
-                Column(
-                    modifier=Modifier
+                Box(
+                    modifier = Modifier
                         .weight(1f)
-                        .height(60.dp)
-                        .clip(itemShape)
-                        .background(itemBg)
+                        .graphicsLayer {
+                            scaleX = activeScale
+                            scaleY = activeScale
+                        }
                         .kineticClickable(
-                            boundedShape=itemShape,
-                            role=Role.Button
+                            boundedShape = glassShape,
+                            role = Role.Button,
                         ) { onSelect(item) }
-                        .padding(horizontal=8.dp,vertical=4.dp),
-                    horizontalAlignment=Alignment.CenterHorizontally,
-                    verticalArrangement=Arrangement.Center
+                        .padding(horizontal = 6.dp, vertical = 4.dp),
+                    contentAlignment = Alignment.Center
                 ) {
-                    MarbleTabIcon(
-                        tab=item,
-                        color=contentTone,
-                        active=active,
-                        modifier=Modifier.size(21.dp)
-                    )
-
-                    Spacer(Modifier.height(5.dp))
-
-                    Text(
-                        item.label,
-                        color=contentTone,
-                        style=MaterialTheme.typography.labelMedium,
-                        fontWeight=if(active) FontWeight.SemiBold else FontWeight.Medium,
-                        maxLines=1
-                    )
-
-                    Spacer(Modifier.height(5.dp))
-
-                    Box(
-                        modifier=Modifier
-                            .width(22.dp)
-                            .height(3.dp)
-                            .clip(RoundedCornerShape(2.dp))
-                            .background(indicatorTone)
-                    )
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(glassShape)
+                            .background(pillBg)
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        MarbleTabIcon(
+                            tab = item,
+                            color = iconTone,
+                            active = active,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(Modifier.height(3.dp))
+                        Text(
+                            item.label,
+                            color = activeTone,
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = if (active) FontWeight.Bold else FontWeight.SemiBold,
+                            maxLines = 1,
+                            letterSpacing = 0.02.sp
+                        )
+                    }
                 }
             }
         }
@@ -5160,12 +5185,12 @@ private fun MicroStat(
 // =================================================================================================
 
 private enum class SettingsWorkspaceTab(val label: String, val icon: HomeIcon) {
-    GENERAL("General", HomeIcon.SPARK),
-    FREEDOM("Freedom", HomeIcon.SHIELD),
-    TESTS("Testing", HomeIcon.PING),
-    NETWORK("Network", HomeIcon.NETWORK),
-    ENGINE("Engine", HomeIcon.TUNNEL),
-    SYSTEM("System", HomeIcon.DETAILS)
+    GENERAL("Appearance & Layout", HomeIcon.SPARK),
+    FREEDOM("Freedom Engine", HomeIcon.SHIELD),
+    TESTS("Testing & Benchmarks", HomeIcon.PING),
+    NETWORK("Network & Routing", HomeIcon.NETWORK),
+    ENGINE("Connection Engine", HomeIcon.TUNNEL),
+    SYSTEM("System & Alerts", HomeIcon.DETAILS)
 }
 
 private fun rememberedSettingsTab(name: String): SettingsWorkspaceTab =
@@ -5627,54 +5652,54 @@ private fun settingsSections(
     val routingFocused = focusSection == "Routing"
     val expertGate = card(
         "Expert workspace",
-        "This tab's full option set unlocks when Expert controls are on",
+        "Unlock full option set",
         HomeIcon.SHIELD,
         Aether.Amethyst
     ) { ExpertGateRow(repo) }
 
     return when (tab) {
         SettingsWorkspaceTab.GENERAL -> listOf(
-            card("Appearance & layout","Theme, expertise and Home composition",HomeIcon.MODE,Aether.Cyan) { AppearanceSettings(repo) },
-            card("Connection","Full-device tunnel or local SOCKS proxy",HomeIcon.TUNNEL,Aether.Cyan) { ConnectionSettings(repo) },
-            card("Subscriptions","Automatic refresh cadence and source behavior",HomeIcon.LIBRARY,Aether.Amethyst) { SubscriptionSettings(repo) }
+            card("Appearance & Layout","Theme, expertise, home layout",HomeIcon.MODE,Aether.Cyan) { AppearanceSettings(repo) },
+            card("Connection","Tunnel, proxy, port",HomeIcon.TUNNEL,Aether.Cyan) { ConnectionSettings(repo) },
+            card("Subscriptions","Refresh cadence, sources",HomeIcon.LIBRARY,Aether.Amethyst) { SubscriptionSettings(repo) }
         )
         SettingsWorkspaceTab.FREEDOM -> listOf(
-            card("Marble Freedom Engine","Serverless DPI bypass, multi-layer fragmentation & smart multi-DNS",HomeIcon.SHIELD,Aether.Cyan) { FreedomSettings(repo) }
+            card("Marble Freedom Engine","Serverless DPI bypass, fragment",HomeIcon.SHIELD,Aether.Cyan) { FreedomSettings(repo) }
         )
         SettingsWorkspaceTab.TESTS -> buildList {
-            add(card("Testing & ping","Real tunnel, TCP and ICMP evidence policy",HomeIcon.BENCHMARK,Aether.Amethyst) { ProbeSettings(repo) })
+            add(card("Testing & ping","Tunnel, TCP, ICMP policy",HomeIcon.BENCHMARK,Aether.Amethyst) { ProbeSettings(repo) })
             if(expertMode) {
-                add(card("Marble Intelligence","Adaptive route history, recovery and optimizer policy",HomeIcon.SPARK,Aether.Cyan) { IntelligenceSettings(repo) })
+                add(card("Intelligence","Adaptive route, recovery",HomeIcon.SPARK,Aether.Cyan) { IntelligenceSettings(repo) })
             } else {
                 add(expertGate)
             }
         }
         SettingsWorkspaceTab.NETWORK -> buildList {
-            add(card("Split tunneling","Choose exactly which apps use or bypass the tunnel",HomeIcon.PRIVACY,Aether.Emerald) { SplitTunnelSettings(repo) })
+            add(card("Split tunneling","App tunnel / bypass list",HomeIcon.PRIVACY,Aether.Emerald) { SplitTunnelSettings(repo) })
             if(expertMode) {
                 if(routingFocused) {
-                    add(card("Routing","Geo assets, direct rules and blocking policy",HomeIcon.ROUTING,Aether.Emerald) { RoutingSettings(repo) })
+                    add(card("Routing","Geo assets, rules",HomeIcon.ROUTING,Aether.Emerald) { RoutingSettings(repo) })
                 }
-                add(card("Regional protection","Iran Mode detection and countermeasures",HomeIcon.SHIELD,Aether.Emerald) { IranModeSettings(repo) })
-                add(card("DNS","TUN resolvers and encrypted DoH path",HomeIcon.NETWORK,Aether.Cyan) { DnsSettings(repo) })
+                add(card("Regional protection","Iran Mode detection",HomeIcon.SHIELD,Aether.Emerald) { IranModeSettings(repo) })
+                add(card("DNS","TUN, DoH, family",HomeIcon.NETWORK,Aether.Cyan) { DnsSettings(repo) })
                 if(!routingFocused) {
-                    add(card("Routing","Geo assets, direct rules and blocking policy",HomeIcon.ROUTING,Aether.Emerald) { RoutingSettings(repo) })
+                    add(card("Routing","Geo assets, rules",HomeIcon.ROUTING,Aether.Emerald) { RoutingSettings(repo) })
                 }
             } else {
                 if(routingFocused) {
-                    add(card("Routing","Geo assets, direct rules and blocking policy",HomeIcon.ROUTING,Aether.Emerald) { RoutingSettings(repo) })
+                    add(card("Routing","Geo assets, rules",HomeIcon.ROUTING,Aether.Emerald) { RoutingSettings(repo) })
                 }
                 add(expertGate)
             }
         }
         SettingsWorkspaceTab.ENGINE -> listOf(
             if(expertMode) {
-                card("Fragmentation & Mux","DPI resilience and connection reuse",HomeIcon.SPARK,Aether.Amber) { FragmentMuxSettings(repo) }
+                card("Fragmentation & Mux","DPI resilience, reuse",HomeIcon.SPARK,Aether.Amber) { FragmentMuxSettings(repo) }
             } else expertGate
         )
         SettingsWorkspaceTab.SYSTEM -> listOf(
-            card("Notifications","Connection, recovery and privacy alerts",HomeIcon.STATUS,Aether.Cyan) { NotificationSettings(repo) },
-            card("Bug Finder","Deep Xray, SOCKS, TUN and HEV diagnostics",HomeIcon.DETAILS,Aether.Danger) { BugFinderSettings(repo) }
+            card("Notifications","Connection, privacy alerts",HomeIcon.STATUS,Aether.Cyan) { NotificationSettings(repo) },
+            card("Bug Finder","Xray, SOCKS, TUN diagnostics",HomeIcon.DETAILS,Aether.Danger) { BugFinderSettings(repo) }
         )
     }
 }
@@ -5721,7 +5746,7 @@ private fun SettingsSectionCard(
     PrismPanel(
         modifier=Modifier.fillMaxWidth(),
         accent=color,
-        contentPadding=PaddingValues(14.dp)
+        contentPadding=PaddingValues(20.dp)
     ) {
         Row(
             modifier=Modifier.fillMaxWidth(),
@@ -5753,7 +5778,7 @@ private fun SettingsSectionCard(
                 Text(
                     title,
                     color=Aether.Ink,
-                    style=MaterialTheme.typography.titleMedium,
+                    style=MaterialTheme.typography.titleLarge,
                     fontWeight=FontWeight.Bold,
                     maxLines=1,
                     overflow=TextOverflow.Ellipsis
@@ -5762,7 +5787,7 @@ private fun SettingsSectionCard(
                     Text(
                         subtitle,
                         color=Aether.InkMuted,
-                        style=MaterialTheme.typography.bodySmall,
+                        style=MaterialTheme.typography.bodyMedium,
                         maxLines=2,
                         overflow=TextOverflow.Ellipsis
                     )
@@ -5781,12 +5806,14 @@ private fun SettingsSectionCard(
 
 @Composable
 private fun AppearanceSettings(repo: AppRepository) {
+    // Section: Theme Selection — large, clearly titled, no clutter
     Text(
         "Theme",
-        color=Aether.Ink,
-        style=MaterialTheme.typography.titleSmall,
-        fontWeight=FontWeight.Bold
+        color = Aether.Ink,
+        style = MaterialTheme.typography.titleLarge,
+        fontWeight = FontWeight.Bold
     )
+    Spacer(Modifier.height(12.dp))
     Row(
         modifier=Modifier.fillMaxWidth(),
         horizontalArrangement=Arrangement.spacedBy(8.dp)

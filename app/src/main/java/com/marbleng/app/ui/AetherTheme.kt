@@ -118,27 +118,27 @@ private val LightPalette = AetherPalette(
     inkFaint = Brand.NavyDeep.copy(alpha = .42f).compositeOver(Brand.White)
 )
 
-/* Dark remains an explicit accessibility/user choice and mirrors the same formal color identity. */
+/* Dark remains an explicit accessibility/user choice with a true AMOLED black foundation. */
 private val DarkPalette = AetherPalette(
-    void = Brand.NavyDeep,
-    voidElevated = Brand.NavyDark,
-    glass = Brand.NavyDark,
-    glassStrong = Brand.Electric.copy(alpha = .18f).compositeOver(Brand.NavyDeep),
-    glassBorder = Brand.Electric.copy(alpha = .38f).compositeOver(Brand.NavyDeep),
-    glassBorderSoft = Brand.Ice.copy(alpha = .16f).compositeOver(Brand.NavyDeep),
+    void = Color(0xFF000000),          // pure AMOLED black
+    voidElevated = Color(0xFF080814),   // barely lifted black for elevation
+    glass = Color(0xFF0A0A14),          // very dark glass
+    glassStrong = Brand.Electric.copy(alpha = .12f).compositeOver(Color(0xFF000000)),
+    glassBorder = Brand.Electric.copy(alpha = .30f).compositeOver(Color(0xFF080814)),
+    glassBorderSoft = Brand.Ice.copy(alpha = .12f).compositeOver(Color(0xFF000000)),
     amethyst = Brand.Electric,
     amethystBright = Brand.Bright,
     cyan = Brand.Bright,
     cyanBright = Brand.Ice,
-    slate = Brand.NavyDark,
+    slate = Color(0xFF0A0A14),
     slateBright = Brand.Ice,
     danger = Color(0xFFFF718B),
     dangerBright = Color(0xFFFF99AA),
     emerald = Color(0xFF55D7B4),
     amber = Color(0xFFF2B45F),
-    ink = Brand.Alice,
-    inkMuted = Brand.Ice.copy(alpha = .85f).compositeOver(Brand.NavyDeep),
-    inkFaint = Brand.Ice.copy(alpha = .55f).compositeOver(Brand.NavyDeep)
+    ink = Color(0xFFF0F8FF),           // bright ice white for max AMOLED contrast
+    inkMuted = Brand.Ice.copy(alpha = .78f).compositeOver(Color(0xFF000000)),
+    inkFaint = Brand.Ice.copy(alpha = .42f).compositeOver(Color(0xFF000000))
 )
 
 private val LocalAetherPalette = staticCompositionLocalOf { LightPalette }
