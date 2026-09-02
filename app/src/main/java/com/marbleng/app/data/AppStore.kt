@@ -61,6 +61,24 @@ class AppStore(context: Context) {
             .putString("librarySourceFilter", id.trim().ifBlank { "all" })
             .apply()
 
+    // MARBLE_LIBRARY_COLLAPSIBLE_V113 — which Library source groups the user has folded shut.
+    // Stored as a string set so the open/closed state survives every later visit.
+    fun libraryCollapsedSources(): Set<String> =
+        (prefs.getStringSet("libraryCollapsedSources", emptySet()) ?: emptySet()).toSet()
+
+    fun setLibraryCollapsedSources(collapsed: Set<String>) =
+        prefs.edit()
+            .putStringSet("libraryCollapsedSources", collapsed)
+            .apply()
+
+    // MARBLE_LIBRARY_FREEDOM_TOGGLE_V113 — Marble Freedom is hidden from the Library by default.
+    fun libraryFreedomHidden(): Boolean = prefs.getBoolean("libraryFreedomHidden", true)
+
+    fun setLibraryFreedomHidden(hidden: Boolean) =
+        prefs.edit()
+            .putBoolean("libraryFreedomHidden", hidden)
+            .apply()
+
     /** Last top-level app destination. Kept outside AppSettings because it is navigation state. */
     fun lastAppTab(): String = prefs.getString("lastAppTab", "DECK")
         ?.trim()

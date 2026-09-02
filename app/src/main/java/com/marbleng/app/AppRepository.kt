@@ -185,6 +185,31 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         )
     }
 
+    // MARBLE_LIBRARY_COLLAPSIBLE_V113 — the open/closed state of every Library source group,
+    // persisted so the layout the user folds is the layout they come back to.
+    var libraryCollapsedSources by mutableStateOf(store.libraryCollapsedSources())
+        private set
+
+    fun setLibrarySourceCollapsed(sourceId: String, collapsed: Boolean) {
+        val next = libraryCollapsedSources.toMutableSet().apply {
+            if (collapsed) add(sourceId) else remove(sourceId)
+        }
+        if (next == libraryCollapsedSources) return
+        libraryCollapsedSources = next
+        store.setLibraryCollapsedSources(next)
+    }
+
+    // MARBLE_LIBRARY_FREEDOM_TOGGLE_V113 — Marble Freedom stays hidden from the Library until the
+    // user reveals it from the smart floating button.
+    var libraryFreedomHidden by mutableStateOf(store.libraryFreedomHidden())
+        private set
+
+    fun setLibraryFreedomHidden(hidden: Boolean) {
+        if (libraryFreedomHidden == hidden) return
+        libraryFreedomHidden = hidden
+        store.setLibraryFreedomHidden(hidden)
+    }
+
     fun ensureLibrarySourceSelectionValid() {
         val normalized = normalizeLibrarySourceFilter(librarySourceFilter)
         if (normalized != librarySourceFilter) {
