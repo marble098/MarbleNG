@@ -537,7 +537,7 @@ internal fun PrismButton(
                 horizontalAlignment=Alignment.Start
             ) {
                 Text(
-                    label,
+                    trx(label),
                     color=content,
                     style=if (compact) MaterialTheme.typography.labelMedium else MaterialTheme.typography.labelLarge,
                     fontWeight=FontWeight.Bold,
@@ -546,7 +546,7 @@ internal fun PrismButton(
                 )
                 if (detail.isNotBlank()) {
                     Text(
-                        detail,
+                        trx(detail),
                         style=MaterialTheme.typography.labelSmall,
                         color=content.copy(alpha=.72f),
                         maxLines=1,
@@ -557,7 +557,7 @@ internal fun PrismButton(
             if (badge.isNotBlank()) {
                 Spacer(Modifier.width(8.dp))
                 Text(
-                    badge,
+                    trx(badge),
                     style=MaterialTheme.typography.labelSmall.copy(fontFamily=FontFamily.Monospace),
                     fontWeight=FontWeight.Bold,
                     color=content.copy(alpha=.86f)
@@ -732,7 +732,7 @@ internal fun PrismSelectionTile(
         }
         Column(horizontalAlignment=Alignment.Start) {
             Text(
-                label,
+                trx(label),
                 color=if (selected) tone else Aether.Ink,
                 style=MaterialTheme.typography.labelMedium,
                 fontWeight=if (selected) FontWeight.Bold else FontWeight.SemiBold,
@@ -741,7 +741,7 @@ internal fun PrismSelectionTile(
             )
             if (detail.isNotBlank()) {
                 Text(
-                    detail,
+                    trx(detail),
                     color=if (selected) tone.copy(alpha=.8f) else Aether.InkFaint,
                     style=MaterialTheme.typography.labelSmall,
                     maxLines=1,
@@ -878,7 +878,7 @@ internal fun PrismBadge(
                 .background(tone)
         )
         Text(
-            text,
+            trx(text),
             color=tone,
             style=MaterialTheme.typography.labelSmall,
             fontWeight=if(strong) FontWeight.Bold else FontWeight.SemiBold,
@@ -946,7 +946,7 @@ internal fun MarbleMetricCard(
                 )
                 Spacer(Modifier.width(7.dp))
                 Text(
-                    title.uppercase(),
+                    trx(title).uppercase(),
                     color=Aether.InkMuted,
                     style=MaterialTheme.typography.labelSmall,
                     fontWeight=FontWeight.Bold
@@ -1341,7 +1341,7 @@ internal fun PrismSearchField(
                     }
                     if (value.isEmpty()) {
                         Text(
-                            placeholder,
+                            trx(placeholder),
                             color=Aether.InkFaint,
                             style=MaterialTheme.typography.bodyMedium
                         )
@@ -1422,13 +1422,13 @@ internal fun PrismThemeChoice(
             )
         }
         Text(
-            label,
+            trx(label),
             color=if(selected) selectionTone else Aether.Ink,
             style=MaterialTheme.typography.labelMedium,
             fontWeight=FontWeight.Bold
         )
         Text(
-            detail,
+            trx(detail),
             color=Aether.InkFaint,
             style=MaterialTheme.typography.labelSmall,
             maxLines=1
