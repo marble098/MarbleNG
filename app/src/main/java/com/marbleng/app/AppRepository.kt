@@ -155,6 +155,18 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         store.setLastSettingsTab(normalized)
     }
 
+    // MARBLE_SIGNATURE_HOME_V112 — the floating connect button's dragged spot, stored as
+    // normalized viewport fractions so it survives restarts on any screen size.
+    var proFabPosition by mutableStateOf(store.proFabPosition())
+        private set
+
+    fun rememberProFabPosition(nx: Float, ny: Float) {
+        val clamped = nx.coerceIn(0.05f, 0.95f) to ny.coerceIn(0.12f, 0.80f)
+        if (proFabPosition == clamped) return
+        proFabPosition = clamped
+        store.setProFabPosition(clamped.first, clamped.second)
+    }
+
     /** Public diagnostics hook for UI-level tripwires (e.g. the Settings viewport fallback). */
     fun diagnosticsEvent(component: String, event: String, vararg fields: Pair<String, Any?>) {
         diagnostics.event(component, event, *fields)
@@ -1302,15 +1314,25 @@ private fun postToMain(block: () -> Unit) {
     }
 
     /**
-     * MARBLE_HOME_SESSION_EVIDENCE_V110 / MARBLE_SMART_TUNNEL_PING_V111 — the Home connection ping.
+     * MARBLE_HOME_SESSION_EVIDENCE_V110 / MARBLE_SMART_TUNNEL_PING_V111 / MARBLE_HOME_PING_RESCUE_V112
+     * — the Home connection ping.
      *
      * Every tap runs a *fresh, real* measurement through the live Xray path — never a cached or
-     * estimated number. The probe is smart: three independent, censorship-resilient HTTPS
-     * endpoints are raced in parallel through the tunnel and the fastest verified round trip
-     * wins, so one throttled CDN cannot misreport the tunnel latency. It never becomes a
-     * background timer, so it cannot add traffic to a metered connection, and it never
-     * substitutes an estimate: when every probe fails the state reports FAILED instead of a
-     * fake number.
+     * estimated number, and never SOCKS CONNECT setup timing dressed up as Internet ping.
+     *
+     * MARBLE_HOME_PING_RESCUE_V112: the old probe raced three *domain* HTTP-204 origins and
+     * nothing else, so a tunnel whose exit could not answer those exact origins reported
+     * "no response" while the app itself carried traffic perfectly. The probe is now a ladder of
+     * independent, provider-diverse measurement modes raced in parallel — exactly the stack the
+     * live route monitor already trusts:
+     *
+     *   1. DNS-free literal-IP HTTPS first-byte RTT (1.1.1.1 / 8.8.8.8 / 9.9.9.9 / 1.0.0.1 with
+     *      certificate-verified TLS hostnames) — immune to resolver trouble inside the tunnel;
+     *   2. v2rayNG-style real-delay batches against generate_204-class domains;
+     *   3. a plain full HTTPS GET status probe as the final independent opinion.
+     *
+     * The fastest *verified* round trip wins; FAILED is only reported when every mode fails. It
+     * never becomes a background timer, so it cannot add traffic to a metered connection.
      */
     fun measureConnectionPing() {
         if (state != "CONNECTED") {
@@ -1327,18 +1349,46 @@ private fun postToMain(block: () -> Unit) {
         val sessionAtStart = connectedSinceMs
 
         io.execute {
-            // Three independent generate_204-class origins; the tunnel RTT is the minimum
-            // verified sample across whichever of them answer. Each target runs on its own
-            // thread so a stalled endpoint cannot serialize the whole measurement.
-            val targets = listOf(
-                "www.gstatic.com" to "/generate_204",
-                "cp.cloudflare.com" to "/",
-                "www.google.com" to "/generate_204"
+            // Literal-IP + TLS-hostname pairs: the SOCKS CONNECT destination stays a literal IP
+            // (DNS-free), while certificate verification uses the provider's real hostname —
+            // the same trick the live route monitor uses, because some anycast edges reject the
+            // bare IP as the TLS name.
+            val literalTargets = listOf(
+                Triple("1.1.1.1", "cloudflare-dns.com", "/cdn-cgi/trace"),
+                Triple("8.8.8.8", "dns.google", "/dns-query"),
+                Triple("9.9.9.9", "dns.quad9.net", "/dns-query"),
+                Triple("1.0.0.1", "cloudflare-dns.com", "/cdn-cgi/trace")
             )
-            val results = java.util.Collections.synchronizedList(ArrayList<Double>())
-            val pool = Executors.newFixedThreadPool(targets.size)
+            val domainTargets = listOf(
+                "www.gstatic.com" to "/generate_204",
+                "cp.cloudflare.com" to "/generate_204",
+                "connectivitycheck.gstatic.com" to "/generate_204"
+            )
+
+            data class ProbeSample(val mode: String, val ms: Double)
+
+            val results = java.util.Collections.synchronizedList(ArrayList<ProbeSample>())
+
+            fun record(mode: String, ms: Double) {
+                if (ms.isFinite() && ms > 0.0) results += ProbeSample(mode, ms)
+            }
+
+            val pool = Executors.newFixedThreadPool(literalTargets.size + domainTargets.size + 1)
             try {
-                val tasks = targets.map { (host, path) ->
+                val tasks = literalTargets.map { (ip, tlsHost, path) ->
+                    java.util.concurrent.Callable {
+                        runCatching {
+                            SocksHttpClient.httpsFirstByteLatency(
+                                port = port,
+                                host = ip,
+                                path = path,
+                                targetPort = 443,
+                                timeoutMs = 4_500,
+                                tlsHost = tlsHost
+                            )
+                        }.getOrNull()?.let { record("first-byte:$tlsHost", it) }
+                    }
+                } + domainTargets.map { (host, path) ->
                     java.util.concurrent.Callable {
                         runCatching {
                             SocksHttpClient.tunnelRttBatch(
@@ -1346,35 +1396,51 @@ private fun postToMain(block: () -> Unit) {
                                 host = host,
                                 path = path,
                                 samples = 2,
-                                timeoutMs = 6_000
+                                timeoutMs = 5_000
                             )
                         }.getOrNull()
                             ?.samplesMs
                             ?.filter { it.isFinite() && it > 0.0 }
                             ?.minOrNull()
-                            ?.let { results.add(it) }
+                            ?.let { record("real-delay:$host", it) }
                     }
-                }
-                pool.invokeAll(tasks, 8, java.util.concurrent.TimeUnit.SECONDS)
+                } + listOf(
+                    java.util.concurrent.Callable {
+                        // Independent full-request opinion: any 2xx/3xx proves the tunnel
+                        // end-to-end and carries an honest elapsed time.
+                        runCatching {
+                            SocksHttpClient.get(
+                                port,
+                                "cp.cloudflare.com",
+                                "/generate_204",
+                                4_500,
+                                2_048
+                            )
+                        }.getOrNull()
+                            ?.takeIf { it.status in 200..399 && it.elapsedMs > 0.0 }
+                            ?.let { record("get:cloudflare", it.elapsedMs) }
+                    }
+                )
+                pool.invokeAll(tasks, 9, java.util.concurrent.TimeUnit.SECONDS)
             } catch (_: InterruptedException) {
                 Thread.currentThread().interrupt()
             } finally {
                 pool.shutdownNow()
             }
 
-            val measured = results
-                .filter { it.isFinite() && it > 0.0 }
-                .minOrNull()
-                ?.roundToInt()
-                ?.coerceIn(1, 10_000)
-                ?: -1
+            val winner = results
+                .filter { it.ms.isFinite() && it.ms > 0.0 }
+                .minByOrNull { it.ms }
+            val measured = winner?.ms?.roundToInt()?.coerceIn(1, 10_000) ?: -1
 
             diagnostics.event(
                 "APP",
                 "home-connection-ping",
                 "measured" to measured,
                 "port" to port,
-                "responders" to results.size
+                "responders" to results.size,
+                "mode" to (winner?.mode ?: "none"),
+                "modes" to results.joinToString(",") { "${it.mode}=${it.ms.roundToInt()}" }
             )
 
             postToMain {

@@ -20,7 +20,9 @@ fun MarbleApp(
     ProvideMarbleLanguage(repo.settings.appLanguage) {
         AetherFlowTheme(
             themeId = repo.settings.theme,
-            fontId = repo.settings.fontFamily
+            fontId = repo.settings.fontFamily,
+            // MARBLE_NIGHT_OUTLINES_V112 — the dark-theme hairline personality.
+            outlineStyleId = repo.settings.darkOutlineStyle
         ) {
             Aether2026App(
                 repo = repo,

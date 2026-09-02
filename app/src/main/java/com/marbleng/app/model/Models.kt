@@ -116,14 +116,24 @@ enum class WorkloadProfile { AUTO, INTERACTIVE, STREAMING, STABILITY, STEALTH }
 enum class NodeSortMode { PING, SCORE, NAME, PROTOCOL, SOURCE }
 
 /**
- * MARBLE_HOME_STYLE_V110
+ * MARBLE_HOME_STYLE_V110 / MARBLE_SIGNATURE_HOME_V112
  *
- * The four user-selectable Home (connection) presentations. Every style renders exactly the same
+ * The five user-selectable Home (connection) presentations. Every style renders exactly the same
  * runtime evidence — node, source, IP + flag + three actions, session uptime and the one-shot
  * connection ping — so switching a style is purely a presentation choice and never changes what
  * the user can see or do.
  */
 enum class HomeStyle(val id: String) {
+    /**
+     * MARBLE_SIGNATURE_HOME_V112 — the dedicated professional Signature studio.
+     *
+     * A fixed, fully customizable connection surface that is the product's default: a status
+     * banner, corner quick actions (+ / ping / shortcut / more), the server rail of the source
+     * selected in Library, a bottom connection-style switcher, the optional floating connect
+     * button (app-wide, draggable, v2rayNG-style) and an accent-tinted animated aurora backdrop.
+     */
+    PRO("pro"),
+
     /** Organic bioluminescence: glowing seed, nerve-like data tendrils, pastel green/purple. */
     BIOLUMINESCENT("bioluminescent"),
 
@@ -139,7 +149,7 @@ enum class HomeStyle(val id: String) {
 
 fun parseHomeStyle(raw: String): HomeStyle =
     HomeStyle.entries.firstOrNull { it.id.equals(raw.trim(), ignoreCase = true) }
-        ?: HomeStyle.BIOLUMINESCENT
+        ?: HomeStyle.PRO
 
 /**
  * MARBLE_BILINGUAL_V110
@@ -157,9 +167,15 @@ fun parseAppLanguage(raw: String): AppLanguage =
     AppLanguage.entries.firstOrNull { it.id.equals(raw.trim(), ignoreCase = true) }
         ?: AppLanguage.SYSTEM
 
-/** User-selectable product typefaces. The default keeps Persian text readable on every device. */
+/**
+ * User-selectable product typefaces. The default keeps Persian text readable on every device.
+ *
+ * MARBLE_SYSTEM_FONT_V112: SYSTEM renders with the device's own default typeface; Persian copy
+ * still forces the bundled Vazirmatn ramp inside AetherTheme so Persian shaping never degrades.
+ */
 enum class AppFont(val id: String, val label: String) {
     VAZIR("vazir", "Vazir"),
+    SYSTEM("system", "System"),
     GOOGLE_SANS("google_sans", "Google Sans"),
     TIMES_NEW_ROMAN("times_new_roman", "Times New Roman")
 }
@@ -167,6 +183,78 @@ enum class AppFont(val id: String, val label: String) {
 fun parseAppFont(raw: String): AppFont =
     AppFont.entries.firstOrNull { it.id.equals(raw.trim(), ignoreCase = true) }
         ?: AppFont.VAZIR
+
+/**
+ * MARBLE_SIGNATURE_HOME_V112 — background treatment of the server cards in the Signature Home
+ * rail: frosted glass, a solid accent-tinted fill, or plain flat surfaces.
+ */
+enum class ProServerCardStyle(val id: String) {
+    GLASS("glass"),
+    ACCENT("accent"),
+    PLAIN("plain")
+}
+
+fun parseProServerCardStyle(raw: String): ProServerCardStyle =
+    ProServerCardStyle.entries.firstOrNull { it.id.equals(raw.trim(), ignoreCase = true) }
+        ?: ProServerCardStyle.GLASS
+
+/**
+ * MARBLE_SIGNATURE_HOME_V112 — the user-chosen accent that drives the whole Signature studio
+ * (banner, power rings, server rail, floating button and aurora backdrop).
+ */
+enum class ProAccent(val id: String, val label: String) {
+    ELECTRIC("electric", "Electric"),
+    EMERALD("emerald", "Emerald"),
+    AMETHYST("amethyst", "Amethyst"),
+    AMBER("amber", "Amber"),
+    CYAN("cyan", "Ice")
+}
+
+fun parseProAccent(raw: String): ProAccent =
+    ProAccent.entries.firstOrNull { it.id.equals(raw.trim(), ignoreCase = true) }
+        ?: ProAccent.ELECTRIC
+
+/**
+ * MARBLE_SIGNATURE_HOME_V112 — where the Signature status banner is rendered.
+ */
+enum class ProBannerScope(val id: String) {
+    HOME("home"),
+    ALL("all")
+}
+
+fun parseProBannerScope(raw: String): ProBannerScope =
+    ProBannerScope.entries.firstOrNull { it.id.equals(raw.trim(), ignoreCase = true) }
+        ?: ProBannerScope.HOME
+
+/**
+ * MARBLE_SIGNATURE_HOME_V112 — which quick action the Signature corner shortcut button runs.
+ */
+enum class ProShortcut(val id: String) {
+    LIBRARY("library"),
+    RANK("rank"),
+    PRIVACY("privacy"),
+    ROUTING("routing"),
+    TESTS("tests")
+}
+
+fun parseProShortcut(raw: String): ProShortcut =
+    ProShortcut.entries.firstOrNull { it.id.equals(raw.trim(), ignoreCase = true) }
+        ?: ProShortcut.LIBRARY
+
+/**
+ * MARBLE_NIGHT_OUTLINES_V112 — dark-theme frame outline personality. The user can strengthen
+ * every card/frame hairline, tint it with the brand accent, or dissolve the borders entirely.
+ */
+enum class DarkOutlineStyle(val id: String) {
+    SUBTLE("subtle"),
+    BOLD("bold"),
+    COLORED("colored"),
+    HIDDEN("hidden")
+}
+
+fun parseDarkOutlineStyle(raw: String): DarkOutlineStyle =
+    DarkOutlineStyle.entries.firstOrNull { it.id.equals(raw.trim(), ignoreCase = true) }
+        ?: DarkOutlineStyle.SUBTLE
 
 /**
  * MARBLE_HOME_SESSION_EVIDENCE_V110
@@ -488,8 +576,36 @@ data class AppSettings(
     /** Product typeface selected in the standard Settings workspace. */
     val fontFamily: String = AppFont.VAZIR.id,
 
-    /** MARBLE_HOME_STYLE_V110 — which of the four Home presentations the user picked. */
-    val homeStyle: String = HomeStyle.BIOLUMINESCENT.id,
+    /**
+     * MARBLE_HOME_STYLE_V110 / MARBLE_SIGNATURE_HOME_V112 — which Home presentation the user
+     * picked. The Signature studio (PRO) is the product default: the main connection theme ships
+     * enabled out of the box and every one of its layers stays independently customizable below.
+     */
+    val homeStyle: String = HomeStyle.PRO.id,
+
+    // MARBLE_SIGNATURE_HOME_V112 — the Signature studio customization surface. Every layer of
+    // the professional Home is an independent user choice; nothing is hard-wired.
+    /** The app-wide draggable floating connect button (v2rayNG-style shutter). */
+    val proFloatingButtonEnabled: Boolean = true,
+    /** Slim status banner (connection state + selected server) rendered like a persistent strip. */
+    val proStatusBannerEnabled: Boolean = true,
+    /** Whether the banner lives on Home only or rides on top of every page. */
+    val proBannerScope: String = ProBannerScope.HOME.id,
+    /** Corner action cluster: add server, grab ping, one configurable shortcut, more (⋮). */
+    val proCornerActionsEnabled: Boolean = true,
+    /** Home rail with the servers chosen in the Library source selector. */
+    val proServerRailEnabled: Boolean = true,
+    /** Bottom-of-page chips that switch the connection style without leaving Home. */
+    val proStyleSwitcherEnabled: Boolean = true,
+    /** Background treatment of the Signature server cards: glass / accent color / plain. */
+    val proServerCardStyle: String = ProServerCardStyle.GLASS.id,
+    /** Accent driving the Signature studio surfaces and animations. */
+    val proAccent: String = ProAccent.ELECTRIC.id,
+    /** Which quick action the corner shortcut button runs. */
+    val proShortcut: String = ProShortcut.LIBRARY.id,
+
+    /** MARBLE_NIGHT_OUTLINES_V112 — dark-theme hairline personality for every frame/card. */
+    val darkOutlineStyle: String = DarkOutlineStyle.SUBTLE.id,
 
     /** MARBLE_BILINGUAL_V110 — "system" follows the device locale; "en"/"fa" are overrides. */
     val appLanguage: String = AppLanguage.SYSTEM.id,

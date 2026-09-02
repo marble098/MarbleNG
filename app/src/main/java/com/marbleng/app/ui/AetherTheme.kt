@@ -38,7 +38,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.TextUnit
 import com.marbleng.app.R
 import com.marbleng.app.model.AppFont
+import com.marbleng.app.model.DarkOutlineStyle
 import com.marbleng.app.model.parseAppFont
+import com.marbleng.app.model.parseDarkOutlineStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
@@ -202,6 +204,8 @@ private val VazirFamily = FontFamily(
 private fun selectedFontFamily(id: String): FontFamily = when (parseAppFont(id)) {
     // The real bundled Vazirmatn face — Persian and Latin both ship inside the TTF.
     AppFont.VAZIR -> VazirFamily
+    // MARBLE_SYSTEM_FONT_V112 — the device's own default typeface, exactly as the OS renders it.
+    AppFont.SYSTEM -> FontFamily.Default
     // Google Sans is the platform product sans fallback on Android; keeping it platform-backed
     // avoids a network font download during a VPN connection or first launch.
     AppFont.GOOGLE_SANS -> FontFamily.Default
@@ -312,10 +316,45 @@ val AetherShapes = Shapes(
     extraLarge = RoundedCornerShape(30.dp)
 )
 
+/**
+ * MARBLE_NIGHT_OUTLINES_V112 — the user's dark-theme hairline personality.
+ *
+ * Every frame/card rim in the product flows through the palette border tokens below, so applying
+ * the choice here restyles the whole app without touching a single call site. Light themes keep
+ * their designed hairlines: this is explicitly the night-mode control the users asked for.
+ */
+@Composable
+private fun applyNightOutline(
+    palette: AetherPalette,
+    styleId: String
+): AetherPalette = when (parseDarkOutlineStyle(styleId)) {
+    // The designed AMOLED rim: one quiet hairline that separates surfaces without lines.
+    DarkOutlineStyle.SUBTLE -> palette
+    // Doubled presence: the same hue, clearly visible, for users who want framed cards.
+    DarkOutlineStyle.BOLD -> palette.copy(
+        glassBorder = palette.glassBorder.copy(alpha = (palette.glassBorder.alpha * 2.1f).coerceAtMost(.85f)),
+        glassBorderSoft = Color(0xFF2A2A3A),
+        barGlassBorder = palette.barGlassBorder.copy(alpha = (palette.barGlassBorder.alpha * 2.4f).coerceAtMost(.75f))
+    )
+    // Brand-tinted frames: electric-blue rims that glow against the AMOLED black.
+    DarkOutlineStyle.COLORED -> palette.copy(
+        glassBorder = Brand.Electric.copy(alpha = .52f),
+        glassBorderSoft = Brand.Electric.copy(alpha = .30f),
+        barGlassBorder = Brand.Bright.copy(alpha = .40f)
+    )
+    // Dissolved: no frame lines anywhere in the dark theme — depth comes from surfaces only.
+    DarkOutlineStyle.HIDDEN -> palette.copy(
+        glassBorder = Color.Transparent,
+        glassBorderSoft = Color.Transparent,
+        barGlassBorder = Color.Transparent
+    )
+}
+
 @Composable
 fun AetherFlowTheme(
     themeId: String = "light",
     fontId: String = AppFont.VAZIR.id,
+    outlineStyleId: String = DarkOutlineStyle.SUBTLE.id,
     content: @Composable () -> Unit
 ) {
     val requested=parseAppTheme(themeId)
@@ -325,7 +364,7 @@ fun AetherFlowTheme(
         AppTheme.SYSTEM -> !isSystemInDarkTheme()
     }
 
-    val palette=if(light) LightPalette else DarkPalette
+    val palette=if(light) LightPalette else applyNightOutline(DarkPalette, outlineStyleId)
     val context=LocalContext.current
     // Dynamic system surfaces can turn a dark system theme gray. Keep the dark branch on the
     // explicit AMOLED palette; only a light system theme may borrow Material You accents.

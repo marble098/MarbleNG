@@ -24,6 +24,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -68,6 +69,9 @@ import com.marbleng.app.AppRepository
 import com.marbleng.app.ServerIntelInfo
 import com.marbleng.app.model.ConnectionPingState
 import com.marbleng.app.model.HomeStyle
+import com.marbleng.app.model.ProAccent
+import com.marbleng.app.model.ProServerCardStyle
+import com.marbleng.app.model.ProShortcut
 import com.marbleng.app.model.ProxyProfile
 import kotlinx.coroutines.delay
 import kotlin.math.PI
@@ -145,7 +149,39 @@ internal data class HomeActions(
     val onRefreshIp: () -> Unit,
     val onIpDetails: () -> Unit,
     val onTestPing: () -> Unit,
-    val onLibrary: () -> Unit
+    val onLibrary: () -> Unit,
+    // MARBLE_SIGNATURE_HOME_V112 — extra actions only the Signature studio surface uses. They are
+    // safe no-ops in the four classic styles, which never render the controls that call them.
+    val onConnectProfile: (ProxyProfile) -> Unit = {},
+    val onAddRoute: () -> Unit = {},
+    val onRank: () -> Unit = {},
+    val onPrivacy: () -> Unit = {},
+    val onRouting: () -> Unit = {},
+    val onTests: () -> Unit = {}
+)
+
+/**
+ * MARBLE_SIGNATURE_HOME_V112 — the Signature studio configuration resolved once per composition.
+ *
+ * The four classic styles receive only [HomeEvidence] and keep rendering exactly as before; the
+ * Signature style additionally reads this snapshot so every one of its layers (banner, corner
+ * cluster, server rail, style switcher, accent) can be individually customized from Settings.
+ */
+internal data class HomeProContext(
+    val railProfiles: List<ProxyProfile>,
+    val railLabel: String,
+    val cardStyle: ProServerCardStyle,
+    val showBanner: Boolean,
+    val showCornerActions: Boolean,
+    val showServerRail: Boolean,
+    val showStyleSwitcher: Boolean,
+    val shortcut: ProShortcut,
+    val accent: ProAccent,
+    val selectedHomeStyle: HomeStyle,
+    val onHomeStyleSelected: (HomeStyle) -> Unit,
+    val activeProfileId: String,
+    val connected: Boolean,
+    val connecting: Boolean
 )
 
 /**
@@ -153,7 +189,7 @@ internal data class HomeActions(
  * node/source, the IP row, uptime and the ping element look hand-made for each presentation while
  * remaining the exact same facts and actions.
  */
-internal enum class HomeFlavor { ORGANIC, ORBIT, NEBULA, BLUEPRINT }
+internal enum class HomeFlavor { ORGANIC, ORBIT, NEBULA, BLUEPRINT, PRO }
 
 @Composable
 internal fun homeTone(evidence: HomeEvidence): Color = when {
@@ -248,12 +284,60 @@ private fun hash01(seed: Int): Float {
     return s - floor(s)
 }
 
+/**
+ * MARBLE_SEAMLESS_LOOPS_V112 — smooth 0..1 envelope that is zero at both ends of a loop.
+ *
+ * Every effect that wraps around (ripples, travelling pulses, drifting motes, scan lines) is
+ * multiplied by this fade so the frame where the loop restarts is visually identical to the frame
+ * before it started: elements are fully transparent exactly when they teleport back. The user can
+ * never tell where an animation begins or ends.
+ */
+internal fun loopFade(t: Float): Float = sin((t.coerceIn(0f, 1f)) * PI.toFloat())
+
+/**
+ * MARBLE_HOME_PING_AUTOFIT_V112 — one value renderer for every stat readout (uptime, ping).
+ *
+ * The ping must never escape its box: long values ("no response", Persian "بدون پاسخ",
+ * "اندازه‌گیری…", "1234 ms") step down through progressively smaller sizes derived from the
+ * caller's base style, then clamp to a single ellipsized line. Short values keep the full
+ * hero size, so nothing about the classic styles changes.
+ */
+@Composable
+internal fun HomeStatValueText(
+    value: String,
+    tone: Color,
+    baseStyle: androidx.compose.ui.text.TextStyle,
+    modifier: Modifier = Modifier,
+    fontFamily: FontFamily? = FontFamily.Monospace
+) {
+    // Length-driven auto-shrink: full size up to 7 glyphs, then two quieter steps.
+    val resolvedStyle = when {
+        value.length <= 7 -> baseStyle
+        value.length <= 10 -> baseStyle.copy(fontSize = baseStyle.fontSize * .86f)
+        else -> baseStyle.copy(fontSize = baseStyle.fontSize * .70f)
+    }
+    Text(
+        value,
+        color = tone,
+        style = if (fontFamily == null) resolvedStyle else resolvedStyle.copy(fontFamily = fontFamily),
+        fontWeight = FontWeight.Bold,
+        maxLines = 1,
+        softWrap = false,
+        overflow = TextOverflow.Ellipsis,
+        modifier = modifier
+    )
+}
+
 // ---------------------------------------------------------------------------------------------
 // Shared evidence widgets
 // ---------------------------------------------------------------------------------------------
 
 /** Compact icon set owned by the Home styles so they never depend on a font or a drawable. */
-internal enum class HomeGlyph { POWER, CHECK, RESET, COPY, REFRESH, MORE, PULSE, CLOCK, LIBRARY }
+internal enum class HomeGlyph {
+    POWER, CHECK, RESET, COPY, REFRESH, MORE, PULSE, CLOCK, LIBRARY,
+    // MARBLE_SIGNATURE_HOME_V112 — corner-action glyphs for the Signature studio.
+    PLUS, BOLT
+}
 
 @Composable
 internal fun HomeGlyphIcon(glyph: HomeGlyph, color: Color, modifier: Modifier = Modifier) {
@@ -357,6 +441,23 @@ internal fun HomeGlyphIcon(glyph: HomeGlyph, color: Color, modifier: Modifier = 
             HomeGlyph.LIBRARY -> listOf(.28f, .50f, .72f).forEach { y ->
                 drawLine(color, Offset(w * .20f, h * y), Offset(w * .80f, h * y), stroke, StrokeCap.Round)
             }
+            HomeGlyph.PLUS -> {
+                drawLine(color, Offset(w * .5f, h * .18f), Offset(w * .5f, h * .82f), stroke, StrokeCap.Round)
+                drawLine(color, Offset(w * .18f, h * .5f), Offset(w * .82f, h * .5f), stroke, StrokeCap.Round)
+            }
+            HomeGlyph.BOLT -> drawPath(
+                Path().apply {
+                    moveTo(w * .58f, h * .10f)
+                    lineTo(w * .24f, h * .56f)
+                    lineTo(w * .47f, h * .56f)
+                    lineTo(w * .40f, h * .90f)
+                    lineTo(w * .76f, h * .42f)
+                    lineTo(w * .53f, h * .42f)
+                    close()
+                },
+                color,
+                style = line
+            )
         }
     }
 }
@@ -439,6 +540,56 @@ internal fun HomeIdentityBlock(
             BlueprintSpecRow(index = "01", label = t.node, value = nodeValue, tone = tone)
             BlueprintSpecRow(index = "02", label = t.source, value = sourceValue, tone = Aether.InkMuted)
         }
+
+        HomeFlavor.PRO -> Column(modifier, verticalArrangement = Arrangement.spacedBy(7.dp)) {
+            // Signature identity: quiet labeled rows with a breathing accent spine. The spine's
+            // glow follows the shared clock, so the block always feels alive but never jumps.
+            SignatureIdentityRow(label = t.node, value = nodeValue, tone = tone)
+            SignatureIdentityRow(label = t.source, value = sourceValue, tone = Aether.InkMuted)
+        }
+    }
+}
+
+@Composable
+private fun SignatureIdentityRow(label: String, value: String, tone: Color) {
+    val glow = MarbleMotion.current.breathe(3_600)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(13.dp))
+            .background(Aether.VoidElevated.copy(alpha = .92f))
+            .border(1.dp, tone.copy(alpha = .20f), RoundedCornerShape(13.dp))
+            .padding(horizontal = 12.dp, vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Box(
+            Modifier
+                .width(3.dp)
+                .height(22.dp)
+                .clip(CircleShape)
+                .background(
+                    Brush.verticalGradient(
+                        listOf(tone.copy(alpha = .40f + .45f * glow), tone.copy(alpha = .12f))
+                    )
+                )
+        )
+        Text(
+            label.uppercase(),
+            color = Aether.InkFaint,
+            style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 2.sp),
+            fontWeight = FontWeight.Bold,
+            maxLines = 1
+        )
+        Text(
+            value,
+            color = Aether.Ink,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f)
+        )
     }
 }
 
@@ -796,6 +947,55 @@ internal fun HomeIpRow(
                 )
             }
         }
+
+        HomeFlavor.PRO -> Row(
+            modifier = modifier
+                .clip(RoundedCornerShape(16.dp))
+                .background(Aether.VoidElevated.copy(alpha = .92f))
+                .border(1.dp, tone.copy(alpha = .24f), RoundedCornerShape(16.dp))
+                .padding(horizontal = 11.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            // Signature IP capsule: a flag chip with a live pulsing dot, then the address.
+            Box(
+                Modifier
+                    .size(30.dp)
+                    .clip(CircleShape)
+                    .background(tone.copy(alpha = .12f))
+                    .border(1.dp, tone.copy(alpha = .32f), CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(badge.ifBlank { "•" }, style = MaterialTheme.typography.labelLarge, maxLines = 1)
+            }
+            Column(Modifier.weight(1f)) {
+                Text(
+                    ipText,
+                    color = Aether.Ink,
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.SemiBold
+                    ),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                if (evidence.location.isNotBlank()) {
+                    Text(
+                        evidence.location,
+                        color = Aether.InkFaint,
+                        style = MaterialTheme.typography.labelSmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+            HomeIpActionCluster(
+                tone,
+                actions,
+                buttonShape = RoundedCornerShape(10.dp),
+                buttonSize = 31.dp
+            )
+        }
     }
 }
 
@@ -961,6 +1161,127 @@ internal fun HomeSessionStats(
                 modifier = Modifier.weight(1f)
             )
         }
+
+        HomeFlavor.PRO -> Row(modifier, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            SignatureStatCell(
+                label = t.uptime,
+                value = uptimeValue,
+                tone = tone,
+                glyph = HomeGlyph.CLOCK,
+                live = evidence.connected,
+                modifier = Modifier.weight(1f)
+            )
+            SignatureStatCell(
+                label = t.connectionPing,
+                value = pingValue,
+                tone = pingTone,
+                glyph = HomeGlyph.PULSE,
+                live = measuring,
+                fillFraction = when {
+                    evidence.pingState == ConnectionPingState.MEASURED ->
+                        1f - (evidence.pingMs / 500f).coerceIn(0f, .92f)
+                    else -> 0f
+                },
+                hint = hint,
+                onClick = actions.onTestPing.takeIf { tappable },
+                modifier = Modifier.weight(1f)
+            )
+        }
+    }
+}
+
+/**
+ * MARBLE_SIGNATURE_HOME_V112 — one Signature stat cell: a quiet professional readout with a
+ * progress underlay. The value renders through [HomeStatValueText] so a long Persian or English
+ * ping word can never escape the cell.
+ */
+@Composable
+private fun SignatureStatCell(
+    label: String,
+    value: String,
+    tone: Color,
+    glyph: HomeGlyph,
+    live: Boolean,
+    modifier: Modifier = Modifier,
+    fillFraction: Float = 0f,
+    hint: String = "",
+    onClick: (() -> Unit)? = null
+) {
+    val fill by animateFloatAsState(
+        targetValue = fillFraction.coerceIn(0f, 1f),
+        animationSpec = MarbleMotionSpecs.HeroFloat,
+        label = "signature-stat-fill"
+    )
+    val shape = RoundedCornerShape(16.dp)
+    Box(
+        modifier = modifier
+            .clip(shape)
+            .background(Aether.VoidElevated.copy(alpha = .92f))
+            .border(1.dp, tone.copy(alpha = .22f), shape)
+            .then(
+                if (onClick == null) Modifier
+                else Modifier.kineticClickable(role = Role.Button, boundedShape = shape, onClick = onClick)
+            )
+            .padding(horizontal = 12.dp, vertical = 10.dp)
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                HomeGlyphIcon(glyph, tone, Modifier.size(11.dp))
+                Text(
+                    label.uppercase(),
+                    color = Aether.InkFaint,
+                    style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 1.8.sp),
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1
+                )
+                if (live) {
+                    Box(
+                        Modifier
+                            .size(5.dp)
+                            .clip(CircleShape)
+                            .background(tone.copy(alpha = .85f))
+                    )
+                }
+            }
+            HomeStatValueText(
+                value = value,
+                tone = tone,
+                baseStyle = MaterialTheme.typography.titleLarge,
+                modifier = Modifier.fillMaxWidth()
+            )
+            // Latency health underlay: a thin graded bar that settles with the measurement.
+            Canvas(Modifier.fillMaxWidth().height(4.dp)) {
+                val y = size.height / 2f
+                drawLine(
+                    color = tone.copy(alpha = .16f),
+                    start = Offset(0f, y),
+                    end = Offset(size.width, y),
+                    strokeWidth = 2.dp.toPx(),
+                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(2f, 5f))
+                )
+                if (fill > 0f) {
+                    drawLine(
+                        color = tone,
+                        start = Offset(0f, y),
+                        end = Offset(size.width * fill, y),
+                        strokeWidth = 2.5.dp.toPx(),
+                        cap = StrokeCap.Round
+                    )
+                }
+            }
+            if (hint.isNotBlank()) {
+                Text(
+                    hint,
+                    color = Aether.Cyan,
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1
+                )
+            }
+        }
     }
 }
 
@@ -1022,13 +1343,12 @@ private fun OrganicStatCell(
                     maxLines = 1
                 )
             }
-            Text(
-                value,
-                color = tone,
-                style = MaterialTheme.typography.titleMedium.copy(fontFamily = FontFamily.Monospace),
-                fontWeight = FontWeight.Bold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+            // MARBLE_HOME_PING_AUTOFIT_V112 — the value can never outgrow the bio-cell.
+            HomeStatValueText(
+                value = value,
+                tone = tone,
+                baseStyle = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.fillMaxWidth()
             )
             if (hint.isNotBlank()) {
                 Text(
@@ -1071,13 +1391,12 @@ private fun OrbitOdometer(
                 maxLines = 1
             )
         }
-        Text(
-            value,
-            color = tone,
-            style = MaterialTheme.typography.headlineSmall.copy(fontFamily = FontFamily.Monospace),
-            fontWeight = FontWeight.Bold,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
+        // MARBLE_HOME_PING_AUTOFIT_V112 — the odometer digits shrink instead of spilling.
+        HomeStatValueText(
+            value = value,
+            tone = tone,
+            baseStyle = MaterialTheme.typography.headlineSmall,
+            modifier = Modifier.fillMaxWidth()
         )
         // Segment baseline under the digits, like a cockpit LCD.
         Canvas(Modifier.fillMaxWidth().height(3.dp)) {
@@ -1103,6 +1422,7 @@ private fun OrbitPingGauge(
     modifier: Modifier = Modifier
 ) {
     val measuring = evidence.pingState == ConnectionPingState.MEASURING
+    // MARBLE_SEAMLESS_LOOPS_V112 — the radar sweep rotates a full 360° so it never snaps back.
     val sweepPhase = MarbleMotion.current.loop(1_100)
     // The needle physically travels to the measured latency (0..500 ms full-scale).
     val needle by animateFloatAsState(
@@ -1157,11 +1477,12 @@ private fun OrbitPingGauge(
                 )
             }
             if (measuring) {
-                // Radar-style sweep while the probe is in flight.
+                // Radar-style sweep while the probe is in flight — a continuous full-circle
+                // rotation, so the moment the loop restarts is invisible.
                 drawArc(
                     color = tone,
-                    startAngle = 135f + sweepPhase * 270f,
-                    sweepAngle = 48f,
+                    startAngle = sweepPhase * 360f,
+                    sweepAngle = 62f,
                     useCenter = false,
                     topLeft = topLeft,
                     size = arcSize,
@@ -1190,13 +1511,12 @@ private fun OrbitPingGauge(
                 fontWeight = FontWeight.Bold,
                 maxLines = 1
             )
-            Text(
-                value,
-                color = tone,
-                style = MaterialTheme.typography.titleMedium.copy(fontFamily = FontFamily.Monospace),
-                fontWeight = FontWeight.Bold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+            // MARBLE_HOME_PING_AUTOFIT_V112 — shrinks before it can overflow the gauge column.
+            HomeStatValueText(
+                value = value,
+                tone = tone,
+                baseStyle = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.widthIn(max = 92.dp)
             )
             if (hint.isNotBlank()) {
                 Text(
@@ -1281,12 +1601,14 @@ private fun NebulaStatRing(
                 }
             }
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(
-                    value,
-                    color = tone,
-                    style = MaterialTheme.typography.titleMedium.copy(fontFamily = FontFamily.Monospace),
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1
+                // MARBLE_HOME_PING_AUTOFIT_V112 — the ring is 92dp wide; the value steps down
+                // through smaller sizes instead of breaking out of the ring.
+                HomeStatValueText(
+                    value = value,
+                    tone = tone,
+                    baseStyle = MaterialTheme.typography.labelLarge,
+                    modifier = Modifier.width(86.dp),
+                    fontFamily = FontFamily.Monospace
                 )
                 if (hint.isNotBlank()) {
                     Text(
@@ -1362,13 +1684,13 @@ private fun BlueprintDataSlab(
                     maxLines = 1
                 )
             }
-            Text(
-                value,
-                color = tone,
-                style = MaterialTheme.typography.titleLarge.copy(fontFamily = FontFamily.Monospace),
-                fontWeight = FontWeight.Bold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+            // MARBLE_HOME_PING_AUTOFIT_V112 — the slab value shrinks with length and never
+            // crosses the corner brackets of its own module.
+            HomeStatValueText(
+                value = value,
+                tone = tone,
+                baseStyle = MaterialTheme.typography.titleLarge,
+                modifier = Modifier.fillMaxWidth()
             )
             // Engineering scale: measured latency as a dimension bar on a graded rule.
             Canvas(Modifier.fillMaxWidth().height(6.dp)) {
@@ -1385,9 +1707,19 @@ private fun BlueprintDataSlab(
                 }
                 when {
                     measuring -> {
-                        // A survey cursor sweeps the rule while the probe runs.
-                        val x = size.width * scan
-                        drawLine(tone, Offset(x, 0f), Offset(x, size.height), 2.dp.toPx())
+                        // A survey cursor sweeps the rule while the probe runs — fading to
+                        // nothing at both ends so its loop restart is invisible.
+                        // MARBLE_SEAMLESS_LOOPS_V112
+                        val fade = loopFade(scan)
+                        if (fade > 0f) {
+                            val x = size.width * scan
+                            drawLine(
+                                tone.copy(alpha = fade),
+                                Offset(x, 0f),
+                                Offset(x, size.height),
+                                2.dp.toPx()
+                            )
+                        }
                     }
                     bar > 0f -> drawLine(
                         color = tone,
@@ -1501,10 +1833,12 @@ internal fun HomePowerControl(
                             style = Stroke(width = 1.6.dp.toPx())
                         )
                         if (evidence.connected) {
-                            // An expanding, fading ripple: the organism is alive.
+                            // An expanding ripple that fades in AND out through the envelope, so
+                            // the loop restart frame is identical to the first frame.
+                            // MARBLE_SEAMLESS_LOOPS_V112
                             val ripple = motion.loop(2_600)
                             drawCircle(
-                                color = animatedTone.copy(alpha = .34f * (1f - ripple)),
+                                color = animatedTone.copy(alpha = .34f * loopFade(ripple)),
                                 radius = r * (.62f + .38f * ripple),
                                 style = Stroke(width = 1.8.dp.toPx())
                             )
@@ -1588,6 +1922,65 @@ internal fun HomePowerControl(
                                 pathEffect = PathEffect.dashPathEffect(floatArrayOf(3f, 9f))
                             )
                         )
+                    }
+
+                    HomeFlavor.PRO -> {
+                        // The Signature bezel: three concentric aurora arcs orbiting at different
+                        // speeds. Full-circle rotations only — every loop restart is invisible.
+                        // MARBLE_SEAMLESS_LOOPS_V112
+                        rotate(slowSpin * 360f, pivot = c) {
+                            drawArc(
+                                brush = Brush.sweepGradient(
+                                    listOf(
+                                        Color.Transparent,
+                                        animatedTone.copy(alpha = .62f),
+                                        Color.Transparent,
+                                        Color.Transparent
+                                    ),
+                                    center = c
+                                ),
+                                startAngle = 0f,
+                                sweepAngle = 360f,
+                                useCenter = false,
+                                topLeft = Offset(c.x - r * .94f, c.y - r * .94f),
+                                size = Size(r * 1.88f, r * 1.88f),
+                                style = Stroke(width = 2.6.dp.toPx())
+                            )
+                        }
+                        rotate(-motion.loop(6_400) * 360f, pivot = c) {
+                            drawArc(
+                                color = animatedTone.copy(alpha = .42f),
+                                startAngle = 20f,
+                                sweepAngle = 130f,
+                                useCenter = false,
+                                topLeft = Offset(c.x - r * .76f, c.y - r * .76f),
+                                size = Size(r * 1.52f, r * 1.52f),
+                                style = Stroke(width = 1.8.dp.toPx(), cap = StrokeCap.Round)
+                            )
+                        }
+                        if (evidence.connected) {
+                            rotate(motion.loop(4_200) * 360f, pivot = c) {
+                                drawArc(
+                                    color = animatedTone.copy(alpha = .30f),
+                                    startAngle = 200f,
+                                    sweepAngle = 70f,
+                                    useCenter = false,
+                                    topLeft = Offset(c.x - r * .86f, c.y - r * .86f),
+                                    size = Size(r * 1.72f, r * 1.72f),
+                                    style = Stroke(width = 1.3.dp.toPx(), cap = StrokeCap.Round)
+                                )
+                            }
+                        }
+                        // Fine instrument ticks in the quarter positions.
+                        listOf(45f, 135f, 225f, 315f).forEach { deg ->
+                            val a = deg * PI.toFloat() / 180f
+                            drawLine(
+                                color = animatedTone.copy(alpha = .38f),
+                                start = Offset(c.x + cos(a) * r * .88f, c.y + sin(a) * r * .88f),
+                                end = Offset(c.x + cos(a) * r * .96f, c.y + sin(a) * r * .96f),
+                                strokeWidth = 1.1.dp.toPx()
+                            )
+                        }
                     }
                 }
 
@@ -1761,11 +2154,15 @@ private fun DrawScope.drawAbyssBackdrop(
         )
     )
 
-    // God-rays falling from the surface, slowly panning.
+    // God-rays falling from the surface, slowly panning. Each ray fades to nothing before it
+    // wraps back to the opposite edge, so the pan loop has no visible seam.
+    // MARBLE_SEAMLESS_LOOPS_V112
     repeat(4) { index ->
         val seed = hash01(index * 11 + 3)
-        val x = w * ((seed + drift * .18f) % 1f)
+        val pan = (seed + drift * .18f) % 1f
+        val x = w * pan
         val width = w * (.05f + .06f * hash01(index * 7 + 1))
+        val wrapFade = loopFade(pan)
         val ray = Path().apply {
             moveTo(x, 0f)
             lineTo(x + width, 0f)
@@ -1776,7 +2173,10 @@ private fun DrawScope.drawAbyssBackdrop(
         drawPath(
             ray,
             Brush.verticalGradient(
-                listOf(glow.copy(alpha = .07f + .05f * breathe), Color.Transparent),
+                listOf(
+                    glow.copy(alpha = (.07f + .05f * breathe) * wrapFade),
+                    Color.Transparent
+                ),
                 startY = 0f,
                 endY = h * .62f
             )
@@ -1867,11 +2267,13 @@ private fun DrawScope.drawOrganicSurface(
             style = Stroke(width = 1.5.dp.toPx(), cap = StrokeCap.Round)
         )
         if (connected) {
-            // Two travelling luminous nodes per strand visualise the live flow.
+            // Two travelling luminous nodes per strand visualise the live flow. Each node fades
+            // in at the surface and out at the seabed, so the loop restart is invisible.
+            // MARBLE_SEAMLESS_LOOPS_V112
             repeat(2) { pulseIndex ->
                 val travel = ((phase + index / strands.toFloat() + pulseIndex * .5f) % 1f)
                 drawCircle(
-                    color = glow.copy(alpha = .70f * (1f - travel)),
+                    color = glow.copy(alpha = .75f * loopFade(travel)),
                     radius = (2.6f + breathe).dp.toPx(),
                     center = Offset(origin + sway * travel, surfaceY + (h - surfaceY) * travel)
                 )
@@ -2259,7 +2661,9 @@ private fun DrawScope.drawImmersiveCosmos(
         center = Offset(w * .82f, h * .55f)
     )
 
-    // Three parallax star layers: deeper layers drift slower and dimmer.
+    // Three parallax star layers: deeper layers drift slower and dimmer. Every star fades to
+    // nothing at both screen edges, so the horizontal drift loop never pops.
+    // MARBLE_SEAMLESS_LOOPS_V112
     repeat(3) { layer ->
         val speed = .04f + layer * .05f
         val alphaBase = .10f + layer * .10f
@@ -2267,9 +2671,10 @@ private fun DrawScope.drawImmersiveCosmos(
             val seed = layer * 100 + index
             val x = (w * hash01(seed * 3 + 1) + phase * speed * w) % w
             val y = h * hash01(seed * 5 + 2)
+            val edgeFade = loopFade(x / w)
             drawCircle(
                 color = (if (index % 4 == 0) violet else cyan)
-                    .copy(alpha = alphaBase * (if (connected) 1.3f else 1f)),
+                    .copy(alpha = alphaBase * (if (connected) 1.3f else 1f) * edgeFade),
                 radius = (.7f + layer * .5f).dp.toPx(),
                 center = Offset(x, y)
             )
@@ -2318,12 +2723,15 @@ private fun DrawScope.drawImmersiveCosmos(
         )
     }
 
-    // Lower half: the cosmic energy flower.
+    // Lower half: the cosmic energy flower. The whole bloom rotates by exactly five petal
+    // slots per loop — a symmetry of the 12-petal layout — so the wrap frame maps petals onto
+    // petals and the rotation loop is perfectly seamless.
+    // MARBLE_SEAMLESS_LOOPS_V112
     val flower = Offset(w * .5f, h * .84f)
     val petals = 12
     val reach = w * (.34f + .04f * bloom)
     repeat(petals) { index ->
-        val angle = index * 2f * PI.toFloat() / petals + phase * .6f
+        val angle = index * 2f * PI.toFloat() / petals + phase * 2f * PI.toFloat() * (5f / petals)
         val tip = Offset(flower.x + cos(angle) * reach, flower.y + sin(angle) * reach * .58f)
         val ctrl = Offset(
             flower.x + cos(angle + .34f) * reach * .55f,
@@ -2487,20 +2895,28 @@ private fun DrawScope.drawBlueprintField(structure: Color, warm: Color, scan: Fl
         y += step
     }
 
-    // The plotter's scan line travels the sheet with a soft luminous wake.
+    // The plotter's scan line travels the sheet with a soft luminous wake. The line and its wake
+    // fade to nothing at the top and bottom edges, so the sheet scan loops without a seam.
+    // MARBLE_SEAMLESS_LOOPS_V112
     val scanY = h * scan
-    if (scanY > 2f) {
+    val scanFade = loopFade(scan)
+    if (scanY > 2f && scanFade > 0f) {
         val wakeTop = (scanY - h * .10f).coerceAtLeast(0f)
         drawRect(
             Brush.verticalGradient(
-                listOf(Color.Transparent, warm.copy(alpha = .05f)),
+                listOf(Color.Transparent, warm.copy(alpha = .05f * scanFade)),
                 startY = wakeTop,
                 endY = scanY
             ),
             topLeft = Offset(0f, wakeTop),
             size = Size(w, scanY - wakeTop)
         )
-        drawLine(warm.copy(alpha = .18f), Offset(0f, scanY), Offset(w, scanY), 1.2.dp.toPx())
+        drawLine(
+            warm.copy(alpha = .18f * scanFade),
+            Offset(0f, scanY),
+            Offset(w, scanY),
+            1.2.dp.toPx()
+        )
     }
 }
 
@@ -2625,9 +3041,31 @@ internal fun HomeStyleSurface(
     style: HomeStyle,
     evidence: HomeEvidence,
     actions: HomeActions,
-    bottomClearance: Dp
+    bottomClearance: Dp,
+    pro: HomeProContext? = null
 ) {
     when (style) {
+        HomeStyle.PRO -> HomeStyleSignature(
+            evidence = evidence,
+            actions = actions,
+            pro = pro ?: HomeProContext(
+                railProfiles = emptyList(),
+                railLabel = Tr.now.proServers,
+                cardStyle = ProServerCardStyle.GLASS,
+                showBanner = false,
+                showCornerActions = false,
+                showServerRail = false,
+                showStyleSwitcher = false,
+                shortcut = ProShortcut.LIBRARY,
+                accent = ProAccent.ELECTRIC,
+                selectedHomeStyle = HomeStyle.PRO,
+                onHomeStyleSelected = {},
+                activeProfileId = "",
+                connected = false,
+                connecting = false
+            ),
+            bottomClearance = bottomClearance
+        )
         HomeStyle.BIOLUMINESCENT -> HomeStyleBioluminescent(evidence, actions, bottomClearance)
         HomeStyle.COSMIC_ORBIT -> HomeStyleCosmicOrbit(evidence, actions, bottomClearance)
         HomeStyle.COSMIC_IMMERSION -> HomeStyleCosmicImmersion(evidence, actions, bottomClearance)
