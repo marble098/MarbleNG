@@ -1,3 +1,4 @@
+
 package com.marbleng.app.ui
 
 // MARBLE_KINETIC_GLASS_THEME_V34
@@ -6,10 +7,7 @@ package com.marbleng.app.ui
 // MARBLE_M3_EXPRESSIVE_THEME_V53
 // MARBLE_PRISM_THEME_V54
 // MARBLE_NAVY_BRAND_THEME_V77
-// The whole identity is re-anchored on the Marble navy/ice/electric blue ramp:
-//   #000033 deep navy  •  #001144 dark navy  •  #0066CC electric  •  #3399FF bright
-//   #ADD8E6 ice        •  #E0FFFF ice white   •  #F0F8FF alice     •  #FFFFFF white
-// Light and Dark are the same formal color system; only the surface/ink roles swap.
+// MARBLE_AMOLED_DARK_V82
 
 import android.app.Activity
 import android.os.Build
@@ -38,7 +36,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 
-/** Marble White — calm solid surfaces with vivid, state-driven accents. */
 enum class AppTheme { SYSTEM, DARK, LIGHT }
 
 fun parseAppTheme(id: String): AppTheme = when {
@@ -69,33 +66,17 @@ private data class AetherPalette(
     val inkFaint: Color
 )
 
-/**
- * The eight Marble brand colors. Every tint below is one of these exact hues composited with
- * alpha over a surface — never a foreign hue — so Light and Dark both stay inside the same
- * identity even where a role needs a softer or deeper step.
- */
 private object Brand {
-    val NavyDeep = Color(0xFF000033)   // deep navy
-    val NavyDark = Color(0xFF001144)   // dark navy
-    val Electric = Color(0xFF0066CC)   // electric blue
-    val Bright = Color(0xFF3399FF)     // bright blue
-    val Ice = Color(0xFFADD8E6)        // ice blue
-    val IceWhite = Color(0xFFE0FFFF)   // ice white
-    val Alice = Color(0xFFF0F8FF)      // alice blue
-    val White = Color(0xFFFFFFFF)      // white
+    val NavyDeep = Color(0xFF000033)
+    val NavyDark = Color(0xFF001144)
+    val Electric = Color(0xFF0066CC)
+    val Bright = Color(0xFF3399FF)
+    val Ice = Color(0xFFADD8E6)
+    val IceWhite = Color(0xFFE0FFFF)
+    val Alice = Color(0xFFF0F8FF)
+    val White = Color(0xFFFFFFFF)
 }
 
-/*
- * Light surfaces are deliberately opaque. The previous translucent stack produced visible
- * rectangular compositing bands on several Android GPUs and weakened the information hierarchy.
- * Depth now comes from spacing, a single soft outline and state colour—not nested glass layers.
- *
- * MARBLE_NAVY_BRAND_THEME_V77
- * Background, surfaces, borders and ink are the Marble navy/ice ramp. The two accents are the
- * electric blue (primary) and deep navy (secondary), so the product reads as one continuous
- * blue system in both themes. Emerald/Amber/Danger stay as *functional* state colours only:
- * a VPN must never dress "blocked" or "connected" in the brand hue.
- */
 private val LightPalette = AetherPalette(
     void = Brand.Alice,
     voidElevated = Brand.White,
@@ -118,27 +99,27 @@ private val LightPalette = AetherPalette(
     inkFaint = Brand.NavyDeep.copy(alpha = .42f).compositeOver(Brand.White)
 )
 
-/* Dark remains an explicit accessibility/user choice and mirrors the same formal color identity. */
+/* AMOLED DARK -- absolute black void for OLED panels */
 private val DarkPalette = AetherPalette(
-    void = Brand.NavyDeep,
-    voidElevated = Brand.NavyDark,
-    glass = Brand.NavyDark,
-    glassStrong = Brand.Electric.copy(alpha = .18f).compositeOver(Brand.NavyDeep),
-    glassBorder = Brand.Electric.copy(alpha = .38f).compositeOver(Brand.NavyDeep),
-    glassBorderSoft = Brand.Ice.copy(alpha = .16f).compositeOver(Brand.NavyDeep),
-    amethyst = Brand.Electric,
-    amethystBright = Brand.Bright,
-    cyan = Brand.Bright,
-    cyanBright = Brand.Ice,
-    slate = Brand.NavyDark,
-    slateBright = Brand.Ice,
-    danger = Color(0xFFFF718B),
-    dangerBright = Color(0xFFFF99AA),
-    emerald = Color(0xFF55D7B4),
-    amber = Color(0xFFF2B45F),
+    void = Color(0xFF000000),
+    voidElevated = Color(0xFF0A0A0A),
+    glass = Color(0xFF0A0A0A),
+    glassStrong = Color(0xFF111111),
+    glassBorder = Brand.Electric.copy(alpha = .30f).compositeOver(Color.Black),
+    glassBorderSoft = Brand.Bright.copy(alpha = .14f).compositeOver(Color.Black),
+    amethyst = Brand.Bright,
+    amethystBright = Color(0xFF66BBFF),
+    cyan = Brand.Electric,
+    cyanBright = Brand.Bright,
+    slate = Color(0xFF0D0D0D),
+    slateBright = Color(0xFF1A1A2E),
+    danger = Color(0xFFFF4D6D),
+    dangerBright = Color(0xFFFF8099),
+    emerald = Color(0xFF00E5B0),
+    amber = Color(0xFFFFB347),
     ink = Brand.Alice,
-    inkMuted = Brand.Ice.copy(alpha = .85f).compositeOver(Brand.NavyDeep),
-    inkFaint = Brand.Ice.copy(alpha = .55f).compositeOver(Brand.NavyDeep)
+    inkMuted = Brand.Ice.copy(alpha = .80f).compositeOver(Color.Black),
+    inkFaint = Brand.Ice.copy(alpha = .50f).compositeOver(Color.Black)
 )
 
 private val LocalAetherPalette = staticCompositionLocalOf { LightPalette }
@@ -169,89 +150,56 @@ private val ProductSans = FontFamily.SansSerif
 
 val AetherTypography = Typography(
     displayLarge = TextStyle(
-        fontFamily = ProductSans,
-        fontWeight = FontWeight.Bold,
-        fontSize = 40.sp,
-        lineHeight = 46.sp,
-        letterSpacing = (-.74).sp
+        fontFamily = ProductSans, fontWeight = FontWeight.Bold,
+        fontSize = 40.sp, lineHeight = 46.sp, letterSpacing = (-.74).sp
     ),
     headlineLarge = TextStyle(
-        fontFamily = ProductSans,
-        fontWeight = FontWeight.Bold,
-        fontSize = 28.sp,
-        lineHeight = 34.sp,
-        letterSpacing = (-.38).sp
+        fontFamily = ProductSans, fontWeight = FontWeight.Bold,
+        fontSize = 28.sp, lineHeight = 34.sp, letterSpacing = (-.38).sp
     ),
     headlineMedium = TextStyle(
-        fontFamily = ProductSans,
-        fontWeight = FontWeight.SemiBold,
-        fontSize = 24.sp,
-        lineHeight = 30.sp,
-        letterSpacing = (-.26).sp
+        fontFamily = ProductSans, fontWeight = FontWeight.SemiBold,
+        fontSize = 24.sp, lineHeight = 30.sp, letterSpacing = (-.26).sp
     ),
     headlineSmall = TextStyle(
-        fontFamily = ProductSans,
-        fontWeight = FontWeight.SemiBold,
-        fontSize = 20.sp,
-        lineHeight = 26.sp,
-        letterSpacing = (-.16).sp
+        fontFamily = ProductSans, fontWeight = FontWeight.SemiBold,
+        fontSize = 20.sp, lineHeight = 26.sp, letterSpacing = (-.16).sp
     ),
     titleLarge = TextStyle(
-        fontFamily = ProductSans,
-        fontWeight = FontWeight.SemiBold,
-        fontSize = 18.sp,
-        lineHeight = 24.sp,
-        letterSpacing = (-.10).sp
+        fontFamily = ProductSans, fontWeight = FontWeight.SemiBold,
+        fontSize = 18.sp, lineHeight = 24.sp, letterSpacing = (-.10).sp
     ),
     titleMedium = TextStyle(
-        fontFamily = ProductSans,
-        fontWeight = FontWeight.SemiBold,
-        fontSize = 15.5.sp,
-        lineHeight = 21.sp
+        fontFamily = ProductSans, fontWeight = FontWeight.SemiBold,
+        fontSize = 15.5.sp, lineHeight = 21.sp
     ),
     titleSmall = TextStyle(
-        fontFamily = ProductSans,
-        fontWeight = FontWeight.SemiBold,
-        fontSize = 13.5.sp,
-        lineHeight = 19.sp
+        fontFamily = ProductSans, fontWeight = FontWeight.SemiBold,
+        fontSize = 13.5.sp, lineHeight = 19.sp
     ),
     bodyLarge = TextStyle(
-        fontFamily = ProductSans,
-        fontWeight = FontWeight.Normal,
-        fontSize = 16.sp,
-        lineHeight = 23.sp
+        fontFamily = ProductSans, fontWeight = FontWeight.Normal,
+        fontSize = 16.sp, lineHeight = 23.sp
     ),
     bodyMedium = TextStyle(
-        fontFamily = ProductSans,
-        fontWeight = FontWeight.Normal,
-        fontSize = 14.5.sp,
-        lineHeight = 21.sp
+        fontFamily = ProductSans, fontWeight = FontWeight.Normal,
+        fontSize = 14.5.sp, lineHeight = 21.sp
     ),
     bodySmall = TextStyle(
-        fontFamily = ProductSans,
-        fontWeight = FontWeight.Normal,
-        fontSize = 12.5.sp,
-        lineHeight = 18.sp
+        fontFamily = ProductSans, fontWeight = FontWeight.Normal,
+        fontSize = 12.5.sp, lineHeight = 18.sp
     ),
     labelLarge = TextStyle(
-        fontFamily = ProductSans,
-        fontWeight = FontWeight.SemiBold,
-        fontSize = 13.5.sp,
-        lineHeight = 18.sp
+        fontFamily = ProductSans, fontWeight = FontWeight.SemiBold,
+        fontSize = 13.5.sp, lineHeight = 18.sp
     ),
     labelMedium = TextStyle(
-        fontFamily = ProductSans,
-        fontWeight = FontWeight.Medium,
-        fontSize = 12.sp,
-        lineHeight = 16.sp,
-        letterSpacing = .04.sp
+        fontFamily = ProductSans, fontWeight = FontWeight.Medium,
+        fontSize = 12.sp, lineHeight = 16.sp, letterSpacing = .04.sp
     ),
     labelSmall = TextStyle(
-        fontFamily = ProductSans,
-        fontWeight = FontWeight.Medium,
-        fontSize = 10.5.sp,
-        lineHeight = 14.sp,
-        letterSpacing = .08.sp
+        fontFamily = ProductSans, fontWeight = FontWeight.Medium,
+        fontSize = 10.5.sp, lineHeight = 14.sp, letterSpacing = .08.sp
     )
 )
 
@@ -268,92 +216,81 @@ fun AetherFlowTheme(
     themeId: String = "light",
     content: @Composable () -> Unit
 ) {
-    val requested=parseAppTheme(themeId)
-    val light=when(requested) {
+    val requested = parseAppTheme(themeId)
+    val light = when(requested) {
         AppTheme.LIGHT -> true
         AppTheme.DARK -> false
         AppTheme.SYSTEM -> !isSystemInDarkTheme()
     }
 
-    val palette=if(light) LightPalette else DarkPalette
-    val context=LocalContext.current
-    val dynamicColor=
-        requested == AppTheme.SYSTEM &&
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+    val palette = if(light) LightPalette else DarkPalette
+    val context = LocalContext.current
+    val dynamicColor = requested == AppTheme.SYSTEM &&
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
 
-    val fallback=if(light) {
+    val fallback = if(light) {
         lightColorScheme(
-            primary=palette.cyan,
-            onPrimary=Color.White,
-            primaryContainer=palette.cyan.copy(alpha=.10f),
-            onPrimaryContainer=palette.ink,
-            secondary=palette.emerald,
-            onSecondary=Color.White,
-            secondaryContainer=palette.emerald.copy(alpha=.10f),
-            onSecondaryContainer=palette.ink,
-            tertiary=palette.amethyst,
-            background=palette.void,
-            onBackground=palette.ink,
-            surface=palette.voidElevated,
-            onSurface=palette.ink,
-            surfaceVariant=palette.glassStrong,
-            onSurfaceVariant=palette.inkMuted,
-            surfaceTint=Color.Transparent,
-            error=palette.danger,
-            outline=palette.glassBorderSoft,
-            outlineVariant=palette.glassBorderSoft.copy(alpha=.55f)
+            primary = palette.cyan, onPrimary = Color.White,
+            primaryContainer = palette.cyan.copy(alpha = .10f),
+            onPrimaryContainer = palette.ink,
+            secondary = palette.emerald, onSecondary = Color.White,
+            secondaryContainer = palette.emerald.copy(alpha = .10f),
+            onSecondaryContainer = palette.ink,
+            tertiary = palette.amethyst,
+            background = palette.void, onBackground = palette.ink,
+            surface = palette.voidElevated, onSurface = palette.ink,
+            surfaceVariant = palette.glassStrong, onSurfaceVariant = palette.inkMuted,
+            surfaceTint = Color.Transparent,
+            error = palette.danger,
+            outline = palette.glassBorderSoft,
+            outlineVariant = palette.glassBorderSoft.copy(alpha = .55f)
         )
     } else {
         darkColorScheme(
-            primary=palette.cyan,
-            onPrimary=Brand.NavyDeep,
-            primaryContainer=palette.cyan.copy(alpha=.14f),
-            onPrimaryContainer=palette.ink,
-            secondary=palette.emerald,
-            onSecondary=Color(0xFF061711),
-            secondaryContainer=palette.emerald.copy(alpha=.12f),
-            onSecondaryContainer=palette.ink,
-            tertiary=palette.amethyst,
-            background=palette.void,
-            onBackground=palette.ink,
-            surface=palette.voidElevated,
-            onSurface=palette.ink,
-            surfaceVariant=palette.glassStrong,
-            onSurfaceVariant=palette.inkMuted,
-            surfaceTint=Color.Transparent,
-            error=palette.danger,
-            outline=palette.glassBorder,
-            outlineVariant=palette.glassBorderSoft
+            primary = palette.cyan, onPrimary = Color.Black,
+            primaryContainer = palette.cyan.copy(alpha = .14f),
+            onPrimaryContainer = palette.ink,
+            secondary = palette.emerald, onSecondary = Color(0xFF061711),
+            secondaryContainer = palette.emerald.copy(alpha = .12f),
+            onSecondaryContainer = palette.ink,
+            tertiary = palette.amethyst,
+            background = palette.void, onBackground = palette.ink,
+            surface = palette.voidElevated, onSurface = palette.ink,
+            surfaceVariant = palette.glassStrong, onSurfaceVariant = palette.inkMuted,
+            surfaceTint = Color.Transparent,
+            error = palette.danger,
+            outline = palette.glassBorder,
+            outlineVariant = palette.glassBorderSoft
         )
     }
 
-    val scheme=when {
+    val scheme = when {
         dynamicColor && light -> dynamicLightColorScheme(context)
         dynamicColor && !light -> dynamicDarkColorScheme(context)
         else -> fallback
     }
 
-    val view=LocalView.current
+    val view = LocalView.current
     if(!view.isInEditMode) {
-        val window=(view.context as Activity).window
+        val window = (view.context as Activity).window
         SideEffect {
-            val controller=WindowCompat.getInsetsController(window,view)
-            controller.isAppearanceLightStatusBars=light
-            controller.isAppearanceLightNavigationBars=light
-            window.statusBarColor=scheme.background.toArgb()
-            window.navigationBarColor=scheme.background.toArgb()
+            val controller = WindowCompat.getInsetsController(window, view)
+            controller.isAppearanceLightStatusBars = light
+            controller.isAppearanceLightNavigationBars = light
+            window.statusBarColor = scheme.background.toArgb()
+            window.navigationBarColor = scheme.background.toArgb()
             if(Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                window.isStatusBarContrastEnforced=false
-                window.isNavigationBarContrastEnforced=false
+                window.isStatusBarContrastEnforced = false
+                window.isNavigationBarContrastEnforced = false
             }
         }
     }
 
     CompositionLocalProvider(LocalAetherPalette provides palette) {
         MaterialTheme(
-            colorScheme=scheme,
-            typography=AetherTypography,
-            shapes=AetherShapes
+            colorScheme = scheme,
+            typography = AetherTypography,
+            shapes = AetherShapes
         ) {
             ProvideMarbleMotion(content)
         }
