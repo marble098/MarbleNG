@@ -54,6 +54,12 @@ private data class AetherPalette(
     val glassStrong: Color,
     val glassBorder: Color,
     val glassBorderSoft: Color,
+    // MARBLE_IOS_FLOATING_GLASS_V81 — tokens for the truly floating bars (bottom dock,
+    // Library source strip, Settings tabs). They are translucent so whatever scrolls
+    // beneath them shows through, and both themes keep their own readable ink pair.
+    val barGlass: Color,
+    val barGlassBorder: Color,
+    val barGlassHighlight: Color,
     val amethyst: Color,
     val amethystBright: Color,
     val cyan: Color,
@@ -103,6 +109,9 @@ private val LightPalette = AetherPalette(
     glassStrong = Brand.Ice.compositeOver(Brand.White),
     glassBorder = Brand.Electric.copy(alpha = .30f).compositeOver(Brand.White),
     glassBorderSoft = Brand.Ice.copy(alpha = .40f).compositeOver(Brand.White),
+    barGlass = Brand.White.copy(alpha = .74f),
+    barGlassBorder = Brand.NavyDeep.copy(alpha = .10f).compositeOver(Brand.White),
+    barGlassHighlight = Color.White.copy(alpha = .60f),
     amethyst = Brand.NavyDark,
     amethystBright = Brand.Electric,
     cyan = Brand.Electric,
@@ -126,6 +135,9 @@ private val DarkPalette = AetherPalette(
     glassStrong = Brand.Electric.copy(alpha = .12f).compositeOver(Color(0xFF000000)),
     glassBorder = Brand.Electric.copy(alpha = .30f).compositeOver(Color(0xFF080814)),
     glassBorderSoft = Brand.Ice.copy(alpha = .12f).compositeOver(Color(0xFF000000)),
+    barGlass = Color(0xFF0C0C16).copy(alpha = .68f),
+    barGlassBorder = Brand.Ice.copy(alpha = .16f),
+    barGlassHighlight = Brand.Ice.copy(alpha = .10f),
     amethyst = Brand.Electric,
     amethystBright = Brand.Bright,
     cyan = Brand.Bright,
@@ -150,6 +162,9 @@ object Aether {
     val GlassStrong: Color @Composable get() = LocalAetherPalette.current.glassStrong
     val GlassBorder: Color @Composable get() = LocalAetherPalette.current.glassBorder
     val GlassBorderSoft: Color @Composable get() = LocalAetherPalette.current.glassBorderSoft
+    val BarGlass: Color @Composable get() = LocalAetherPalette.current.barGlass
+    val BarGlassBorder: Color @Composable get() = LocalAetherPalette.current.barGlassBorder
+    val BarGlassHighlight: Color @Composable get() = LocalAetherPalette.current.barGlassHighlight
     val Amethyst: Color @Composable get() = LocalAetherPalette.current.amethyst
     val AmethystBright: Color @Composable get() = LocalAetherPalette.current.amethystBright
     val Cyan: Color @Composable get() = LocalAetherPalette.current.cyan

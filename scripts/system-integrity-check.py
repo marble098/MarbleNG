@@ -281,7 +281,9 @@ check("diagnostics redaction exists", "fun redact" in files["diag"])
 check(
     "Bug Finder raw evidence stays out of Settings",
     "current.evidence.joinToString" not in files["ui"]
-    and "SHOW CHECKS" in files["ui"],
+    # The checks toggle must exist; anchored on its state (stable across copy edits)
+    # instead of a display string.
+    and "checksExpanded" in files["ui"],
 )
 check(
     "Bug Finder reports passive and external leak scores separately",
