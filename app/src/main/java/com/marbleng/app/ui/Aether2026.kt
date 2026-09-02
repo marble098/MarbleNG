@@ -496,13 +496,13 @@ private fun IpDetailsDialog(
         title = {
             Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 Text(
-                    "IP details",
+                    trx("IP details"),
                     color = Aether.Ink,
                     style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    "Public route information for the connected node",
+                    trx("Public route information for the connected node"),
                     color = Aether.InkMuted,
                     style = MaterialTheme.typography.bodySmall
                 )
@@ -546,7 +546,7 @@ private fun IpDetailsDialog(
                     }
                 }
                 Text(
-                    "Only the resolved public endpoint is queried; credentials and subscription data stay local.",
+                    trx("Only the resolved public endpoint is queried; credentials and subscription data stay local."),
                     color = Aether.InkFaint,
                     style = MaterialTheme.typography.labelSmall
                 )
@@ -596,7 +596,7 @@ private fun MarbleUpdateDialog(
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 Text(
-                    "A fresh MarbleNG build is ready",
+                    trx("A fresh MarbleNG build is ready"),
                     color = Aether.Ink,
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Black,
@@ -620,7 +620,7 @@ private fun MarbleUpdateDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(
-                    "A newer signed release is available on GitHub.",
+                    trx("A newer signed release is available on GitHub."),
                     color = Aether.InkMuted,
                     style = MaterialTheme.typography.bodyMedium,
                     textAlign = TextAlign.Center,
@@ -630,7 +630,7 @@ private fun MarbleUpdateDialog(
                     val notesScroll = rememberScrollState()
                     Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
                         Text(
-                            "WHAT CHANGED",
+                            trx("WHAT CHANGED"),
                             color = Aether.InkFaint,
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold
@@ -1061,7 +1061,7 @@ private fun SpatialHeader(
         ) {
             HomeIconTile(icon, Aether.Cyan)
             Text(
-                title,
+                trx(title),
                 color = Aether.Ink,
                 style = MaterialTheme.typography.headlineLarge,
                 fontWeight = FontWeight.Black,
@@ -1182,7 +1182,7 @@ private fun SectionLabel(
                     )
             )
             Text(
-                title,
+                trx(title),
                 color=Aether.Ink,
                 style=MaterialTheme.typography.titleMedium,
                 fontWeight=FontWeight.Bold
@@ -1190,7 +1190,7 @@ private fun SectionLabel(
         }
         subtitle?.takeIf { it.isNotBlank() }?.let { detail ->
             Text(
-                detail,
+                trx(detail),
                 color=Aether.InkMuted,
                 style=MaterialTheme.typography.bodySmall,
                 maxLines=2,
@@ -1223,14 +1223,14 @@ private fun FreedomSectionHeader(
                     .background(tone)
             )
             Text(
-                title,
+                trx(title),
                 color=Aether.Ink,
                 style=MaterialTheme.typography.titleSmall,
                 fontWeight=FontWeight.SemiBold
             )
         }
         Text(
-            subtitle,
+            trx(subtitle),
             color=Aether.InkMuted,
             style=MaterialTheme.typography.bodySmall,
             maxLines=2,
@@ -1527,7 +1527,7 @@ private fun HomeStatusChip(
     ) {
         HomeVectorIcon(icon, tone, Modifier.size(14.dp))
         Text(
-            text,
+            trx(text),
             color = tone,
             style = MaterialTheme.typography.labelSmall,
             fontWeight = FontWeight.SemiBold,
@@ -1593,7 +1593,7 @@ private fun MarbleCompactTopBar(
             verticalArrangement=Arrangement.spacedBy(1.dp)
         ) {
             Text(
-                title,
+                trx(title),
                 color=Aether.Ink,
                 style=MaterialTheme.typography.titleLarge,
                 fontWeight=FontWeight.Bold,
@@ -1602,7 +1602,7 @@ private fun MarbleCompactTopBar(
             )
             if(subtitle.isNotBlank()) {
                 Text(
-                    subtitle,
+                    trx(subtitle),
                     color=Aether.InkMuted,
                     style=MaterialTheme.typography.bodySmall,
                     maxLines=1,
@@ -2031,7 +2031,7 @@ private fun HomeQuickSettingRow(
             )
         }
         Text(
-            title,
+            trx(title),
             color=Aether.Ink,
             style=MaterialTheme.typography.labelLarge,
             fontWeight=FontWeight.Bold,
@@ -2721,7 +2721,7 @@ private fun MiniMetric(
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
             icon?.let { HomeVectorIcon(it, valueColor, Modifier.size(13.dp)) }
             Text(
-                label.uppercase(),
+                trx(label).uppercase(),
                 color = Aether.InkFaint,
                 style = MaterialTheme.typography.labelSmall,
                 maxLines = 1
@@ -2790,14 +2790,14 @@ private fun HoloActionPill(
         Spacer(Modifier.width(9.dp))
         Column(Modifier.weight(1f)) {
             Text(
-                title,
+                trx(title),
                 color = Aether.Ink,
                 style = MaterialTheme.typography.labelLarge,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
             Text(
-                subtitle,
+                trx(subtitle),
                 color = Aether.InkFaint,
                 style = MaterialTheme.typography.labelSmall,
                 maxLines = 1,
@@ -2894,12 +2894,12 @@ private fun CyberLibrary(
         AlertDialog(
             onDismissRequest = { renameTarget = null },
             containerColor = Aether.VoidElevated,
-            title = { Text("Edit node", color = Aether.Ink) },
+            title = { Text(trx("Edit node"), color = Aether.Ink) },
             text = {
                 OutlinedTextField(
                     value = renameText,
                     onValueChange = { renameText = it },
-                    label = { Text("Display name") },
+                    label = { Text(trx("Display name")) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                     colors = marbleOutlinedTextFieldColors(),
@@ -2931,7 +2931,7 @@ private fun CyberLibrary(
             containerColor = Aether.VoidElevated,
             title = {
                 Column {
-                    Text("Manage subscription", color = Aether.Ink)
+                    Text(trx("Manage subscription"), color = Aether.Ink)
                     Text(
                         "${repo.subscriptionNodeCount(target.id)} nodes • ${relativeTime(target.updatedAt)}",
                         color = Aether.InkFaint,
@@ -2944,7 +2944,7 @@ private fun CyberLibrary(
                     OutlinedTextField(
                         value = editSubscriptionName,
                         onValueChange = { editSubscriptionName = it },
-                        label = { Text("Source name") },
+                        label = { Text(trx("Source name")) },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                         colors = marbleOutlinedTextFieldColors(),
@@ -2952,7 +2952,7 @@ private fun CyberLibrary(
                     OutlinedTextField(
                         value = editSubscriptionUrl,
                         onValueChange = { editSubscriptionUrl = it },
-                        label = { Text("Subscription URL") },
+                        label = { Text(trx("Subscription URL")) },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                         colors = marbleOutlinedTextFieldColors(),
@@ -2979,7 +2979,7 @@ private fun CyberLibrary(
                     }
                     HorizontalDivider(color = Aether.GlassBorderSoft)
                     Text(
-                        "Clean failed tests",
+                        trx("Clean failed tests"),
                         color = Aether.InkFaint,
                         style = MaterialTheme.typography.labelSmall
                     )
@@ -3002,7 +3002,7 @@ private fun CyberLibrary(
                         manageSubscription = null
                     }
                     Text(
-                        "Only nodes with a stored failed result of that exact test type are removed.",
+                        trx("Only nodes with a stored failed result of that exact test type are removed."),
                         color = Aether.InkFaint,
                         style = MaterialTheme.typography.labelSmall
                     )
@@ -3254,7 +3254,7 @@ private fun CyberLibrary(
                                 OutlinedTextField(
                                     value = url,
                                     onValueChange = { url = it },
-                                    label = { Text("Subscription URL • optional") },
+                                    label = { Text(trx("Subscription URL • optional")) },
                                     singleLine = true,
                                     modifier = Modifier.fillMaxWidth(),
                                     shape = RoundedCornerShape(18.dp),
@@ -3263,7 +3263,7 @@ private fun CyberLibrary(
                                 OutlinedTextField(
                                     value = sourceName,
                                     onValueChange = { sourceName = it },
-                                    label = { Text("Name • optional") },
+                                    label = { Text(trx("Name • optional")) },
                                     singleLine = true,
                                     modifier = Modifier.fillMaxWidth(),
                                     shape = RoundedCornerShape(18.dp),
@@ -3460,7 +3460,7 @@ private fun LibraryInlineSortBar(repo: AppRepository) {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                "SORT:",
+                trx("SORT:"),
                 color = Aether.InkFaint,
                 style = MaterialTheme.typography.labelSmall,
                 fontWeight = FontWeight.Bold
@@ -3620,7 +3620,7 @@ private fun ManualChainEditor(
 
         Text("ORDERED HOPS • ${hops.size}", color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
         if (hops.isEmpty()) {
-            Text("Choose at least two nodes below.", color = Aether.Amber, style = MaterialTheme.typography.bodySmall)
+            Text(trx("Choose at least two nodes below."), color = Aether.Amber, style = MaterialTheme.typography.bodySmall)
         }
         hops.forEachIndexed { index, ref ->
             val profile = repo.profile(ref.second, ref.first)
@@ -3689,7 +3689,7 @@ private fun ManualChainEditor(
             )
         }
         if (search.isBlank() && candidates.size >= 24) {
-            Text("Showing 24 nodes • search to find any other node", color = Aether.InkFaint, style = MaterialTheme.typography.bodySmall)
+            Text(trx("Showing 24 nodes • search to find any other node"), color = Aether.InkFaint, style = MaterialTheme.typography.bodySmall)
         }
         CyberButton(
             variant = PrismButtonVariant.Primary,
@@ -3701,7 +3701,7 @@ private fun ManualChainEditor(
             if (repo.addManualChain(name, hops, targetSourceId)) onSaved()
         }
         if (!targetReady) {
-            Text("Select one Library source first, or enable Manual source.", color = Aether.Amber, style = MaterialTheme.typography.bodySmall)
+            Text(trx("Select one Library source first, or enable Manual source."), color = Aether.Amber, style = MaterialTheme.typography.bodySmall)
         }
     }
 }
@@ -3827,7 +3827,7 @@ private fun ManualConfigEditor(
                         ManualField("Password", draft.password, { draft = draft.copy(password = it) }, Modifier.weight(1f))
                     }
                     ManualField("Host key SHA256 • optional", draft.sshHostKeySha256, { draft = draft.copy(sshHostKeySha256 = it) })
-                    Text("TCP via protected loopback; UDP blocked.", color = Aether.InkFaint, style = MaterialTheme.typography.bodySmall)
+                    Text(trx("TCP via protected loopback; UDP blocked."), color = Aether.InkFaint, style = MaterialTheme.typography.bodySmall)
                 }
                 ManualProtocol.WIREGUARD -> {
                     ManualField("Private key", draft.wireguardSecretKey, { draft = draft.copy(wireguardSecretKey = it) })
@@ -3915,7 +3915,7 @@ private fun ManualConfigEditor(
                         { draft = draft.copy(cipherSuites = it) }
                     )
                     Text(
-                        "`unsafe` uses native Go TLS; empty Cipher Suites = automatic.",
+                        trx("`unsafe` uses native Go TLS; empty Cipher Suites = automatic."),
                         color = Aether.InkFaint,
                         style = MaterialTheme.typography.labelSmall
                     )
@@ -4003,7 +4003,7 @@ private fun ManualField(
     OutlinedTextField(
         value = value,
         onValueChange = onValueChange,
-        label = { Text(label) },
+        label = { Text(trx(label)) },
         singleLine = singleLine,
         minLines = minLines,
         maxLines = if (singleLine) 1 else 18,
@@ -4123,7 +4123,7 @@ private fun ConnectionDetailPage(
 private fun DetailRow(label: String, value: String) {
     if (value.isBlank()) return
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Text(label, color = Aether.InkFaint, style = MaterialTheme.typography.labelMedium)
+        Text(trx(label), color = Aether.InkFaint, style = MaterialTheme.typography.labelMedium)
         Spacer(Modifier.width(12.dp))
         Text(
             value,
@@ -4176,13 +4176,13 @@ private fun LibraryFilterSheet(
             ) {
                 Column(Modifier.weight(1f)) {
                     Text(
-                        "Filter & sort",
+                        trx("Filter & sort"),
                         color=Aether.Ink,
                         style=MaterialTheme.typography.headlineSmall,
                         fontWeight=FontWeight.Bold
                     )
                     Text(
-                        "Focus the Library without changing any node",
+                        trx("Focus the Library without changing any node"),
                         color=Aether.InkMuted,
                         style=MaterialTheme.typography.bodySmall
                     )
@@ -4527,7 +4527,7 @@ private fun SourceOrbitChip(
         }
         Column {
             Text(
-                title,
+                trx(title),
                 color=if(selected) Aether.Cyan else Aether.Ink,
                 style=MaterialTheme.typography.labelMedium,
                 fontWeight=FontWeight.SemiBold,
@@ -4535,7 +4535,7 @@ private fun SourceOrbitChip(
                 overflow=TextOverflow.Ellipsis
             )
             Text(
-                detail,
+                trx(detail),
                 color=Aether.InkFaint,
                 style=MaterialTheme.typography.labelSmall,
                 maxLines=1
@@ -4727,7 +4727,7 @@ private fun SpatialServerCard(
             containerColor=MaterialTheme.colorScheme.surface,
             title={
                 Column {
-                    Text("Edit Xray JSON")
+                    Text(trx("Edit Xray JSON"))
                     Text(
                         profile.name,
                         color=MaterialTheme.colorScheme.onSurfaceVariant,
@@ -4747,7 +4747,7 @@ private fun SpatialServerCard(
                         textStyle=MaterialTheme.typography.bodySmall.copy(
                             fontFamily=FontFamily.Monospace
                         ),
-                        label={ Text("Effective config JSON") },
+                        label={ Text(trx("Effective config JSON")) },
                         minLines=10,
                         maxLines=22
                     )
@@ -4787,7 +4787,7 @@ private fun SpatialServerCard(
     if(deleteBySwipe) {
         AlertDialog(
             onDismissRequest={ deleteBySwipe=false },
-            title={ Text("Delete node?") },
+            title={ Text(trx("Delete node?")) },
             text={
                 Text(
                     "Remove ${profile.name} from ${profile.subscriptionName}? " +
@@ -5015,7 +5015,7 @@ private fun SpatialServerCard(
                                         )
                                     }
                                     Text(
-                                        "ms",
+                                        trx("ms"),
                                         color=Aether.InkFaint,
                                         style=MaterialTheme.typography.labelSmall,
                                         fontWeight=FontWeight.SemiBold
@@ -5055,14 +5055,14 @@ private fun SpatialServerCard(
                             containerColor=MaterialTheme.colorScheme.surface
                         ) {
                             DropdownMenuItem(
-                                text={ Text("Details") },
+                                text={ Text(trx("Details")) },
                                 onClick={
                                     menuOpen=false
                                     onDetails()
                                 }
                             )
                             DropdownMenuItem(
-                                text={ Text("Copy config link") },
+                                text={ Text(trx("Copy config link")) },
                                 onClick={
                                     menuOpen=false
                                     clipboard.setText(
@@ -5076,7 +5076,7 @@ private fun SpatialServerCard(
                                 }
                             )
                             DropdownMenuItem(
-                                text={ Text("Copy Xray JSON") },
+                                text={ Text(trx("Copy Xray JSON")) },
                                 onClick={
                                     menuOpen=false
                                     clipboard.setText(AnnotatedString(profile.configJson))
@@ -5085,7 +5085,7 @@ private fun SpatialServerCard(
                             )
                             if(!builtInFreedom && !profile.scheme.equals("ssh",true)) {
                                 DropdownMenuItem(
-                                    text={ Text("Edit Xray JSON") },
+                                    text={ Text(trx("Edit Xray JSON")) },
                                     onClick={
                                         menuOpen=false
                                         jsonText=profile.configJson
@@ -5095,7 +5095,7 @@ private fun SpatialServerCard(
                             }
                             if(repo.settings.manualSourceEnabled && !builtInFreedom) {
                                 DropdownMenuItem(
-                                    text={ Text("Duplicate to Manual") },
+                                    text={ Text(trx("Duplicate to Manual")) },
                                     onClick={
                                         menuOpen=false
                                         repo.duplicateProfile(
@@ -5107,7 +5107,7 @@ private fun SpatialServerCard(
                             }
                             HorizontalDivider()
                             DropdownMenuItem(
-                                text={ Text("Test this node") },
+                                text={ Text(trx("Test this node")) },
                                 onClick={
                                     menuOpen=false
                                     repo.fullTest(profile)
@@ -5115,14 +5115,14 @@ private fun SpatialServerCard(
                             )
                             if (!builtInFreedom) {
                                 DropdownMenuItem(
-                                    text={ Text("Rename") },
+                                    text={ Text(trx("Rename")) },
                                     onClick={
                                         menuOpen=false
                                         onEdit()
                                     }
                                 )
                                 DropdownMenuItem(
-                                    text={ Text("Delete",color=Aether.Danger) },
+                                    text={ Text(trx("Delete"),color=Aether.Danger) },
                                     onClick={
                                         menuOpen=false
                                         deleteBySwipe=true
@@ -5149,7 +5149,7 @@ private fun SpatialServerCard(
                         horizontalArrangement=Arrangement.spacedBy(MarbleSpacing.S)
                     ) {
                         Text(
-                            "HOST",
+                            trx("HOST"),
                             color=endpointTone,
                             style=MaterialTheme.typography.labelSmall,
                             fontWeight=FontWeight.Bold
@@ -5172,7 +5172,7 @@ private fun SpatialServerCard(
                             color=Aether.GlassBorderSoft
                         )
                         Text(
-                            "PORT",
+                            trx("PORT"),
                             color=Aether.InkFaint,
                             style=MaterialTheme.typography.labelSmall
                         )
@@ -5278,7 +5278,7 @@ private fun MicroStat(
             verticalArrangement = Arrangement.Center
         ) {
             Text(
-                label,
+                trx(label),
                 color = Aether.InkFaint,
                 style = MaterialTheme.typography.labelSmall,
                 maxLines = 1,
@@ -5420,7 +5420,7 @@ private fun SpatialSettings(
                         },
                         label = {
                             Text(
-                                tab.label,
+                                trx(tab.label),
                                 style = MaterialTheme.typography.labelSmall
                             )
                         },
@@ -5470,7 +5470,7 @@ private fun SpatialSettings(
                 Box(Modifier.padding(horizontal = 16.dp)) {
                     MarbleCompactTopBar(
                         title = "Settings",
-                        subtitle = activeTab.label
+                        subtitle = trx(activeTab.label)
                     )
                 }
             }
@@ -5598,7 +5598,7 @@ private fun SettingsTabStrip(
                             Modifier.size(15.dp)
                         )
                         Text(
-                            tab.label,
+                            trx(tab.label),
                             color = if (selected) tone else Aether.InkMuted,
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
@@ -5762,7 +5762,7 @@ private fun emptySettingsCard() {
         contentPadding = PaddingValues(16.dp)
     ) {
         Text(
-            "Nothing here yet.",
+            trx("Nothing here yet."),
             color = Aether.InkMuted,
             style = MaterialTheme.typography.bodyMedium
         )
@@ -5869,13 +5869,13 @@ private fun ExpertGateRow(repo: AppRepository) {
             verticalArrangement=Arrangement.spacedBy(2.dp)
         ) {
             Text(
-                "Expert controls",
+                trx("Expert controls"),
                 color=Aether.Ink,
                 style=MaterialTheme.typography.bodyMedium,
                 fontWeight=FontWeight.Medium
             )
             Text(
-                "Show every option here.",
+                trx("Show every option here."),
                 color=Aether.InkMuted,
                 style=MaterialTheme.typography.bodySmall
             )
@@ -5927,7 +5927,7 @@ private fun SettingsSectionCard(
                 verticalArrangement=Arrangement.spacedBy(1.dp)
             ) {
                 Text(
-                    title,
+                    trx(title),
                     color=Aether.Ink,
                     style=MaterialTheme.typography.titleMedium,
                     fontWeight=FontWeight.Bold,
@@ -5936,7 +5936,7 @@ private fun SettingsSectionCard(
                 )
                 if(subtitle.isNotBlank()) {
                     Text(
-                        subtitle,
+                        trx(subtitle),
                         color=Aether.InkMuted,
                         style=MaterialTheme.typography.bodySmall,
                         maxLines=1,
@@ -6093,7 +6093,7 @@ private fun AppearanceSettings(repo: AppRepository) {
 
     SectionLabel("Per-app proxy")
     Text(
-        "Choose which installed apps use the tunnel. The complete app list is available in Network.",
+        trx("Choose which installed apps use the tunnel. The complete app list is available in Network."),
         color = Aether.InkMuted,
         style = MaterialTheme.typography.bodySmall
     )
@@ -6397,7 +6397,7 @@ private fun IntelligenceSettings(repo: AppRepository) {
         checked = s.udpProbeEnabled
     ) { repo.updateSettings(s.copy(udpProbeEnabled = it)) }
 
-    Text("Workload", color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
+    Text(trx("Workload"), color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
     FlowRow(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(7.dp),
@@ -6417,7 +6417,7 @@ private fun IntelligenceSettings(repo: AppRepository) {
     }
 
     HorizontalDivider(color = Aether.GlassBorderSoft)
-    Text("Privacy sentinel", color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
+    Text(trx("Privacy sentinel"), color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
     Row(
         modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
         horizontalArrangement = Arrangement.spacedBy(7.dp)
@@ -6579,7 +6579,7 @@ private fun ServerIntelMetric(
         verticalArrangement=Arrangement.spacedBy(3.dp)
     ) {
         Text(
-            label.uppercase(),
+            trx(label).uppercase(),
             color=tone,
             style=MaterialTheme.typography.labelSmall,
             fontWeight=FontWeight.Bold,
@@ -6644,7 +6644,7 @@ private fun ServerIntelHomeCard(repo: AppRepository) {
             HomeIconTile(HomeIcon.SERVER,Aether.Cyan)
             Column(Modifier.weight(1f)) {
                 Text(
-                    "Server info",
+                    trx("Server info"),
                     color=Aether.Ink,
                     style=MaterialTheme.typography.titleMedium,
                     fontWeight=FontWeight.Bold
@@ -6673,7 +6673,7 @@ private fun ServerIntelHomeCard(repo: AppRepository) {
 
         if(selected == null || endpoint.isBlank()) {
             Text(
-                "No node selected",
+                trx("No node selected"),
                 color=Aether.InkMuted,
                 style=MaterialTheme.typography.bodySmall
             )
@@ -6687,7 +6687,7 @@ private fun ServerIntelHomeCard(repo: AppRepository) {
                 horizontalArrangement=Arrangement.spacedBy(8.dp)
             ) {
                 Text(
-                    "ENDPOINT",
+                    trx("ENDPOINT"),
                     color=Aether.Cyan,
                     style=MaterialTheme.typography.labelSmall,
                     fontWeight=FontWeight.Bold
@@ -6837,7 +6837,7 @@ private fun ServerIntelHomeCard(repo: AppRepository) {
                         }
                         Column(Modifier.weight(1f)) {
                             Text(
-                                "Visit provider website",
+                                trx("Visit provider website"),
                                 color = Aether.Ink,
                                 style = MaterialTheme.typography.labelMedium,
                                 fontWeight = FontWeight.SemiBold,
@@ -6954,10 +6954,10 @@ private fun SplitTunnelSettings(repo:AppRepository){
     fun toggle(pkg:String){val n=selected.toMutableSet();if(!n.add(pkg))n.remove(pkg);repo.updateSettings(repo.settings.copy(splitTunnelPackages=n.sorted().joinToString(",")))}
     SplitTunnelModeSelector(repo)
     if(repo.settings.splitTunnelMode!=SplitTunnelMode.ALL_APPS){
-        TextField(search,{search=it},placeholder={Text("Search installed apps")},singleLine=true,modifier=Modifier.fillMaxWidth(),shape=RoundedCornerShape(18.dp),colors=TextFieldDefaults.colors(focusedTextColor=Aether.Ink,unfocusedTextColor=Aether.Ink,cursorColor=Aether.Cyan,focusedContainerColor=Aether.GlassStrong,unfocusedContainerColor=Aether.GlassStrong,disabledContainerColor=Aether.GlassStrong,focusedIndicatorColor=Color.Transparent,unfocusedIndicatorColor=Color.Transparent))
+        TextField(search,{search=it},placeholder={Text(trx("Search installed apps"))},singleLine=true,modifier=Modifier.fillMaxWidth(),shape=RoundedCornerShape(18.dp),colors=TextFieldDefaults.colors(focusedTextColor=Aether.Ink,unfocusedTextColor=Aether.Ink,cursorColor=Aether.Cyan,focusedContainerColor=Aether.GlassStrong,unfocusedContainerColor=Aether.GlassStrong,disabledContainerColor=Aether.GlassStrong,focusedIndicatorColor=Color.Transparent,unfocusedIndicatorColor=Color.Transparent))
         Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=Alignment.CenterVertically){Text(if(apps.isEmpty())"Loading installed apps…" else "${visibleApps.size} apps",color=Aether.InkFaint,style=MaterialTheme.typography.bodySmall);HoloBadge("${selected.size} selected",Aether.Emerald,true)}
         LazyColumn(Modifier.fillMaxWidth().height(360.dp).clip(RoundedCornerShape(18.dp)).background(Aether.Glass.copy(alpha=.70f)),contentPadding=PaddingValues(vertical=6.dp),verticalArrangement=Arrangement.spacedBy(2.dp),userScrollEnabled=true){items(visibleApps,key={it.packageName}){app->SplitTunnelAppRow(app,app.packageName in selected){toggle(app.packageName)}}}
-        Text("Applies on next Full TUN connect.",color=Aether.InkFaint,style=MaterialTheme.typography.bodySmall)
+        Text(trx("Applies on next Full TUN connect."),color=Aether.InkFaint,style=MaterialTheme.typography.bodySmall)
     }
 }
 @Composable private fun SplitTunnelAppRow(app:InstalledApp,checked:Boolean,onToggle:()->Unit){
@@ -7072,7 +7072,7 @@ private fun DnsSettings(repo: AppRepository) {
     ) {
         Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(
-                "ACTIVE FAMILY POLICY",
+                trx("ACTIVE FAMILY POLICY"),
                 color = Aether.InkFaint,
                 style = MaterialTheme.typography.labelSmall,
                 fontWeight = FontWeight.Bold
@@ -7156,7 +7156,7 @@ private fun DnsSettings(repo: AppRepository) {
         checked = repo.settings.adaptiveDualStackEnabled
     ) { repo.updateSettings(repo.settings.copy(adaptiveDualStackEnabled = it)) }
 
-    Text("Resolvers", color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
+    Text(trx("Resolvers"), color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
 
     FlowRow(
         modifier = Modifier.fillMaxWidth(),
@@ -7349,7 +7349,7 @@ private fun RoutingSettings(repo: AppRepository) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(
-                    "Recommended Iran policy",
+                    trx("Recommended Iran policy"),
                     color = Aether.Ink,
                     style = MaterialTheme.typography.titleMedium
                 )
@@ -7423,7 +7423,7 @@ private fun RoutingSettings(repo: AppRepository) {
         )
     }
 
-    Text("Routing mode", color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
+    Text(trx("Routing mode"), color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
     FlowRow(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(7.dp),
@@ -7454,7 +7454,7 @@ private fun RoutingSettings(repo: AppRepository) {
         }
     }
 
-    Text("Geo data", color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
+    Text(trx("Geo data"), color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         RoutingAssetCard(
             title = "GeoIP",
@@ -7523,7 +7523,7 @@ private fun RoutingSettings(repo: AppRepository) {
     ) { repo.verifyRoutingPolicy() }
 
     HorizontalDivider(color = Aether.GlassBorderSoft)
-    Text("Geo direct rules", color = Aether.Ink, style = MaterialTheme.typography.titleMedium)
+    Text(trx("Geo direct rules"), color = Aether.Ink, style = MaterialTheme.typography.titleMedium)
 
     TinyField("GeoIP direct tags", s.routeGeoIpTags, Modifier.fillMaxWidth()) {
         repo.updateSettings(repo.settings.copy(routeGeoIpTags = it))
@@ -7538,7 +7538,7 @@ private fun RoutingSettings(repo: AppRepository) {
         checked = s.routeBypassPrivate
     ) { repo.updateSettings(repo.settings.copy(routeBypassPrivate = it)) }
 
-    Text("Domain strategy", color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
+    Text(trx("Domain strategy"), color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
     FlowRow(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(7.dp),
@@ -7562,7 +7562,7 @@ private fun RoutingSettings(repo: AppRepository) {
     }
 
     HorizontalDivider(color = Aether.GlassBorderSoft)
-    Text("Exceptions & advanced rules", color = Aether.Ink, style = MaterialTheme.typography.titleMedium)
+    Text(trx("Exceptions & advanced rules"), color = Aether.Ink, style = MaterialTheme.typography.titleMedium)
 
     TinyField("Always proxy domains / geosite tags", s.routeProxyDomains, Modifier.fillMaxWidth()) {
         repo.updateSettings(repo.settings.copy(routeProxyDomains = it))
@@ -7643,7 +7643,7 @@ private fun BugFinderSettings(repo: AppRepository) {
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text("Runtime observatory", color=Aether.Ink, style=MaterialTheme.typography.titleMedium)
+                Text(trx("Runtime observatory"), color=Aether.Ink, style=MaterialTheme.typography.titleMedium)
             }
             HoloBadge(
                 when {
@@ -7684,7 +7684,7 @@ private fun BugFinderSettings(repo: AppRepository) {
                 )
                 .padding(11.dp), verticalArrangement=Arrangement.spacedBy(4.dp)
         ) {
-            Text("Report location", color=if(debug) Aether.Cyan else Aether.InkFaint, style=MaterialTheme.typography.labelSmall)
+            Text(trx("Report location"), color=if(debug) Aether.Cyan else Aether.InkFaint, style=MaterialTheme.typography.labelSmall)
             Text(repo.debugReportLocation(), color=Aether.Ink, style=MaterialTheme.typography.bodySmall.copy(fontFamily=FontFamily.Monospace))
         }
 
@@ -7841,7 +7841,7 @@ private fun ProbeSettings(repo: AppRepository) {
             Text("!", color = Aether.Amber, style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.width(9.dp))
             Text(
-                "TCP/ICMP bypass the proxy; only Real tunnel proves the route.",
+                trx("TCP/ICMP bypass the proxy; only Real tunnel proves the route."),
                 color = Aether.InkMuted,
                 style = MaterialTheme.typography.bodySmall
             )
@@ -7963,7 +7963,7 @@ private fun CyberChoiceChip(
         contentAlignment = Alignment.Center
     ) {
         Text(
-            text,
+            trx(text),
             color = ink,
             style = MaterialTheme.typography.labelMedium,
             fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
@@ -8018,7 +8018,7 @@ private fun CyberSegment(
         horizontalAlignment = Alignment.Start
     ) {
         Text(
-            label,
+            trx(label),
             color = ink,
             style = MaterialTheme.typography.labelMedium,
             fontWeight = if (selected) FontWeight.Bold else FontWeight.SemiBold,
@@ -8027,7 +8027,7 @@ private fun CyberSegment(
         )
         if (detail.isNotBlank()) {
             Text(
-                detail,
+                trx(detail),
                 color = if (selected) tone.copy(alpha = .85f) else Aether.InkFaint,
                 style = MaterialTheme.typography.labelSmall,
                 maxLines = 1,
@@ -8078,7 +8078,7 @@ private fun SettingSwitch(
             verticalArrangement = Arrangement.spacedBy(1.dp)
         ) {
             Text(
-                title,
+                trx(title),
                 color = Aether.Ink,
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.Medium,
@@ -8087,7 +8087,7 @@ private fun SettingSwitch(
             )
             if (subtitle.isNotBlank()) {
                 Text(
-                    subtitle,
+                    trx(subtitle),
                     color = Aether.InkMuted,
                     style = MaterialTheme.typography.bodySmall,
                     maxLines = 2,
@@ -8121,7 +8121,7 @@ private fun NumberSetting(
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
-            title,
+            trx(title),
             color = Aether.Ink,
             style = MaterialTheme.typography.bodyMedium,
             modifier = Modifier.weight(1f)
@@ -8137,7 +8137,7 @@ private fun NumberSetting(
         }
 
         Text(
-            "$shown$suffix",
+            "$shown${trx(suffix)}",
             color = Aether.Cyan,
             style = MaterialTheme.typography.labelMedium.copy(
                 fontFamily = FontFamily.Monospace,
@@ -8169,7 +8169,7 @@ private fun TinyField(
     OutlinedTextField(
         value = value,
         onValueChange = onValue,
-        label = { Text(label) },
+        label = { Text(trx(label)) },
         singleLine = true,
         modifier = modifier,
         shape = RoundedCornerShape(17.dp),
@@ -8189,9 +8189,9 @@ private fun EmptyVisual(
     ) {
         Text(glyph, color = Aether.Cyan, style = MaterialTheme.typography.headlineMedium)
         Spacer(Modifier.height(8.dp))
-        Text(title, color = Aether.Ink, style = MaterialTheme.typography.titleMedium)
+        Text(trx(title), color = Aether.Ink, style = MaterialTheme.typography.titleMedium)
         Text(
-            body,
+            trx(body),
             color = Aether.InkFaint,
             style = MaterialTheme.typography.bodySmall,
             textAlign = TextAlign.Center
@@ -8411,7 +8411,7 @@ private fun FreedomSettings(repo: AppRepository) {
             }
             Column(Modifier.weight(1f)) {
                 Text(
-                    "Marble Freedom",
+                    trx("Marble Freedom"),
                     color = Aether.Ink,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold
@@ -8644,7 +8644,7 @@ private fun FreedomSettings(repo: AppRepository) {
     ) { repo.updateSettings(s.copy(freedomDirectDomestic = it)) }
 
     Text(
-        "DoH endpoints",
+        trx("DoH endpoints"),
         color = Aether.InkFaint,
         style = MaterialTheme.typography.labelSmall,
         fontWeight = FontWeight.Bold
@@ -8663,7 +8663,7 @@ private fun FreedomSettings(repo: AppRepository) {
     }
 
     Text(
-        "Bootstrap IPs",
+        trx("Bootstrap IPs"),
         color = Aether.InkFaint,
         style = MaterialTheme.typography.labelSmall,
         fontWeight = FontWeight.Bold
@@ -8681,7 +8681,7 @@ private fun FreedomSettings(repo: AppRepository) {
     }
 
     Text(
-        "Record strategy",
+        trx("Record strategy"),
         color = Aether.InkFaint,
         style = MaterialTheme.typography.labelSmall,
         fontWeight = FontWeight.Bold
@@ -8708,7 +8708,7 @@ private fun FreedomSettings(repo: AppRepository) {
     }
 
     Text(
-        "Domain routing",
+        trx("Domain routing"),
         color = Aether.InkFaint,
         style = MaterialTheme.typography.labelSmall,
         fontWeight = FontWeight.Bold

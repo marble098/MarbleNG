@@ -102,9 +102,9 @@ fun ConnectionPermissionDialog(
         },
         title = {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(copy.title, color = Aether.Ink)
+                Text(trx(copy.title), color = Aether.Ink)
                 Text(
-                    copy.detail,
+                    trx(copy.detail),
                     color = copy.tone,
                     style = MaterialTheme.typography.labelSmall
                 )
@@ -113,7 +113,7 @@ fun ConnectionPermissionDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(
-                    copy.reason,
+                    trx(copy.reason),
                     color = Aether.InkMuted,
                     style = MaterialTheme.typography.bodyMedium
                 )
@@ -133,7 +133,7 @@ fun ConnectionPermissionDialog(
                             .background(copy.tone, CircleShape)
                     )
                     Text(
-                        "Only requested when you tap Connect",
+                        trx("Only requested when you tap Connect"),
                         modifier = Modifier.padding(start = 9.dp),
                         color = Aether.InkMuted,
                         style = MaterialTheme.typography.labelSmall

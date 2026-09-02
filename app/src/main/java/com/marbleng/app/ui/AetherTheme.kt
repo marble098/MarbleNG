@@ -32,8 +32,11 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.TextUnit
+import com.marbleng.app.R
 import com.marbleng.app.model.AppFont
 import com.marbleng.app.model.parseAppFont
 import androidx.compose.ui.unit.dp
@@ -183,10 +186,22 @@ object Aether {
     val InkFaint: Color @Composable get() = LocalAetherPalette.current.inkFaint
 }
 
+// MARBLE_VAZIR_REAL_FONT_V111
+// Vazirmatn is bundled as real TTF resources (OFL-licensed, res/font/vazirmatn_*.ttf) so
+// Persian text genuinely shapes with Vazir instead of silently falling back to the platform
+// sans face. When Persian is the active product language the whole typography ramp switches
+// to Vazirmatn regardless of the selected Latin font, so no Persian glyph ever renders in a
+// mismatched face.
+private val VazirFamily = FontFamily(
+    Font(R.font.vazirmatn_regular, FontWeight.Normal),
+    Font(R.font.vazirmatn_medium, FontWeight.Medium),
+    Font(R.font.vazirmatn_semibold, FontWeight.SemiBold),
+    Font(R.font.vazirmatn_bold, FontWeight.Bold)
+)
+
 private fun selectedFontFamily(id: String): FontFamily = when (parseAppFont(id)) {
-    // Vazir is intentionally mapped to the Android sans family here so Persian shaping remains
-    // available even on devices whose system font pack is smaller than the full Arabic set.
-    AppFont.VAZIR -> FontFamily.SansSerif
+    // The real bundled Vazirmatn face — Persian and Latin both ship inside the TTF.
+    AppFont.VAZIR -> VazirFamily
     // Google Sans is the platform product sans fallback on Android; keeping it platform-backed
     // avoids a network font download during a VPN connection or first launch.
     AppFont.GOOGLE_SANS -> FontFamily.Default
@@ -194,43 +209,47 @@ private fun selectedFontFamily(id: String): FontFamily = when (parseAppFont(id))
     AppFont.TIMES_NEW_ROMAN -> FontFamily.Serif
 }
 
-private fun aetherTypography(fontId: String): Typography {
-    val family = selectedFontFamily(fontId)
+private fun aetherTypography(fontId: String, persian: Boolean): Typography {
+    // Persian always shapes with the bundled Vazirmatn: that is the whole point of shipping it.
+    val family = if (persian) VazirFamily else selectedFontFamily(fontId)
+    // The tight negative tracking tuned for Latin ruins Perso-Arabic joining; Persian runs at
+    // neutral tracking so Vazir's own metrics decide the rhythm.
+    fun track(latin: Double): TextUnit = if (persian) 0.sp else latin.sp
     return Typography(
     displayLarge = TextStyle(
         fontFamily = family,
         fontWeight = FontWeight.Bold,
         fontSize = 36.sp,
         lineHeight = 42.sp,
-        letterSpacing = (-.74).sp
+        letterSpacing = track(-.74)
     ),
     headlineLarge = TextStyle(
         fontFamily = family,
         fontWeight = FontWeight.Bold,
         fontSize = 25.sp,
         lineHeight = 31.sp,
-        letterSpacing = (-.38).sp
+        letterSpacing = track(-.38)
     ),
     headlineMedium = TextStyle(
         fontFamily = family,
         fontWeight = FontWeight.SemiBold,
         fontSize = 22.sp,
         lineHeight = 28.sp,
-        letterSpacing = (-.26).sp
+        letterSpacing = track(-.26)
     ),
     headlineSmall = TextStyle(
         fontFamily = family,
         fontWeight = FontWeight.SemiBold,
         fontSize = 19.sp,
         lineHeight = 24.sp,
-        letterSpacing = (-.16).sp
+        letterSpacing = track(-.16)
     ),
     titleLarge = TextStyle(
         fontFamily = family,
         fontWeight = FontWeight.SemiBold,
         fontSize = 17.sp,
         lineHeight = 22.sp,
-        letterSpacing = (-.10).sp
+        letterSpacing = track(-.10)
     ),
     titleMedium = TextStyle(
         fontFamily = family,
@@ -273,14 +292,14 @@ private fun aetherTypography(fontId: String): Typography {
         fontWeight = FontWeight.Medium,
         fontSize = 12.sp,
         lineHeight = 16.sp,
-        letterSpacing = .04.sp
+        letterSpacing = track(.04)
     ),
     labelSmall = TextStyle(
         fontFamily = family,
         fontWeight = FontWeight.Medium,
         fontSize = 10.5.sp,
         lineHeight = 14.sp,
-        letterSpacing = .08.sp
+        letterSpacing = track(.08)
     )
 )
 }
@@ -387,9 +406,12 @@ fun AetherFlowTheme(
     }
 
     CompositionLocalProvider(LocalAetherPalette provides palette) {
+        // MARBLE_VAZIR_REAL_FONT_V111 — the resolved product language decides whether the
+        // Vazirmatn ramp is forced; MarbleApp installs the language provider above the theme.
+        val persianActive = LocalMarbleStrings.current.language == MarbleLanguage.FA
         MaterialTheme(
             colorScheme=scheme,
-            typography=aetherTypography(fontId),
+            typography=aetherTypography(fontId, persianActive),
             shapes=AetherShapes
         ) {
             ProvideMarbleMotion(content)

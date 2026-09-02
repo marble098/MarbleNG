@@ -1302,12 +1302,15 @@ private fun postToMain(block: () -> Unit) {
     }
 
     /**
-     * MARBLE_HOME_SESSION_EVIDENCE_V110 — the Home connection ping.
+     * MARBLE_HOME_SESSION_EVIDENCE_V110 / MARBLE_SMART_TUNNEL_PING_V111 — the Home connection ping.
      *
-     * This is deliberately a *single* verified HTTPS round trip through the live Xray path,
-     * triggered by the user (or once automatically when a style first shows a fresh session).
-     * It never becomes a background timer, so it cannot add traffic to a metered connection, and
-     * it never substitutes an estimate: a failed probe reports FAILED instead of a fake number.
+     * Every tap runs a *fresh, real* measurement through the live Xray path — never a cached or
+     * estimated number. The probe is smart: three independent, censorship-resilient HTTPS
+     * endpoints are raced in parallel through the tunnel and the fastest verified round trip
+     * wins, so one throttled CDN cannot misreport the tunnel latency. It never becomes a
+     * background timer, so it cannot add traffic to a metered connection, and it never
+     * substitutes an estimate: when every probe fails the state reports FAILED instead of a
+     * fake number.
      */
     fun measureConnectionPing() {
         if (state != "CONNECTED") {
@@ -1324,18 +1327,44 @@ private fun postToMain(block: () -> Unit) {
         val sessionAtStart = connectedSinceMs
 
         io.execute {
-            val measured = runCatching {
-                SocksHttpClient.tunnelRttBatch(
-                    port = port,
-                    host = "www.gstatic.com",
-                    path = "/generate_204",
-                    samples = 2,
-                    timeoutMs = 6_000
-                )
-            }.getOrNull()
-                ?.samplesMs
-                ?.filter { it.isFinite() && it > 0.0 }
-                ?.minOrNull()
+            // Three independent generate_204-class origins; the tunnel RTT is the minimum
+            // verified sample across whichever of them answer. Each target runs on its own
+            // thread so a stalled endpoint cannot serialize the whole measurement.
+            val targets = listOf(
+                "www.gstatic.com" to "/generate_204",
+                "cp.cloudflare.com" to "/",
+                "www.google.com" to "/generate_204"
+            )
+            val results = java.util.Collections.synchronizedList(ArrayList<Double>())
+            val pool = Executors.newFixedThreadPool(targets.size)
+            try {
+                val tasks = targets.map { (host, path) ->
+                    java.util.concurrent.Callable {
+                        runCatching {
+                            SocksHttpClient.tunnelRttBatch(
+                                port = port,
+                                host = host,
+                                path = path,
+                                samples = 2,
+                                timeoutMs = 6_000
+                            )
+                        }.getOrNull()
+                            ?.samplesMs
+                            ?.filter { it.isFinite() && it > 0.0 }
+                            ?.minOrNull()
+                            ?.let { results.add(it) }
+                    }
+                }
+                pool.invokeAll(tasks, 8, java.util.concurrent.TimeUnit.SECONDS)
+            } catch (_: InterruptedException) {
+                Thread.currentThread().interrupt()
+            } finally {
+                pool.shutdownNow()
+            }
+
+            val measured = results
+                .filter { it.isFinite() && it > 0.0 }
+                .minOrNull()
                 ?.roundToInt()
                 ?.coerceIn(1, 10_000)
                 ?: -1
@@ -1344,7 +1373,8 @@ private fun postToMain(block: () -> Unit) {
                 "APP",
                 "home-connection-ping",
                 "measured" to measured,
-                "port" to port
+                "port" to port,
+                "responders" to results.size
             )
 
             postToMain {
