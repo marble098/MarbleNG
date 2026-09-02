@@ -321,6 +321,9 @@ class AppStore(context: Context) {
 
         theme = prefs.getString("theme", "light") ?: "light",
         fontFamily = prefs.getString("fontFamily", AppFont.VAZIR.id) ?: AppFont.VAZIR.id,
+        // MARBLE_HOME_STYLE_V110 / MARBLE_BILINGUAL_V110
+        homeStyle = parseHomeStyle(prefs.getString("homeStyle", HomeStyle.BIOLUMINESCENT.id) ?: HomeStyle.BIOLUMINESCENT.id).id,
+        appLanguage = parseAppLanguage(prefs.getString("appLanguage", AppLanguage.SYSTEM.id) ?: AppLanguage.SYSTEM.id).id,
         debugModeEnabled = prefs.getBoolean("debugModeEnabled", false),
         expertMode = prefs.getBoolean("expertMode", false)
         )
@@ -508,6 +511,8 @@ class AppStore(context: Context) {
 
         .putString("theme", s.theme)
         .putString("fontFamily", s.fontFamily)
+        .putString("homeStyle", parseHomeStyle(s.homeStyle).id)
+        .putString("appLanguage", parseAppLanguage(s.appLanguage).id)
         .putBoolean("debugModeEnabled", s.debugModeEnabled)
         .putBoolean("expertMode", s.expertMode)
         .apply()

@@ -15,15 +15,19 @@ fun MarbleApp(
     onImportFile: () -> Unit,
     onContentScrollChanged: (Boolean) -> Unit = {}
 ) {
-    AetherFlowTheme(
-        themeId = repo.settings.theme,
-        fontId = repo.settings.fontFamily
-    ) {
-        Aether2026App(
-            repo = repo,
-            onConnect = onConnect,
-            onImportFile = onImportFile,
-            onContentScrollChanged = onContentScrollChanged
-        )
+    // MARBLE_BILINGUAL_V110 — language resolves outside the theme so typography, layout
+    // direction and every string switch together in one recomposition.
+    ProvideMarbleLanguage(repo.settings.appLanguage) {
+        AetherFlowTheme(
+            themeId = repo.settings.theme,
+            fontId = repo.settings.fontFamily
+        ) {
+            Aether2026App(
+                repo = repo,
+                onConnect = onConnect,
+                onImportFile = onImportFile,
+                onContentScrollChanged = onContentScrollChanged
+            )
+        }
     }
 }
