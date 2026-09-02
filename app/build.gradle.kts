@@ -5,10 +5,6 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
-// ============================================================================
-// Version
-// ============================================================================
-
 val versionCodeFromCi =
     providers
         .gradleProperty("VERSION_CODE")
@@ -16,19 +12,11 @@ val versionCodeFromCi =
         ?.toIntOrNull()
         ?: 10000
 
-// MARBLE_VERSION_V102
 val versionNameFromCi =
     providers
         .gradleProperty("VERSION_NAME")
         .orNull
         ?: "1.0.2"
-
-// ============================================================================
-// Signing
-//
-// signing.properties is generated only in CI / local signed builds.
-// Never commit release.jks or signing.properties.
-// ============================================================================
 
 val signingPropertiesFile =
     rootProject.file("signing.properties")
@@ -64,14 +52,10 @@ if (signingConfigured) {
     ).forEach(::signingValue)
 }
 
-// ============================================================================
-// Android
-// ============================================================================
-
 android {
     namespace = "com.marbleng.app"
 
-    compileSdk = 36
+    compileSdk = 37
 
     ndkVersion = "28.2.13676358"
 
@@ -79,7 +63,7 @@ android {
         applicationId = "com.marbleng.app"
 
         minSdk = 26
-        targetSdk = 36
+        targetSdk = 37
 
         versionCode = versionCodeFromCi
         versionName = versionNameFromCi
@@ -88,10 +72,6 @@ android {
             useSupportLibrary = true
         }
     }
-
-    // ========================================================================
-    // Signing configurations
-    // ========================================================================
 
     signingConfigs {
         create("release") {
@@ -127,10 +107,6 @@ android {
         }
     }
 
-    // ========================================================================
-    // Build types
-    // ========================================================================
-
     buildTypes {
 
         debug {
@@ -157,17 +133,6 @@ android {
         }
     }
 
-    // ========================================================================
-    // ABI APKs
-    //
-    // Generates:
-    //   arm64-v8a
-    //   armeabi-v7a
-    //   x86_64
-    //   x86
-    //   universal
-    // ========================================================================
-
     splits {
         abi {
             isEnable = true
@@ -185,21 +150,10 @@ android {
         }
     }
 
-    // ========================================================================
-    // Build features
-    // ========================================================================
-
     buildFeatures {
         compose = true
         buildConfig = true
     }
-
-    // ========================================================================
-    // Packaging
-    //
-    // Xray is executed from applicationInfo.nativeLibraryDir.
-    // Legacy native-library packaging keeps native files available there.
-    // ========================================================================
 
     packaging {
 
@@ -220,10 +174,6 @@ android {
         }
     }
 
-    // ========================================================================
-    // Java
-    // ========================================================================
-
     compileOptions {
         sourceCompatibility =
             JavaVersion.VERSION_17
@@ -233,28 +183,24 @@ android {
     }
 }
 
-// ============================================================================
-// Dependencies
-// ============================================================================
-
 dependencies {
 
     implementation(
         platform(
-            "androidx.compose:compose-bom:2026.06.00"
+            "androidx.compose:compose-bom:2026.08.00"
         )
     )
 
     implementation(
-        "androidx.core:core-ktx:1.17.0"
+        "androidx.core:core-ktx:1.19.0"
     )
 
     implementation(
-        "androidx.activity:activity-compose:1.11.0"
+        "androidx.activity:activity-compose:1.13.0"
     )
 
     implementation(
-        "androidx.lifecycle:lifecycle-runtime-ktx:2.9.4"
+        "androidx.lifecycle:lifecycle-runtime-ktx:2.11.0"
     )
 
     implementation(
@@ -277,12 +223,11 @@ dependencies {
         "androidx.compose.material3:material3"
     )
 
-    // MARBLE_SSH_TRANSPORT_V25
     implementation("com.github.mwiede:jsch:2.28.6")
 
     testImplementation("junit:junit:4.13.2")
-    // Local unit tests parse the emitted Xray JSON; android.jar's org.json is a no-op stub.
-    testImplementation("org.json:json:20240303")
+
+    testImplementation("org.json:json:20260814")
 
     debugImplementation(
         "androidx.compose.ui:ui-tooling"
