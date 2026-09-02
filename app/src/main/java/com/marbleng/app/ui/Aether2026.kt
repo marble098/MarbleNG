@@ -3690,7 +3690,7 @@ private fun LibrarySmartFab(
                     icon = HomeIcon.SHIELD,
                     label = if (freedomHidden) "Show Marble Freedom" else "Hide Marble Freedom",
                     tone = chrome.freedomTone,
-                    onClick = { repo.setLibraryFreedomHidden(!freedomHidden) }
+                    onClick = { repo.updateLibraryFreedomHidden(!freedomHidden) }
                 )
             }
         }

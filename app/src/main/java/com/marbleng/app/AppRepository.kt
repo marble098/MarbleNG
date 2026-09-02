@@ -204,7 +204,7 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     var libraryFreedomHidden by mutableStateOf(store.libraryFreedomHidden())
         private set
 
-    fun setLibraryFreedomHidden(hidden: Boolean) {
+    fun updateLibraryFreedomHidden(hidden: Boolean) {
         if (libraryFreedomHidden == hidden) return
         libraryFreedomHidden = hidden
         store.setLibraryFreedomHidden(hidden)
