@@ -55,8 +55,12 @@ MarbleNG uses three primary tabs: **Home**, **Library**, and **Settings**.
 - Quick access to Rank, Library, Privacy, and Routing.
 - Physical-network label and live upload/download activity.
 - Tunnel and kill-switch state.
+- Five connection presentations — Signature (the default professional studio), Organic, Orbit, Nebula, and Blueprint — switchable from Settings or from the style chips at the bottom of Home.
+- Signature studio extras, every layer optional from Settings: a draggable floating connect button, a status banner (Home-only or on all pages), a top-right action cluster (add server, ping grab, user-selected shortcut, overflow menu), a Home rail of your selected servers with glass / colored / plain card backgrounds.
+- Real connection ping: parallel HTTPS first-byte + tunnel RTT probes with a healthy-minimum ladder, so a busy edge no longer reads as "no response".
+- Seamless loop animations in every style — no visible start or end boundary.
 
-The Home title and main connection surface use a fixed layout so changing runtime status text does not move the Connect control. The status title and sentence above the Connect ring are anchored to a reserved block, so a shorter or longer sentence swaps in place instead of pulling the control up and down.
+The Home title and main connection surface use a fixed layout so changing runtime status text does not move the Connect control. The status title and sentence above the Connect ring are anchored to a reserved block, so a shorter or longer sentence swaps in place instead of pulling the control up and down. Ping and uptime readouts auto-shrink and ellipsize so they never overflow their box in any style.
 
 ### Library
 
@@ -97,7 +101,7 @@ Common settings are visible first; advanced network controls are behind **Expert
 
 Main areas include:
 
-- Appearance
+- Appearance (connection style, Signature studio customization, accent color, night outline style — subtle / bold / colored / hidden, light/dark theme, Vazir or System font, language)
 - Connection
 - Testing & ping
 - Split tunneling

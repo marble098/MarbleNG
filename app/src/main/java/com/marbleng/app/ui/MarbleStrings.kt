@@ -85,7 +85,38 @@ data class MarbleStrings(
     val languageSystem: String,
     val languageSystemDetail: String,
     val languageEnglish: String,
-    val languagePersian: String
+    val languagePersian: String,
+
+    // MARBLE_SIGNATURE_HOME_V112 — the Signature studio surface
+    val stylePro: String,
+    val styleProDetail: String,
+    val proStudioTitle: String,
+    val proStudioDetail: String,
+    val proFloatingButton: String,
+    val proFloatingButtonDetail: String,
+    val proStatusBanner: String,
+    val proStatusBannerDetail: String,
+    val proCornerActions: String,
+    val proCornerActionsDetail: String,
+    val proServerRail: String,
+    val proServerRailDetail: String,
+    val proStyleSwitcher: String,
+    val proStyleSwitcherDetail: String,
+    val proServerCardStyle: String,
+    val proAccentColor: String,
+    val proNightOutlines: String,
+    val proNightOutlinesDetail: String,
+    val proServers: String,
+    val proServersDetail: String,
+    val proAddRoute: String,
+    val proGrabPing: String,
+    val proMoreActions: String,
+    val proShortcut: String,
+    val proShortcutLibrary: String,
+    val proShortcutRank: String,
+    val proShortcutPrivacy: String,
+    val proShortcutRouting: String,
+    val proShortcutTests: String
 )
 
 private val EnglishStrings = MarbleStrings(
@@ -125,7 +156,7 @@ private val EnglishStrings = MarbleStrings(
     dataFlow = "Data flow",
     appearance = "Appearance",
     homeStyleTitle = "Home style",
-    homeStyleDetail = "Four presentations of the same connection surface",
+    homeStyleDetail = "Five presentations of the same connection surface",
     styleBioluminescent = "Bioluminescent",
     styleBioluminescentDetail = "Organic glow",
     styleCosmicOrbit = "Cosmic orbit",
@@ -139,7 +170,38 @@ private val EnglishStrings = MarbleStrings(
     languageSystem = "System",
     languageSystemDetail = "Device language",
     languageEnglish = "English",
-    languagePersian = "فارسی"
+    languagePersian = "فارسی",
+
+    // MARBLE_SIGNATURE_HOME_V112
+    stylePro = "Signature",
+    styleProDetail = "Pro studio",
+    proStudioTitle = "Signature studio",
+    proStudioDetail = "Every layer of the professional Home, exactly the way you want it",
+    proFloatingButton = "Floating connect button",
+    proFloatingButtonDetail = "Drag anywhere, tap to connect",
+    proStatusBanner = "Status banner",
+    proStatusBannerDetail = "Connection state and selected server",
+    proCornerActions = "Corner actions",
+    proCornerActionsDetail = "Add, ping, shortcut and more",
+    proServerRail = "Server rail",
+    proServerRailDetail = "Servers chosen in Library",
+    proStyleSwitcher = "Style switcher",
+    proStyleSwitcherDetail = "Switch styles from Home",
+    proServerCardStyle = "Server cards",
+    proAccentColor = "Accent color",
+    proNightOutlines = "Night outlines",
+    proNightOutlinesDetail = "Frame lines of the dark theme",
+    proServers = "Servers",
+    proServersDetail = "From your selected Library source",
+    proAddRoute = "Add server",
+    proGrabPing = "Ping",
+    proMoreActions = "More",
+    proShortcut = "Shortcut",
+    proShortcutLibrary = "Library",
+    proShortcutRank = "Rank",
+    proShortcutPrivacy = "Privacy",
+    proShortcutRouting = "Routing",
+    proShortcutTests = "Tests"
 )
 
 private val PersianStrings = MarbleStrings(
@@ -165,7 +227,9 @@ private val PersianStrings = MarbleStrings(
     connectionPing = "پینگ",
     testPing = "تست پینگ",
     retestPing = "تست دوباره",
-    measuring = "در حال اندازه‌گیری…",
+    // Short on purpose: this string lives inside compact ping readouts where it must never
+    // overflow its box (MARBLE_HOME_PING_AUTOFIT_V112).
+    measuring = "اندازه‌گیری…",
     notMeasured = "اندازه‌گیری نشده",
     pingFailed = "بدون پاسخ",
     copyIp = "کپی آدرس آی‌پی",
@@ -179,7 +243,7 @@ private val PersianStrings = MarbleStrings(
     dataFlow = "جریان داده",
     appearance = "ظاهر",
     homeStyleTitle = "حالت نمایش صفحه اصلی",
-    homeStyleDetail = "چهار نمایش متفاوت از همان صفحه اتصال",
+    homeStyleDetail = "پنج نمایش متفاوت از همان صفحه اتصال",
     styleBioluminescent = "زیست‌نور",
     styleBioluminescentDetail = "درخشش ارگانیک",
     styleCosmicOrbit = "مدار کیهانی",
@@ -193,7 +257,38 @@ private val PersianStrings = MarbleStrings(
     languageSystem = "سیستم",
     languageSystemDetail = "زبان دستگاه",
     languageEnglish = "English",
-    languagePersian = "فارسی"
+    languagePersian = "فارسی",
+
+    // MARBLE_SIGNATURE_HOME_V112
+    stylePro = "سیگنچر",
+    styleProDetail = "استودیو حرفه‌ای",
+    proStudioTitle = "استودیوی سیگنچر",
+    proStudioDetail = "هر لایه از صفحه حرفه‌ای، دقیقاً به سلیقه خودت",
+    proFloatingButton = "دکمه اتصال شناور",
+    proFloatingButtonDetail = "هرجا بکش، برای اتصال بزن",
+    proStatusBanner = "بنر وضعیت",
+    proStatusBannerDetail = "وضعیت اتصال و سرور انتخابی",
+    proCornerActions = "دکمه‌های گوشه",
+    proCornerActionsDetail = "افزودن، پینگ، میان‌بر و بیشتر",
+    proServerRail = "ردیف سرورها",
+    proServerRailDetail = "سرورهای انتخابی کتابخانه",
+    proStyleSwitcher = "سوئیچ استایل",
+    proStyleSwitcherDetail = "تغییر استایل از خود صفحه",
+    proServerCardStyle = "کارت سرورها",
+    proAccentColor = "رنگ تاکید",
+    proNightOutlines = "خطوط حالت شب",
+    proNightOutlinesDetail = "خطوط و کادرهای تم تاریک",
+    proServers = "سرورها",
+    proServersDetail = "از ساب انتخابی کتابخانه",
+    proAddRoute = "افزودن سرور",
+    proGrabPing = "پینگ",
+    proMoreActions = "بیشتر",
+    proShortcut = "میان‌بر",
+    proShortcutLibrary = "کتابخانه",
+    proShortcutRank = "رتبه‌بندی",
+    proShortcutPrivacy = "حریم خصوصی",
+    proShortcutRouting = "مسیریابی",
+    proShortcutTests = "تست‌ها"
 )
 
 internal val LocalMarbleStrings = staticCompositionLocalOf { EnglishStrings }

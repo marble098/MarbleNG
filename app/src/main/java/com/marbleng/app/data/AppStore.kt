@@ -320,10 +320,25 @@ class AppStore(context: Context) {
         workloadProfile = enumValue("workloadProfile", WorkloadProfile.AUTO),
 
         theme = prefs.getString("theme", "light") ?: "light",
-        fontFamily = prefs.getString("fontFamily", AppFont.VAZIR.id) ?: AppFont.VAZIR.id,
-        // MARBLE_HOME_STYLE_V110 / MARBLE_BILINGUAL_V110
-        homeStyle = parseHomeStyle(prefs.getString("homeStyle", HomeStyle.BIOLUMINESCENT.id) ?: HomeStyle.BIOLUMINESCENT.id).id,
+        fontFamily = parseAppFont(prefs.getString("fontFamily", AppFont.VAZIR.id) ?: AppFont.VAZIR.id).id,
+        // MARBLE_HOME_STYLE_V110 / MARBLE_BILINGUAL_V110 / MARBLE_SIGNATURE_HOME_V112
+        homeStyle = parseHomeStyle(prefs.getString("homeStyle", HomeStyle.PRO.id) ?: HomeStyle.PRO.id).id,
         appLanguage = parseAppLanguage(prefs.getString("appLanguage", AppLanguage.SYSTEM.id) ?: AppLanguage.SYSTEM.id).id,
+
+        // MARBLE_SIGNATURE_HOME_V112 — the Signature studio customization surface.
+        proFloatingButtonEnabled = prefs.getBoolean("proFloatingButtonEnabled", true),
+        proStatusBannerEnabled = prefs.getBoolean("proStatusBannerEnabled", true),
+        proBannerScope = parseProBannerScope(prefs.getString("proBannerScope", ProBannerScope.HOME.id) ?: ProBannerScope.HOME.id).id,
+        proCornerActionsEnabled = prefs.getBoolean("proCornerActionsEnabled", true),
+        proServerRailEnabled = prefs.getBoolean("proServerRailEnabled", true),
+        proStyleSwitcherEnabled = prefs.getBoolean("proStyleSwitcherEnabled", true),
+        proServerCardStyle = parseProServerCardStyle(prefs.getString("proServerCardStyle", ProServerCardStyle.GLASS.id) ?: ProServerCardStyle.GLASS.id).id,
+        proAccent = parseProAccent(prefs.getString("proAccent", ProAccent.ELECTRIC.id) ?: ProAccent.ELECTRIC.id).id,
+        proShortcut = parseProShortcut(prefs.getString("proShortcut", ProShortcut.LIBRARY.id) ?: ProShortcut.LIBRARY.id).id,
+
+        // MARBLE_NIGHT_OUTLINES_V112
+        darkOutlineStyle = parseDarkOutlineStyle(prefs.getString("darkOutlineStyle", DarkOutlineStyle.SUBTLE.id) ?: DarkOutlineStyle.SUBTLE.id).id,
+
         debugModeEnabled = prefs.getBoolean("debugModeEnabled", false),
         expertMode = prefs.getBoolean("expertMode", false)
         )
@@ -510,12 +525,43 @@ class AppStore(context: Context) {
         .putString("workloadProfile", s.workloadProfile.name)
 
         .putString("theme", s.theme)
-        .putString("fontFamily", s.fontFamily)
+        .putString("fontFamily", parseAppFont(s.fontFamily).id)
         .putString("homeStyle", parseHomeStyle(s.homeStyle).id)
         .putString("appLanguage", parseAppLanguage(s.appLanguage).id)
+
+        // MARBLE_SIGNATURE_HOME_V112
+        .putBoolean("proFloatingButtonEnabled", s.proFloatingButtonEnabled)
+        .putBoolean("proStatusBannerEnabled", s.proStatusBannerEnabled)
+        .putString("proBannerScope", parseProBannerScope(s.proBannerScope).id)
+        .putBoolean("proCornerActionsEnabled", s.proCornerActionsEnabled)
+        .putBoolean("proServerRailEnabled", s.proServerRailEnabled)
+        .putBoolean("proStyleSwitcherEnabled", s.proStyleSwitcherEnabled)
+        .putString("proServerCardStyle", parseProServerCardStyle(s.proServerCardStyle).id)
+        .putString("proAccent", parseProAccent(s.proAccent).id)
+        .putString("proShortcut", parseProShortcut(s.proShortcut).id)
+
+        // MARBLE_NIGHT_OUTLINES_V112
+        .putString("darkOutlineStyle", parseDarkOutlineStyle(s.darkOutlineStyle).id)
+
         .putBoolean("debugModeEnabled", s.debugModeEnabled)
         .putBoolean("expertMode", s.expertMode)
         .apply()
+
+    // MARBLE_SIGNATURE_HOME_V112 — the floating connect button keeps its dragged position as
+    // normalized fractions of the viewport, so the spot survives restarts on any screen size.
+    // Written on drag end only, never per frame.
+    fun proFabPosition(): Pair<Float, Float> {
+        val x = prefs.getFloat("proFabX", 0.86f)
+        val y = prefs.getFloat("proFabY", 0.42f)
+        return x.coerceIn(0.05f, 0.95f) to y.coerceIn(0.12f, 0.80f)
+    }
+
+    fun setProFabPosition(nx: Float, ny: Float) {
+        prefs.edit()
+            .putFloat("proFabX", nx.coerceIn(0.05f, 0.95f))
+            .putFloat("proFabY", ny.coerceIn(0.12f, 0.80f))
+            .apply()
+    }
 
     private inline fun <reified T : Enum<T>> enumValue(key: String, fallback: T): T =
         runCatching { enumValueOf<T>(prefs.getString(key, fallback.name) ?: fallback.name) }.getOrDefault(fallback)

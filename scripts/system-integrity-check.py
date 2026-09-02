@@ -51,6 +51,7 @@ files = {
     "homeStyles": read("app/src/main/java/com/marbleng/app/ui/MarbleHomeStyles.kt"),
     "strings": read("app/src/main/java/com/marbleng/app/ui/MarbleStrings.kt"),
     "marbleApp": read("app/src/main/java/com/marbleng/app/ui/MarbleApp.kt"),
+    "signature": read("app/src/main/java/com/marbleng/app/ui/MarbleSignatureHome.kt"),
     "tile": read("app/src/main/java/com/marbleng/app/quicktile/MarbleQuickTileService.kt"),
     "manifest": read("app/src/main/AndroidManifest.xml"),
     "security": read("app/src/main/res/xml/network_security_config.xml"),
@@ -215,6 +216,97 @@ check(
     "session uptime comes from the repository, not the UI clock",
     "connectedSinceMs" in files["repo"]
     and "rememberUptimeLabel(" in files["homeStyles"],
+)
+
+# MARBLE_SIGNATURE_HOME_V112 — the professional Signature studio and its customization surface.
+check(
+    "Signature Home style is modelled and is the product default",
+    "PRO(\"pro\")" in files["models"]
+    and "homeStyle: String = HomeStyle.PRO.id" in files["models"]
+    and "HomeStyleSignature(" in files["homeStyles"]
+    and "HomeStyleSurface(" in files["ui"]
+    and "HomeStyleSurface(" in files["homeStyles"],
+)
+check(
+    "Signature studio settings persist and reach the surface",
+    "proFloatingButtonEnabled" in files["store"]
+    and "proStatusBannerEnabled" in files["store"]
+    and "proCornerActionsEnabled" in files["store"]
+    and "proServerRailEnabled" in files["store"]
+    and "proStyleSwitcherEnabled" in files["store"]
+    and "proServerCardStyle" in files["store"]
+    and "proAccent" in files["store"]
+    and "proShortcut" in files["store"]
+    and "rememberSignatureProContext(" in files["ui"],
+)
+check(
+    "Signature floating button, banner, corner cluster and style switcher exist",
+    "SignatureFloatingConnectOverlay(" in files["ui"]
+    and "SignatureStatusBanner(" in files["ui"]
+    and "SignatureCornerCluster(" in files["signature"]
+    and "SignatureServerRail(" in files["signature"]
+    and "SignatureStyleSwitcher(" in files["signature"]
+    and "SignatureFloatingConnectOverlay(" in files["signature"],
+)
+check(
+    "floating button position persists as normalized fractions",
+    "proFabPosition" in files["repo"]
+    and "setProFabPosition" in files["store"]
+    and "rememberProFabPosition" in files["ui"],
+)
+check(
+    "Home evidence is shared by deck, banner and floating button",
+    "rememberDeckEvidence(" in files["ui"]
+    and "deck = deck" in files["ui"],
+)
+
+# MARBLE_HOME_PING_RESCUE_V112 — the Home ping is a multi-mode ladder, not three 204 domains.
+check(
+    "Home ping races literal-IP first-byte, real-delay and full GET probes",
+    "httpsFirstByteLatency(" in files["repo"]
+    and "tunnelRttBatch(" in files["repo"]
+    and "SocksHttpClient.get(" in files["repo"]
+    and "home-connection-ping" in files["repo"],
+)
+check(
+    "cold-tunnel ping miss gets exactly one bounded re-check",
+    "MARBLE_HOME_PING_RESCUE_V112" in files["ui"]
+    and "MARBLE_HOME_PING_RESCUE_V112" in files["repo"],
+)
+
+# MARBLE_SEAMLESS_LOOPS_V112 — loop restarts must be invisible.
+check(
+    "loop effects fade through a zero-at-both-ends envelope",
+    "loopFade(" in files["homeStyles"]
+    and "MARBLE_SEAMLESS_LOOPS_V112" in files["homeStyles"]
+    and "MARBLE_SEAMLESS_LOOPS_V112" in files["signature"],
+)
+
+# MARBLE_HOME_PING_AUTOFIT_V112 — the ping can never overflow its readout.
+check(
+    "every stat readout renders through the auto-fit value text",
+    "HomeStatValueText(" in files["homeStyles"]
+    and "SignatureStatCell(" in files["homeStyles"]
+    and "MARBLE_HOME_PING_AUTOFIT_V112" in files["homeStyles"]
+    and "softWrap = false" in files["homeStyles"],
+)
+
+# MARBLE_SYSTEM_FONT_V112 — the device typeface is a first-class choice; Persian stays Vazir.
+check(
+    "system font option exists and Persian still forces Vazirmatn",
+    "SYSTEM(\"system\")" in files["models"]
+    and "AppFont.SYSTEM -> FontFamily.Default" in files["theme"]
+    and "if (persian) VazirFamily else selectedFontFamily(fontId)" in files["theme"],
+)
+
+# MARBLE_NIGHT_OUTLINES_V112 — dark-theme frame personality is a user choice.
+check(
+    "night outline styles persist and reach the theme palette",
+    "enum class DarkOutlineStyle" in files["models"]
+    and "darkOutlineStyle" in files["store"]
+    and "outlineStyleId = repo.settings.darkOutlineStyle" in files["marbleApp"]
+    and "applyNightOutline(" in files["theme"]
+    and "DarkOutlineStyle.HIDDEN ->" in files["theme"],
 )
 
 # MARBLE_BILINGUAL_V110 â€” English/Persian with a device-locale default.

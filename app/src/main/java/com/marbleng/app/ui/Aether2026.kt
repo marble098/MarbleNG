@@ -228,6 +228,36 @@ fun Aether2026App(
         }
     }
 
+    // MARBLE_SIGNATURE_HOME_V112 — one shared deck truth: the Home page, the app-wide Signature
+    // status banner and the floating connect button all read this exact evidence + action set.
+    val deck = rememberDeckEvidence(repo)
+    val deckCopyIp = rememberCopyIpAction(repo, deck.evidence.ip)
+    val deckActions = HomeActions(
+        onToggleConnection = {
+            with(deck.evidence) {
+                if (connected || connecting || blocked) repo.stopVpn()
+                else repo.reconnectLastOrAuto(onConnect)
+            }
+        },
+        onCopyIp = deckCopyIp,
+        onRefreshIp = { repo.refreshServerIntel(deck.profile, force = true) },
+        onIpDetails = { ipDetailsOpen = true },
+        onTestPing = { repo.measureConnectionPing() },
+        onLibrary = { scope.launch { pagerState.animateScrollToPage(SpatialTab.LIBRARY.ordinal) } },
+        onConnectProfile = { profile -> onConnect(profile) },
+        onAddRoute = { scope.launch { pagerState.animateScrollToPage(SpatialTab.LIBRARY.ordinal) } },
+        onRank = { repo.smartRank() },
+        onPrivacy = {
+            repo.audit()
+            dialog = "Privacy"
+        },
+        onRouting = {
+            settingsFocus = "Routing"
+            scope.launch { pagerState.animateScrollToPage(SpatialTab.SETTINGS.ordinal) }
+        },
+        onTests = { scope.launch { pagerState.animateScrollToPage(SpatialTab.SETTINGS.ordinal) } }
+    )
+
     Scaffold(
         containerColor = Aether.Void
     ) { padding ->
@@ -261,21 +291,8 @@ fun Aether2026App(
                         when (tabs[pageIndex]) {
                     SpatialTab.DECK -> CyberDeck(
                         repo = repo,
-                        onConnect = onConnect,
-                        onLibrary = { scope.launch { pagerState.animateScrollToPage(SpatialTab.LIBRARY.ordinal) } },
-                        onPrivacy = {
-                            repo.audit()
-                            dialog = "Privacy"
-                        },
-                        onRouting = {
-                            settingsFocus = "Routing"
-                            scope.launch { pagerState.animateScrollToPage(SpatialTab.SETTINGS.ordinal) }
-                        },
-                        onDetails = {
-                            val profile = repo.profile(repo.activeProfileId, repo.activeProfileSourceId) ?: repo.lastProfile()
-                            if (profile != null) detailProfile = profile else scope.launch { pagerState.animateScrollToPage(SpatialTab.LIBRARY.ordinal) }
-                        },
-                        onIpDetails = { ipDetailsOpen = true },
+                        deck = deck,
+                        actions = deckActions,
                         onContentScrollChanged = reportContentScroll
                     )
                     SpatialTab.LIBRARY -> CyberLibrary(
@@ -364,6 +381,39 @@ fun Aether2026App(
                     scope.launch { pagerState.animateScrollToPage(next.ordinal) }
                 }
             )
+
+            // MARBLE_SIGNATURE_HOME_V112 — the Signature status banner riding on top of every
+            // page (the Home-only scope renders inside the Signature Home itself). A slim strip
+            // with the live state, the selected server and the compact ping/uptime readout.
+            if (
+                repo.settings.proStatusBannerEnabled &&
+                parseProBannerScope(repo.settings.proBannerScope) == ProBannerScope.ALL
+            ) {
+                SignatureStatusBanner(
+                    evidence = deck.evidence,
+                    accent = signatureAccentColor(parseProAccent(repo.settings.proAccent)),
+                    tone = signatureStatusTone(deck.evidence, parseProAccent(repo.settings.proAccent)),
+                    onToggle = deckActions.onToggleConnection,
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .statusBarsPadding()
+                        .padding(horizontal = 14.dp)
+                        .widthIn(max = 560.dp)
+                )
+            }
+
+            // MARBLE_SIGNATURE_HOME_V112 — the floating connect shutter: app-wide, draggable,
+            // v2rayNG-style. Tap toggles the connection; the dragged spot persists.
+            if (repo.settings.proFloatingButtonEnabled) {
+                SignatureFloatingConnectOverlay(
+                    evidence = deck.evidence,
+                    accent = signatureAccentColor(parseProAccent(repo.settings.proAccent)),
+                    startNx = repo.proFabPosition.first,
+                    startNy = repo.proFabPosition.second,
+                    onToggle = deckActions.onToggleConnection,
+                    onPositionSettled = { nx, ny -> repo.rememberProFabPosition(nx, ny) }
+                )
+            }
         }
     }
 
@@ -2044,22 +2094,18 @@ private fun HomeQuickSettingRow(
 // DECK
 // =================================================================================================
 
-@Suppress("UNUSED_PARAMETER")
+/**
+ * MARBLE_SIGNATURE_HOME_V112 — the Home deck facts (selected profile + shared evidence) resolved
+ * once per composition and shared by the Home page itself, the app-wide Signature status banner
+ * and the floating connect button, so every surface can never disagree about the truth.
+ */
+private class DeckEvidence(
+    val profile: ProxyProfile?,
+    val evidence: HomeEvidence
+)
+
 @Composable
-private fun CyberDeck(
-    repo: AppRepository,
-    onConnect: (ProxyProfile) -> Unit,
-    onLibrary: () -> Unit,
-    onPrivacy: () -> Unit,
-    onRouting: () -> Unit,
-    onDetails: () -> Unit,
-    onIpDetails: () -> Unit,
-    onContentScrollChanged: (Boolean) -> Unit
-) {
-    // MARBLE_HOME_STYLE_V110 — Home is one evidence model rendered by one of four presentations.
-    // The style is a pure presentation choice made in Settings; the runtime facts (node, source,
-    // IP + flag + three actions, session uptime, one-shot ping) are identical in all four.
-    val connected = repo.state == "CONNECTED"
+private fun rememberDeckEvidence(repo: AppRepository): DeckEvidence {
     val active = repo.profile(
         repo.activeProfileId,
         repo.activeProfileSourceId
@@ -2073,6 +2119,34 @@ private fun CyberDeck(
     val serverInfo = repo.serverIntel?.takeIf {
         serverless || (endpoint.isNotBlank() && it.endpoint.equals(endpoint, ignoreCase = true))
     }
+    val evidence = buildHomeEvidence(
+        repo = repo,
+        profile = active,
+        displayName = active?.let { stripLeadingFlag(activeName) }.orEmpty(),
+        info = serverInfo,
+        fallbackFlag = leadingFlagGlyph(activeName)
+    )
+    return DeckEvidence(active, evidence)
+}
+
+@Suppress("UNUSED_PARAMETER")
+@Composable
+private fun CyberDeck(
+    repo: AppRepository,
+    deck: DeckEvidence,
+    actions: HomeActions,
+    onContentScrollChanged: (Boolean) -> Unit
+) {
+    // MARBLE_HOME_STYLE_V110 / MARBLE_SIGNATURE_HOME_V112 — Home is one evidence model rendered
+    // by one of five presentations. The style is a pure presentation choice made in Settings (or
+    // in the Signature switcher); the runtime facts (node, source, IP + flag + 3 actions, session
+    // uptime, one-shot ping) are identical in all of them.
+    val evidence = deck.evidence
+    val active = deck.profile
+    val connected = evidence.connected
+    val endpoint = active?.host?.trim()?.removeSurrounding("[", "]").orEmpty()
+    val serverless = active?.let { ServerlessFreedomEngine.isServerless(it) }
+        ?: repo.settings.serverlessModeEnabled
 
     LaunchedEffect(Unit) { onContentScrollChanged(false) }
     LaunchedEffect(connected, active?.id, active?.subscriptionId, endpoint) {
@@ -2082,39 +2156,34 @@ private fun CyberDeck(
     }
 
     // One automatic measurement per session; every later measurement is user-initiated.
+    // MARBLE_HOME_PING_RESCUE_V112 — a first probe fired 1.8s after connect can land while the
+    // tunnel's TLS state is still cold (the same warm-up the live route monitor sees). That miss
+    // no longer freezes as "no response": exactly one bounded re-check follows, still inside the
+    // user's session and still never a repeating timer.
     LaunchedEffect(repo.connectedSinceMs) {
         if (repo.connectedSinceMs > 0L) {
             delay(1_800)
             if (repo.connectionPingState == ConnectionPingState.IDLE) repo.measureConnectionPing()
+            delay(2_200)
+            if (
+                repo.connectedSinceMs > 0L &&
+                repo.connectionPingState == ConnectionPingState.FAILED
+            ) {
+                repo.measureConnectionPing()
+            }
         }
     }
 
-    val evidence = buildHomeEvidence(
-        repo = repo,
-        profile = active,
-        displayName = active?.let { stripLeadingFlag(activeName) }.orEmpty(),
-        info = serverInfo,
-        fallbackFlag = leadingFlagGlyph(activeName)
-    )
-    val copyIp = rememberCopyIpAction(repo, evidence.ip)
-    val actions = HomeActions(
-        onToggleConnection = {
-            if (evidence.connected || evidence.connecting || evidence.blocked) repo.stopVpn()
-            else repo.reconnectLastOrAuto(onConnect)
-        },
-        onCopyIp = copyIp,
-        onRefreshIp = { repo.refreshServerIntel(active, force = true) },
-        onIpDetails = onIpDetails,
-        onTestPing = { repo.measureConnectionPing() },
-        onLibrary = onLibrary
-    )
+    // The Signature studio configuration: every layer is an independent Settings choice.
+    val pro = rememberSignatureProContext(repo, deck)
 
     Box(Modifier.fillMaxSize()) {
         HomeStyleSurface(
             style = parseHomeStyle(repo.settings.homeStyle),
             evidence = evidence,
             actions = actions,
-            bottomClearance = dockClearance()
+            bottomClearance = dockClearance(),
+            pro = pro
         )
 
         if (evidence.blocked && repo.stateDetail.isNotBlank()) {
@@ -2132,6 +2201,51 @@ private fun CyberDeck(
             )
         }
     }
+}
+
+/**
+ * MARBLE_SIGNATURE_HOME_V112 — resolves the Signature studio snapshot from the current settings
+ * and Library selection. The rail follows the source the user selected in the Library (the
+ * Freedom source maps to its engine profile), with the active server pinned first.
+ */
+@Composable
+private fun rememberSignatureProContext(
+    repo: AppRepository,
+    deck: DeckEvidence
+): HomeProContext {
+    val t = Tr.now
+    val filter = repo.librarySourceFilter
+    val railLabel = when {
+        filter == "all" -> t.library
+        filter == "manual" -> "Manual"
+        filter == ServerlessFreedomEngine.SOURCE_ID -> "Freedom"
+        else -> repo.subscriptions.firstOrNull { it.id == filter }?.name ?: t.library
+    }
+    val base = when {
+        filter == "all" -> repo.profiles.toList()
+        filter == ServerlessFreedomEngine.SOURCE_ID -> listOfNotNull(repo.serverlessProfile())
+        else -> repo.profiles.filter { it.subscriptionId == filter }
+    }
+    val activeId = deck.profile?.id
+    val rail = (base.filter { it.id == activeId } + base.filterNot { it.id == activeId }).take(14)
+    return HomeProContext(
+        railProfiles = rail,
+        railLabel = railLabel,
+        cardStyle = parseProServerCardStyle(repo.settings.proServerCardStyle),
+        showBanner = repo.settings.proStatusBannerEnabled,
+        showCornerActions = repo.settings.proCornerActionsEnabled,
+        showServerRail = repo.settings.proServerRailEnabled,
+        showStyleSwitcher = repo.settings.proStyleSwitcherEnabled,
+        shortcut = parseProShortcut(repo.settings.proShortcut),
+        accent = parseProAccent(repo.settings.proAccent),
+        selectedHomeStyle = parseHomeStyle(repo.settings.homeStyle),
+        onHomeStyleSelected = { style ->
+            repo.updateSettings(repo.settings.copy(homeStyle = style.id))
+        },
+        activeProfileId = repo.activeProfileId,
+        connected = deck.evidence.connected,
+        connecting = deck.evidence.connecting
+    )
 }
 
 @Composable
@@ -5955,6 +6069,7 @@ private fun SettingsSectionCard(
 
 @Composable
 private fun homeStyleLabel(style: HomeStyle): String = when (style) {
+    HomeStyle.PRO -> Tr.now.stylePro
     HomeStyle.BIOLUMINESCENT -> Tr.now.styleBioluminescent
     HomeStyle.COSMIC_ORBIT -> Tr.now.styleCosmicOrbit
     HomeStyle.COSMIC_IMMERSION -> Tr.now.styleCosmicImmersion
@@ -5963,6 +6078,7 @@ private fun homeStyleLabel(style: HomeStyle): String = when (style) {
 
 @Composable
 private fun homeStyleDetail(style: HomeStyle): String = when (style) {
+    HomeStyle.PRO -> Tr.now.styleProDetail
     HomeStyle.BIOLUMINESCENT -> Tr.now.styleBioluminescentDetail
     HomeStyle.COSMIC_ORBIT -> Tr.now.styleCosmicOrbitDetail
     HomeStyle.COSMIC_IMMERSION -> Tr.now.styleCosmicImmersionDetail
@@ -5973,8 +6089,9 @@ private fun homeStyleDetail(style: HomeStyle): String = when (style) {
 private fun AppearanceSettings(repo: AppRepository) {
     val t = Tr.now
 
-    // MARBLE_HOME_STYLE_V110 — the Home presentation is the first appearance decision, because it
-    // is the screen the user sees on every launch.
+    // MARBLE_HOME_STYLE_V110 / MARBLE_SIGNATURE_HOME_V112 — the Home presentation is the first
+    // appearance decision, because it is the screen the user sees on every launch. The Signature
+    // studio ships as the default; the four classic presentations remain one tap away.
     SectionLabel(t.homeStyleTitle)
     Text(
         t.homeStyleDetail,
@@ -5993,13 +6110,188 @@ private fun AppearanceSettings(repo: AppRepository) {
                         label = homeStyleLabel(style),
                         detail = homeStyleDetail(style),
                         selected = selectedHomeStyle == style,
-                        color = Aether.Amethyst,
+                        color = if (style == HomeStyle.PRO) Aether.Cyan else Aether.Amethyst,
                         modifier = Modifier.weight(1f)
                     ) {
                         repo.updateSettings(repo.settings.copy(homeStyle = style.id))
                     }
                 }
                 if (row.size == 1) Spacer(Modifier.weight(1f))
+            }
+        }
+    }
+
+    // MARBLE_SIGNATURE_HOME_V112 — the studio customization surface. Every layer of the
+    // professional Home is an independent user choice, mirrored live on the Home screen.
+    SectionLabel(t.proStudioTitle)
+    Text(
+        t.proStudioDetail,
+        color = Aether.InkMuted,
+        style = MaterialTheme.typography.bodySmall
+    )
+    SettingSwitch(
+        title = t.proFloatingButton,
+        subtitle = t.proFloatingButtonDetail,
+        checked = repo.settings.proFloatingButtonEnabled,
+        onChecked = { enabled ->
+            repo.updateSettings(repo.settings.copy(proFloatingButtonEnabled = enabled))
+        }
+    )
+    SettingSwitch(
+        title = t.proStatusBanner,
+        subtitle = t.proStatusBannerDetail,
+        checked = repo.settings.proStatusBannerEnabled,
+        onChecked = { enabled ->
+            repo.updateSettings(repo.settings.copy(proStatusBannerEnabled = enabled))
+        }
+    )
+    if (repo.settings.proStatusBannerEnabled) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            ProBannerScope.entries.forEach { scope ->
+                CyberSegment(
+                    label = if (scope == ProBannerScope.HOME) "Home only" else "All pages",
+                    detail = "",
+                    selected = parseProBannerScope(repo.settings.proBannerScope) == scope,
+                    color = Aether.Cyan,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    repo.updateSettings(repo.settings.copy(proBannerScope = scope.id))
+                }
+            }
+        }
+    }
+    SettingSwitch(
+        title = t.proCornerActions,
+        subtitle = t.proCornerActionsDetail,
+        checked = repo.settings.proCornerActionsEnabled,
+        onChecked = { enabled ->
+            repo.updateSettings(repo.settings.copy(proCornerActionsEnabled = enabled))
+        }
+    )
+    if (repo.settings.proCornerActionsEnabled) {
+        Text(
+            t.proShortcut,
+            color = Aether.InkFaint,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(5.dp)
+        ) {
+            ProShortcut.entries.forEach { shortcut ->
+                CyberSegment(
+                    label = when (shortcut) {
+                        ProShortcut.LIBRARY -> t.proShortcutLibrary
+                        ProShortcut.RANK -> t.proShortcutRank
+                        ProShortcut.PRIVACY -> t.proShortcutPrivacy
+                        ProShortcut.ROUTING -> t.proShortcutRouting
+                        ProShortcut.TESTS -> t.proShortcutTests
+                    },
+                    detail = "",
+                    selected = parseProShortcut(repo.settings.proShortcut) == shortcut,
+                    color = Aether.Emerald,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    repo.updateSettings(repo.settings.copy(proShortcut = shortcut.id))
+                }
+            }
+        }
+    }
+    SettingSwitch(
+        title = t.proServerRail,
+        subtitle = t.proServerRailDetail,
+        checked = repo.settings.proServerRailEnabled,
+        onChecked = { enabled ->
+            repo.updateSettings(repo.settings.copy(proServerRailEnabled = enabled))
+        }
+    )
+    if (repo.settings.proServerRailEnabled) {
+        Text(
+            t.proServerCardStyle,
+            color = Aether.InkFaint,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            ProServerCardStyle.entries.forEach { cardStyle ->
+                CyberSegment(
+                    label = when (cardStyle) {
+                        ProServerCardStyle.GLASS -> "Glass"
+                        ProServerCardStyle.ACCENT -> "Colored"
+                        ProServerCardStyle.PLAIN -> "Plain"
+                    },
+                    detail = "",
+                    selected = parseProServerCardStyle(repo.settings.proServerCardStyle) == cardStyle,
+                    color = Aether.Amber,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    repo.updateSettings(repo.settings.copy(proServerCardStyle = cardStyle.id))
+                }
+            }
+        }
+    }
+    SettingSwitch(
+        title = t.proStyleSwitcher,
+        subtitle = t.proStyleSwitcherDetail,
+        checked = repo.settings.proStyleSwitcherEnabled,
+        onChecked = { enabled ->
+            repo.updateSettings(repo.settings.copy(proStyleSwitcherEnabled = enabled))
+        }
+    )
+
+    // The accent driving the Signature studio's animated surfaces.
+    SectionLabel(t.proAccentColor)
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(5.dp)
+    ) {
+        ProAccent.entries.forEach { accent ->
+            CyberSegment(
+                label = accent.label,
+                detail = "",
+                selected = parseProAccent(repo.settings.proAccent) == accent,
+                selectionTone = signatureAccentColor(accent),
+                color = signatureAccentColor(accent),
+                modifier = Modifier.weight(1f)
+            ) {
+                repo.updateSettings(repo.settings.copy(proAccent = accent.id))
+            }
+        }
+    }
+
+    // MARBLE_NIGHT_OUTLINES_V112 — dark-theme frame personality: strengthen, tint or dissolve
+    // every card/frame hairline while the night theme is active.
+    SectionLabel(t.proNightOutlines)
+    Text(
+        t.proNightOutlinesDetail,
+        color = Aether.InkMuted,
+        style = MaterialTheme.typography.bodySmall
+    )
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(5.dp)
+    ) {
+        DarkOutlineStyle.entries.forEach { outline ->
+            CyberSegment(
+                label = when (outline) {
+                    DarkOutlineStyle.SUBTLE -> "Subtle"
+                    DarkOutlineStyle.BOLD -> "Bold"
+                    DarkOutlineStyle.COLORED -> "Colored"
+                    DarkOutlineStyle.HIDDEN -> "Hidden"
+                },
+                detail = "",
+                selected = parseDarkOutlineStyle(repo.settings.darkOutlineStyle) == outline,
+                color = Aether.Amethyst,
+                modifier = Modifier.weight(1f)
+            ) {
+                repo.updateSettings(repo.settings.copy(darkOutlineStyle = outline.id))
             }
         }
     }
@@ -6069,24 +6361,33 @@ private fun AppearanceSettings(repo: AppRepository) {
         ) { repo.updateSettings(repo.settings.copy(theme = "dark")) }
     }
 
+    // MARBLE_SYSTEM_FONT_V112 — the device's own typeface is a first-class choice. Persian copy
+    // keeps shaping with the bundled Vazirmatn regardless of this selection (AetherTheme pins
+    // it whenever the product language is Persian), so this only changes the Latin ramp.
     SectionLabel("Typeface")
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(6.dp)
-    ) {
-        AppFont.entries.forEach { font ->
-            CyberSegment(
-                label = font.label,
-                detail = when (font) {
-                    AppFont.VAZIR -> "Persian"
-                    AppFont.GOOGLE_SANS -> "Product sans"
-                    AppFont.TIMES_NEW_ROMAN -> "Serif"
-                },
-                selected = repo.settings.fontFamily.equals(font.id, true),
-                color = Aether.Cyan,
-                modifier = Modifier.weight(1f)
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        AppFont.entries.chunked(2).forEach { row ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                repo.updateSettings(repo.settings.copy(fontFamily = font.id))
+                row.forEach { font ->
+                    CyberSegment(
+                        label = font.label,
+                        detail = when (font) {
+                            AppFont.VAZIR -> "Persian"
+                            AppFont.SYSTEM -> "Device default"
+                            AppFont.GOOGLE_SANS -> "Product sans"
+                            AppFont.TIMES_NEW_ROMAN -> "Serif"
+                        },
+                        selected = repo.settings.fontFamily.equals(font.id, true),
+                        color = Aether.Cyan,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        repo.updateSettings(repo.settings.copy(fontFamily = font.id))
+                    }
+                }
+                if (row.size == 1) Spacer(Modifier.weight(1f))
             }
         }
     }
