@@ -222,15 +222,17 @@ internal fun anchoredTextBlockHeight(style: TextStyle, lines: Int): Dp {
  * bands on real devices, and one shadow plus one outline is enough to read depth.
  */
 internal object PrismSurface {
-    val CardRadius = 22.dp
-    val TileRadius = 18.dp
-    val InsetRadius = 14.dp
+    // MARBLE_IOS_SIMPLIFY_V81 — the whole control ramp is one step smaller and one step
+    // rounder-but-flatter: iOS-like compact controls, no stacked shadows.
+    val CardRadius = 20.dp
+    val TileRadius = 16.dp
+    val InsetRadius = 12.dp
     // Controls intentionally use a tighter radius than cards. The resulting soft squircle reads as
     // an action rather than another nested panel, while keeping Marble's rounded visual language.
-    val ControlRadius = 16.dp
-    val ControlHeight = 52.dp
-    val CompactControlHeight = 42.dp
-    val IconControlSize = 42.dp
+    val ControlRadius = 13.dp
+    val ControlHeight = 44.dp
+    val CompactControlHeight = 34.dp
+    val IconControlSize = 38.dp
     val Hairline = 1.dp
     val StrongHairline = 1.4.dp
     val RestingElevation = 2.5.dp
@@ -329,6 +331,7 @@ internal fun PrismPanel(
     tint: Brush? = null,
     onClick: (() -> Unit)? = null,
     enabled: Boolean = true,
+    verticalSpacing: Dp = MarbleSpacing.S,
     content: @Composable ColumnScope.() -> Unit
 ) {
     val selectedProgress by animateFloatAsState(
@@ -395,7 +398,7 @@ internal fun PrismPanel(
         }
         Column(
             modifier=Modifier.padding(contentPadding),
-            verticalArrangement=Arrangement.spacedBy(MarbleSpacing.S),
+            verticalArrangement=Arrangement.spacedBy(verticalSpacing),
             content=content
         )
     }
@@ -438,28 +441,14 @@ internal fun PrismWell(
     )
 }
 
-private fun prismLift(color: Color, amount: Float): Color = Color(
-    red=(color.red + (1f - color.red) * amount).coerceIn(0f, 1f),
-    green=(color.green + (1f - color.green) * amount).coerceIn(0f, 1f),
-    blue=(color.blue + (1f - color.blue) * amount).coerceIn(0f, 1f),
-    alpha=color.alpha
-)
-
-private fun prismShade(color: Color, amount: Float): Color = Color(
-    red=(color.red * (1f - amount)).coerceIn(0f, 1f),
-    green=(color.green * (1f - amount)).coerceIn(0f, 1f),
-    blue=(color.blue * (1f - amount)).coerceIn(0f, 1f),
-    alpha=color.alpha
-)
-
 /**
  * The one product button.
  *
  * Every action in MarbleNG — Library deck, add/import sheet, subscription manager, dialogs, the
  * detail page — is built from this shape, so an action's importance is expressed by its variant and
- * nothing else. Primary carries a filled, state-tinted skin with a soft colored glow; Secondary is
- * tonal; Quiet is for dismiss/back; Danger owns destructive verbs. Label copy is single-line and
- * centred, and the press response is shade plus rim, which stays legible at any font scale.
+ * nothing else. Primary/Danger carry one flat filled skin; Secondary is a quiet tint; Quiet is for
+ * dismiss/back. Label copy is single-line and centred, and the press response is scale plus rim,
+ * which stays legible at any font scale.
  *
  * MARBLE_BUTTON_TEXT_RECT_REMOVED_DS_V68
  * Built as a plain Row (same stack as [PrismSelectionTile] / [PrismIconButton]), never as an M3
@@ -484,7 +473,7 @@ internal fun PrismButton(
     contentPadding: PaddingValues? = null
 ) {
     val filled=enabled && (variant == PrismButtonVariant.Primary || variant == PrismButtonVariant.Danger)
-    val shape=RoundedCornerShape(if (compact) 14.dp else PrismSurface.ControlRadius)
+    val shape=RoundedCornerShape(if (compact) 11.dp else PrismSurface.ControlRadius)
 
     val accent=if (variant == PrismButtonVariant.Danger) Aether.Danger else tone
     val content=when {
@@ -493,30 +482,24 @@ internal fun PrismButton(
         variant == PrismButtonVariant.Quiet -> Aether.InkMuted
         else -> Aether.Ink
     }
-    // New control skin: primary actions have a deliberate diagonal colour movement; secondary
-    // actions remain calm and glassy with an accent bloom at the leading edge. This keeps dense
-    // Settings groups ordered instead of turning every row into a wall of saturated colour.
+    // MARBLE_IOS_BUTTON_FLAT_V81 — one flat fill, one optional hairline, zero shadows and
+    // zero gradients. Importance is carried by variant only, the way iOS tinted/filled
+    // buttons work, so dense Settings groups stay quiet and legible in both themes.
     val skin=when {
-        !enabled -> Brush.linearGradient(listOf(Aether.GlassStrong.copy(alpha=.48f), Aether.VoidElevated))
-        filled -> Brush.linearGradient(
-            colors=listOf(prismLift(accent,.16f), accent, prismShade(accent,.12f))
-        )
-        variant == PrismButtonVariant.Quiet -> Brush.linearGradient(
-            listOf(Color.Transparent, Aether.GlassStrong.copy(alpha=.28f))
-        )
-        else -> Brush.linearGradient(
-            listOf(accent.copy(alpha=.16f), accent.copy(alpha=.07f), Aether.VoidElevated)
-        )
+        !enabled -> SolidColor(Aether.GlassStrong.copy(alpha=.42f))
+        filled -> SolidColor(accent)
+        variant == PrismButtonVariant.Quiet -> SolidColor(Color.Transparent)
+        else -> SolidColor(accent.copy(alpha=.12f))
     }
     val hairline: Color=when {
-        !enabled -> Aether.InkFaint.copy(alpha=.12f)
-        filled -> prismLift(accent,.28f).copy(alpha=.72f)
-        variant == PrismButtonVariant.Quiet -> Aether.InkFaint.copy(alpha=.14f)
-        else -> accent.copy(alpha=.34f)
+        !enabled -> Color.Transparent
+        filled -> Color.Transparent
+        variant == PrismButtonVariant.Quiet -> Color.Transparent
+        else -> accent.copy(alpha=.26f)
     }
     val pad=contentPadding ?: PaddingValues(
         horizontal=if (compact) 12.dp else 15.dp,
-        vertical=if (compact) 7.dp else 10.dp
+        vertical=if (compact) 7.dp else 9.dp
     )
 
     CompositionLocalProvider(LocalContentColor provides content) {
@@ -524,19 +507,12 @@ internal fun PrismButton(
             modifier=modifier
                 .heightIn(
                     min=when {
-                        detail.isNotBlank() && !compact -> 58.dp
+                        detail.isNotBlank() && !compact -> 52.dp
                         compact -> PrismSurface.CompactControlHeight
                         else -> PrismSurface.ControlHeight
                     }
                 )
-                .widthIn(min=if (compact) 66.dp else 92.dp)
-                .shadow(
-                    elevation=if (filled) PrismSurface.ControlElevation else 0.dp,
-                    shape=shape,
-                    clip=false,
-                    ambientColor=accent.copy(alpha=if (filled) .30f else 0f),
-                    spotColor=accent.copy(alpha=if (filled) .38f else 0f)
-                )
+                .widthIn(min=if (compact) 64.dp else 88.dp)
                 .clip(shape)
                 .background(skin)
                 .border(PrismSurface.Hairline, hairline, shape)
@@ -697,7 +673,8 @@ internal fun PrismCheckBadge(
 
 /**
  * The selectable tile shared by every choice in the product: library mode, sort, resolver presets,
- * sources and settings segments. A selected tile lifts, warms and gains a tick; it never resizes.
+ * sources and settings segments. A selected tile gains a soft tone wash and tinted ink; it never
+ * resizes and never casts a shadow (MARBLE_IOS_SIMPLIFY_V81).
  */
 @Composable
 internal fun PrismSelectionTile(
@@ -706,54 +683,40 @@ internal fun PrismSelectionTile(
     tone: Color,
     modifier: Modifier = Modifier,
     detail: String = "",
-    minHeight: Dp = 48.dp,
+    minHeight: Dp = 40.dp,
     alignment: Alignment = Alignment.Center,
     leading: (@Composable (() -> Unit))? = null,
     trailing: (@Composable (() -> Unit))? = null,
     enabled: Boolean = true,
     onClick: () -> Unit
 ) {
-    val shape=RoundedCornerShape(15.dp)
+    val shape=RoundedCornerShape(13.dp)
     // MARBLE_BUTTON_TEXT_RECT_REMOVED_DS_V68
     // One continuous fill owns the whole tile. No second rectangle (hairline of a foreign
     // neutral, M3 indicator, nested surface) is allowed behind or around the label — selection
     // is ink colour + a soft tone wash only.
     val fill by animateColorAsState(
-        targetValue=if (selected) tone.copy(alpha=.12f) else Aether.VoidElevated,
+        targetValue=if (selected) tone.copy(alpha=.13f) else Aether.GlassStrong.copy(alpha=.32f),
         animationSpec=MarbleMotionSpecs.Color,
         label="selection-fill"
-    )
-    val elevation by animateDpAsState(
-        targetValue=if (selected) PrismSurface.ControlElevation else 0.dp,
-        animationSpec=MarbleMotionSpecs.Dp,
-        label="selection-elevation"
     )
 
     Row(
         modifier=modifier
             .heightIn(min=minHeight)
-            .shadow(
-                elevation=elevation,
-                shape=shape,
-                clip=false,
-                ambientColor=tone.copy(alpha=if (selected) .22f else 0f),
-                spotColor=tone.copy(alpha=if (selected) .28f else 0f)
-            )
             .clip(shape)
             .background(fill)
             .border(
                 PrismSurface.Hairline,
-                if (selected) tone.copy(alpha=.48f) else tone.copy(alpha=.12f),
+                if (selected) tone.copy(alpha=.42f) else tone.copy(alpha=.10f),
                 shape
             )
             // MARBLE_SELECTION_TILE_INDICATION_REMOVED_DS_V69
-            // The tile already signals selection through fill, elevation and a check badge.
-            // Material3's ripple state layer composited as a semi-transparent off-white
-            // rectangle behind the detail text — the "white box" under Testing & ping.
-            // Suppressing the indication leaves press scale/lift intact and removes the
-            // extra overlay so sub-text sits cleanly on the selected fill.
+            // The tile already signals selection through fill and ink. Material3's ripple
+            // state layer composited as a semi-transparent off-white rectangle behind the
+            // detail text. Suppressing the indication leaves press scale intact.
             .kineticClickable(enabled=enabled, role=Role.Button, boundedShape=shape, showIndication=false, onClick=onClick)
-            .padding(horizontal=12.dp,vertical=9.dp),
+            .padding(horizontal=12.dp,vertical=8.dp),
         verticalAlignment=Alignment.CenterVertically,
         horizontalArrangement=when (alignment) {
             Alignment.CenterStart -> Arrangement.Start
@@ -787,9 +750,6 @@ internal fun PrismSelectionTile(
         if (trailing != null) {
             Spacer(Modifier.width(8.dp))
             trailing()
-        } else if (selected) {
-            Spacer(Modifier.width(8.dp))
-            PrismCheckBadge(tone,diameter=15.dp)
         }
     }
 }
@@ -1400,7 +1360,7 @@ internal fun PrismThemeChoice(
     modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
-    val shape=RoundedCornerShape(20.dp)
+    val shape=RoundedCornerShape(16.dp)
     // MARBLE_NAVY_BRAND_THEME_V77 — previews paint the real Marble surfaces so the
     // selector previews the identity, not a generic gray wireframe.
     val previewBg=if(darkPreview) Color(0xFF000033) else Color(0xFFF0F8FF)
@@ -1411,7 +1371,7 @@ internal fun PrismThemeChoice(
 
     Column(
         modifier=modifier
-            .heightIn(min=122.dp)
+            .heightIn(min=104.dp)
             .border(1.dp,border,shape)
             .clip(shape)
             .background(
@@ -1419,22 +1379,22 @@ internal fun PrismThemeChoice(
                 else Aether.VoidElevated
             )
             .kineticClickable(role=Role.Button,onClick=onClick)
-            .padding(10.dp),
-        verticalArrangement=Arrangement.spacedBy(8.dp)
+            .padding(8.dp),
+        verticalArrangement=Arrangement.spacedBy(7.dp)
     ) {
         Box(
             modifier=Modifier
                 .fillMaxWidth()
-                .height(60.dp)
-                .clip(RoundedCornerShape(14.dp))
+                .height(50.dp)
+                .clip(RoundedCornerShape(11.dp))
                 .background(previewBg)
-                .padding(8.dp)
+                .padding(7.dp)
         ) {
             Box(
                 Modifier
                     .align(Alignment.TopStart)
-                    .width(32.dp)
-                    .height(7.dp)
+                    .width(28.dp)
+                    .height(6.dp)
                     .clip(RoundedCornerShape(999.dp))
                     .background(previewText.copy(alpha=.78f))
             )
@@ -1442,19 +1402,19 @@ internal fun PrismThemeChoice(
                 Modifier
                     .align(Alignment.CenterStart)
                     .fillMaxWidth(.62f)
-                    .height(20.dp)
-                    .clip(RoundedCornerShape(8.dp))
+                    .height(18.dp)
+                    .clip(RoundedCornerShape(7.dp))
                     .background(previewSurface)
                     .border(
                         1.dp,
                         accent.copy(alpha=.26f),
-                        RoundedCornerShape(8.dp)
+                        RoundedCornerShape(7.dp)
                     )
             )
             Box(
                 Modifier
                     .align(Alignment.BottomEnd)
-                    .size(16.dp)
+                    .size(14.dp)
                     .clip(CircleShape)
                     .background(accent)
             )
@@ -1462,7 +1422,7 @@ internal fun PrismThemeChoice(
         Text(
             label,
             color=if(selected) selectionTone else Aether.Ink,
-            style=MaterialTheme.typography.labelLarge,
+            style=MaterialTheme.typography.labelMedium,
             fontWeight=FontWeight.Bold
         )
         Text(
