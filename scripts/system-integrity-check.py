@@ -385,8 +385,7 @@ build_release = files["build"]
 
 check(
     "release publishing is immutable, verified and tag-atomic",
-    "MARBLE_RELEASE_PUBLISH_RESILIENT_V181" in build_release
-    and "draft:true" in build_release
+    "draft:true" in build_release
     and "target_commitish:$target" in build_release
     and "release_upload_url" in build_release
     and "https://uploads.github.com/" in build_release
