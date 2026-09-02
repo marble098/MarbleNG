@@ -6781,34 +6781,46 @@ private fun AppearanceSettings(repo: AppRepository) {
 
     // Standard settings intentionally keeps the useful decisions above the expert gate.
     SectionLabel("Theme")
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        PrismThemeChoice(
-            label = "System",
-            detail = "Follow device",
-            selected = repo.settings.theme.equals("system", true),
-            darkPreview = false,
-            accent = Aether.Amethyst,
-            modifier = Modifier.weight(1f)
-        ) { repo.updateSettings(repo.settings.copy(theme = "system")) }
-        PrismThemeChoice(
-            label = "Light",
-            detail = "Prism light",
-            selected = repo.settings.theme.equals("light", true),
-            darkPreview = false,
-            accent = Aether.Cyan,
-            modifier = Modifier.weight(1f)
-        ) { repo.updateSettings(repo.settings.copy(theme = "light")) }
-        PrismThemeChoice(
-            label = "AMOLED",
-            detail = "Pure black",
-            selected = repo.settings.theme.equals("dark", true),
-            darkPreview = true,
-            accent = Aether.Emerald,
-            modifier = Modifier.weight(1f)
-        ) { repo.updateSettings(repo.settings.copy(theme = "dark")) }
+    // MARBLE_PHONE_DYNAMIC_THEME_V113 — four themes now, each with a real miniature preview.
+    // "Dynamic phone" borrows the phone's Material You palette (wallpaper colors) everywhere;
+    // its thumbnail paints the live dynamic scheme, not a fixed brand swatch.
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        listOf(
+            Triple("System", "Follow device", false) to { repo.updateSettings(repo.settings.copy(theme = "system")) },
+            Triple("Light", "Daylight", false) to { repo.updateSettings(repo.settings.copy(theme = "light")) },
+            Triple("AMOLED", "Pure black", true) to { repo.updateSettings(repo.settings.copy(theme = "dark")) },
+            Triple("Dynamic phone", "Wallpaper colors", false) to { repo.updateSettings(repo.settings.copy(theme = "phone")) }
+        ).chunked(2).forEach { row ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                row.forEach { (spec, action) ->
+                    val (label, detail, darkPreview) = spec
+                    PrismThemeChoice(
+                        label = label,
+                        detail = detail,
+                        // Selection compares the canonical stored id through parseAppTheme so
+                        // legacy values ("system"/"light"/"dark", "dynamic") all light up their
+                        // own card — AMOLED stores "dark", never "amoled".
+                        selected = parseAppTheme(repo.settings.theme) == when (label) {
+                            "System" -> AppTheme.SYSTEM
+                            "Light" -> AppTheme.LIGHT
+                            "AMOLED" -> AppTheme.DARK
+                            else -> AppTheme.PHONE_DYNAMIC
+                        },
+                        darkPreview = darkPreview,
+                        accent = when (label) {
+                            "AMOLED" -> Aether.Emerald
+                            "Light" -> Aether.Cyan
+                            else -> Aether.Amethyst
+                        },
+                        dynamicPreview = label == "Dynamic phone",
+                        modifier = Modifier.weight(1f)
+                    ) { action() }
+                }
+            }
+        }
     }
 
     // MARBLE_SYSTEM_FONT_V112 — the device's own typeface is a first-class choice. Persian copy

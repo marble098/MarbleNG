@@ -15,6 +15,7 @@ package com.marbleng.app.ui
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
+import android.os.Build
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.border
 import androidx.compose.foundation.background
@@ -42,6 +43,7 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.runtime.remember
 import androidx.compose.ui.semantics.Role
@@ -1360,16 +1362,30 @@ internal fun PrismThemeChoice(
     darkPreview: Boolean,
     accent: Color,
     modifier: Modifier = Modifier,
+    // MARBLE_PHONE_DYNAMIC_THEME_V113 — when true the thumbnail renders the phone's actual
+    // Material You palette (surfaces + primary/secondary/tertiary dots) instead of the brand ramp.
+    dynamicPreview: Boolean = false,
     onClick: () -> Unit
 ) {
     val shape=RoundedCornerShape(16.dp)
     // MARBLE_NAVY_BRAND_THEME_V77 — previews paint the real Marble surfaces so the
     // selector previews the identity, not a generic gray wireframe.
-    val previewBg=if(darkPreview) Color(0xFF000033) else Color(0xFFF0F8FF)
-    val previewSurface=if(darkPreview) Color(0xFF001144) else Color.White
-    val previewText=if(darkPreview) Color(0xFFF0F8FF) else Color(0xFF001144)
-    val selectionTone=Aether.Cyan
-    val border=if(selected) selectionTone.copy(alpha=.52f) else accent.copy(alpha=.20f)
+    val context = LocalContext.current
+    val generated =
+        if (dynamicPreview && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            dynamicLightColorScheme(context)
+        } else {
+            null
+        }
+    val previewBg=generated?.background
+        ?: if(darkPreview) Color(0xFF000033) else Color(0xFFF0F8FF)
+    val previewSurface=generated?.surface
+        ?: if(darkPreview) Color(0xFF001144) else Color.White
+    val previewText=generated?.onSurface
+        ?: if(darkPreview) Color(0xFFF0F8FF) else Color(0xFF001144)
+    val previewAccent = generated?.primary ?: accent
+    val selectionTone = if (generated != null) generated.primary else Aether.Cyan
+    val border=if(selected) selectionTone.copy(alpha=.52f) else previewAccent.copy(alpha=.20f)
 
     Column(
         modifier=modifier
@@ -1413,13 +1429,32 @@ internal fun PrismThemeChoice(
                         RoundedCornerShape(7.dp)
                     )
             )
-            Box(
-                Modifier
-                    .align(Alignment.BottomEnd)
-                    .size(14.dp)
-                    .clip(CircleShape)
-                    .background(accent)
-            )
+            Row(
+                Modifier.align(Alignment.BottomEnd),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                if (generated != null) {
+                    // The dynamic thumbnail shows the wallpaper palette itself: primary,
+                    // secondary and tertiary dots taken from the live Material You scheme.
+                    listOf(generated.primary, generated.secondary, generated.tertiary)
+                        .forEach { dot ->
+                            Box(
+                                Modifier
+                                    .size(10.dp)
+                                    .clip(CircleShape)
+                                    .background(dot)
+                            )
+                        }
+                } else {
+                    Box(
+                        Modifier
+                            .size(14.dp)
+                            .clip(CircleShape)
+                            .background(previewAccent)
+                    )
+                }
+            }
         }
         Text(
             trx(label),

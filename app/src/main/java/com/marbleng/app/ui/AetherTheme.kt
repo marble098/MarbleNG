@@ -45,12 +45,21 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 
-/** Marble White — calm solid surfaces with vivid, state-driven accents. */
-enum class AppTheme { SYSTEM, DARK, LIGHT }
+/**
+ * Marble White — calm solid surfaces with vivid, state-driven accents.
+ *
+ * MARBLE_PHONE_DYNAMIC_THEME_V113 — besides following the system, MarbleNG can now borrow the
+ * phone's own Material You palette (wallpaper colors) through [AppTheme.PHONE_DYNAMIC]. When the
+ * device generates dynamic colors the whole Aether token set — surfaces, hairlines, the brand
+ * accent ramp, ink — is rebuilt from the phone palette so every colored element of the product
+ * moves with the wallpaper instead of a fixed brand hue.
+ */
+enum class AppTheme { SYSTEM, DARK, LIGHT, PHONE_DYNAMIC }
 
 fun parseAppTheme(id: String): AppTheme = when {
     id.equals("dark", true) -> AppTheme.DARK
     id.equals("system", true) -> AppTheme.SYSTEM
+    id.equals("phone", true) || id.equals("dynamic", true) -> AppTheme.PHONE_DYNAMIC
     else -> AppTheme.LIGHT
 }
 
@@ -160,6 +169,46 @@ private val DarkPalette = AetherPalette(
     inkMuted = Brand.Ice.copy(alpha = .78f).compositeOver(Color(0xFF000000)),
     inkFaint = Brand.Ice.copy(alpha = .42f).compositeOver(Color(0xFF000000))
 )
+
+/**
+ * MARBLE_PHONE_DYNAMIC_THEME_V113 — rebuild the whole Aether token set from the phone's Material
+ * You palette. Every token keeps its semantic job: surfaces/ink/hairlines come from the dynamic
+ * scheme's tonal roles and the two accent ramps follow the wallpaper's primary/secondary/tertiary
+ * hues, while functional state colors (emerald/amber/danger) stay semantic so "connected" and
+ * "blocked" are never confused with the brand accent.
+ */
+private fun dynamicPhonePalette(scheme: androidx.compose.material3.ColorScheme, dark: Boolean): AetherPalette {
+    val surface = scheme.surface
+    fun over(fg: Color, alpha: Float): Color = fg.copy(alpha = alpha).compositeOver(surface)
+    return AetherPalette(
+        void = scheme.background,
+        voidElevated = scheme.surface,
+        glass = scheme.surfaceContainerLow,
+        glassStrong = scheme.surfaceContainer,
+        glassBorder = over(scheme.primary, .30f),
+        glassBorderSoft = scheme.outlineVariant,
+        barGlass = scheme.surface.copy(alpha = if (dark) .88f else .74f),
+        barGlassBorder = over(scheme.outline, .60f),
+        barGlassHighlight = if (dark) {
+            Color.White.copy(alpha = .06f).compositeOver(surface)
+        } else {
+            Color.White.copy(alpha = .55f).compositeOver(surface)
+        },
+        amethyst = scheme.secondary,
+        amethystBright = scheme.tertiary,
+        cyan = scheme.primary,
+        cyanBright = scheme.tertiary,
+        slate = scheme.surfaceVariant,
+        slateBright = scheme.onSurfaceVariant,
+        danger = Color(0xFFE23D5B),
+        dangerBright = Color(0xFFF26079),
+        emerald = Color(0xFF009A74),
+        amber = Color(0xFFD98200),
+        ink = scheme.onSurface,
+        inkMuted = scheme.onSurfaceVariant,
+        inkFaint = scheme.onSurfaceVariant.copy(alpha = .72f)
+    )
+}
 
 private val LocalAetherPalette = staticCompositionLocalOf { LightPalette }
 
@@ -362,13 +411,34 @@ fun AetherFlowTheme(
         AppTheme.LIGHT -> true
         AppTheme.DARK -> false
         AppTheme.SYSTEM -> !isSystemInDarkTheme()
+        AppTheme.PHONE_DYNAMIC -> !isSystemInDarkTheme()
     }
 
-    val palette=if(light) LightPalette else applyNightOutline(DarkPalette, outlineStyleId)
     val context=LocalContext.current
+    // MARBLE_PHONE_DYNAMIC_THEME_V113 — an explicit "dynamic phone" theme (Settings → Theme)
+    // rebuilds Aether tokens from the phone's Material You palette on Android 12+ in both light
+    // and dark mode. Below Android 12 the phone cannot generate a palette, so it gracefully
+    // falls back to the standard Light/Dark identity of the same brightness.
+    val phoneDynamic =
+        requested == AppTheme.PHONE_DYNAMIC && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+    val dynamicPalette: AetherPalette?
+    val dynamicScheme: androidx.compose.material3.ColorScheme?
+    if (phoneDynamic) {
+        val generated =
+            if (light) dynamicLightColorScheme(context) else dynamicDarkColorScheme(context)
+        dynamicPalette = dynamicPhonePalette(generated, light)
+        dynamicScheme = generated
+    } else {
+        dynamicPalette = null
+        dynamicScheme = null
+    }
+
     // Dynamic system surfaces can turn a dark system theme gray. Keep the dark branch on the
     // explicit AMOLED palette; only a light system theme may borrow Material You accents.
-    val dynamicColor = requested == AppTheme.SYSTEM && light && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+    val systemDynamicColor =
+        requested == AppTheme.SYSTEM && light && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+
+    val palette=dynamicPalette ?: if(light) LightPalette else applyNightOutline(DarkPalette, outlineStyleId)
 
     val fallback=if(light) {
         lightColorScheme(
@@ -416,9 +486,9 @@ fun AetherFlowTheme(
         )
     }
 
-    val scheme=when {
-        dynamicColor && light -> dynamicLightColorScheme(context)
-        dynamicColor && !light -> dynamicDarkColorScheme(context)
+    val scheme=dynamicScheme ?: when {
+        systemDynamicColor && light -> dynamicLightColorScheme(context)
+        systemDynamicColor && !light -> dynamicDarkColorScheme(context)
         else -> fallback
     }
 
