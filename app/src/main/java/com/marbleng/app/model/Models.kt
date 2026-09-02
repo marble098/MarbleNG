@@ -115,6 +115,17 @@ enum class SplitTunnelMode { ALL_APPS, ONLY_SELECTED, BYPASS_SELECTED }
 enum class WorkloadProfile { AUTO, INTERACTIVE, STREAMING, STABILITY, STEALTH }
 enum class NodeSortMode { PING, SCORE, NAME, PROTOCOL, SOURCE }
 
+/** User-selectable product typefaces. The default keeps Persian text readable on every device. */
+enum class AppFont(val id: String, val label: String) {
+    VAZIR("vazir", "Vazir"),
+    GOOGLE_SANS("google_sans", "Google Sans"),
+    TIMES_NEW_ROMAN("times_new_roman", "Times New Roman")
+}
+
+fun parseAppFont(raw: String): AppFont =
+    AppFont.entries.firstOrNull { it.id.equals(raw.trim(), ignoreCase = true) }
+        ?: AppFont.VAZIR
+
 /** Live state of one node inside a running test batch, shown on the node's own card. */
 enum class ProbeState { IDLE, QUEUED, TESTING }
 
@@ -424,6 +435,8 @@ data class AppSettings(
     val workloadProfile: WorkloadProfile = WorkloadProfile.AUTO,
 
     val theme: String = "light",
+    /** Product typeface selected in the standard Settings workspace. */
+    val fontFamily: String = AppFont.VAZIR.id,
 
     /** Settings screen reveals the low-level Xray/tunnel controls. Persisted like any other choice. */
     val expertMode: Boolean = false,

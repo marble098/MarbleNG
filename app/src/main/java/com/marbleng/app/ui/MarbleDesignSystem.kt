@@ -235,9 +235,11 @@ internal object PrismSurface {
     val IconControlSize = 38.dp
     val Hairline = 1.dp
     val StrongHairline = 1.4.dp
-    val RestingElevation = 2.5.dp
-    val RaisedElevation = 6.5.dp
-    val ControlElevation = 5.dp
+    // iOS-like depth is present but deliberately quiet: one shallow shadow per elevated
+    // surface, with the AMOLED palette doing most of the separation work.
+    val RestingElevation = 2.dp
+    val RaisedElevation = 5.dp
+    val ControlElevation = 3.dp
     val PressedElevation = 1.dp
 }
 
@@ -348,7 +350,7 @@ internal fun PrismPanel(
     val shape=RoundedCornerShape(radius)
     val surface=Aether.VoidElevated
     val violet=Aether.Amethyst
-    val glowAlpha=.022f + .033f*selectedProgress
+    val glowAlpha=.014f + .022f*selectedProgress
     // MARBLE_BUTTON_TEXT_RECT_REMOVED_DS_V68
     // GlassBorderSoft in the panel rim composited as a pale rectangular band on light themes —
     // especially around Settings section cards and the Library filter sheet panels that host the
@@ -367,8 +369,8 @@ internal fun PrismPanel(
                 elevation=elevation,
                 shape=shape,
                 clip=false,
-                ambientColor=accent.copy(alpha=.26f),
-                spotColor=accent.copy(alpha=.34f)
+                ambientColor=accent.copy(alpha=.16f),
+                spotColor=accent.copy(alpha=.22f)
             )
             .border(PrismSurface.Hairline,borderBrush,shape)
             .clip(shape)

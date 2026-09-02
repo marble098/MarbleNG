@@ -20,6 +20,9 @@ def read(path: str) -> str:
 
 files = {
     "main": read("app/src/main/java/com/marbleng/app/MainActivity.kt"),
+    "permissions": read("app/src/main/java/com/marbleng/app/ui/MarblePermissionOnboarding.kt"),
+    "theme": read("app/src/main/java/com/marbleng/app/ui/AetherTheme.kt"),
+    "design": read("app/src/main/java/com/marbleng/app/ui/MarbleDesignSystem.kt"),
     "app": read("app/src/main/java/com/marbleng/app/MarbleApplication.kt"),
     "repo": read("app/src/main/java/com/marbleng/app/AppRepository.kt"),
     "store": read("app/src/main/java/com/marbleng/app/data/AppStore.kt"),
@@ -49,6 +52,7 @@ files = {
     "security": read("app/src/main/res/xml/network_security_config.xml"),
     "native": read("scripts/prepare-native.sh"),
     "build": read(".github/workflows/build.yml"),
+    "gradle": read("app/build.gradle.kts"),
     "verify": read(".github/workflows/verify.yml"),
 }
 
@@ -116,11 +120,58 @@ check(
 )
 check("Home Freedom switch exists", "HomeServerlessSwitch" in files["ui"])
 check(
-    "Home layout hide flags exist",
+    "connection access is contextual and ordered",
+    "missingConnectionPermissions" in files["main"]
+    and "ConnectionPermissionDialog" in files["main"]
+    and all(step in files["permissions"] for step in ("VPN", "NOTIFICATIONS", "BATTERY"))
+)
+check(
+    "font choices persist and reach the theme",
+    "enum class AppFont" in files["models"]
+    and "fontFamily" in files["store"]
+    and "AppFont.entries" in files["ui"]
+    and "fontId" in files["theme"],
+)
+check(
+    "Marble Freedom is a selectable Library source",
+    "freedomLibraryProfiles" in files["repo"]
+    and "SOURCE_ID" in files["repo"]
+    and "Freedom (" in files["ui"],
+)
+check(
+    "bottom dock glass is scroll-conditional",
+    "glass = contentScrolling || pagerState.isScrollInProgress" in files["ui"]
+    and "if (glass)" in files["ui"]
+    and "dockSurface" in files["ui"],
+)
+check(
+    "connected Home exposes in-app IP details",
+    "HomeConnectedRouteSummary" in files["ui"]
+    and "IpDetailsDialog" in files["ui"]
+    and "Show complete IP information" in files["ui"],
+)
+check(
+    "AMOLED navigation surface is transparent",
+    "Color.Transparent.toArgb()" in files["theme"]
+    and "isNavigationBarContrastEnforced=false" in files["theme"]
+    and "@android:color/transparent" in read("app/src/main/res/values/styles.xml"),
+)
+check(
+    "release packaging requires a stable signer",
+    "signing.properties" in files["gradle"]
+    and "unsigned APKs are not installable" in files["gradle"]
+    and "apksigner" in files["build"],
+)
+appearance_settings = files["ui"].split("private fun AppearanceSettings", 1)
+appearance_body = appearance_settings[1].split("private fun ConnectionSettings", 1)[0] if len(appearance_settings) == 2 else ""
+check(
+    "Home layout options are not exposed in Settings",
     "homeShowLiveQuality" in files["models"]
     and "homeShowRouteRibbon" in files["models"]
     and "homeShowFreedomSwitch" in files["models"]
-    and "homeShowServerSelector" in files["ui"],
+    and "homeShowServerSelector" not in appearance_body
+    and "homeShowLiveQuality" not in appearance_body
+    and "homeShowRouteRibbon" not in appearance_body,
 )
 check("fragment inner hops avoid legacy chainEnabled", "chainEnabled" not in files["dpiPolicy"])
 check(
