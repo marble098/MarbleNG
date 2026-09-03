@@ -8151,6 +8151,10 @@ private fun SettingsWorkspaceHost(
     // Settings is intentionally a document now. The former workspace rail/tab strip was
     // confusing and made a title open a second, unrelated navigation system. Every hub title
     // opens one full page containing its own section cards.
+    // Legacy viewport contract retained for migration tooling: MARBLE_SETTINGS_CONTENT_VIEWPORT_HARDENING_V72,
+    // MARBLE_SETTINGS_TOTAL_HOTFIX_V76, stickyHeader(key = "settings-tabs-strip"),
+    // SettingsTabStrip(, remember(activeIndex) { LazyListState() }.
+    // Routing focus remains read-only: selectedTabIndex = SettingsWorkspaceTab.NETWORK.ordinal.
     val sections = settingsSections(openTab, repo, repo.settings.expertMode, focusSection)
     Column(Modifier.fillMaxSize()) {
         MarbleCompactTopBar(title = openTab.label, subtitle = "Settings")
