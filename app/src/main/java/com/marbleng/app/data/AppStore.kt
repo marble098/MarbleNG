@@ -102,6 +102,21 @@ class AppStore(context: Context) {
             .apply()
 
     /**
+     * Last opened Settings page (sub-page or workspace key). Returning to the Settings tab reopens
+     * the exact page the user was on instead of dumping them back at the hub — this is the
+     * Theme-page-after-back-navigation fix.
+     */
+    fun lastSettingsPage(): String = prefs.getString("lastSettingsPage", "hub")
+        ?.trim()
+        .orEmpty()
+        .ifBlank { "hub" }
+
+    fun setLastSettingsPage(name: String) =
+        prefs.edit()
+            .putString("lastSettingsPage", name.trim().ifBlank { "hub" })
+            .apply()
+
+    /**
      * v8.1 migration: existing installs already have old proxy-all/ads-off preferences persisted,
      * so changing AppSettings constructor defaults alone would not activate the new policy.
      * Apply the new Iran baseline exactly once while preserving user custom block/proxy lists.
