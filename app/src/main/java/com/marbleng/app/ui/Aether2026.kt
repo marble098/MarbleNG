@@ -4386,7 +4386,10 @@ private fun LibraryServerRow(
                         overflow = TextOverflow.Ellipsis
                     )
                     // Dotted leader: the manifest ties each entry to its measurement the way a
-                    // contents page ties a title to a page number.
+                    // contents page ties a title to a page number. The tone is resolved *outside*
+                    // the draw scope — every Aether token is a @Composable getter and a DrawScope
+                    // is not a composable context.
+                    val leaderTone = (if (active) routeTone else Aether.InkFaint).copy(alpha = .38f)
                     Canvas(
                         Modifier
                             .weight(1f)
@@ -4395,7 +4398,7 @@ private fun LibraryServerRow(
                     ) {
                         val y = size.height / 2f
                         drawLine(
-                            (if (active) routeTone else Aether.InkFaint).copy(alpha = .38f),
+                            leaderTone,
                             Offset(0f, y),
                             Offset(size.width, y),
                             1.2.dp.toPx(),

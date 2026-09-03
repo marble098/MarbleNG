@@ -187,4 +187,10 @@ English UI. The Language page and its hub preview do the same.
 - Every Python invariant block in `.github/workflows/verify.yml` passes locally.
 - `python3 tools/kotlin-structure-check.py <file>` (new) tokenises Kotlin — string/char literals,
   comments, `${}` interpolations — and asserts brace/paren/bracket balance. All 93 `.kt` files pass.
+- `python3 tools/compose-scope-check.py` (new) catches the failure mode a structure check cannot:
+  every `Aether.*` token is a `@Composable get()` and `trx()` is `@Composable`, so reading one
+  inside a `Canvas {}` draw scope, a `LaunchedEffect {}` body, a `remember {}` factory or a gesture
+  callback is "@Composable invocations can only happen from the context of a @Composable function".
+  It classifies every brace scope by its owning call, looks through inline lambdas (`let`/`run`/
+  `apply`/`with`) that carry the context, and reports violations — 0 across the whole source set.
 - GitHub Actions remains the compiler: the sandbox has no JDK, no Android SDK and no network.

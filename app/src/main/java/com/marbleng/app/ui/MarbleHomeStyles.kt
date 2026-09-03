@@ -1214,6 +1214,12 @@ private fun rememberHomeStatMetrics(flavor: HomeFlavor, valueScale: Float): Home
     val hintSlot = anchoredTextBlockHeight(labelStyle, 1)
     val valueSlot = anchoredTextBlockHeight(homeStatValueStyle(homeStatValueBaseStyle(flavor), valueScale), 1)
     val dialSize = 92.dp
+    // The orbit pair is sized by whichever of its two instruments needs more room: the LCD
+    // odometer (label + digits + reserved hint line) or the arc gauge (48.dp dial minimum). Both
+    // are computed here rather than inside the when branch, so the branch stays a plain
+    // expression and the two candidates stay visible to the caller.
+    val orbitOdometerCell = 20.dp + headerSlot + valueSlot + 4.dp + hintSlot + 12.dp
+    val orbitGaugeCell = 20.dp + maxOf(headerSlot + valueSlot + hintSlot + 6.dp, 48.dp)
 
     return when (flavor) {
         HomeFlavor.PRO -> HomeStatMetrics(
@@ -1236,19 +1242,15 @@ private fun rememberHomeStatMetrics(flavor: HomeFlavor, valueScale: Float): Home
             dialSize = dialSize
         )
 
-        HomeFlavor.ORBIT -> {
-            val odometer = 20.dp + headerSlot + valueSlot + 4.dp + hintSlot + 12.dp
-            val gauge = 20.dp + (headerSlot + valueSlot + hintSlot + 6.dp).coerceAtLeast(48.dp)
-            HomeStatMetrics(
-                cellHeight = if (odimeter > gauge) odometer else gauge,
-                headerSlot = headerSlot,
-                valueSlot = valueSlot,
-                meterSlot = 4.dp,
-                hintSlot = hintSlot,
-                spacing = 4.dp,
-                dialSize = 48.dp
-            )
-        }
+        HomeFlavor.ORBIT -> HomeStatMetrics(
+            cellHeight = maxOf(orbitOdometerCell, orbitGaugeCell),
+            headerSlot = headerSlot,
+            valueSlot = valueSlot,
+            meterSlot = 4.dp,
+            hintSlot = hintSlot,
+            spacing = 4.dp,
+            dialSize = 48.dp
+        )
 
         HomeFlavor.NEBULA -> HomeStatMetrics(
             cellHeight = 12.dp + dialSize + headerSlot + 6.dp,
