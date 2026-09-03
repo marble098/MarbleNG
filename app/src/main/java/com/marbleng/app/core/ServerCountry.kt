@@ -85,8 +85,9 @@ data class ServerCountry(
         /** Country-code TLDs that unambiguously name a country (".de", ".nl", …). */
         private val CCTLD: Map<String, String> = NAMES.keys.associateBy { it.lowercase() }
 
-        /** A regional-indicator flag pair anywhere in a label. */
-        private val FLAG_PATTERN = Regex("[\\uD83C][\\uDDE6-\\uDDFF][\\uD83C][\\uDDE6-\\uDDFF]")
+        /** Regional indicators run U+1F1E6 (A) to U+1F1FF (Z); a pair of them is a flag. */
+        private const val REGIONAL_INDICATOR_BASE = 0x1F1E6
+        private const val REGIONAL_INDICATOR_LAST = 0x1F1FF
 
         /**
          * A two-letter token separated from the rest of the label: `[DE] (DE) |DE| -DE- _DE_ /DE/
@@ -129,16 +130,31 @@ data class ServerCountry(
             return NAMES[normalized] ?: normalized.ifBlank { UNKNOWN.name }
         }
 
-        private const val REGIONAL_INDICATOR_BASE = 0x1F1E6
-
+        /**
+         * The country of the first flag emoji in a label, or null when there is none.
+         *
+         * Read as code points instead of with a regular expression: a regional indicator is a
+         * surrogate pair, so a character-class pattern has to spell out both halves, and what it
+         * matches is then still only half of a decision. Walking the code points keeps the pair
+         * intact and mirrors [ServersQuery.stripFlag], so the flag the painter removes and the
+         * country the resolver reads can never disagree.
+         */
         private fun fromFlag(name: String): ServerCountry? {
-            val match = FLAG_PATTERN.find(name) ?: return null
-            val code = buildString {
-                match.value.codePoints().forEach { point ->
-                    append('A' + (point - REGIONAL_INDICATOR_BASE))
+            val points = name.codePoints().toArray()
+            for (index in 0 until points.size - 1) {
+                val first = points[index]
+                val second = points[index + 1]
+                if (first !in REGIONAL_INDICATOR_BASE..REGIONAL_INDICATOR_LAST) continue
+                if (second !in REGIONAL_INDICATOR_BASE..REGIONAL_INDICATOR_LAST) continue
+                val code = buildString {
+                    append('A' + (first - REGIONAL_INDICATOR_BASE))
+                    append('A' + (second - REGIONAL_INDICATOR_BASE))
                 }
+                // An indicator pair is an ISO code by definition, so it is trusted even when the
+                // name table has no entry — the page then shows the code itself.
+                return describe(code)
             }
-            return code.takeIf { it.length == 2 }?.let(::describe)
+            return null
         }
 
         private fun fromCodeToken(name: String): ServerCountry? {

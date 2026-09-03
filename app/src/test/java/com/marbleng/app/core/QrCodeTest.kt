@@ -204,9 +204,10 @@ class QrCodeTest {
             }
         }
 
-        for (position in 0 until edge) {
+        // The timing lines only run *between* the finders: where a finder sits, its own pattern
+        // is on the row/column, so those modules are the finder's business, not the timing's.
+        for (position in 8 until edge - 8) {
             val dark = position % 2 == 0
-            if (position == 6) continue
             assertEquals("Horizontal timing at column $position", dark, symbol.isDark(6, position))
             assertEquals("Vertical timing at row $position", dark, symbol.isDark(position, 6))
         }
@@ -219,9 +220,10 @@ class QrCodeTest {
         assertEquals(1, QrCode.versionFor(1, QrEcc.L))
         assertEquals(1, QrCode.versionFor(17, QrEcc.L))
         assertEquals(2, QrCode.versionFor(18, QrEcc.L))
-        // Version 10 switches the byte-mode character count from 8 to 16 bits.
-        assertEquals(9, QrCode.versionFor(213, QrEcc.L))
-        assertEquals(10, QrCode.versionFor(214, QrEcc.L))
+        // Version 9 is the last one whose byte-mode character count fits in 8 bits, and 230 bytes
+        // is its published ceiling; the next byte needs version 10's 16-bit count.
+        assertEquals(9, QrCode.versionFor(230, QrEcc.L))
+        assertEquals(10, QrCode.versionFor(231, QrEcc.L))
         assertEquals(1, QrCode.versionFor(7, QrEcc.H))
         assertEquals(2, QrCode.versionFor(8, QrEcc.H))
     }

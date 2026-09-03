@@ -43,7 +43,11 @@ data class ServersFilter(
         get() = query.isNotBlank() || protocol.isNotBlank() || sourceId != "all" ||
             onlyReachable || maxPingMs > 0
 
-    fun cleared(): ServersFilter = ServersFilter(sourceId = sourceId)
+    /**
+     * Every control back to its default, the group scope included: "Reset filters" has to be able
+     * to take the page back to "showing everything", which is exactly what [isActive] reports.
+     */
+    fun cleared(): ServersFilter = ServersFilter()
 }
 
 object ServersQuery {
@@ -203,6 +207,8 @@ object ServersQuery {
 
             NodeSortMode.SOURCE -> profiles.sortedWith(
                 compareBy<ProxyProfile> { it.subscriptionName.lowercase() }
+                    // Two groups can share a display name; the id keeps the order deterministic.
+                    .thenBy { it.subscriptionId }
                     .thenBy { cleanName(it) }
             )
 

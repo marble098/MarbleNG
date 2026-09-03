@@ -3797,13 +3797,20 @@ private fun CyberLibrary(
                             updateSettings { copy(serversGroupByCountry = !serversGroupByCountry) }
                         ServersAdvancedAction.ONLY_REACHABLE ->
                             updateSettings { copy(serversOnlyReachable = !serversOnlyReachable) }
-                        ServersAdvancedAction.RESET -> updateSettings {
-                            copy(
-                                serversProtocolFilter = "",
-                                serversOnlyReachable = false,
-                                serversMaxPingMs = ServersQuery.MAX_PING_OFF,
-                                serversGroupByCountry = false
-                            )
+                        ServersAdvancedAction.RESET -> {
+                            // "Reset filters" means the list shows everything again, so the scope
+                            // and the search box go back too — the same set ServersFilter.cleared()
+                            // describes, and the only way the active-filters badge can go quiet.
+                            search = ""
+                            repo.selectLibrarySource("all")
+                            updateSettings {
+                                copy(
+                                    serversProtocolFilter = "",
+                                    serversOnlyReachable = false,
+                                    serversMaxPingMs = ServersQuery.MAX_PING_OFF,
+                                    serversGroupByCountry = false
+                                )
+                            }
                         }
                         ServersAdvancedAction.REFRESH_ALL -> repo.refreshLibrarySource("all")
                         ServersAdvancedAction.RANK_ALL -> repo.smartRank()
