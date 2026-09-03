@@ -105,8 +105,11 @@ internal fun signatureAccentColor(accent: ProAccent): Color = when (accent) {
 internal fun signatureStatusTone(evidence: HomeEvidence, accent: ProAccent): Color {
     val accentColor = signatureAccentColor(accent)
     return when {
-        evidence.connected -> Aether.Emerald
-        evidence.connecting -> accentColor
+        // MARBLE_CONNECT_RING_STYLE_V115 — the connected ring and its glow follow the studio
+        // accent the user picked (and therefore the active theme tokens), never a hard-coded
+        // green. Choosing the EMERALD accent restores the classic green look.
+        evidence.connected -> accentColor
+        evidence.connecting -> accentColor.copy(alpha = .82f)
         evidence.blocked -> Aether.Danger
         else -> accentColor
     }
@@ -593,7 +596,8 @@ private fun SignatureCornerCluster(
             }
             DropdownMenu(
                 expanded = menuOpen,
-                onDismissRequest = { menuOpen = false }
+                onDismissRequest = { menuOpen = false },
+                shape = RoundedCornerShape(20.dp)
             ) {
                 DropdownMenuItem(
                     text = { Text(trx(t.copyIp)) },

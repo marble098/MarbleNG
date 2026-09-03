@@ -534,47 +534,47 @@ check(
 check("Home exact reconnect path exists", "repo.reconnectLastOrAuto(onConnect)" in files["ui"])
 check("Library exact active-row check exists", "repo.isActiveProfile(profile)" in files["ui"])
 check(
-    "Settings tabs render the selected workspace",
-    "SettingsTabPane(" in files["ui"]
-    and "SettingsWorkspacePage(" in files["ui"]
+    "Settings hub renders one dedicated page per title",
+    "SettingsTabPage(" in files["ui"]
+    and "settingsSections(" in files["ui"]
     and "SettingsSectionCard(" in files["ui"],
 )
 check(
-    "Settings workspace has explicit remaining-height viewport",
-    "MARBLE_SETTINGS_CONTENT_VIEWPORT_HARDENING_V72" in files["ui"]
-    and "MARBLE_SETTINGS_TOTAL_HOTFIX_V76" in files["ui"]
-    and "modifier = Modifier.fillMaxSize()" in files["ui"],
+    "Settings single-page migration marker exists",
+    "MARBLE_SETTINGS_FLAT_SINGLE_PAGE_V115" in files["ui"]
+    and "SettingsSubPage(" in files["ui"],
 )
 check(
-    "Settings mobile workspace uses a direct sticky LazyColumn",
-    'stickyHeader(key = "settings-tabs-strip")' in files["ui"]
-    and "SettingsTabStrip(" in files["ui"]
-    and "remember(activeIndex) { LazyListState() }" in files["ui"],
+    "Settings tab strip and adaptive rail are gone",
+    "NavigationRail(" not in files["ui"]
+    and "SettingsTabStrip(" not in files["ui"]
+    and "compactTabsState" not in files["ui"],
 )
 check(
-    "Settings tab strip host is height-bounded",
-    ".height(58.dp)" in files["ui"]
-    and ".matchParentSize()" in files["ui"],
+    "Per-app proxy lives directly on the Settings surface",
+    'item(key = "hub-per-app")' in files["ui"]
+    and "SettingsPages.PER_APP" in files["ui"]
+    and "SplitTunnelModeSelector(" in files["ui"],
 )
 check(
     "Settings workspace has no SubcomposeLayout content boundary",
     "BoxWithConstraints(" not in files["ui"],
 )
 check(
-    "Settings workspace applies exactly one inset pass",
+    "Settings sub-pages apply exactly one inset pass",
     "imePadding()" in files["ui"]
     and "windowInsetsPadding(WindowInsets.navigationBars)" not in files["ui"]
     and "systemBarsPadding()" not in files["ui"],
 )
 check(
-    "Settings viewport tripwire and shared section source exist",
-    "viewport-degraded-fallback" in files["ui"]
-    and "SettingsSectionSpec" in files["ui"]
+    "Shared section source and expert gate still exist",
+    "SettingsSectionSpec" in files["ui"]
+    and "settingsSections(" in files["ui"]
     and "ExpertGateRow(" in files["ui"],
 )
 check(
-    "Routing focus never mutates Expert mode",
-    "selectedTabIndex = SettingsWorkspaceTab.NETWORK.ordinal" in files["ui"]
+    "Routing focus keeps Expert mode untouched",
+    'SettingsPages.workspace(SettingsWorkspaceTab.NETWORK, "Routing")' in files["ui"]
     and "copy(expertMode=true)" not in files["ui"],
 )
 check("Library long names use overflow marquee", "basicMarquee(" in files["ui"])
