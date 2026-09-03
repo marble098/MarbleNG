@@ -56,13 +56,8 @@ jobs:
           path = Path(sys.argv[1])
           source = path.read_text(encoding="utf-8")
 
-          old = "\t\t\tcmdRun,
-\t\t\tcmdVersion,
-"
-          new = "\t\t\tcmdRun,
-\t\t\tcmdVersion,
-\t\t\tcmdMarbleRank,
-"
+          old = "\t\t\tcmdRun,\n\t\t\tcmdVersion,\n"
+          new = "\t\t\tcmdRun,\n\t\t\tcmdVersion,\n\t\t\tcmdMarbleRank,\n"
 
           if source.count(old) != 1:
               raise SystemExit("Pinned Xray command anchor changed")
@@ -84,7 +79,7 @@ jobs:
           import re
 
           malformed = []
-          pattern = re.compile(r':s*@Composable()s*->')
+          pattern = re.compile(r':\s*@Composable\s*\(\)\s*->')
 
           for path in Path("app/src/main/java").rglob("*.kt"):
               source = path.read_text(encoding="utf-8")
@@ -191,120 +186,91 @@ jobs:
 
           required = {
               "product UI marker": "Marble Product UI v9.1.0" in ui,
-
               "modern Canvas icons": "MarbleTabIcon(" in ui,
-
               "official Material 3 switch": (
                   "Switch(" in ui
                   and "SwitchDefaults.colors(" in ui
                   and "MarbleToggle(" not in ui
               ),
-
               "v53 compatibility marker": (
                   "MARBLE_M3_EXPRESSIVE_UI_V53" in ui
               ),
-
               "v54 Prism UI marker": "MARBLE_PRISM_UI_V54" in ui,
-
               "v54 Prism theme marker": (
                   "MARBLE_PRISM_THEME_V54" in theme
               ),
-
               "v54 design-system marker": (
                   "MARBLE_PRISM_DESIGN_SYSTEM_V54" in design
               ),
-
               "v55 real-device UI marker": (
                   "MARBLE_REAL_DEVICE_POLISH_V55" in ui
               ),
-
               "v55 design polish marker": (
                   "MARBLE_PRISM_POLISH_V55" in design
               ),
-
               "library sort control": (
                   "LibrarySortChoice(" in ui
                   and 'text="Reverse"' in ui
               ),
-
               "sparkline confidence threshold": (
                   "if(sparkline.size>=3)" in design
                   or "if (sparkline.size >= 3)" in design
               ),
-
               "premium vector route": (
                   "PrismConnectionStage(" in design
               ),
-
               "Prism backdrop": "PrismBackdrop(" in ui,
-
               "floating spatial navigation": (
                   "FloatingSpatialDock(" in ui
                   and "MARBLE_BOTTOM_DOCK_UNIFIED_FLOATING_V661" in ui
                   and "SpatialTab.entries.forEach" in ui
               ),
-
               "profile name uses profile identity": (
                   'val activeName = active?.name ?: "Choose a route"' in ui
               ),
-
               "flag-aware node identity": (
                   "stripLeadingFlag(profile.name)" in ui
                   and "leadingFlagGlyph" in design
               ),
-
               "source-aware deletion": (
                   "removeProfile(profile.id, profile.subscriptionId)" in ui
               ),
-
               "brand vector": "R.drawable.ic_marble_prism" in ui,
-
               "unified dock interaction": (
                   ".kineticClickable(" in ui
                   and "indicatorTone" in ui
                   and "MarbleTabIcon(" in ui
               ),
-
               "layered Prism surfaces": (
                   "PrismPanel(" in ui
                   and "PrismPanel(" in design
               ),
-
               "visual theme previews": (
                   "PrismThemeChoice(" in ui
                   and "PrismThemeChoice(" in design
               ),
-
               "library filter sheet": (
                   "ModalBottomSheet(" in ui
                   and "LibraryFilterSheet(" in ui
               ),
-
               "library swipe actions": "SwipeToDismissBox(" in ui,
-
               "home bento and sparkline": (
                   "HomeMetricBento(" in ui
                   and "MarbleSparkline(" in design
               ),
-
               "dynamic system colours": (
                   "dynamicLightColorScheme(" in theme
                   and "dynamicDarkColorScheme(" in theme
               ),
-
               "connected score prefers live data": (
                   "repo.liveRouteScore" in ui
               ),
-
               "live-score model": "calculateLiveRouteScore" in repo,
-
               "live sample count": "liveRouteSamples" in repo,
-
               "immediate active probe": (
                   "The dashboard should become meaningful as soon as Xray is live"
                   in vpn
               ),
-
               "fast page transition": (
                   "marble-page-transition-fast" in ui
               ),
@@ -374,26 +340,19 @@ jobs:
               "resilient marker": (
                   "MARBLE_RELEASE_PUBLISH_RESILIENT_V182" in build
               ),
-
               "notes JSON": '--rawfile body "$notes_file"' in build,
-
               "target JSON": (
                   '--arg target "$GITHUB_SHA"' in build
                   and "target_commitish:$target" in build
               ),
-
               "assets": '"${assets[@]}"' in build,
-
               "tag guard": (
                   'git rev-parse -q --verify "refs/tags/$tag"' in build
               ),
-
               "release guard": (
                   'gh release view "v$v"' in build
               ),
-
               "no tag push": 'git push origin "$tag"' not in build,
-
               "no inline notes": (
                   '--notes "## MarbleNG $VERSION_NAME' not in build
               ),
