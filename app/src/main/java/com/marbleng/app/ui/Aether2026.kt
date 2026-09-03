@@ -3821,6 +3821,9 @@ private fun LibraryModuleSegment(
     content: @Composable BoxScope.() -> Unit
 ) {
     val shape = librarySegmentShape(flavor, top, bottom)
+    // The organism spore tone is read here, inside the composable, then handed to the non-composable
+    // draw helper: Aether palette access is @Composable and cannot happen inside a DrawScope.
+    val spore = Aether.Amethyst
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -3829,7 +3832,7 @@ private fun LibraryModuleSegment(
     ) {
         content()
         Canvas(Modifier.matchParentSize()) {
-            libraryModuleEdges(flavor, accent, emphasized, top, bottom, divider)
+            libraryModuleEdges(flavor, accent, spore, emphasized, top, bottom, divider)
         }
     }
 }
@@ -3838,6 +3841,7 @@ private fun LibraryModuleSegment(
 private fun DrawScope.libraryModuleEdges(
     flavor: HomeFlavor,
     accent: Color,
+    spore: Color,
     emphasized: Boolean,
     top: Boolean,
     bottom: Boolean,
@@ -3867,12 +3871,12 @@ private fun DrawScope.libraryModuleEdges(
             drawLine(soft.copy(alpha = soft.alpha * .70f), Offset(w - hair / 2f, 0f), Offset(w - hair / 2f, h), hair)
             if (top) drawLine(soft, Offset(0f, hair / 2f), Offset(w, hair / 2f), hair)
             if (bottom) drawLine(soft, Offset(0f, h - hair / 2f), Offset(w, h - hair / 2f), hair)
-            val spore = if (emphasized) accent else Aether.Amethyst
-            drawCircle(spore.copy(alpha = .30f), 1.6.dp.toPx(), Offset(hair + 4.dp.toPx(), h * .30f))
-            drawCircle(spore.copy(alpha = .22f), 1.2.dp.toPx(), Offset(hair + 5.dp.toPx(), h * .70f))
+            val sporeTone = if (emphasized) accent else spore
+            drawCircle(sporeTone.copy(alpha = .30f), 1.6.dp.toPx(), Offset(hair + 4.dp.toPx(), h * .30f))
+            drawCircle(sporeTone.copy(alpha = .22f), 1.2.dp.toPx(), Offset(hair + 5.dp.toPx(), h * .70f))
             if (divider) {
                 drawLine(
-                    spore.copy(alpha = .12f),
+                    sporeTone.copy(alpha = .12f),
                     Offset(inset, h - hair / 2f),
                     Offset(w - inset, h - hair / 2f),
                     hair,
