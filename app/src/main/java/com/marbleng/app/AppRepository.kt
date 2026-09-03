@@ -1407,13 +1407,13 @@ private fun postToMain(block: () -> Unit) {
             ?: 0
         val seedMs = listOf(livePingMs, storedLatencyMs).firstOrNull { it > 0 } ?: 0
 
+        // MARBLE_PING_FLOOR_V117 — the seed (live monitor RTT / stored benchmark) is useful as a
+        // last-resort tail, but it is never a finished measurement. Showing it as MEASURED let the
+        // Home surface flash an unrepresentative 15 ms before the real probe race had run. The
+        // readout now stays in MEASURING until the median of the verified race is published.
         postToMain {
-            if (seedMs > 0) {
-                connectionPingMs = seedMs.coerceIn(1, 10_000)
-                connectionPingState = ConnectionPingState.MEASURED
-            } else {
-                connectionPingState = ConnectionPingState.MEASURING
-            }
+            connectionPingMs = 0
+            connectionPingState = ConnectionPingState.MEASURING
         }
 
         io.execute {
@@ -1436,23 +1436,11 @@ private fun postToMain(block: () -> Unit) {
             data class ProbeSample(val mode: String, val ms: Double, val verified: Boolean)
 
             val results = java.util.Collections.synchronizedList(ArrayList<ProbeSample>())
-            val firstPublished = AtomicBoolean(false)
 
             fun record(mode: String, ms: Double, verified: Boolean) {
                 val sane = LinkQualityEstimator.sanitaryRtt(ms)
                 if (sane <= 0.0) return
                 results += ProbeSample(mode, sane, verified)
-                // The first sample that proves the tunnel end-to-end is shown immediately; the
-                // robust winner of the whole race refines it a moment later.
-                if (verified && firstPublished.compareAndSet(false, true)) {
-                    val first = sane.roundToInt().coerceIn(1, 10_000)
-                    postToMain {
-                        if (state == "CONNECTED" && connectedSinceMs == sessionAtStart) {
-                            connectionPingMs = first
-                            connectionPingState = ConnectionPingState.MEASURED
-                        }
-                    }
-                }
             }
 
             val pool = Executors.newFixedThreadPool(literalTargets.size + domainTargets.size + 2)

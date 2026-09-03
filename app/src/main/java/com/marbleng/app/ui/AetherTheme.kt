@@ -70,7 +70,7 @@ private data class AetherPalette(
     val glassStrong: Color,
     val glassBorder: Color,
     val glassBorderSoft: Color,
-    // MARBLE_IOS_FLOATING_GLASS_V81 — tokens for the truly floating bars (bottom dock,
+    // MARBLE_PRODUCT_FLOATING_GLASS_V117 — tokens for the truly floating bars (bottom dock,
     // Library source strip, Settings tabs). They are translucent so whatever scrolls
     // beneath them shows through, and both themes keep their own readable ink pair.
     val barGlass: Color,

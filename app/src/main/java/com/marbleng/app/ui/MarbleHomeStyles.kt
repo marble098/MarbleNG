@@ -203,6 +203,11 @@ internal fun homeFlavorFor(style: HomeStyle): HomeFlavor = when (style) {
 
 @Composable
 internal fun homeTone(evidence: HomeEvidence): Color = when {
+    // MARBLE_DYNAMIC_COLOR_V117 — the connected surface follows the live measurement, not a
+    // fixed green: a verified fast route glows cyan/emerald, a fair route warms to amber and a
+    // slow route turns coral. Connecting and blocked keep their unmissable state signals.
+    evidence.connected && evidence.pingState == ConnectionPingState.MEASURED && evidence.pingMs > 0 ->
+        marbleMetricTone(pingMetricBand(evidence.pingMs))
     evidence.connected -> Aether.Emerald
     evidence.connecting -> Aether.Amethyst
     evidence.blocked -> Aether.Danger
@@ -2306,19 +2311,73 @@ internal fun HomePowerControl(
     flavor: HomeFlavor,
     modifier: Modifier = Modifier,
     diameter: Dp = 150.dp,
-    haloBrush: Brush? = null
+    haloBrush: Brush? = null,
+    model: ConnectButtonModel? = null
+) {
+    // MARBLE_CONNECT_BUTTONS_V117 — the classic Home control is now one of the five distinct
+    // connection button models, selected by flavor. Keeping this entry point preserves the
+    // shared Home evidence and action contract for every presentation.
+    MarbleConnectionButton(
+        evidence = evidence,
+        tone = tone,
+        onToggle = onToggle,
+        flavor = flavor,
+        modifier = modifier,
+        diameter = diameter,
+        haloBrush = haloBrush,
+        model = model ?: connectionButtonModelFor(flavor)
+    )
+}
+
+/**
+ * MARBLE_CONNECT_BUTTONS_V117 — the five connection button models.
+ *
+ * Each presentation owns a genuinely different silhouette instead of sharing one generic circle:
+ *  - [ConnectButtonModel.FLOAT]  a floating orb that drifts above its own aurora;
+ *  - [ConnectButtonModel.CORE]   the clean centred circular instrument;
+ *  - [ConnectButtonModel.PULSE]  a breathing membrane with an expanding connected ripple;
+ *  - [ConnectButtonModel.ORBIT]  an instrument dial with orbiting bodies and graduation ticks;
+ *  - [ConnectButtonModel.SHIELD] a shield-shaped action with a drafting frame.
+ *
+ * Every model runs the same three-stage motion: idle breathing (or float), an indeterminate
+ * connecting sweep, and a settled connected glow — plus the fail-closed blocked reset state.
+ */
+internal enum class ConnectButtonModel { FLOAT, CORE, PULSE, ORBIT, SHIELD }
+
+internal fun connectionButtonModelFor(flavor: HomeFlavor): ConnectButtonModel = when (flavor) {
+    HomeFlavor.PRO -> ConnectButtonModel.FLOAT
+    HomeFlavor.ORGANIC -> ConnectButtonModel.PULSE
+    HomeFlavor.ORBIT -> ConnectButtonModel.ORBIT
+    HomeFlavor.NEBULA -> ConnectButtonModel.CORE
+    HomeFlavor.BLUEPRINT -> ConnectButtonModel.SHIELD
+}
+
+@Composable
+internal fun MarbleConnectionButton(
+    evidence: HomeEvidence,
+    tone: Color,
+    onToggle: () -> Unit,
+    flavor: HomeFlavor,
+    modifier: Modifier = Modifier,
+    diameter: Dp = 150.dp,
+    haloBrush: Brush? = null,
+    model: ConnectButtonModel = connectionButtonModelFor(flavor)
 ) {
     val label = homeActionLabel(evidence)
     val animatedTone by animateColorAsState(
         targetValue = tone,
         animationSpec = MarbleMotionSpecs.Color,
-        label = "home-power-tone"
+        label = "marble-connection-tone"
     )
     val motion = MarbleMotion.current
     val pulse = if (evidence.connecting) .70f + motion.breathe(1_150) * .30f else 1f
     val sweep = if (evidence.connecting) motion.loop(950) * 360f else 0f
     val calm = motion.breathe(3_800)
     val slowSpin = motion.loop(11_000)
+    val floatOffset = if (model == ConnectButtonModel.FLOAT) {
+        (motion.loop(3_200) * 2f - 1f) * 8f
+    } else 0f
+    val amethyst = Aether.Amethyst
 
     Column(
         modifier = modifier,
@@ -2326,6 +2385,7 @@ internal fun HomePowerControl(
     ) {
         Box(
             modifier = Modifier
+                .offset(y = (floatOffset * 1f).dp)
                 .size(diameter)
                 .shadow(
                     elevation = 16.dp,
@@ -2352,33 +2412,67 @@ internal fun HomePowerControl(
                 .semantics { contentDescription = "$label connection button" },
             contentAlignment = Alignment.Center
         ) {
-            val amethyst = Aether.Amethyst
             Canvas(Modifier.matchParentSize().padding(10.dp)) {
                 val r = size.minDimension / 2f
                 val c = Offset(size.width / 2f, size.height / 2f)
-                // Flavor-specific bezel decoration — never a quality score.
-                when (flavor) {
-                    HomeFlavor.ORGANIC -> {
-                        // A soft breathing membrane hugs the control.
+                when (model) {
+                    ConnectButtonModel.FLOAT -> {
                         drawCircle(
-                            color = animatedTone.copy(alpha = .16f + .10f * calm),
-                            radius = r * (.88f + .05f * calm),
-                            style = Stroke(width = 1.6.dp.toPx())
+                            color = animatedTone.copy(alpha = .18f),
+                            radius = r * .90f,
+                            center = c,
+                            style = Stroke(width = 1.5.dp.toPx())
                         )
-                        if (evidence.connected) {
-                            // An expanding ripple that fades in AND out through the envelope, so
-                            // the loop restart frame is identical to the first frame.
-                            // MARBLE_SEAMLESS_LOOPS_V112
-                            val ripple = motion.loop(2_600)
-                            drawCircle(
-                                color = animatedTone.copy(alpha = .34f * loopFade(ripple)),
-                                radius = r * (.62f + .38f * ripple),
-                                style = Stroke(width = 1.8.dp.toPx())
+                        rotate(slowSpin * 360f, pivot = c) {
+                            drawArc(
+                                brush = Brush.sweepGradient(
+                                    listOf(Color.Transparent, animatedTone.copy(alpha = .62f), Color.Transparent),
+                                    center = c
+                                ),
+                                startAngle = 0f,
+                                sweepAngle = 360f,
+                                useCenter = false,
+                                topLeft = Offset(c.x - r * .92f, c.y - r * .92f),
+                                size = Size(r * 1.84f, r * 1.84f),
+                                style = Stroke(width = 2.4.dp.toPx())
                             )
                         }
                     }
-                    HomeFlavor.ORBIT -> {
-                        // Instrument bezel: 36 graduation ticks around the dial.
+
+                    ConnectButtonModel.CORE -> {
+                        drawCircle(
+                            color = animatedTone.copy(alpha = .14f + .10f * calm),
+                            radius = r * .88f,
+                            center = c,
+                            style = Stroke(width = 1.4.dp.toPx())
+                        )
+                        if (evidence.connected) {
+                            drawCircle(
+                                color = animatedTone.copy(alpha = .85f),
+                                radius = r * .76f,
+                                center = c,
+                                style = Stroke(width = 3.2.dp.toPx())
+                            )
+                        }
+                    }
+
+                    ConnectButtonModel.PULSE -> {
+                        drawCircle(
+                            color = animatedTone.copy(alpha = .16f + .10f * calm),
+                            radius = r * (.88f + .05f * calm),
+                            center = c,
+                            style = Stroke(width = 1.6.dp.toPx())
+                        )
+                        val ripple = motion.loop(2_600)
+                        drawCircle(
+                            color = animatedTone.copy(alpha = .34f * loopFade(ripple)),
+                            radius = r * (.62f + .38f * ripple),
+                            center = c,
+                            style = Stroke(width = 1.8.dp.toPx())
+                        )
+                    }
+
+                    ConnectButtonModel.ORBIT -> {
                         repeat(36) { index ->
                             val a = index * 10f * PI.toFloat() / 180f
                             val major = index % 9 == 0
@@ -2390,134 +2484,73 @@ internal fun HomePowerControl(
                                 strokeWidth = (if (major) 1.8f else 1.1f).dp.toPx()
                             )
                         }
-                        if (evidence.connected) {
-                            // Two counter-rotating settled arcs.
-                            rotate(slowSpin * 360f, pivot = c) {
-                                drawArc(
-                                    color = animatedTone.copy(alpha = .55f),
-                                    startAngle = 0f,
-                                    sweepAngle = 84f,
-                                    useCenter = false,
-                                    topLeft = Offset(c.x - r * .80f, c.y - r * .80f),
-                                    size = Size(r * 1.6f, r * 1.6f),
-                                    style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round)
-                                )
-                            }
-                            rotate(-slowSpin * 360f, pivot = c) {
-                                drawArc(
-                                    color = animatedTone.copy(alpha = .35f),
-                                    startAngle = 180f,
-                                    sweepAngle = 84f,
-                                    useCenter = false,
-                                    topLeft = Offset(c.x - r * .70f, c.y - r * .70f),
-                                    size = Size(r * 1.4f, r * 1.4f),
-                                    style = Stroke(width = 1.6.dp.toPx(), cap = StrokeCap.Round)
-                                )
-                            }
-                        }
-                    }
-                    HomeFlavor.NEBULA -> {
-                        // Aurora bezel: a slowly rotating spectral sweep.
                         rotate(slowSpin * 360f, pivot = c) {
-                            drawCircle(
-                                brush = Brush.sweepGradient(
-                                    listOf(
-                                        Color.Transparent,
-                                        animatedTone.copy(alpha = .55f),
-                                        amethyst.copy(alpha = .40f),
-                                        Color.Transparent
-                                    ),
-                                    center = c
-                                ),
-                                radius = r * .92f,
-                                center = c,
-                                style = Stroke(width = 2.4.dp.toPx())
+                            drawArc(
+                                color = animatedTone.copy(alpha = .55f),
+                                startAngle = 0f,
+                                sweepAngle = 84f,
+                                useCenter = false,
+                                topLeft = Offset(c.x - r * .80f, c.y - r * .80f),
+                                size = Size(r * 1.6f, r * 1.6f),
+                                style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round)
                             )
                         }
-                    }
-                    HomeFlavor.BLUEPRINT -> {
-                        // Drafting crosshair ticks at the four cardinal points.
-                        listOf(0f, 90f, 180f, 270f).forEach { deg ->
-                            val a = deg * PI.toFloat() / 180f
-                            drawLine(
-                                color = animatedTone.copy(alpha = .60f),
-                                start = Offset(c.x + cos(a) * r * .84f, c.y + sin(a) * r * .84f),
-                                end = Offset(c.x + cos(a) * r * .98f, c.y + sin(a) * r * .98f),
-                                strokeWidth = 1.8.dp.toPx()
+                        rotate(-slowSpin * 360f, pivot = c) {
+                            drawArc(
+                                color = amethyst.copy(alpha = .35f),
+                                startAngle = 180f,
+                                sweepAngle = 84f,
+                                useCenter = false,
+                                topLeft = Offset(c.x - r * .70f, c.y - r * .70f),
+                                size = Size(r * 1.4f, r * 1.4f),
+                                style = Stroke(width = 1.6.dp.toPx(), cap = StrokeCap.Round)
                             )
                         }
-                        drawCircle(
-                            color = animatedTone.copy(alpha = .22f),
-                            radius = r * .91f,
-                            center = c,
-                            style = Stroke(
-                                width = 1.2.dp.toPx(),
-                                pathEffect = PathEffect.dashPathEffect(floatArrayOf(3f, 9f))
-                            )
-                        )
                     }
 
-                    HomeFlavor.PRO -> {
-                        // The Signature bezel: three concentric aurora arcs orbiting at different
-                        // speeds. Full-circle rotations only — every loop restart is invisible.
-                        // MARBLE_SEAMLESS_LOOPS_V112
-                        rotate(slowSpin * 360f, pivot = c) {
-                            drawArc(
-                                brush = Brush.sweepGradient(
-                                    listOf(
-                                        Color.Transparent,
-                                        animatedTone.copy(alpha = .62f),
-                                        Color.Transparent,
-                                        Color.Transparent
-                                    ),
-                                    center = c
+                    ConnectButtonModel.SHIELD -> {
+                        val shield = Path().apply {
+                            moveTo(c.x, c.y - r * .74f)
+                            lineTo(c.x + r * .70f, c.y - r * .42f)
+                            lineTo(c.x + r * .64f, c.y + r * .32f)
+                            quadraticBezierTo(
+                                c.x + r * .50f, c.y + r * .72f,
+                                c.x, c.y + r * .86f
+                            )
+                            quadraticBezierTo(
+                                c.x - r * .50f, c.y + r * .72f,
+                                c.x - r * .64f, c.y + r * .32f
+                            )
+                            lineTo(c.x - r * .70f, c.y - r * .42f)
+                            close()
+                        }
+                        drawPath(
+                            shield,
+                            brush = Brush.sweepGradient(
+                                listOf(
+                                    animatedTone.copy(alpha = .30f * pulse),
+                                    amethyst.copy(alpha = .16f * pulse),
+                                    animatedTone.copy(alpha = .06f * pulse)
                                 ),
-                                startAngle = 0f,
-                                sweepAngle = 360f,
-                                useCenter = false,
-                                topLeft = Offset(c.x - r * .94f, c.y - r * .94f),
-                                size = Size(r * 1.88f, r * 1.88f),
-                                style = Stroke(width = 2.6.dp.toPx())
+                                center = c
                             )
-                        }
-                        rotate(-motion.loop(6_400) * 360f, pivot = c) {
-                            drawArc(
-                                color = animatedTone.copy(alpha = .42f),
-                                startAngle = 20f,
-                                sweepAngle = 130f,
-                                useCenter = false,
-                                topLeft = Offset(c.x - r * .76f, c.y - r * .76f),
-                                size = Size(r * 1.52f, r * 1.52f),
-                                style = Stroke(width = 1.8.dp.toPx(), cap = StrokeCap.Round)
-                            )
-                        }
+                        )
+                        drawPath(
+                            shield,
+                            color = animatedTone.copy(alpha = if (evidence.connecting) .70f else .46f),
+                            style = Stroke(width = 1.8.dp.toPx(), join = StrokeJoin.Round)
+                        )
                         if (evidence.connected) {
-                            rotate(motion.loop(4_200) * 360f, pivot = c) {
-                                drawArc(
-                                    color = animatedTone.copy(alpha = .30f),
-                                    startAngle = 200f,
-                                    sweepAngle = 70f,
-                                    useCenter = false,
-                                    topLeft = Offset(c.x - r * .86f, c.y - r * .86f),
-                                    size = Size(r * 1.72f, r * 1.72f),
-                                    style = Stroke(width = 1.3.dp.toPx(), cap = StrokeCap.Round)
-                                )
-                            }
-                        }
-                        // Fine instrument ticks in the quarter positions.
-                        listOf(45f, 135f, 225f, 315f).forEach { deg ->
-                            val a = deg * PI.toFloat() / 180f
-                            drawLine(
-                                color = animatedTone.copy(alpha = .38f),
-                                start = Offset(c.x + cos(a) * r * .88f, c.y + sin(a) * r * .88f),
-                                end = Offset(c.x + cos(a) * r * .96f, c.y + sin(a) * r * .96f),
-                                strokeWidth = 1.1.dp.toPx()
+                            drawPath(
+                                shield,
+                                color = animatedTone.copy(alpha = .85f),
+                                style = Stroke(width = 3.dp.toPx(), join = StrokeJoin.Round)
                             )
                         }
                     }
                 }
 
-                // Shared state ring: connecting shows indeterminate motion; connected a settled rim.
+                // Shared state ring: connecting shows indeterminate motion, connected a settled rim.
                 when {
                     evidence.connecting -> drawArc(
                         color = animatedTone,
@@ -2528,7 +2561,7 @@ internal fun HomePowerControl(
                         size = Size(r * 1.48f, r * 1.48f),
                         style = Stroke(width = 5.dp.toPx(), cap = StrokeCap.Round)
                     )
-                    evidence.connected -> drawCircle(
+                    evidence.connected && model != ConnectButtonModel.SHIELD && model != ConnectButtonModel.FLOAT -> drawCircle(
                         color = animatedTone.copy(alpha = .70f),
                         radius = r * .74f,
                         center = c,

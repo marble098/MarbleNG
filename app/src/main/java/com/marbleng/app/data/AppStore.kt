@@ -359,12 +359,12 @@ class AppStore(context: Context) {
         appLanguage = parseAppLanguage(prefs.getString("appLanguage", AppLanguage.SYSTEM.id) ?: AppLanguage.SYSTEM.id).id,
 
         // MARBLE_SIGNATURE_HOME_V112 — the Signature studio customization surface.
-        proFloatingButtonEnabled = prefs.getBoolean("proFloatingButtonEnabled", true),
-        proStatusBannerEnabled = prefs.getBoolean("proStatusBannerEnabled", true),
+        proFloatingButtonEnabled = prefs.getBoolean("proFloatingButtonEnabled", false),
+        proStatusBannerEnabled = prefs.getBoolean("proStatusBannerEnabled", false),
         proBannerScope = parseProBannerScope(prefs.getString("proBannerScope", ProBannerScope.HOME.id) ?: ProBannerScope.HOME.id).id,
-        proCornerActionsEnabled = prefs.getBoolean("proCornerActionsEnabled", true),
-        proServerRailEnabled = prefs.getBoolean("proServerRailEnabled", true),
-        proStyleSwitcherEnabled = prefs.getBoolean("proStyleSwitcherEnabled", true),
+        proCornerActionsEnabled = prefs.getBoolean("proCornerActionsEnabled", false),
+        proServerRailEnabled = prefs.getBoolean("proServerRailEnabled", false),
+        proStyleSwitcherEnabled = prefs.getBoolean("proStyleSwitcherEnabled", false),
         proServerCardStyle = parseProServerCardStyle(prefs.getString("proServerCardStyle", ProServerCardStyle.GLASS.id) ?: ProServerCardStyle.GLASS.id).id,
         proAccent = parseProAccent(prefs.getString("proAccent", ProAccent.ELECTRIC.id) ?: ProAccent.ELECTRIC.id).id,
         proShortcut = parseProShortcut(prefs.getString("proShortcut", ProShortcut.LIBRARY.id) ?: ProShortcut.LIBRARY.id).id,

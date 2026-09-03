@@ -223,7 +223,8 @@ internal fun HomeStyleSignature(
                             accent.copy(alpha = .10f),
                             Color.Transparent
                         )
-                    )
+                    ),
+                    model = ConnectButtonModel.FLOAT
                 )
             }
 
