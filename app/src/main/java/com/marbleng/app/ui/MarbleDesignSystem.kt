@@ -273,8 +273,8 @@ internal fun anchoredTextBlockHeight(style: TextStyle, lines: Int): Dp {
  * bands on real devices, and one shadow plus one outline is enough to read depth.
  */
 internal object PrismSurface {
-    // MARBLE_IOS_SIMPLIFY_V81 — the whole control ramp is one step smaller and one step
-    // rounder-but-flatter: iOS-like compact controls, no stacked shadows.
+    // MARBLE_PRODUCT_SIMPLE_V117 — the whole control ramp is one step smaller and one step
+    // rounder-but-flatter: Marble-like compact controls, no stacked shadows.
     val CardRadius = 20.dp
     val TileRadius = 16.dp
     val InsetRadius = 12.dp
@@ -286,7 +286,7 @@ internal object PrismSurface {
     val IconControlSize = 38.dp
     val Hairline = 1.dp
     val StrongHairline = 1.4.dp
-    // iOS-like depth is present but deliberately quiet: one shallow shadow per elevated
+    // Marble-like depth is present but deliberately quiet: one shallow shadow per elevated
     // surface, with the AMOLED palette doing most of the separation work.
     val RestingElevation = 2.dp
     val RaisedElevation = 5.dp
@@ -535,8 +535,8 @@ internal fun PrismButton(
         variant == PrismButtonVariant.Quiet -> Aether.InkMuted
         else -> Aether.Ink
     }
-    // MARBLE_IOS_BUTTON_FLAT_V81 — one flat fill, one optional hairline, zero shadows and
-    // zero gradients. Importance is carried by variant only, the way iOS tinted/filled
+    // MARBLE_PRODUCT_BUTTON_FLAT_V117 — one flat fill, one optional hairline, zero shadows and
+    // zero gradients. Importance is carried by variant only, the way Marble tinted/filled
     // buttons work, so dense Settings groups stay quiet and legible in both themes.
     val skin=when {
         !enabled -> SolidColor(Aether.GlassStrong.copy(alpha=.42f))
@@ -727,7 +727,7 @@ internal fun PrismCheckBadge(
 /**
  * The selectable tile shared by every choice in the product: library mode, sort, resolver presets,
  * sources and settings segments. A selected tile gains a soft tone wash and tinted ink; it never
- * resizes and never casts a shadow (MARBLE_IOS_SIMPLIFY_V81).
+ * resizes and never casts a shadow (MARBLE_PRODUCT_SIMPLE_V117).
  */
 @Composable
 internal fun PrismSelectionTile(

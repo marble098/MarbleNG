@@ -385,7 +385,7 @@ fun Aether2026App(
                     .widthIn(max = 520.dp)
             )
 
-            // MARBLE_IOS_FLOATING_DOCK_V81 — the dock is a true overlay: no Scaffold slot
+            // MARBLE_FLOATING_DOCK_V117 — the dock is a true overlay: no Scaffold slot
             // reserves space for it, so pages and the backdrop keep scrolling beneath the
             // glass and shine through it (per-tab lists pad their last item past it).
             FloatingSpatialDock(
@@ -889,11 +889,10 @@ private fun DeepSpaceBackdrop(
     modifier: Modifier = Modifier,
     flavor: HomeFlavor = HomeFlavor.PRO
 ) {
-    // MARBLE_IOS_DESIGN_SYSTEM_V83 — the cosmic floor (principles 4 + 5): the flavor's vertical
-    // gradient plus a stable scattered star field, so every page shares the same deep-space identity.
+    // MARBLE_DEEP_SPACE_V117 — one shared flavour-driven gradient backdrop, so Home, Servers and
+    // Settings all carry the same integrated multi-colour identity without a second starfield.
     Box(modifier) {
         PrismBackdrop(Modifier.matchParentSize(), flavor)
-        MarbleIOSStarfield(Modifier.matchParentSize())
     }
 }
 
@@ -908,7 +907,7 @@ private fun FloatingSpatialDock(
     onSelect: (SpatialTab) -> Unit
 ) {
     // MARBLE_BOTTOM_DOCK_UNIFIED_FLOATING_V661 — unified floating navigation lineage
-    // MARBLE_IOS_FLOATING_DOCK_V81 — a genuinely detached, frosted-glass tab bar:
+    // MARBLE_FLOATING_DOCK_V117 — a genuinely detached, frosted-glass tab bar:
     //  - rendered as an overlay (no Scaffold bottomBar slot), so pages scroll under it
     //    and whatever is behind shines through the translucent material
     //  - never flush with the screen edge: side margins + a lift above the gesture bar
@@ -1301,14 +1300,14 @@ private enum class HomeIcon {
     BRAND, POWER, STOP, CANCEL, RESET, SHIELD, TUNNEL, ROUTE,
     PING, JITTER, QUALITY, NODES, VERIFIED, CHECK, MODE, BENCHMARK,
     RANK, LIBRARY, PRIVACY, ROUTING, NETWORK, SERVER, DOWNLOAD, UPLOAD,
-    DETAILS, SPARK, STATUS, MORE,
+    DETAILS, SPARK, STATUS, MORE, MENU,
     // MARBLE_SERVERS_V114 — glyphs the rebuilt Servers screen and the Settings hub need:
     // a clipboard for the floating magic button, an information mark, a palette for the
     // theme preview, a globe for language/links, disclosure chevrons, a back arrow and a
     // typeface mark for the font picker.
     CLIPBOARD, INFO, PALETTE, GLOBE, CHEVRON, BACK, FONT,
-    // MARBLE_SERVERS_STYLE_CARDS_V116 — the visible per-row delete control: delete is never
-    // buried behind the three-dot menu any more.
+    // MARBLE_SERVERS_STYLE_CARDS_V117 — a quiet trash glyph used inside the per-server
+    // overflow sheet, keeping the row itself clean and minimal.
     TRASH
 }
 
@@ -1396,6 +1395,13 @@ private fun HomeVectorIcon(
                     moveTo(w*.29f,h*.22f); lineTo(w*.17f,h*.39f); lineTo(w*.38f,h*.40f)
                 }
                 drawPath(arrow, color, style = line)
+            }
+
+            HomeIcon.MENU -> {
+                // Three round-capped bars: an unmistakable hamburger at any size.
+                drawLine(color, Offset(w*.20f, h*.30f), Offset(w*.80f, h*.30f), stroke, StrokeCap.Round)
+                drawLine(color, Offset(w*.20f, h*.50f), Offset(w*.80f, h*.50f), stroke, StrokeCap.Round)
+                drawLine(color, Offset(w*.20f, h*.70f), Offset(w*.80f, h*.70f), stroke, StrokeCap.Round)
             }
 
             HomeIcon.SHIELD, HomeIcon.PRIVACY -> {
@@ -1717,10 +1723,11 @@ private fun MarbleCompactTopBar(
     subtitle: String = "",
     actionLabel: String? = null,
     actionIcon: HomeIcon? = null,
+    actionVariant: PrismButtonVariant = PrismButtonVariant.Secondary,
     onAction: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
-    // MARBLE_IOS_SIMPLIFY_V81 — a slimmer, quieter page header.
+    // MARBLE_PAGE_HEADER_V117 — a slim, quiet page header shared by Servers and Settings.
     Row(
         modifier=modifier
             .fillMaxWidth()
@@ -1791,7 +1798,140 @@ private fun MarbleCompactTopBar(
                 color=Aether.Cyan,
                 icon=actionIcon,
                 compact=true,
+                variant=actionVariant,
                 onClick=onAction
+            )
+        }
+    }
+}
+
+/**
+ * MARBLE_SERVERS_MENU_V117 — the app's own hamburger menu surface. A small anchored panel below the
+ * page header, in the same material language as the rest of MarbleNG (Prism tokens, one hairline,
+ * no foreign sheet). It opens from the header hamburger button and closes on scrim tap/back.
+ */
+@Composable
+private fun MarbleMenuPanel(
+    open: Boolean,
+    onClose: () -> Unit,
+    modifier: Modifier = Modifier,
+    title: String,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    BackHandler(enabled = open) { onClose() }
+    AnimatedVisibility(
+        visible = open,
+        modifier = modifier.fillMaxSize(),
+        enter = fadeIn(MarbleMotionSpecs.ResponseFloat),
+        exit = fadeOut(MarbleMotionSpecs.ExitFloat)
+    ) {
+        Box(Modifier.fillMaxSize()) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = .38f))
+                    .clickable(enabled = open, onClick = onClose)
+            )
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .statusBarsPadding()
+                    .padding(start = 14.dp, end = 16.dp, top = 60.dp)
+                    .widthIn(max = 360.dp)
+                    .fillMaxWidth()
+                    .shadow(
+                        elevation = 22.dp,
+                        shape = RoundedCornerShape(22.dp),
+                        ambientColor = Color.Black.copy(alpha = .28f),
+                        spotColor = Color.Black.copy(alpha = .34f)
+                    )
+                    .clip(RoundedCornerShape(22.dp))
+                    .background(Aether.VoidElevated)
+                    .border(1.dp, Aether.GlassBorderSoft, RoundedCornerShape(22.dp)),
+                contentAlignment = Alignment.TopStart
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 12.dp, horizontal = 10.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(horizontal = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(1.dp)
+                    ) {
+                        Text(
+                            trx(title),
+                            color = Aether.Ink,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            "Menus",
+                            color = Aether.InkMuted,
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                    }
+                    Spacer(Modifier.height(6.dp))
+                    content()
+                }
+            }
+        }
+    }
+}
+
+/** One row in [MarbleMenuPanel]: a small tinted icon chip, title and one-line detail. */
+@Composable
+private fun MarbleMenuPanelItem(
+    title: String,
+    subtitle: String,
+    icon: HomeIcon,
+    tone: Color,
+    onClick: () -> Unit
+) {
+    val shape = RoundedCornerShape(14.dp)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(Aether.GlassStrong.copy(alpha = .32f))
+            .border(1.dp, Aether.GlassBorderSoft.copy(alpha = .55f), shape)
+            .kineticClickable(
+                role = Role.Button,
+                boundedShape = shape,
+                showIndication = false,
+                onClick = onClick
+            )
+            .padding(horizontal = 10.dp, vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(11.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(34.dp)
+                .clip(RoundedCornerShape(11.dp))
+                .background(tone.copy(alpha = .12f)),
+            contentAlignment = Alignment.Center
+        ) {
+            HomeVectorIcon(icon, tone, Modifier.size(18.dp))
+        }
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+            Text(
+                trx(title),
+                color = Aether.Ink,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                trx(subtitle),
+                color = Aether.InkMuted,
+                style = MaterialTheme.typography.labelSmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         }
     }
@@ -3505,10 +3645,10 @@ private fun CyberLibrary(
             // gone. Per-server actions stay in each row's own menu.
             item {
                 Column {
-                    // MARBLE_IOS_DESIGN_SYSTEM_V83 — the floating clipboard button and the old
-                    // top-left three-dot menu are gone. A single "+" in the header opens the iOS
-                    // hamburger drawer, which owns add servers, paste-from-clipboard, import file,
-                    // sort and the Freedom toggle — one place, one gesture.
+                    // MARBLE_SERVERS_MENU_V117 — the Servers header owns one hamburger button,
+                    // designed like the primary positive action above the page. It opens the
+                    // app-styled menu panel anchored under the header, never a sheet in the middle
+                    // of the page.
                     MarbleCompactTopBar(
                         title = "Servers",
                         modifier = Modifier.fillMaxWidth(),
@@ -3517,8 +3657,9 @@ private fun CyberLibrary(
                         // unmatched English sentence.
                         subtitle = "${trx(chrome.headerTitle)} • " +
                             trx("${repo.libraryProfiles.size} servers"),
-                        actionLabel = "+",
-                        actionIcon = HomeIcon.MORE,
+                        actionLabel = "Menu",
+                        actionIcon = HomeIcon.MENU,
+                        actionVariant = PrismButtonVariant.Primary,
                         onAction = { drawerOpen = true }
                     )
                     Spacer(Modifier.height(10.dp))
@@ -3656,64 +3797,60 @@ private fun CyberLibrary(
 
     }
 
-    // MARBLE_IOS_DESIGN_SYSTEM_V83 — the Servers action drawer. Owns every add/import/sort/Freedom
-    // action in one glass sheet, opened by the "+" in the header and closed by the back gesture,
-    // the scrim tap or a fast fling.
-    MarbleIOSDrawer(
+    // MARBLE_SERVERS_MENU_V117 — the Servers action menu. One place for add, clipboard import,
+    // file import, sort and the Freedom toggle, opened by the header hamburger and closed by the
+    // scrim tap or the system back gesture. It is a small anchored panel in Marble's own visual
+    // language, not a page-centred generic sheet.
+    MarbleMenuPanel(
         open = drawerOpen,
         onClose = { drawerOpen = false },
         title = "Servers"
     ) {
-        MarbleIOSDrawerItem(
+        MarbleMenuPanelItem(
             title = "Add servers",
             subtitle = "Subscription or manual config",
-            leading = {
-                HomeVectorIcon(HomeIcon.SERVER, MarbleIOSInk, Modifier.size(20.dp))
-            },
+            icon = HomeIcon.SERVER,
+            tone = Aether.Cyan,
             onClick = {
                 drawerOpen = false
                 addOpen = true
             }
         )
-        MarbleIOSDrawerItem(
+        MarbleMenuPanelItem(
             title = "Import from clipboard",
             subtitle = "Paste a subscription or server link",
-            leading = {
-                HomeVectorIcon(HomeIcon.CLIPBOARD, MarbleIOSInk, Modifier.size(20.dp))
-            },
+            icon = HomeIcon.CLIPBOARD,
+            tone = Aether.Cyan,
             onClick = {
                 repo.importClipboard(clipboard.getText()?.text.orEmpty(), intakeTarget)
                 drawerOpen = false
             }
         )
-        MarbleIOSDrawerItem(
+        MarbleMenuPanelItem(
             title = "Import file",
             subtitle = "Load a config file",
-            leading = {
-                HomeVectorIcon(HomeIcon.DOWNLOAD, MarbleIOSInk, Modifier.size(20.dp))
-            },
+            icon = HomeIcon.DOWNLOAD,
+            tone = Aether.Amethyst,
             onClick = {
                 drawerOpen = false
                 onImportFile()
             }
         )
-        MarbleIOSDrawerItem(
+        MarbleMenuPanelItem(
             title = "Sort servers",
             subtitle = "By ping, score, name or source",
-            leading = {
-                HomeVectorIcon(HomeIcon.RANK, MarbleIOSInk, Modifier.size(20.dp))
-            },
+            icon = HomeIcon.RANK,
+            tone = Aether.Emerald,
             onClick = {
                 drawerOpen = false
                 sortOpen = true
             }
         )
-        MarbleIOSDrawerItem(
+        MarbleMenuPanelItem(
             title = if (repo.libraryFreedomHidden) "Show Marble Freedom" else "Hide Marble Freedom",
             subtitle = if (repo.libraryFreedomHidden) "Reveal the serverless source" else "Keep the serverless source folded",
-            leading = {
-                HomeVectorIcon(HomeIcon.SHIELD, MarbleIOSInk, Modifier.size(20.dp))
-            },
+            icon = HomeIcon.SHIELD,
+            tone = Aether.Amethyst,
             onClick = {
                 repo.updateLibraryFreedomHidden(!repo.libraryFreedomHidden)
                 drawerOpen = false
@@ -3780,7 +3917,7 @@ private fun LibraryChevron(collapsed: Boolean, color: Color, modifier: Modifier 
 private const val LIBRARY_FOLD_KEPT_ROWS = 8
 
 /**
- * MARBLE_SERVERS_STYLE_CARDS_V116 — the silhouette of one source module slice, owned by the
+ * MARBLE_SERVERS_STYLE_CARDS_V117 — the silhouette of one source module slice, owned by the
  * selected Home style: Signature studio plate, organic cell, squared cockpit instrument, wide
  * nebula capsule and a near-flat drafting sheet. Every slice of one module agrees on its flavor's
  * radii so the segments read as one poured container.
@@ -3833,9 +3970,10 @@ private fun libraryGroupGap(flavor: HomeFlavor): Dp = when (flavor) {
 private fun libraryFrost(flavor: HomeFlavor, accent: Color, emphasized: Boolean): Brush = when (flavor) {
     HomeFlavor.PRO -> Brush.verticalGradient(
         listOf(
-            Color.White.copy(alpha = if (emphasized) .055f else .038f),
-            accent.copy(alpha = if (emphasized) .075f else .030f),
-            Aether.VoidElevated.copy(alpha = .80f),
+            Color.White.copy(alpha = if (emphasized) .070f else .045f),
+            accent.copy(alpha = if (emphasized) .11f else .055f),
+            Aether.Amethyst.copy(alpha = if (emphasized) .06f else .025f),
+            Aether.VoidElevated.copy(alpha = .78f),
             Aether.VoidElevated.copy(alpha = .88f)
         )
     )
@@ -4658,8 +4796,8 @@ private fun LibraryServerRow(
         ?: countryGlyph(profile.host).takeIf { it.isNotBlank() && it != "◈" }
     val initial = profile.scheme.trim().take(1).uppercase().ifBlank { "S" }
     val rowHeight = when (flavor) {
-        HomeFlavor.PRO -> 62.dp
-        HomeFlavor.ORGANIC -> 62.dp
+        HomeFlavor.PRO -> 66.dp
+        HomeFlavor.ORGANIC -> 64.dp
         HomeFlavor.ORBIT -> 62.dp
         HomeFlavor.NEBULA -> 64.dp
         HomeFlavor.BLUEPRINT -> 62.dp
@@ -4702,7 +4840,7 @@ private fun LibraryServerRow(
                 HomeFlavor.PRO -> Row(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(start = 12.dp, end = 4.dp),
+                        .padding(start = 16.dp, end = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     if (active) {
@@ -5157,50 +5295,6 @@ private fun LibraryLatencyReadout(
     }
 }
 
-/**
- * MARBLE_SERVERS_STYLE_CARDS_V116 — the one visible delete control of a server row. Its silhouette
- * follows the selected Home style (studio chip, organic cell, cockpit key, nebula capsule or
- * drafting button) so the destructive action belongs to the page instead of hiding behind a menu.
- */
-@Composable
-private fun ServerDeleteAction(
-    flavor: HomeFlavor,
-    profile: ProxyProfile,
-    enabled: Boolean,
-    onDelete: () -> Unit
-) {
-    val shape = when (flavor) {
-        HomeFlavor.PRO -> RoundedCornerShape(10.dp)
-        HomeFlavor.ORGANIC -> RoundedCornerShape(
-            topStart = 10.dp,
-            topEnd = 5.dp,
-            bottomStart = 5.dp,
-            bottomEnd = 10.dp
-        )
-        HomeFlavor.ORBIT -> RoundedCornerShape(4.dp)
-        HomeFlavor.NEBULA -> RoundedCornerShape(12.dp)
-        HomeFlavor.BLUEPRINT -> RoundedCornerShape(2.dp)
-    }
-    val tone = Aether.Danger
-    Box(
-        modifier = Modifier
-            .size(32.dp)
-            .clip(shape)
-            .background(tone.copy(alpha = .10f))
-            .border(1.dp, tone.copy(alpha = .32f), shape)
-            .kineticClickable(
-                enabled = enabled,
-                role = Role.Button,
-                boundedShape = shape,
-                onClick = onDelete
-            )
-            .semantics { contentDescription = "Delete ${profile.name}" },
-        contentAlignment = Alignment.Center
-    ) {
-        HomeVectorIcon(HomeIcon.TRASH, tone, Modifier.size(15.dp))
-    }
-}
-
 @Composable
 private fun LibraryFabAction(
     icon: HomeIcon,
@@ -5615,7 +5709,7 @@ private fun LibrarySourceTabStrip(
     selectedIndex: Int,
     onSelect: (Int) -> Unit
 ) {
-    // MARBLE_IOS_FLOATING_GLASS_V81 — the source strip is one detached frosted bar.
+    // MARBLE_PRODUCT_FLOATING_GLASS_V117 — the source strip is one detached frosted bar.
     // It is a sticky header, so nodes scroll under it and read through the material.
     Box(
         modifier = Modifier
@@ -6969,8 +7063,8 @@ private fun SpatialServerCard(
     var jsonText by remember(profile.id,profile.configJson) {
         mutableStateOf(profile.configJson)
     }
-    // MARBLE_SERVERS_STYLE_CARDS_V116 — one delete path: the visible per-row trash button. The
-    // three-dot menu and the swipe gesture no longer duplicate it.
+    // MARBLE_SERVERS_STYLE_CARDS_V117 — one delete path: the per-server menu. The row stays
+    // minimal with no visible trash glyph and no duplicated swipe gesture.
     var confirmDelete by remember(profile.id) { mutableStateOf(false) }
 
     val swipeState=rememberSwipeToDismissBoxState()
@@ -6981,8 +7075,8 @@ private fun SpatialServerCard(
                 onEdit()
                 swipeState.reset()
             }
-            // MARBLE_SERVERS_STYLE_CARDS_V116 — swipe-to-delete is gone; the visible trash button
-            // is the single delete action, so the swipe slot is reserved for edit only.
+            // MARBLE_SERVERS_STYLE_CARDS_V117 — swipe-to-delete stays gone; the swipe slot is
+            // reserved for edit only.
             SwipeToDismissBoxValue.EndToStart -> swipeState.reset()
             SwipeToDismissBoxValue.Settled -> Unit
         }
@@ -7080,7 +7174,7 @@ private fun SpatialServerCard(
     SwipeToDismissBox(
         state=swipeState,
         enableDismissFromStartToEnd=!repo.busy && !builtInFreedom,
-        // MARBLE_SERVERS_STYLE_CARDS_V116 — no duplicated delete gesture.
+        // MARBLE_SERVERS_STYLE_CARDS_V117 — no duplicated delete gesture.
         enableDismissFromEndToStart=false,
         backgroundContent={
             val edit=swipeState.dismissDirection == SwipeToDismissBoxValue.StartToEnd
@@ -7132,16 +7226,9 @@ private fun SpatialServerCard(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(5.dp)
             ) {
-                // MARBLE_SERVERS_STYLE_CARDS_V116 — delete sits on the row itself, drawn in the
-                // style's own silhouette, never hidden behind the three-dot menu.
-                if (!builtInFreedom) {
-                    ServerDeleteAction(
-                        flavor = flavor,
-                        profile = profile,
-                        enabled = !repo.busy,
-                        onDelete = { confirmDelete = true }
-                    )
-                }
+                // MARBLE_SERVERS_STYLE_CARDS_V117 — the row is intentionally clean: no visible
+                // trash glyph and no word "Delete" in the box. Delete lives quietly in the app
+                // menu, where destructive actions belong, while the row stays elegant and minimal.
                 Box {
                     PrismIconButton(
                         onClick = { menuOpen = true },
@@ -7229,6 +7316,22 @@ private fun SpatialServerCard(
                             onClick = {
                                 menuOpen = false
                                 onEdit()
+                            }
+                        )
+                        HorizontalDivider()
+                        DropdownMenuItem(
+                            text = {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    HomeVectorIcon(HomeIcon.TRASH, Aether.Danger, Modifier.size(16.dp))
+                                    Text(trx("Delete"), color = Aether.Danger)
+                                }
+                            },
+                            onClick = {
+                                menuOpen = false
+                                confirmDelete = true
                             }
                         )
                     }
@@ -8901,7 +9004,7 @@ private fun SettingsSectionCard(
     color: Color,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    // MARBLE_IOS_SIMPLIFY_V81 — a calmer, more spacious card: a small tinted icon chip,
+    // MARBLE_PRODUCT_SIMPLE_V117 — a calmer, more spacious card: a small tinted icon chip,
     // a compact title row, and air instead of a divider between header and options.
     PrismPanel(
         modifier=Modifier.fillMaxWidth(),
@@ -9841,7 +9944,7 @@ private fun ServerIntelHomeCard(repo: AppRepository) {
 
 @Composable
 private fun SplitTunnelModeSelector(repo: AppRepository) {
-    // MARBLE_IOS_SIMPLIFY_V81 — flat segmented pills, no elevation.
+    // MARBLE_PRODUCT_SIMPLE_V117 — flat segmented pills, no elevation.
     Row(
         modifier=Modifier.fillMaxWidth(),
         horizontalArrangement=Arrangement.spacedBy(6.dp)
@@ -10233,7 +10336,7 @@ private fun RoutingAssetCard(
     remote: Boolean,
     modifier: Modifier = Modifier
 ) {
-    // MARBLE_IOS_SIMPLIFY_V81 — flat status tile: tone wash + hairline, no elevation.
+    // MARBLE_PRODUCT_SIMPLE_V117 — flat status tile: tone wash + hairline, no elevation.
     val color = if (ready) Aether.Emerald else Aether.Amber
     val shape = RoundedCornerShape(14.dp)
     Column(
@@ -10891,7 +10994,7 @@ private fun CyberChoiceChip(
     enabled: Boolean = true,
     onClick: () -> Unit
 ) {
-    // MARBLE_IOS_SIMPLIFY_V81 — a flat little pill: tint wash + tinted ink when selected,
+    // MARBLE_PRODUCT_SIMPLE_V117 — a flat little pill: tint wash + tinted ink when selected,
     // a quiet hairline when not. No elevation, no tick badge, never resizes.
     val tone = if (selectionTone == Color.Unspecified) color else selectionTone
     val shape = RoundedCornerShape(12.dp)
@@ -10948,7 +11051,7 @@ private fun CyberSegment(
     rawLabel: Boolean = false,
     onClick: () -> Unit
 ) {
-    // MARBLE_IOS_SIMPLIFY_V81 — a flat two-line segment tile for the few-per-row choices
+    // MARBLE_PRODUCT_SIMPLE_V117 — a flat two-line segment tile for the few-per-row choices
     // (probe method, Iran policy, connection mode). Same language as the chips, just taller.
     val tone = if (selectionTone == Color.Unspecified) color else selectionTone
     val shape = RoundedCornerShape(14.dp)
@@ -11025,7 +11128,7 @@ private fun SettingSwitch(
     debounceMs: Long = 300L,
     onChecked: (Boolean) -> Unit
 ) {
-    // MARBLE_IOS_SIMPLIFY_V81 — an iOS-style plain row: no box, no dot, no border. Just
+    // MARBLE_PRODUCT_SIMPLE_V117 — a Marble-style plain row: no box, no dot, no border. Just
     // label + optional one-line summary on the left, a compact switch on the right, and
     // breathing room provided by the card's spacing.
     var lastClickTime by remember { mutableLongStateOf(0L) }

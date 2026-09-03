@@ -585,18 +585,18 @@ data class AppSettings(
 
     // MARBLE_SIGNATURE_HOME_V112 — the Signature studio customization surface. Every layer of
     // the professional Home is an independent user choice; nothing is hard-wired.
-    /** The app-wide draggable floating connect button (v2rayNG-style shutter). */
-    val proFloatingButtonEnabled: Boolean = true,
-    /** Slim status banner (connection state + selected server) rendered like a persistent strip. */
-    val proStatusBannerEnabled: Boolean = true,
+    /** The app-wide draggable floating connect button (v2rayNG-style shutter). Off for a clean first run. */
+    val proFloatingButtonEnabled: Boolean = false,
+    /** Slim status banner (connection state + selected server) rendered like a persistent strip. Off for a clean first run. */
+    val proStatusBannerEnabled: Boolean = false,
     /** Whether the banner lives on Home only or rides on top of every page. */
     val proBannerScope: String = ProBannerScope.HOME.id,
-    /** Corner action cluster: add server, grab ping, one configurable shortcut, more (⋮). */
-    val proCornerActionsEnabled: Boolean = true,
-    /** Home rail with the servers chosen in the Library source selector. */
-    val proServerRailEnabled: Boolean = true,
-    /** Bottom-of-page chips that switch the connection style without leaving Home. */
-    val proStyleSwitcherEnabled: Boolean = true,
+    /** Corner action cluster: add server, grab ping, one configurable shortcut, more (⋮). Off for a clean first run. */
+    val proCornerActionsEnabled: Boolean = false,
+    /** Home rail with the servers chosen in the Library source selector. Off for a clean first run. */
+    val proServerRailEnabled: Boolean = false,
+    /** Bottom-of-page chips that switch the connection style without leaving Home. Off for a clean first run. */
+    val proStyleSwitcherEnabled: Boolean = false,
     /** Background treatment of the Signature server cards: glass / accent color / plain. */
     val proServerCardStyle: String = ProServerCardStyle.GLASS.id,
     /** Accent driving the Signature studio surfaces and animations. */
