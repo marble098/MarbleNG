@@ -117,6 +117,7 @@ import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalConfiguration
@@ -9047,6 +9048,7 @@ private fun SignatureStudioSettings(repo: AppRepository) {
     )
 }
 
+@Composable
 private fun ConnectionSettings(repo: AppRepository) {
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         CyberSegment(
