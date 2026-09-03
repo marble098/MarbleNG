@@ -1519,3 +1519,26 @@ internal fun PrismThemeChoice(
         )
     }
 }
+
+/**
+ * iOS‑like design tokens mirroring the SF‑system aesthetic, drawer geometry,
+ * background gradients, dot noise and motion curves requested for the MarbleNG
+ * redesign. All values are expressed in dp and can be used across composables.
+ */
+
+internal object MarbleIOSDesign {
+    // Drawer width is the golden‑ratio proportion of the screen width (61.8%.
+    val DrawerWidth: Dp = 61.8.dp
+    // Corner radius for the drawer and any iOS‑style rounded container.
+    val CornerRadius: Dp = 14.dp
+    // The system font family name used everywhere; Compose resolves it to the
+    // device’s San Francisco (iOS) or the closest Android equivalent.
+    val FontFamily: String = "SFPro"
+    // Thin weight constant for the typography scale.
+    val ThinWeight = androidx.compose.ui.text.font.FontWeight.Thin
+    // Vertical gradient background colours (top → bottom).
+    val GradientTop = Color(0xFF000000)
+    val GradientBottom = Aether.Ice
+    // Motion curve: cubic‑ease‑out (start gentle, finish soft).
+    val EaseOutCubic: (Float) -> Float = { t -> 1f - math.pow(1f - t, 3f) }
+}
