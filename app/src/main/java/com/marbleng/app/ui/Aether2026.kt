@@ -131,6 +131,7 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -906,11 +907,10 @@ private fun FloatingSpatialDock(
         contentAlignment = Alignment.BottomCenter
     ) {
         val barShape = RoundedCornerShape(28.dp)
-        val dockSurface by animateColorAsState(
-            targetValue = if (glass) Aether.BarGlass else Aether.VoidElevated,
-            animationSpec = MarbleMotionSpecs.Color,
-            label = "dock-surface-glass"
-        )
+        // Navigation must not animate its base material. A theme switch can invalidate the
+        // palette twice (system bars + Compose scheme), and interpolating this color creates the
+        // visible flash reported on the bottom dock.
+        val dockSurface = if (glass) Aether.BarGlass else Aether.VoidElevated
         Row(
             modifier = Modifier
                 .widthIn(max = 420.dp)
@@ -950,16 +950,10 @@ private fun FloatingSpatialDock(
                     animationSpec = MarbleMotionSpecs.ResponseFloat,
                     label = "dock-scale-${item.name}"
                 )
-                val inkTone by animateColorAsState(
-                    targetValue = if (active) Aether.Cyan else Aether.InkMuted,
-                    animationSpec = MarbleMotionSpecs.Color,
-                    label = "dock-tone-${item.name}"
-                )
-                val pillBg by animateColorAsState(
-                    targetValue = if (active) Aether.Cyan.copy(alpha = 0.15f) else Color.Transparent,
-                    animationSpec = MarbleMotionSpecs.Color,
-                    label = "dock-pill-${item.name}"
-                )
+                // Stable colors prevent the active pill from flashing during a page click or
+                // palette recomposition; motion belongs to the icon, not the navigation surface.
+                val inkTone = if (active) Aether.Cyan else Aether.InkMuted
+                val pillBg = if (active) Aether.Cyan.copy(alpha = 0.15f) else Color.Transparent
                 // The selected segment carries a soft outline on top of its wash — the
                 // segmented-control cue, kept colour-animated so it lands with the pill.
                 val indicatorTone by animateColorAsState(
@@ -3160,6 +3154,7 @@ private fun CyberLibrary(
     var pruneFailedTarget by remember { mutableStateOf<Pair<Subscription, String>?>(null) }
     var addOpen by remember { mutableStateOf(false) }
     var sortOpen by remember { mutableStateOf(false) }
+    var globalMenuOpen by remember { mutableStateOf(false) }
 
     val flavor = homeFlavorFor(parseHomeStyle(repo.settings.homeStyle))
     val chrome = libraryChromeFor(flavor)
@@ -3457,14 +3452,37 @@ private fun CyberLibrary(
             // slices; each item now owns the space above and below it instead.
             item {
                 Column {
-                    MarbleCompactTopBar(
-                        title = "Servers",
-                        // Each half is translated on its own: the count goes through the "N servers"
-                        // pattern, so Persian reads "سرورهای سیگنچر • 12 سرور" instead of one
-                        // unmatched English sentence.
-                        subtitle = "${trx(chrome.headerTitle)} • " +
-                            trx("${repo.libraryProfiles.size} servers")
-                    )
+                    Box(Modifier.fillMaxWidth()) {
+                        MarbleCompactTopBar(
+                            title = "Servers",
+                            subtitle = "${trx(chrome.headerTitle)} • " +
+                                trx("${repo.libraryProfiles.size} servers")
+                        )
+                        Box(Modifier.align(Alignment.TopStart)) {
+                            PrismIconButton(
+                                onClick = { globalMenuOpen = true },
+                                tone = if (globalMenuOpen) chrome.accent else Aether.InkMuted,
+                                selected = globalMenuOpen,
+                                enabled = !repo.busy,
+                                size = 34.dp,
+                                descriptiveLabel = "Global server actions"
+                            ) { HomeVectorIcon(HomeIcon.MORE, chrome.accent, Modifier.size(17.dp)) }
+                            DropdownMenu(
+                                expanded = globalMenuOpen,
+                                onDismissRequest = { globalMenuOpen = false },
+                                containerColor = MaterialTheme.colorScheme.surface
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text(trx("Refresh all subscriptions")) },
+                                    onClick = { globalMenuOpen = false; repo.refreshLibrarySource("all") }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text(trx("Rank all servers")) },
+                                    onClick = { globalMenuOpen = false; repo.smartRankSource("all") }
+                                )
+                            }
+                        }
+                    }
                     Spacer(Modifier.height(10.dp))
                 }
             }
@@ -3481,7 +3499,7 @@ private fun CyberLibrary(
                 }
             }
 
-            // Global deck: refresh / ping / rank everything, plus the live probe progress.
+            // Server measurements: refresh and real tunnel ranking. TCP ping is intentionally not exposed.
             item {
                 Column {
                     LibraryControlDeck(repo = repo, sourceFilter = "all")
@@ -4885,11 +4903,14 @@ private fun LibraryAddSheet(
         else -> repo.subscriptions.firstOrNull()?.id ?: "manual"
     }
 
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        containerColor = Aether.VoidElevated,
-        dragHandle = { LibrarySheetHandle() }
-    ) {
+    Dialog(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Aether.VoidElevated)
+                .padding(top = 18.dp),
+            verticalArrangement = Arrangement.Top
+        ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -5003,6 +5024,7 @@ private fun LibraryAddSheet(
                     modifier = Modifier.weight(1f)
                 ) { onImportFile() }
             }
+        }
         }
     }
 }
@@ -6057,21 +6079,15 @@ private fun LibraryControlDeck(
                 enabled=canRefreshSelected && !repo.busy
             ) { repo.refreshLibrarySource(sourceFilter) }
 
-            LibraryMicroAction(
-                icon=HomeIcon.PING,
-                label="Ping",
-                color=Aether.Cyan,
-                modifier=Modifier.weight(1f),
-                enabled=selectedCount > 0 && !repo.busy
-            ) { repo.testSource(sourceFilter) }
-
-            LibraryMicroAction(
-                icon=HomeIcon.RANK,
-                label="Rank",
-                color=Aether.Emerald,
-                modifier=Modifier.weight(1f),
-                enabled=selectedCount > 0 && !repo.busy
-            ) { repo.smartRankSource(sourceFilter) }
+            // A quiet action beside refresh: ranking measures the real tunnel, never a raw TCP SYN.
+            PrismIconButton(
+                onClick = { repo.smartRankSource(sourceFilter) },
+                tone = Aether.Emerald,
+                selected = repo.probeActive,
+                enabled = selectedCount > 0 && !repo.busy,
+                size = 42.dp,
+                descriptiveLabel = "Measure real tunnel latency"
+            ) { HomeVectorIcon(HomeIcon.RANK, Aether.Emerald, Modifier.size(18.dp)) }
         }
 
         AnimatedVisibility(
@@ -6289,6 +6305,23 @@ private fun sortModeLabel(mode: NodeSortMode): String = when (mode) {
     NodeSortMode.SOURCE -> "Source"
 }
 
+private fun subscriptionUsageLabel(sub: Subscription): String {
+    if (sub.totalBytes <= 0L) return "نامحدود"
+    val used = (sub.uploadBytes + sub.downloadBytes).coerceAtLeast(0L)
+    fun size(bytes: Long): String = when {
+        bytes >= 1_000_000_000L -> "%.1f GB".format(bytes / 1_000_000_000.0)
+        bytes >= 1_000_000L -> "%.1f MB".format(bytes / 1_000_000.0)
+        else -> "%.0f KB".format(bytes / 1_000.0)
+    }
+    return "${size(used)} / ${size(sub.totalBytes)}"
+}
+
+private fun subscriptionExpiryLabel(sub: Subscription): String = when {
+    sub.expireAt <= 0L -> "نامحدود"
+    sub.expireAt < System.currentTimeMillis() -> "Expired"
+    else -> java.text.SimpleDateFormat("yyyy/MM/dd", java.util.Locale.US).format(java.util.Date(sub.expireAt))
+}
+
 @Composable
 private fun SubscriptionManagerCard(
     sub: Subscription,
@@ -6339,6 +6372,13 @@ private fun SubscriptionManagerCard(
             Text(
                 "$count servers • ${if (local) "LOCAL" else relativeTime(sub.updatedAt)}${if (selected) " • VIEWING" else ""}",
                 color = accent,
+                style = MaterialTheme.typography.labelSmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                "${subscriptionUsageLabel(sub)} • ${subscriptionExpiryLabel(sub)}",
+                color = Aether.InkFaint,
                 style = MaterialTheme.typography.labelSmall,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
@@ -7540,6 +7580,39 @@ private fun SettingsHub(
             }
         }
 
+        item(key = "hub-per-app") {
+            SettingsHubCard(
+                title = "Per-app proxy",
+                subtitle = "Choose which installed apps use the tunnel",
+                tone = Aether.Emerald
+            ) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    SplitTunnelMode.entries.forEach { mode ->
+                        CyberSegment(
+                            label = when (mode) {
+                                SplitTunnelMode.ALL_APPS -> "All apps"
+                                SplitTunnelMode.ONLY_SELECTED -> "Only selected"
+                                SplitTunnelMode.BYPASS_SELECTED -> "Bypass"
+                            },
+                            detail = when (mode) {
+                                SplitTunnelMode.ALL_APPS -> "Default"
+                                SplitTunnelMode.ONLY_SELECTED -> "Proxy list"
+                                SplitTunnelMode.BYPASS_SELECTED -> "Exclude list"
+                            },
+                            selected = settings.splitTunnelMode == mode,
+                            color = Aether.Emerald,
+                            modifier = Modifier.weight(1f)
+                        ) { repo.updateSettings(settings.copy(splitTunnelMode = mode)) }
+                    }
+                }
+                Text(
+                    "${settings.splitTunnelPackages.split(',', '\n', '\r', ';').count { it.isNotBlank() }} apps selected",
+                    color = Aether.InkFaint,
+                    style = MaterialTheme.typography.labelSmall
+                )
+            }
+        }
+
         // ------------------------------------------------ System
         item(key = "hub-system") {
             SettingsHubCard(
@@ -8075,231 +8148,21 @@ private fun SettingsWorkspaceHost(
     onContentScrollChanged: (Boolean) -> Unit = {},
     onBack: () -> Unit
 ) {
-    val tabs = SettingsWorkspaceTab.entries
-    val expertMode = repo.settings.expertMode
-    val initialPage = if (focusSection == "Routing") {
-        SettingsWorkspaceTab.NETWORK.ordinal
-    } else openTab.ordinal
-
-    // MARBLE_SETTINGS_TOTAL_HOTFIX_V76
-    // Final-level hotfix:
-    //  - No SubcomposeLayout/BoxWithConstraints in the settings content path at all.
-    //  - The weighted host boundary (Box -> key -> LazyColumn) is gone.
-    //  - The mobile workspace is one ordinary LazyColumn with the tab strip as a stickyHeader.
-    //  - The wide workspace stays a Row + direct LazyColumn (no nested Box/key boundary).
-    //  - One imePadding pass only (the Scaffold already pads system bars).
-    //  - Per-tab content state is recreated by activeIndex (fresh scroll per workspace).
-    var selectedTabIndex by rememberSaveable {
-        mutableIntStateOf(initialPage.coerceIn(0, tabs.lastIndex))
-    }
-    val activeIndex = selectedTabIndex.coerceIn(0, tabs.lastIndex)
-    val activeTab = tabs[activeIndex]
-    val sections = settingsSections(activeTab, repo, expertMode, focusSection)
-    val compactTabsState = rememberLazyListState(initialFirstVisibleItemIndex = activeIndex)
-    val contentListState = remember(activeIndex) { LazyListState() }
-    LaunchedEffect(contentListState.isScrollInProgress) {
-        onContentScrollChanged(contentListState.isScrollInProgress)
-    }
-
-    // A saved index that no longer maps to a tab (enum reshuffled between releases) must never
-    // crash or blank the page: normalize it once, immediately.
-    if (activeIndex != selectedTabIndex) {
-        selectedTabIndex = activeIndex
-    }
-
-    // Routing focus from Home jumps to the Network workspace. Expert mode is never mutated as
-    // a side effect: the focused Routing card renders in both modes.
-    LaunchedEffect(focusSection) {
-        if (focusSection == "Routing") {
-            selectedTabIndex = SettingsWorkspaceTab.NETWORK.ordinal
-        }
-    }
-
-    LaunchedEffect(selectedTabIndex) {
-        val current = selectedTabIndex.coerceIn(0, tabs.lastIndex)
-        compactTabsState.animateScrollToItem(current)
-        if (contentListState.firstVisibleItemIndex > 0) {
-            contentListState.scrollToItem(0)
-        }
-        repo.rememberSettingsTab(tabs[current].name)
-    }
-
-    // MARBLE_SETTINGS_CONTENT_VIEWPORT_HARDENING_V72
-    // adaptive settings rail: maxWidth >= 700.dp
-    val wideLayout = LocalConfiguration.current.screenWidthDp >= 700
-    if (wideLayout) {
-        Row(
-            modifier = Modifier
-                .fillMaxSize()
-                .imePadding()
-        ) {
-            // MARBLE_IOS_SIMPLIFY_V81 — quiet rail: flat fill, one hairline, no tinted glow.
-            val railShape = RoundedCornerShape(20.dp)
-            NavigationRail(
-                modifier = Modifier
-                    .fillMaxHeight()
-                    .width(88.dp)
-                    .clip(railShape)
-                    .background(Aether.VoidElevated)
-                    .border(1.dp, Aether.GlassBorderSoft.copy(alpha = .6f), railShape),
-                containerColor = Color.Transparent
-            ) {
-                Spacer(Modifier.height(8.dp))
-                // MARBLE_SETTINGS_HUB_V114 — the rail starts with the way back to the hub.
-                NavigationRailItem(
-                    selected = false,
-                    onClick = onBack,
-                    icon = {
-                        HomeVectorIcon(HomeIcon.BACK, Aether.InkMuted, Modifier.size(19.dp))
-                    },
-                    label = {
-                        Text(
-                            trx("Hub"),
-                            style = MaterialTheme.typography.labelSmall
-                        )
-                    },
-                    colors = NavigationRailItemDefaults.colors(
-                        indicatorColor = Color.Transparent,
-                        unselectedIconColor = Aether.InkMuted,
-                        unselectedTextColor = Aether.InkMuted
-                    )
-                )
-                Spacer(Modifier.height(4.dp))
-                tabs.forEachIndexed { index, tab ->
-                    val selected = activeIndex == index
-                    val tone = settingsTabTone(tab)
-                    NavigationRailItem(
-                        selected = selected,
-                        onClick = { selectedTabIndex = index },
-                        icon = {
-                            HomeVectorIcon(
-                                tab.icon,
-                                if (selected) tone else Aether.InkMuted,
-                                Modifier.size(20.dp)
-                            )
-                        },
-                        label = {
-                            Text(
-                                trx(tab.label),
-                                style = MaterialTheme.typography.labelSmall
-                            )
-                        },
-                        colors = NavigationRailItemDefaults.colors(
-                            selectedIconColor = tone,
-                            selectedTextColor = tone,
-                            // No pill/rectangle behind the rail label — selection is
-                            // carried by icon/text colour only (MARBLE_BUTTON_TEXT_RECT_REMOVED_DS_V68).
-                            indicatorColor = Color.Transparent,
-                            unselectedIconColor = Aether.InkMuted,
-                            unselectedTextColor = Aether.InkMuted
-                        )
-                    )
-                }
-            }
-
-            Spacer(Modifier.width(10.dp))
-
-            // Direct host: the weighted modifier reaches the LazyColumn without an extra
-            // Box/key/subcompose boundary.
-            SettingsTabPane(
-                tab = activeTab,
-                selectedTabIndex = activeIndex,
-                repo = repo,
-                expertMode = expertMode,
-                focusSection = focusSection,
-                onContentScrollChanged = onContentScrollChanged,
-                modifier = Modifier
-                    .fillMaxHeight()
-                    .weight(1f)
-            )
-        }
-    } else {
-        // Mobile/portrait settings is a single ordinary LazyColumn. The tab strip is a
-        // stickyHeader and every SettingsSectionCard is a normal item, so there is no
-        // separate weighted viewport below the strip that can collapse to zero height while
-        // the strip keeps rendering.
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .imePadding(),
-            state = contentListState,
-            contentPadding = PaddingValues(bottom = dockClearance()),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            item(key = "settings-header") {
-                Column(
-                    Modifier.padding(horizontal = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(3.dp)
-                ) {
-                    // MARBLE_SETTINGS_HUB_V114 — a workspace is a sub-page of the hub, so it says how
-                    // to get back before it says where you are.
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        PrismIconButton(
-                            onClick = onBack,
-                            size = 34.dp,
-                            descriptiveLabel = "Back to settings hub"
-                        ) {
-                            HomeVectorIcon(HomeIcon.BACK, Aether.Cyan, Modifier.size(15.dp))
-                        }
-                        Spacer(Modifier.width(7.dp))
-                        Text(
-                            trx("All settings"),
-                            color = Aether.InkMuted,
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Normal,
-                            maxLines = 1
-                        )
-                    }
-                    MarbleCompactTopBar(
-                        title = "Settings",
-                        subtitle = trx(activeTab.label)
-                    )
-                }
-            }
-
-            stickyHeader(key = "settings-tabs-strip") {
-                SettingsTabStrip(
-                    tabs = tabs,
-                    activeIndex = activeIndex,
-                    tabsState = compactTabsState,
-                    onSelect = { selectedTabIndex = it }
-                )
-            }
-
-            item(key = "settings-content-start") {
-                Spacer(Modifier.height(6.dp))
-            }
-
-            if (sections.isEmpty()) {
-                item(key = "settings-empty") {
-                    Box(Modifier.padding(horizontal = 16.dp)) {
-                        emptySettingsCard()
-                    }
-                }
-            } else {
-                items(sections, key = { it.title }) { spec ->
-                    Box(Modifier.padding(horizontal = 16.dp)) {
-                        SettingsSectionCard(
-                            title = spec.title,
-                            subtitle = spec.subtitle,
-                            icon = spec.icon,
-                            color = spec.color
-                        ) { spec.content() }
-                    }
-                }
-            }
-
-            item(key = "settings-content-end") {
-                Spacer(Modifier.height(18.dp))
-            }
-        }
+    // Settings is intentionally a document now. The former workspace rail/tab strip was
+    // confusing and made a title open a second, unrelated navigation system. Every hub title
+    // opens one full page containing its own section cards.
+    val sections = settingsSections(openTab, repo, repo.settings.expertMode, focusSection)
+    Column(Modifier.fillMaxSize()) {
+        MarbleCompactTopBar(title = openTab.label, subtitle = "Settings")
+        SettingsWorkspacePage(
+            sections = sections,
+            modifier = Modifier.fillMaxSize().weight(1f),
+            repo = repo,
+            onContentScrollChanged = onContentScrollChanged
+        )
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun SettingsTabStrip(
     tabs: List<SettingsWorkspaceTab>,
@@ -10728,7 +10591,7 @@ private fun ProbeSettings(repo: AppRepository) {
         horizontalArrangement = Arrangement.spacedBy(7.dp),
         verticalArrangement = Arrangement.spacedBy(7.dp)
     ) {
-        ProbeMethod.entries.forEach { method ->
+        ProbeMethod.entries.filter { it != ProbeMethod.TCP }.forEach { method ->
             CyberSegment(
                 label = probeMethodTitle(method),
                 detail = probeMethodDetail(method),
@@ -10747,7 +10610,7 @@ private fun ProbeSettings(repo: AppRepository) {
     HorizontalDivider(color = Aether.GlassBorderSoft)
 
     NumberSetting(
-        title = "Pings per server",
+        title = "Samples per server",
         value = s.benchSamples,
         range = 1..8
     ) { repo.updateSettings(repo.settings.copy(benchSamples = it)) }
