@@ -9,6 +9,7 @@ import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -68,6 +69,10 @@ object MarbleMotionSpecs {
         dampingRatio = .90f,
         stiffness = 560f
     )
+    // MARBLE_DOCK_STABLE_COLOR_V115 — navigation chrome animates with a short overshoot-free
+    // tween. A spring interpolates alpha beyond its target on the way in (underdamped), which
+    // flashed the dock pill/text on every click and theme switch; tweens cannot overshoot.
+    val DockColor: FiniteAnimationSpec<Color> = tween(180)
     val Dp: FiniteAnimationSpec<Dp> = spring(
         dampingRatio = .74f,
         stiffness = 650f

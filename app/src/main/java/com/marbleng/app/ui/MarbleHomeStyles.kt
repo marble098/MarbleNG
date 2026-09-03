@@ -50,6 +50,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
@@ -203,6 +204,30 @@ internal fun homeFlavorFor(style: HomeStyle): HomeFlavor = when (style) {
 @Composable
 internal fun homeTone(evidence: HomeEvidence): Color = when {
     evidence.connected -> Aether.Emerald
+    evidence.connecting -> Aether.Amethyst
+    evidence.blocked -> Aether.Danger
+    else -> Aether.Cyan
+}
+
+/**
+ * The connected-state identity of one Home presentation. Every style owns its palette: the
+ * connecting arc and the connected ring of the power control follow the presentation's own
+ * accent instead of always turning generic green, and every Aether token below is theme-aware
+ * (Light / AMOLED / phone-dynamic), so the ring changes with the theme too.
+ */
+@Composable
+internal fun styleConnectedTone(flavor: HomeFlavor): Color = when (flavor) {
+    HomeFlavor.PRO -> Aether.Cyan
+    HomeFlavor.ORGANIC -> Aether.Emerald
+    HomeFlavor.ORBIT -> Aether.Amber
+    HomeFlavor.NEBULA -> Aether.AmethystBright
+    HomeFlavor.BLUEPRINT -> Aether.SlateBright
+}
+
+/** State tone of a Home presentation: state-driven while busy/blocked, style-owned when live. */
+@Composable
+internal fun styleStateTone(flavor: HomeFlavor, evidence: HomeEvidence): Color = when {
+    evidence.connected -> styleConnectedTone(flavor)
     evidence.connecting -> Aether.Amethyst
     evidence.blocked -> Aether.Danger
     else -> Aether.Cyan
@@ -462,7 +487,9 @@ internal fun HomeGlyphIcon(glyph: HomeGlyph, color: Color, modifier: Modifier = 
         val w = size.width
         val h = size.height
         val stroke = (size.minDimension * .095f).coerceIn(1.3f, 3.2f)
-        val line = Stroke(width = stroke, cap = StrokeCap.Round)
+        // MARBLE_ICON_POLISH_V115 — rounded joins everywhere: miter corners spike on small
+        // canvas glyphs, rounded joins read as one continuous modern stroke.
+        val line = Stroke(width = stroke, cap = StrokeCap.Round, join = StrokeJoin.Round)
         when (glyph) {
             HomeGlyph.POWER -> {
                 drawArc(
@@ -2570,7 +2597,7 @@ internal fun HomeStyleBioluminescent(
     actions: HomeActions,
     bottomClearance: Dp
 ) {
-    val tone = homeTone(evidence)
+    val tone = styleStateTone(HomeFlavor.ORGANIC, evidence)
     val seedGlow = if (evidence.connected) Color(0xFF9BE8B6) else Color(0xFFB9C7F0)
     val tendrilTone = if (evidence.connected) Color(0xFFB9A7E8) else Aether.InkFaint
     val motion = MarbleMotion.current
@@ -2854,7 +2881,7 @@ internal fun HomeStyleCosmicOrbit(
     actions: HomeActions,
     bottomClearance: Dp
 ) {
-    val tone = homeTone(evidence)
+    val tone = styleStateTone(HomeFlavor.ORBIT, evidence)
     val gold = Color(0xFFE7C36B)
     val deep = Color(0xFF0B1B3A)
     val motion = MarbleMotion.current
@@ -3044,7 +3071,7 @@ private fun DrawScope.drawStarfield(gold: Color, accent: Color, twinkle: Float, 
 private fun DrawScope.drawSolarSystem(
     gold: Color,
     accent: Color,
-    orbits: List<Float>,
+    phaseOrbits: List<Float>,
     phase: Float,
     connected: Boolean
 ) {
@@ -3061,8 +3088,11 @@ private fun DrawScope.drawSolarSystem(
         center = center
     )
 
-    val orbits = listOf(.46f, .66f, .88f)
-    orbits.forEachIndexed { index, radius ->
+    // One radius per orbit ring; the animated phase per body comes from phaseOrbits (the caller's
+    // MarbleMotion loops). Keeping the two lists separate is what keeps the planets moving —
+    // using the static radii as the angle froze every body on its first frame.
+    val orbitRadii = listOf(.46f, .66f, .88f)
+    orbitRadii.forEachIndexed { index, radius ->
         val r = unit * radius
         drawCircle(
             color = accent.copy(alpha = if (connected) .30f else .16f),
@@ -3071,7 +3101,7 @@ private fun DrawScope.drawSolarSystem(
             style = Stroke(width = 1.dp.toPx())
         )
         // MARBLE_SEAMLESS_LOOPS_V114 — a whole turn per loop, never a fraction of one.
-        val angle = orbits.getOrElse(index) { phase } * 2f * PI.toFloat()
+        val angle = phaseOrbits.getOrElse(index) { phase } * 2f * PI.toFloat()
         val planet = Offset(
             center.x + cos(angle) * r,
             center.y + sin(angle) * r * .42f
@@ -3147,7 +3177,7 @@ internal fun HomeStyleCosmicImmersion(
     actions: HomeActions,
     bottomClearance: Dp
 ) {
-    val tone = homeTone(evidence)
+    val tone = styleStateTone(HomeFlavor.NEBULA, evidence)
     val cyan = Color(0xFF57E0FF)
     val violet = Color(0xFFB08CFF)
     val motion = MarbleMotion.current
@@ -3388,7 +3418,7 @@ internal fun HomeStyleParametric(
     actions: HomeActions,
     bottomClearance: Dp
 ) {
-    val tone = homeTone(evidence)
+    val tone = styleStateTone(HomeFlavor.BLUEPRINT, evidence)
     val warm = Color(0xFFE9B872)
     val structure = Aether.InkMuted
     val motion = MarbleMotion.current
