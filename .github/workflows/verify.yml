@@ -79,7 +79,7 @@ jobs:
           import re
 
           malformed = []
-          pattern = re.compile(r':\s*@Composable\s*\(\)\s*->')
+          pattern = re.compile(r':\s*@Composable\(\)\s*->')
 
           for path in Path("app/src/main/java").rglob("*.kt"):
               source = path.read_text(encoding="utf-8")
