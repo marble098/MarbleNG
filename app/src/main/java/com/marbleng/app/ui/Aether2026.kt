@@ -139,6 +139,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -153,9 +155,16 @@ import com.marbleng.app.R
 import com.marbleng.app.core.AddressFamilyPolicy
 import com.marbleng.app.core.BugSeverity
 import com.marbleng.app.core.IranModeState
+import com.marbleng.app.core.ManualConfigBuilder
 import com.marbleng.app.core.ManualConfigDraft
 import com.marbleng.app.core.ManualProtocol
+import com.marbleng.app.core.ProtocolTally
+import com.marbleng.app.core.QrCode
+import com.marbleng.app.core.QrEcc
+import com.marbleng.app.core.ServerCountry
 import com.marbleng.app.core.ServerlessFreedomEngine
+import com.marbleng.app.core.ServersFilter
+import com.marbleng.app.core.ServersQuery
 import com.marbleng.app.model.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -1308,7 +1317,11 @@ private enum class HomeIcon {
     CLIPBOARD, INFO, PALETTE, GLOBE, CHEVRON, BACK, FONT,
     // MARBLE_SERVERS_STYLE_CARDS_V117 — a quiet trash glyph used inside the per-server
     // overflow sheet, keeping the row itself clean and minimal.
-    TRASH
+    TRASH,
+    // MARBLE_SERVERS_REDESIGN_V120 — the rebuilt Servers screen: add (+), search, sort,
+    // advanced filter, share/export, QR, folder (move), pencil (edit) and the tick that
+    // marks the selected row of a rounded dropdown.
+    PLUS, SEARCH, SORT, FILTER, SHARE, QR, FOLDER, PENCIL, ACTIVE
 }
 
 @Composable
@@ -1384,6 +1397,104 @@ private fun HomeVectorIcon(
                     close()
                 }
                 drawPath(bin, color, style = fineLine)
+            }
+
+            HomeIcon.PLUS -> {
+                drawLine(color, Offset(w*.5f, h*.24f), Offset(w*.5f, h*.76f), stroke, StrokeCap.Round)
+                drawLine(color, Offset(w*.24f, h*.5f), Offset(w*.76f, h*.5f), stroke, StrokeCap.Round)
+            }
+
+            HomeIcon.SEARCH -> {
+                drawCircle(color, radius = m*.27f, center = Offset(w*.43f, h*.43f), style = line)
+                drawLine(color, Offset(w*.62f, h*.62f), Offset(w*.8f, h*.8f), stroke, StrokeCap.Round)
+            }
+
+            HomeIcon.SORT -> {
+                // Three descending rules: "reorder, longest first".
+                drawLine(color, Offset(w*.24f, h*.29f), Offset(w*.76f, h*.29f), stroke, StrokeCap.Round)
+                drawLine(color, Offset(w*.24f, h*.5f), Offset(w*.62f, h*.5f), stroke, StrokeCap.Round)
+                drawLine(color, Offset(w*.24f, h*.71f), Offset(w*.48f, h*.71f), stroke, StrokeCap.Round)
+            }
+
+            HomeIcon.FILTER -> {
+                // A funnel: broad at the mouth, narrowing to a stem.
+                val funnel = Path().apply {
+                    moveTo(w*.2f, h*.26f)
+                    lineTo(w*.8f, h*.26f)
+                    lineTo(w*.56f, h*.55f)
+                    lineTo(w*.56f, h*.78f)
+                    lineTo(w*.44f, h*.78f)
+                    lineTo(w*.44f, h*.55f)
+                    close()
+                }
+                drawPath(funnel, color, style = line)
+            }
+
+            HomeIcon.SHARE -> {
+                // Lift out of a tray: export / copy-link.
+                val tray = Path().apply {
+                    moveTo(w*.27f, h*.56f)
+                    lineTo(w*.27f, h*.71f)
+                    quadraticBezierTo(w*.27f, h*.79f, w*.35f, h*.79f)
+                    lineTo(w*.65f, h*.79f)
+                    quadraticBezierTo(w*.73f, h*.79f, w*.73f, h*.71f)
+                    lineTo(w*.73f, h*.56f)
+                }
+                drawPath(tray, color, style = fineLine)
+                drawLine(color, Offset(w*.5f, h*.62f), Offset(w*.5f, h*.23f), stroke, StrokeCap.Round)
+                drawLine(color, Offset(w*.37f, h*.36f), Offset(w*.5f, h*.23f), stroke, StrokeCap.Round)
+                drawLine(color, Offset(w*.63f, h*.36f), Offset(w*.5f, h*.23f), stroke, StrokeCap.Round)
+            }
+
+            HomeIcon.QR -> {
+                // Three finder squares and one solid block: unmistakably a QR code.
+                listOf(
+                    Offset(w*.18f, h*.18f) to Offset(w*.38f, h*.38f),
+                    Offset(w*.62f, h*.18f) to Offset(w*.82f, h*.38f),
+                    Offset(w*.18f, h*.62f) to Offset(w*.38f, h*.82f)
+                ).forEach { (top, bottom) ->
+                    drawRect(
+                        color = color,
+                        topLeft = top,
+                        size = Size(bottom.x - top.x, bottom.y - top.y),
+                        style = fineLine
+                    )
+                }
+                drawRect(
+                    color = color,
+                    topLeft = Offset(w*.62f, h*.62f),
+                    size = Size(w*.2f, h*.2f)
+                )
+            }
+
+            HomeIcon.FOLDER -> {
+                val folder = Path().apply {
+                    moveTo(w*.18f, h*.36f)
+                    lineTo(w*.18f, h*.28f)
+                    quadraticBezierTo(w*.18f, h*.22f, w*.26f, h*.22f)
+                    lineTo(w*.42f, h*.22f)
+                    lineTo(w*.5f, h*.3f)
+                    lineTo(w*.74f, h*.3f)
+                    quadraticBezierTo(w*.82f, h*.3f, w*.82f, h*.38f)
+                    lineTo(w*.82f, h*.7f)
+                    quadraticBezierTo(w*.82f, h*.78f, w*.74f, h*.78f)
+                    lineTo(w*.26f, h*.78f)
+                    quadraticBezierTo(w*.18f, h*.78f, w*.18f, h*.7f)
+                    close()
+                }
+                drawPath(folder, color, style = fineLine)
+            }
+
+            HomeIcon.PENCIL -> {
+                // Body, nib and the stroke it leaves behind.
+                drawLine(color, Offset(w*.27f, h*.73f), Offset(w*.66f, h*.34f), stroke, StrokeCap.Round)
+                drawLine(color, Offset(w*.66f, h*.34f), Offset(w*.76f, h*.24f), stroke, StrokeCap.Round)
+                drawLine(color, Offset(w*.22f, h*.78f), Offset(w*.35f, h*.75f), fine, StrokeCap.Round)
+            }
+
+            HomeIcon.ACTIVE -> {
+                drawLine(color, Offset(w*.26f, h*.53f), Offset(w*.43f, h*.7f), stroke, StrokeCap.Round)
+                drawLine(color, Offset(w*.43f, h*.7f), Offset(w*.76f, h*.3f), stroke, StrokeCap.Round)
             }
 
             HomeIcon.RESET -> {
@@ -3195,101 +3306,115 @@ private fun HoloActionPill(
 
 
 // =================================================================================================
-// LIBRARY
+// SERVERS
 // =================================================================================================
 
 // =============================================================================
-// MARBLE_LIBRARY_STYLE_V113 — the Library is rebuilt as a grouped, collapsible,
-// per-style surface. Sources fold shut and remember it across visits; every
-// subscription carries its own refresh and edit actions; a single smart floating
-// button owns adding servers/subscriptions plus the revealed sort & Freedom
-// controls; and both the chrome and the connected state follow the Home style.
+// MARBLE_SERVERS_REDESIGN_V120 — the Servers page is rebuilt around a card
+// system: one page header with a headline title and two round controls, one
+// pill search field with a filter rail under it, one collapsible header per
+// subscription (or per country when grouping is on) and one independent card
+// per server. Every menu is a Material 3 dropdown on a 16dp radius; every
+// colour comes from the active theme palette, so the page follows the Solid
+// White, Dark and System themes without a single hardcoded value.
+//
+// The page owns no business rules of its own. What is visible is decided by
+// [ServersFilter] + [ServersQuery] (unit tested) and what a server can be built
+// from is decided by [ManualConfigBuilder.missingRequirement] (unit tested), so
+// the UI cannot drift from the engine behind it.
 // =============================================================================
 
-private enum class LibraryGroupKind { SUBSCRIPTION, MANUAL, FREEDOM }
+private enum class LibraryGroupKind { SUBSCRIPTION, MANUAL, FREEDOM, COUNTRY }
 
 private data class LibraryGroup(
-    val sourceId: String,
+    /** Subscription id for source groups, country code (or "") for country groups. */
+    val key: String,
     val title: String,
     val kind: LibraryGroupKind,
+    val flag: String = "",
     val profiles: List<ProxyProfile>
 )
 
-/**
- * Per-Home-style Library identity. Each skin picks its own accent, glow, group
- * silhouette and the exact wording of the live-route badge so the connected
- * state reads as a dedicated, professional treatment on every theme.
- */
-private data class LibraryChrome(
-    val accent: Color,
-    val glow: Color,
-    val headerShape: RoundedCornerShape,
-    val connectedLabel: String,
-    val securingLabel: String,
-    val connectedTone: Color,
-    val headerTitle: String,
-    val freedomTone: Color
+/** One entry of the protocol dropdown on the Add-node page. */
+private data class AddNodeProtocol(
+    val label: String,
+    /** The Marble builder that produces this protocol, or null when the core cannot carry it. */
+    val target: ManualProtocol?,
+    val note: String = ""
 )
 
-@Composable
-private fun libraryChromeFor(flavor: HomeFlavor): LibraryChrome =
-    // MARBLE_SERVERS_FLAT_V119 — the Servers list is deliberately theme-independent: one flat
-    // chrome (accent, live-route tone, freedom tone and wording) no matter which Home style the
-    // user picked. Home still changes with the Home style; the Servers module keeps its own
-    // clean, flat identity with a single good colour scheme.
-    LibraryChrome(
-        accent = Aether.Cyan,
-        glow = Aether.CyanBright,
-        headerShape = RoundedCornerShape(14.dp),
-        connectedLabel = "Connected",
-        securingLabel = "Securing",
-        connectedTone = Aether.Emerald,
-        headerTitle = "Servers",
-        freedomTone = Aether.Amethyst
-    )
+/**
+ * Every protocol the Add-node form offers.
+ *
+ * Marble builds a config only for protocols its Xray-based core can actually dial, so the entries
+ * without a [AddNodeProtocol.target] render as disabled rows with an honest reason instead of
+ * letting a user fill a form that could never connect.
+ */
+private val ADD_NODE_PROTOCOLS: List<AddNodeProtocol> = listOf(
+    AddNodeProtocol("VLESS", ManualProtocol.VLESS),
+    AddNodeProtocol("VMess", ManualProtocol.VMESS),
+    AddNodeProtocol("Trojan", ManualProtocol.TROJAN),
+    AddNodeProtocol("Shadowsocks", ManualProtocol.SHADOWSOCKS),
+    AddNodeProtocol("Hysteria2", ManualProtocol.HYSTERIA2),
+    AddNodeProtocol("Hysteria", null, "Not supported by this core"),
+    AddNodeProtocol("TUIC v5", null, "Not supported by this core"),
+    AddNodeProtocol("WireGuard", ManualProtocol.WIREGUARD),
+    AddNodeProtocol("AmneziaWG", null, "Not supported by this core"),
+    AddNodeProtocol("MASQUE", null, "Not supported by this core"),
+    AddNodeProtocol("OpenVPN", null, "Not supported by this core"),
+    AddNodeProtocol("SSH", ManualProtocol.SSH),
+    AddNodeProtocol("SOCKS5", ManualProtocol.SOCKS5),
+    AddNodeProtocol("HTTP", ManualProtocol.HTTP),
+    AddNodeProtocol("HTTPS", ManualProtocol.HTTPS),
+    AddNodeProtocol("Xray JSON", ManualProtocol.XRAY_JSON)
+)
 
-private fun profileMatchesSearch(profile: ProxyProfile, query: String): Boolean =
-    query.isBlank() ||
-        profile.name.contains(query, true) ||
-        profile.scheme.contains(query, true) ||
-        profile.host.contains(query, true) ||
-        profile.transport.contains(query, true) ||
-        profile.security.contains(query, true)
+private val SERVERS_TRANSPORTS = listOf("raw", "websocket", "xhttp", "grpc", "httpupgrade", "mkcp")
+private val SERVERS_FLOWS = listOf("", "xtls-rprx-vision", "xtls-rprx-origin")
+private val SERVERS_FINGERPRINTS = listOf("chrome", "firefox", "safari", "randomized", "unsafe")
 
-private fun sortLibraryProfiles(
-    profiles: List<ProxyProfile>,
-    benchmarkById: Map<String, BenchmarkResult>,
-    mode: NodeSortMode,
-    reverse: Boolean
-): List<ProxyProfile> {
-    val sorted = when (mode) {
-        NodeSortMode.PING -> profiles.sortedWith(
-            compareBy<ProxyProfile> { profile ->
-                benchmarkById[profile.id]
-                    ?.takeIf { it.success > 0 }
-                    ?.latencyMs
-                    ?: Double.MAX_VALUE
-            }.thenBy { it.name.lowercase() }
-        )
-        NodeSortMode.SCORE -> profiles.sortedWith(
-            compareByDescending<ProxyProfile> { profile ->
-                benchmarkById[profile.id]
-                    ?.takeIf { it.success > 0 }
-                    ?.score
-                    ?: -1.0
-            }.thenBy { it.name.lowercase() }
-        )
-        NodeSortMode.NAME -> profiles.sortedBy { it.name.lowercase() }
-        NodeSortMode.PROTOCOL -> profiles.sortedWith(
-            compareBy<ProxyProfile> { it.scheme.lowercase() }
-                .thenBy { it.name.lowercase() }
-        )
-        NodeSortMode.SOURCE -> profiles.sortedWith(
-            compareBy<ProxyProfile> { it.subscriptionName.lowercase() }
-                .thenBy { it.name.lowercase() }
-        )
-    }
-    return if (reverse) sorted.asReversed() else sorted
+/** AEAD methods the bundled Xray core accepts for a Shadowsocks outbound. */
+private val SERVERS_SS_METHODS = listOf(
+    "aes-128-gcm",
+    "aes-256-gcm",
+    "chacha20-poly1305",
+    "xchacha20-poly1305",
+    "2022-blake3-aes-128-gcm",
+    "2022-blake3-aes-256-gcm",
+    "2022-blake3-chacha20-poly1305",
+    "none"
+)
+
+/** Shared silhouettes: one card radius, one menu radius, one badge radius, one pill. */
+private val ServersCardShape = RoundedCornerShape(16.dp)
+private val ServersMenuShape = RoundedCornerShape(16.dp)
+private val ServersBadgeShape = RoundedCornerShape(8.dp)
+private val ServersPillShape = RoundedCornerShape(999.dp)
+
+/** One valid intake target for pasted/imported configs: Manual when enabled, else the first source. */
+private fun libraryIntakeTarget(repo: AppRepository): String = when {
+    repo.settings.manualSourceEnabled -> "manual"
+    else -> repo.subscriptions.firstOrNull()?.id ?: "manual"
+}
+
+/** Subscription accounting, straight from the provider's subscription-userinfo headers. */
+private fun subscriptionDataText(bytes: Long): String = when {
+    bytes <= 0L -> "0 B"
+    bytes >= 1_000_000_000L -> "%.1f GB".format(bytes / 1_000_000_000.0)
+    bytes >= 1_000_000L -> "%.0f MB".format(bytes / 1_000_000.0)
+    bytes >= 1_000L -> "%.0f KB".format(bytes / 1_000.0)
+    else -> "$bytes B"
+}
+
+private fun subscriptionUsageText(sub: Subscription): String =
+    "${subscriptionDataText(sub.uploadBytes + sub.downloadBytes)} / " +
+        if (sub.totalBytes <= 0L) "\u221E" else subscriptionDataText(sub.totalBytes)
+
+private fun subscriptionExpiryText(sub: Subscription): String {
+    if (sub.expireAt <= 0L) return "Unlimited"
+    val formatter = java.text.SimpleDateFormat("yyyy/MM/dd", java.util.Locale.US)
+    val expired = sub.expireAt < System.currentTimeMillis()
+    return if (expired) "Expired" else formatter.format(java.util.Date(sub.expireAt))
 }
 
 @Composable
@@ -3301,78 +3426,123 @@ private fun CyberLibrary(
     onContentScrollChanged: (Boolean) -> Unit
 ) {
     val clipboard = LocalClipboardManager.current
-    val contentListState = rememberLazyListState()
-    var search by remember { mutableStateOf("") }
+    val context = LocalContext.current
+    val listState = rememberLazyListState()
+    val settings = repo.settings
+
+    var search by rememberSaveable { mutableStateOf("") }
+    var addOpen by remember { mutableStateOf(false) }
+    var sortOpen by remember { mutableStateOf(false) }
+    var groupMenuOpen by remember { mutableStateOf(false) }
+    var protocolMenuOpen by remember { mutableStateOf(false) }
+    var advancedOpen by remember { mutableStateOf(false) }
+    var allFiltersOpen by remember { mutableStateOf(false) }
     var renameTarget by remember { mutableStateOf<ProxyProfile?>(null) }
     var renameText by remember { mutableStateOf("") }
+    var moveTarget by remember { mutableStateOf<ProxyProfile?>(null) }
+    var qrTarget by remember { mutableStateOf<ProxyProfile?>(null) }
+    var deleteTarget by remember { mutableStateOf<ProxyProfile?>(null) }
     var manageSubscription by remember { mutableStateOf<Subscription?>(null) }
     var editSubscriptionName by remember { mutableStateOf("") }
     var editSubscriptionUrl by remember { mutableStateOf("") }
     var deleteSubscription by remember { mutableStateOf<Subscription?>(null) }
     var pruneFailedTarget by remember { mutableStateOf<Pair<Subscription, String>?>(null) }
-    var addOpen by remember { mutableStateOf(false) }
-    var sortOpen by remember { mutableStateOf(false) }
-    var drawerOpen by remember { mutableStateOf(false) }
 
-    val flavor = homeFlavorFor(parseHomeStyle(repo.settings.homeStyle))
-    val chrome = libraryChromeFor(flavor)
-    // MARBLE_SERVERS_FAB_KINETICS_V116 — the FAB tap imports the clipboard into the same source the
-    // Add page would use, so one tap and one Paste never disagree about where configs land.
-    val intakeTarget = libraryIntakeTarget(repo)
-
-    LaunchedEffect(contentListState.isScrollInProgress) {
-        onContentScrollChanged(contentListState.isScrollInProgress)
+    LaunchedEffect(listState.isScrollInProgress) {
+        onContentScrollChanged(listState.isScrollInProgress)
     }
 
-    val benchmarkById = repo.benchmarks.associateBy { it.profileId }
-    val searched = repo.libraryProfiles.filter { profileMatchesSearch(it, search) }
+    val benchmarks = repo.benchmarks.associateBy { it.profileId }
+    val filter = ServersFilter(
+        query = search,
+        protocol = settings.serversProtocolFilter,
+        sourceId = repo.librarySourceFilter,
+        onlyReachable = settings.serversOnlyReachable,
+        maxPingMs = settings.serversMaxPingMs,
+        groupByCountry = settings.serversGroupByCountry
+    )
+    val allProfiles = repo.libraryProfiles
+    val visibleProfiles = ServersQuery.sort(
+        profiles = ServersQuery.visible(allProfiles, filter, benchmarks),
+        mode = settings.nodeSortMode,
+        reverse = settings.nodeSortReverse,
+        benchmarks = benchmarks
+    )
+    val protocolTallies = ServersQuery.protocolTallies(
+        allProfiles.filter { it.subscriptionId == filter.sourceId || filter.sourceId == "all" }
+    )
 
-    // Subscription groups always render so a freshly added source stays reachable; Manual and
-    // Marble Freedom render only when they actually hold nodes. Freedom is hidden until the
-    // user reveals it from the smart floating button.
-    val groups: List<LibraryGroup> = buildList {
-        repo.subscriptions.forEach { sub ->
-            val nodes = searched.filter { it.subscriptionId == sub.id }
-            if (nodes.isNotEmpty() || search.isBlank()) {
-                add(LibraryGroup(sub.id, sub.name, LibraryGroupKind.SUBSCRIPTION, nodes))
-            }
-        }
-        if (repo.settings.manualSourceEnabled) {
-            val nodes = searched.filter { it.subscriptionId == "manual" }
-            if (nodes.isNotEmpty()) {
-                add(LibraryGroup("manual", "Manual", LibraryGroupKind.MANUAL, nodes))
-            }
-        }
-        if (!repo.libraryFreedomHidden) {
-            val nodes = searched.filter { it.subscriptionId == ServerlessFreedomEngine.SOURCE_ID }
-            if (nodes.isNotEmpty()) {
-                add(
-                    LibraryGroup(
-                        ServerlessFreedomEngine.SOURCE_ID,
-                        "Marble Freedom",
-                        LibraryGroupKind.FREEDOM,
-                        nodes
-                    )
-                )
-            }
-        }
-    }
-
-    val grouped = groups.map { group ->
-        group.copy(
-            profiles = sortLibraryProfiles(
-                group.profiles,
-                benchmarkById,
-                repo.settings.nodeSortMode,
-                repo.settings.nodeSortReverse
+    // Groups: one module per subscription (or per country when the switch is on). A source with no
+    // match still renders while nothing is being searched, so a fresh source stays reachable.
+    val groups: List<LibraryGroup> = if (settings.serversGroupByCountry) {
+        ServersQuery.groupByCountry(visibleProfiles).map { bucket ->
+            LibraryGroup(
+                key = "country:${bucket.country.code.ifBlank { "unknown" }}",
+                title = bucket.country.name,
+                kind = LibraryGroupKind.COUNTRY,
+                flag = bucket.country.flag,
+                profiles = bucket.profiles
             )
-        )
+        }
+    } else {
+        buildList {
+            repo.subscriptions.forEach { sub ->
+                val nodes = visibleProfiles.filter { it.subscriptionId == sub.id }
+                if (nodes.isNotEmpty() || (search.isBlank() && filter.sourceId == "all")) {
+                    add(LibraryGroup(sub.id, sub.name, LibraryGroupKind.SUBSCRIPTION, profiles = nodes))
+                }
+            }
+            if (settings.manualSourceEnabled) {
+                val nodes = visibleProfiles.filter { it.subscriptionId == "manual" }
+                if (nodes.isNotEmpty()) {
+                    add(LibraryGroup("manual", "Manual", LibraryGroupKind.MANUAL, profiles = nodes))
+                }
+            }
+            if (!repo.libraryFreedomHidden) {
+                val nodes = visibleProfiles.filter {
+                    it.subscriptionId == ServerlessFreedomEngine.SOURCE_ID
+                }
+                if (nodes.isNotEmpty()) {
+                    add(
+                        LibraryGroup(
+                            ServerlessFreedomEngine.SOURCE_ID,
+                            "Marble Freedom",
+                            LibraryGroupKind.FREEDOM,
+                            profiles = nodes
+                        )
+                    )
+                }
+            }
+        }
     }
+
+    val activeGroupLabel = when (filter.sourceId) {
+        "all" -> "All groups"
+        "manual" -> "Manual"
+        ServerlessFreedomEngine.SOURCE_ID -> "Marble Freedom"
+        else -> repo.subscriptions.firstOrNull { it.id == filter.sourceId }?.name ?: "All groups"
+    }
+
+    val groupOptions: List<Pair<String, String>> = buildList {
+        add("all" to "All groups")
+        repo.subscriptions.forEach { add(it.id to it.name) }
+        if (settings.manualSourceEnabled) add("manual" to "Manual")
+        if (!repo.libraryFreedomHidden) {
+            add(ServerlessFreedomEngine.SOURCE_ID to "Marble Freedom")
+        }
+    }
+
+    val updateSettings: (AppSettings.() -> AppSettings) -> Unit = { change ->
+        repo.updateSettings(settings.change())
+    }
+
+    // ---------------------------------------------------------------- dialogs
 
     renameTarget?.let { target ->
         AlertDialog(
             onDismissRequest = { renameTarget = null },
             containerColor = Aether.VoidElevated,
+            shape = ServersCardShape,
             title = { Text(trx("Edit server"), color = Aether.Ink) },
             text = {
                 OutlinedTextField(
@@ -3380,8 +3550,9 @@ private fun CyberLibrary(
                     onValueChange = { renameText = it },
                     label = { Text(trx("Display name")) },
                     singleLine = true,
+                    shape = ServersCardShape,
                     modifier = Modifier.fillMaxWidth(),
-                    colors = marbleOutlinedTextFieldColors(),
+                    colors = marbleOutlinedTextFieldColors()
                 )
             },
             confirmButton = {
@@ -3397,143 +3568,90 @@ private fun CyberLibrary(
                 )
             },
             dismissButton = {
-                MarbleDialogAction(label = "Cancel", tone = Aether.InkMuted, onClick = { renameTarget = null })
+                MarbleDialogAction(
+                    label = "Cancel",
+                    tone = Aether.InkMuted,
+                    onClick = { renameTarget = null }
+                )
+            }
+        )
+    }
+
+    moveTarget?.let { target ->
+        ServersMoveDialog(
+            profile = target,
+            repo = repo,
+            onPick = { targetSourceId ->
+                repo.moveProfile(target.id, target.subscriptionId, targetSourceId)
+                moveTarget = null
+            },
+            onDismiss = { moveTarget = null }
+        )
+    }
+
+    qrTarget?.let { target ->
+        ServersQrDialog(
+            profile = target,
+            onShare = { text ->
+                clipboard.setText(AnnotatedString(text))
+                repo.setRuntimeMessage("Config link copied")
+            },
+            onDismiss = { qrTarget = null }
+        )
+    }
+
+    deleteTarget?.let { profile ->
+        AlertDialog(
+            onDismissRequest = { deleteTarget = null },
+            containerColor = Aether.VoidElevated,
+            shape = ServersCardShape,
+            title = { Text(trx("Delete server?"), color = Aether.Danger) },
+            text = {
+                Text(
+                    "Remove ${stripLeadingFlag(profile.name)} from ${profile.subscriptionName}? " +
+                        trx("Deleting is confirmed here, never silent."),
+                    color = Aether.InkMuted
+                )
+            },
+            confirmButton = {
+                MarbleDialogAction(
+                    label = "Delete",
+                    tone = Aether.Danger,
+                    enabled = !repo.busy,
+                    onClick = {
+                        // Source-aware: the same id can live in two sources at once.
+                        repo.removeProfile(profile.id, profile.subscriptionId)
+                        deleteTarget = null
+                    }
+                )
+            },
+            dismissButton = {
+                MarbleDialogAction(
+                    label = "Cancel",
+                    tone = Aether.InkMuted,
+                    onClick = { deleteTarget = null }
+                )
             }
         )
     }
 
     manageSubscription?.let { target ->
-        val failedPingCount = repo.failedSubscriptionNodeCount(target.id, "TCP")
-        val failedTunnelCount = repo.failedSubscriptionNodeCount(target.id, "TUNNEL")
-        AlertDialog(
-            onDismissRequest = { manageSubscription = null },
-            containerColor = Aether.VoidElevated,
-            title = {
-                Column {
-                    Text(trx("Manage subscription"), color = Aether.Ink)
-                    Text(
-                        "${repo.subscriptionNodeCount(target.id)} servers • ${relativeTime(target.updatedAt)}",
-                        color = Aether.InkFaint,
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                }
+        ServersSubscriptionDialog(
+            subscription = target,
+            repo = repo,
+            nameDraft = editSubscriptionName,
+            urlDraft = editSubscriptionUrl,
+            onNameChange = { editSubscriptionName = it },
+            onUrlChange = { editSubscriptionUrl = it },
+            onPrune = { kind ->
+                pruneFailedTarget = target to kind
+                manageSubscription = null
             },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    OutlinedTextField(
-                        value = editSubscriptionName,
-                        onValueChange = { editSubscriptionName = it },
-                        label = { Text(trx("Source name")) },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = marbleOutlinedTextFieldColors(),
-                    )
-                    OutlinedTextField(
-                        value = editSubscriptionUrl,
-                        onValueChange = { editSubscriptionUrl = it },
-                        label = { Text(trx("Subscription URL")) },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = marbleOutlinedTextFieldColors(),
-                    )
-                    Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                        CyberButton(
-                            if (target.url.isBlank()) "Local source" else "Copy URL",
-                            Aether.Emerald,
-                            Modifier.weight(1f),
-                            enabled = target.url.isNotBlank()
-                        ) {
-                            clipboard.setText(AnnotatedString(target.url))
-                            repo.setRuntimeMessage("Subscription URL copied")
-                        }
-                        CyberButton(
-                            "Copy servers",
-                            Aether.Cyan,
-                            Modifier.weight(1f),
-                            enabled = repo.subscriptionNodeCount(target.id) > 0
-                        ) {
-                            clipboard.setText(AnnotatedString(repo.subscriptionRawText(target.id)))
-                            repo.setRuntimeMessage("${repo.subscriptionNodeCount(target.id)} server links copied")
-                        }
-                    }
-                    HorizontalDivider(color = Aether.GlassBorderSoft)
-                    Text(
-                        trx("Clean failed tests"),
-                        color = Aether.InkFaint,
-                        style = MaterialTheme.typography.labelSmall
-                    )
-                    CyberButton(
-                        label = "Remove failed ping ($failedPingCount)",
-                        color = Aether.Danger,
-                        modifier = Modifier.fillMaxWidth(),
-                        enabled = !repo.busy && failedPingCount > 0 && repo.state == "DISCONNECTED"
-                    ) {
-                        pruneFailedTarget = target to "TCP"
-                        manageSubscription = null
-                    }
-                    CyberButton(
-                        label = "Remove failed tunnel ($failedTunnelCount)",
-                        color = Aether.Danger,
-                        modifier = Modifier.fillMaxWidth(),
-                        enabled = !repo.busy && failedTunnelCount > 0 && repo.state == "DISCONNECTED"
-                    ) {
-                        pruneFailedTarget = target to "TUNNEL"
-                        manageSubscription = null
-                    }
-                    Text(
-                        trx("Only servers with a stored failed result of that exact test type are removed."),
-                        color = Aether.InkFaint,
-                        style = MaterialTheme.typography.labelSmall
-                    )
-
-                    Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                        CyberButton(
-                            label = "VIEW SERVERS",
-                            color = Aether.Cyan,
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            repo.selectLibrarySource(target.id)
-                            manageSubscription = null
-                        }
-                        CyberButton(
-                            label = if (target.url.isBlank()) "LOCAL" else "Refresh",
-                            color = Aether.Amethyst,
-                            modifier = Modifier.weight(1f),
-                            enabled = !repo.busy && target.url.isNotBlank()
-                        ) {
-                            manageSubscription = null
-                            repo.refresh(target.id)
-                        }
-                    }
-                }
+            onDelete = {
+                deleteSubscription = target
+                manageSubscription = null
             },
-            confirmButton = {
-                MarbleDialogAction(
-                    label = "Save",
-                    tone = Aether.Cyan,
-                    variant = PrismButtonVariant.Primary,
-                    enabled = !repo.busy,
-                    onClick = {
-                        if (repo.updateSubscription(target.id, editSubscriptionName, editSubscriptionUrl)) {
-                            manageSubscription = null
-                        }
-                    }
-                )
-            },
-            dismissButton = {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    MarbleDialogAction(
-                        label = "Delete",
-                        tone = Aether.Danger,
-                        enabled = !repo.busy,
-                        onClick = {
-                            deleteSubscription = target
-                            manageSubscription = null
-                        }
-                    )
-                    MarbleDialogAction(label = "Close", tone = Aether.InkMuted, onClick = { manageSubscription = null })
-                }
-            }
+            onDismiss = { manageSubscription = null }
         )
     }
 
@@ -3544,10 +3662,12 @@ private fun CyberLibrary(
         AlertDialog(
             onDismissRequest = { pruneFailedTarget = null },
             containerColor = Aether.VoidElevated,
+            shape = ServersCardShape,
             title = { Text("Remove failed $kind servers?", color = Aether.Danger) },
             text = {
                 Text(
-                    "This removes $failedCount failed server${if (failedCount == 1) "" else "s"} from ${target.name}.",
+                    "This removes $failedCount failed server" +
+                        (if (failedCount == 1) "" else "s") + " from ${target.name}.",
                     color = Aether.InkMuted
                 )
             },
@@ -3563,7 +3683,11 @@ private fun CyberLibrary(
                 )
             },
             dismissButton = {
-                MarbleDialogAction(label = "Cancel", tone = Aether.InkMuted, onClick = { pruneFailedTarget = null })
+                MarbleDialogAction(
+                    label = "Cancel",
+                    tone = Aether.InkMuted,
+                    onClick = { pruneFailedTarget = null }
+                )
             }
         )
     }
@@ -3572,10 +3696,12 @@ private fun CyberLibrary(
         AlertDialog(
             onDismissRequest = { deleteSubscription = null },
             containerColor = Aether.VoidElevated,
+            shape = ServersCardShape,
             title = { Text("Delete ${target.name}?", color = Aether.Danger) },
             text = {
                 Text(
-                    "This removes the subscription and its ${repo.subscriptionNodeCount(target.id)} servers.",
+                    "This removes the subscription and its " +
+                        "${repo.subscriptionNodeCount(target.id)} servers.",
                     color = Aether.InkMuted
                 )
             },
@@ -3592,690 +3718,1240 @@ private fun CyberLibrary(
                 )
             },
             dismissButton = {
-                MarbleDialogAction(label = "Cancel", tone = Aether.InkMuted, onClick = { deleteSubscription = null })
+                MarbleDialogAction(
+                    label = "Cancel",
+                    tone = Aether.InkMuted,
+                    onClick = { deleteSubscription = null }
+                )
             }
         )
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            state = contentListState,
-            contentPadding = PaddingValues(
-                start = 16.dp,
-                end = 16.dp,
-                top = 6.dp,
-                bottom = dockClearance() + 92.dp
+    // ------------------------------------------------------------------- page
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        state = listState,
+        contentPadding = PaddingValues(
+            start = 16.dp,
+            end = 16.dp,
+            top = 8.dp,
+            bottom = dockClearance() + 28.dp
+        ),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        item(key = "servers-header") {
+            ServersTopBar(
+                groupCount = groups.size,
+                serverCount = allProfiles.size,
+                onAdd = { addOpen = true },
+                onSort = { sortOpen = true },
+                sortOpen = sortOpen,
+                sortMode = settings.nodeSortMode,
+                sortReverse = settings.nodeSortReverse,
+                onSortPick = { mode, reverse ->
+                    sortOpen = false
+                    updateSettings { copy(nodeSortMode = mode, nodeSortReverse = reverse) }
+                },
+                onSortDismiss = { sortOpen = false }
             )
-        ) {
-            // MARBLE_SERVERS_V114 — the list has no blanket item spacing any more. A source module is
-            // ONE container painted across several lazy items, so blanket gaps would cut it into
-            // slices; each item now owns the space above and below it instead.
-            // MARBLE_NO_DUPLICATES_V116 — the page-wide Refresh/Rank commands live once, in the
-            // visible control deck below; the old top-left three-dot menu duplicated both, so it is
-            // gone. Per-server actions stay in each row's own menu.
-            item {
-                Column {
-                    // MARBLE_SERVERS_MENU_V117 — the Servers header owns one hamburger button,
-                    // designed like the primary positive action above the page. It opens the
-                    // app-styled menu panel anchored under the header, never a sheet in the middle
-                    // of the page.
-                    MarbleCompactTopBar(
-                        title = "Servers",
-                        modifier = Modifier.fillMaxWidth(),
-                        // Each half is translated on its own: the count goes through the "N servers"
-                        // pattern, so Persian reads "سرورهای سیگنچر • 12 سرور" instead of one
-                        // unmatched English sentence.
-                        subtitle = trx("${repo.libraryProfiles.size} servers"),
-                        actionLabel = "Menu",
-                        actionIcon = HomeIcon.MENU,
-                        actionVariant = PrismButtonVariant.Primary,
-                        onAction = { drawerOpen = true }
-                    )
-                    Spacer(Modifier.height(10.dp))
-                }
-            }
+        }
 
-            item {
-                Column {
-                    PrismSearchField(
-                        value = search,
-                        onValueChange = { search = it },
-                        placeholder = "Search servers, host or protocol",
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Spacer(Modifier.height(10.dp))
-                }
-            }
+        item(key = "servers-search") {
+            ServersSearchField(
+                value = search,
+                onValueChange = { search = it },
+                onClear = { search = "" }
+            )
+        }
 
-            // Global deck: refresh / ping / rank everything, plus the live probe progress.
-            item {
-                Column {
-                    LibraryControlDeck(repo = repo, sourceFilter = "all")
-                    Spacer(Modifier.height(12.dp))
+        item(key = "servers-filters") {
+            ServersFilterRail(
+                repo = repo,
+                groupLabel = activeGroupLabel,
+                groupActive = filter.sourceId != "all",
+                groupOptions = groupOptions,
+                groupMenuOpen = groupMenuOpen,
+                onGroupMenu = { groupMenuOpen = !groupMenuOpen },
+                onGroupDismiss = { groupMenuOpen = false },
+                onGroupPick = { id ->
+                    groupMenuOpen = false
+                    repo.selectLibrarySource(id)
+                },
+                protocol = filter.protocol,
+                protocolTallies = protocolTallies,
+                protocolMenuOpen = protocolMenuOpen,
+                onProtocolMenu = { protocolMenuOpen = !protocolMenuOpen },
+                onProtocolDismiss = { protocolMenuOpen = false },
+                onProtocolPick = { scheme ->
+                    protocolMenuOpen = false
+                    updateSettings { copy(serversProtocolFilter = scheme) }
+                },
+                advancedOpen = advancedOpen,
+                onAdvanced = { advancedOpen = !advancedOpen },
+                onAdvancedDismiss = { advancedOpen = false },
+                onAdvancedAction = { action ->
+                    advancedOpen = false
+                    when (action) {
+                        ServersAdvancedAction.GROUP_BY_COUNTRY ->
+                            updateSettings { copy(serversGroupByCountry = !serversGroupByCountry) }
+                        ServersAdvancedAction.ONLY_REACHABLE ->
+                            updateSettings { copy(serversOnlyReachable = !serversOnlyReachable) }
+                        ServersAdvancedAction.RESET -> {
+                            // "Reset filters" means the list shows everything again, so the scope
+                            // and the search box go back too — the same set ServersFilter.cleared()
+                            // describes, and the only way the active-filters badge can go quiet.
+                            search = ""
+                            repo.selectLibrarySource("all")
+                            updateSettings {
+                                copy(
+                                    serversProtocolFilter = "",
+                                    serversOnlyReachable = false,
+                                    serversMaxPingMs = ServersQuery.MAX_PING_OFF,
+                                    serversGroupByCountry = false
+                                )
+                            }
+                        }
+                        ServersAdvancedAction.REFRESH_ALL -> repo.refreshLibrarySource("all")
+                        ServersAdvancedAction.RANK_ALL -> repo.smartRank()
+                        ServersAdvancedAction.TOGGLE_FREEDOM ->
+                            repo.updateLibraryFreedomHidden(!repo.libraryFreedomHidden)
+                        ServersAdvancedAction.ALL_FILTERS -> allFiltersOpen = true
+                    }
+                },
+                onMaxPing = { ceiling ->
+                    updateSettings { copy(serversMaxPingMs = ceiling) }
+                },
+                onPingAll = {
+                    if (filter.sourceId == "all") repo.testAll() else repo.testSource(filter.sourceId)
                 }
-            }
+            )
+        }
 
-            if (grouped.isEmpty()) {
-                item {
-                    HoloGlass(modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
-                        Column(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Text(
-                                if (repo.libraryProfiles.isEmpty()) "No connections yet" else "Nothing matches",
-                                color = Aether.Ink,
-                                style = MaterialTheme.typography.titleMedium
-                            )
-                            Text(
-                                trx("Tap the + in the top bar to add a subscription, paste configs or import a file."),
-                                color = Aether.InkFaint,
-                                style = MaterialTheme.typography.bodySmall
+        if (repo.inlineProgressActive) {
+            item(key = "servers-progress") {
+                ServersProbeStrip(repo = repo)
+            }
+        }
+
+        if (groups.isEmpty()) {
+            item(key = "servers-empty") {
+                ServersEmptyState(
+                    empty = allProfiles.isEmpty(),
+                    filtered = filter.isActive,
+                    onClearFilters = {
+                        search = ""
+                        repo.selectLibrarySource("all")
+                        updateSettings {
+                            copy(
+                                serversProtocolFilter = "",
+                                serversOnlyReachable = false,
+                                serversMaxPingMs = ServersQuery.MAX_PING_OFF
                             )
                         }
-                    }
-                }
+                    },
+                    onAdd = { addOpen = true }
+                )
+            }
+        }
+
+        groups.forEach { group ->
+            val collapsed = group.key in repo.libraryCollapsedSources
+            val subscription = repo.subscriptions.firstOrNull { it.id == group.key }
+            val total = when (group.kind) {
+                LibraryGroupKind.SUBSCRIPTION -> repo.subscriptionNodeCount(group.key)
+                else -> group.profiles.size
             }
 
-            grouped.forEachIndexed { groupIndex, group ->
-                val collapsed = group.sourceId in repo.libraryCollapsedSources
-                val isSubscription = group.kind == LibraryGroupKind.SUBSCRIPTION
-                val accent = when (group.kind) {
-                    LibraryGroupKind.FREEDOM -> chrome.freedomTone
-                    else -> chrome.accent
-                }
-                val total = if (isSubscription) {
-                    repo.subscriptionNodeCount(group.sourceId)
-                } else {
-                    group.profiles.size
-                }
-                // MARBLE_SERVERS_V114 — a folded module keeps a few rows composed so the collapse can
-                // shrink and fade them; the rest leave the composition immediately. Eight rows is more
-                // than a viewport holds, so nothing that is on screen ever pops out of existence.
-                val rows = if (collapsed) {
-                    group.profiles.take(LIBRARY_FOLD_KEPT_ROWS)
-                } else {
-                    group.profiles
-                }
-
-                item(key = "group-${group.sourceId}") {
-                    Column {
-                        if (groupIndex > 0) Spacer(Modifier.height(libraryGroupGap(flavor)))
-                        LibraryModuleHeader(
-                            group = group,
-                            chrome = chrome,
-                            flavor = flavor,
-                            repo = repo,
-                            collapsed = collapsed,
-                            searching = search.isNotBlank(),
-                            onToggle = { repo.setLibrarySourceCollapsed(group.sourceId, !collapsed) },
-                            onEdit = {
-                                manageSubscription = repo.subscriptions.firstOrNull { it.id == group.sourceId }
-                                if (manageSubscription != null) {
-                                    editSubscriptionName = manageSubscription?.name.orEmpty()
-                                    editSubscriptionUrl = manageSubscription?.url.orEmpty()
-                                }
+            item(key = "group-${group.key}") {
+                ServersGroupHeader(
+                    group = group,
+                    subscription = subscription,
+                    collapsed = collapsed,
+                    shown = group.profiles.size,
+                    total = total,
+                    refreshing = group.key in repo.refreshingSources,
+                    autoRefresh = settings.subscriptionAutoRefresh,
+                    onToggle = { repo.setLibrarySourceCollapsed(group.key, !collapsed) },
+                    onRefresh = { repo.refresh(group.key) },
+                    onWebsite = { url -> openExternal(context, url) },
+                    onMenu = {
+                        when (it) {
+                            ServersGroupAction.MANAGE -> {
+                                manageSubscription = subscription
+                                editSubscriptionName = subscription?.name.orEmpty()
+                                editSubscriptionUrl = subscription?.url.orEmpty()
                             }
-                        )
+                            ServersGroupAction.REFRESH -> repo.refresh(group.key)
+                            ServersGroupAction.COPY_URL -> {
+                                clipboard.setText(AnnotatedString(subscription?.url.orEmpty()))
+                                repo.setRuntimeMessage("Subscription URL copied")
+                            }
+                            ServersGroupAction.COPY_SERVERS -> {
+                                clipboard.setText(AnnotatedString(repo.subscriptionRawText(group.key)))
+                                repo.setRuntimeMessage(
+                                    "${repo.subscriptionNodeCount(group.key)} server links copied"
+                                )
+                            }
+                            ServersGroupAction.RANK -> repo.smartRankSource(group.key)
+                            ServersGroupAction.PING -> repo.testSource(group.key)
+                            ServersGroupAction.SHOW_ONLY -> repo.selectLibrarySource(group.key)
+                            ServersGroupAction.SHOW_ALL -> repo.selectLibrarySource("all")
+                            ServersGroupAction.DELETE -> deleteSubscription = subscription
+                        }
                     }
-                }
+                )
+            }
 
-                itemsIndexed(rows, key = { _, profile -> "${group.sourceId}:${profile.id}" }) { index, profile ->
-                    // The fold is animated: each row shrinks and fades in a short stagger, so a
-                    // subscription closes like a drawer instead of blinking out.
-                    AnimatedVisibility(
-                        visible = !collapsed,
-                        enter = fadeIn(tween(200, delayMillis = (index * 18).coerceAtMost(180))) +
-                            expandVertically(MarbleMotionSpecs.Layout),
-                        exit = fadeOut(tween(130)) +
-                            shrinkVertically(tween(210, delayMillis = (index * 9).coerceAtMost(90)))
-                    ) {
-                        SpatialServerCard(
-                            profile = profile,
-                            repo = repo,
-                            result = benchmarkById[profile.id],
-                            active = repo.isActiveProfile(profile),
-                            probeState = repo.probeStateOf(profile.id),
-                            flavor = flavor,
-                            ordinal = index,
-                            divider = index != rows.lastIndex,
-                            accent = accent,
-                            onConnect = onConnect,
-                            onEdit = {
-                                renameTarget = profile
-                                renameText = profile.name
-                            },
-                            onDetails = { onDetails(profile) }
-                        )
-                    }
+            if (collapsed) {
+                item(key = "group-${group.key}-folded") {
+                    ServersFoldedNote(count = total)
                 }
-
-                item(key = "group-${group.sourceId}-tail") {
-                    LibraryModuleTail(
-                        group = group,
-                        flavor = flavor,
-                        accent = accent,
-                        collapsed = collapsed,
-                        shown = group.profiles.size,
-                        total = total
+            } else {
+                itemsIndexed(
+                    items = group.profiles,
+                    key = { _, profile -> "${group.key}:${profile.id}" }
+                ) { _, profile ->
+                    ServersNodeCard(
+                        profile = profile,
+                        repo = repo,
+                        result = benchmarks[profile.id],
+                        active = repo.isActiveProfile(profile),
+                        probeState = repo.probeStateOf(profile.id),
+                        onConnect = { onConnect(profile) },
+                        onEdit = {
+                            renameTarget = profile
+                            renameText = stripLeadingFlag(profile.name)
+                        },
+                        onMove = { moveTarget = profile },
+                        onQr = { qrTarget = profile },
+                        onDelete = { deleteTarget = profile },
+                        onDetails = { onDetails(profile) }
                     )
                 }
             }
         }
-
-    }
-
-    // MARBLE_SERVERS_MENU_V117 — the Servers action menu. One place for add, clipboard import,
-    // file import, sort and the Freedom toggle, opened by the header hamburger and closed by the
-    // scrim tap or the system back gesture. It is a small anchored panel in Marble's own visual
-    // language, not a page-centred generic sheet.
-    MarbleMenuPanel(
-        open = drawerOpen,
-        onClose = { drawerOpen = false },
-        title = "Servers"
-    ) {
-        MarbleMenuPanelItem(
-            title = "Add servers",
-            subtitle = "Subscription or manual config",
-            icon = HomeIcon.SERVER,
-            tone = Aether.Cyan,
-            onClick = {
-                drawerOpen = false
-                addOpen = true
-            }
-        )
-        MarbleMenuPanelItem(
-            title = "Import from clipboard",
-            subtitle = "Paste a subscription or server link",
-            icon = HomeIcon.CLIPBOARD,
-            tone = Aether.Cyan,
-            onClick = {
-                repo.importClipboard(clipboard.getText()?.text.orEmpty(), intakeTarget)
-                drawerOpen = false
-            }
-        )
-        MarbleMenuPanelItem(
-            title = "Import file",
-            subtitle = "Load a config file",
-            icon = HomeIcon.DOWNLOAD,
-            tone = Aether.Amethyst,
-            onClick = {
-                drawerOpen = false
-                onImportFile()
-            }
-        )
-        MarbleMenuPanelItem(
-            title = "Sort servers",
-            subtitle = "By ping, score, name or source",
-            icon = HomeIcon.RANK,
-            tone = Aether.Emerald,
-            onClick = {
-                drawerOpen = false
-                sortOpen = true
-            }
-        )
-        MarbleMenuPanelItem(
-            title = if (repo.libraryFreedomHidden) "Show Marble Freedom" else "Hide Marble Freedom",
-            subtitle = if (repo.libraryFreedomHidden) "Reveal the serverless source" else "Keep the serverless source folded",
-            icon = HomeIcon.SHIELD,
-            tone = Aether.Amethyst,
-            onClick = {
-                repo.updateLibraryFreedomHidden(!repo.libraryFreedomHidden)
-                drawerOpen = false
-            }
-        )
     }
 
     if (addOpen) {
-        LibraryAddSheet(
+        ServersAddPage(
             repo = repo,
             onImportFile = onImportFile,
             onDismiss = { addOpen = false }
         )
     }
 
-    if (sortOpen) {
-        LibrarySortSheet(
+    if (allFiltersOpen) {
+        LibraryFilterSheet(
             repo = repo,
-            onDismiss = { sortOpen = false }
+            sourceFilter = repo.librarySourceFilter,
+            onSourceFilter = { repo.selectLibrarySource(it) },
+            onManageSubscription = { sub ->
+                manageSubscription = sub
+                editSubscriptionName = sub.name
+                editSubscriptionUrl = sub.url
+                allFiltersOpen = false
+            },
+            onDismiss = { allFiltersOpen = false }
         )
     }
 }
 
-@Composable
-private fun LibraryChevron(collapsed: Boolean, color: Color, modifier: Modifier = Modifier) {
-    Canvas(modifier) {
-        val w = size.width
-        val h = size.height
-        val m = size.minDimension
-        val line = Stroke(width = (m * .13f).coerceAtLeast(1.4f), cap = StrokeCap.Round)
-        val p = Path()
-        if (collapsed) {
-            p.moveTo(w * .38f, h * .22f)
-            p.lineTo(w * .66f, h * .50f)
-            p.lineTo(w * .38f, h * .78f)
-        } else {
-            p.moveTo(w * .30f, h * .38f)
-            p.lineTo(w * .50f, h * .66f)
-            p.lineTo(w * .70f, h * .38f)
-        }
-        drawPath(p, color, style = line)
-    }
+/** Every action the advanced-filter menu can run. */
+private enum class ServersAdvancedAction {
+    GROUP_BY_COUNTRY,
+    ONLY_REACHABLE,
+    RESET,
+    REFRESH_ALL,
+    RANK_ALL,
+    TOGGLE_FREEDOM,
+    ALL_FILTERS
 }
 
-/**
- * MARBLE_SERVERS_V114 — the source module: ONE frosted container per subscription, with every
- * server of that subscription rendered as a compact row *inside* it.
- *
- * Three product rules shaped this:
- *
- *  - **No card per server.** Servers used to be individual glass cards with their own borders,
- *    shadows and 16dp margins, so a 200-server subscription read as 200 boxes. They are now
- *    back-to-back rows in a single poured-glass module, separated by a hairline.
- *  - **The fold is a real animation.** Collapsing a source shrinks and fades its rows in a stagger
- *    instead of deleting them, and the module's own height is animated, so the list never snaps.
- *  - **Nothing about a source is hidden.** The name wraps to two lines, and the server count, the
- *    visible-while-searching count and the time since the source was added each get their own chip
- *    in a wrapping row — no ellipsis swallowing the facts.
- *
- * The lazy list still itemises per row (a 500-server source must not compose in one frame), so the
- * container is drawn segment by segment: the header owns the top corners, every row owns a slice of
- * the frost and one hairline, and the tail owns the bottom corners. Read together they are one box.
- */
-private const val LIBRARY_FOLD_KEPT_ROWS = 8
+/** Every action a subscription header menu can run. */
+private enum class ServersGroupAction {
+    MANAGE,
+    REFRESH,
+    COPY_URL,
+    COPY_SERVERS,
+    RANK,
+    PING,
+    SHOW_ONLY,
+    SHOW_ALL,
+    DELETE
+}
+
+/** One sort choice of the header menu: the mode plus the direction it implies. */
+private data class ServersSortOption(
+    val label: String,
+    val mode: NodeSortMode,
+    val reverse: Boolean
+)
+
+private val SERVERS_SORT_OPTIONS = listOf(
+    ServersSortOption("Default", NodeSortMode.DEFAULT, false),
+    ServersSortOption("Name", NodeSortMode.NAME, false),
+    ServersSortOption("Name (Z-A)", NodeSortMode.NAME, true),
+    ServersSortOption("Ping", NodeSortMode.PING, false),
+    ServersSortOption("Country", NodeSortMode.COUNTRY, false),
+    ServersSortOption("Protocol", NodeSortMode.PROTOCOL, false)
+)
+
+// --------------------------------------------------------------------------- top bar
 
 /**
- * MARBLE_SERVERS_STYLE_CARDS_V117 — the silhouette of one source module slice, owned by the
- * selected Home style: Signature studio plate, organic cell, squared cockpit instrument, wide
- * nebula capsule and a near-flat drafting sheet. Every slice of one module agrees on its flavor's
- * radii so the segments read as one poured container.
- */
-// MARBLE_SERVERS_FLAT_V119 — one uniform rounded silhouette for every source-module slice, so a
-// subscription box and its server rows read as one flat card no matter which Home style is active.
-private fun librarySegmentShape(flavor: HomeFlavor, top: Boolean, bottom: Boolean): RoundedCornerShape =
-    RoundedCornerShape(
-        topStart = if (top) 14.dp else 0.dp,
-        topEnd = if (top) 14.dp else 0.dp,
-        bottomStart = if (bottom) 14.dp else 0.dp,
-        bottomEnd = if (bottom) 14.dp else 0.dp
-    )
-
-/** The air between source modules: one flat, even gap for the flat list. */
-private fun libraryGroupGap(flavor: HomeFlavor): Dp = 12.dp
-
-/** The surface one module slice is poured from: a single flat fill, never a per-style gradient. */
-@Composable
-private fun libraryFrost(flavor: HomeFlavor, accent: Color, emphasized: Boolean): Brush =
-    // MARBLE_SERVERS_FLAT_V119 — one flat surface for every slice. Accent and emphasis live in the
-    // hairline frame drawn by libraryModuleEdges, not in a poured gradient.
-    Brush.verticalGradient(listOf(Aether.VoidElevated, Aether.VoidElevated))
-
-/**
- * One slice of a source module: the flat fill, the hairline frame on the edges this slice owns,
- * and (for rows) the divider to the next server.
+ * The page header: a bold headline, one quiet line of counts, and the two round controls that own
+ * the page's primary verbs — add a server and change the order.
  */
 @Composable
-private fun LibraryModuleSegment(
-    accent: Color,
-    emphasized: Boolean,
-    modifier: Modifier = Modifier,
-    flavor: HomeFlavor = HomeFlavor.PRO,
-    top: Boolean = false,
-    bottom: Boolean = false,
-    divider: Boolean = false,
-    content: @Composable BoxScope.() -> Unit
+private fun ServersTopBar(
+    groupCount: Int,
+    serverCount: Int,
+    onAdd: () -> Unit,
+    onSort: () -> Unit,
+    sortOpen: Boolean,
+    sortMode: NodeSortMode,
+    sortReverse: Boolean,
+    onSortPick: (NodeSortMode, Boolean) -> Unit,
+    onSortDismiss: () -> Unit
 ) {
-    val shape = librarySegmentShape(flavor, top, bottom)
-    Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .clip(shape)
-            .background(libraryFrost(flavor, accent, emphasized))
-    ) {
-        content()
-        Canvas(Modifier.matchParentSize()) {
-            libraryModuleEdges(accent, emphasized, top, bottom, divider)
-        }
-    }
-}
-
-/** MARBLE_SERVERS_FLAT_V119 — a single flat hairline frame and divider, shared by every slice. */
-private fun DrawScope.libraryModuleEdges(
-    accent: Color,
-    emphasized: Boolean,
-    top: Boolean,
-    bottom: Boolean,
-    divider: Boolean
-) {
-    val hair = 1.dp.toPx()
-    val edge = accent.copy(alpha = if (emphasized) .45f else .24f)
-    val soft = accent.copy(alpha = if (emphasized) .30f else .16f)
-    val inset = 14.dp.toPx()
-    val w = size.width
-    val h = size.height
-
-    drawLine(edge, Offset(hair / 2f, 0f), Offset(hair / 2f, h), hair)
-    drawLine(edge, Offset(w - hair / 2f, 0f), Offset(w - hair / 2f, h), hair)
-    if (top) drawLine(edge, Offset(0f, hair / 2f), Offset(w, hair / 2f), hair)
-    if (bottom) drawLine(edge, Offset(0f, h - hair / 2f), Offset(w, h - hair / 2f), hair)
-    if (divider) {
-        drawLine(soft, Offset(inset, h - hair / 2f), Offset(w - inset, h - hair / 2f), hair)
-    }
-}
-
-/** A wrapping metadata chip: one fact, one chip, never a clipped sentence. */
-@Composable
-private fun LibraryMetaChip(
-    text: String,
-    tone: Color,
-    flavor: HomeFlavor,
-    icon: HomeIcon? = null
-) {
-    // MARBLE_SERVERS_FLAT_V119 — one flat pill chip: one fact, one clean look, never a per-style shape.
-    val shape = RoundedCornerShape(8.dp)
-    Row(
-        modifier = Modifier
-            .clip(shape)
-            .background(tone.copy(alpha = .10f))
-            .border(1.dp, tone.copy(alpha = .24f), shape)
-            .padding(horizontal = 7.dp, vertical = 3.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp)
-    ) {
-        if (icon != null) HomeVectorIcon(icon, tone.copy(alpha = .92f), Modifier.size(10.dp))
-        Text(
-            trx(text),
-            color = tone.copy(alpha = .95f),
-            style = MaterialTheme.typography.labelSmall,
-            fontWeight = FontWeight.Medium,
-            maxLines = 1
-        )
-    }
-}
-
-/**
- * Subscription accounting, straight from the provider's subscription-userinfo headers.
- *
- * Every remote source reports how much of its plan has been consumed and when it expires; local
- * (pastable/manual) sources never report either, and an unlimited plan reports no total at all.
- * The numbers are rendered compactly so a header chip stays one glance.
- */
-private fun subscriptionDataText(bytes: Long): String = when {
-    bytes >= 1_000_000_000L -> "%.2fGB".format(bytes / 1_000_000_000.0)
-    bytes >= 1_000_000L -> "%.0fMB".format(bytes / 1_000_000.0)
-    bytes >= 1_000L -> "%.0fKB".format(bytes / 1_000.0)
-    else -> "$bytes B"
-}
-
-private fun subscriptionUsageChipText(sub: Subscription): String =
-    "${subscriptionDataText((sub.uploadBytes + sub.downloadBytes).coerceAtLeast(0L))} / ${subscriptionDataText(sub.totalBytes)}"
-
-private fun subscriptionExpiryChipText(sub: Subscription): String {
-    if (sub.expireAt <= 0L) return ""
-    val formatter = java.text.SimpleDateFormat("yyyy/MM/dd", java.util.Locale.US)
-    return formatter.format(java.util.Date(sub.expireAt))
-}
-
-/**
- * MARBLE_SERVERS_FLAT_V119 — the head of a source module (the subscription box). One flat,
- * theme-independent treatment: a fold chevron, the full source name, the flat fact chips (count,
- * usage, expiry, age) and the two well-shaped source actions (refresh / edit).
- */
-@Composable
-private fun LibraryModuleHeader(
-    group: LibraryGroup,
-    chrome: LibraryChrome,
-    flavor: HomeFlavor,
-    repo: AppRepository,
-    collapsed: Boolean,
-    searching: Boolean,
-    onToggle: () -> Unit,
-    onEdit: () -> Unit
-) {
-    val isSubscription = group.kind == LibraryGroupKind.SUBSCRIPTION
-    val sub = repo.subscriptions.firstOrNull { it.id == group.sourceId }
-    val local = isSubscription && sub?.url?.isBlank() == true
-    val refreshing = isSubscription && group.sourceId in repo.refreshingSources
-    val accent = when (group.kind) {
-        LibraryGroupKind.FREEDOM -> chrome.freedomTone
-        else -> chrome.accent
-    }
-    // The header always reports the real size of the source; while a search is running the visible
-    // slice is reported next to it, so "12 of 340" is a fact rather than a mystery.
-    val total = if (isSubscription) repo.subscriptionNodeCount(group.sourceId) else group.profiles.size
-    val emphasized = !collapsed && total > 0
-    val age = when {
-        !isSubscription -> ""
-        local -> "Local source"
-        else -> relativeTime(sub?.updatedAt ?: 0L)
-    }
-
-    LibraryModuleSegment(accent = accent, emphasized = emphasized, flavor = flavor, top = true) {
-        Column(Modifier.fillMaxWidth()) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .kineticClickable(role = Role.Button, onClick = onToggle)
-                    .padding(start = 11.dp, end = 7.dp, top = 10.dp, bottom = 10.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // Fold control: a chevron that rotates rather than swaps glyphs.
-                Box(
-                    modifier = Modifier
-                        .size(32.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(accent.copy(alpha = if (collapsed) .08f else .13f)),
-                    contentAlignment = Alignment.Center
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    trx("Servers"),
+                    color = Aether.Ink,
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    trx("$groupCount groups • $serverCount servers"),
+                    color = Aether.InkMuted,
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            Spacer(Modifier.width(10.dp))
+            ServersRoundButton(
+                icon = HomeIcon.PLUS,
+                label = "Add server",
+                onClick = onAdd
+            )
+            Spacer(Modifier.width(8.dp))
+            // The dropdown is anchored to the sort control's own box, so it always opens exactly
+            // under the button that summoned it.
+            Box {
+                ServersRoundButton(
+                    icon = HomeIcon.SORT,
+                    label = "Sort servers",
+                    selected = sortOpen,
+                    onClick = onSort
+                )
+                DropdownMenu(
+                    expanded = sortOpen,
+                    onDismissRequest = onSortDismiss,
+                    shape = ServersMenuShape,
+                    containerColor = Aether.VoidElevated
                 ) {
-                    Box(
-                        Modifier
-                            .graphicsLayer { rotationZ = if (collapsed) -90f else 0f }
-                            .size(15.dp)
-                    ) {
-                        LibraryChevron(collapsed = false, color = accent, modifier = Modifier.fillMaxSize())
-                    }
-                }
-                Spacer(Modifier.width(9.dp))
-
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    // The full name, on up to two lines — a long subscription title is a fact the
-                    // user paid for, not something to ellipsize away.
-                    Text(
-                        group.title,
-                        color = Aether.Ink,
-                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    // Count, visible slice and age each get their own chip in a row that wraps.
-                    FlowRow(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(5.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp),
-                        maxItemsInEachRow = 4
-                    ) {
-                        LibraryMetaChip(
-                            // The Freedom engine is a selectable source in its own right, and it says
-                            // so with the same "Freedom (n)" wording the rest of the product uses.
-                            text = when (group.kind) {
-                                LibraryGroupKind.FREEDOM -> "Freedom ($total)"
-                                else -> if (total == 1) "1 server" else "$total servers"
-                            },
-                            tone = accent,
-                            flavor = flavor,
-                            icon = if (group.kind == LibraryGroupKind.FREEDOM) {
-                                HomeIcon.SHIELD
-                            } else {
-                                HomeIcon.SERVER
-                            }
+                    SERVERS_SORT_OPTIONS.forEach { option ->
+                        val selected = sortMode == option.mode && sortReverse == option.reverse
+                        ServersMenuItem(
+                            label = option.label,
+                            selected = selected,
+                            onClick = { onSortPick(option.mode, option.reverse) }
                         )
-                        // MARBLE_SUBSCRIPTION_ACCOUNTING_V115 — every remote source carries its own
-                        // data-usage and expiry chips (or one honest "Unlimited" chip).
-                        if (isSubscription && !local && sub != null) {
-                            if (sub.totalBytes <= 0L) {
-                                LibraryMetaChip(
-                                    text = "Unlimited",
-                                    tone = Aether.Emerald,
-                                    flavor = flavor,
-                                    icon = HomeIcon.SPARK
-                                )
-                            } else {
-                                val expired = sub.expireAt > 0L &&
-                                    sub.expireAt < System.currentTimeMillis()
-                                LibraryMetaChip(
-                                    text = subscriptionUsageChipText(sub),
-                                    tone = if (expired) Aether.Danger else Aether.Cyan,
-                                    flavor = flavor,
-                                    icon = HomeIcon.DOWNLOAD
-                                )
-                                val expiry = subscriptionExpiryChipText(sub)
-                                if (expiry.isNotBlank()) {
-                                    LibraryMetaChip(
-                                        text = if (expired) "Expired" else expiry,
-                                        tone = if (expired) Aether.Danger else Aether.Amber,
-                                        flavor = flavor,
-                                        icon = HomeIcon.STATUS
-                                    )
-                                }
-                            }
-                        }
-                        if (searching) {
-                            LibraryMetaChip(
-                                text = "${group.profiles.size} shown",
-                                tone = Aether.InkMuted,
-                                flavor = flavor
-                            )
-                        }
-                        if (age.isNotBlank()) {
-                            LibraryMetaChip(
-                                text = age,
-                                tone = if (local) Aether.InkMuted else Aether.Amethyst,
-                                flavor = flavor,
-                                icon = HomeIcon.STATUS
-                            )
-                        }
-                        if (group.kind == LibraryGroupKind.FREEDOM) {
-                            LibraryMetaChip(
-                                text = "Local engine",
-                                tone = chrome.freedomTone,
-                                flavor = flavor,
-                                icon = HomeIcon.SHIELD
-                            )
-                        }
                     }
-                }
-
-                if (isSubscription) {
-                    Box(
-                        modifier = Modifier
-                            .size(36.dp)
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(accent.copy(alpha = .06f))
-                            .semantics { contentDescription = "Refresh ${group.title}" }
-                            .kineticClickable(
-                                enabled = !repo.busy && !local,
-                                role = Role.Button,
-                                onClick = { repo.refresh(group.sourceId) }
-                            ),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        if (refreshing) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(16.dp),
-                                color = Aether.Amethyst,
-                                strokeWidth = 2.dp
-                            )
-                        } else {
-                            HomeVectorIcon(
-                                HomeIcon.RESET,
-                                if (local) Aether.InkFaint else Aether.Amethyst,
-                                Modifier.size(17.dp)
-                            )
-                        }
-                    }
-                    Box(
-                        modifier = Modifier
-                            .size(36.dp)
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(accent.copy(alpha = .06f))
-                            .semantics { contentDescription = "Edit ${group.title}" }
-                            .kineticClickable(
-                                enabled = !repo.busy,
-                                role = Role.Button,
-                                onClick = onEdit
-                            ),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        HomeVectorIcon(HomeIcon.MODE, accent, Modifier.size(16.dp))
-                    }
-                } else {
-                    Spacer(Modifier.width(6.dp))
-                    LibraryChevron(collapsed, accent, Modifier.size(14.dp))
-                    Spacer(Modifier.width(8.dp))
                 }
             }
         }
     }
 }
 
-/** MARBLE_SERVERS_FLAT_V119 — the foot of a source module: closes the flat card and reports the fold state. */
+/** A round, near-background control: the two verbs of the page header. */
 @Composable
-private fun LibraryModuleTail(
-    group: LibraryGroup,
-    flavor: HomeFlavor,
-    accent: Color,
-    collapsed: Boolean,
-    shown: Int,
-    total: Int
+private fun ServersRoundButton(
+    icon: HomeIcon,
+    label: String,
+    selected: Boolean = false,
+    onClick: () -> Unit
 ) {
-    AnimatedVisibility(
-        visible = !collapsed,
-        enter = fadeIn(MarbleMotionSpecs.ResponseFloat) +
-            expandVertically(MarbleMotionSpecs.Layout),
-        exit = fadeOut(MarbleMotionSpecs.ExitFloat) +
-            shrinkVertically(MarbleMotionSpecs.Layout)
+    val tone = if (selected) Aether.Cyan else Aether.Ink
+    val description = trx(label)
+    Box(
+        modifier = Modifier
+            .size(44.dp)
+            .clip(CircleShape)
+            .background(Aether.GlassStrong.copy(alpha = .34f))
+            .border(1.dp, if (selected) Aether.Cyan.copy(alpha = .45f) else Aether.GlassBorderSoft, CircleShape)
+            .semantics { contentDescription = description }
+            .kineticClickable(
+                role = Role.Button,
+                boundedShape = CircleShape,
+                onClick = onClick
+            ),
+        contentAlignment = Alignment.Center
     ) {
-        LibraryModuleSegment(accent = accent, emphasized = false, flavor = flavor, bottom = true) {
+        HomeVectorIcon(icon, tone, Modifier.size(19.dp))
+    }
+}
+
+/** One row of a Marble dropdown menu: label on the left, a small tick on the right when chosen. */
+@Composable
+private fun ServersMenuItem(
+    label: String,
+    selected: Boolean = false,
+    enabled: Boolean = true,
+    icon: HomeIcon? = null,
+    tone: Color = Aether.Ink,
+    detail: String = "",
+    onClick: () -> Unit
+) {
+    DropdownMenuItem(
+        enabled = enabled,
+        onClick = onClick,
+        text = {
             Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(9.dp)
+            ) {
+                if (icon != null) {
+                    HomeVectorIcon(icon, tone, Modifier.size(16.dp))
+                }
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        trx(label),
+                        color = tone,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    if (detail.isNotBlank()) {
+                        Text(
+                            trx(detail),
+                            color = Aether.InkFaint,
+                            style = MaterialTheme.typography.labelSmall,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+        },
+        trailingIcon = {
+            if (selected) {
+                HomeVectorIcon(HomeIcon.CHECK, Aether.Cyan, Modifier.size(15.dp))
+            }
+        }
+    )
+}
+
+/** A switch row inside a dropdown menu; the whole row toggles. */
+@Composable
+private fun ServersMenuSwitch(
+    label: String,
+    checked: Boolean,
+    onToggle: () -> Unit
+) {
+    DropdownMenuItem(
+        onClick = onToggle,
+        text = {
+            Text(
+                trx(label),
+                color = Aether.Ink,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium
+            )
+        },
+        trailingIcon = {
+            Switch(
+                checked = checked,
+                onCheckedChange = { onToggle() },
+                colors = SwitchDefaults.colors(
+                    checkedThumbColor = Aether.VoidElevated,
+                    checkedTrackColor = Aether.Cyan,
+                    uncheckedThumbColor = Aether.VoidElevated,
+                    uncheckedTrackColor = Aether.GlassStrong,
+                    uncheckedBorderColor = Aether.GlassBorder
+                )
+            )
+        }
+    )
+}
+
+// --------------------------------------------------------------------------- search
+
+/**
+ * The search field: one pill, one hairline, one magnifier. The clear button appears only while
+ * there is something to clear, so the field never changes width while typing.
+ */
+@Composable
+private fun ServersSearchField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    onClear: () -> Unit
+) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        modifier = Modifier.fillMaxWidth(),
+        singleLine = true,
+        shape = ServersPillShape,
+        placeholder = {
+            Text(
+                trx("Search servers, host or protocol"),
+                color = Aether.InkFaint,
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        },
+        leadingIcon = {
+            HomeVectorIcon(HomeIcon.SEARCH, Aether.InkMuted, Modifier.size(18.dp))
+        },
+        trailingIcon = {
+            if (value.isNotBlank()) {
+                val clearLabel = trx("Clear search")
+                Box(
+                    modifier = Modifier
+                        .size(30.dp)
+                        .clip(CircleShape)
+                        .semantics { contentDescription = clearLabel }
+                        .kineticClickable(role = Role.Button, boundedShape = CircleShape, onClick = onClear),
+                    contentAlignment = Alignment.Center
+                ) {
+                    HomeVectorIcon(HomeIcon.CANCEL, Aether.InkMuted, Modifier.size(13.dp))
+                }
+            }
+        },
+        colors = OutlinedTextFieldDefaults.colors(
+            focusedTextColor = Aether.Ink,
+            unfocusedTextColor = Aether.Ink,
+            focusedContainerColor = Aether.VoidElevated,
+            unfocusedContainerColor = Aether.VoidElevated,
+            cursorColor = Aether.Cyan,
+            focusedBorderColor = Aether.Cyan.copy(alpha = .60f),
+            unfocusedBorderColor = Aether.GlassBorderSoft,
+            disabledBorderColor = Aether.GlassBorderSoft
+        )
+    )
+}
+
+// --------------------------------------------------------------------------- filter rail
+
+/**
+ * The filter rail under the search field: the active group capsule, the protocol capsule (with a
+ * live count per protocol), the advanced-filter menu and the page-wide ping. Four controls, one
+ * row, and each one states exactly what it is currently doing.
+ */
+@Composable
+private fun ServersFilterRail(
+    repo: AppRepository,
+    groupLabel: String,
+    groupActive: Boolean,
+    groupOptions: List<Pair<String, String>>,
+    groupMenuOpen: Boolean,
+    onGroupMenu: () -> Unit,
+    onGroupDismiss: () -> Unit,
+    onGroupPick: (String) -> Unit,
+    protocol: String,
+    protocolTallies: List<ProtocolTally>,
+    protocolMenuOpen: Boolean,
+    onProtocolMenu: () -> Unit,
+    onProtocolDismiss: () -> Unit,
+    onProtocolPick: (String) -> Unit,
+    advancedOpen: Boolean,
+    onAdvanced: () -> Unit,
+    onAdvancedDismiss: () -> Unit,
+    onAdvancedAction: (ServersAdvancedAction) -> Unit,
+    onMaxPing: (Int) -> Unit,
+    onPingAll: () -> Unit
+) {
+    val settings = repo.settings
+    val maxPing = settings.serversMaxPingMs
+    val busy = repo.busy || repo.probeActive
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(7.dp)
+    ) {
+        // Group / source capsule.
+        Box(modifier = Modifier.weight(1f, fill = false)) {
+            ServersFilterCapsule(
+                label = groupLabel,
+                tone = if (groupActive) Aether.Cyan else Aether.InkMuted,
+                icon = HomeIcon.SERVER,
+                onClick = onGroupMenu,
+                onClear = if (groupActive) {
+                    { onGroupPick("all") }
+                } else {
+                    null
+                }
+            )
+            DropdownMenu(
+                expanded = groupMenuOpen,
+                onDismissRequest = onGroupDismiss,
+                shape = ServersMenuShape,
+                containerColor = Aether.VoidElevated
+            ) {
+                groupOptions.forEach { (id, label) ->
+                    ServersMenuItem(
+                        label = label,
+                        selected = repo.librarySourceFilter == id,
+                        onClick = { onGroupPick(id) }
+                    )
+                }
+            }
+        }
+
+        // Protocol capsule with per-protocol counts.
+        Box {
+            ServersFilterCapsule(
+                label = protocol.ifBlank { "All protocols" },
+                tone = if (protocol.isNotBlank()) Aether.Cyan else Aether.InkMuted,
+                icon = HomeIcon.TUNNEL,
+                onClick = onProtocolMenu,
+                onClear = if (protocol.isNotBlank()) {
+                    { onProtocolPick(ServersQuery.ALL_PROTOCOLS) }
+                } else {
+                    null
+                }
+            )
+            DropdownMenu(
+                expanded = protocolMenuOpen,
+                onDismissRequest = onProtocolDismiss,
+                shape = ServersMenuShape,
+                containerColor = Aether.VoidElevated
+            ) {
+                ServersMenuItem(
+                    label = "All protocols",
+                    detail = "${protocolTallies.sumOf { it.count }} servers",
+                    selected = protocol.isBlank(),
+                    onClick = { onProtocolPick(ServersQuery.ALL_PROTOCOLS) }
+                )
+                if (protocolTallies.isNotEmpty()) HorizontalDivider(color = Aether.GlassBorderSoft)
+                protocolTallies.forEach { tally ->
+                    ServersMenuItem(
+                        label = tally.scheme,
+                        detail = "${tally.count}",
+                        selected = protocol.equals(tally.scheme, ignoreCase = true),
+                        onClick = { onProtocolPick(tally.scheme) }
+                    )
+                }
+            }
+        }
+
+        // Advanced filters.
+        Box {
+            val advancedLabel = trx("Advanced filters")
+            Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 13.dp, vertical = 7.dp),
+                    .size(38.dp)
+                    .clip(ServersBadgeShape)
+                    .background(
+                        if (advancedOpen || settings.serversOnlyReachable || maxPing > 0 ||
+                            settings.serversGroupByCountry
+                        ) {
+                            Aether.Cyan.copy(alpha = .12f)
+                        } else {
+                            Aether.GlassStrong.copy(alpha = .30f)
+                        }
+                    )
+                    .semantics { contentDescription = advancedLabel }
+                    .kineticClickable(
+                        role = Role.Button,
+                        boundedShape = ServersBadgeShape,
+                        onClick = onAdvanced
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                HomeVectorIcon(HomeIcon.FILTER, Aether.Ink, Modifier.size(17.dp))
+            }
+            DropdownMenu(
+                expanded = advancedOpen,
+                onDismissRequest = onAdvancedDismiss,
+                shape = ServersMenuShape,
+                containerColor = Aether.VoidElevated
+            ) {
+                ServersMenuSwitch(
+                    label = "Group by country",
+                    checked = settings.serversGroupByCountry,
+                    onToggle = { onAdvancedAction(ServersAdvancedAction.GROUP_BY_COUNTRY) }
+                )
+                ServersMenuSwitch(
+                    label = "Only reachable",
+                    checked = settings.serversOnlyReachable,
+                    onToggle = { onAdvancedAction(ServersAdvancedAction.ONLY_REACHABLE) }
+                )
+                HorizontalDivider(color = Aether.GlassBorderSoft)
+                DropdownMenuItem(
+                    onClick = {},
+                    enabled = false,
+                    text = {
+                        Text(
+                            trx("Max ping"),
+                            color = Aether.InkFaint,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    ServersQuery.MAX_PING_CHOICES.forEach { ceiling ->
+                        val selected = maxPing == ceiling
+                        val label = if (ceiling == ServersQuery.MAX_PING_OFF) {
+                            "Off"
+                        } else {
+                            "${ceiling}ms"
+                        }
+                        val shape = RoundedCornerShape(10.dp)
+                        Box(
+                            modifier = Modifier
+                                .clip(shape)
+                                .background(
+                                    if (selected) Aether.Cyan.copy(alpha = .14f) else Color.Transparent
+                                )
+                                .border(
+                                    1.dp,
+                                    if (selected) Aether.Cyan.copy(alpha = .40f) else Aether.GlassBorderSoft,
+                                    shape
+                                )
+                                .kineticClickable(
+                                    role = Role.Button,
+                                    boundedShape = shape,
+                                    onClick = { onMaxPing(ceiling) }
+                                )
+                                .padding(horizontal = 9.dp, vertical = 5.dp)
+                        ) {
+                            Text(
+                                trx(label),
+                                color = if (selected) Aether.Cyan else Aether.InkMuted,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                                maxLines = 1
+                            )
+                        }
+                    }
+                }
+                HorizontalDivider(color = Aether.GlassBorderSoft)
+                ServersMenuItem(
+                    label = "Reset filters",
+                    icon = HomeIcon.RESET,
+                    tone = Aether.Amber,
+                    onClick = { onAdvancedAction(ServersAdvancedAction.RESET) }
+                )
+                ServersMenuItem(
+                    label = "Refresh all sources",
+                    icon = HomeIcon.DOWNLOAD,
+                    tone = Aether.Amethyst,
+                    enabled = !repo.busy,
+                    onClick = { onAdvancedAction(ServersAdvancedAction.REFRESH_ALL) }
+                )
+                ServersMenuItem(
+                    label = "Rank all servers",
+                    icon = HomeIcon.RANK,
+                    tone = Aether.Emerald,
+                    enabled = !repo.busy,
+                    onClick = { onAdvancedAction(ServersAdvancedAction.RANK_ALL) }
+                )
+                ServersMenuItem(
+                    label = if (repo.libraryFreedomHidden) {
+                        "Show Marble Freedom"
+                    } else {
+                        "Hide Marble Freedom"
+                    },
+                    icon = HomeIcon.SHIELD,
+                    tone = Aether.Amethyst,
+                    onClick = { onAdvancedAction(ServersAdvancedAction.TOGGLE_FREEDOM) }
+                )
+                HorizontalDivider(color = Aether.GlassBorderSoft)
+                ServersMenuItem(
+                    label = "All filters…",
+                    icon = HomeIcon.MENU,
+                    tone = Aether.Cyan,
+                    onClick = { onAdvancedAction(ServersAdvancedAction.ALL_FILTERS) }
+                )
+            }
+        }
+
+        // Page-wide ping: measures every server of the current scope at once.
+        val pingLabel = trx(
+            if (groupActive) "Ping every server in this group" else "Ping every server"
+        )
+        Box(
+            modifier = Modifier
+                .size(38.dp)
+                .clip(ServersBadgeShape)
+                .background(if (busy) Aether.Cyan.copy(alpha = .12f) else Aether.GlassStrong.copy(alpha = .30f))
+                .semantics { contentDescription = pingLabel }
+                .kineticClickable(
+                    enabled = !repo.busy,
+                    role = Role.Button,
+                    boundedShape = ServersBadgeShape,
+                    onClick = onPingAll
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            if (busy) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(16.dp),
+                    color = Aether.Cyan,
+                    strokeWidth = 2.dp
+                )
+            } else {
+                HomeVectorIcon(HomeIcon.PING, Aether.Ink, Modifier.size(17.dp))
+            }
+        }
+    }
+}
+
+/** One capsule of the filter rail: icon, live label, and an × that appears only when it filters. */
+@Composable
+private fun ServersFilterCapsule(
+    label: String,
+    tone: Color,
+    icon: HomeIcon,
+    onClick: () -> Unit,
+    onClear: (() -> Unit)? = null
+) {
+    Row(
+        modifier = Modifier
+            .heightIn(min = 38.dp)
+            .widthIn(max = 190.dp)
+            .clip(ServersPillShape)
+            .background(tone.copy(alpha = .10f))
+            .border(1.dp, tone.copy(alpha = .26f), ServersPillShape)
+            .kineticClickable(role = Role.Button, boundedShape = ServersPillShape, onClick = onClick)
+            .padding(start = 11.dp, end = if (onClear == null) 12.dp else 5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        HomeVectorIcon(icon, tone, Modifier.size(14.dp))
+        Text(
+            trx(label),
+            color = tone,
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f, fill = false)
+        )
+        if (onClear != null) {
+            val clearLabel = trx("Clear")
+            Box(
+                modifier = Modifier
+                    .size(26.dp)
+                    .clip(CircleShape)
+                    .semantics { contentDescription = clearLabel }
+                    .kineticClickable(
+                        role = Role.Button,
+                        boundedShape = CircleShape,
+                        showIndication = false,
+                        onClick = onClear
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                HomeVectorIcon(HomeIcon.CANCEL, tone, Modifier.size(11.dp))
+            }
+        }
+    }
+}
+
+/** The live probe/refresh strip: it appears only while something is actually being measured. */
+@Composable
+private fun ServersProbeStrip(repo: AppRepository) {
+    val done = repo.probeDone.coerceAtMost(repo.probeTotal)
+    val progress = if (repo.probeTotal > 0) done.toFloat() / repo.probeTotal.toFloat() else 0f
+    val refreshing = repo.refreshingSources.isNotEmpty()
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(ServersCardShape)
+            .background(Aether.VoidElevated)
+            .border(1.dp, Aether.Cyan.copy(alpha = .22f), ServersCardShape)
+            .padding(horizontal = 13.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(7.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            HomeVectorIcon(
+                if (refreshing) HomeIcon.DOWNLOAD else HomeIcon.PING,
+                Aether.Cyan,
+                Modifier.size(15.dp)
+            )
+            Text(
+                if (refreshing) trx("Refreshing sources") else trx("Measuring servers"),
+                color = Aether.Ink,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                modifier = Modifier.weight(1f)
+            )
+            if (repo.probeTotal > 0) {
+                Text(
+                    "$done/${repo.probeTotal}",
+                    color = Aether.Cyan,
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold
+                    )
+                )
+            }
+        }
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(4.dp)
+                .clip(ServersPillShape)
+                .background(Aether.GlassStrong.copy(alpha = .40f))
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(progress.coerceIn(0f, 1f))
+                    .fillMaxHeight()
+                    .clip(ServersPillShape)
+                    .background(Aether.Cyan)
+            )
+        }
+        if (repo.probeLastName.isNotBlank()) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(7.dp)
             ) {
-                Text(
-                    trx("End of source"),
-                    color = Aether.InkFaint,
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.Medium,
-                    maxLines = 1
+                val tone = when (repo.probeLastOutcome) {
+                    "FAILED" -> Aether.Danger
+                    "OK" -> Aether.Emerald
+                    else -> Aether.Cyan
+                }
+                HomeVectorIcon(
+                    when (repo.probeLastOutcome) {
+                        "FAILED" -> HomeIcon.CANCEL
+                        "OK" -> HomeIcon.PING
+                        else -> HomeIcon.BENCHMARK
+                    },
+                    tone,
+                    Modifier.size(13.dp)
                 )
-                Canvas(
+                Text(
+                    stripLeadingFlag(repo.probeLastName),
+                    modifier = Modifier.weight(1f),
+                    color = Aether.InkMuted,
+                    style = MaterialTheme.typography.labelSmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    when (repo.probeLastOutcome) {
+                        "FAILED" -> "FAILED"
+                        "OK" -> "${repo.probeLastLatencyMs} ms"
+                        else -> "…"
+                    },
+                    color = tone,
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold
+                    )
+                )
+            }
+        }
+    }
+}
+
+/** What the page says when there is nothing to list: a reason, and the way out of it. */
+@Composable
+private fun ServersEmptyState(
+    empty: Boolean,
+    filtered: Boolean,
+    onClearFilters: () -> Unit,
+    onAdd: () -> Unit
+) {
+    PrismPanel(
+        modifier = Modifier.fillMaxWidth(),
+        accent = Aether.Cyan,
+        contentPadding = PaddingValues(18.dp),
+        verticalSpacing = 9.dp
+    ) {
+        Text(
+            trx(if (empty) "No connections yet" else "Nothing matches"),
+            color = Aether.Ink,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold
+        )
+        Text(
+            if (empty) {
+                trx("Add a server, paste a config or import a subscription to get started.")
+            } else if (filtered) {
+                trx("No server matches the current filters.")
+            } else {
+                trx("This group has no servers yet.")
+            },
+            color = Aether.InkFaint,
+            style = MaterialTheme.typography.bodySmall
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (!empty) {
+                CyberButton(
+                    label = "Clear filters",
+                    color = Aether.Amber,
+                    onClick = onClearFilters
+                )
+            }
+            CyberButton(
+                label = "Add servers",
+                color = Aether.Cyan,
+                variant = PrismButtonVariant.Primary,
+                onClick = onAdd
+            )
+        }
+    }
+}
+
+/** The quiet line that replaces a folded group's servers. */
+@Composable
+private fun ServersFoldedNote(count: Int) {
+    Text(
+        trx("$count servers hidden"),
+        color = Aether.InkFaint,
+        style = MaterialTheme.typography.labelSmall,
+        modifier = Modifier.padding(start = 6.dp)
+    )
+}
+
+// --------------------------------------------------------------------------- group header
+
+/**
+ * One group header.
+ *
+ * Folded it is a single rounded row — chevron, name, count and the auto-update state. Open it
+ * grows its own facts: the plan usage box, the expiry line, the provider website capsule, the
+ * refresh control and the group menu. Nothing here resizes the servers below it.
+ */
+@Composable
+private fun ServersGroupHeader(
+    group: LibraryGroup,
+    subscription: Subscription?,
+    collapsed: Boolean,
+    shown: Int,
+    total: Int,
+    refreshing: Boolean,
+    autoRefresh: Boolean,
+    onToggle: () -> Unit,
+    onRefresh: () -> Unit,
+    onWebsite: (String) -> Unit,
+    onMenu: (ServersGroupAction) -> Unit
+) {
+    val accent = when (group.kind) {
+        LibraryGroupKind.FREEDOM -> Aether.Amethyst
+        else -> Aether.Cyan
+    }
+    val local = subscription?.url?.isBlank() == true
+    val chevronRotation by animateFloatAsState(
+        targetValue = if (collapsed) 90f else -90f,
+        animationSpec = MarbleMotionSpecs.ResponseFloat,
+        label = "servers-group-chevron"
+    )
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(ServersCardShape)
+            .background(Aether.VoidElevated)
+            .border(1.dp, Aether.GlassBorderSoft, ServersCardShape)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .kineticClickable(role = Role.Button, boundedShape = ServersCardShape, onClick = onToggle)
+                .padding(start = 11.dp, end = 6.dp, top = 11.dp, bottom = 11.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(30.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(accent.copy(alpha = .10f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Box(
                     Modifier
-                        .weight(1f)
-                        .height(2.dp)
+                        .graphicsLayer { rotationZ = chevronRotation }
+                        .size(14.dp)
                 ) {
-                    val y = size.height / 2f
-                    drawLine(
-                        accent.copy(alpha = .18f),
-                        Offset(0f, y),
-                        Offset(size.width, y),
-                        1.dp.toPx(),
-                        pathEffect = PathEffect.dashPathEffect(floatArrayOf(3f, 5f))
+                    HomeVectorIcon(HomeIcon.CHEVRON, accent, Modifier.fillMaxSize())
+                }
+            }
+            Spacer(Modifier.width(10.dp))
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    if (group.flag.isNotBlank()) {
+                        Text(group.flag, style = MaterialTheme.typography.titleSmall, maxLines = 1)
+                    }
+                    Text(
+                        group.title,
+                        color = Aether.Ink,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
                     )
                 }
-                if (shown != total) {
+                Text(
+                    when (group.kind) {
+                        LibraryGroupKind.FREEDOM -> "Freedom ($total)"
+                        else -> if (total == 1) "1 server" else "$total servers"
+                    } + if (shown != total) " • $shown shown" else "",
+                    color = Aether.InkFaint,
+                    style = MaterialTheme.typography.labelSmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            if (subscription != null) {
+                val refreshLabel = trx("Refresh ${group.title}")
+                Box(
+                    modifier = Modifier
+                        .size(34.dp)
+                        .clip(RoundedCornerShape(11.dp))
+                        .semantics { contentDescription = refreshLabel }
+                        .kineticClickable(
+                            enabled = !local,
+                            role = Role.Button,
+                            boundedShape = RoundedCornerShape(11.dp),
+                            onClick = onRefresh
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (refreshing) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(15.dp),
+                            color = Aether.Amethyst,
+                            strokeWidth = 2.dp
+                        )
+                    } else {
+                        HomeVectorIcon(
+                            HomeIcon.RESET,
+                            if (local) Aether.InkFaint else Aether.Amethyst,
+                            Modifier.size(16.dp)
+                        )
+                    }
+                }
+            }
+            ServersGroupMenuButton(
+                group = group,
+                subscription = subscription,
+                autoRefresh = autoRefresh,
+                onMenu = onMenu
+            )
+        }
+
+        AnimatedVisibility(
+            visible = !collapsed && (subscription != null || group.kind == LibraryGroupKind.FREEDOM),
+            enter = fadeIn(MarbleMotionSpecs.ResponseFloat) + expandVertically(MarbleMotionSpecs.Layout),
+            exit = fadeOut(MarbleMotionSpecs.ExitFloat) + shrinkVertically(MarbleMotionSpecs.Layout)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 11.dp, end = 11.dp, bottom = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                if (subscription != null && !local) {
+                    // Plan accounting, exactly as the provider reported it.
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Aether.Cyan.copy(alpha = .10f))
+                            .padding(horizontal = 11.dp, vertical = 9.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        HomeVectorIcon(HomeIcon.INFO, Aether.Cyan, Modifier.size(15.dp))
+                        Text(
+                            subscriptionUsageText(subscription),
+                            color = Aether.Cyan,
+                            style = MaterialTheme.typography.labelMedium.copy(
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold
+                            ),
+                            maxLines = 1
+                        )
+                    }
                     Text(
-                        "$shown/$total",
-                        color = accent.copy(alpha = .85f),
+                        "${trx("Expires")}: ${subscriptionExpiryText(subscription)}",
+                        color = Aether.InkFaint,
                         style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.SemiBold,
                         maxLines = 1
+                    )
+                } else if (group.kind == LibraryGroupKind.FREEDOM) {
+                    Text(
+                        trx("Local engine • no subscription"),
+                        color = Aether.InkFaint,
+                        style = MaterialTheme.typography.labelSmall,
+                        maxLines = 1
+                    )
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    if (subscription != null && subscription.url.isNotBlank()) {
+                        Row(
+                            modifier = Modifier
+                                .heightIn(min = 32.dp)
+                                .clip(ServersPillShape)
+                                .border(1.dp, Aether.GlassBorderSoft, ServersPillShape)
+                                .kineticClickable(
+                                    role = Role.Button,
+                                    boundedShape = ServersPillShape,
+                                    onClick = { onWebsite(subscription.url) }
+                                )
+                                .padding(horizontal = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            HomeVectorIcon(HomeIcon.GLOBE, Aether.Ink, Modifier.size(13.dp))
+                            Text(
+                                trx("Website"),
+                                color = Aether.Ink,
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1
+                            )
+                        }
+                    }
+                    Text(
+                        when {
+                            subscription == null -> trx("Local engine")
+                            local -> trx("Local source")
+                            autoRefresh -> trx("Auto-update on")
+                            else -> trx("Auto-update off")
+                        },
+                        color = Aether.InkFaint,
+                        style = MaterialTheme.typography.labelSmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }
@@ -4283,255 +4959,427 @@ private fun LibraryModuleTail(
     }
 }
 
-/**
- * MARBLE_SERVERS_FLAT_V119 — one flat rounded overflow-menu silhouette, independent of Home style.
- */
-private fun libraryMenuShape(flavor: HomeFlavor): RoundedCornerShape = RoundedCornerShape(14.dp)
-
-/** MARBLE_SERVERS_FLAT_V119 — menu items always use the product face, never instrument type. */
-private fun libraryMenuMonospace(flavor: HomeFlavor): Boolean = false
-
-/**
- * The protocol accent of a node, keyed by its wire scheme. Every row paints the scheme in its own
- * colour so the protocol column reads at a glance, whichever Home style the row wears.
- *
- * The tones come from the active theme palette, so the lookup runs through `Aether.*`
- * CompositionLocal getters and has to be `@Composable`, exactly like the other tone resolvers in
- * this file (settingsTabTone, healthColor). Both call sites already render inside a server row.
- */
+/** The three-dot control of one group header, with its menu anchored underneath. */
 @Composable
-private fun protocolSchemeTone(scheme: String): Color = when (scheme.trim().uppercase()) {
+private fun ServersGroupMenuButton(
+    group: LibraryGroup,
+    subscription: Subscription?,
+    autoRefresh: Boolean,
+    onMenu: (ServersGroupAction) -> Unit
+) {
+    var open by remember(group.key) { mutableStateOf(false) }
+    val menuLabel = trx("Group actions")
+    Box {
+        Box(
+            modifier = Modifier
+                .size(34.dp)
+                .clip(RoundedCornerShape(11.dp))
+                .semantics { contentDescription = menuLabel }
+                .kineticClickable(
+                    role = Role.Button,
+                    boundedShape = RoundedCornerShape(11.dp),
+                    onClick = { open = true }
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            HomeVectorIcon(HomeIcon.MORE, if (open) Aether.Cyan else Aether.InkMuted, Modifier.size(16.dp))
+        }
+        ServersGroupMenu(
+            group = group,
+            subscription = subscription,
+            autoRefresh = autoRefresh,
+            expanded = open,
+            onDismiss = { open = false },
+            onMenu = onMenu
+        )
+    }
+}
+
+/** The three-dot menu of one group header. */
+@Composable
+private fun ServersGroupMenu(
+    group: LibraryGroup,
+    subscription: Subscription?,
+    autoRefresh: Boolean,
+    expanded: Boolean,
+    onDismiss: () -> Unit,
+    onMenu: (ServersGroupAction) -> Unit
+) {
+    val open = expanded
+    DropdownMenu(
+        expanded = open,
+        onDismissRequest = onDismiss,
+        shape = ServersMenuShape,
+        containerColor = Aether.VoidElevated
+    ) {
+        if (subscription != null) {
+            ServersMenuItem(
+                label = "Manage subscription",
+                icon = HomeIcon.MODE,
+                tone = Aether.Cyan,
+                detail = if (subscription.url.isBlank()) {
+                    "Local source"
+                } else {
+                    "Updated ${relativeTime(subscription.updatedAt)}"
+                },
+                onClick = {
+                    onDismiss()
+                    onMenu(ServersGroupAction.MANAGE)
+                }
+            )
+            ServersMenuItem(
+                label = "Refresh",
+                icon = HomeIcon.RESET,
+                tone = Aether.Amethyst,
+                detail = if (autoRefresh) "Auto-update is on" else "Auto-update is off",
+                enabled = subscription.url.isNotBlank(),
+                onClick = {
+                    onDismiss()
+                    onMenu(ServersGroupAction.REFRESH)
+                }
+            )
+            HorizontalDivider(color = Aether.GlassBorderSoft)
+            ServersMenuItem(
+                label = "Copy subscription URL",
+                icon = HomeIcon.SHARE,
+                tone = Aether.Ink,
+                enabled = subscription.url.isNotBlank(),
+                onClick = {
+                    onDismiss()
+                    onMenu(ServersGroupAction.COPY_URL)
+                }
+            )
+            ServersMenuItem(
+                label = "Copy all servers",
+                icon = HomeIcon.CLIPBOARD,
+                tone = Aether.Ink,
+                enabled = group.profiles.isNotEmpty(),
+                onClick = {
+                    onDismiss()
+                    onMenu(ServersGroupAction.COPY_SERVERS)
+                }
+            )
+        }
+        ServersMenuItem(
+            label = "Ping this group",
+            icon = HomeIcon.PING,
+            tone = Aether.Emerald,
+            onClick = {
+                onDismiss()
+                onMenu(ServersGroupAction.PING)
+            }
+        )
+        ServersMenuItem(
+            label = "Rank this group",
+            icon = HomeIcon.RANK,
+            tone = Aether.Cyan,
+            onClick = {
+                onDismiss()
+                onMenu(ServersGroupAction.RANK)
+            }
+        )
+        HorizontalDivider(color = Aether.GlassBorderSoft)
+        ServersMenuItem(
+            label = "Show only this group",
+            icon = HomeIcon.FILTER,
+            tone = Aether.Ink,
+            onClick = {
+                onDismiss()
+                onMenu(ServersGroupAction.SHOW_ONLY)
+            }
+        )
+        ServersMenuItem(
+            label = "Show all groups",
+            icon = HomeIcon.SERVER,
+            tone = Aether.Ink,
+            onClick = {
+                onDismiss()
+                onMenu(ServersGroupAction.SHOW_ALL)
+            }
+        )
+        if (subscription != null) {
+            HorizontalDivider(color = Aether.GlassBorderSoft)
+            ServersMenuItem(
+                label = "Delete source",
+                icon = HomeIcon.TRASH,
+                tone = Aether.Danger,
+                onClick = {
+                    onDismiss()
+                    onMenu(ServersGroupAction.DELETE)
+                }
+            )
+        }
+    }
+}
+
+// --------------------------------------------------------------------------- server card
+
+/** The tone of a measured latency, in the active theme's own palette. */
+@Composable
+private fun serverPingTone(latencyMs: Int, measured: Boolean, testing: Boolean): Color = when {
+    testing -> Aether.Cyan
+    !measured -> Aether.Danger
+    latencyMs < 100 -> Aether.Emerald
+    latencyMs <= 250 -> Aether.Amber
+    else -> Aether.Danger
+}
+
+/** The wire-scheme accent of a node, keyed by protocol. */
+@Composable
+private fun protocolTone(scheme: String): Color = when (scheme.trim().uppercase()) {
     "VLESS" -> Aether.Amethyst
     "VMESS" -> Aether.Cyan
     "TROJAN" -> Aether.Emerald
     "SHADOWSOCKS", "SS" -> Aether.Amber
-    "HYSTERIA", "H2", "HTTP", "SOCKS" -> Aether.SlateBright
-    else -> Aether.Slate
+    "HYSTERIA2", "HY2" -> Aether.SlateBright
+    "WIREGUARD" -> Aether.Slate
+    "SSH" -> Aether.InkMuted
+    else -> Aether.Cyan
 }
 
-/** The visible endpoint of a server: host (brackets stripped) and port, when the row shows it. */
-private fun proxyAddress(profile: ProxyProfile): String = listOfNotNull(
-    profile.host.trim().removeSurrounding("[", "]").takeIf(String::isNotBlank),
-    profile.port.takeIf { it > 0 }?.toString()
-).joinToString(":")
-
 /**
- * The identity line every server row carries under its name: the protocol in its own colour plus
- * the visible address, or the style's connected phrase while this node is the live route. The
- * line is shared by all five flavors so the anatomy of a row never drifts between styles.
+ * One server, one card.
+ *
+ * Anatomy, left to right: the country, the identity column (bold name above a protocol badge and
+ * the endpoint), the latency capsule and the row's own menu. The card is a button — tapping it
+ * connects — and swiping right still opens the rename dialog for people who liked that shortcut.
+ * The connected server keeps its geometry: only the frame and one word change.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun LibraryServerIdentityLine(
+private fun ServersNodeCard(
     profile: ProxyProfile,
+    repo: AppRepository,
+    result: BenchmarkResult?,
     active: Boolean,
-    connectedLabel: String,
-    routeTone: Color,
-    monospace: Boolean = false
+    probeState: ProbeState,
+    onConnect: () -> Unit,
+    onEdit: () -> Unit,
+    onMove: () -> Unit,
+    onQr: () -> Unit,
+    onDelete: () -> Unit,
+    onDetails: () -> Unit
 ) {
-    if (active) {
-        Text(
-            connectedLabel,
-            color = routeTone.copy(alpha = .92f),
-            style = if (monospace) {
-                MaterialTheme.typography.labelSmall.copy(
-                    fontFamily = FontFamily.Monospace,
-                    letterSpacing = .4.sp
-                )
-            } else {
-                MaterialTheme.typography.labelSmall
-            },
-            fontWeight = FontWeight.SemiBold,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-    } else {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            Text(
-                profile.scheme.trim().uppercase().ifBlank { "PROXY" },
-                color = protocolSchemeTone(profile.scheme),
-                style = MaterialTheme.typography.labelSmall.copy(
-                    fontFamily = if (monospace) FontFamily.Monospace else null,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = if (monospace) .6.sp else 0.sp
-                ),
-                maxLines = 1
-            )
-            Text(
-                proxyAddress(profile),
-                color = Aether.InkFaint,
-                style = MaterialTheme.typography.labelSmall.copy(
-                    fontFamily = if (monospace) FontFamily.Monospace else null
-                ),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f)
-            )
+    val measured = result?.takeIf { it.success > 0 }
+    val latency = measured?.latencyMs?.toInt() ?: 0
+    val testing = probeState == ProbeState.TESTING
+    val securing = !active && repo.state == "CONNECTING" && repo.stateDetail == profile.name
+    val routeTone = if (active) Aether.Emerald else Aether.Cyan
+    val frameTone = when {
+        active -> Aether.Emerald
+        securing -> Aether.Amethyst
+        else -> Aether.GlassBorderSoft
+    }
+    val country = ServersQuery.countryOf(profile)
+    val name = stripLeadingFlag(profile.name)
+    val flag = leadingFlagGlyph(profile.name) ?: country.flag
+    val clipboard = LocalClipboardManager.current
+    val builtInFreedom = ServerlessFreedomEngine.isServerless(profile)
+
+    val swipeState = rememberSwipeToDismissBoxState()
+    LaunchedEffect(swipeState.settledValue) {
+        when (swipeState.settledValue) {
+            SwipeToDismissBoxValue.StartToEnd -> {
+                onEdit()
+                swipeState.reset()
+            }
+            SwipeToDismissBoxValue.EndToStart -> swipeState.reset()
+            SwipeToDismissBoxValue.Settled -> Unit
         }
     }
-}
 
-/**
- * MARBLE_SERVERS_FLAT_V119 — one server, compact, inside its source module. A single flat,
- * theme-independent line: state bar or ordinal, flag, name plus the protocol/address identity
- * line, a reserved latency slot, and the per-row actions tucked behind the trailing three-dot
- * menu. The row never grows when a measurement lands.
- */
-@Composable
-private fun LibraryServerRow(
-    profile: ProxyProfile,
-    flavor: HomeFlavor,
-    chrome: LibraryChrome,
-    active: Boolean,
-    securing: Boolean,
-    testing: Boolean,
-    latency: Int,
-    health: Color,
-    ordinal: Int,
-    divider: Boolean,
-    accent: Color,
-    enabled: Boolean,
-    onConnect: () -> Unit,
-    trailing: @Composable () -> Unit
-) {
-    val routeTone = if (active) chrome.connectedTone else accent
-    val name = stripLeadingFlag(profile.name)
-    val flag = leadingFlagGlyph(profile.name)
-        ?: countryGlyph(profile.host).takeIf { it.isNotBlank() && it != "◈" }
-    val initial = profile.scheme.trim().take(1).uppercase().ifBlank { "S" }
-    val rowHeight = 62.dp
-
-    LibraryModuleSegment(
-        accent = accent,
-        emphasized = active || securing,
-        flavor = flavor,
-        divider = divider
-    ) {
-        // State flood: painted under the content, so the measured box of the row never changes.
-        if (active || securing || testing) {
-            val tone = if (testing) Aether.Cyan else routeTone
-            Canvas(Modifier.matchParentSize()) {
-                drawRect(tone.copy(alpha = if (active) .10f else .06f))
-            }
-        }
-
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(rowHeight)
-                .kineticClickable(
-                    enabled = enabled && !active,
-                    role = Role.Button,
-                    onClick = onConnect
-                )
-        ) {
+    SwipeToDismissBox(
+        state = swipeState,
+        enableDismissFromStartToEnd = !repo.busy && !builtInFreedom,
+        enableDismissFromEndToStart = false,
+        backgroundContent = {
+            val tone = Aether.Amethyst
             Row(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(start = 14.dp, end = 8.dp),
+                    .clip(ServersCardShape)
+                    .background(tone.copy(alpha = .12f))
+                    .padding(horizontal = 18.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                if (active) {
-                    Box(
-                        Modifier
-                            .width(2.dp)
-                            .height(30.dp)
-                            .clip(RoundedCornerShape(999.dp))
-                            .background(routeTone)
-                    )
-                    Spacer(Modifier.width(10.dp))
-                } else {
-                    Text(
-                        "%02d".format(ordinal + 1),
-                        color = Aether.InkFaint,
-                        style = MaterialTheme.typography.labelSmall,
-                        modifier = Modifier.width(20.dp)
-                    )
-                    Spacer(Modifier.width(8.dp))
-                }
-                Text(
-                    flag ?: initial,
-                    style = MaterialTheme.typography.titleSmall,
-                    maxLines = 1
-                )
+                HomeVectorIcon(HomeIcon.PENCIL, tone, Modifier.size(19.dp))
                 Spacer(Modifier.width(8.dp))
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(1.dp)
+                Text(
+                    trx("Edit"),
+                    color = tone,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(ServersCardShape)
+                .background(Aether.VoidElevated)
+                .border(
+                    width = if (active || securing) 1.4.dp else 1.dp,
+                    color = frameTone.copy(alpha = if (active || securing) .55f else 1f),
+                    shape = ServersCardShape
+                )
+                .kineticClickable(
+                    enabled = !repo.busy && !active,
+                    role = Role.Button,
+                    boundedShape = ServersCardShape,
+                    onClick = onConnect
+                )
+                .padding(start = 12.dp, end = 5.dp, top = 11.dp, bottom = 11.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Country: the flag the label carried, else the resolved one, else the scheme initial.
+            Text(
+                flag.takeIf { it.isNotBlank() && it != ServerCountry.UNKNOWN.flag }
+                    ?: profile.scheme.trim().take(1).uppercase().ifBlank { "S" },
+                style = MaterialTheme.typography.titleMedium,
+                maxLines = 1,
+                modifier = Modifier.width(26.dp)
+            )
+            Spacer(Modifier.width(8.dp))
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     Text(
                         name,
-                        modifier = Modifier.basicMarquee(
-                            iterations = Int.MAX_VALUE,
-                            initialDelayMillis = 1600
-                        ),
-                        color = if (active) Aether.Ink else Aether.Ink.copy(alpha = .92f),
+                        color = Aether.Ink,
                         style = MaterialTheme.typography.titleSmall,
-                        fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium,
+                        fontWeight = FontWeight.Bold,
                         maxLines = 1,
                         softWrap = false,
-                        overflow = TextOverflow.Clip
+                        overflow = TextOverflow.Clip,
+                        modifier = Modifier
+                            .weight(1f, fill = false)
+                            .basicMarquee(iterations = Int.MAX_VALUE, initialDelayMillis = 2000)
                     )
-                    LibraryServerIdentityLine(
-                        profile = profile,
-                        active = active,
-                        connectedLabel = chrome.connectedLabel,
-                        routeTone = routeTone
+                    if (active) {
+                        Text(
+                            trx("Connected"),
+                            color = routeTone,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            modifier = Modifier
+                                .clip(ServersBadgeShape)
+                                .background(routeTone.copy(alpha = .13f))
+                                .padding(horizontal = 6.dp, vertical = 1.dp)
+                        )
+                    } else if (securing) {
+                        Text(
+                            trx("Securing"),
+                            color = Aether.Amethyst,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1
+                        )
+                    }
+                }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    val tone = protocolTone(profile.scheme)
+                    Text(
+                        ServersQuery.badge(profile),
+                        color = tone,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        modifier = Modifier
+                            .clip(ServersBadgeShape)
+                            .background(tone.copy(alpha = .12f))
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
+                    Text(
+                        ServersQuery.address(profile),
+                        color = Aether.InkFaint,
+                        style = MaterialTheme.typography.labelSmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
                     )
                 }
-                LibraryLatencyReadout(latency, health, testing, flavor)
-                trailing()
             }
+            Spacer(Modifier.width(6.dp))
+            ServersPingCapsule(
+                latencyMs = latency,
+                measured = measured != null,
+                testing = testing
+            )
+            ServersNodeMenu(
+                profile = profile,
+                repo = repo,
+                builtInFreedom = builtInFreedom,
+                onEdit = onEdit,
+                onMove = onMove,
+                onQr = onQr,
+                onDelete = onDelete,
+                onDetails = onDetails,
+                onCopyLink = {
+                    clipboard.setText(
+                        AnnotatedString(profile.raw.trim().ifBlank { profile.configJson })
+                    )
+                    repo.setRuntimeMessage("Config copied")
+                },
+                onCopyJson = {
+                    clipboard.setText(AnnotatedString(profile.configJson))
+                    repo.setRuntimeMessage("Xray JSON copied")
+                }
+            )
         }
     }
 }
 
 /**
- * The measured latency of one server, flat and compact: a row must never grow because a benchmark
- * landed. The number is colour-coded by quality and spoken with its judgement.
+ * The latency capsule. It never changes size: an unmeasured server reads "0 ms" in the theme's
+ * danger tone, and TalkBack is told the truth — that nothing has been measured yet.
  */
 @Composable
-private fun LibraryLatencyReadout(
-    latency: Int,
-    health: Color,
-    testing: Boolean,
-    flavor: HomeFlavor
+private fun ServersPingCapsule(
+    latencyMs: Int,
+    measured: Boolean,
+    testing: Boolean
 ) {
+    val tone = serverPingTone(latencyMs, measured, testing)
+    val spoken = when {
+        testing -> trx("Testing server")
+        measured -> trx("Latency") + " $latencyMs ms, " + libraryPingQuality(latencyMs)
+        else -> trx("Not measured")
+    }
     Box(
         modifier = Modifier
-            .width(62.dp)
+            .widthIn(min = 62.dp)
             .height(30.dp)
-            // The number is painted; the judgement is spoken. TalkBack reads "148 ms, good" instead
-            // of a bare integer, and the row never grows to carry the word.
-            .semantics {
-                contentDescription = if (latency > 0) {
-                    "Latency $latency milliseconds, ${libraryPingQuality(latency)}"
-                } else if (testing) {
-                    "Testing server"
-                } else {
-                    "Not measured"
-                }
-            },
-        contentAlignment = Alignment.CenterEnd
+            .clip(ServersPillShape)
+            .background(tone.copy(alpha = .12f))
+            .semantics { contentDescription = spoken },
+        contentAlignment = Alignment.Center
     ) {
         when {
             testing -> CircularProgressIndicator(
                 modifier = Modifier.size(14.dp),
-                color = Aether.Cyan,
+                color = tone,
                 strokeWidth = 1.8.dp
             )
 
-            latency > 0 -> Row(
+            else -> Row(
+                modifier = Modifier.padding(horizontal = 9.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(3.dp)
             ) {
                 Text(
-                    "$latency",
-                    color = health,
-                    style = MaterialTheme.typography.labelLarge.copy(
+                    "$latencyMs",
+                    color = tone,
+                    style = MaterialTheme.typography.labelMedium.copy(
                         fontWeight = FontWeight.Bold,
                         fontFeatureSettings = "tnum"
                     ),
@@ -4539,244 +5387,1272 @@ private fun LibraryLatencyReadout(
                 )
                 Text(
                     trx("ms"),
-                    color = Aether.InkFaint,
+                    color = tone.copy(alpha = .80f),
                     style = MaterialTheme.typography.labelSmall,
                     maxLines = 1
                 )
             }
-
-            // The latency slot is deliberately reserved while nothing has been measured: fixed
-            // width, no dash, no icon. The colour-coded fine value appears only once the user asks
-            // the server for a real tunnel measurement.
-            else -> Unit
         }
     }
 }
 
+/** The three-dot menu of one server card. */
 @Composable
-private fun LibraryFabAction(
-    icon: HomeIcon,
-    label: String,
-    tone: Color,
-    onClick: () -> Unit
+private fun ServersNodeMenu(
+    profile: ProxyProfile,
+    repo: AppRepository,
+    builtInFreedom: Boolean,
+    onEdit: () -> Unit,
+    onMove: () -> Unit,
+    onQr: () -> Unit,
+    onDelete: () -> Unit,
+    onDetails: () -> Unit,
+    onCopyLink: () -> Unit,
+    onCopyJson: () -> Unit
 ) {
-    Row(
-        modifier = Modifier
-            .clip(RoundedCornerShape(999.dp))
-            .shadow(10.dp, RoundedCornerShape(999.dp), spotColor = Color.Black.copy(alpha = .24f))
-            .background(Aether.VoidElevated.copy(alpha = .97f))
-            .border(1.dp, tone.copy(alpha = .42f), RoundedCornerShape(999.dp))
-            .kineticClickable(role = Role.Button, onClick = onClick)
-            .padding(horizontal = 15.dp, vertical = 11.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(9.dp)
-    ) {
-        HomeVectorIcon(icon, tone, Modifier.size(18.dp))
-        Text(
-            trx(label),
-            color = Aether.Ink,
-            style = MaterialTheme.typography.labelMedium,
-            fontWeight = FontWeight.SemiBold,
-            maxLines = 1
+    var open by remember(profile.id, profile.subscriptionId) { mutableStateOf(false) }
+    var jsonOpen by remember(profile.id) { mutableStateOf(false) }
+    var jsonText by remember(profile.id, profile.configJson) {
+        mutableStateOf(profile.configJson)
+    }
+    val canEditJson = !builtInFreedom && !profile.scheme.equals("ssh", true)
+
+    if (jsonOpen) {
+        AlertDialog(
+            onDismissRequest = { jsonOpen = false },
+            containerColor = Aether.VoidElevated,
+            shape = ServersCardShape,
+            title = {
+                Column {
+                    Text(trx("Edit Xray JSON"), color = Aether.Ink)
+                    Text(
+                        stripLeadingFlag(profile.name),
+                        color = Aether.InkFaint,
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(MarbleSpacing.S)) {
+                    OutlinedTextField(
+                        value = jsonText,
+                        onValueChange = { jsonText = it },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 240.dp, max = 420.dp),
+                        colors = marbleOutlinedTextFieldColors(),
+                        textStyle = MaterialTheme.typography.bodySmall.copy(
+                            fontFamily = FontFamily.Monospace
+                        ),
+                        label = { Text(trx("Effective config JSON")) },
+                        minLines = 10,
+                        maxLines = 22
+                    )
+                    Text(
+                        if (profile.subscriptionId == "manual") {
+                            trx("Manual server • edits are stored locally.")
+                        } else {
+                            trx("Subscription server • a refresh can replace this edit.")
+                        },
+                        color = Aether.InkFaint,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            },
+            confirmButton = {
+                MarbleDialogAction(
+                    label = "Save JSON",
+                    tone = Aether.Cyan,
+                    variant = PrismButtonVariant.Primary,
+                    onClick = {
+                        if (repo.updateProfileJson(profile.id, jsonText, profile.subscriptionId)) {
+                            jsonOpen = false
+                        }
+                    }
+                )
+            },
+            dismissButton = {
+                MarbleDialogAction(
+                    label = "Cancel",
+                    tone = Aether.InkMuted,
+                    onClick = { jsonOpen = false }
+                )
+            }
         )
     }
+
+    Box {
+        PrismIconButton(
+            onClick = { open = true },
+            tone = if (open) Aether.Cyan else Aether.InkMuted,
+            selected = open,
+            enabled = !repo.busy,
+            size = 34.dp,
+            descriptiveLabel = "More actions for ${stripLeadingFlag(profile.name)}"
+        ) {
+            HomeVectorIcon(
+                HomeIcon.MORE,
+                if (open) Aether.Cyan else Aether.InkMuted,
+                Modifier.size(16.dp)
+            )
+        }
+        DropdownMenu(
+            expanded = open,
+            onDismissRequest = { open = false },
+            shape = ServersMenuShape,
+            containerColor = Aether.VoidElevated
+        ) {
+            ServersMenuItem(
+                label = "Edit",
+                icon = HomeIcon.PENCIL,
+                tone = Aether.Ink,
+                enabled = !builtInFreedom,
+                onClick = {
+                    open = false
+                    onEdit()
+                }
+            )
+            ServersMenuItem(
+                label = "Copy link",
+                icon = HomeIcon.SHARE,
+                tone = Aether.Ink,
+                onClick = {
+                    open = false
+                    onCopyLink()
+                }
+            )
+            ServersMenuItem(
+                label = "Export QR code",
+                icon = HomeIcon.QR,
+                tone = Aether.Ink,
+                onClick = {
+                    open = false
+                    onQr()
+                }
+            )
+            ServersMenuItem(
+                label = "Ping",
+                icon = HomeIcon.PING,
+                tone = Aether.Cyan,
+                enabled = !repo.busy,
+                onClick = {
+                    open = false
+                    repo.fullTest(profile)
+                }
+            )
+            ServersMenuItem(
+                label = "Move to group",
+                icon = HomeIcon.FOLDER,
+                tone = Aether.Ink,
+                enabled = !builtInFreedom && !repo.busy,
+                onClick = {
+                    open = false
+                    onMove()
+                }
+            )
+            HorizontalDivider(color = Aether.GlassBorderSoft)
+            ServersMenuItem(
+                label = "Details",
+                icon = HomeIcon.DETAILS,
+                tone = Aether.InkMuted,
+                onClick = {
+                    open = false
+                    onDetails()
+                }
+            )
+            ServersMenuItem(
+                label = "Copy Xray JSON",
+                icon = HomeIcon.CLIPBOARD,
+                tone = Aether.InkMuted,
+                onClick = {
+                    open = false
+                    onCopyJson()
+                }
+            )
+            if (canEditJson) {
+                ServersMenuItem(
+                    label = "Edit Xray JSON",
+                    icon = HomeIcon.MODE,
+                    tone = Aether.InkMuted,
+                    onClick = {
+                        open = false
+                        jsonText = profile.configJson
+                        jsonOpen = true
+                    }
+                )
+            }
+            if (repo.settings.manualSourceEnabled && !builtInFreedom) {
+                ServersMenuItem(
+                    label = "Duplicate to Manual",
+                    icon = HomeIcon.LIBRARY,
+                    tone = Aether.InkMuted,
+                    enabled = !repo.busy,
+                    onClick = {
+                        open = false
+                        repo.duplicateProfile(profile.id, profile.subscriptionId)
+                    }
+                )
+            }
+            if (!builtInFreedom) {
+                HorizontalDivider(color = Aether.GlassBorderSoft)
+                ServersMenuItem(
+                    label = "Delete",
+                    icon = HomeIcon.TRASH,
+                    tone = Aether.Danger,
+                    enabled = !repo.busy,
+                    onClick = {
+                        open = false
+                        onDelete()
+                    }
+                )
+            }
+        }
+    }
+}
+
+// --------------------------------------------------------------------------- server dialogs
+
+/** "Move to group": the server keeps its identity, only its owner changes. */
+@Composable
+private fun ServersMoveDialog(
+    profile: ProxyProfile,
+    repo: AppRepository,
+    onPick: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val targets: List<Pair<String, String>> = buildList {
+        if (repo.settings.manualSourceEnabled) add("manual" to "Manual")
+        repo.subscriptions.forEach { add(it.id to it.name) }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Aether.VoidElevated,
+        shape = ServersCardShape,
+        title = {
+            Column {
+                Text(trx("Move to group"), color = Aether.Ink)
+                Text(
+                    stripLeadingFlag(profile.name),
+                    color = Aether.InkFaint,
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier.heightIn(max = 340.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                if (targets.isEmpty()) {
+                    Text(
+                        trx("No other group can hold this server yet."),
+                        color = Aether.Amber,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+                targets.forEach { (id, label) ->
+                    val current = profile.subscriptionId == id
+                    PrismSelectionTile(
+                        label = label,
+                        selected = current,
+                        tone = Aether.Cyan,
+                        modifier = Modifier.fillMaxWidth(),
+                        detail = if (current) trx("Current group") else "",
+                        minHeight = 44.dp,
+                        alignment = Alignment.CenterStart,
+                        enabled = !current,
+                        onClick = { onPick(id) }
+                    )
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            MarbleDialogAction(label = "Cancel", tone = Aether.InkMuted, onClick = onDismiss)
+        }
+    )
 }
 
 /**
- * MARBLE_SERVERS_V114 / MARBLE_SERVERS_FAB_KINETICS_V116 — the floating clipboard button.
+ * "Export QR code": the config link rendered as a real QR symbol, on device.
  *
- * Three rules, all of them from the product owner:
- *
- *  1. a single tap **imports whatever the clipboard holds** — subscriptions or server configs are
- *     detected by [AppRepository.importClipboard] and land in the right source, so the button is a
- *     true one-tap collector;
- *  2. holding the finger lifts the action stack above the button and turns the button into an **X**;
- *     tapping that X (or the dimmed field) closes it instantly;
- *  3. the button is a **clipboard**, and its reveal/lift kinetics are intentionally fast so the
- *     tap-import and the hold-to-close both answer the finger immediately.
+ * The symbol itself is deliberately pure black on white — a scanner needs maximum contrast, so
+ * this is the one surface that does not follow the theme. Everything around it does.
  */
 @Composable
-private fun LibrarySmartFab(
-    repo: AppRepository,
-    chrome: LibraryChrome,
-    modifier: Modifier = Modifier,
-    onAdd: () -> Unit,
-    onSort: () -> Unit,
-    onImportClipboard: () -> Unit
+private fun ServersQrDialog(
+    profile: ProxyProfile,
+    onShare: (String) -> Unit,
+    onDismiss: () -> Unit
 ) {
-    var revealed by remember { mutableStateOf(false) }
-    var hintShown by rememberSaveable { mutableStateOf(true) }
-    val freedomHidden = repo.libraryFreedomHidden
-    val lift by animateFloatAsState(
-        targetValue = if (revealed) 1f else 0f,
-        animationSpec = MarbleMotionSpecs.FabLift,
-        label = "servers-fab-lift"
-    )
+    val payload = profile.raw.trim().ifBlank { profile.configJson }
+    val symbol = remember(payload) {
+        runCatching { QrCode.encode(payload, QrEcc.M) }
+            .recoverCatching { QrCode.encode(payload, QrEcc.L) }
+            .getOrNull()
+    }
 
-    Box(modifier = modifier.fillMaxSize()) {
-        // A dimmed field behind the revealed actions: it focuses the eye on the stack and gives the
-        // hold gesture an obvious way out.
-        AnimatedVisibility(
-            visible = revealed,
-            enter = fadeIn(MarbleMotionSpecs.QuickReveal),
-            exit = fadeOut(MarbleMotionSpecs.QuickExit)
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Aether.VoidElevated,
+        shape = ServersCardShape,
+        title = {
+            Column {
+                Text(trx("Export QR code"), color = Aether.Ink)
+                Text(
+                    stripLeadingFlag(profile.name),
+                    color = Aether.InkFaint,
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                if (symbol == null) {
+                    Text(
+                        trx("This config is too long to fit in a QR code."),
+                        color = Aether.Amber,
+                        style = MaterialTheme.typography.bodySmall,
+                        textAlign = TextAlign.Center
+                    )
+                } else {
+                    Canvas(
+                        modifier = Modifier
+                            .size(240.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(Color.White)
+                    ) {
+                        val quiet = 4
+                        val total = symbol.size + quiet * 2
+                        val cell = size.minDimension / total
+                        for (row in 0 until symbol.size) {
+                            for (column in 0 until symbol.size) {
+                                if (!symbol.isDark(row, column)) continue
+                                drawRect(
+                                    color = Color.Black,
+                                    topLeft = Offset((column + quiet) * cell, (row + quiet) * cell),
+                                    size = Size(cell + .5f, cell + .5f)
+                                )
+                            }
+                        }
+                    }
+                    Text(
+                        trx("Point another phone at the code to import this server."),
+                        color = Aether.InkFaint,
+                        style = MaterialTheme.typography.labelSmall,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            MarbleDialogAction(
+                label = "Copy link",
+                tone = Aether.Cyan,
+                variant = PrismButtonVariant.Primary,
+                onClick = {
+                    onShare(payload)
+                    onDismiss()
+                }
+            )
+        },
+        dismissButton = {
+            MarbleDialogAction(label = "Close", tone = Aether.InkMuted, onClick = onDismiss)
+        }
+    )
+}
+
+/** Manage one subscription: identity, links, failed-server cleanup and deletion. */
+@Composable
+private fun ServersSubscriptionDialog(
+    subscription: Subscription,
+    repo: AppRepository,
+    nameDraft: String,
+    urlDraft: String,
+    onNameChange: (String) -> Unit,
+    onUrlChange: (String) -> Unit,
+    onPrune: (String) -> Unit,
+    onDelete: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val clipboard = LocalClipboardManager.current
+    val failedPingCount = repo.failedSubscriptionNodeCount(subscription.id, "TCP")
+    val failedTunnelCount = repo.failedSubscriptionNodeCount(subscription.id, "TUNNEL")
+    val disconnected = repo.state == "DISCONNECTED"
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Aether.VoidElevated,
+        shape = ServersCardShape,
+        title = {
+            Column {
+                Text(trx("Manage subscription"), color = Aether.Ink)
+                Text(
+                    "${repo.subscriptionNodeCount(subscription.id)} servers • " +
+                        relativeTime(subscription.updatedAt),
+                    color = Aether.InkFaint,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                OutlinedTextField(
+                    value = nameDraft,
+                    onValueChange = onNameChange,
+                    label = { Text(trx("Source name")) },
+                    singleLine = true,
+                    shape = ServersCardShape,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = marbleOutlinedTextFieldColors()
+                )
+                OutlinedTextField(
+                    value = urlDraft,
+                    onValueChange = onUrlChange,
+                    label = { Text(trx("Subscription URL")) },
+                    singleLine = true,
+                    shape = ServersCardShape,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = marbleOutlinedTextFieldColors()
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                    CyberButton(
+                        label = if (subscription.url.isBlank()) "Local source" else "Copy URL",
+                        color = Aether.Emerald,
+                        modifier = Modifier.weight(1f),
+                        enabled = subscription.url.isNotBlank()
+                    ) {
+                        clipboard.setText(AnnotatedString(subscription.url))
+                        repo.setRuntimeMessage("Subscription URL copied")
+                    }
+                    CyberButton(
+                        label = "Copy servers",
+                        color = Aether.Cyan,
+                        modifier = Modifier.weight(1f),
+                        enabled = repo.subscriptionNodeCount(subscription.id) > 0
+                    ) {
+                        clipboard.setText(AnnotatedString(repo.subscriptionRawText(subscription.id)))
+                        repo.setRuntimeMessage(
+                            "${repo.subscriptionNodeCount(subscription.id)} server links copied"
+                        )
+                    }
+                }
+                HorizontalDivider(color = Aether.GlassBorderSoft)
+                Text(
+                    trx("Clean failed tests"),
+                    color = Aether.InkFaint,
+                    style = MaterialTheme.typography.labelSmall
+                )
+                CyberButton(
+                    label = "Remove failed ping ($failedPingCount)",
+                    color = Aether.Danger,
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !repo.busy && failedPingCount > 0 && disconnected
+                ) { onPrune("TCP") }
+                CyberButton(
+                    label = "Remove failed tunnel ($failedTunnelCount)",
+                    color = Aether.Danger,
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !repo.busy && failedTunnelCount > 0 && disconnected
+                ) { onPrune("TUNNEL") }
+                Text(
+                    trx("Only servers with a stored failed result of that exact test type are removed."),
+                    color = Aether.InkFaint,
+                    style = MaterialTheme.typography.labelSmall
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                    CyberButton(
+                        label = "View servers",
+                        color = Aether.Cyan,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        repo.selectLibrarySource(subscription.id)
+                        onDismiss()
+                    }
+                    CyberButton(
+                        label = if (subscription.url.isBlank()) "Local" else "Refresh",
+                        color = Aether.Amethyst,
+                        modifier = Modifier.weight(1f),
+                        enabled = !repo.busy && subscription.url.isNotBlank()
+                    ) {
+                        onDismiss()
+                        repo.refresh(subscription.id)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            MarbleDialogAction(
+                label = "Save",
+                tone = Aether.Cyan,
+                variant = PrismButtonVariant.Primary,
+                enabled = !repo.busy,
+                onClick = {
+                    if (repo.updateSubscription(subscription.id, nameDraft, urlDraft)) onDismiss()
+                }
+            )
+        },
+        dismissButton = {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                MarbleDialogAction(
+                    label = "Delete",
+                    tone = Aether.Danger,
+                    enabled = !repo.busy,
+                    onClick = onDelete
+                )
+                MarbleDialogAction(label = "Close", tone = Aether.InkMuted, onClick = onDismiss)
+            }
+        }
+    )
+}
+
+// --------------------------------------------------------------------------- add node
+
+/** One row of a dropdown field: its label plus an optional reason it cannot be chosen. */
+private data class ServersOption(
+    val value: String,
+    val label: String = value,
+    val enabled: Boolean = true,
+    val detail: String? = null
+)
+
+/**
+ * A label-outlined dropdown that opens a fully rounded Material 3 menu.
+ *
+ * It is a real [OutlinedTextField] so its label floats and its metrics match the text fields next
+ * to it; the read-only surface simply forwards taps to the menu.
+ */
+@Composable
+private fun ServersDropdownField(
+    label: String,
+    value: String,
+    options: List<ServersOption>,
+    onPick: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var open by remember(label, value) { mutableStateOf(false) }
+    Box(modifier = modifier) {
+        OutlinedTextField(
+            value = options.firstOrNull { it.value == value }?.label ?: value,
+            onValueChange = {},
+            readOnly = true,
+            singleLine = true,
+            label = { Text(trx(label)) },
+            shape = ServersCardShape,
+            colors = marbleOutlinedTextFieldColors(),
+            trailingIcon = {
+                Box(
+                    Modifier
+                        .graphicsLayer { rotationZ = if (open) 180f else 0f }
+                        .size(15.dp)
+                ) {
+                    HomeVectorIcon(HomeIcon.CHEVRON, Aether.InkFaint, Modifier.fillMaxSize())
+                }
+            },
+            modifier = Modifier.fillMaxWidth()
+        )
+        Box(
+            Modifier
+                .matchParentSize()
+                .clickable(enabled = options.any { it.enabled }) { open = true }
+        )
+        DropdownMenu(
+            expanded = open,
+            onDismissRequest = { open = false },
+            shape = ServersMenuShape,
+            containerColor = Aether.VoidElevated
         ) {
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .background(Color.Black.copy(alpha = .30f + .18f * lift))
-                    .kineticClickable(role = Role.Button, onClick = { revealed = false })
+            options.forEach { option ->
+                val selected = option.value == value
+                DropdownMenuItem(
+                    enabled = option.enabled,
+                    onClick = {
+                        onPick(option.value)
+                        open = false
+                    },
+                    text = {
+                        Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                            Text(
+                                option.label,
+                                color = if (option.enabled) Aether.Ink else Aether.InkFaint,
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                                maxLines = 1
+                            )
+                            if (option.detail != null) {
+                                Text(
+                                    option.detail,
+                                    color = Aether.Amber,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    maxLines = 2
+                                )
+                            }
+                        }
+                    },
+                    trailingIcon = {
+                        if (selected) {
+                            HomeVectorIcon(HomeIcon.ACTIVE, Aether.Cyan, Modifier.size(16.dp))
+                        }
+                    }
+                )
+            }
+        }
+    }
+}
+
+/** A text field whose label sits on the outline, used for both text and numeric input. */
+@Composable
+private fun ServersField(
+    label: String,
+    value: String,
+    onValueChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    placeholder: String = "",
+    isError: Boolean = false,
+    trailing: (@Composable () -> Unit)? = null,
+    singleLine: Boolean = true
+) {
+    val hint: (@Composable () -> Unit)? = if (placeholder.isBlank()) {
+        null
+    } else {
+        { Text(placeholder) }
+    }
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        modifier = modifier,
+        label = { Text(trx(label)) },
+        placeholder = hint,
+        singleLine = singleLine,
+        isError = isError,
+        shape = ServersCardShape,
+        colors = marbleOutlinedTextFieldColors(),
+        trailingIcon = trailing
+    )
+}
+
+/**
+ * The Add-node form.
+ *
+ * Every transport the engine can actually build is here, and the ones it cannot are still listed —
+ * greyed out with the reason — so the list never pretends to offer something that would fail at
+ * connect time. The Save button's disabled state comes from the exact same validation the builder
+ * uses, and its reason is shown under the form.
+ */
+@Composable
+private fun ServersAddNodeForm(
+    repo: AppRepository,
+    target: String,
+    onTargetChange: (String) -> Unit,
+    onSave: (ManualConfigDraft, String) -> Unit
+) {
+    var draft by remember { mutableStateOf(ManualConfigDraft()) }
+    var showSecret by remember { mutableStateOf(false) }
+
+    val protocol = draft.protocol
+    val stream = protocol == ManualProtocol.VLESS || protocol == ManualProtocol.VMESS ||
+        protocol == ManualProtocol.TROJAN
+    val realityCapable = draft.transport in setOf("raw", "xhttp", "grpc")
+    val missing = ManualConfigBuilder.missingRequirement(draft)
+    val targetOptions = buildList {
+        if (repo.settings.manualSourceEnabled) add("manual" to "Manual")
+        repo.subscriptions.forEach { add(it.id to it.name) }
+    }
+    val targetName = targetOptions.firstOrNull { it.first == target }?.second
+
+    fun update(block: (ManualConfigDraft) -> ManualConfigDraft) {
+        draft = block(draft)
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(MarbleSpacing.M)) {
+        ServersField(
+            label = "Name",
+            value = draft.name,
+            onValueChange = { name -> update { it.copy(name = name) } },
+            placeholder = "Germany · Frankfurt · 03",
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        ServersDropdownField(
+            label = "Protocol",
+            value = protocol.label,
+            options = ADD_NODE_PROTOCOLS.map {
+                ServersOption(
+                    value = it.label,
+                    enabled = it.target != null,
+                    detail = it.note.ifBlank { null }
+                )
+            },
+            onPick = { label ->
+                val picked = ADD_NODE_PROTOCOLS.firstOrNull { it.label == label }?.target ?: return@ServersDropdownField
+                draft = ManualConfigDraft(protocol = picked).copy(
+                    name = draft.name,
+                    host = draft.host,
+                    port = when (picked) {
+                        ManualProtocol.HTTP -> "80"
+                        ManualProtocol.SOCKS5 -> "1080"
+                        ManualProtocol.SSH -> "22"
+                        ManualProtocol.WIREGUARD -> "51820"
+                        else -> "443"
+                    },
+                    security = when (picked) {
+                        ManualProtocol.SHADOWSOCKS,
+                        ManualProtocol.HTTP,
+                        ManualProtocol.SOCKS5,
+                        ManualProtocol.SSH,
+                        ManualProtocol.WIREGUARD -> "none"
+                        else -> "tls"
+                    }
+                )
+            },
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            ServersField(
+                label = "Server",
+                value = draft.host,
+                onValueChange = { host -> update { it.copy(host = host) } },
+                placeholder = "1.2.3.4 or host.example",
+                modifier = Modifier.weight(1.6f)
+            )
+            ServersField(
+                label = "Port",
+                value = draft.port,
+                onValueChange = { text -> update { it.copy(port = text.filter(Char::isDigit).take(5)) } },
+                isError = draft.port.trim().toIntOrNull()?.let { it !in 1..65535 } == true,
+                modifier = Modifier.weight(.8f)
             )
         }
 
-        Column(
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(end = 18.dp, bottom = dockClearance() + 12.dp),
-            horizontalAlignment = Alignment.End,
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            AnimatedVisibility(
-                visible = revealed,
-                enter = fadeIn(MarbleMotionSpecs.QuickReveal) +
-                    slideInVertically(MarbleMotionSpecs.Spatial) { it },
-                exit = fadeOut(MarbleMotionSpecs.QuickExit) +
-                    slideOutVertically(MarbleMotionSpecs.SpatialExit) { it }
-            ) {
-                Column(
-                    horizontalAlignment = Alignment.End,
-                    verticalArrangement = Arrangement.spacedBy(9.dp)
-                ) {
-                    LibraryFabAction(
-                        icon = HomeIcon.SHIELD,
-                        label = if (freedomHidden) "Show Marble Freedom" else "Hide Marble Freedom",
-                        tone = chrome.freedomTone,
-                        onClick = {
-                            repo.updateLibraryFreedomHidden(!freedomHidden)
-                            revealed = false
-                        }
+        when (protocol) {
+            ManualProtocol.XRAY_JSON -> OutlinedTextField(
+                value = draft.customJson,
+                onValueChange = { json -> update { it.copy(customJson = json) } },
+                label = { Text(trx("Xray config / outbound JSON")) },
+                textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                minLines = 8,
+                maxLines = 20,
+                shape = ServersCardShape,
+                colors = marbleOutlinedTextFieldColors(),
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            ManualProtocol.VLESS -> {
+                ServersSecretField(
+                    label = "UUID",
+                    value = draft.uuid,
+                    onValueChange = { uuid -> update { it.copy(uuid = uuid) } },
+                    visible = showSecret,
+                    onToggle = { showSecret = !showSecret }
+                )
+                ServersField(
+                    label = "Encryption",
+                    value = draft.encryption,
+                    onValueChange = { encryption -> update { it.copy(encryption = encryption) } },
+                    placeholder = "none",
+                    modifier = Modifier.fillMaxWidth()
+                )
+                ServersDropdownField(
+                    label = "Flow",
+                    value = draft.flow,
+                    options = SERVERS_FLOWS.map {
+                        ServersOption(value = it, label = it.ifBlank { "none" })
+                    },
+                    onPick = { flow -> update { it.copy(flow = flow) } },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+
+            ManualProtocol.VMESS -> {
+                ServersSecretField(
+                    label = "UUID",
+                    value = draft.uuid,
+                    onValueChange = { uuid -> update { it.copy(uuid = uuid) } },
+                    visible = showSecret,
+                    onToggle = { showSecret = !showSecret }
+                )
+                ServersField(
+                    label = "Cipher",
+                    value = draft.encryption,
+                    onValueChange = { cipher -> update { it.copy(encryption = cipher) } },
+                    placeholder = "auto",
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+
+            ManualProtocol.TROJAN -> ServersSecretField(
+                label = "Password",
+                value = draft.password,
+                onValueChange = { password -> update { it.copy(password = password) } },
+                visible = showSecret,
+                onToggle = { showSecret = !showSecret }
+            )
+
+            ManualProtocol.SHADOWSOCKS -> {
+                ServersDropdownField(
+                    label = "Method",
+                    value = draft.method,
+                    options = SERVERS_SS_METHODS.map { ServersOption(it) },
+                    onPick = { method -> update { it.copy(method = method) } },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                ServersSecretField(
+                    label = "Password",
+                    value = draft.password,
+                    onValueChange = { password -> update { it.copy(password = password) } },
+                    visible = showSecret,
+                    onToggle = { showSecret = !showSecret }
+                )
+            }
+
+            ManualProtocol.HYSTERIA2 -> {
+                ServersSecretField(
+                    label = "Auth password",
+                    value = draft.password,
+                    onValueChange = { password -> update { it.copy(password = password) } },
+                    visible = showSecret,
+                    onToggle = { showSecret = !showSecret }
+                )
+                ServersField(
+                    label = "SNI",
+                    value = draft.sni,
+                    onValueChange = { sni -> update { it.copy(sni = sni) } },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                ServersDropdownField(
+                    label = "Fingerprint",
+                    value = draft.fingerprint,
+                    options = SERVERS_FINGERPRINTS.map { ServersOption(it) },
+                    onPick = { fingerprint -> update { it.copy(fingerprint = fingerprint) } },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                ServersField(
+                    label = "ALPN",
+                    value = draft.alpn,
+                    onValueChange = { alpn -> update { it.copy(alpn = alpn) } },
+                    placeholder = "h3,h2,http/1.1",
+                    modifier = Modifier.fillMaxWidth()
+                )
+                ServersField(
+                    label = "Cipher suites (: separated)",
+                    value = draft.cipherSuites,
+                    onValueChange = { suites -> update { it.copy(cipherSuites = suites) } },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                ServersInsecureSwitch(draft.allowInsecure) {
+                    update { it.copy(allowInsecure = !it.allowInsecure) }
+                }
+            }
+
+            ManualProtocol.HTTP, ManualProtocol.HTTPS, ManualProtocol.SOCKS5 -> {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ServersField(
+                        label = "Username",
+                        value = draft.username,
+                        onValueChange = { username -> update { it.copy(username = username) } },
+                        modifier = Modifier.weight(1f)
                     )
-                    LibraryFabAction(
-                        icon = HomeIcon.RANK,
-                        label = "Sort servers",
-                        tone = chrome.accent,
-                        onClick = {
-                            revealed = false
-                            onSort()
-                        }
+                    ServersField(
+                        label = "Password",
+                        value = draft.password,
+                        onValueChange = { password -> update { it.copy(password = password) } },
+                        modifier = Modifier.weight(1f)
                     )
-                    LibraryFabAction(
-                        icon = HomeIcon.CLIPBOARD,
-                        label = "Add servers",
-                        tone = chrome.glow,
-                        onClick = {
-                            revealed = false
-                            onAdd()
-                        }
+                }
+                if (protocol == ManualProtocol.HTTPS) {
+                    ServersField(
+                        label = "TLS server name",
+                        value = draft.sni,
+                        onValueChange = { sni -> update { it.copy(sni = sni) } },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    ServersDropdownField(
+                        label = "Fingerprint",
+                        value = draft.fingerprint,
+                        options = SERVERS_FINGERPRINTS.map { ServersOption(it) },
+                        onPick = { fingerprint -> update { it.copy(fingerprint = fingerprint) } },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    ServersField(
+                        label = "Cipher suites (: separated)",
+                        value = draft.cipherSuites,
+                        onValueChange = { suites -> update { it.copy(cipherSuites = suites) } },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    ServersInsecureSwitch(draft.allowInsecure) {
+                        update { it.copy(allowInsecure = !it.allowInsecure) }
+                    }
+                }
+            }
+
+            ManualProtocol.SSH -> {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ServersField(
+                        label = "Username",
+                        value = draft.username,
+                        onValueChange = { username -> update { it.copy(username = username) } },
+                        modifier = Modifier.weight(1f)
+                    )
+                    ServersField(
+                        label = "Password",
+                        value = draft.password,
+                        onValueChange = { password -> update { it.copy(password = password) } },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                ServersField(
+                    label = "Host key SHA256 • optional",
+                    value = draft.sshHostKeySha256,
+                    onValueChange = { key -> update { it.copy(sshHostKeySha256 = key) } },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Text(
+                    trx("TCP via protected loopback; UDP blocked."),
+                    color = Aether.InkFaint,
+                    style = MaterialTheme.typography.labelSmall
+                )
+            }
+
+            ManualProtocol.WIREGUARD -> {
+                ServersField(
+                    label = "Private key",
+                    value = draft.wireguardSecretKey,
+                    onValueChange = { key -> update { it.copy(wireguardSecretKey = key) } },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                ServersField(
+                    label = "Local address / CIDR",
+                    value = draft.wireguardAddress,
+                    onValueChange = { address -> update { it.copy(wireguardAddress = address) } },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                ServersField(
+                    label = "Peer public key",
+                    value = draft.wireguardPeerPublicKey,
+                    onValueChange = { key -> update { it.copy(wireguardPeerPublicKey = key) } },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                ServersField(
+                    label = "Pre-shared key",
+                    value = draft.wireguardPreSharedKey,
+                    onValueChange = { key -> update { it.copy(wireguardPreSharedKey = key) } },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                ServersField(
+                    label = "Allowed IPs",
+                    value = draft.wireguardAllowedIps,
+                    onValueChange = { ips -> update { it.copy(wireguardAllowedIps = ips) } },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ServersField(
+                        label = "Reserved",
+                        value = draft.wireguardReserved,
+                        onValueChange = { value -> update { it.copy(wireguardReserved = value) } },
+                        modifier = Modifier.weight(1f)
+                    )
+                    ServersField(
+                        label = "Keepalive",
+                        value = draft.wireguardKeepAlive,
+                        onValueChange = { value -> update { it.copy(wireguardKeepAlive = value) } },
+                        modifier = Modifier.weight(1f)
+                    )
+                    ServersField(
+                        label = "MTU",
+                        value = draft.wireguardMtu,
+                        onValueChange = { value -> update { it.copy(wireguardMtu = value) } },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                ServersInsecureSwitch(
+                    checked = draft.wireguardNoKernelTun,
+                    label = "Userspace WireGuard",
+                    onToggle = { update { it.copy(wireguardNoKernelTun = !it.wireguardNoKernelTun) } }
+                )
+            }
+        }
+
+        if (stream) {
+            ServersDropdownField(
+                label = "Transport",
+                value = draft.transport,
+                options = SERVERS_TRANSPORTS.map { ServersOption(it, it.uppercase()) },
+                onPick = { transport ->
+                    update {
+                        it.copy(
+                            transport = transport,
+                            security = if (it.security == "reality" &&
+                                transport !in setOf("raw", "xhttp", "grpc")
+                            ) {
+                                "tls"
+                            } else {
+                                it.security
+                            }
+                        )
+                    }
+                },
+                modifier = Modifier.fillMaxWidth()
+            )
+            if (draft.transport in setOf("websocket", "xhttp", "httpupgrade")) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ServersField(
+                        label = "Path",
+                        value = draft.path,
+                        onValueChange = { path -> update { it.copy(path = path) } },
+                        modifier = Modifier.weight(1f)
+                    )
+                    ServersField(
+                        label = "Host header",
+                        value = draft.hostHeader,
+                        onValueChange = { header -> update { it.copy(hostHeader = header) } },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+            if (draft.transport == "grpc") {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ServersField(
+                        label = "Service name",
+                        value = draft.serviceName,
+                        onValueChange = { name -> update { it.copy(serviceName = name) } },
+                        modifier = Modifier.weight(1f)
+                    )
+                    ServersField(
+                        label = "Authority",
+                        value = draft.hostHeader,
+                        onValueChange = { header -> update { it.copy(hostHeader = header) } },
+                        modifier = Modifier.weight(1f)
                     )
                 }
             }
 
-            if (hintShown && !revealed) {
-                Text(
-                    trx("Tap to import • hold for options"),
-                    color = Aether.InkFaint,
-                    style = MaterialTheme.typography.labelSmall,
-                    maxLines = 1,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(999.dp))
-                        .background(Aether.VoidElevated.copy(alpha = .88f))
-                        .border(1.dp, Aether.GlassBorderSoft, RoundedCornerShape(999.dp))
-                        .padding(horizontal = 9.dp, vertical = 4.dp)
-                )
+            val securityChoices = when {
+                protocol == ManualProtocol.TROJAN && realityCapable -> listOf("tls", "reality")
+                protocol == ManualProtocol.TROJAN -> listOf("tls")
+                realityCapable -> listOf("none", "tls", "reality")
+                else -> listOf("none", "tls")
             }
+            ServersDropdownField(
+                label = "Security",
+                value = draft.security,
+                options = securityChoices.map { ServersOption(it, it.uppercase()) },
+                onPick = { security -> update { it.copy(security = security) } },
+                modifier = Modifier.fillMaxWidth()
+            )
 
-            val fabShape = CircleShape
-            // MARBLE_SERVERS_V114 — a clipboard, lifting slightly while its actions are open.
-            Box(
-                modifier = Modifier
-                    .size(58.dp)
-                    .graphicsLayer {
-                        translationY = -6f * lift * density
-                        scaleX = 1f + .05f * lift
-                        scaleY = 1f + .05f * lift
-                    }
-                    .shadow(
-                        elevation = 14.dp + 8.dp * lift,
-                        shape = fabShape,
-                        spotColor = chrome.glow.copy(alpha = .45f),
-                        ambientColor = chrome.glow.copy(alpha = .30f)
-                    )
-                    .clip(fabShape)
-                    .background(
-                        Brush.linearGradient(
-                            listOf(chrome.glow, chrome.accent)
-                        )
-                    )
-                    .combinedClickable(
-                        // MARBLE_SERVERS_FAB_KINETICS_V116 — tap = smart clipboard import; while the
-                        // action stack is open the button is the X and a tap closes it. The hold is
-                        // the only way to reveal the stack, so the tap can never fire by accident
-                        // during scroll.
-                        onClick = {
-                            hintShown = false
-                            if (revealed) revealed = false else onImportClipboard()
-                        },
-                        onLongClick = {
-                            hintShown = false
-                            revealed = true
-                        }
-                    )
-                    .semantics { contentDescription = "Tap to import servers • hold for actions" },
-                contentAlignment = Alignment.Center
-            ) {
-                HomeVectorIcon(
-                    if (revealed) HomeIcon.CANCEL else HomeIcon.CLIPBOARD,
-                    Color.White,
-                    Modifier.size(24.dp)
+            if (draft.security in setOf("tls", "reality")) {
+                ServersField(
+                    label = "SNI",
+                    value = draft.sni,
+                    onValueChange = { sni -> update { it.copy(sni = sni) } },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                ServersDropdownField(
+                    label = "Fingerprint",
+                    value = draft.fingerprint,
+                    options = SERVERS_FINGERPRINTS.map { ServersOption(it) },
+                    onPick = { fingerprint -> update { it.copy(fingerprint = fingerprint) } },
+                    modifier = Modifier.fillMaxWidth()
                 )
             }
+            if (draft.security == "tls") {
+                ServersField(
+                    label = "ALPN",
+                    value = draft.alpn,
+                    onValueChange = { alpn -> update { it.copy(alpn = alpn) } },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                ServersField(
+                    label = "Cipher suites (: separated)",
+                    value = draft.cipherSuites,
+                    onValueChange = { suites -> update { it.copy(cipherSuites = suites) } },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Text(
+                    trx("`unsafe` uses native Go TLS; empty Cipher Suites = automatic."),
+                    color = Aether.InkFaint,
+                    style = MaterialTheme.typography.labelSmall
+                )
+                ServersInsecureSwitch(draft.allowInsecure) {
+                    update { it.copy(allowInsecure = !it.allowInsecure) }
+                }
+            }
+            if (draft.security == "reality") {
+                ServersField(
+                    label = "REALITY public key",
+                    value = draft.realityPublicKey,
+                    onValueChange = { key -> update { it.copy(realityPublicKey = key) } },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ServersField(
+                        label = "Short ID",
+                        value = draft.realityShortId,
+                        onValueChange = { shortId -> update { it.copy(realityShortId = shortId) } },
+                        modifier = Modifier.weight(1f)
+                    )
+                    ServersField(
+                        label = "Spider X",
+                        value = draft.realitySpiderX,
+                        onValueChange = { spider -> update { it.copy(realitySpiderX = spider) } },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+        }
+
+        if (targetOptions.size > 1) {
+            ServersDropdownField(
+                label = "Save to",
+                value = target,
+                options = targetOptions.map { ServersOption(it.first, it.second) },
+                onPick = onTargetChange,
+                modifier = Modifier.fillMaxWidth()
+            )
+        } else {
+            ServersField(
+                label = "Save to",
+                value = targetName ?: "Manual",
+                onValueChange = {},
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+
+        // The exact reason Save is unavailable — the builder's own words, not a guess.
+        Text(
+            when {
+                targetName == null -> trx("Select a group that can hold this server first.")
+                missing == null -> trx("Will be added to") + " " + targetName +
+                    trx(" and kept across refreshes.")
+                else -> trx(missing)
+            },
+            color = if (missing == null && targetName != null) Aether.Emerald else Aether.Amber,
+            style = MaterialTheme.typography.labelSmall,
+            maxLines = 2
+        )
+
+        CyberButton(
+            label = if (protocol == ManualProtocol.SSH) "Save SSH connection" else "Save",
+            color = if (missing == null && targetName != null) Aether.Emerald else Aether.InkMuted,
+            variant = PrismButtonVariant.Primary,
+            modifier = Modifier.fillMaxWidth(),
+            enabled = !repo.busy && targetName != null && missing == null
+        ) {
+            onSave(draft, target)
         }
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+/** One labelled on/off row inside the Add-node form. */
 @Composable
-private fun LibrarySheetHandle() {
-    Box(
-        Modifier
-            .padding(top = 10.dp, bottom = 6.dp)
-            .width(42.dp)
-            .height(4.dp)
-            .clip(RoundedCornerShape(999.dp))
-            .background(Aether.InkFaint.copy(alpha = .55f))
+private fun ServersInsecureSwitch(
+    checked: Boolean,
+    label: String = "Allow insecure certificate",
+    onToggle: () -> Unit
+) {
+    val description = trx(label)
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Switch(
+            checked = checked,
+            onCheckedChange = { onToggle() },
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = Aether.Amber,
+                checkedTrackColor = Aether.Amber.copy(alpha = .24f),
+                uncheckedThumbColor = Aether.InkMuted
+            )
+        )
+        Text(
+            description,
+            color = if (checked) Aether.Amber else Aether.InkMuted,
+            style = MaterialTheme.typography.labelMedium,
+            maxLines = 2
+        )
+    }
+}
+
+/** A credential field with its own reveal control. */
+@Composable
+private fun ServersSecretField(
+    label: String,
+    value: String,
+    onValueChange: (String) -> Unit,
+    visible: Boolean,
+    onToggle: () -> Unit
+) {
+    val description = trx(if (visible) "Hide" else "Show")
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        label = { Text(trx(label)) },
+        singleLine = true,
+        visualTransformation = if (visible) VisualTransformation.None else PasswordVisualTransformation(),
+        shape = ServersCardShape,
+        colors = marbleOutlinedTextFieldColors(),
+        trailingIcon = {
+            Box(
+                modifier = Modifier
+                    .size(32.dp)
+                    .clip(CircleShape)
+                    .semantics { contentDescription = description }
+                    .kineticClickable(
+                        role = Role.Button,
+                        boundedShape = CircleShape,
+                        showIndication = false,
+                        onClick = onToggle
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                HomeVectorIcon(
+                    if (visible) HomeIcon.STOP else HomeIcon.DETAILS,
+                    Aether.InkFaint,
+                    Modifier.size(15.dp)
+                )
+            }
+        },
+        modifier = Modifier.fillMaxWidth()
     )
 }
 
-/** One valid intake target for pasted/imported configs: Manual when enabled, else the first
- *  subscription so clipboard content always has a home. Shared by the add page and the FAB so the
- *  tap-import can never disagree with the Paste button. */
-private fun libraryIntakeTarget(repo: AppRepository): String = when {
-    repo.settings.manualSourceEnabled -> "manual"
-    else -> repo.subscriptions.firstOrNull()?.id ?: "manual"
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
+/**
+ * Add servers: a full-screen sheet with rounded top corners.
+ *
+ * Three ways in — one node at a time, a proxy chain, or a subscription — plus paste and file
+ * import, all landing in the group the page is currently showing.
+ */
 @Composable
-private fun LibraryAddSheet(
+private fun ServersAddPage(
     repo: AppRepository,
     onImportFile: () -> Unit,
     onDismiss: () -> Unit
 ) {
-    var mode by remember { mutableStateOf("subscription") }
-    var url by remember { mutableStateOf("") }
-    var sourceName by remember { mutableStateOf("") }
+    var mode by remember { mutableStateOf("node") }
+    var subName by remember { mutableStateOf("") }
+    var subUrl by remember { mutableStateOf("") }
+    var importText by remember { mutableStateOf("") }
+    var target by remember { mutableStateOf(libraryIntakeTarget(repo)) }
     val clipboard = LocalClipboardManager.current
-    val intakeTarget = libraryIntakeTarget(repo)
+    val manualEnabled = repo.settings.manualSourceEnabled
+    val subscriptionReady = subName.isNotBlank() && subUrl.trim().startsWith("http", true)
 
-    // MARBLE_ADD_SERVERS_FULL_PAGE_V115 — "Add servers" opens as a complete page, never as a
-    // popup or a sheet: the long-press gesture ends in a full-screen destination with its own
-    // back arrow, exactly like every other title page in the product.
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
@@ -4784,369 +6660,197 @@ private fun LibraryAddSheet(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Aether.VoidElevated)
+                .background(Color.Transparent)
                 .windowInsetsPadding(WindowInsets.safeDrawing)
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp)
-                .padding(top = 10.dp, bottom = 18.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
+            // A little scrim above the sheet so its rounded top corners read as a sheet.
+            Spacer(Modifier.height(28.dp))
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp))
+                    .background(Aether.Void)
+                    .border(
+                        1.dp,
+                        Aether.GlassBorderSoft,
+                        RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
+                    )
             ) {
-                PrismIconButton(
-                    onClick = onDismiss,
-                    size = 36.dp,
-                    descriptiveLabel = "Back from add servers"
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 18.dp, end = 10.dp, top = 14.dp, bottom = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    HomeVectorIcon(HomeIcon.BACK, Aether.Cyan, Modifier.size(16.dp))
-                }
-                Spacer(Modifier.width(9.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        trx("Add to Servers"),
-                        color = Aether.Ink,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        trx("Subscription or manual config"),
-                        color = Aether.InkFaint,
-                        style = MaterialTheme.typography.labelSmall,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                LibraryModeSegment(
-                    text = "Subscription",
-                    selected = mode == "subscription",
-                    tone = Aether.Cyan,
-                    modifier = Modifier.weight(1f)
-                ) { mode = "subscription" }
-                LibraryModeSegment(
-                    text = "Manual config",
-                    selected = mode == "manual",
-                    tone = Aether.Amethyst,
-                    modifier = Modifier.weight(1f)
-                ) { mode = "manual" }
-            }
-
-            AnimatedContent(
-                targetState = mode,
-                transitionSpec = {
-                    (
-                        fadeIn(MarbleMotionSpecs.ResponseFloat) +
-                            slideInHorizontally(MarbleMotionSpecs.Spatial) { it / 12 }
-                    ) togetherWith (
-                        fadeOut(MarbleMotionSpecs.ExitFloat) +
-                            slideOutHorizontally(MarbleMotionSpecs.SpatialExit) { -it / 14 }
-                    )
-                },
-                label = "library-add-mode-v113"
-            ) { selectedMode ->
-                if (selectedMode == "manual") {
-                    ManualAddEditor(
-                        repo = repo,
-                        targetSourceId = intakeTarget,
-                        onSaved = onDismiss
-                    )
-                } else {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        OutlinedTextField(
-                            value = url,
-                            onValueChange = { url = it },
-                            label = { Text(trx("Subscription URL • optional")) },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(18.dp),
-                            colors = marbleOutlinedTextFieldColors()
-                        )
-                        OutlinedTextField(
-                            value = sourceName,
-                            onValueChange = { sourceName = it },
-                            label = { Text(trx("Name • optional")) },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(18.dp),
-                            colors = marbleOutlinedTextFieldColors()
-                        )
-                        CyberButton(
-                            variant = PrismButtonVariant.Primary,
-                            label = if (url.isBlank()) "Create local source" else "Add subscription",
-                            color = Aether.Cyan,
-                            modifier = Modifier.fillMaxWidth(),
-                            enabled = !repo.busy && (
-                                url.isBlank() || url.startsWith("https://", true)
-                            )
-                        ) {
-                            repo.addSubscription(sourceName, url)
-                            url = ""
-                            sourceName = ""
-                            onDismiss()
-                        }
-                    }
-                }
-            }
-
-            HorizontalDivider(color = Aether.GlassBorderSoft)
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                LibraryMicroAction(
-                    icon = HomeIcon.SPARK,
-                    label = "Paste",
-                    color = Aether.Emerald,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    repo.importClipboard(
-                        clipboard.getText()?.text.orEmpty(),
-                        intakeTarget
-                    )
-                }
-                LibraryMicroAction(
-                    icon = HomeIcon.DOWNLOAD,
-                    label = "Import",
-                    color = Aether.Amethyst,
-                    modifier = Modifier.weight(1f)
-                ) { onImportFile() }
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun LibrarySortSheet(
-    repo: AppRepository,
-    onDismiss: () -> Unit
-) {
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        containerColor = Aether.VoidElevated,
-        dragHandle = { LibrarySheetHandle() }
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp)
-                .padding(bottom = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            Text(
-                trx("Sort servers"),
-                color = Aether.Ink,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold
-            )
-            LibraryInlineSortBar(repo = repo)
-            CyberButton(
-                label = "Done",
-                color = Aether.Cyan,
-                modifier = Modifier.fillMaxWidth(),
-                variant = PrismButtonVariant.Primary,
-                onClick = onDismiss
-            )
-        }
-    }
-}
-
-// MARBLE_LIBRARY_SOURCE_TAB_STRIP_V78 — swipeable subscription tabs
-@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
-@Composable
-private fun LibrarySourceTabStrip(
-    sources: List<Pair<String, String>>,
-    selectedIndex: Int,
-    onSelect: (Int) -> Unit
-) {
-    // MARBLE_PRODUCT_FLOATING_GLASS_V117 — the source strip is one detached frosted bar.
-    // It is a sticky header, so nodes scroll under it and read through the material.
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp)
-    ) {
-        val barShape = RoundedCornerShape(22.dp)
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .shadow(
-                    elevation = 8.dp,
-                    shape = barShape,
-                    ambientColor = Color.Black.copy(alpha = 0.10f),
-                    spotColor = Color.Black.copy(alpha = 0.13f)
-                )
-                .clip(barShape)
-                .background(Aether.BarGlass)
-                .background(
-                    Brush.verticalGradient(
-                        listOf(Aether.BarGlassHighlight, Color.Transparent)
-                    )
-                )
-                .border(1.dp, Aether.BarGlassBorder, barShape)
-        ) {
-            LazyRow(
-                modifier = Modifier.fillMaxWidth(),
-                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 7.dp),
-                horizontalArrangement = Arrangement.spacedBy(5.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                itemsIndexed(sources, key = { _, item -> item.first }) { index, (id, label) ->
-                    val selected = index == selectedIndex
-                    val tone by animateColorAsState(
-                        if (selected) Aether.Cyan else Aether.InkMuted,
-                        MarbleMotionSpecs.Color,
-                        label = "lib-tab-tone-$id"
-                    )
-                    val bg by animateColorAsState(
-                        if (selected) Aether.Cyan.copy(alpha = .14f) else Color.Transparent,
-                        MarbleMotionSpecs.Color,
-                        label = "lib-tab-bg-$id"
-                    )
-                    val shape = RoundedCornerShape(16.dp)
-                    Box(
-                        modifier = Modifier
-                            .heightIn(min = 34.dp)
-                            .clip(shape)
-                            .background(bg)
-                            .semantics {
-                                this.selected = selected
-                                contentDescription = "$label tab"
-                            }
-                            .kineticClickable(
-                                role = Role.Tab,
-                                boundedShape = shape,
-                                showIndication = false
-                            ) { onSelect(index) }
-                            .padding(horizontal = 13.dp, vertical = 7.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
+                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         Text(
-                            label,
-                            color = tone,
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                            when (mode) {
+                                "chain" -> trx("Add chain")
+                                "subscription" -> trx("Add subscription")
+                                else -> trx("Add node")
+                            },
+                            color = Aether.Ink,
+                            style = MaterialTheme.typography.headlineSmall,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1
+                        )
+                        Text(
+                            trx("Build a server, chain several hops, or import a list."),
+                            color = Aether.InkFaint,
+                            style = MaterialTheme.typography.labelSmall,
                             maxLines = 1
                         )
                     }
-                }
-            }
-        }
-    }
-}
-
-// MARBLE_LIBRARY_INLINE_SORT_V78 — compact sort strip, no separate filter sheet
-// MARBLE_SORT_ROW_FRAME_V91: the reverse toggle is pinned inside the same framed surface as the
-// mode chips and the chips wrap onto a second line, so nothing can fall outside the card frame.
-@Composable
-private fun LibraryInlineSortBar(repo: AppRepository) {
-    val frameShape = RoundedCornerShape(16.dp)
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(frameShape)
-            .background(Aether.Glass.copy(alpha = .38f))
-            .border(1.dp, Aether.GlassBorder.copy(alpha = .65f), frameShape)
-            .padding(horizontal = MarbleSpacing.S, vertical = MarbleSpacing.S)
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(7.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                trx("SORT:"),
-                color = Aether.InkFaint,
-                style = MaterialTheme.typography.labelSmall,
-                fontWeight = FontWeight.Bold
-            )
-            Spacer(Modifier.weight(1f))
-            // Reverse toggle stays inside the frame, always visible, never clipped off-screen.
-            val revShape = RoundedCornerShape(14.dp)
-            Box(
-                modifier = Modifier
-                    .heightIn(min = 34.dp)
-                    .clip(revShape)
-                    .background(if (repo.settings.nodeSortReverse) Aether.Amber.copy(alpha = .13f) else Color.Transparent)
-                    .border(1.dp, if (repo.settings.nodeSortReverse) Aether.Amber.copy(alpha = .38f) else Aether.GlassBorder, revShape)
-                    .kineticClickable(role = Role.Button) {
-                        repo.updateSettings(repo.settings.copy(nodeSortReverse = !repo.settings.nodeSortReverse))
+                    PrismIconButton(
+                        onClick = onDismiss,
+                        size = 38.dp,
+                        descriptiveLabel = "Close"
+                    ) {
+                        HomeVectorIcon(HomeIcon.CANCEL, Aether.Ink, Modifier.size(16.dp))
                     }
-                    .padding(horizontal = 10.dp, vertical = 6.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    if (repo.settings.nodeSortReverse) "↑ Rev" else "↓ Rev",
-                    color = if (repo.settings.nodeSortReverse) Aether.Amber else Aether.InkMuted,
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.Medium
-                )
-            }
-        }
-        Spacer(Modifier.height(MarbleSpacing.XS))
-        @OptIn(ExperimentalLayoutApi::class)
-        FlowRow(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(7.dp),
-            verticalArrangement = Arrangement.spacedBy(7.dp)
-        ) {
-            NodeSortMode.entries.forEach { mode ->
-                val selected = repo.settings.nodeSortMode == mode
-                val label = when (mode) {
-                    NodeSortMode.PING -> "Ping"
-                    NodeSortMode.SCORE -> "Score"
-                    NodeSortMode.NAME -> "Name"
-                    NodeSortMode.PROTOCOL -> "Protocol"
-                    NodeSortMode.SOURCE -> "Source"
                 }
-                val tone = if (selected) Aether.Cyan else Aether.InkMuted
-                val shape = RoundedCornerShape(14.dp)
-                Box(
+
+                Row(
                     modifier = Modifier
-                        .heightIn(min = 34.dp)
-                        .clip(shape)
-                        .background(if (selected) Aether.Cyan.copy(alpha = .11f) else Color.Transparent)
-                        .border(1.dp, if (selected) Aether.Cyan.copy(alpha = .35f) else Aether.GlassBorder, shape)
-                        .kineticClickable(role = Role.Button) {
-                            repo.updateSettings(repo.settings.copy(nodeSortMode = mode, nodeSortReverse = false))
-                        }
-                        .padding(horizontal = 10.dp, vertical = 6.dp),
-                    contentAlignment = Alignment.Center
+                        .fillMaxWidth()
+                        .padding(horizontal = 18.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text(label, color = tone, style = MaterialTheme.typography.labelSmall, fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium)
+                    listOf(
+                        "node" to "Node",
+                        "chain" to "Chain",
+                        "subscription" to "Subscription"
+                    ).forEach { (key, label) ->
+                        Box(Modifier.weight(1f)) {
+                            CyberChoiceChip(
+                                text = label,
+                                selected = mode == key,
+                                color = Aether.Cyan
+                            ) { mode = key }
+                        }
+                    }
+                }
+
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState())
+                        .padding(18.dp),
+                    verticalArrangement = Arrangement.spacedBy(MarbleSpacing.M)
+                ) {
+                    when (mode) {
+                        // The chain editor owns its own hop list and saves through the
+                        // repository, so it only needs the group it is writing into.
+                        "chain" -> ManualChainEditor(repo, target, onDismiss)
+
+                        "subscription" -> Column(verticalArrangement = Arrangement.spacedBy(MarbleSpacing.M)) {
+                            OutlinedTextField(
+                                value = subName,
+                                onValueChange = { subName = it },
+                                label = { Text(trx("Source name")) },
+                                singleLine = true,
+                                shape = ServersCardShape,
+                                colors = marbleOutlinedTextFieldColors(),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            OutlinedTextField(
+                                value = subUrl,
+                                onValueChange = { subUrl = it },
+                                label = { Text(trx("Subscription URL")) },
+                                singleLine = true,
+                                shape = ServersCardShape,
+                                colors = marbleOutlinedTextFieldColors(),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            CyberButton(
+                                label = "Add subscription",
+                                color = Aether.Emerald,
+                                variant = PrismButtonVariant.Primary,
+                                modifier = Modifier.fillMaxWidth(),
+                                enabled = subscriptionReady && !repo.busy
+                            ) {
+                                // The repository refreshes a remote source on its own and
+                                // reports every refusal through the runtime message.
+                                repo.addSubscription(subName, subUrl)
+                                subName = ""
+                                subUrl = ""
+                                onDismiss()
+                            }
+                        }
+
+                        else -> ServersAddNodeForm(
+                            repo = repo,
+                            target = target,
+                            onTargetChange = { target = it },
+                            onSave = { draft, targetId ->
+                                if (repo.addManualProfile(draft, targetId)) {
+                                    // Land the page on the group that just received the node.
+                                    repo.selectLibrarySource(targetId)
+                                    onDismiss()
+                                }
+                            }
+                        )
+                    }
+
+                    HorizontalDivider(color = Aether.GlassBorderSoft)
+
+                    OutlinedTextField(
+                        value = importText,
+                        onValueChange = { importText = it },
+                        label = { Text(trx("Import text")) },
+                        placeholder = { Text("vless://…  vmess://…  ss://…  trojan://…") },
+                        minLines = 3,
+                        maxLines = 8,
+                        shape = ServersCardShape,
+                        colors = marbleOutlinedTextFieldColors(),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        CyberButton(
+                            label = "Paste",
+                            color = Aether.InkMuted,
+                            modifier = Modifier.weight(1f)
+                        ) { importText = clipboard.getText()?.text.orEmpty() }
+                        CyberButton(
+                            label = "Import file",
+                            color = Aether.Amethyst,
+                            modifier = Modifier.weight(1f)
+                        ) { onImportFile() }
+                        CyberButton(
+                            label = "Import",
+                            color = Aether.Cyan,
+                            modifier = Modifier.weight(1f),
+                            enabled = !repo.busy && importText.isNotBlank()
+                        ) {
+                            val intake = libraryIntakeTarget(repo)
+                            repo.importText(importText, "Imported", intake)
+                            importText = ""
+                            repo.selectLibrarySource(intake)
+                            onDismiss()
+                        }
+                    }
+                    Text(
+                        if (manualEnabled) {
+                            trx("Manual is enabled")
+                        } else {
+                            trx("Enable Manual in Settings → Advanced before saving a built server.")
+                        },
+                        color = if (manualEnabled) Aether.InkFaint else Aether.Amber,
+                        style = MaterialTheme.typography.labelSmall,
+                        maxLines = 2
+                    )
                 }
             }
         }
     }
 }
 
-@Composable
-private fun LibraryModeSegment(
-    text: String,
-    selected: Boolean,
-    tone: Color,
-    modifier: Modifier = Modifier,
-    onClick: () -> Unit
-) {
-    // The add-sheet mode switch is a segmented pair: a selected half lights, the other stays quiet,
-    // and neither half changes size while the content below it animates.
-    PrismSelectionTile(
-        label = text,
-        selected = selected,
-        tone = Aether.Cyan,
-        modifier = modifier,
-        minHeight = 40.dp,
-        onClick = onClick
-    )
-}
+// =============================================================================
+// Shared surfaces the rest of the app reaches into: field colours, the chain editor,
+// the detail page and the full filter sheet.
+// =============================================================================
 
 @Composable
 private fun marbleOutlinedTextFieldColors() = OutlinedTextFieldDefaults.colors(
@@ -5161,40 +6865,6 @@ private fun marbleOutlinedTextFieldColors() = OutlinedTextFieldDefaults.colors(
     unfocusedLabelColor = Aether.InkMuted
 )
 
-@Composable
-private fun ManualAddEditor(
-    repo: AppRepository,
-    targetSourceId: String,
-    onSaved: () -> Unit
-) {
-    var mode by remember { mutableStateOf("server") }
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            LibraryModeSegment(
-                text = "Manual server",
-                selected = mode == "server",
-                tone = Aether.Amethyst,
-                modifier = Modifier.weight(1f)
-            ) { mode = "server" }
-            LibraryModeSegment(
-                text = "Chain proxy",
-                selected = mode == "chain",
-                tone = Aether.Amethyst,
-                modifier = Modifier.weight(1f)
-            ) { mode = "chain" }
-        }
-        AnimatedContent(targetState = mode, label = "manual-add-kind-v49") { selectedMode ->
-            if (selectedMode == "chain") {
-                ManualChainEditor(repo, targetSourceId, onSaved)
-            } else {
-                ManualConfigEditor(repo, targetSourceId, onSaved)
-            }
-        }
-    }
-}
 
 @Composable
 private fun ManualChainEditor(
@@ -5309,290 +6979,6 @@ private fun ManualChainEditor(
     }
 }
 
-@Composable
-private fun ManualConfigEditor(
-    repo: AppRepository,
-    targetSourceId: String,
-    onSaved: () -> Unit
-) {
-    var draft by remember { mutableStateOf(ManualConfigDraft()) }
-    val targetSourceName = when {
-        targetSourceId == "manual" && repo.settings.manualSourceEnabled -> "Manual"
-        targetSourceId == "manual" -> null
-        else -> repo.subscriptions.firstOrNull { it.id == targetSourceId }?.name
-    }
-    val targetReady = targetSourceName != null
-    val protocol = draft.protocol
-    val streamProtocols = setOf(ManualProtocol.VLESS, ManualProtocol.VMESS, ManualProtocol.TROJAN)
-
-    Column(verticalArrangement = Arrangement.spacedBy(11.dp)) {
-        FlowRow(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(7.dp),
-            verticalArrangement = Arrangement.spacedBy(7.dp)
-        ) {
-            ManualProtocol.entries.forEach { item ->
-                CyberChoiceChip(item.label, protocol == item, if (item == ManualProtocol.XRAY_JSON) Aether.Amethyst else Aether.Cyan) {
-                    draft = ManualConfigDraft(protocol = item).copy(
-                        name = draft.name,
-                        port = when (item) {
-                            ManualProtocol.HTTP -> "80"
-                            ManualProtocol.SOCKS5 -> "1080"
-                            ManualProtocol.SSH -> "22"
-                            else -> "443"
-                        },
-                        security = when (item) {
-                            ManualProtocol.SHADOWSOCKS,
-                            ManualProtocol.HTTP,
-                            ManualProtocol.SOCKS5,
-                            ManualProtocol.SSH,
-                            ManualProtocol.WIREGUARD -> "none"
-                            else -> "tls"
-                        }
-                    )
-                }
-            }
-        }
-
-        ManualField("Name", draft.name, { draft = draft.copy(name = it) })
-
-        if (protocol == ManualProtocol.XRAY_JSON) {
-            ManualField(
-                label = "Xray config / outbound JSON",
-                value = draft.customJson,
-                onValueChange = { draft = draft.copy(customJson = it) },
-                singleLine = false,
-                minLines = 10
-            )
-        } else {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                ManualField("Host", draft.host, { draft = draft.copy(host = it) }, Modifier.weight(1.55f))
-                ManualField("Port", draft.port, { draft = draft.copy(port = it.filter(Char::isDigit).take(5)) }, Modifier.weight(.75f))
-            }
-
-            when (protocol) {
-                ManualProtocol.VLESS -> {
-                    ManualField("UUID", draft.uuid, { draft = draft.copy(uuid = it) })
-                    ManualField("VLESS encryption", draft.encryption, { draft = draft.copy(encryption = it) })
-                    ManualField("Flow", draft.flow, { draft = draft.copy(flow = it) })
-                }
-                ManualProtocol.VMESS -> {
-                    ManualField("UUID", draft.uuid, { draft = draft.copy(uuid = it) })
-                    ManualField("Cipher", draft.encryption, { draft = draft.copy(encryption = it) })
-                }
-                ManualProtocol.TROJAN ->
-                    ManualField("Password", draft.password, { draft = draft.copy(password = it) })
-                ManualProtocol.SHADOWSOCKS -> {
-                    ManualField("Method", draft.method, { draft = draft.copy(method = it) })
-                    ManualField("Password", draft.password, { draft = draft.copy(password = it) })
-                }
-                ManualProtocol.HYSTERIA2 -> {
-                    ManualField("Auth", draft.password, { draft = draft.copy(password = it) })
-                    ManualField("SNI", draft.sni, { draft = draft.copy(sni = it) })
-                    ManualField("Fingerprint", draft.fingerprint, { draft = draft.copy(fingerprint = it) })
-                    FingerprintPresetRow(draft.fingerprint, allowUnsafe = true) {
-                        draft = draft.copy(fingerprint = it)
-                    }
-                    ManualField("ALPN", draft.alpn, { draft = draft.copy(alpn = it) })
-                    ManualField(
-                        "Cipher Suites (: separated)",
-                        draft.cipherSuites,
-                        { draft = draft.copy(cipherSuites = it) }
-                    )
-                    CyberChoiceChip("Allow insecure TLS", draft.allowInsecure, Aether.Danger, selectionTone = Aether.Danger) {
-                        draft = draft.copy(allowInsecure = !draft.allowInsecure)
-                    }
-                }
-                ManualProtocol.HTTP, ManualProtocol.HTTPS, ManualProtocol.SOCKS5 -> {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        ManualField("Username", draft.username, { draft = draft.copy(username = it) }, Modifier.weight(1f))
-                        ManualField("Password", draft.password, { draft = draft.copy(password = it) }, Modifier.weight(1f))
-                    }
-                    if (protocol == ManualProtocol.HTTPS) {
-                        ManualField("TLS server name", draft.sni, { draft = draft.copy(sni = it) })
-                        ManualField("Fingerprint", draft.fingerprint, { draft = draft.copy(fingerprint = it) })
-                        FingerprintPresetRow(draft.fingerprint, allowUnsafe = true) {
-                            draft = draft.copy(fingerprint = it)
-                        }
-                        ManualField(
-                            "Cipher Suites (: separated)",
-                            draft.cipherSuites,
-                            { draft = draft.copy(cipherSuites = it) }
-                        )
-                        CyberChoiceChip("Allow insecure TLS", draft.allowInsecure, Aether.Danger, selectionTone = Aether.Danger) {
-                            draft = draft.copy(allowInsecure = !draft.allowInsecure)
-                        }
-                    }
-                }
-                ManualProtocol.SSH -> {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        ManualField("Username", draft.username, { draft = draft.copy(username = it) }, Modifier.weight(1f))
-                        ManualField("Password", draft.password, { draft = draft.copy(password = it) }, Modifier.weight(1f))
-                    }
-                    ManualField("Host key SHA256 • optional", draft.sshHostKeySha256, { draft = draft.copy(sshHostKeySha256 = it) })
-                    Text(trx("TCP via protected loopback; UDP blocked."), color = Aether.InkFaint, style = MaterialTheme.typography.bodySmall)
-                }
-                ManualProtocol.WIREGUARD -> {
-                    ManualField("Private key", draft.wireguardSecretKey, { draft = draft.copy(wireguardSecretKey = it) })
-                    ManualField("Local address / CIDR", draft.wireguardAddress, { draft = draft.copy(wireguardAddress = it) })
-                    ManualField("Peer public key", draft.wireguardPeerPublicKey, { draft = draft.copy(wireguardPeerPublicKey = it) })
-                    ManualField("Pre-shared key", draft.wireguardPreSharedKey, { draft = draft.copy(wireguardPreSharedKey = it) })
-                    ManualField("Allowed IPs", draft.wireguardAllowedIps, { draft = draft.copy(wireguardAllowedIps = it) })
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        ManualField("Reserved", draft.wireguardReserved, { draft = draft.copy(wireguardReserved = it) }, Modifier.weight(1f))
-                        ManualField("Keepalive", draft.wireguardKeepAlive, { draft = draft.copy(wireguardKeepAlive = it) }, Modifier.weight(1f))
-                        ManualField("MTU", draft.wireguardMtu, { draft = draft.copy(wireguardMtu = it) }, Modifier.weight(1f))
-                    }
-                    CyberChoiceChip("Userspace WireGuard", draft.wireguardNoKernelTun, Aether.Emerald) {
-                        draft = draft.copy(wireguardNoKernelTun = !draft.wireguardNoKernelTun)
-                    }
-                }
-                ManualProtocol.XRAY_JSON -> Unit
-            }
-
-            if (protocol in streamProtocols) {
-                SectionLabel("Transport")
-                FlowRow(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(7.dp),
-                    verticalArrangement = Arrangement.spacedBy(7.dp)
-                ) {
-                    listOf("raw", "websocket", "xhttp", "grpc", "httpupgrade", "mkcp").forEach { value ->
-                        CyberChoiceChip(value.uppercase(), draft.transport == value, Aether.Amethyst) {
-                            draft = draft.copy(
-                                transport = value,
-                                security = if (draft.security == "reality" && value !in setOf("raw", "xhttp", "grpc")) "tls" else draft.security
-                            )
-                        }
-                    }
-                }
-
-                if (draft.transport in setOf("websocket", "xhttp", "httpupgrade")) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        ManualField("Path", draft.path, { draft = draft.copy(path = it) }, Modifier.weight(1f))
-                        ManualField("Host header", draft.hostHeader, { draft = draft.copy(hostHeader = it) }, Modifier.weight(1f))
-                    }
-                }
-                if (draft.transport == "grpc") {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        ManualField("Service name", draft.serviceName, { draft = draft.copy(serviceName = it) }, Modifier.weight(1f))
-                        ManualField("Authority", draft.hostHeader, { draft = draft.copy(hostHeader = it) }, Modifier.weight(1f))
-                    }
-                }
-
-                SectionLabel("Security")
-                FlowRow(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(7.dp),
-                    verticalArrangement = Arrangement.spacedBy(7.dp)
-                ) {
-                    val realitySupported = draft.transport in setOf("raw", "xhttp", "grpc")
-                    val choices = when {
-                        protocol == ManualProtocol.TROJAN && realitySupported -> listOf("tls", "reality")
-                        protocol == ManualProtocol.TROJAN -> listOf("tls")
-                        realitySupported -> listOf("none", "tls", "reality")
-                        else -> listOf("none", "tls")
-                    }
-                    choices.forEach { value ->
-                        CyberChoiceChip(value.uppercase(), draft.security == value, if (value == "reality") Aether.Amethyst else Aether.Cyan) {
-                            draft = draft.copy(security = value)
-                        }
-                    }
-                }
-
-                if (draft.security in setOf("tls", "reality")) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        ManualField("SNI", draft.sni, { draft = draft.copy(sni = it) }, Modifier.weight(1f))
-                        ManualField("Fingerprint", draft.fingerprint, { draft = draft.copy(fingerprint = it) }, Modifier.weight(1f))
-                    }
-                    FingerprintPresetRow(
-                        value = draft.fingerprint,
-                        allowUnsafe = draft.security == "tls"
-                    ) { draft = draft.copy(fingerprint = it) }
-                }
-                if (draft.security == "tls") {
-                    ManualField("ALPN", draft.alpn, { draft = draft.copy(alpn = it) })
-                    ManualField(
-                        "Cipher Suites (: separated)",
-                        draft.cipherSuites,
-                        { draft = draft.copy(cipherSuites = it) }
-                    )
-                    Text(
-                        trx("`unsafe` uses native Go TLS; empty Cipher Suites = automatic."),
-                        color = Aether.InkFaint,
-                        style = MaterialTheme.typography.labelSmall
-                    )
-                    CyberChoiceChip("Allow insecure TLS", draft.allowInsecure, Aether.Danger, selectionTone = Aether.Danger) {
-                        draft = draft.copy(allowInsecure = !draft.allowInsecure)
-                    }
-                }
-                if (draft.security == "reality") {
-                    ManualField("REALITY public key", draft.realityPublicKey, { draft = draft.copy(realityPublicKey = it) })
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        ManualField("Short ID", draft.realityShortId, { draft = draft.copy(realityShortId = it) }, Modifier.weight(1f))
-                        ManualField("Spider X", draft.realitySpiderX, { draft = draft.copy(realitySpiderX = it) }, Modifier.weight(1f))
-                    }
-                }
-            }
-        }
-
-        SectionLabel("Save to", targetSourceName ?: "Select one server source first")
-        Text(
-            if (targetReady) {
-                "Will be added to the selected source and kept across refreshes."
-            } else {
-                "All sources is only a view. Select a source chip first, then add the config."
-            },
-            color = if (targetReady) Aether.Emerald else Aether.Amber,
-            style = MaterialTheme.typography.bodySmall
-        )
-
-        CyberButton(
-            variant = PrismButtonVariant.Primary,
-            label = if (protocol == ManualProtocol.SSH) "Save SSH connection" else "Save manual config",
-            color = Aether.Emerald,
-            modifier = Modifier.fillMaxWidth(),
-            enabled = targetReady && !repo.busy && (
-                (protocol == ManualProtocol.XRAY_JSON && draft.customJson.isNotBlank()) ||
-                    (protocol != ManualProtocol.XRAY_JSON && draft.host.isNotBlank())
-                )
-        ) {
-            if (repo.addManualProfile(draft, targetSourceId)) {
-                draft = ManualConfigDraft()
-                onSaved()
-            }
-        }
-    }
-}
-
-@Composable
-private fun FingerprintPresetRow(
-    value: String,
-    allowUnsafe: Boolean,
-    onSelect: (String) -> Unit
-) {
-    val presets = if (allowUnsafe) {
-        listOf("chrome", "firefox", "safari", "randomized", "unsafe")
-    } else {
-        // REALITY uses uTLS; do not suggest PattNG/Xray's native-Go-TLS `unsafe` mode here.
-        listOf("chrome", "firefox", "safari", "randomized")
-    }
-
-    FlowRow(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp)
-    ) {
-        presets.forEach { preset ->
-            CyberChoiceChip(
-                text = preset,
-                selected = value.equals(preset, ignoreCase = true),
-                color = if (preset == "unsafe") Aether.Amber else Aether.Cyan,
-                selectionTone = if (preset == "unsafe") Aether.Amber else Aether.Cyan
-            ) { onSelect(preset) }
-        }
-    }
-}
 
 @Composable
 private fun ManualField(
@@ -5616,6 +7002,7 @@ private fun ManualField(
         textStyle = if (singleLine) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace)
     )
 }
+
 
 @Composable
 private fun ConnectionDetailPage(
@@ -5739,7 +7126,6 @@ private fun DetailRow(label: String, value: String) {
         )
     }
 }
-
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -5912,184 +7298,9 @@ private fun LibraryFilterSheet(
     }
 }
 
-@Composable
-private fun LibrarySortChoice(
-    text: String,
-    selected: Boolean,
-    color: Color,
-    modifier: Modifier = Modifier,
-    onClick: () -> Unit
-) {
-    PrismSelectionTile(
-        label=text,
-        selected=selected,
-        tone=color,
-        modifier=modifier,
-        minHeight=48.dp,
-        onClick=onClick
-    )
-}
 
-
-@Composable
-private fun LibraryControlDeck(
-    repo: AppRepository,
-    sourceFilter: String
-) {
-    val manualCount=repo.libraryProfiles.count { it.subscriptionId == "manual" }
-    val selectedSub=repo.subscriptions.firstOrNull { it.id == sourceFilter }
-    val selectedCount=when(sourceFilter) {
-        "all" -> repo.libraryProfiles.count { !ServerlessFreedomEngine.isServerless(it) }
-        "manual" -> manualCount
-        ServerlessFreedomEngine.SOURCE_ID -> repo.libraryProfiles.count {
-            it.subscriptionId == ServerlessFreedomEngine.SOURCE_ID
-        }
-        else -> repo.subscriptionNodeCount(sourceFilter)
-    }
-    val remoteCount=repo.subscriptions.count { it.url.isNotBlank() }
-    val selectedRefreshing=when(sourceFilter) {
-        "all" -> repo.refreshingSources.isNotEmpty()
-        else -> sourceFilter in repo.refreshingSources
-    }
-    val canRefreshSelected=when(sourceFilter) {
-        "all" -> remoteCount > 0
-        "manual" -> false
-        else -> selectedSub?.url?.isNotBlank() == true
-    }
-
-    Column(
-        modifier=Modifier.fillMaxWidth(),
-        verticalArrangement=Arrangement.spacedBy(MarbleSpacing.S)
-    ) {
-        // MARBLE_SERVERS_V115 — no loud button trio at the top of the page. Per-subscription
-        // refresh lives on each module; this quiet row carries only the page-wide refresh and a
-        // delicate rank icon beside it. Ranking measures the real tunnel, never raw TCP SYN, so
-        // the old TCP "Ping" button is gone with its probe.
-        Row(
-            modifier=Modifier.fillMaxWidth(),
-            verticalAlignment=Alignment.CenterVertically,
-            horizontalArrangement=Arrangement.spacedBy(MarbleSpacing.S)
-        ) {
-            PrismButton(
-                label=if(selectedRefreshing) "Syncing…" else "Refresh all subscriptions",
-                onClick={ repo.refreshLibrarySource(sourceFilter) },
-                tone=Aether.Amethyst,
-                variant=PrismButtonVariant.Secondary,
-                compact=true,
-                enabled=canRefreshSelected && !repo.busy,
-                modifier=Modifier.weight(1f),
-                icon={
-                    HomeVectorIcon(
-                        HomeIcon.RESET,
-                        if(canRefreshSelected && !repo.busy) Aether.Amethyst else Aether.InkFaint,
-                        Modifier.size(16.dp)
-                    )
-                }
-            )
-            PrismIconButton(
-                onClick={ repo.smartRankSource(sourceFilter) },
-                tone=Aether.Emerald,
-                selected=repo.probeActive,
-                size=36.dp,
-                enabled=selectedCount > 0 && !repo.busy,
-                descriptiveLabel="Rank all servers through the real tunnel"
-            ) {
-                HomeVectorIcon(HomeIcon.RANK, if(selectedCount > 0 && !repo.busy) Aether.Emerald else Aether.InkFaint, Modifier.size(17.dp))
-            }
-        }
-
-        AnimatedVisibility(
-            visible=repo.probeActive,
-            enter=fadeIn(MarbleMotionSpecs.ResponseFloat)+
-                expandVertically(MarbleMotionSpecs.Layout),
-            exit=fadeOut(MarbleMotionSpecs.ExitFloat)+
-                shrinkVertically(MarbleMotionSpecs.Layout)
-        ) {
-            Column(
-                modifier=Modifier.fillMaxWidth(),
-                verticalArrangement=Arrangement.spacedBy(5.dp)
-            ) {
-                Row(
-                    modifier=Modifier.fillMaxWidth().heightIn(min=24.dp),
-                    verticalAlignment=Alignment.CenterVertically,
-                    horizontalArrangement=Arrangement.spacedBy(9.dp)
-                ) {
-                    HomeVectorIcon(HomeIcon.RANK,Aether.Cyan,Modifier.size(15.dp))
-                    LiveProgressBar(
-                        fraction=if(repo.probeTotal > 0) {
-                            repo.probeDone.toFloat()/repo.probeTotal.toFloat()
-                        } else null,
-                        modifier=Modifier.weight(1f),
-                        color=Aether.Cyan
-                    )
-                    Text(
-                        "${repo.probeDone.coerceAtMost(repo.probeTotal)}/${repo.probeTotal}",
-                        color=Aether.Cyan,
-                        style=MaterialTheme.typography.labelSmall.copy(
-                            fontFamily=FontFamily.Monospace,
-                            fontWeight=FontWeight.Bold
-                        )
-                    )
-                }
-
-                AnimatedContent(
-                    targetState=Triple(repo.probeLastName,repo.probeLastOutcome,repo.probeLastLatencyMs),
-                    transitionSpec={
-                        (fadeIn(MarbleMotionSpecs.ResponseFloat)+
-                            slideInVertically(MarbleMotionSpecs.Spatial) { it/2 }) togetherWith
-                            (fadeOut(MarbleMotionSpecs.ExitFloat)+
-                                slideOutVertically(MarbleMotionSpecs.SpatialExit) { -it/2 })
-                    },
-                    label="rank-live-node-result"
-                ) { event ->
-                    if(event.first.isNotBlank()) {
-                        val tone=when(event.second) {
-                            "FAILED" -> Aether.Danger
-                            "OK" -> Aether.Emerald
-                            else -> Aether.Cyan
-                        }
-                        Row(
-                            modifier=Modifier.fillMaxWidth(),
-                            verticalAlignment=Alignment.CenterVertically,
-                            horizontalArrangement=Arrangement.spacedBy(7.dp)
-                        ) {
-                            HomeVectorIcon(
-                                when(event.second) {
-                                    "FAILED" -> HomeIcon.CANCEL
-                                    "OK" -> HomeIcon.PING
-                                    else -> HomeIcon.BENCHMARK
-                                },
-                                tone,
-                                Modifier.size(13.dp)
-                            )
-                            Text(
-                                stripLeadingFlag(event.first),
-                                modifier=Modifier.weight(1f),
-                                color=Aether.InkMuted,
-                                style=MaterialTheme.typography.labelSmall,
-                                maxLines=1,
-                                overflow=TextOverflow.Ellipsis
-                            )
-                            Text(
-                                when(event.second) {
-                                    "FAILED" -> "FAILED"
-                                    "OK" -> "${event.third} ms"
-                                    else -> "…"
-                                },
-                                color=tone,
-                                style=MaterialTheme.typography.labelSmall.copy(
-                                    fontFamily=FontFamily.Monospace,
-                                    fontWeight=FontWeight.Bold
-                                )
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
+// Two small helpers the full filter sheet still leans on: the source chip and the
+// human label of each sort mode.
 
 @Composable
 private fun SourceOrbitChip(
@@ -6171,474 +7382,35 @@ private fun SourceOrbitChip(
     }
 }
 
-@Composable
-private fun LibraryMicroAction(
-    icon: HomeIcon,
-    label: String,
-    color: Color,
-    modifier: Modifier = Modifier,
-    enabled: Boolean = true,
-    variant: PrismButtonVariant = PrismButtonVariant.Primary,
-    badge: String = "",
-    detail: String = "",
-    onClick: () -> Unit
-) {
-    // The Library action deck is the loudest control group in the screen, so it carries the filled
-    // variant: a state-tinted skin, a soft colored glow and an icon that stays legible on the fill.
-    PrismButton(
-        label=label,
-        onClick=onClick,
-        tone=color,
-        modifier=modifier,
-        variant=variant,
-        enabled=enabled,
-        badge=badge,
-        detail=detail,
-        contentPadding=PaddingValues(horizontal=11.dp,vertical=9.dp),
-        icon={
-            HomeVectorIcon(
-                icon,
-                if(enabled) LocalContentColor.current else Aether.InkFaint,
-                Modifier.size(18.dp)
-            )
-        }
-    )
-}
 
 private fun sortModeLabel(mode: NodeSortMode): String = when (mode) {
+    NodeSortMode.DEFAULT -> "Default"
     NodeSortMode.PING -> "Ping"
     NodeSortMode.SCORE -> "Score"
     NodeSortMode.NAME -> "Name"
     NodeSortMode.PROTOCOL -> "Protocol"
     NodeSortMode.SOURCE -> "Source"
+    NodeSortMode.COUNTRY -> "Country"
 }
 
 @Composable
-private fun SubscriptionManagerCard(
-    sub: Subscription,
-    repo: AppRepository,
+private fun LibrarySortChoice(
+    text: String,
     selected: Boolean,
-    refreshing: Boolean,
-    onView: () -> Unit,
-    onManage: () -> Unit
+    color: Color,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
 ) {
-    val count = repo.subscriptionNodeCount(sub.id)
-    val local = sub.url.isBlank()
-    val expired = sub.expireAt > 0L && sub.expireAt < System.currentTimeMillis()
-    val accent = when {
-        expired -> Aether.Danger
-        refreshing -> Aether.Amethyst
-        selected -> Aether.Cyan
-        local -> Aether.Emerald
-        else -> Aether.InkMuted
-    }
-    val shape = RoundedCornerShape(17.dp)
-    Row(
-        modifier = Modifier
-            .widthIn(min = 210.dp, max = 270.dp)
-            .heightIn(min = 62.dp)
-            .prismElevated(
-                shape = shape,
-                tone = accent,
-                selected = selected,
-                fill = Aether.VoidElevated
-            )
-            .kineticClickable(role = Role.Button, boundedShape = shape, onClick = onView)
-            .padding(start = 10.dp, top = 8.dp, bottom = 8.dp, end = 5.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Box(
-            Modifier.size(32.dp).clip(RoundedCornerShape(11.dp)).background(accent.copy(alpha = .14f)),
-            contentAlignment = Alignment.Center
-        ) {
-            if (refreshing) {
-                CircularProgressIndicator(modifier = Modifier.size(17.dp), color = accent, strokeWidth = 2.dp)
-            } else {
-                Text(sub.name.trim().firstOrNull()?.uppercase() ?: "S", color = accent, fontWeight = FontWeight.Bold)
-            }
-        }
-        Spacer(Modifier.width(8.dp))
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(sub.name, color = Aether.Ink, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(
-                "$count servers • ${if (local) "LOCAL" else relativeTime(sub.updatedAt)}${if (selected) " • VIEWING" else ""}",
-                color = accent,
-                style = MaterialTheme.typography.labelSmall,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-        Box(
-            Modifier
-                .size(48.dp)
-                .clip(CircleShape)
-                .semantics { contentDescription = "Manage ${sub.name}" }
-                .kineticClickable(enabled = !repo.busy, role = Role.Button, onClick = onManage),
-            contentAlignment = Alignment.Center
-        ) {
-            HomeVectorIcon(HomeIcon.MORE, Aether.InkMuted, Modifier.size(18.dp))
-        }
-    }
+    PrismSelectionTile(
+        label=text,
+        selected=selected,
+        tone=color,
+        modifier=modifier,
+        minHeight=48.dp,
+        onClick=onClick
+    )
 }
 
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-private fun SpatialServerCard(
-    profile: ProxyProfile,
-    repo: AppRepository,
-    result: BenchmarkResult?,
-    active: Boolean,
-    probeState: ProbeState,
-    flavor: HomeFlavor = HomeFlavor.PRO,
-    ordinal: Int = 0,
-    divider: Boolean = false,
-    accent: Color = Aether.Cyan,
-    onConnect: (ProxyProfile) -> Unit,
-    onEdit: () -> Unit,
-    onDetails: () -> Unit
-) {
-    val measured=result?.takeIf { it.success > 0 }
-    val failedResult=result?.takeIf { it.success <= 0 }
-    val latency=measured?.latencyMs?.toInt() ?: 0
-    val health=healthColor(latency,result?.success ?: 0)
-    val testing=probeState == ProbeState.TESTING
-    val queued=probeState == ProbeState.QUEUED
-    // The handshake belongs to one row as much as the live route does: while Xray negotiates this exact
-    // profile the row keeps the transitional color, then the same frame settles into connected green.
-    val securing=!active &&
-        repo.state == "CONNECTING" &&
-        repo.stateDetail == profile.name
-    val emphasized=active || securing
-    // MARBLE_LIBRARY_STYLE_V113 — the connected treatment is skinned per Home style: each theme
-    // names its live route with its own vocabulary and its own accent instead of one shared pill.
-    val chrome=libraryChromeFor(flavor)
-    val routeTone=if(active) chrome.connectedTone else chrome.accent
-    val builtInFreedom = ServerlessFreedomEngine.isServerless(profile)
-    val clipboard=LocalClipboardManager.current
-
-    var menuOpen by remember { mutableStateOf(false) }
-    var jsonOpen by remember(profile.id) { mutableStateOf(false) }
-    var jsonText by remember(profile.id,profile.configJson) {
-        mutableStateOf(profile.configJson)
-    }
-    // MARBLE_SERVERS_STYLE_CARDS_V117 — one delete path: the per-server menu. The row stays
-    // minimal with no visible trash glyph and no duplicated swipe gesture.
-    var confirmDelete by remember(profile.id) { mutableStateOf(false) }
-
-    val swipeState=rememberSwipeToDismissBoxState()
-
-    LaunchedEffect(swipeState.settledValue) {
-        when(swipeState.settledValue) {
-            SwipeToDismissBoxValue.StartToEnd -> {
-                onEdit()
-                swipeState.reset()
-            }
-            // MARBLE_SERVERS_STYLE_CARDS_V117 — swipe-to-delete stays gone; the swipe slot is
-            // reserved for edit only.
-            SwipeToDismissBoxValue.EndToStart -> swipeState.reset()
-            SwipeToDismissBoxValue.Settled -> Unit
-        }
-    }
-
-    if(jsonOpen) {
-        AlertDialog(
-            onDismissRequest={ jsonOpen=false },
-            containerColor=MaterialTheme.colorScheme.surface,
-            title={
-                Column {
-                    Text(trx("Edit Xray JSON"))
-                    Text(
-                        profile.name,
-                        color=MaterialTheme.colorScheme.onSurfaceVariant,
-                        style=MaterialTheme.typography.bodySmall,
-                        maxLines=1,
-                        overflow=TextOverflow.Ellipsis
-                    )
-                }
-            },
-            text={
-                Column(verticalArrangement=Arrangement.spacedBy(MarbleSpacing.S)) {
-                    OutlinedTextField(
-                        value=jsonText,
-                        onValueChange={ jsonText=it },
-                        modifier=Modifier.fillMaxWidth().heightIn(min=260.dp,max=430.dp),
-                        colors=marbleOutlinedTextFieldColors(),
-                        textStyle=MaterialTheme.typography.bodySmall.copy(
-                            fontFamily=FontFamily.Monospace
-                        ),
-                        label={ Text(trx("Effective config JSON")) },
-                        minLines=10,
-                        maxLines=22
-                    )
-                    Text(
-                        if(profile.subscriptionId == "manual") {
-                            "Manual server • edits are stored locally."
-                        } else {
-                            "Subscription server • refresh can replace this edit. " +
-                                "Duplicate to Manual for a permanent fork."
-                        },
-                        color=MaterialTheme.colorScheme.onSurfaceVariant,
-                        style=MaterialTheme.typography.bodySmall
-                    )
-                }
-            },
-            confirmButton={
-                MarbleDialogAction(
-                    label="Save JSON",
-                    tone=Aether.Cyan,
-                    variant=PrismButtonVariant.Primary,
-                    onClick={
-                        if(repo.updateProfileJson(
-                                profile.id,
-                                jsonText,
-                                profile.subscriptionId
-                            )
-                        ) jsonOpen=false
-                    }
-                )
-            },
-            dismissButton={
-                MarbleDialogAction(label="Cancel", tone=Aether.InkMuted, onClick={ jsonOpen=false })
-            }
-        )
-    }
-
-    if(confirmDelete) {
-        AlertDialog(
-            onDismissRequest={ confirmDelete=false },
-            title={ Text(trx("Delete server?")) },
-            text={
-                Text(
-                    "Remove ${profile.name} from ${profile.subscriptionName}? " +
-                        "Deleting is confirmed here, never silent."
-                )
-            },
-            confirmButton={
-                MarbleDialogAction(
-                    label="Delete",
-                    tone=Aether.Danger,
-                    onClick={
-                        repo.removeProfile(profile.id, profile.subscriptionId)
-                        confirmDelete=false
-                    }
-                )
-            },
-            dismissButton={
-                MarbleDialogAction(label="Cancel", tone=Aether.InkMuted, onClick={ confirmDelete=false })
-            }
-        )
-    }
-
-    SwipeToDismissBox(
-        state=swipeState,
-        enableDismissFromStartToEnd=!repo.busy && !builtInFreedom,
-        // MARBLE_SERVERS_STYLE_CARDS_V117 — no duplicated delete gesture.
-        enableDismissFromEndToStart=false,
-        backgroundContent={
-            val edit=swipeState.dismissDirection == SwipeToDismissBoxValue.StartToEnd
-            val tone=if(edit) Aether.Amethyst else Aether.Danger
-            Row(
-                modifier=Modifier
-                    .fillMaxSize()
-                    .clip(MaterialTheme.shapes.large)
-                    .background(tone.copy(alpha=.11f))
-                    .padding(horizontal=MarbleSpacing.L),
-                verticalAlignment=Alignment.CenterVertically,
-                horizontalArrangement=if(edit) Arrangement.Start else Arrangement.End
-            ) {
-                HomeVectorIcon(
-                    if(edit) HomeIcon.MODE else HomeIcon.CANCEL,
-                    tone,
-                    Modifier.size(22.dp)
-                )
-                Spacer(Modifier.width(MarbleSpacing.S))
-                Text(
-                    if(edit) "Edit" else "Delete",
-                    color=tone,
-                    style=MaterialTheme.typography.labelLarge,
-                    fontWeight=FontWeight.Bold
-                )
-            }
-        }
-    ) {
-        // MARBLE_SERVERS_V114 — the server is no longer a card of its own. It is one compact line
-        // inside the frosted module of its source: the frost, the hairline, the state flood and the
-        // per-style artwork are painted by the module row, and what is left here is the row's own
-        // facts (name, protocol, measured latency) plus its actions.
-        LibraryServerRow(
-            profile = profile,
-            flavor = flavor,
-            chrome = chrome,
-            active = active,
-            securing = securing,
-            testing = testing,
-            latency = latency,
-            health = health,
-            ordinal = ordinal,
-            divider = divider,
-            accent = accent,
-            enabled = !repo.busy,
-            onConnect = { onConnect(profile) }
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(5.dp)
-            ) {
-                // MARBLE_SERVERS_STYLE_CARDS_V117 — the row is intentionally clean: no visible
-                // trash glyph and no word "Delete" in the box. Delete lives quietly in the app
-                // menu, where destructive actions belong, while the row stays elegant and minimal.
-                Box {
-                    PrismIconButton(
-                        onClick = { menuOpen = true },
-                        tone = if (menuOpen) Aether.Cyan else Aether.InkMuted,
-                        selected = menuOpen,
-                        enabled = !repo.busy,
-                        size = 34.dp,
-                        descriptiveLabel = "More actions for ${profile.name}"
-                    ) {
-                        HomeVectorIcon(
-                            HomeIcon.MORE,
-                            if (menuOpen) Aether.Cyan else Aether.InkMuted,
-                            Modifier.size(16.dp)
-                        )
-                    }
-
-                DropdownMenu(
-                    expanded = menuOpen,
-                    onDismissRequest = { menuOpen = false },
-                    shape = libraryMenuShape(flavor),
-                    containerColor = MaterialTheme.colorScheme.surface
-                ) {
-                    DropdownMenuItem(
-                        text = { Text(trx("Details")) },
-                        onClick = {
-                            menuOpen = false
-                            onDetails()
-                        }
-                    )
-                    DropdownMenuItem(
-                        text = { Text(trx("Copy config link")) },
-                        onClick = {
-                            menuOpen = false
-                            clipboard.setText(
-                                AnnotatedString(
-                                    profile.raw.trim().ifBlank {
-                                        profile.configJson
-                                    }
-                                )
-                            )
-                            repo.setRuntimeMessage("Config copied")
-                        }
-                    )
-                    DropdownMenuItem(
-                        text = { Text(trx("Copy Xray JSON")) },
-                        onClick = {
-                            menuOpen = false
-                            clipboard.setText(AnnotatedString(profile.configJson))
-                            repo.setRuntimeMessage("Xray JSON copied")
-                        }
-                    )
-                    if (!builtInFreedom && !profile.scheme.equals("ssh", true)) {
-                        DropdownMenuItem(
-                            text = { Text(trx("Edit Xray JSON")) },
-                            onClick = {
-                                menuOpen = false
-                                jsonText = profile.configJson
-                                jsonOpen = true
-                            }
-                        )
-                    }
-                    if (repo.settings.manualSourceEnabled && !builtInFreedom) {
-                        DropdownMenuItem(
-                            text = { Text(trx("Duplicate to Manual")) },
-                            onClick = {
-                                menuOpen = false
-                                repo.duplicateProfile(
-                                    profile.id,
-                                    profile.subscriptionId
-                                )
-                            }
-                        )
-                    }
-                    HorizontalDivider()
-                    DropdownMenuItem(
-                        text = { Text(trx("Test this server")) },
-                        onClick = {
-                            menuOpen = false
-                            repo.fullTest(profile)
-                        }
-                    )
-                    if (!builtInFreedom) {
-                        DropdownMenuItem(
-                            text = { Text(trx("Rename")) },
-                            onClick = {
-                                menuOpen = false
-                                onEdit()
-                            }
-                        )
-                        HorizontalDivider()
-                        DropdownMenuItem(
-                            text = {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    HomeVectorIcon(HomeIcon.TRASH, Aether.Danger, Modifier.size(16.dp))
-                                    Text(trx("Delete"), color = Aether.Danger)
-                                }
-                            },
-                            onClick = {
-                                menuOpen = false
-                                confirmDelete = true
-                            }
-                        )
-                    }
-                }
-                }
-            }
-        }
-    }
-}
-
-
-@Composable
-private fun MicroStat(
-    label: String,
-    value: String,
-    modifier: Modifier = Modifier
-) {
-    PrismWell(
-        modifier = modifier.heightIn(min = 46.dp),
-        radius = 12.dp,
-        contentPadding = PaddingValues(horizontal = 9.dp, vertical = 7.dp)
-    ) {
-        Column(
-            modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.Center
-        ) {
-            Text(
-                trx(label),
-                color = Aether.InkFaint,
-                style = MaterialTheme.typography.labelSmall,
-                maxLines = 1,
-                softWrap = false,
-                overflow = TextOverflow.Ellipsis
-            )
-            Spacer(Modifier.height(1.dp))
-            Text(
-                value,
-                color = Aether.InkMuted,
-                style = MaterialTheme.typography.labelMedium.copy(
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.SemiBold
-                ),
-                maxLines = 1,
-                softWrap = false,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-    }
-}
 
 // =================================================================================================
 // SETTINGS / SWIPEABLE WORKSPACES

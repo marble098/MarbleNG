@@ -183,8 +183,14 @@ class AppStore(context: Context) {
         tcpPrecheckTimeoutMs = prefs.getInt("tcpPrecheckTimeoutMs", 1000),
         tcpWorkers = prefs.getInt("tcpWorkers", 20),
 
-        nodeSortMode = enumValue("nodeSortMode", NodeSortMode.PING),
+        nodeSortMode = enumValue("nodeSortMode", NodeSortMode.DEFAULT),
         nodeSortReverse = prefs.getBoolean("nodeSortReverse", false),
+
+        // MARBLE_SERVERS_QUERY_V120 — the Servers filter bar survives a restart.
+        serversProtocolFilter = prefs.getString("serversProtocolFilter", "")?.trim().orEmpty(),
+        serversOnlyReachable = prefs.getBoolean("serversOnlyReachable", false),
+        serversMaxPingMs = prefs.getInt("serversMaxPingMs", 0).coerceAtLeast(0),
+        serversGroupByCountry = prefs.getBoolean("serversGroupByCountry", false),
 
         rememberLast = prefs.getBoolean("rememberLast", true),
         subscriptionAutoRefresh = prefs.getBoolean("subscriptionAutoRefresh", true),
@@ -398,6 +404,12 @@ class AppStore(context: Context) {
 
         .putString("nodeSortMode", s.nodeSortMode.name)
         .putBoolean("nodeSortReverse", s.nodeSortReverse)
+
+        // MARBLE_SERVERS_QUERY_V120
+        .putString("serversProtocolFilter", s.serversProtocolFilter.trim().uppercase())
+        .putBoolean("serversOnlyReachable", s.serversOnlyReachable)
+        .putInt("serversMaxPingMs", s.serversMaxPingMs.coerceAtLeast(0))
+        .putBoolean("serversGroupByCountry", s.serversGroupByCountry)
 
         .putBoolean("rememberLast", s.rememberLast)
         .putBoolean("subscriptionAutoRefresh", s.subscriptionAutoRefresh)

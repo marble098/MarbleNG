@@ -236,6 +236,15 @@ tasks.configureEach {
     }
 }
 
+// MARBLE_TEST_EVIDENCE_V120 — CI reads the console log and nothing else, so a failing test has to
+// say *what* it saw. Gradle's default logging names the test and the line number, which is not
+// enough to tell a wrong expectation from a wrong implementation without another full run.
+tasks.withType<Test>().configureEach {
+    testLogging {
+        exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+    }
+}
+
 dependencies {
 
     implementation(

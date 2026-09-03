@@ -2177,6 +2177,66 @@ private fun postToMain(block: () -> Unit) {
         message = "Server removed • ${target.name}"
     }
 
+    /**
+     * MARBLE_SERVERS_QUERY_V120 — "Move to group" from a server's own menu.
+     *
+     * The server keeps its identity, its stored measurements and its learned acceleration; only its
+     * owner changes. The moved row becomes user-owned ([ProxyProfile.sourceManaged] = false) so a
+     * later refresh of either source neither deletes it nor silently rewrites the user's copy, and
+     * the exact last-route reference is re-pointed when the live route is the one being moved.
+     */
+    fun moveProfile(id: String, sourceId: String?, targetSourceId: String): Boolean {
+        if (busy) {
+            message = "Wait for the current task before moving a server"
+            return false
+        }
+        val index = profiles.indexOfFirst {
+            it.id == id && (sourceId.isNullOrBlank() || it.subscriptionId == sourceId)
+        }
+        if (index < 0) {
+            message = "Server no longer exists"
+            return false
+        }
+        val target = resolveLibraryTarget(targetSourceId)
+        if (target == null) {
+            message = when (targetSourceId) {
+                ServerlessFreedomEngine.SOURCE_ID ->
+                    "Marble Freedom is generated locally • servers cannot be moved into it"
+                "manual" -> "Manual source is disabled • enable it in Settings → Subscriptions first"
+                else -> "Select one server source before moving a server"
+            }
+            return false
+        }
+        val moving = profiles[index]
+        if (moving.subscriptionId == target.id) {
+            message = "${moving.name} is already in ${target.name}"
+            return false
+        }
+        if (profiles.any { it.id == moving.id && it.subscriptionId == target.id }) {
+            message = "That server already exists in ${target.name}"
+            return false
+        }
+        val remembered = lastProfile()
+        profiles[index] = moving.copy(
+            subscriptionId = target.id,
+            subscriptionName = target.name,
+            sourceManaged = false
+        )
+        if (remembered?.id == moving.id && remembered.subscriptionId == moving.subscriptionId) {
+            store.setLastProfileRef(moving.id, target.id)
+        }
+        store.saveProfiles(profiles)
+        diagnostics.event(
+            "LIBRARY",
+            "profile-moved",
+            "profile" to moving.id.take(12),
+            "from" to moving.subscriptionId.take(16),
+            "to" to target.id.take(16)
+        )
+        message = "${moving.name} moved to ${target.name}"
+        return true
+    }
+
     fun renameProfile(id: String, name: String, sourceId: String? = null) {
         val trimmed = name.trim()
         if (trimmed.isBlank()) return

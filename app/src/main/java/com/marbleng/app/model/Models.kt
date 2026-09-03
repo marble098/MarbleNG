@@ -113,7 +113,13 @@ enum class ConnectionMode { FULL_TUN, LOCAL_PROXY }
 enum class RoutingMode { PROXY_ALL, BYPASS_PRIVATE, GEO_DIRECT, CUSTOM }
 enum class SplitTunnelMode { ALL_APPS, ONLY_SELECTED, BYPASS_SELECTED }
 enum class WorkloadProfile { AUTO, INTERACTIVE, STREAMING, STABILITY, STEALTH }
-enum class NodeSortMode { PING, SCORE, NAME, PROTOCOL, SOURCE }
+/**
+ * MARBLE_SERVERS_QUERY_V120 — how the Servers list is ordered.
+ *
+ * [DEFAULT] keeps the order the source itself published (a subscription owner numbers their nodes
+ * on purpose); [COUNTRY] groups the list by the country resolved from each node's label.
+ */
+enum class NodeSortMode { DEFAULT, PING, SCORE, NAME, PROTOCOL, SOURCE, COUNTRY }
 
 /**
  * MARBLE_HOME_STYLE_V110 / MARBLE_SIGNATURE_HOME_V112
@@ -369,8 +375,20 @@ data class AppSettings(
     val tcpWorkers: Int = 20,
 
     // Library order. Ping is intentionally the default; untested nodes stay last.
-    val nodeSortMode: NodeSortMode = NodeSortMode.PING,
+    val nodeSortMode: NodeSortMode = NodeSortMode.DEFAULT,
     val nodeSortReverse: Boolean = false,
+
+    // MARBLE_SERVERS_QUERY_V120 — the Servers filter bar. Every field is a control the user can
+    // see: the protocol chip, and the three switches inside the advanced-filter menu. They persist
+    // so a working filter set survives a restart, and Reset returns them to these defaults.
+    /** Wire-scheme filter for the Servers list; blank shows every protocol. */
+    val serversProtocolFilter: String = "",
+    /** Hide servers whose latest stored measurement failed. */
+    val serversOnlyReachable: Boolean = false,
+    /** Hide servers slower than this many milliseconds; 0 turns the ceiling off. */
+    val serversMaxPingMs: Int = 0,
+    /** Bucket the Servers list by resolved country instead of by source. */
+    val serversGroupByCountry: Boolean = false,
 
     val rememberLast: Boolean = true,
     val subscriptionAutoRefresh: Boolean = true,
