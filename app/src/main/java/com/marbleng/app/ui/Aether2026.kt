@@ -139,6 +139,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -4097,7 +4099,7 @@ private fun ServersRoundButton(
 @Composable
 private fun ServersMenuItem(
     label: String,
-    selected: Boolean,
+    selected: Boolean = false,
     enabled: Boolean = true,
     icon: HomeIcon? = null,
     tone: Color = Aether.Ink,
@@ -6553,8 +6555,8 @@ private fun ServersAddNodeForm(
 @Composable
 private fun ServersInsecureSwitch(
     checked: Boolean,
-    onToggle: () -> Unit,
-    label: String = "Allow insecure certificate"
+    label: String = "Allow insecure certificate",
+    onToggle: () -> Unit
 ) {
     val description = trx(label)
     Row(
