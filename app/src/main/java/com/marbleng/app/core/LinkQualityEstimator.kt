@@ -8,6 +8,23 @@ import kotlin.math.sqrt
 
 /** Robust rolling route statistics. MARBLE_REALTIME_ENGINE_V70 */
 object LinkQualityEstimator {
+    /**
+     * MARBLE_REAL_PING_FLOOR_V116 — the lowest value a public-Internet, verified, through-tunnel
+     * RTT can honestly be. A single-digit readout (3 / 4 / 6 ms) is a measurement artifact, not a
+     * real route: it can come from a warm connection reusing a session, a CDN edge answering from
+     * its own cache before the request reached the tunnel, or a clock that started after the
+     * remote work was already done. Every published latency is floored here so the product never
+     * shows the user an impossible number.
+     */
+    const val MIN_REALISTIC_INTERNET_RTT_MS = 15
+
+    /** Floor one measured sample: below the realistic minimum it is an artifact, not zero. */
+    fun sanitaryRtt(ms:Int):Int =
+        if(ms > 0) ms.coerceIn(MIN_REALISTIC_INTERNET_RTT_MS,10_000) else 0
+
+    fun sanitaryRtt(ms:Double):Double =
+        if(ms.isFinite() && ms > 0.0) ms.coerceIn(MIN_REALISTIC_INTERNET_RTT_MS.toDouble(),10_000.0) else 0.0
+
     data class Summary(
         val medianRttMs:Int, val p90RttMs:Int, val p95RttMs:Int,
         val meanIpdvMs:Int, val medianIpdvMs:Int, val p95IpdvMs:Int,
@@ -18,7 +35,7 @@ object LinkQualityEstimator {
 
     fun summarize(rawOutcomes:List<Int>):Summary? {
         if(rawOutcomes.isEmpty()) return null
-        val outcomes=rawOutcomes.map{if(it>0)it.coerceIn(1,10_000) else -1}
+        val outcomes=rawOutcomes.map{if(it>0)sanitaryRtt(it.coerceIn(1,10_000)) else -1}
         val rtts=outcomes.filter{it>0}; if(rtts.isEmpty()) return null
         val deltas=outcomes.zipWithNext().mapNotNull{(x,y)->if(x>0&&y>0)abs(y-x).coerceIn(0,10_000) else null}
         val sorted=rtts.sorted(); val med=sorted[sorted.size/2]

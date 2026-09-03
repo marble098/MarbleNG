@@ -726,6 +726,7 @@ private val FaLexicon: Map<String, String> = mapOf(
     "END OF SHEET" to "پایان برگه",
     "ms" to "میلی‌ثانیه",
     "Hold for actions" to "برای اکشن‌ها نگه دارید",
+    "Tap to import • hold for options" to "برای افزودن لمس کنید • نگه‌داشتن برای گزینه‌ها",
     "Add servers" to "افزودن سرور",
     "Sort servers" to "مرتب‌سازی سرورها",
     "SIGNATURE SERVERS" to "سرورهای سیگنچر",
@@ -739,6 +740,8 @@ private val FaLexicon: Map<String, String> = mapOf(
 
     // The settings hub: one page of titles, each opening its own page, plus the live quick rows.
     "All settings" to "همه تنظیمات",
+    "Theme, Home style, Typeface and Language live under Appearance on the Settings hub." to
+        "تم، استایل خانه، فونت و زبان زیر «ظاهر» در مرکز تنظیمات قرار دارند.",
     "Hub" to "مرکز",
     "Language" to "زبان",
     "English" to "انگلیسی",

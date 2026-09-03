@@ -411,7 +411,9 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         probeCurrentName = profile.name
         probeLastName = profile.name
         probeLastOutcome = if (result.success > 0) "OK" else "FAILED"
-        probeLastLatencyMs = if (result.success > 0) result.latencyMs.toInt().coerceAtLeast(1) else 0
+        probeLastLatencyMs = if (result.success > 0) {
+            LinkQualityEstimator.sanitaryRtt(result.latencyMs.toInt())
+        } else 0
         mergeBenchmarks(listOf(result))
     }
 
@@ -824,12 +826,17 @@ fun updateRouteQuality(
         tailLatencyMs: Int = -1
     ) {
         if (pingMs <= 0) return
+        // MARBLE_REAL_PING_FLOOR_V116 — the live monitor, the Home probe and Stored benchmark seeds
+        // all publish through here; one floor keeps every ping surface (Home, bento, selector,
+        // notification) from ever showing a single-digit artifact.
+        val honestPing = LinkQualityEstimator.sanitaryRtt(pingMs)
+        if (honestPing <= 0) return
 
         // Quality is computed from the same bounded evidence window as the displayed metrics.
         // A timeout is reliability evidence, unknown jitter stays neutral, and p90 catches a
         // congested tail that a median alone can hide.
         val rawScore = calculateLiveRouteScore(
-            pingMs = pingMs,
+            pingMs = honestPing,
             jitterMs = jitterMs,
             successPercent = successPercent,
             attemptCount = attemptCount,
@@ -837,7 +844,7 @@ fun updateRouteQuality(
         )
 
         postToMain {
-            livePingMs = pingMs
+            livePingMs = honestPing
             if (jitterMs >= 0) {
                 liveJitterMs = jitterMs.coerceIn(0, 10_000)
             }
@@ -1375,12 +1382,13 @@ private fun postToMain(block: () -> Unit) {
         val sessionAtStart = connectedSinceMs
 
         // Guarantee 1 — seed the readout with a real measurement the tunnel already owns, so the
-        // value never sits in MEASURING while the race is still running.
+        // value never sits in MEASURING while the race is still running. Stored benchmarks can
+        // also hold pre-floor artifacts, so the seed is floored before it can reach the UI.
         val storedLatencyMs = benchmarks
             .firstOrNull { it.profileId == activeProfileId }
             ?.takeIf { it.success > 0 && it.latencyMs > 0.0 }
             ?.latencyMs
-            ?.roundToInt()
+            ?.let { LinkQualityEstimator.sanitaryRtt(it.roundToInt()) }
             ?: 0
         val seedMs = listOf(livePingMs, storedLatencyMs).firstOrNull { it > 0 } ?: 0
 
@@ -1416,12 +1424,13 @@ private fun postToMain(block: () -> Unit) {
             val firstPublished = AtomicBoolean(false)
 
             fun record(mode: String, ms: Double, verified: Boolean) {
-                if (!ms.isFinite() || ms <= 0.0) return
-                results += ProbeSample(mode, ms, verified)
+                val sane = LinkQualityEstimator.sanitaryRtt(ms)
+                if (sane <= 0.0) return
+                results += ProbeSample(mode, sane, verified)
                 // The first sample that proves the tunnel end-to-end is shown immediately; the
-                // fastest sample of the whole race refines it a moment later.
+                // robust winner of the whole race refines it a moment later.
                 if (verified && firstPublished.compareAndSet(false, true)) {
-                    val first = ms.roundToInt().coerceIn(1, 10_000)
+                    val first = sane.roundToInt().coerceIn(1, 10_000)
                     postToMain {
                         if (state == "CONNECTED" && connectedSinceMs == sessionAtStart) {
                             connectionPingMs = first
@@ -1501,10 +1510,20 @@ private fun postToMain(block: () -> Unit) {
             }
 
             val verifiedSamples = results.filter { it.verified }
+            // MARBLE_REAL_PING_FLOOR_V116 — one freaky fast sample never wins the race. The winner
+            // is the median of the verified probes (every sample already floored), so a single
+            // 3 ms artifact cannot pull the Home readout below physical reality; the unverified
+            // SOCKS ladder only counts when nothing verified answered.
+            val racePool = (verifiedSamples.ifEmpty { results })
+                .map { it.ms }
+                .filter { it.isFinite() && it > 0.0 }
+                .sorted()
+            val winnerMs = racePool.getOrNull(racePool.size / 2)
+            // Diagnostics still identify which probe class produced the winning opinion.
             val winner = verifiedSamples.minByOrNull { it.ms } ?: results.minByOrNull { it.ms }
             // Ladder tail: the live tunnel monitor, then the stored benchmark of the live server.
             val tailMs = listOf(livePingMs, storedLatencyMs).firstOrNull { it > 0 } ?: 0
-            val measured = (winner?.ms?.roundToInt() ?: tailMs).coerceIn(0, 10_000)
+            val measured = (winnerMs ?: tailMs).toInt().coerceIn(0, 10_000)
 
             diagnostics.event(
                 "APP",
