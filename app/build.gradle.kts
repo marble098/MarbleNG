@@ -33,6 +33,37 @@ val signingProps =
 val signingConfigured =
     signingPropertiesFile.exists()
 
+// MARBLE_INFORMATION_PAGE_V114 — Settings › Information reports the exact cores this build ships.
+// They are read from core-lock.json, the same file CI verifies and the same file the native build
+// downloads from, so the numbers on screen cannot drift from the binaries inside the APK.
+val coreLockFile = rootProject.file("core-lock.json")
+
+val coreLockText =
+    if (coreLockFile.isFile) {
+        coreLockFile.readText()
+    } else {
+        ""
+    }
+
+fun coreLockField(component: String, field: String): String {
+    // Deliberately no JSON parser and no regex escaping in the build script: core-lock.json is a
+    // flat two-level file, and plain string scoping reads exactly like the file itself.
+    val block = coreLockText
+        .substringAfter("\"$component\"", "")
+        .substringBefore("}", "")
+    return block
+        .substringAfter("\"$field\"", "")
+        .substringAfter("\"", "")
+        .substringBefore("\"", "")
+        .ifBlank { "unknown" }
+}
+
+val xrayCoreTag = coreLockField("xray", "tag")
+val xrayCoreRepo = coreLockField("xray", "repo")
+val hevCoreTag = coreLockField("hev", "tag")
+val hevCoreRepo = coreLockField("hev", "repo")
+val marbleSourceUrl = "https://github.com/marble098/MarbleNG"
+
 fun signingValue(name: String): String {
     return signingProps
         .getProperty(name)
@@ -71,6 +102,14 @@ android {
         vectorDrawables {
             useSupportLibrary = true
         }
+
+        // MARBLE_INFORMATION_PAGE_V114 — Settings › Information reports the real cores and links
+        // straight to the repository, so both are compiled in rather than hardcoded in the UI.
+        buildConfigField("String", "XRAY_CORE_TAG", "\"$xrayCoreTag\"")
+        buildConfigField("String", "XRAY_CORE_REPO", "\"$xrayCoreRepo\"")
+        buildConfigField("String", "HEV_CORE_TAG", "\"$hevCoreTag\"")
+        buildConfigField("String", "HEV_CORE_REPO", "\"$hevCoreRepo\"")
+        buildConfigField("String", "SOURCE_URL", "\"$marbleSourceUrl\"")
     }
 
     signingConfigs {

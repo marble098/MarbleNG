@@ -100,7 +100,9 @@ check("remembered route stores source id", "lastProfileSourceId" in files["store
 check("source-aware profile lookup exists", "fun profile(id: String, sourceId: String? = null)" in files["repo"])
 check("source-aware UI deletion exists", "removeProfile(profile.id, profile.subscriptionId)" in files["ui"])
 check("active provider row survives refresh", "active-profile-preserved-on-refresh" in files["repo"])
-check("node deletion is disconnected-only", "Disconnect before deleting Library nodes" in files["repo"])
+# MARBLE_SERVERS_LANGUAGE_V114 — "Library nodes" is "servers" everywhere the user can read it,
+# including this guard message; the invariant is the guard, not the old wording.
+check("server deletion is disconnected-only", "Disconnect before deleting servers" in files["repo"])
 check("source deletion is disconnected-only", "Disconnect before deleting a subscription source" in files["repo"])
 
 # Management plane.
@@ -138,7 +140,7 @@ check(
     and "fontId" in files["theme"],
 )
 check(
-    "Marble Freedom is a selectable Library source",
+    "Marble Freedom is a selectable servers source",
     "freedomLibraryProfiles" in files["repo"]
     and "SOURCE_ID" in files["repo"]
     and "Freedom (" in files["ui"],

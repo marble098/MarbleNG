@@ -2802,7 +2802,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                     !isPrivateEndpointHost(host)
                 ) {
                     return@runCatching (
-                        "Unsupported VLESS • pick a node with TLS/REALITY, " +
+                        "Unsupported VLESS • pick a server with TLS/REALITY, " +
                             "or turn Marble Freedom back on"
                     )
                 }
@@ -2862,9 +2862,9 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         val lower = compact.lowercase()
         return when {
             "vless without tls or other encryption is prohibited" in lower ->
-                "Unsupported VLESS • pick a node with TLS/REALITY, or turn Marble Freedom back on"
+                "Unsupported VLESS • pick a server with TLS/REALITY, or turn Marble Freedom back on"
             "failed to build outbound config" in lower ->
-                "Xray rejected this node configuration • check protocol/TLS settings"
+                "Xray rejected this server configuration • check protocol/TLS settings"
             "failed to load config files" in lower ->
                 "Xray rejected the generated configuration"
             compact.length > 240 -> compact.take(237) + "…"

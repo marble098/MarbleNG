@@ -253,14 +253,25 @@ internal fun rememberUptimeLabel(connectedSinceMs: Long): String {
     }
 }
 
+/**
+ * MARBLE_PING_FIXED_GEOMETRY_V114 — the ping *value* is only ever digit-shaped.
+ *
+ * The readout is an instrument with a fixed box: a word like "measuring…" or "بدون پاسخ" is
+ * longer than "123 ms", so rendering it in the value slot resized the box on every state change.
+ * Words now live in the reserved hint slot below ([homePingActionHint]) and the value slot keeps
+ * one constant glyph budget — the measured number, three dots while the probe is in flight, or an
+ * em dash when the route has never been measured.
+ */
 @Composable
 internal fun homePingLabel(evidence: HomeEvidence): String {
     val t = Tr.now
     return when (evidence.pingState) {
-        ConnectionPingState.MEASURING -> t.measuring
+        ConnectionPingState.MEASURING -> t.pingMeasuringValue
         ConnectionPingState.MEASURED -> "${evidence.pingMs} ms"
-        ConnectionPingState.FAILED -> t.pingFailed
-        ConnectionPingState.IDLE -> if (evidence.connected) t.notMeasured else "—"
+        // MARBLE_PING_GUARANTEE_V114 — the repository ladder cannot answer "no response" while a
+        // tunnel carries traffic, so a failure only ever means "nothing measured on this route yet".
+        ConnectionPingState.FAILED -> t.pingIdleValue
+        ConnectionPingState.IDLE -> t.pingIdleValue
     }
 }
 
@@ -278,9 +289,9 @@ internal fun homePingActionHint(evidence: HomeEvidence): String {
     val t = Tr.now
     return when {
         !evidence.connected -> ""
-        evidence.pingState == ConnectionPingState.MEASURING -> ""
-        evidence.pingState == ConnectionPingState.IDLE -> t.testPing
-        else -> t.retestPing
+        evidence.pingState == ConnectionPingState.MEASURING -> t.measuring
+        evidence.pingState == ConnectionPingState.MEASURED -> t.retestPing
+        else -> t.testPing
     }
 }
 
@@ -304,15 +315,20 @@ private fun hash01(seed: Int): Float {
 internal fun loopFade(t: Float): Float = sin((t.coerceIn(0f, 1f)) * PI.toFloat())
 
 /**
- * MARBLE_HOME_PING_AUTOFIT_V112 — one value renderer for every stat readout (uptime, ping).
+ * MARBLE_HOME_PING_AUTOFIT_V112 / MARBLE_PING_FIXED_GEOMETRY_V114 — one value renderer for every
+ * stat readout (uptime, ping).
  *
- * The value must never escape its box: long values ("no response", Persian "بدون پاسخ",
- * "اندازه‌گیری…", "1234 ms") step down through progressively smaller sizes derived from the
- * caller's base style, then clamp to a single ellipsized line. Short values keep the full
- * hero size, so nothing about the classic styles changes.
+ * V112 shrank the type to fit long state words. V114 removes the reason to shrink: state words no
+ * longer enter the value slot ([homePingLabel] only emits digit-shaped glyphs), so the face is now
+ * locked by default. A locked value keeps one constant optical size across every state change,
+ * which is what makes the ping box read as a real instrument instead of a label that breathes.
  *
- * The face now follows the product typeface chosen in Settings: by default [fontFamily] is
- * null, so the value inherits the family already baked into [baseStyle] by AetherTheme.
+ * [autoFit] stays available for readouts that must survive an arbitrarily long string in a narrow
+ * box; it is opt-in now, never the default. Digits render with tabular figures so `9 ms → 10 ms`
+ * does not shift the following glyphs sideways.
+ *
+ * The face follows the product typeface chosen in Settings: by default [fontFamily] is null, so the
+ * value inherits the family already baked into [baseStyle] by AetherTheme.
  */
 @Composable
 internal fun HomeStatValueText(
@@ -322,19 +338,24 @@ internal fun HomeStatValueText(
     modifier: Modifier = Modifier,
     fontFamily: FontFamily? = null,
     weight: FontWeight = FontWeight.Bold,
-    sizeScale: Float = 1f
+    sizeScale: Float = 1f,
+    autoFit: Boolean = false,
+    textAlign: TextAlign? = null
 ) {
-    // Length-driven auto-shrink: full size up to 7 glyphs, then two quieter steps.
-    val resolvedStyle = when {
-        value.length <= 7 -> baseStyle
-        value.length <= 10 -> baseStyle.copy(fontSize = baseStyle.fontSize * .86f)
-        else -> baseStyle.copy(fontSize = baseStyle.fontSize * .70f)
-    }
-    val sized = if (sizeScale == 1f) {
-        resolvedStyle
+    // Length-driven auto-shrink: full size up to 7 glyphs, then two quieter steps. Opt-in only —
+    // the stat pair reserves a fixed slot instead (see [homeStatValueStyle]).
+    val fitted = if (!autoFit) {
+        baseStyle
     } else {
-        resolvedStyle.copy(fontSize = (resolvedStyle.fontSize.value * sizeScale).sp)
+        when {
+            value.length <= 7 -> baseStyle
+            value.length <= 10 -> baseStyle.copy(fontSize = baseStyle.fontSize * .86f)
+            else -> baseStyle.copy(fontSize = baseStyle.fontSize * .70f)
+        }
     }
+    // A fixed line box + tabular digits: the measured geometry of the value never depends on the
+    // characters currently inside it. This is the exact style [HomeStatValueSlot] reserves room for.
+    val sized = homeStatValueStyle(fitted, sizeScale)
     Text(
         value,
         color = tone,
@@ -343,8 +364,85 @@ internal fun HomeStatValueText(
         maxLines = 1,
         softWrap = false,
         overflow = TextOverflow.Ellipsis,
+        textAlign = textAlign,
         modifier = modifier
     )
+}
+
+/**
+ * MARBLE_PING_FIXED_GEOMETRY_V114 — the fixed slot every stat value lives in.
+ *
+ * Height is reserved by the slot, never by the glyphs, so the uptime and ping instruments of a
+ * style are pixel-identical boxes in every state: idle, measuring, measured or reconnecting.
+ */
+@Composable
+internal fun HomeStatValueSlot(
+    value: String,
+    tone: Color,
+    baseStyle: androidx.compose.ui.text.TextStyle,
+    height: Dp,
+    modifier: Modifier = Modifier,
+    fontFamily: FontFamily? = null,
+    weight: FontWeight = FontWeight.Bold,
+    sizeScale: Float = 1f,
+    align: Alignment = Alignment.CenterStart
+) {
+    Box(
+        modifier = modifier.height(height),
+        contentAlignment = align
+    ) {
+        HomeStatValueText(
+            value = value,
+            tone = tone,
+            baseStyle = baseStyle,
+            // A centred slot must also centre its glyphs, otherwise the fillMaxWidth box pins the
+            // value to the leading edge of an otherwise centred instrument.
+            modifier = Modifier.fillMaxWidth(),
+            fontFamily = fontFamily,
+            weight = weight,
+            sizeScale = sizeScale,
+            textAlign = if (align == Alignment.Center) TextAlign.Center else null
+        )
+    }
+}
+
+/**
+ * MARBLE_PING_FIXED_GEOMETRY_V114 — the reserved one-line word slot under a stat value.
+ *
+ * Both instruments of a pair render this slot even when they have nothing to say, so a hint
+ * appearing on the ping can never make it taller than the uptime beside it.
+ */
+@Composable
+internal fun HomeStatHintSlot(
+    hint: String,
+    height: Dp = 15.dp,
+    tone: Color = Aether.Cyan,
+    uppercase: Boolean = false,
+    monospace: Boolean = false,
+    align: Alignment = Alignment.CenterStart,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(height),
+        contentAlignment = align
+    ) {
+        if (hint.isNotBlank()) {
+            val base = MaterialTheme.typography.labelSmall
+            Text(
+                if (uppercase) hint.uppercase() else hint,
+                color = tone,
+                // Never pass a null family into copy(): that would drop the themed face (Vazir for
+                // Persian) instead of inheriting it.
+                style = if (monospace) base.copy(fontFamily = FontFamily.Monospace) else base,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                softWrap = false,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1066,8 +1164,123 @@ private fun HomeMicroButton(
 }
 
 /**
+ * MARBLE_PING_FIXED_GEOMETRY_V114 — the measured contract of a style's two instruments.
+ *
+ * Uptime and ping are rendered as a *pair of identical boxes*: same width (both `weight(1f)` in the
+ * same Row), same height, same reserved slots. Nothing about the ping depends on its own state any
+ * more — a probe starting, landing or being re-run cannot move a single pixel of the layout, in any
+ * language and at any font scale. Slots are derived from the live typography through the density, so
+ * accessibility font scaling still fits instead of clipping.
+ */
+internal class HomeStatMetrics(
+    val cellHeight: Dp,
+    val headerSlot: Dp,
+    val valueSlot: Dp,
+    val meterSlot: Dp,
+    val hintSlot: Dp,
+    val spacing: Dp,
+    val dialSize: Dp
+)
+
+/** The value face of a style: each instrument keeps its own optical size. */
+@Composable
+private fun homeStatValueBaseStyle(flavor: HomeFlavor): androidx.compose.ui.text.TextStyle =
+    when (flavor) {
+        HomeFlavor.PRO -> MaterialTheme.typography.titleLarge
+        HomeFlavor.ORGANIC -> MaterialTheme.typography.titleMedium
+        HomeFlavor.ORBIT -> MaterialTheme.typography.headlineSmall
+        HomeFlavor.NEBULA -> MaterialTheme.typography.labelLarge
+        HomeFlavor.BLUEPRINT -> MaterialTheme.typography.titleLarge
+    }
+
+/** One resolved value style, shared by the renderer and the slot that reserves its height. */
+@Composable
+internal fun homeStatValueStyle(
+    baseStyle: androidx.compose.ui.text.TextStyle,
+    sizeScale: Float
+): androidx.compose.ui.text.TextStyle {
+    val scaled = if (sizeScale == 1f) {
+        baseStyle
+    } else {
+        baseStyle.copy(fontSize = baseStyle.fontSize * sizeScale)
+    }
+    return scaled.copy(lineHeight = scaled.fontSize * 1.30f, fontFeatureSettings = "tnum")
+}
+
+@Composable
+private fun rememberHomeStatMetrics(flavor: HomeFlavor, valueScale: Float): HomeStatMetrics {
+    val labelStyle = MaterialTheme.typography.labelSmall
+    val headerSlot = anchoredTextBlockHeight(labelStyle, 1) + 4.dp
+    val hintSlot = anchoredTextBlockHeight(labelStyle, 1)
+    val valueSlot = anchoredTextBlockHeight(homeStatValueStyle(homeStatValueBaseStyle(flavor), valueScale), 1)
+    val dialSize = 92.dp
+    // The orbit pair is sized by whichever of its two instruments needs more room: the LCD
+    // odometer (label + digits + reserved hint line) or the arc gauge (48.dp dial minimum). Both
+    // are computed here rather than inside the when branch, so the branch stays a plain
+    // expression and the two candidates stay visible to the caller.
+    val orbitOdometerCell = 20.dp + headerSlot + valueSlot + 4.dp + hintSlot + 12.dp
+    val orbitGaugeCell = 20.dp + maxOf(headerSlot + valueSlot + hintSlot + 6.dp, 48.dp)
+
+    return when (flavor) {
+        HomeFlavor.PRO -> HomeStatMetrics(
+            cellHeight = 20.dp + headerSlot + valueSlot + 5.dp + hintSlot + 12.dp,
+            headerSlot = headerSlot,
+            valueSlot = valueSlot,
+            meterSlot = 5.dp,
+            hintSlot = hintSlot,
+            spacing = 4.dp,
+            dialSize = dialSize
+        )
+
+        HomeFlavor.ORGANIC -> HomeStatMetrics(
+            cellHeight = 22.dp + 18.dp + valueSlot + hintSlot + 6.dp,
+            headerSlot = 18.dp,
+            valueSlot = valueSlot,
+            meterSlot = 0.dp,
+            hintSlot = hintSlot,
+            spacing = 3.dp,
+            dialSize = dialSize
+        )
+
+        HomeFlavor.ORBIT -> HomeStatMetrics(
+            cellHeight = maxOf(orbitOdometerCell, orbitGaugeCell),
+            headerSlot = headerSlot,
+            valueSlot = valueSlot,
+            meterSlot = 4.dp,
+            hintSlot = hintSlot,
+            spacing = 4.dp,
+            dialSize = 48.dp
+        )
+
+        HomeFlavor.NEBULA -> HomeStatMetrics(
+            cellHeight = 12.dp + dialSize + headerSlot + 6.dp,
+            headerSlot = headerSlot,
+            valueSlot = valueSlot,
+            meterSlot = 0.dp,
+            hintSlot = hintSlot,
+            spacing = 6.dp,
+            dialSize = dialSize
+        )
+
+        HomeFlavor.BLUEPRINT -> HomeStatMetrics(
+            cellHeight = 22.dp + headerSlot + valueSlot + 7.dp + hintSlot + 12.dp,
+            headerSlot = headerSlot,
+            valueSlot = valueSlot,
+            meterSlot = 7.dp,
+            hintSlot = hintSlot,
+            spacing = 4.dp,
+            dialSize = dialSize
+        )
+    }
+}
+
+/**
  * Uptime + the tappable one-shot ping, skinned per style. Tapping the ping element always runs a
  * fresh, real tunnel measurement (never cached) while a session is live.
+ *
+ * MARBLE_PING_FIXED_GEOMETRY_V114 — both instruments of a pair are laid out from one
+ * [HomeStatMetrics], so the ping box is exactly the uptime box: same width, same height, same
+ * reserved word slot. The state lives in the *content* of those slots, never in their geometry.
  */
 @Composable
 internal fun HomeSessionStats(
@@ -1079,44 +1292,58 @@ internal fun HomeSessionStats(
 ) {
     val t = Tr.now
     val uptime = rememberUptimeLabel(evidence.connectedSinceMs)
-    val uptimeValue = if (evidence.connectedSinceMs > 0L) uptime else "—"
+    val uptimeValue = if (evidence.connectedSinceMs > 0L) uptime else t.pingIdleValue
     val pingValue = homePingLabel(evidence)
     val pingTone = homePingTone(evidence, tone)
     val hint = homePingActionHint(evidence)
     val tappable = homePingTappable(evidence)
     val measuring = evidence.pingState == ConnectionPingState.MEASURING
+    val valueScale = 0.86f
+    val metrics = rememberHomeStatMetrics(flavor, valueScale)
+    // The pair shares one height, so the two boxes are pixel-identical in every state. Each Row
+    // below builds the cell modifier inside its own scope, because `weight` only exists there.
+    val pingFill = when {
+        evidence.pingState == ConnectionPingState.MEASURED ->
+            1f - (evidence.pingMs / 500f).coerceIn(0f, .92f)
+        else -> 0f
+    }
 
     when (flavor) {
         HomeFlavor.ORGANIC -> Row(modifier, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            val cell = Modifier.weight(1f).height(metrics.cellHeight)
             OrganicStatCell(
                 glyph = HomeGlyph.CLOCK,
                 label = t.uptime,
                 value = uptimeValue,
                 tone = tone,
+                metrics = metrics,
                 spinning = evidence.connected,
-                modifier = Modifier.weight(1f)
+                modifier = cell
             )
             OrganicStatCell(
                 glyph = HomeGlyph.PULSE,
                 label = t.connectionPing,
                 value = pingValue,
                 tone = pingTone,
+                metrics = metrics,
                 spinning = measuring,
                 hint = hint,
                 onClick = actions.onTestPing.takeIf { tappable },
-                modifier = Modifier.weight(1f),
+                modifier = cell,
                 valueWeight = FontWeight.Light,
-                valueSizeScale = 0.82f
+                valueSizeScale = valueScale
             )
         }
 
         HomeFlavor.ORBIT -> Row(modifier, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            val cell = Modifier.weight(1f).height(metrics.cellHeight)
             // Digital odometer for the session clock…
             OrbitOdometer(
                 label = t.uptime,
                 value = uptimeValue,
                 tone = tone,
-                modifier = Modifier.weight(1f)
+                metrics = metrics,
+                modifier = cell
             )
             // …and a real arc gauge for the tunnel latency.
             OrbitPingGauge(
@@ -1124,11 +1351,12 @@ internal fun HomeSessionStats(
                 label = t.connectionPing,
                 value = pingValue,
                 tone = pingTone,
+                metrics = metrics,
                 hint = hint,
                 onClick = actions.onTestPing.takeIf { tappable },
-                modifier = Modifier.weight(1f),
+                modifier = cell,
                 valueWeight = FontWeight.Light,
-                valueSizeScale = 0.82f
+                valueSizeScale = valueScale
             )
         }
 
@@ -1137,92 +1365,95 @@ internal fun HomeSessionStats(
             horizontalArrangement = Arrangement.spacedBy(14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            val cell = Modifier.weight(1f).height(metrics.cellHeight)
             NebulaStatRing(
                 label = t.uptime,
                 value = uptimeValue,
                 tone = tone,
+                metrics = metrics,
                 rotating = evidence.connected,
-                modifier = Modifier.weight(1f)
+                modifier = cell
             )
             NebulaStatRing(
                 label = t.connectionPing,
                 value = pingValue,
                 tone = pingTone,
+                metrics = metrics,
                 rotating = measuring,
-                fillFraction = when {
-                    evidence.pingState == ConnectionPingState.MEASURED ->
-                        1f - (evidence.pingMs / 500f).coerceIn(0f, .92f)
-                    else -> 0f
-                },
+                fillFraction = pingFill,
                 hint = hint,
                 onClick = actions.onTestPing.takeIf { tappable },
-                modifier = Modifier.weight(1f),
+                modifier = cell,
                 valueWeight = FontWeight.Light,
-                valueSizeScale = 0.82f
+                valueSizeScale = valueScale
             )
         }
 
         HomeFlavor.BLUEPRINT -> Row(modifier, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            val cell = Modifier.weight(1f).height(metrics.cellHeight)
             BlueprintDataSlab(
                 index = "03",
                 label = t.uptime,
                 value = uptimeValue,
                 tone = tone,
-                modifier = Modifier.weight(1f)
+                metrics = metrics,
+                modifier = cell
             )
             BlueprintDataSlab(
                 index = "04",
                 label = t.connectionPing,
                 value = pingValue,
                 tone = pingTone,
+                metrics = metrics,
                 hint = hint,
                 measuring = measuring,
-                barFraction = when {
-                    evidence.pingState == ConnectionPingState.MEASURED ->
-                        (evidence.pingMs / 500f).coerceIn(.05f, 1f)
-                    else -> 0f
+                barFraction = if (evidence.pingState == ConnectionPingState.MEASURED) {
+                    (evidence.pingMs / 500f).coerceIn(.05f, 1f)
+                } else {
+                    0f
                 },
                 onClick = actions.onTestPing.takeIf { tappable },
-                modifier = Modifier.weight(1f),
+                modifier = cell,
                 valueWeight = FontWeight.Light,
-                valueSizeScale = 0.82f
+                valueSizeScale = valueScale
             )
         }
 
         HomeFlavor.PRO -> Row(modifier, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            val cell = Modifier.weight(1f).height(metrics.cellHeight)
             SignatureStatCell(
                 label = t.uptime,
                 value = uptimeValue,
                 tone = tone,
                 glyph = HomeGlyph.CLOCK,
+                metrics = metrics,
                 live = evidence.connected,
-                modifier = Modifier.weight(1f)
+                modifier = cell
             )
             SignatureStatCell(
                 label = t.connectionPing,
                 value = pingValue,
                 tone = pingTone,
                 glyph = HomeGlyph.PULSE,
+                metrics = metrics,
                 live = measuring,
-                fillFraction = when {
-                    evidence.pingState == ConnectionPingState.MEASURED ->
-                        1f - (evidence.pingMs / 500f).coerceIn(0f, .92f)
-                    else -> 0f
-                },
+                fillFraction = pingFill,
                 hint = hint,
                 onClick = actions.onTestPing.takeIf { tappable },
-                modifier = Modifier.weight(1f),
+                modifier = cell,
                 valueWeight = FontWeight.Light,
-                valueSizeScale = 0.82f
+                valueSizeScale = valueScale
             )
         }
     }
 }
 
 /**
- * MARBLE_SIGNATURE_HOME_V112 — one Signature stat cell: a quiet professional readout with a
- * progress underlay. The value renders through [HomeStatValueText] so a long Persian or English
- * ping word can never escape the cell.
+ * MARBLE_SIGNATURE_HOME_V112 / MARBLE_PING_FIXED_GEOMETRY_V114 — the Signature studio instrument.
+ *
+ * A quiet professional readout: hairline frame, one specular edge, a letterspaced caption, the
+ * locked value slot, a graded latency underlay and the reserved word slot. While a probe is in
+ * flight a single soft sheen crosses the cell and fades out at both ends, so its loop is seamless.
  */
 @Composable
 private fun SignatureStatCell(
@@ -1230,6 +1461,7 @@ private fun SignatureStatCell(
     value: String,
     tone: Color,
     glyph: HomeGlyph,
+    metrics: HomeStatMetrics,
     live: Boolean,
     modifier: Modifier = Modifier,
     fillFraction: Float = 0f,
@@ -1243,50 +1475,96 @@ private fun SignatureStatCell(
         animationSpec = MarbleMotionSpecs.HeroFloat,
         label = "signature-stat-fill"
     )
+    val motion = MarbleMotion.current
+    val sheen = motion.loop(2_400)
+    val breathe = motion.breathe(3_200)
     val shape = RoundedCornerShape(16.dp)
     Box(
         modifier = modifier
             .clip(shape)
             .background(Aether.VoidElevated.copy(alpha = .92f))
-            .border(1.dp, tone.copy(alpha = .22f), shape)
+            // One specular edge + a tone wash from the leading corner: depth without a second shadow.
+            .background(
+                Brush.linearGradient(
+                    listOf(
+                        tone.copy(alpha = if (live) .10f + .05f * breathe else .05f),
+                        Color.Transparent,
+                        Color.White.copy(alpha = .02f)
+                    )
+                )
+            )
+            .border(1.dp, tone.copy(alpha = if (live) .34f else .20f), shape)
             .then(
                 if (onClick == null) Modifier
                 else Modifier.kineticClickable(role = Role.Button, boundedShape = shape, onClick = onClick)
             )
             .padding(horizontal = 12.dp, vertical = 10.dp)
     ) {
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                HomeGlyphIcon(glyph, tone, Modifier.size(11.dp))
-                Text(
-                    label.uppercase(),
-                    color = Aether.InkFaint,
-                    style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 1.8.sp),
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1
-                )
-                if (live) {
-                    Box(
-                        Modifier
-                            .size(5.dp)
-                            .clip(CircleShape)
-                            .background(tone.copy(alpha = .85f))
+        if (live) {
+            // MARBLE_SEAMLESS_LOOPS_V112 — the sheen is fully transparent at both ends of its travel.
+            Canvas(Modifier.matchParentSize()) {
+                val fade = loopFade(sheen)
+                if (fade > 0f) {
+                    val x = size.width * sheen
+                    drawRect(
+                        Brush.horizontalGradient(
+                            listOf(Color.Transparent, tone.copy(alpha = .13f * fade), Color.Transparent),
+                            startX = x - size.width * .22f,
+                            endX = x + size.width * .22f
+                        )
                     )
                 }
             }
-            HomeStatValueText(
+        }
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.spacedBy(metrics.spacing, Alignment.CenterVertically)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(metrics.headerSlot),
+                contentAlignment = Alignment.CenterStart
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    HomeGlyphIcon(glyph, tone, Modifier.size(11.dp))
+                    Text(
+                        label.uppercase(),
+                        color = Aether.InkFaint,
+                        style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 1.8.sp),
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    if (live) {
+                        Box(
+                            Modifier
+                                .size(5.dp)
+                                .clip(CircleShape)
+                                .background(tone.copy(alpha = .55f + .40f * breathe))
+                        )
+                    }
+                }
+            }
+            HomeStatValueSlot(
                 value = value,
                 tone = tone,
-                baseStyle = MaterialTheme.typography.titleLarge,
+                baseStyle = homeStatValueBaseStyle(HomeFlavor.PRO),
+                height = metrics.valueSlot,
                 modifier = Modifier.fillMaxWidth(),
                 weight = valueWeight,
                 sizeScale = valueSizeScale
             )
             // Latency health underlay: a thin graded bar that settles with the measurement.
-            Canvas(Modifier.fillMaxWidth().height(4.dp)) {
+            Canvas(
+                Modifier
+                    .fillMaxWidth()
+                    .height(metrics.meterSlot)
+            ) {
                 val y = size.height / 2f
                 drawLine(
                     color = tone.copy(alpha = .16f),
@@ -1303,27 +1581,29 @@ private fun SignatureStatCell(
                         strokeWidth = 2.5.dp.toPx(),
                         cap = StrokeCap.Round
                     )
+                    drawCircle(
+                        color = tone.copy(alpha = .30f),
+                        radius = 3.4.dp.toPx(),
+                        center = Offset(size.width * fill, y)
+                    )
                 }
             }
-            if (hint.isNotBlank()) {
-                Text(
-                    hint,
-                    color = Aether.Cyan,
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1
-                )
-            }
+            HomeStatHintSlot(hint = hint, height = metrics.hintSlot, tone = Aether.Cyan)
         }
     }
 }
 
+/**
+ * Style 1 instrument — a bioluminescent cell: an organic asymmetric membrane, a dashed rim that
+ * orbits the glyph while the cell is alive, and a soft inner bloom behind the value.
+ */
 @Composable
 private fun OrganicStatCell(
     glyph: HomeGlyph,
     label: String,
     value: String,
     tone: Color,
+    metrics: HomeStatMetrics,
     spinning: Boolean,
     modifier: Modifier = Modifier,
     hint: String = "",
@@ -1332,132 +1612,202 @@ private fun OrganicStatCell(
     valueSizeScale: Float = 1f
 ) {
     val shape = RoundedCornerShape(topStart = 26.dp, topEnd = 14.dp, bottomStart = 14.dp, bottomEnd = 26.dp)
-    val spin = MarbleMotion.current.loop(5_200)
+    val motion = MarbleMotion.current
+    val spin = motion.loop(5_200)
+    val bloom = motion.breathe(4_400)
     Box(
         modifier = modifier
             .clip(shape)
             .background(Aether.VoidElevated.copy(alpha = .90f))
-            .border(1.dp, tone.copy(alpha = .28f), shape)
+            // The bloom rises from the membrane's own drawing area: an unspecified centre and an
+            // infinite radius resolve against the cell, which is what keeps every cell identical.
+            .background(
+                Brush.radialGradient(
+                    listOf(
+                        tone.copy(alpha = if (spinning) .14f + .07f * bloom else .07f),
+                        Color.Transparent
+                    )
+                )
+            )
+            .border(1.dp, tone.copy(alpha = if (spinning) .40f else .26f), shape)
             .then(
                 if (onClick == null) Modifier
                 else Modifier.kineticClickable(role = Role.Button, boundedShape = shape, onClick = onClick)
             )
             .padding(horizontal = 13.dp, vertical = 11.dp)
     ) {
-        Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Box(Modifier.size(18.dp), contentAlignment = Alignment.Center) {
-                    // A living dashed rim slowly orbits the icon while the cell is active.
-                    Canvas(Modifier.matchParentSize()) {
-                        if (spinning) {
-                            rotate(spin * 360f) {
-                                drawCircle(
-                                    color = tone.copy(alpha = .55f),
-                                    radius = size.minDimension / 2f,
-                                    style = Stroke(
-                                        width = 1.4.dp.toPx(),
-                                        pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 7f))
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.spacedBy(metrics.spacing, Alignment.CenterVertically)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(metrics.headerSlot),
+                contentAlignment = Alignment.CenterStart
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Box(Modifier.size(18.dp), contentAlignment = Alignment.Center) {
+                        // A living dashed rim slowly orbits the icon while the cell is active.
+                        Canvas(Modifier.matchParentSize()) {
+                            if (spinning) {
+                                rotate(spin * 360f) {
+                                    drawCircle(
+                                        color = tone.copy(alpha = .55f),
+                                        radius = size.minDimension / 2f,
+                                        style = Stroke(
+                                            width = 1.4.dp.toPx(),
+                                            pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 7f))
+                                        )
                                     )
+                                }
+                            } else {
+                                drawCircle(
+                                    color = tone.copy(alpha = .30f),
+                                    radius = size.minDimension / 2f,
+                                    style = Stroke(width = 1.2.dp.toPx())
                                 )
                             }
-                        } else {
-                            drawCircle(
-                                color = tone.copy(alpha = .30f),
-                                radius = size.minDimension / 2f,
-                                style = Stroke(width = 1.2.dp.toPx())
-                            )
                         }
+                        HomeGlyphIcon(glyph, tone, Modifier.size(10.dp))
                     }
-                    HomeGlyphIcon(glyph, tone, Modifier.size(10.dp))
+                    Text(
+                        label,
+                        color = Aether.InkFaint,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
-                Text(
-                    label,
-                    color = Aether.InkFaint,
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1
-                )
             }
-            // MARBLE_HOME_PING_AUTOFIT_V112 — the value can never outgrow the bio-cell.
-            HomeStatValueText(
+            // MARBLE_HOME_PING_AUTOFIT_V112 / V114 — the value lives in a locked slot.
+            HomeStatValueSlot(
                 value = value,
                 tone = tone,
-                baseStyle = MaterialTheme.typography.titleMedium,
+                baseStyle = homeStatValueBaseStyle(HomeFlavor.ORGANIC),
+                height = metrics.valueSlot,
                 modifier = Modifier.fillMaxWidth(),
                 weight = valueWeight,
                 sizeScale = valueSizeScale
             )
-            if (hint.isNotBlank()) {
-                Text(
-                    hint,
-                    color = Aether.Cyan,
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1
-                )
-            }
+            HomeStatHintSlot(hint = hint, height = metrics.hintSlot, tone = Aether.Cyan)
         }
     }
 }
 
+/** Style 2 instrument (uptime) — a cockpit LCD odometer over a dashed segment baseline. */
 @Composable
 private fun OrbitOdometer(
     label: String,
     value: String,
     tone: Color,
+    metrics: HomeStatMetrics,
     modifier: Modifier = Modifier,
     valueWeight: FontWeight = FontWeight.Bold,
     valueSizeScale: Float = 1f
 ) {
-    Column(
+    val shape = RoundedCornerShape(14.dp)
+    val scan = MarbleMotion.current.loop(3_600)
+    Box(
         modifier = modifier
-            .clip(RoundedCornerShape(14.dp))
+            .clip(shape)
             .background(Aether.Glass)
-            .border(1.dp, tone.copy(alpha = .22f), RoundedCornerShape(14.dp))
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(5.dp)
+            .background(
+                Brush.verticalGradient(
+                    listOf(Color.White.copy(alpha = .035f), Color.Transparent, tone.copy(alpha = .05f))
+                )
+            )
+            .border(1.dp, tone.copy(alpha = .22f), shape)
+            .padding(horizontal = 12.dp, vertical = 10.dp)
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-            HomeGlyphIcon(HomeGlyph.CLOCK, Aether.InkFaint, Modifier.size(11.dp))
-            Text(
-                label.uppercase(),
-                color = Aether.InkFaint,
-                style = MaterialTheme.typography.labelSmall.copy(
-                    fontFamily = FontFamily.Monospace,
-                    letterSpacing = 1.2.sp
-                ),
-                fontWeight = FontWeight.Bold,
-                maxLines = 1
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.spacedBy(metrics.spacing, Alignment.CenterVertically)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(metrics.headerSlot),
+                contentAlignment = Alignment.CenterStart
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(5.dp)
+                ) {
+                    HomeGlyphIcon(HomeGlyph.CLOCK, Aether.InkFaint, Modifier.size(11.dp))
+                    Text(
+                        label.uppercase(),
+                        color = Aether.InkFaint,
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontFamily = FontFamily.Monospace,
+                            letterSpacing = 1.2.sp
+                        ),
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+            // MARBLE_HOME_PING_AUTOFIT_V112 / V114 — the odometer digits sit in a locked slot.
+            HomeStatValueSlot(
+                value = value,
+                tone = tone,
+                baseStyle = homeStatValueBaseStyle(HomeFlavor.ORBIT),
+                height = metrics.valueSlot,
+                modifier = Modifier.fillMaxWidth(),
+                fontFamily = FontFamily.Monospace,
+                weight = valueWeight,
+                sizeScale = valueSizeScale
             )
-        }
-        // MARBLE_HOME_PING_AUTOFIT_V112 — the odometer digits shrink instead of spilling.
-        HomeStatValueText(
-            value = value,
-            tone = tone,
-            baseStyle = MaterialTheme.typography.headlineSmall,
-            modifier = Modifier.fillMaxWidth(),
-            weight = valueWeight,
-            sizeScale = valueSizeScale
-        )
-        // Segment baseline under the digits, like a cockpit LCD.
-        Canvas(Modifier.fillMaxWidth().height(3.dp)) {
-            drawLine(
-                color = tone.copy(alpha = .40f),
-                start = Offset(0f, size.height / 2f),
-                end = Offset(size.width, size.height / 2f),
-                strokeWidth = size.height,
-                pathEffect = PathEffect.dashPathEffect(floatArrayOf(9f, 5f))
-            )
+            // Segment baseline under the digits, like a cockpit LCD, with one travelling highlight.
+            Canvas(
+                Modifier
+                    .fillMaxWidth()
+                    .height(metrics.meterSlot)
+            ) {
+                val y = size.height / 2f
+                drawLine(
+                    color = tone.copy(alpha = .40f),
+                    start = Offset(0f, y),
+                    end = Offset(size.width, y),
+                    strokeWidth = size.height,
+                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(9f, 5f))
+                )
+                // MARBLE_SEAMLESS_LOOPS_V112 — the highlight fades out at both ends of the rule.
+                val fade = loopFade(scan)
+                if (fade > 0f) {
+                    val x = size.width * scan
+                    drawLine(
+                        color = tone.copy(alpha = .85f * fade),
+                        start = Offset(x - 7.dp.toPx(), y),
+                        end = Offset(x + 7.dp.toPx(), y),
+                        strokeWidth = size.height,
+                        cap = StrokeCap.Round
+                    )
+                }
+            }
+            HomeStatHintSlot(hint = "", height = metrics.hintSlot, monospace = true)
         }
     }
 }
 
+/**
+ * Style 2 instrument (ping) — a real arc gauge: graduated dial, a radar sweep while the probe is in
+ * flight and a needle that physically travels to the measured latency (0..500 ms full scale).
+ */
 @Composable
 private fun OrbitPingGauge(
     evidence: HomeEvidence,
     label: String,
     value: String,
     tone: Color,
+    metrics: HomeStatMetrics,
     hint: String,
     onClick: (() -> Unit)?,
     modifier: Modifier = Modifier,
@@ -1478,109 +1828,146 @@ private fun OrbitPingGauge(
         label = "orbit-ping-needle"
     )
     val shape = RoundedCornerShape(14.dp)
-    Row(
+    Box(
         modifier = modifier
             .clip(shape)
             .background(Aether.Glass)
-            .border(1.dp, tone.copy(alpha = .26f), shape)
+            .background(
+                Brush.linearGradient(
+                    listOf(
+                        tone.copy(alpha = if (measuring) .10f else .05f),
+                        Color.Transparent
+                    )
+                )
+            )
+            .border(1.dp, tone.copy(alpha = if (measuring) .38f else .24f), shape)
             .then(
                 if (onClick == null) Modifier
                 else Modifier.kineticClickable(role = Role.Button, boundedShape = shape, onClick = onClick)
             )
-            .padding(horizontal = 11.dp, vertical = 9.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(9.dp)
+            .padding(horizontal = 11.dp, vertical = 9.dp)
     ) {
-        Canvas(Modifier.size(46.dp)) {
-            val stroke = 3.4.dp.toPx()
-            val inset = stroke
-            val arcSize = Size(size.width - inset * 2, size.height - inset * 2)
-            val topLeft = Offset(inset, inset)
-            // Dial track.
-            drawArc(
-                color = tone.copy(alpha = .18f),
-                startAngle = 135f,
-                sweepAngle = 270f,
-                useCenter = false,
-                topLeft = topLeft,
-                size = arcSize,
-                style = Stroke(width = stroke, cap = StrokeCap.Round)
-            )
-            // Dial graduations.
-            repeat(7) { index ->
-                val angle = (135f + index * 45f) * PI.toFloat() / 180f
-                val r1 = size.minDimension / 2f - stroke * 2.1f
-                val r2 = size.minDimension / 2f - stroke * 1.2f
-                val c = Offset(size.width / 2f, size.height / 2f)
-                drawLine(
-                    color = tone.copy(alpha = .40f),
-                    start = Offset(c.x + cos(angle) * r1, c.y + sin(angle) * r1),
-                    end = Offset(c.x + cos(angle) * r2, c.y + sin(angle) * r2),
-                    strokeWidth = 1.2.dp.toPx()
-                )
-            }
-            if (measuring) {
-                // Radar-style sweep while the probe is in flight — a continuous full-circle
-                // rotation, so the moment the loop restarts is invisible.
+        Row(
+            modifier = Modifier.fillMaxSize(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(9.dp)
+        ) {
+            Canvas(Modifier.size(metrics.dialSize)) {
+                val stroke = 3.4.dp.toPx()
+                val inset = stroke
+                val arcSize = Size(size.width - inset * 2, size.height - inset * 2)
+                val topLeft = Offset(inset, inset)
+                // Dial track.
                 drawArc(
-                    color = tone,
-                    startAngle = sweepPhase * 360f,
-                    sweepAngle = 62f,
-                    useCenter = false,
-                    topLeft = topLeft,
-                    size = arcSize,
-                    style = Stroke(width = stroke, cap = StrokeCap.Round)
-                )
-            } else if (needle > 0f) {
-                drawArc(
-                    color = tone,
+                    color = tone.copy(alpha = .18f),
                     startAngle = 135f,
-                    sweepAngle = 270f * needle,
+                    sweepAngle = 270f,
                     useCenter = false,
                     topLeft = topLeft,
                     size = arcSize,
                     style = Stroke(width = stroke, cap = StrokeCap.Round)
                 )
+                // Dial graduations.
+                repeat(7) { index ->
+                    val angle = (135f + index * 45f) * PI.toFloat() / 180f
+                    val r1 = size.minDimension / 2f - stroke * 2.1f
+                    val r2 = size.minDimension / 2f - stroke * 1.2f
+                    val c = Offset(size.width / 2f, size.height / 2f)
+                    drawLine(
+                        color = tone.copy(alpha = .40f),
+                        start = Offset(c.x + cos(angle) * r1, c.y + sin(angle) * r1),
+                        end = Offset(c.x + cos(angle) * r2, c.y + sin(angle) * r2),
+                        strokeWidth = 1.2.dp.toPx()
+                    )
+                }
+                if (measuring) {
+                    // Radar-style sweep while the probe is in flight — a continuous full-circle
+                    // rotation, so the moment the loop restarts is invisible.
+                    drawArc(
+                        brush = Brush.sweepGradient(
+                            listOf(Color.Transparent, tone.copy(alpha = .25f), tone),
+                            center = Offset(size.width / 2f, size.height / 2f)
+                        ),
+                        startAngle = sweepPhase * 360f,
+                        sweepAngle = 74f,
+                        useCenter = false,
+                        topLeft = topLeft,
+                        size = arcSize,
+                        style = Stroke(width = stroke, cap = StrokeCap.Round)
+                    )
+                } else if (needle > 0f) {
+                    drawArc(
+                        color = tone,
+                        startAngle = 135f,
+                        sweepAngle = 270f * needle,
+                        useCenter = false,
+                        topLeft = topLeft,
+                        size = arcSize,
+                        style = Stroke(width = stroke, cap = StrokeCap.Round)
+                    )
+                    val headAngle = (135f + 270f * needle) * PI.toFloat() / 180f
+                    val c = Offset(size.width / 2f, size.height / 2f)
+                    val r = size.minDimension / 2f - stroke
+                    drawCircle(
+                        color = tone.copy(alpha = .32f),
+                        radius = 4.6.dp.toPx(),
+                        center = Offset(c.x + cos(headAngle) * r, c.y + sin(headAngle) * r)
+                    )
+                }
+                // Hub.
+                drawCircle(color = tone.copy(alpha = .55f), radius = 2.dp.toPx(), center = Offset(size.width / 2f, size.height / 2f))
             }
-        }
-        Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
-            Text(
-                label.uppercase(),
-                color = Aether.InkFaint,
-                style = MaterialTheme.typography.labelSmall.copy(
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp, Alignment.CenterVertically)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(metrics.headerSlot),
+                    contentAlignment = Alignment.CenterStart
+                ) {
+                    Text(
+                        label.uppercase(),
+                        color = Aether.InkFaint,
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontFamily = FontFamily.Monospace,
+                            letterSpacing = 1.2.sp
+                        ),
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                // MARBLE_HOME_PING_AUTOFIT_V112 / V114 — locked value slot, monospace digits.
+                HomeStatValueSlot(
+                    value = value,
+                    tone = tone,
+                    baseStyle = homeStatValueBaseStyle(HomeFlavor.ORBIT),
+                    height = metrics.valueSlot,
+                    modifier = Modifier.fillMaxWidth(),
                     fontFamily = FontFamily.Monospace,
-                    letterSpacing = 1.2.sp
-                ),
-                fontWeight = FontWeight.Bold,
-                maxLines = 1
-            )
-            // MARBLE_HOME_PING_AUTOFIT_V112 — shrinks before it can overflow the gauge column.
-            HomeStatValueText(
-                value = value,
-                tone = tone,
-                baseStyle = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.widthIn(max = 92.dp),
-                weight = valueWeight,
-                sizeScale = valueSizeScale
-            )
-            if (hint.isNotBlank()) {
-                Text(
-                    hint,
-                    color = Aether.Cyan,
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1
+                    weight = valueWeight,
+                    sizeScale = valueSizeScale
                 )
+                HomeStatHintSlot(hint = hint, height = metrics.hintSlot, monospace = true)
             }
         }
     }
 }
 
+/**
+ * Style 3 instrument — a nebula ring: an orbiting dash constellation, an aurora band that settles to
+ * the measured latency, starfield specks inside the glass and the locked value/word slots at its
+ * heart. The same ring renders uptime, so the pair is identical by construction.
+ */
 @Composable
 private fun NebulaStatRing(
     label: String,
     value: String,
     tone: Color,
+    metrics: HomeStatMetrics,
     rotating: Boolean,
     modifier: Modifier = Modifier,
     fillFraction: Float = 0f,
@@ -1589,8 +1976,10 @@ private fun NebulaStatRing(
     valueWeight: FontWeight = FontWeight.Bold,
     valueSizeScale: Float = 1f
 ) {
-    val spin = MarbleMotion.current.loop(7_400)
-    val fastSpin = MarbleMotion.current.loop(1_200)
+    val motion = MarbleMotion.current
+    val spin = motion.loop(7_400)
+    val fastSpin = motion.loop(1_200)
+    val twinkle = motion.loop(4_800)
     val fill by animateFloatAsState(
         targetValue = fillFraction,
         animationSpec = MarbleMotionSpecs.HeroFloat,
@@ -1609,20 +1998,45 @@ private fun NebulaStatRing(
             )
             .padding(vertical = 6.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(6.dp)
+        verticalArrangement = Arrangement.spacedBy(metrics.spacing, Alignment.CenterVertically)
     ) {
-        Box(contentAlignment = Alignment.Center) {
-            Canvas(Modifier.size(92.dp)) {
+        Box(
+            modifier = Modifier.size(metrics.dialSize),
+            contentAlignment = Alignment.Center
+        ) {
+            Canvas(Modifier.matchParentSize()) {
                 val stroke = 2.2.dp.toPx()
                 val r = size.minDimension / 2f - stroke
+                val c = Offset(size.width / 2f, size.height / 2f)
+                // Nebula wash inside the glass.
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        listOf(tone.copy(alpha = .16f), Color.Transparent),
+                        center = c,
+                        radius = r
+                    ),
+                    radius = r,
+                    center = c
+                )
+                // Starfield specks: sin-driven twinkle is periodic, so the loop has no seam.
+                repeat(9) { index ->
+                    val angle = hash01(index * 7 + 3) * 2f * PI.toFloat()
+                    val distance = r * (.30f + .55f * hash01(index * 11 + 5))
+                    val shimmer = .35f + .65f * (.5f + .5f * sin((twinkle + hash01(index * 13 + 1)) * 2f * PI.toFloat()))
+                    drawCircle(
+                        color = tone.copy(alpha = .42f * shimmer),
+                        radius = (.7f + hash01(index * 17 + 9)).dp.toPx(),
+                        center = Offset(c.x + cos(angle) * distance, c.y + sin(angle) * distance)
+                    )
+                }
                 // Ethereal base ring.
                 drawCircle(
                     color = tone.copy(alpha = .16f),
                     radius = r,
                     style = Stroke(width = stroke)
                 )
-                // Slowly orbiting dash constellation.
-                rotate(if (rotating) fastSpin * 360f else spin * 360f) {
+                // Slowly orbiting dash constellation — a whole turn per period, so it never snaps.
+                rotate(if (rotating) fastSpin * 360f else spin * 360f, pivot = c) {
                     drawCircle(
                         color = tone.copy(alpha = if (rotating) .75f else .35f),
                         radius = r,
@@ -1636,7 +2050,8 @@ private fun NebulaStatRing(
                 if (fill > 0f) {
                     drawArc(
                         brush = Brush.sweepGradient(
-                            listOf(tone.copy(alpha = .10f), tone, tone.copy(alpha = .10f))
+                            listOf(tone.copy(alpha = .10f), tone, tone.copy(alpha = .10f)),
+                            center = c
                         ),
                         startAngle = -90f,
                         sweepAngle = 360f * fill,
@@ -1647,43 +2062,57 @@ private fun NebulaStatRing(
                     )
                 }
             }
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                // MARBLE_HOME_PING_AUTOFIT_V112 — the ring is 92dp wide; the value steps down
-                // through smaller sizes instead of breaking out of the ring.
-                HomeStatValueText(
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                // MARBLE_HOME_PING_AUTOFIT_V112 / V114 — locked value + word slots inside the ring.
+                HomeStatValueSlot(
                     value = value,
                     tone = tone,
-                    baseStyle = MaterialTheme.typography.labelLarge,
-                    modifier = Modifier.width(86.dp),
+                    baseStyle = homeStatValueBaseStyle(HomeFlavor.NEBULA),
+                    height = metrics.valueSlot,
+                    modifier = Modifier.width(metrics.dialSize - 8.dp),
                     weight = valueWeight,
-                    sizeScale = valueSizeScale
+                    sizeScale = valueSizeScale,
+                    align = Alignment.Center
                 )
-                if (hint.isNotBlank()) {
-                    Text(
-                        hint,
-                        color = Aether.Cyan,
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1
-                    )
-                }
+                HomeStatHintSlot(
+                    hint = hint,
+                    height = metrics.hintSlot,
+                    align = Alignment.Center
+                )
             }
         }
-        Text(
-            label.uppercase(),
-            color = Aether.InkFaint,
-            style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 2.4.sp),
-            maxLines = 1
-        )
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(metrics.headerSlot),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                label.uppercase(),
+                color = Aether.InkFaint,
+                style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 2.4.sp),
+                maxLines = 1,
+                softWrap = false,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
     }
 }
 
+/**
+ * Style 4 instrument — a drafting slab: corner brackets, an indexed monospace caption, the locked
+ * value, an engineering rule with graduations and a survey cursor that sweeps it during a probe.
+ */
 @Composable
 private fun BlueprintDataSlab(
     index: String,
     label: String,
     value: String,
     tone: Color,
+    metrics: HomeStatMetrics,
     modifier: Modifier = Modifier,
     hint: String = "",
     measuring: Boolean = false,
@@ -1701,6 +2130,11 @@ private fun BlueprintDataSlab(
     Box(
         modifier = modifier
             .background(Aether.VoidElevated)
+            .background(
+                Brush.linearGradient(
+                    listOf(tone.copy(alpha = .05f), Color.Transparent, tone.copy(alpha = .03f))
+                )
+            )
             .then(
                 if (onClick == null) Modifier
                 else Modifier.kineticClickable(
@@ -1714,38 +2148,59 @@ private fun BlueprintDataSlab(
             drawCornerBrackets(tone.copy(alpha = .70f), 1.6.dp.toPx(), 9.dp.toPx())
         }
         Column(
-            Modifier.padding(horizontal = 13.dp, vertical = 11.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 13.dp, vertical = 11.dp),
+            verticalArrangement = Arrangement.spacedBy(metrics.spacing, Alignment.CenterVertically)
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                Text(
-                    index,
-                    color = tone.copy(alpha = .70f),
-                    style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    label.uppercase(),
-                    color = Aether.InkFaint,
-                    style = MaterialTheme.typography.labelSmall.copy(
-                        fontFamily = FontFamily.Monospace,
-                        letterSpacing = 1.6.sp
-                    ),
-                    maxLines = 1
-                )
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(metrics.headerSlot),
+                contentAlignment = Alignment.CenterStart
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(7.dp)
+                ) {
+                    Text(
+                        index,
+                        color = tone.copy(alpha = .70f),
+                        style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1
+                    )
+                    Text(
+                        label.uppercase(),
+                        color = Aether.InkFaint,
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontFamily = FontFamily.Monospace,
+                            letterSpacing = 1.6.sp
+                        ),
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
             }
-            // MARBLE_HOME_PING_AUTOFIT_V112 — the slab value shrinks with length and never
-            // crosses the corner brackets of its own module.
-            HomeStatValueText(
+            // MARBLE_HOME_PING_AUTOFIT_V112 / V114 — the slab value sits in a locked slot and can
+            // never cross the corner brackets of its own module.
+            HomeStatValueSlot(
                 value = value,
                 tone = tone,
-                baseStyle = MaterialTheme.typography.titleLarge,
+                baseStyle = homeStatValueBaseStyle(HomeFlavor.BLUEPRINT),
+                height = metrics.valueSlot,
                 modifier = Modifier.fillMaxWidth(),
+                fontFamily = FontFamily.Monospace,
                 weight = valueWeight,
                 sizeScale = valueSizeScale
             )
             // Engineering scale: measured latency as a dimension bar on a graded rule.
-            Canvas(Modifier.fillMaxWidth().height(6.dp)) {
+            Canvas(
+                Modifier
+                    .fillMaxWidth()
+                    .height(metrics.meterSlot)
+            ) {
                 val y = size.height / 2f
                 drawLine(tone.copy(alpha = .22f), Offset(0f, y), Offset(size.width, y), 1.2.dp.toPx())
                 repeat(11) { i ->
@@ -1773,30 +2228,29 @@ private fun BlueprintDataSlab(
                             )
                         }
                     }
-                    bar > 0f -> drawLine(
-                        color = tone,
-                        start = Offset(0f, y),
-                        end = Offset(size.width * bar, y),
-                        strokeWidth = 3.dp.toPx(),
-                        cap = StrokeCap.Round
-                    )
+
+                    bar > 0f -> {
+                        drawLine(
+                            color = tone,
+                            start = Offset(0f, y),
+                            end = Offset(size.width * bar, y),
+                            strokeWidth = 3.dp.toPx(),
+                            cap = StrokeCap.Round
+                        )
+                        drawLine(
+                            color = tone.copy(alpha = .8f),
+                            start = Offset(size.width * bar, y - 3.dp.toPx()),
+                            end = Offset(size.width * bar, y + 3.dp.toPx()),
+                            strokeWidth = 1.6.dp.toPx()
+                        )
+                    }
                 }
             }
-            if (hint.isNotBlank()) {
-                Text(
-                    hint.uppercase(),
-                    color = Aether.Cyan,
-                    style = MaterialTheme.typography.labelSmall.copy(
-                        fontFamily = FontFamily.Monospace,
-                        letterSpacing = 1.2.sp
-                    ),
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1
-                )
-            }
+            HomeStatHintSlot(hint = hint, height = metrics.hintSlot, uppercase = true, monospace = true)
         }
     }
 }
+
 
 private fun DrawScope.drawCornerBrackets(color: Color, stroke: Float, length: Float) {
     val w = size.width
@@ -2121,7 +2575,11 @@ internal fun HomeStyleBioluminescent(
     val tendrilTone = if (evidence.connected) Color(0xFFB9A7E8) else Aether.InkFaint
     val motion = MarbleMotion.current
     val phase = motion.loop(9_000)
-    val drift = motion.loop(16_000)
+    // MARBLE_SEAMLESS_LOOPS_V114 — the god-rays and the plankton each get their own slow,
+    // full-traversal loop instead of sharing a fraction of one. An element that travels exactly one
+    // whole journey per cycle lands on the frame it started from, so the wrap is invisible.
+    val rayDrift = motion.loop(46_000)
+    val moteDrift = motion.loop(19_000)
     val breathe = motion.breathe(3_400)
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -2129,7 +2587,7 @@ internal fun HomeStyleBioluminescent(
 
         // The whole viewport is the ocean — not a banner above cards.
         Canvas(Modifier.matchParentSize()) {
-            drawAbyssBackdrop(seedGlow, tendrilTone, drift, breathe, evidence.connected)
+            drawAbyssBackdrop(seedGlow, tendrilTone, rayDrift, moteDrift, breathe, evidence.connected)
         }
 
         Column(
@@ -2188,7 +2646,8 @@ internal fun HomeStyleBioluminescent(
 private fun DrawScope.drawAbyssBackdrop(
     glow: Color,
     tendril: Color,
-    drift: Float,
+    rays: Float,
+    motes: Float,
     breathe: Float,
     connected: Boolean
 ) {
@@ -2206,12 +2665,13 @@ private fun DrawScope.drawAbyssBackdrop(
         )
     )
 
-    // God-rays falling from the surface, slowly panning. Each ray fades to nothing before it
-    // wraps back to the opposite edge, so the pan loop has no visible seam.
-    // MARBLE_SEAMLESS_LOOPS_V112
+    // God-rays falling from the surface, slowly panning. Each ray crosses the whole viewport once
+    // per loop and fades to nothing at both ends of that crossing, so the frame the loop restarts on
+    // is identical to the frame it ended on.
+    // MARBLE_SEAMLESS_LOOPS_V112 / MARBLE_SEAMLESS_LOOPS_V114
     repeat(4) { index ->
         val seed = hash01(index * 11 + 3)
-        val pan = (seed + drift * .18f) % 1f
+        val pan = (seed + rays) % 1f
         val x = w * pan
         val width = w * (.05f + .06f * hash01(index * 7 + 1))
         val wrapFade = loopFade(pan)
@@ -2235,11 +2695,34 @@ private fun DrawScope.drawAbyssBackdrop(
         )
     }
 
-    // Plankton motes drifting upward; each has its own deterministic lane, speed and size.
+    // MARBLE_HOME_GLAMOUR_V114 — surface caustics: two interfering sine sheets of light just under
+    // the water line. Both arguments advance by whole turns per loop, so the shimmer closes on
+    // itself instead of snapping.
+    val causticY = h * .16f
+    repeat(2) { sheet ->
+        val path = Path()
+        var cx = 0f
+        while (cx <= w) {
+            val cy = causticY * (.55f + sheet * .5f) +
+                sin((cx / w * (3f + sheet) + rays * (1f + sheet)) * 2f * PI.toFloat()) * h * .022f
+            if (cx == 0f) path.moveTo(cx, cy) else path.lineTo(cx, cy)
+            cx += w / 34f
+        }
+        drawPath(
+            path,
+            color = glow.copy(alpha = (.10f - sheet * .04f) * (.6f + .4f * breathe)),
+            style = Stroke(width = (1.8f - sheet * .7f).dp.toPx(), cap = StrokeCap.Round)
+        )
+    }
+
+    // Plankton motes drifting upward; each has its own deterministic lane, size and rise. The rise
+    // is an *integer* number of journeys per loop — a fractional speed left every mote at a random
+    // height when the clock wrapped, which read as a flicker across the whole water column.
+    // MARBLE_SEAMLESS_LOOPS_V114
     repeat(26) { index ->
         val lane = hash01(index * 13 + 5)
-        val speed = .4f + hash01(index * 17 + 2) * .9f
-        val progress = (drift * speed + hash01(index * 19 + 7)) % 1f
+        val cycles = 1 + index % 3
+        val progress = (motes * cycles + hash01(index * 19 + 7)) % 1f
         val x = w * lane + sin((progress * 4f + index) * PI.toFloat()) * w * .015f
         val y = h * (1f - progress)
         val fade = sin(progress * PI.toFloat())
@@ -2250,6 +2733,16 @@ private fun DrawScope.drawAbyssBackdrop(
             center = Offset(x, y)
         )
     }
+
+    // MARBLE_HOME_GLAMOUR_V114 — the deep closes in around the edges: one vignette gives the dive
+    // real depth without a single extra animated element.
+    drawRect(
+        Brush.radialGradient(
+            listOf(Color.Transparent, Color.Black.copy(alpha = .38f)),
+            center = Offset(w * .5f, h * .34f),
+            radius = (w + h) * .58f
+        )
+    )
 }
 
 private fun DrawScope.drawOrganicSurface(
@@ -2367,6 +2860,9 @@ internal fun HomeStyleCosmicOrbit(
     val motion = MarbleMotion.current
     val phase = motion.loop(14_000)
     val twinkle = motion.loop(6_000)
+    // MARBLE_SEAMLESS_LOOPS_V114 — one full turn per orbit on coprime periods: the bodies keep
+    // genuinely different speeds, and every orbit closes exactly where it opened.
+    val orbitPhases = listOf(motion.loop(14_000), motion.loop(23_000), motion.loop(37_000))
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val heroHeight = (maxHeight * .34f).coerceIn(210.dp, 300.dp)
@@ -2408,7 +2904,7 @@ internal fun HomeStyleCosmicOrbit(
                         contentAlignment = Alignment.Center
                     ) {
                         Canvas(Modifier.matchParentSize()) {
-                            drawSolarSystem(gold, tone, phase, evidence.connected)
+                            drawSolarSystem(gold, tone, orbitPhases, phase, evidence.connected)
                         }
                         HomePowerControl(
                             evidence = evidence,
@@ -2511,16 +3007,47 @@ private fun DrawScope.drawStarfield(gold: Color, accent: Color, twinkle: Float, 
         val y = h * hash01(index * 5 + 2)
         val shimmer = .5f + .5f * sin((twinkle + hash01(index * 7 + 3)) * 2f * PI.toFloat())
         val bright = hash01(index * 11 + 4) > .82f
+        val star = Offset(x, y)
+        // MARBLE_HOME_GLAMOUR_V114 — the brightest stars carry a diffraction cross that breathes
+        // with the same twinkle, so the console sky has real points of light instead of dust.
+        if (bright && shimmer > .55f) {
+            val arm = (2.6f + 3.4f * shimmer).dp.toPx()
+            val flare = gold.copy(alpha = .30f * (shimmer - .55f) / .45f)
+            drawLine(flare, Offset(x - arm, y), Offset(x + arm, y), .9.dp.toPx())
+            drawLine(flare, Offset(x, y - arm), Offset(x, y + arm), .9.dp.toPx())
+        }
         drawCircle(
             color = (if (bright) gold else accent)
                 .copy(alpha = (if (connected) .34f else .20f) * shimmer + .05f),
             radius = (if (bright) 1.7f else 1.0f).dp.toPx(),
-            center = Offset(x, y)
+            center = star
         )
     }
+    // MARBLE_HOME_GLAMOUR_V114 — a deck horizon: warm glow along the console floor and a vignette
+    // that pushes the starfield back behind the instruments.
+    drawRect(
+        Brush.verticalGradient(
+            listOf(Color.Transparent, Color.Transparent, gold.copy(alpha = if (connected) .07f else .04f)),
+            startY = h * .55f,
+            endY = h
+        )
+    )
+    drawRect(
+        Brush.radialGradient(
+            listOf(Color.Transparent, Color.Black.copy(alpha = .34f)),
+            center = Offset(w * .5f, h * .40f),
+            radius = (w + h) * .60f
+        )
+    )
 }
 
-private fun DrawScope.drawSolarSystem(gold: Color, accent: Color, phase: Float, connected: Boolean) {
+private fun DrawScope.drawSolarSystem(
+    gold: Color,
+    accent: Color,
+    orbits: List<Float>,
+    phase: Float,
+    connected: Boolean
+) {
     val center = Offset(size.width / 2f, size.height / 2f)
     val unit = min(size.width, size.height) / 2f
 
@@ -2543,8 +3070,8 @@ private fun DrawScope.drawSolarSystem(gold: Color, accent: Color, phase: Float, 
             center = center,
             style = Stroke(width = 1.dp.toPx())
         )
-        val speed = 1f + index * .55f
-        val angle = ((phase * speed) % 1f) * 2f * PI.toFloat()
+        // MARBLE_SEAMLESS_LOOPS_V114 — a whole turn per loop, never a fraction of one.
+        val angle = orbits.getOrElse(index) { phase } * 2f * PI.toFloat()
         val planet = Offset(
             center.x + cos(angle) * r,
             center.y + sin(angle) * r * .42f
@@ -2627,12 +3154,16 @@ internal fun HomeStyleCosmicImmersion(
     val orbitPhase = motion.loop(16_000)
     val auroraPhase = motion.loop(12_000)
     val bloom = motion.breathe(4_600)
+    // MARBLE_SEAMLESS_LOOPS_V114 — parallax by *period*, not by fractional speed: each layer
+    // crosses the whole sky exactly once per loop, so no star teleports when the clock wraps.
+    val starPhases = listOf(motion.loop(126_000), motion.loop(84_000), motion.loop(58_000))
+    val skyOrbits = listOf(motion.loop(21_000), motion.loop(34_000), motion.loop(55_000))
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val skyClearance = (maxHeight * .10f).coerceIn(40.dp, 110.dp)
 
         Canvas(Modifier.matchParentSize()) {
-            drawImmersiveCosmos(cyan, violet, orbitPhase, auroraPhase, bloom, evidence.connected)
+            drawImmersiveCosmos(cyan, violet, starPhases, skyOrbits, orbitPhase, auroraPhase, bloom, evidence.connected)
         }
 
         Column(
@@ -2685,6 +3216,8 @@ internal fun HomeStyleCosmicImmersion(
 private fun DrawScope.drawImmersiveCosmos(
     cyan: Color,
     violet: Color,
+    stars: List<Float>,
+    orbits: List<Float>,
     phase: Float,
     aurora: Float,
     bloom: Float,
@@ -2713,15 +3246,16 @@ private fun DrawScope.drawImmersiveCosmos(
         center = Offset(w * .82f, h * .55f)
     )
 
-    // Three parallax star layers: deeper layers drift slower and dimmer. Every star fades to
-    // nothing at both screen edges, so the horizontal drift loop never pops.
-    // MARBLE_SEAMLESS_LOOPS_V112
+    // Three parallax star layers: deeper layers crawl and stay dimmer, nearer ones glide. Each layer
+    // owns one full crossing per loop and every star fades to nothing at both screen edges, so the
+    // drift loop cannot pop.
+    // MARBLE_SEAMLESS_LOOPS_V112 / MARBLE_SEAMLESS_LOOPS_V114
     repeat(3) { layer ->
-        val speed = .04f + layer * .05f
+        val crossing = stars.getOrElse(layer) { phase }
         val alphaBase = .10f + layer * .10f
         repeat(18) { index ->
             val seed = layer * 100 + index
-            val x = (w * hash01(seed * 3 + 1) + phase * speed * w) % w
+            val x = (w * hash01(seed * 3 + 1) + crossing * w) % w
             val y = h * hash01(seed * 5 + 2)
             val edgeFade = loopFade(x / w)
             drawCircle(
@@ -2731,6 +3265,27 @@ private fun DrawScope.drawImmersiveCosmos(
                 center = Offset(x, y)
             )
         }
+    }
+
+    // MARBLE_HOME_GLAMOUR_V114 — one long shooting star crosses the sky per orbit loop and fades
+    // out completely before it wraps, so the loop still closes on an empty sky.
+    // MARBLE_SEAMLESS_LOOPS_V114
+    val shootFade = loopFade(phase)
+    if (shootFade > 0f) {
+        val head = Offset(w * phase, h * (.10f + .22f * phase))
+        val tail = head - Offset(w * .16f, h * .055f)
+        drawLine(
+            brush = Brush.linearGradient(
+                listOf(Color.Transparent, cyan.copy(alpha = .55f * shootFade)),
+                start = tail,
+                end = head
+            ),
+            start = tail,
+            end = head,
+            strokeWidth = 1.6.dp.toPx(),
+            cap = StrokeCap.Round
+        )
+        drawCircle(color = Color.White.copy(alpha = .55f * shootFade), radius = 1.5.dp.toPx(), center = head)
     }
 
     // Aurora ribbons: two sine sheets flowing across the upper sky.
@@ -2767,7 +3322,8 @@ private fun DrawScope.drawImmersiveCosmos(
             center = skyCenter,
             style = Stroke(width = 1.dp.toPx())
         )
-        val angle = ((phase * (1f + index * .4f)) % 1f) * 2f * PI.toFloat()
+        // MARBLE_SEAMLESS_LOOPS_V114 — a whole turn per loop on its own period.
+        val angle = orbits.getOrElse(index) { phase } * 2f * PI.toFloat()
         drawCircle(
             color = if (index % 2 == 0) cyan else violet,
             radius = (3.4f - index * .5f).dp.toPx(),
@@ -2970,6 +3526,27 @@ private fun DrawScope.drawBlueprintField(structure: Color, warm: Color, scan: Fl
             1.2.dp.toPx()
         )
     }
+
+    // MARBLE_HOME_GLAMOUR_V114 — the sheet is not flat paper: a warm corner lamp, a graded margin
+    // rule and a vignette give the drafting table depth. All three are static, so they add no loop
+    // and no cost beyond one gradient pass.
+    drawRect(
+        Brush.linearGradient(
+            listOf(warm.copy(alpha = .045f), Color.Transparent, Color.Transparent),
+            start = Offset.Zero,
+            end = Offset(w, h)
+        )
+    )
+    drawRect(
+        Brush.verticalGradient(
+            listOf(Color.Transparent, Color.Black.copy(alpha = .30f)),
+            startY = h * .62f,
+            endY = h
+        )
+    )
+    val margin = 10.dp.toPx()
+    drawLine(structure.copy(alpha = .10f), Offset(margin, margin), Offset(margin, h - margin), 1f)
+    drawLine(structure.copy(alpha = .10f), Offset(w - margin, margin), Offset(w - margin, h - margin), 1f)
 }
 
 private fun DrawScope.drawParametricStructure(

@@ -182,7 +182,7 @@ class MainActivity : ComponentActivity() {
         intent.action = Intent.ACTION_MAIN
         val last = app.repo.lastProfile()
         if (last == null) {
-            app.repo.setRuntimeMessage("Choose and connect a Library node once to arm Quick Tile")
+            app.repo.setRuntimeMessage("Choose and connect a server once to arm Quick Tile")
         } else {
             connect(last)
         }

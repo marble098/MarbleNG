@@ -294,12 +294,15 @@ private fun DrawScope.drawSignatureBackdrop(
         }
     }
 
-    // Drifting light motes rising through the studio; each fades in at the bottom and out at
-    // the top, so the drift loop is seamless.
+    // Drifting light motes rising through the studio; each fades in at the bottom and out at the
+    // top, so the drift loop is seamless.
+    // MARBLE_SEAMLESS_LOOPS_V114 — the rise is an integer number of journeys per loop. A fractional
+    // speed left every mote hanging at a random height the instant the clock wrapped, which read as
+    // a flicker across the whole studio instead of as motion.
     repeat(16) { index ->
         val lane = hash01Local(index * 13 + 5)
-        val speed = .35f + hash01Local(index * 17 + 2) * .7f
-        val progress = (drift * speed + hash01Local(index * 19 + 7)) % 1f
+        val cycles = 1 + index % 3
+        val progress = (drift * cycles + hash01Local(index * 19 + 7)) % 1f
         val x = w * lane + sin((progress * 3f + index) * PI.toFloat()) * w * .012f
         val y = h * (1f - progress)
         val fade = sin(progress * PI.toFloat())
@@ -309,6 +312,32 @@ private fun DrawScope.drawSignatureBackdrop(
             center = Offset(x, y)
         )
     }
+
+    // MARBLE_HOME_GLAMOUR_V114 — one studio light band crosses the paper per drift loop, and a
+    // vignette settles the corners. The band is fully transparent at both ends of its travel
+    // ([loopFade]), so its loop has no seam either.
+    val bandFade = loopFade(drift)
+    if (bandFade > 0f) {
+        val bandX = w * drift
+        drawRect(
+            Brush.horizontalGradient(
+                listOf(
+                    Color.Transparent,
+                    accent.copy(alpha = .055f * bandFade),
+                    Color.Transparent
+                ),
+                startX = bandX - w * .30f,
+                endX = bandX + w * .30f
+            )
+        )
+    }
+    drawRect(
+        Brush.radialGradient(
+            listOf(Color.Transparent, Color.Black.copy(alpha = .30f)),
+            center = hero,
+            radius = (w + h) * .62f
+        )
+    )
 
     // Fine dot grid: quiet studio paper.
     val step = w / 16f

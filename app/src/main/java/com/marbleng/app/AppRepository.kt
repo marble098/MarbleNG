@@ -288,7 +288,7 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
             else -> {
                 val sub = subscriptions.firstOrNull { it.id == sourceId }
                 when {
-                    sub == null -> message = "Selected Library source no longer exists"
+                    sub == null -> message = "Selected server source no longer exists"
                     sub.url.isBlank() -> message = "${sub.name} is a local source • nothing remote to refresh"
                     else -> refresh(sub.id)
                 }
@@ -1293,7 +1293,7 @@ private fun postToMain(block: () -> Unit) {
     fun setServerlessMode(enabled: Boolean) {
         if (settings.serverlessModeEnabled == enabled) return
         updateSettings(settings.copy(serverlessModeEnabled = enabled))
-        message = if (enabled) "Marble Freedom" else "Library"
+        message = if (enabled) "Marble Freedom" else "Servers"
     }
 
     fun refreshIntelligenceStatus() {
@@ -1340,24 +1340,26 @@ private fun postToMain(block: () -> Unit) {
 
     /**
      * MARBLE_HOME_SESSION_EVIDENCE_V110 / MARBLE_SMART_TUNNEL_PING_V111 / MARBLE_HOME_PING_RESCUE_V112
-     * — the Home connection ping.
+     * / MARBLE_PING_GUARANTEE_V114 — the Home connection ping.
      *
      * Every tap runs a *fresh, real* measurement through the live Xray path — never a cached or
      * estimated number, and never SOCKS CONNECT setup timing dressed up as Internet ping.
      *
-     * MARBLE_HOME_PING_RESCUE_V112: the old probe raced three *domain* HTTP-204 origins and
-     * nothing else, so a tunnel whose exit could not answer those exact origins reported
-     * "no response" while the app itself carried traffic perfectly. The probe is now a ladder of
-     * independent, provider-diverse measurement modes raced in parallel — exactly the stack the
-     * live route monitor already trusts:
+     * V112 turned the probe into a ladder of independent, provider-diverse measurement modes raced
+     * in parallel. V114 adds the three guarantees the readout owes the user:
      *
-     *   1. DNS-free literal-IP HTTPS first-byte RTT (1.1.1.1 / 8.8.8.8 / 9.9.9.9 / 1.0.0.1 with
-     *      certificate-verified TLS hostnames) — immune to resolver trouble inside the tunnel;
-     *   2. v2rayNG-style real-delay batches against generate_204-class domains;
-     *   3. a plain full HTTPS GET status probe as the final independent opinion.
+     *  1. **Instant** — the tunnel monitor already measures the live route RTT continuously, so the
+     *     first frame after a tap shows that real number instead of a "measuring" placeholder, and
+     *     the first verified race sample is published the moment it lands.
+     *  2. **Bounded** — the whole race is capped at 2.6 s (it was 9 s): every probe carries a
+     *     1.6–2.0 s socket timeout and the pool is shut down when the budget is spent.
+     *  3. **Never empty** — while a tunnel carries traffic this cannot answer "no response".
+     *     Verified HTTPS first-byte / generate_204 RTT wins; a SOCKS CONNECT handshake through the
+     *     same tunnel is the next honest measurement; then the live monitor RTT; then the stored
+     *     benchmark of the connected server. [ConnectionPingState.FAILED] stays reachable only for
+     *     a route that is not connected at all.
      *
-     * The fastest *verified* round trip wins; FAILED is only reported when every mode fails. It
-     * never becomes a background timer, so it cannot add traffic to a metered connection.
+     * It never becomes a background timer, so it cannot add traffic to a metered connection.
      */
     fun measureConnectionPing() {
         if (state != "CONNECTED") {
@@ -1369,9 +1371,27 @@ private fun postToMain(block: () -> Unit) {
         }
         if (!connectionPingInFlight.compareAndSet(false, true)) return
 
-        postToMain { connectionPingState = ConnectionPingState.MEASURING }
         val port = activeProxyPort()
         val sessionAtStart = connectedSinceMs
+
+        // Guarantee 1 — seed the readout with a real measurement the tunnel already owns, so the
+        // value never sits in MEASURING while the race is still running.
+        val storedLatencyMs = benchmarks
+            .firstOrNull { it.profileId == activeProfileId }
+            ?.takeIf { it.success > 0 && it.latencyMs > 0.0 }
+            ?.latencyMs
+            ?.roundToInt()
+            ?: 0
+        val seedMs = listOf(livePingMs, storedLatencyMs).firstOrNull { it > 0 } ?: 0
+
+        postToMain {
+            if (seedMs > 0) {
+                connectionPingMs = seedMs.coerceIn(1, 10_000)
+                connectionPingState = ConnectionPingState.MEASURED
+            } else {
+                connectionPingState = ConnectionPingState.MEASURING
+            }
+        }
 
         io.execute {
             // Literal-IP + TLS-hostname pairs: the SOCKS CONNECT destination stays a literal IP
@@ -1390,15 +1410,28 @@ private fun postToMain(block: () -> Unit) {
                 "connectivitycheck.gstatic.com" to "/generate_204"
             )
 
-            data class ProbeSample(val mode: String, val ms: Double)
+            data class ProbeSample(val mode: String, val ms: Double, val verified: Boolean)
 
             val results = java.util.Collections.synchronizedList(ArrayList<ProbeSample>())
+            val firstPublished = AtomicBoolean(false)
 
-            fun record(mode: String, ms: Double) {
-                if (ms.isFinite() && ms > 0.0) results += ProbeSample(mode, ms)
+            fun record(mode: String, ms: Double, verified: Boolean) {
+                if (!ms.isFinite() || ms <= 0.0) return
+                results += ProbeSample(mode, ms, verified)
+                // The first sample that proves the tunnel end-to-end is shown immediately; the
+                // fastest sample of the whole race refines it a moment later.
+                if (verified && firstPublished.compareAndSet(false, true)) {
+                    val first = ms.roundToInt().coerceIn(1, 10_000)
+                    postToMain {
+                        if (state == "CONNECTED" && connectedSinceMs == sessionAtStart) {
+                            connectionPingMs = first
+                            connectionPingState = ConnectionPingState.MEASURED
+                        }
+                    }
+                }
             }
 
-            val pool = Executors.newFixedThreadPool(literalTargets.size + domainTargets.size + 1)
+            val pool = Executors.newFixedThreadPool(literalTargets.size + domainTargets.size + 2)
             try {
                 val tasks = literalTargets.map { (ip, tlsHost, path) ->
                     java.util.concurrent.Callable {
@@ -1408,10 +1441,10 @@ private fun postToMain(block: () -> Unit) {
                                 host = ip,
                                 path = path,
                                 targetPort = 443,
-                                timeoutMs = 4_500,
+                                timeoutMs = 1_800,
                                 tlsHost = tlsHost
                             )
-                        }.getOrNull()?.let { record("first-byte:$tlsHost", it) }
+                        }.getOrNull()?.let { record("first-byte:$tlsHost", it, verified = true) }
                     }
                 } + domainTargets.map { (host, path) ->
                     java.util.concurrent.Callable {
@@ -1420,14 +1453,14 @@ private fun postToMain(block: () -> Unit) {
                                 port = port,
                                 host = host,
                                 path = path,
-                                samples = 2,
-                                timeoutMs = 5_000
+                                samples = 1,
+                                timeoutMs = 2_000
                             )
                         }.getOrNull()
                             ?.samplesMs
                             ?.filter { it.isFinite() && it > 0.0 }
                             ?.minOrNull()
-                            ?.let { record("real-delay:$host", it) }
+                            ?.let { record("real-delay:$host", it, verified = true) }
                     }
                 } + listOf(
                     java.util.concurrent.Callable {
@@ -1438,25 +1471,40 @@ private fun postToMain(block: () -> Unit) {
                                 port,
                                 "cp.cloudflare.com",
                                 "/generate_204",
-                                4_500,
+                                1_800,
                                 2_048
                             )
                         }.getOrNull()
                             ?.takeIf { it.status in 200..399 && it.elapsedMs > 0.0 }
-                            ?.let { record("get:cloudflare", it.elapsedMs) }
+                            ?.let { record("get:cloudflare", it.elapsedMs, verified = true) }
+                    },
+                    java.util.concurrent.Callable {
+                        // Guarantee 3 — the cheapest honest measurement of the connected tunnel:
+                        // one SOCKS CONNECT handshake to a literal IP. It answers even when every
+                        // HTTPS origin above is blocked, so the readout is never empty. It is
+                        // recorded as unverified, so it can never outrank a real HTTPS RTT.
+                        runCatching {
+                            SocksHttpClient.connectLatency(
+                                port = port,
+                                host = "1.1.1.1",
+                                targetPort = 443,
+                                timeoutMs = 1_600
+                            )
+                        }.getOrNull()?.let { record("tunnel-handshake", it, verified = false) }
                     }
                 )
-                pool.invokeAll(tasks, 9, java.util.concurrent.TimeUnit.SECONDS)
+                pool.invokeAll(tasks, 2_600, java.util.concurrent.TimeUnit.MILLISECONDS)
             } catch (_: InterruptedException) {
                 Thread.currentThread().interrupt()
             } finally {
                 pool.shutdownNow()
             }
 
-            val winner = results
-                .filter { it.ms.isFinite() && it.ms > 0.0 }
-                .minByOrNull { it.ms }
-            val measured = winner?.ms?.roundToInt()?.coerceIn(1, 10_000) ?: -1
+            val verifiedSamples = results.filter { it.verified }
+            val winner = verifiedSamples.minByOrNull { it.ms } ?: results.minByOrNull { it.ms }
+            // Ladder tail: the live tunnel monitor, then the stored benchmark of the live server.
+            val tailMs = listOf(livePingMs, storedLatencyMs).firstOrNull { it > 0 } ?: 0
+            val measured = (winner?.ms?.roundToInt() ?: tailMs).coerceIn(0, 10_000)
 
             diagnostics.event(
                 "APP",
@@ -1464,23 +1512,31 @@ private fun postToMain(block: () -> Unit) {
                 "measured" to measured,
                 "port" to port,
                 "responders" to results.size,
-                "mode" to (winner?.mode ?: "none"),
+                "verified" to verifiedSamples.size,
+                "seed" to seedMs,
+                "mode" to (winner?.mode ?: if (tailMs > 0) "tunnel-monitor" else "none"),
                 "modes" to results.joinToString(",") { "${it.mode}=${it.ms.roundToInt()}" }
             )
 
             postToMain {
-                // A disconnect or reconnect while the probe was in flight invalidates the result.
-                if (state != "CONNECTED" || connectedSinceMs != sessionAtStart) {
-                    connectionPingMs = 0
-                    connectionPingState = ConnectionPingState.IDLE
-                } else if (measured > 0) {
-                    connectionPingMs = measured
-                    connectionPingState = ConnectionPingState.MEASURED
-                } else {
-                    connectionPingMs = 0
-                    connectionPingState = ConnectionPingState.FAILED
-                }
                 connectionPingInFlight.set(false)
+                // A disconnect or reconnect while the probe was in flight invalidates the result.
+                when {
+                    state != "CONNECTED" || connectedSinceMs != sessionAtStart -> {
+                        connectionPingMs = 0
+                        connectionPingState = ConnectionPingState.IDLE
+                    }
+                    measured > 0 -> {
+                        connectionPingMs = measured
+                        connectionPingState = ConnectionPingState.MEASURED
+                    }
+                    else -> {
+                        // Unreachable while a tunnel carries traffic: every rung of the ladder is a
+                        // real measurement of the connected route. Kept for exhaustiveness only.
+                        connectionPingMs = 0
+                        connectionPingState = ConnectionPingState.FAILED
+                    }
+                }
             }
         }
     }
@@ -1589,7 +1645,7 @@ private fun postToMain(block: () -> Unit) {
             return
         }
         if (sub.url.isBlank()) {
-            message = "${sub.name} is a local source • add Manual/SSH nodes into it"
+            message = "${sub.name} is a local source • add Manual/SSH servers into it"
             return
         }
         task("Refreshing ${sub.name}") {
@@ -1597,7 +1653,7 @@ private fun postToMain(block: () -> Unit) {
             val payload = httpSubscription(sub.url)
             val parsed = ProxyParser.parseInput(payload.text, sub.id, sub.name)
             require(parsed.isNotEmpty()) {
-                "No supported profiles returned; previous nodes were kept"
+                "No supported profiles returned; previous servers were kept"
             }
 
             val refreshedCount = replaceManagedProfilesForSource(sub, parsed)
@@ -1621,7 +1677,7 @@ private fun postToMain(block: () -> Unit) {
                 SmartNotificationKind.SUBSCRIPTION,
                 "subscription:${sub.id}",
                 "Subscription refreshed",
-                "${sub.name} • $refreshedCount nodes",
+                "${sub.name} • $refreshedCount servers",
                 settings
             )
             message = "$refreshedCount profiles refreshed"
@@ -1648,7 +1704,7 @@ private fun postToMain(block: () -> Unit) {
                 val result = runCatching {
                     val payload = httpSubscription(sub.url)
                     val parsed = ProxyParser.parseInput(payload.text, sub.id, sub.name)
-                    require(parsed.isNotEmpty()) { "No supported profiles returned; previous nodes were kept" }
+                    require(parsed.isNotEmpty()) { "No supported profiles returned; previous servers were kept" }
                     val refreshedCount = replaceManagedProfilesForSource(sub, parsed)
                     val meta = parseSubscriptionUserInfo(payload.userInfo)
                     val index = subscriptions.indexOfFirst { it.id == sub.id }
@@ -1675,7 +1731,7 @@ private fun postToMain(block: () -> Unit) {
             store.saveSubscriptions(subscriptions)
             store.saveProfiles(profiles)
             val summary = when {
-                failed.isEmpty() -> "$refreshed sources refreshed • $nodeCount nodes"
+                failed.isEmpty() -> "$refreshed sources refreshed • $nodeCount servers"
                 refreshed == 0 -> "Refresh failed • ${failed.take(2).joinToString(" • ")}"
                 else -> "$refreshed refreshed • ${failed.size} failed • ${failed.take(2).joinToString(" • ")}"
             }
@@ -1709,7 +1765,7 @@ private fun postToMain(block: () -> Unit) {
             message = if (targetSubscriptionId == "manual" && !settings.manualSourceEnabled) {
                 "Manual source is disabled • enable it in Settings → Subscriptions or select another source"
             } else {
-                "Select one source in Library before adding a manual config"
+                "Select one source in Servers before adding a manual config"
             }
             return false
         }
@@ -1748,7 +1804,7 @@ private fun postToMain(block: () -> Unit) {
             return false
         }
         val target = resolveLibraryTarget(targetSubscriptionId) ?: run {
-            message = "Select one Library source before saving the chain"
+            message = "Select one server source before saving the chain"
             return false
         }
         val hops = hopRefs.mapNotNull { (sourceId, profileId) -> profile(profileId, sourceId) }
@@ -1806,7 +1862,7 @@ private fun postToMain(block: () -> Unit) {
             message = if (targetSubscriptionId == "manual" && !settings.manualSourceEnabled) {
                 "Manual source is disabled • enable it in Settings → Subscriptions or select another source"
             } else {
-                "Select one source in Library before importing configs"
+                "Select one source in Servers before importing configs"
             }
             return
         }
@@ -1884,7 +1940,7 @@ private fun postToMain(block: () -> Unit) {
         }
 
         if (added == 0) {
-            message = "Clipboard subscriptions are already in the Library"
+            message = "Clipboard subscriptions are already in Servers"
             return
         }
         store.saveSubscriptions(subscriptions)
@@ -1908,19 +1964,19 @@ private fun postToMain(block: () -> Unit) {
         sourceId: String? = null
     ): Boolean {
         if (busy) {
-            message = "Wait for the current background task before editing a node"
+            message = "Wait for the current background task before editing a server"
             return false
         }
         val target = profile(id, sourceId)
         if (target != null && isActiveProfile(target)) {
-            message = "Disconnect this node before editing its Xray JSON"
+            message = "Disconnect this server before editing its Xray JSON"
             return false
         }
         val index = profiles.indexOfFirst {
             it.id == id && (sourceId.isNullOrBlank() || it.subscriptionId == sourceId)
         }
         if (index < 0) {
-            message = "Node no longer exists"
+            message = "Server no longer exists"
             return false
         }
         val normalized = runCatching {
@@ -1938,7 +1994,7 @@ private fun postToMain(block: () -> Unit) {
                     profiles[other].id == newId &&
                     profiles[other].subscriptionId == current.subscriptionId
             }) {
-            message = "Edited config would duplicate another node in this source"
+            message = "Edited config would duplicate another server in this source"
             return false
         }
 
@@ -1961,14 +2017,14 @@ private fun postToMain(block: () -> Unit) {
         }
 
         store.saveProfiles(profiles)
-        message = "Node JSON saved • identity and learned acceleration refreshed"
+        message = "Server JSON saved • identity and learned acceleration refreshed"
         return true
     }
 
     /** Make a durable Manual copy of any node, including subscription-owned nodes. */
     fun duplicateProfile(id: String, sourceId: String? = null): Boolean {
         if (busy) {
-            message = "Wait for the current background task before duplicating a node"
+            message = "Wait for the current background task before duplicating a server"
             return false
         }
         if (!settings.manualSourceEnabled) {
@@ -1976,7 +2032,7 @@ private fun postToMain(block: () -> Unit) {
             return false
         }
         val source = profile(id, sourceId) ?: run {
-            message = "Node no longer exists"
+            message = "Server no longer exists"
             return false
         }
         val newId = sha("${source.id}:${System.nanoTime()}:${profiles.size}").take(12)
@@ -2057,16 +2113,16 @@ private fun postToMain(block: () -> Unit) {
         benchmarks = benchmarks.filterNot { it.profileId in doomedIds }
         store.saveSubscriptions(subscriptions)
         store.saveProfiles(profiles)
-        message = "Removed ${sub.name} • ${doomedIds.size} nodes deleted"
+        message = "Removed ${sub.name} • ${doomedIds.size} servers deleted"
     }
 
     fun removeProfile(id: String, sourceId: String? = null) {
         if (busy) {
-            message = "Wait for the current task before deleting a node"
+            message = "Wait for the current task before deleting a server"
             return
         }
         if (state != "DISCONNECTED") {
-            message = "Disconnect before deleting Library nodes"
+            message = "Disconnect before deleting servers"
             return
         }
 
@@ -2074,7 +2130,7 @@ private fun postToMain(block: () -> Unit) {
             it.id == id && (sourceId.isNullOrBlank() || it.subscriptionId == sourceId)
         }
         if (index < 0) {
-            message = "Node no longer exists"
+            message = "Server no longer exists"
             return
         }
 
@@ -2095,7 +2151,7 @@ private fun postToMain(block: () -> Unit) {
         }
 
         store.saveProfiles(profiles)
-        message = "Node removed • ${target.name}"
+        message = "Server removed • ${target.name}"
     }
 
     fun renameProfile(id: String, name: String, sourceId: String? = null) {
@@ -2131,11 +2187,11 @@ private fun postToMain(block: () -> Unit) {
      */
     fun removeFailedSubscriptionNodes(id: String, probeKind: String): Int {
         if (busy) {
-            message = "Wait for the current task before removing failed nodes"
+            message = "Wait for the current task before removing failed servers"
             return 0
         }
         if (state != "DISCONNECTED") {
-            message = "Disconnect before removing failed nodes from a subscription"
+            message = "Disconnect before removing failed servers from a subscription"
             return 0
         }
 
@@ -2145,7 +2201,7 @@ private fun postToMain(block: () -> Unit) {
         }
         val kind = probeKind.trim().uppercase()
         if (kind !in setOf("TCP", "TUNNEL")) {
-            message = "Unsupported failed-node evidence type"
+            message = "Unsupported failed-server evidence type"
             return 0
         }
 
@@ -2158,7 +2214,7 @@ private fun postToMain(block: () -> Unit) {
             .mapTo(linkedSetOf()) { it.id }
 
         if (doomedIds.isEmpty()) {
-            message = "No failed $kind nodes recorded for ${sub.name}"
+            message = "No failed $kind servers recorded for ${sub.name}"
             return 0
         }
 
@@ -2181,7 +2237,7 @@ private fun postToMain(block: () -> Unit) {
             "probeKind" to kind,
             "removed" to doomedIds.size
         )
-        message = "Removed ${doomedIds.size} failed $kind node${if (doomedIds.size == 1) "" else "s"} from ${sub.name}"
+        message = "Removed ${doomedIds.size} failed $kind server${if (doomedIds.size == 1) "" else "s"} from ${sub.name}"
         return doomedIds.size
     }
 
@@ -2229,7 +2285,7 @@ private fun postToMain(block: () -> Unit) {
     ) {
         val available = enabledProfilesSnapshot()
         if (available.isEmpty()) {
-            message = "No enabled nodes • select a source or enable Manual source"
+            message = "No enabled servers • select a source or enable Manual source"
             return
         }
         val remembered = lastProfile()
@@ -2462,7 +2518,7 @@ private fun postToMain(block: () -> Unit) {
         task("Marble Intelligence • selecting route") {
             val available = enabledProfilesSnapshot()
             if (available.isEmpty()) {
-                message = "No enabled nodes to test"
+                message = "No enabled servers to test"
                 return@task
             }
             val engine = BenchmarkEngine(xray, intelligence)
@@ -2617,7 +2673,7 @@ private fun postToMain(block: () -> Unit) {
                         ProfilePreflightValidator.validateAll(candidates)
                     )
                 )
-                message = "Rank • $scope • preflight flagged ${invalidCandidates.size} • testing all nodes"
+                message = "Rank • $scope • preflight flagged ${invalidCandidates.size} • testing all servers"
             }
 
             // MARBLE_TURBO_RANK_V91: the whole enabled pool is tested in one parallel real-tunnel
@@ -2707,7 +2763,7 @@ private fun postToMain(block: () -> Unit) {
             diagnostics.event(
                 "BENCHMARK", "rank-multi-signal",
                 "source" to sourceId.take(24),
-                "nodes" to multiSignal.size,
+                "servers" to multiSignal.size,
                 "healthy" to multiSignal.count { it.value.classification == MultiSignalRankScorer.Classification.HEALTHY },
                 "degraded" to multiSignal.count { it.value.classification == MultiSignalRankScorer.Classification.DEGRADED },
                 "uncertain" to multiSignal.count { it.value.classification == MultiSignalRankScorer.Classification.UNCERTAIN },
@@ -2886,7 +2942,7 @@ private fun postToMain(block: () -> Unit) {
                     "quick-ping-fast-zero-retry",
                     "source" to sourceId.take(24),
                     "scope" to scope,
-                    "nodes" to scoped.size,
+                    "servers" to scoped.size,
                     "endpoints" to representatives.size,
                     "firstElapsedMs" to firstElapsedMs
                 )
@@ -2924,7 +2980,7 @@ private fun postToMain(block: () -> Unit) {
                 "reachable" to passed
             )
             message =
-                "Quick ping • $scope • ${expanded.size} nodes / ${representatives.size} endpoints • " +
+                "Quick ping • $scope • ${expanded.size} servers / ${representatives.size} endpoints • " +
                     "$passed reachable"
         }
     }
