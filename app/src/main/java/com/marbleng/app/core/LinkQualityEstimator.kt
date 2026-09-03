@@ -9,21 +9,23 @@ import kotlin.math.sqrt
 /** Robust rolling route statistics. MARBLE_REALTIME_ENGINE_V70 */
 object LinkQualityEstimator {
     /**
-     * MARBLE_REAL_PING_FLOOR_V116 — the lowest value a public-Internet, verified, through-tunnel
-     * RTT can honestly be. A single-digit readout (3 / 4 / 6 ms) is a measurement artifact, not a
-     * real route: it can come from a warm connection reusing a session, a CDN edge answering from
-     * its own cache before the request reached the tunnel, or a clock that started after the
-     * remote work was already done. Every published latency is floored here so the product never
-     * shows the user an impossible number.
+     * MARBLE_HONEST_PING_V119 — the readout must never lie to the user. The old 15 ms floor
+     * rewrote every fast-but-genuine measurement (8 / 10 / 12 ms) into a synthetic "15", so the
+     * Home ping and the server benchmark both looked fabricated even when the route was real.
+     *
+     * The only sanity bounds that remain are physical ones: a value must be strictly positive
+     * (0 still means "not measured / failed") and at most 10 seconds (anything larger is a
+     * timeout artifact, not a latency). Within those bounds every measurement is published
+     * exactly as measured.
      */
-    const val MIN_REALISTIC_INTERNET_RTT_MS = 15
+    const val MIN_POSITIVE_RTT_MS = 1
 
-    /** Floor one measured sample: below the realistic minimum it is an artifact, not zero. */
+    /** Bound one measured sample: zero/negative means "no measurement", and the ceiling clips timeout artifacts. */
     fun sanitaryRtt(ms:Int):Int =
-        if(ms > 0) ms.coerceIn(MIN_REALISTIC_INTERNET_RTT_MS,10_000) else 0
+        if(ms > 0) ms.coerceIn(MIN_POSITIVE_RTT_MS,10_000) else 0
 
     fun sanitaryRtt(ms:Double):Double =
-        if(ms.isFinite() && ms > 0.0) ms.coerceIn(MIN_REALISTIC_INTERNET_RTT_MS.toDouble(),10_000.0) else 0.0
+        if(ms.isFinite() && ms > 0.0) ms.coerceIn(MIN_POSITIVE_RTT_MS.toDouble(),10_000.0) else 0.0
 
     data class Summary(
         val medianRttMs:Int, val p90RttMs:Int, val p95RttMs:Int,

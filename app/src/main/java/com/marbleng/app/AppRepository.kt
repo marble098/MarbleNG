@@ -841,9 +841,9 @@ fun updateRouteQuality(
         tailLatencyMs: Int = -1
     ) {
         if (pingMs <= 0) return
-        // MARBLE_REAL_PING_FLOOR_V116 — the live monitor, the Home probe and Stored benchmark seeds
-        // all publish through here; one floor keeps every ping surface (Home, bento, selector,
-        // notification) from ever showing a single-digit artifact.
+        // MARBLE_HONEST_PING_V119 — the live monitor, the Home probe and Stored benchmark seeds
+        // all publish through here; the only shared bound is physical (positive, ≤ 10 s), so a
+        // genuinely fast route shows its real latency instead of a synthetic floor.
         val honestPing = LinkQualityEstimator.sanitaryRtt(pingMs)
         if (honestPing <= 0) return
 
@@ -1397,8 +1397,8 @@ private fun postToMain(block: () -> Unit) {
         val sessionAtStart = connectedSinceMs
 
         // Guarantee 1 — seed the readout with a real measurement the tunnel already owns, so the
-        // value never sits in MEASURING while the race is still running. Stored benchmarks can
-        // also hold pre-floor artifacts, so the seed is floored before it can reach the UI.
+        // value never sits in MEASURING while the race is still running. Stored benchmarks are
+        // bounded by the shared positive/ceiling clamp before they can reach the UI.
         val storedLatencyMs = benchmarks
             .firstOrNull { it.profileId == activeProfileId }
             ?.takeIf { it.success > 0 && it.latencyMs > 0.0 }
@@ -1513,10 +1513,11 @@ private fun postToMain(block: () -> Unit) {
             }
 
             val verifiedSamples = results.filter { it.verified }
-            // MARBLE_REAL_PING_FLOOR_V116 — one freaky fast sample never wins the race. The winner
-            // is the median of the verified probes (every sample already floored), so a single
-            // 3 ms artifact cannot pull the Home readout below physical reality; the unverified
-            // SOCKS ladder only counts when nothing verified answered.
+            // MARBLE_HONEST_PING_V119 — one freaky fast sample never wins the race. The winner
+            // is the median of the verified probes (every sample already bounded positive/ceiling),
+            // so a single outlier cannot pull the Home readout away from the honest centre of the
+            // verified distribution; the unverified SOCKS ladder only counts when nothing verified
+            // answered.
             val racePool = (verifiedSamples.ifEmpty { results })
                 .map { it.ms }
                 .filter { it.isFinite() && it > 0.0 }

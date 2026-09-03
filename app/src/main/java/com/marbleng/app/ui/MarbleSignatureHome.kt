@@ -40,6 +40,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -63,6 +64,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
@@ -73,6 +75,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.marbleng.app.model.ConnectionPingState
@@ -955,6 +958,12 @@ internal fun SignatureFloatingConnectOverlay(
         }
     }
 
+    // MARBLE_RTL_FLOAT_FIX_V119 — the drag math and the persisted fractions are raw viewport
+    // coordinates (x grows to the right). Persian flips the whole app to RTL, which made both the
+    // placement box and `Modifier.offset` mirror the x axis, so the button travelled opposite to
+    // the finger. This overlay is a physical, screen-space control, so it pins itself to LTR
+    // regardless of the product language.
+    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -1110,5 +1119,6 @@ internal fun SignatureFloatingConnectOverlay(
                 }
             }
         }
+    }
     }
 }

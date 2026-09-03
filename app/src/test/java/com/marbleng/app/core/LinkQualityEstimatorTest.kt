@@ -36,23 +36,23 @@ class LinkQualityEstimatorTest {
 
     @Test
     fun clampsHostileRttValues() {
-        // MARBLE_REAL_PING_FLOOR_V116 — the hostile 1 ms value is floored to the realistic
-        // 15 ms minimum before it can distort the summary, so the IPDV reflects true distance.
+        // MARBLE_HONEST_PING_V119 — the hostile 50 s value is clamped to the 10 s ceiling before
+        // it can distort the summary; the honest 1 ms value is preserved as-is.
         val result = requireNotNull(LinkQualityEstimator.summarize(listOf(1, 50_000)))
         assertEquals(10_000, result.medianRttMs)
         assertEquals(10_000, result.p90RttMs)
-        assertEquals(9_985, result.meanIpdvMs)
+        assertEquals(9_999, result.meanIpdvMs)
     }
 
     @Test
-    fun floorsSingleDigitArtifactsAtTheRealisticMinimum() {
-        // MARBLE_REAL_PING_FLOOR_V116 — 3 / 4 / 6 ms readings are measurement artifacts, not real
-        // public-Internet RTTs; the estimator must never let them reach a summary untouched.
+    fun preservesHonestSingleDigitReadings() {
+        // MARBLE_HONEST_PING_V119 — 3 / 4 / 6 ms are genuine fast-route measurements, not
+        // artifacts; the estimator publishes them untouched instead of rewriting them to 15.
         val result = requireNotNull(LinkQualityEstimator.summarize(listOf(3, 4, 6)))
-        assertEquals(15, result.medianRttMs)
-        assertEquals(15, result.p90RttMs)
-        assertEquals(15, result.p95RttMs)
-        assertEquals(0, result.meanIpdvMs)
+        assertEquals(4, result.medianRttMs)
+        assertEquals(6, result.p90RttMs)
+        assertEquals(6, result.p95RttMs)
+        assertEquals(2, result.meanIpdvMs)
         assertEquals(100, result.successPercent)
     }
 
@@ -60,11 +60,11 @@ class LinkQualityEstimatorTest {
     fun sanitaryRttKeepsValidSamplesAndSilencesArtifacts() {
         assertEquals(0, LinkQualityEstimator.sanitaryRtt(0))
         assertEquals(0, LinkQualityEstimator.sanitaryRtt(-7))
-        assertEquals(15, LinkQualityEstimator.sanitaryRtt(3))
+        assertEquals(3, LinkQualityEstimator.sanitaryRtt(3))
         assertEquals(15, LinkQualityEstimator.sanitaryRtt(15))
         assertEquals(120, LinkQualityEstimator.sanitaryRtt(120))
         assertEquals(10_000, LinkQualityEstimator.sanitaryRtt(50_000))
-        assertEquals(15.0, LinkQualityEstimator.sanitaryRtt(4.0), 0.0)
+        assertEquals(4.0, LinkQualityEstimator.sanitaryRtt(4.0), 0.0)
         assertEquals(0.0, LinkQualityEstimator.sanitaryRtt(Double.NaN), 0.0)
     }
 }
