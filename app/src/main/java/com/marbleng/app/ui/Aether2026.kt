@@ -889,7 +889,12 @@ private fun DeepSpaceBackdrop(
     modifier: Modifier = Modifier,
     flavor: HomeFlavor = HomeFlavor.PRO
 ) {
-    PrismBackdrop(modifier, flavor)
+    // MARBLE_IOS_DESIGN_SYSTEM_V83 — the cosmic floor (principles 4 + 5): the flavor's vertical
+    // gradient plus a stable scattered star field, so every page shares the same deep-space identity.
+    Box(modifier) {
+        PrismBackdrop(Modifier.matchParentSize(), flavor)
+        MarbleIOSStarfield(Modifier.matchParentSize())
+    }
 }
 
 @Composable
@@ -3196,6 +3201,7 @@ private fun CyberLibrary(
     var pruneFailedTarget by remember { mutableStateOf<Pair<Subscription, String>?>(null) }
     var addOpen by remember { mutableStateOf(false) }
     var sortOpen by remember { mutableStateOf(false) }
+    var drawerOpen by remember { mutableStateOf(false) }
 
     val flavor = homeFlavorFor(parseHomeStyle(repo.settings.homeStyle))
     val chrome = libraryChromeFor(flavor)
@@ -3499,6 +3505,10 @@ private fun CyberLibrary(
             // gone. Per-server actions stay in each row's own menu.
             item {
                 Column {
+                    // MARBLE_IOS_DESIGN_SYSTEM_V83 — the floating clipboard button and the old
+                    // top-left three-dot menu are gone. A single "+" in the header opens the iOS
+                    // hamburger drawer, which owns add servers, paste-from-clipboard, import file,
+                    // sort and the Freedom toggle — one place, one gesture.
                     MarbleCompactTopBar(
                         title = "Servers",
                         modifier = Modifier.fillMaxWidth(),
@@ -3506,7 +3516,10 @@ private fun CyberLibrary(
                         // pattern, so Persian reads "سرورهای سیگنچر • 12 سرور" instead of one
                         // unmatched English sentence.
                         subtitle = "${trx(chrome.headerTitle)} • " +
-                            trx("${repo.libraryProfiles.size} servers")
+                            trx("${repo.libraryProfiles.size} servers"),
+                        actionLabel = "+",
+                        actionIcon = HomeIcon.MORE,
+                        onAction = { drawerOpen = true }
                     )
                     Spacer(Modifier.height(10.dp))
                 }
@@ -3546,7 +3559,7 @@ private fun CyberLibrary(
                                 style = MaterialTheme.typography.titleMedium
                             )
                             Text(
-                                trx("Use the floating + button to add a subscription, paste configs or import a file."),
+                                trx("Tap the + in the top bar to add a subscription, paste configs or import a file."),
                                 color = Aether.InkFaint,
                                 style = MaterialTheme.typography.bodySmall
                             )
@@ -3641,14 +3654,69 @@ private fun CyberLibrary(
             }
         }
 
-        LibrarySmartFab(
-            repo = repo,
-            chrome = chrome,
-            modifier = Modifier.align(Alignment.BottomEnd),
-            onAdd = { addOpen = true },
-            onSort = { sortOpen = true },
-            onImportClipboard = {
+    }
+
+    // MARBLE_IOS_DESIGN_SYSTEM_V83 — the Servers action drawer. Owns every add/import/sort/Freedom
+    // action in one glass sheet, opened by the "+" in the header and closed by the back gesture,
+    // the scrim tap or a fast fling.
+    MarbleIOSDrawer(
+        open = drawerOpen,
+        onClose = { drawerOpen = false },
+        title = "Servers"
+    ) {
+        MarbleIOSDrawerItem(
+            title = "Add servers",
+            subtitle = "Subscription or manual config",
+            leading = {
+                HomeVectorIcon(HomeIcon.SERVER, MarbleIOSInk, Modifier.size(20.dp))
+            },
+            onClick = {
+                drawerOpen = false
+                addOpen = true
+            }
+        )
+        MarbleIOSDrawerItem(
+            title = "Import from clipboard",
+            subtitle = "Paste a subscription or server link",
+            leading = {
+                HomeVectorIcon(HomeIcon.CLIPBOARD, MarbleIOSInk, Modifier.size(20.dp))
+            },
+            onClick = {
                 repo.importClipboard(clipboard.getText()?.text.orEmpty(), intakeTarget)
+                drawerOpen = false
+            }
+        )
+        MarbleIOSDrawerItem(
+            title = "Import file",
+            subtitle = "Load a config file",
+            leading = {
+                HomeVectorIcon(HomeIcon.DOWNLOAD, MarbleIOSInk, Modifier.size(20.dp))
+            },
+            onClick = {
+                drawerOpen = false
+                onImportFile()
+            }
+        )
+        MarbleIOSDrawerItem(
+            title = "Sort servers",
+            subtitle = "By ping, score, name or source",
+            leading = {
+                HomeVectorIcon(HomeIcon.RANK, MarbleIOSInk, Modifier.size(20.dp))
+            },
+            onClick = {
+                drawerOpen = false
+                sortOpen = true
+            }
+        )
+        MarbleIOSDrawerItem(
+            title = if (repo.libraryFreedomHidden) "Show Marble Freedom" else "Hide Marble Freedom",
+            subtitle = if (repo.libraryFreedomHidden) "Reveal the serverless source" else "Keep the serverless source folded",
+            leading = {
+                HomeVectorIcon(HomeIcon.SHIELD, MarbleIOSInk, Modifier.size(20.dp))
+            },
+            onClick = {
+                repo.updateLibraryFreedomHidden(!repo.libraryFreedomHidden)
+                drawerOpen = false
             }
         )
     }
@@ -7307,7 +7375,6 @@ private object SettingsPages {
     const val HOME_STYLE = "home-style"
     const val TYPEFACE = "typeface"
     const val LANGUAGE = "language"
-    const val PER_APP = "per-app"
     const val INFORMATION = "information"
     private const val WORKSPACE = "workspace"
 
@@ -7357,12 +7424,17 @@ private fun SettingsSubPage(
     title: String,
     subtitle: String,
     onBack: () -> Unit,
+    listState: LazyListState = rememberLazyListState(),
     content: @Composable ColumnScope.() -> Unit
 ) {
+    // MARBLE_SETTINGS_RESTORE_V117 — the scroll position is owned by the caller (the settings
+    // navigator) and survives the sub-page's leave/re-enter lifecycle, so returning to a page you
+    // scrolled never dumps you back at the top.
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
             .imePadding(),
+        state = listState,
         contentPadding = PaddingValues(
             start = 16.dp,
             end = 16.dp,
@@ -7874,7 +7946,8 @@ private fun SettingsVersionPreview(tone: Color) {
 @Composable
 private fun SettingsHub(
     repo: AppRepository,
-    onNavigate: (String) -> Unit
+    onNavigate: (String) -> Unit,
+    listState: LazyListState = rememberLazyListState()
 ) {
     val t = Tr.now
     val settings = repo.settings
@@ -7883,10 +7956,13 @@ private fun SettingsHub(
     val activeFont = parseAppFont(settings.fontFamily)
     val activeLanguage = parseAppLanguage(settings.appLanguage)
 
+    // MARBLE_SETTINGS_RESTORE_V117 — the hub owns its scroll so coming back from a sub-page lands
+    // exactly where you left it instead of reshooting to the top.
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
             .imePadding(),
+        state = listState,
         contentPadding = PaddingValues(
             start = 16.dp,
             end = 16.dp,
@@ -7954,51 +8030,6 @@ private fun SettingsHub(
                 )
             }
         }
-
-        // ------------------------------------------------ Per-app proxy (always on the surface)
-    item(key = "hub-per-app") {
-        SettingsHubCard(
-            title = "Per-app proxy",
-            subtitle = "Choose which installed apps use the tunnel",
-            tone = Aether.Emerald
-        ) {
-            SplitTunnelModeSelector(repo)
-            val selectedCount = settings.splitTunnelPackages
-                .split(',', '\n', '\r', ';')
-                .count { it.isNotBlank() }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(7.dp)
-            ) {
-                HomeVectorIcon(HomeIcon.PRIVACY, Aether.Emerald, Modifier.size(15.dp))
-                Text(
-                    trx("Applies on next Full TUN connect."),
-                    color = Aether.InkFaint,
-                    style = settingsBodyStyle(),
-                    maxLines = 1,
-                    modifier = Modifier.weight(1f)
-                )
-                Text(
-                    "$selectedCount",
-                    color = Aether.Emerald,
-                    style = MaterialTheme.typography.labelLarge.copy(
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold
-                    ),
-                    maxLines = 1
-                )
-            }
-            SettingsHubRow(
-                title = "App list",
-                subtitle = "Add or remove apps on the tunnel",
-                tone = Aether.Emerald,
-                onClick = { onNavigate(SettingsPages.PER_APP) }
-            ) {
-                HomeVectorIcon(HomeIcon.PRIVACY, Aether.Emerald, Modifier.size(20.dp))
-            }
-        }
-    }
 
     // ------------------------------------------------ Connection
         item(key = "hub-connection") {
@@ -8147,12 +8178,17 @@ private fun SettingsHub(
 
 /** Theme & colours: the full-size previews, plus the frame personality and studio accent. */
 @Composable
-private fun SettingsThemePage(repo: AppRepository, onBack: () -> Unit) {
+private fun SettingsThemePage(
+    repo: AppRepository,
+    onBack: () -> Unit,
+    listState: LazyListState = rememberLazyListState()
+) {
     val t = Tr.now
     SettingsSubPage(
         title = "Theme",
         subtitle = t.themeDetail,
-        onBack = onBack
+        onBack = onBack,
+        listState = listState
     ) {
         SettingsHubCard(title = "Theme", subtitle = t.themeDetail, tone = Aether.Amethyst) {
             SettingsThemeGrid(repo)
@@ -8208,13 +8244,18 @@ private fun SettingsThemePage(repo: AppRepository, onBack: () -> Unit) {
 
 /** Home style: five thumbnails, each drawn from the style's own artwork. */
 @Composable
-private fun SettingsHomeStylePage(repo: AppRepository, onBack: () -> Unit) {
+private fun SettingsHomeStylePage(
+    repo: AppRepository,
+    onBack: () -> Unit,
+    listState: LazyListState = rememberLazyListState()
+) {
     val t = Tr.now
     val active = parseHomeStyle(repo.settings.homeStyle)
     SettingsSubPage(
         title = t.homeStyleTitle,
         subtitle = t.homeStyleDetail,
-        onBack = onBack
+        onBack = onBack,
+        listState = listState
     ) {
         SettingsHubCard(title = t.homeStyleTitle, subtitle = t.homeStyleDetail, tone = Aether.Cyan) {
             Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
@@ -8293,12 +8334,17 @@ private fun SettingsHomeStylePage(repo: AppRepository, onBack: () -> Unit) {
 
 /** Typeface: every candidate rendered in its own face. */
 @Composable
-private fun SettingsTypefacePage(repo: AppRepository, onBack: () -> Unit) {
+private fun SettingsTypefacePage(
+    repo: AppRepository,
+    onBack: () -> Unit,
+    listState: LazyListState = rememberLazyListState()
+) {
     val t = Tr.now
     SettingsSubPage(
         title = "Typeface",
         subtitle = "The Latin face of the whole product",
-        onBack = onBack
+        onBack = onBack,
+        listState = listState
     ) {
         SettingsHubCard(title = "Typeface", subtitle = "The Latin face of the whole product", tone = Aether.Emerald) {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -8340,13 +8386,18 @@ private fun SettingsTypefacePage(repo: AppRepository, onBack: () -> Unit) {
 
 /** Language: the Persian key is written in Persian and set in Vazirmatn in every state. */
 @Composable
-private fun SettingsLanguagePage(repo: AppRepository, onBack: () -> Unit) {
+private fun SettingsLanguagePage(
+    repo: AppRepository,
+    onBack: () -> Unit,
+    listState: LazyListState = rememberLazyListState()
+) {
     val t = Tr.now
     val selectedLanguage = parseAppLanguage(repo.settings.appLanguage)
     SettingsSubPage(
         title = t.languageTitle,
         subtitle = t.languageDetail,
-        onBack = onBack
+        onBack = onBack,
+        listState = listState
     ) {
         SettingsHubCard(title = t.languageTitle, subtitle = t.languageDetail, tone = Aether.Amber) {
             Row(
@@ -8392,14 +8443,19 @@ private fun SettingsLanguagePage(repo: AppRepository, onBack: () -> Unit) {
  * directly, never an in-app page.
  */
 @Composable
-private fun SettingsInformationPage(repo: AppRepository, onBack: () -> Unit) {
+private fun SettingsInformationPage(
+    repo: AppRepository,
+    onBack: () -> Unit,
+    listState: LazyListState = rememberLazyListState()
+) {
     val t = Tr.now
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
     SettingsSubPage(
         title = t.informationTitle,
         subtitle = t.informationDetail,
-        onBack = onBack
+        onBack = onBack,
+        listState = listState
     ) {
         SettingsHubCard(title = "Versions", tone = Aether.Cyan) {
             InformationRow("App version", BuildConfig.VERSION_NAME, Aether.Cyan)
@@ -8553,7 +8609,36 @@ private fun SpatialSettings(
 ) {
     // MARBLE_SETTINGS_HUB_V114 — Settings is one hub page. Every title below it opens its own page,
     // and the pages are plain string keys so the navigator survives a saved-state restore.
-    var page by rememberSaveable { mutableStateOf(SettingsPages.HUB) }
+    // MARBLE_SETTINGS_RESTORE_V117 — the starting page is the one the user last visited (restored
+    // from persistence), so reopening the Settings tab after a Theme visit returns to the Theme page
+    // instead of reshooting to the top of the hub.
+    var page by rememberSaveable {
+        mutableStateOf(repo.lastSettingsPage.ifBlank { SettingsPages.HUB })
+    }
+
+    // MARBLE_SETTINGS_RESTORE_V117 — the scroll position of the hub (and the workspace pages) is
+    // owned here, above the page switch, so it is never torn down with a page's composition. Each
+    // workspace tab gets its own slot in the persistent map so switching between pages keeps their
+    // places for the whole session.
+    // MARBLE_SETTINGS_RESTORE_V117 — scroll states are owned here, above the page switch, so the
+    // hub and each dedicated sub-page never lose their place when the user navigates away and back.
+    val hubListState = rememberLazyListState()
+    val themeListState = rememberLazyListState()
+    val homeStyleListState = rememberLazyListState()
+    val typefaceListState = rememberLazyListState()
+    val languageListState = rememberLazyListState()
+    val informationListState = rememberLazyListState()
+    // One scroll state per workspace tab; only the active tab's is shown at a time.
+    val workspaceListStates = remember {
+        SettingsWorkspaceTab.entries.associateWith { LazyListState() }
+    }
+    fun workspaceListState(tab: SettingsWorkspaceTab): LazyListState =
+        workspaceListStates.getValue(tab)
+
+    // Persist the current page so the next visit restores it.
+    LaunchedEffect(page) {
+        repo.rememberSettingsPage(page)
+    }
 
     // A deep link from Home ("Routing") still lands directly on the right workspace.
     LaunchedEffect(focusSection) {
@@ -8585,30 +8670,49 @@ private fun SpatialSettings(
         when {
             target == SettingsPages.HUB -> SettingsHub(
                 repo = repo,
-                onNavigate = { page = it }
+                onNavigate = { page = it },
+                listState = hubListState
             )
 
             SettingsPages.isWorkspace(target) -> SettingsTabPage(
                 repo = repo,
                 tab = SettingsPages.workspaceTab(target),
                 focusSection = SettingsPages.workspaceFocus(target),
+                listState = workspaceListState(SettingsPages.workspaceTab(target)),
                 onBack = { page = SettingsPages.HUB }
             )
 
-            target == SettingsPages.THEME -> SettingsThemePage(repo = repo, onBack = { page = SettingsPages.HUB })
+            target == SettingsPages.THEME -> SettingsThemePage(
+                repo = repo,
+                listState = themeListState,
+                onBack = { page = SettingsPages.HUB }
+            )
             target == SettingsPages.HOME_STYLE ->
-                SettingsHomeStylePage(repo = repo, onBack = { page = SettingsPages.HUB })
+                SettingsHomeStylePage(
+                    repo = repo,
+                    listState = homeStyleListState,
+                    onBack = { page = SettingsPages.HUB }
+                )
 
             target == SettingsPages.TYPEFACE ->
-                SettingsTypefacePage(repo = repo, onBack = { page = SettingsPages.HUB })
+                SettingsTypefacePage(
+                    repo = repo,
+                    listState = typefaceListState,
+                    onBack = { page = SettingsPages.HUB }
+                )
 
             target == SettingsPages.LANGUAGE ->
-                SettingsLanguagePage(repo = repo, onBack = { page = SettingsPages.HUB })
+                SettingsLanguagePage(
+                    repo = repo,
+                    listState = languageListState,
+                    onBack = { page = SettingsPages.HUB }
+                )
 
-            target == SettingsPages.PER_APP ->
-                SettingsPerAppPage(repo = repo, onBack = { page = SettingsPages.HUB })
-
-            else -> SettingsInformationPage(repo = repo, onBack = { page = SettingsPages.HUB })
+            else -> SettingsInformationPage(
+                repo = repo,
+                listState = informationListState,
+                onBack = { page = SettingsPages.HUB }
+            )
         }
     }
 }
@@ -8624,13 +8728,15 @@ private fun SettingsTabPage(
     repo: AppRepository,
     tab: SettingsWorkspaceTab,
     onBack: () -> Unit,
-    focusSection: String? = null
+    focusSection: String? = null,
+    listState: LazyListState = rememberLazyListState()
 ) {
     val sections = settingsSections(tab, repo, repo.settings.expertMode, focusSection)
     SettingsSubPage(
         title = settingsTabPageTitle(tab),
         subtitle = settingsTabPageSubtitle(tab),
-        onBack = onBack
+        onBack = onBack,
+        listState = listState
     ) {
         if (sections.isEmpty()) {
             PrismPanel(
@@ -8678,28 +8784,6 @@ private fun settingsTabPageSubtitle(tab: SettingsWorkspaceTab): String = when (t
 }
 
 /**
- * MARBLE_SETTINGS_FLAT_SINGLE_PAGE_V115 — the per-app page behind the hub's "Per-app proxy" card.
- * It lives directly on the flat Settings surface (mode segments on the hub itself), and this full
- * page owns the complete installed-app picker with its own scroll.
- */
-@Composable
-private fun SettingsPerAppPage(repo: AppRepository, onBack: () -> Unit) {
-    SettingsSubPage(
-        title = "Per-app proxy",
-        subtitle = "Choose which installed apps use the tunnel",
-        onBack = onBack
-    ) {
-        SettingsHubCard(
-            title = "Installed apps",
-            subtitle = "Tunnel or bypass per app",
-            tone = Aether.Emerald
-        ) {
-            SplitTunnelSettings(repo)
-        }
-    }
-}
-
-/**
  * One section card worth of content, shared by the lazy page and the zero-viewport fallback so
  * the two render paths can never drift apart.
  */
@@ -8733,12 +8817,6 @@ private fun settingsSections(
     ): SettingsSectionSpec = SettingsSectionSpec(title, subtitle, icon, color, content)
 
     val routingFocused = focusSection == "Routing"
-    val expertGate = card(
-        "Expert workspace",
-        "Show advanced options",
-        HomeIcon.SHIELD,
-        Aether.Amethyst
-    ) { ExpertGateRow(repo) }
 
     return when (tab) {
         SettingsWorkspaceTab.GENERAL -> listOf(
@@ -8754,37 +8832,28 @@ private fun settingsSections(
         SettingsWorkspaceTab.FREEDOM -> listOf(
             card("Freedom Engine","Serverless DPI bypass",HomeIcon.SHIELD,Aether.Cyan) { FreedomSettings(repo) }
         )
-        SettingsWorkspaceTab.TESTS -> buildList {
-            add(card("Testing","Tunnel, ICMP and live route",HomeIcon.BENCHMARK,Aether.Amethyst) { ProbeSettings(repo) })
-            if(expertMode) {
-                add(card("Intelligence","Adaptive routing",HomeIcon.SPARK,Aether.Cyan) { IntelligenceSettings(repo) })
-            } else {
-                add(expertGate)
-            }
-        }
+        // MARBLE_SETTINGS_EXPERT_ALWAYS_V118 — Advanced Settings is no longer gated. Expert mode was a
+        // switch that hid the low-level tunnel controls; the product owner removed the gating so every
+        // option is shown across all sections. The `expertMode` value is kept for persistence/compat and
+        // the hub row is retained as a display read-out, but it never hides a card.
+        SettingsWorkspaceTab.TESTS -> listOf(
+            card("Testing","Tunnel, ICMP and live route",HomeIcon.BENCHMARK,Aether.Amethyst) { ProbeSettings(repo) },
+            card("Intelligence","Adaptive routing",HomeIcon.SPARK,Aether.Cyan) { IntelligenceSettings(repo) }
+        )
         SettingsWorkspaceTab.NETWORK -> buildList {
-            // MARBLE_NO_DUPLICATES_V116 — split tunneling lives once, in the hub's "Per-app proxy"
-            // card (mode + app list, always on the surface). The old duplicate card here is gone.
-            if(expertMode) {
-                if(routingFocused) {
-                    add(card("Routing","Geo assets & rules",HomeIcon.ROUTING,Aether.Emerald) { RoutingSettings(repo) })
-                }
-                add(card("Iran Mode","Filter detection",HomeIcon.SHIELD,Aether.Emerald) { IranModeSettings(repo) })
-                add(card("DNS","TUN & DoH",HomeIcon.NETWORK,Aether.Cyan) { DnsSettings(repo) })
-                if(!routingFocused) {
-                    add(card("Routing","Geo assets & rules",HomeIcon.ROUTING,Aether.Emerald) { RoutingSettings(repo) })
-                }
-            } else {
-                if(routingFocused) {
-                    add(card("Routing","Geo assets & rules",HomeIcon.ROUTING,Aether.Emerald) { RoutingSettings(repo) })
-                }
-                add(expertGate)
+            if(routingFocused) {
+                add(card("Routing","Geo assets & rules",HomeIcon.ROUTING,Aether.Emerald) { RoutingSettings(repo) })
             }
+            add(card("Iran Mode","Filter detection",HomeIcon.SHIELD,Aether.Emerald) { IranModeSettings(repo) })
+            add(card("DNS","TUN & DoH",HomeIcon.NETWORK,Aether.Cyan) { DnsSettings(repo) })
+            if(!routingFocused) {
+                add(card("Routing","Geo assets & rules",HomeIcon.ROUTING,Aether.Emerald) { RoutingSettings(repo) })
+            }
+            // Per-app proxy moved into Network & Routing — no standalone section, no hub card.
+            add(card("Per-app proxy","Tunnel or bypass per app",HomeIcon.PRIVACY,Aether.Emerald) { SplitTunnelSettings(repo) })
         }
         SettingsWorkspaceTab.ENGINE -> listOf(
-            if(expertMode) {
-                card("Fragment & Mux","DPI resilience",HomeIcon.SPARK,Aether.Amber) { FragmentMuxSettings(repo) }
-            } else expertGate
+            card("Fragment & Mux","DPI resilience",HomeIcon.SPARK,Aether.Amber) { FragmentMuxSettings(repo) }
         )
         SettingsWorkspaceTab.SYSTEM -> listOf(
             card("Notifications","Alerts",HomeIcon.STATUS,Aether.Cyan) { NotificationSettings(repo) },

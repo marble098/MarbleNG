@@ -155,6 +155,21 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         store.setLastSettingsTab(normalized)
     }
 
+    /**
+     * Last opened Settings page (key from [com.marbleng.app.ui.Aether2026.SettingsPages]). Restored
+     * when the Settings tab is re-entered so a user who was on the Theme page lands back on the Theme
+     * page rather than reshooting to the hub — the back-navigation bug.
+     */
+    var lastSettingsPage by mutableStateOf(store.lastSettingsPage())
+        private set
+
+    fun rememberSettingsPage(name: String) {
+        val normalized = name.trim().ifBlank { "hub" }
+        if (lastSettingsPage == normalized) return
+        lastSettingsPage = normalized
+        store.setLastSettingsPage(normalized)
+    }
+
     // MARBLE_SIGNATURE_HOME_V112 — the floating connect button's dragged spot, stored as
     // normalized viewport fractions so it survives restarts on any screen size.
     var proFabPosition by mutableStateOf(store.proFabPosition())

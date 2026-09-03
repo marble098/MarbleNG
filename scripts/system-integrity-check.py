@@ -551,9 +551,9 @@ check(
     and "compactTabsState" not in files["ui"],
 )
 check(
-    "Per-app proxy lives directly on the Settings surface",
-    'item(key = "hub-per-app")' in files["ui"]
-    and "SettingsPages.PER_APP" in files["ui"]
+    "Per-app proxy lives inside Network & Routing",
+    'add(card("Per-app proxy"' in files["ui"]
+    and "SplitTunnelSettings(repo)" in files["ui"]
     and "SplitTunnelModeSelector(" in files["ui"],
 )
 check(
