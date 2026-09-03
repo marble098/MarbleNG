@@ -2441,14 +2441,22 @@ private fun CyberDeck(
     // The Signature studio configuration: every layer is an independent Settings choice.
     val pro = rememberSignatureProContext(repo, deck)
 
+    // MARBLE_CONNECT_BUTTON_STYLES_V119 — the user-pinned connection-button silhouette reaches
+    // every Home presentation through one composition local, so all five styles render the same
+    // chosen model without each presentation needing to read Settings itself.
+    val pinnedButtonModel =
+        connectButtonModelFor(parseConnectButtonStyle(repo.settings.connectButtonStyle))
+
     Box(Modifier.fillMaxSize()) {
-        HomeStyleSurface(
-            style = parseHomeStyle(repo.settings.homeStyle),
-            evidence = evidence,
-            actions = actions,
-            bottomClearance = dockClearance(),
-            pro = pro
-        )
+        CompositionLocalProvider(LocalConnectButtonModel provides pinnedButtonModel) {
+            HomeStyleSurface(
+                style = parseHomeStyle(repo.settings.homeStyle),
+                evidence = evidence,
+                actions = actions,
+                bottomClearance = dockClearance(),
+                pro = pro
+            )
+        }
 
         if (evidence.blocked && repo.stateDetail.isNotBlank()) {
             Text(
@@ -3224,58 +3232,21 @@ private data class LibraryChrome(
 )
 
 @Composable
-private fun libraryChromeFor(flavor: HomeFlavor): LibraryChrome = when (flavor) {
-    HomeFlavor.PRO -> LibraryChrome(
+private fun libraryChromeFor(flavor: HomeFlavor): LibraryChrome =
+    // MARBLE_SERVERS_FLAT_V119 — the Servers list is deliberately theme-independent: one flat
+    // chrome (accent, live-route tone, freedom tone and wording) no matter which Home style the
+    // user picked. Home still changes with the Home style; the Servers module keeps its own
+    // clean, flat identity with a single good colour scheme.
+    LibraryChrome(
         accent = Aether.Cyan,
         glow = Aether.CyanBright,
-        headerShape = RoundedCornerShape(16.dp),
-        connectedLabel = "CONNECTED",
-        securingLabel = "SECURING",
+        headerShape = RoundedCornerShape(14.dp),
+        connectedLabel = "Connected",
+        securingLabel = "Securing",
         connectedTone = Aether.Emerald,
-        headerTitle = "SIGNATURE SERVERS",
-        freedomTone = Aether.Cyan
-    )
-    HomeFlavor.ORGANIC -> LibraryChrome(
-        accent = Aether.Emerald,
-        glow = Aether.Emerald,
-        headerShape = RoundedCornerShape(topStart = 26.dp, topEnd = 14.dp, bottomStart = 14.dp, bottomEnd = 26.dp),
-        connectedLabel = "BIOLUMINESCENT",
-        securingLabel = "GERMINATING",
-        connectedTone = Aether.Emerald,
-        headerTitle = "ORGANIC SERVERS",
+        headerTitle = "Servers",
         freedomTone = Aether.Amethyst
     )
-    HomeFlavor.ORBIT -> LibraryChrome(
-        accent = Aether.Cyan,
-        glow = Aether.Amber,
-        headerShape = RoundedCornerShape(18.dp),
-        connectedLabel = "IN ORBIT",
-        securingLabel = "ACQUIRING",
-        connectedTone = Aether.Cyan,
-        headerTitle = "ORBITAL MANIFEST",
-        freedomTone = Aether.Amber
-    )
-    HomeFlavor.NEBULA -> LibraryChrome(
-        accent = Aether.Amethyst,
-        glow = Aether.AmethystBright,
-        headerShape = RoundedCornerShape(20.dp),
-        connectedLabel = "IMMERSED",
-        securingLabel = "NEBULIZING",
-        connectedTone = Aether.AmethystBright,
-        headerTitle = "NEBULA SERVERS",
-        freedomTone = Aether.Amethyst
-    )
-    HomeFlavor.BLUEPRINT -> LibraryChrome(
-        accent = Aether.Cyan,
-        glow = Aether.Slate,
-        headerShape = RoundedCornerShape(6.dp),
-        connectedLabel = "PARAMETRIC",
-        securingLabel = "DRAFTING",
-        connectedTone = Aether.SlateBright,
-        headerTitle = "BLUEPRINT SERVERS",
-        freedomTone = Aether.Slate
-    )
-}
 
 private fun profileMatchesSearch(profile: ProxyProfile, query: String): Boolean =
     query.isBlank() ||
@@ -3655,8 +3626,7 @@ private fun CyberLibrary(
                         // Each half is translated on its own: the count goes through the "N servers"
                         // pattern, so Persian reads "سرورهای سیگنچر • 12 سرور" instead of one
                         // unmatched English sentence.
-                        subtitle = "${trx(chrome.headerTitle)} • " +
-                            trx("${repo.libraryProfiles.size} servers"),
+                        subtitle = trx("${repo.libraryProfiles.size} servers"),
                         actionLabel = "Menu",
                         actionIcon = HomeIcon.MENU,
                         actionVariant = PrismButtonVariant.Primary,
@@ -3922,98 +3892,29 @@ private const val LIBRARY_FOLD_KEPT_ROWS = 8
  * nebula capsule and a near-flat drafting sheet. Every slice of one module agrees on its flavor's
  * radii so the segments read as one poured container.
  */
+// MARBLE_SERVERS_FLAT_V119 — one uniform rounded silhouette for every source-module slice, so a
+// subscription box and its server rows read as one flat card no matter which Home style is active.
 private fun librarySegmentShape(flavor: HomeFlavor, top: Boolean, bottom: Boolean): RoundedCornerShape =
-    when (flavor) {
-        HomeFlavor.PRO -> RoundedCornerShape(
-            topStart = if (top) 16.dp else 0.dp,
-            topEnd = if (top) 16.dp else 0.dp,
-            bottomStart = if (bottom) 16.dp else 0.dp,
-            bottomEnd = if (bottom) 16.dp else 0.dp
-        )
-        HomeFlavor.ORGANIC -> RoundedCornerShape(
-            topStart = if (top) 26.dp else 0.dp,
-            topEnd = if (top) 14.dp else 0.dp,
-            bottomStart = if (bottom) 14.dp else 0.dp,
-            bottomEnd = if (bottom) 26.dp else 0.dp
-        )
-        HomeFlavor.ORBIT -> RoundedCornerShape(
-            topStart = if (top) 6.dp else 0.dp,
-            topEnd = if (top) 6.dp else 0.dp,
-            bottomStart = if (bottom) 6.dp else 0.dp,
-            bottomEnd = if (bottom) 6.dp else 0.dp
-        )
-        HomeFlavor.NEBULA -> RoundedCornerShape(
-            topStart = if (top) 24.dp else 0.dp,
-            topEnd = if (top) 24.dp else 0.dp,
-            bottomStart = if (bottom) 24.dp else 0.dp,
-            bottomEnd = if (bottom) 24.dp else 0.dp
-        )
-        HomeFlavor.BLUEPRINT -> RoundedCornerShape(
-            topStart = if (top) 2.dp else 0.dp,
-            topEnd = if (top) 2.dp else 0.dp,
-            bottomStart = if (bottom) 2.dp else 0.dp,
-            bottomEnd = if (bottom) 2.dp else 0.dp
-        )
-    }
+    RoundedCornerShape(
+        topStart = if (top) 14.dp else 0.dp,
+        topEnd = if (top) 14.dp else 0.dp,
+        bottomStart = if (bottom) 14.dp else 0.dp,
+        bottomEnd = if (bottom) 14.dp else 0.dp
+    )
 
-/** The air one flavor leaves between source modules: breathing room is part of the card language. */
-private fun libraryGroupGap(flavor: HomeFlavor): Dp = when (flavor) {
-    HomeFlavor.PRO -> 13.dp
-    HomeFlavor.ORGANIC -> 11.dp
-    HomeFlavor.ORBIT -> 9.dp
-    HomeFlavor.NEBULA -> 15.dp
-    HomeFlavor.BLUEPRINT -> 8.dp
-}
+/** The air between source modules: one flat, even gap for the flat list. */
+private fun libraryGroupGap(flavor: HomeFlavor): Dp = 12.dp
 
-/** The frost one flavor pours its modules from: its own hue mix, never one shared grey slab. */
+/** The surface one module slice is poured from: a single flat fill, never a per-style gradient. */
 @Composable
-private fun libraryFrost(flavor: HomeFlavor, accent: Color, emphasized: Boolean): Brush = when (flavor) {
-    HomeFlavor.PRO -> Brush.verticalGradient(
-        listOf(
-            Color.White.copy(alpha = if (emphasized) .070f else .045f),
-            accent.copy(alpha = if (emphasized) .11f else .055f),
-            Aether.Amethyst.copy(alpha = if (emphasized) .06f else .025f),
-            Aether.VoidElevated.copy(alpha = .78f),
-            Aether.VoidElevated.copy(alpha = .88f)
-        )
-    )
-    HomeFlavor.ORGANIC -> Brush.verticalGradient(
-        listOf(
-            accent.copy(alpha = if (emphasized) .095f else .055f),
-            Aether.Amethyst.copy(alpha = .05f),
-            Aether.VoidElevated.copy(alpha = .78f),
-            Aether.VoidElevated.copy(alpha = .88f)
-        )
-    )
-    HomeFlavor.ORBIT -> Brush.verticalGradient(
-        listOf(
-            accent.copy(alpha = if (emphasized) .075f else .045f),
-            Aether.Amber.copy(alpha = .038f),
-            Aether.VoidElevated.copy(alpha = .84f),
-            Aether.VoidElevated.copy(alpha = .90f)
-        )
-    )
-    HomeFlavor.NEBULA -> Brush.verticalGradient(
-        listOf(
-            accent.copy(alpha = if (emphasized) .10f else .060f),
-            Aether.AmethystBright.copy(alpha = .05f),
-            Aether.VoidElevated.copy(alpha = .76f),
-            Aether.VoidElevated.copy(alpha = .87f)
-        )
-    )
-    HomeFlavor.BLUEPRINT -> Brush.verticalGradient(
-        listOf(
-            accent.copy(alpha = if (emphasized) .060f else .040f),
-            Aether.Slate.copy(alpha = .05f),
-            Aether.VoidElevated.copy(alpha = .85f),
-            Aether.VoidElevated.copy(alpha = .91f)
-        )
-    )
-}
+private fun libraryFrost(flavor: HomeFlavor, accent: Color, emphasized: Boolean): Brush =
+    // MARBLE_SERVERS_FLAT_V119 — one flat surface for every slice. Accent and emphasis live in the
+    // hairline frame drawn by libraryModuleEdges, not in a poured gradient.
+    Brush.verticalGradient(listOf(Aether.VoidElevated, Aether.VoidElevated))
 
 /**
- * One slice of a source module: the flavor's frost, the module hairline on the edges this slice
- * owns, and (for rows) the divider to the next server.
+ * One slice of a source module: the flat fill, the hairline frame on the edges this slice owns,
+ * and (for rows) the divider to the next server.
  */
 @Composable
 private fun LibraryModuleSegment(
@@ -4027,9 +3928,6 @@ private fun LibraryModuleSegment(
     content: @Composable BoxScope.() -> Unit
 ) {
     val shape = librarySegmentShape(flavor, top, bottom)
-    // The organism spore tone is read here, inside the composable, then handed to the non-composable
-    // draw helper: Aether palette access is @Composable and cannot happen inside a DrawScope.
-    val spore = Aether.Amethyst
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -4038,150 +3936,32 @@ private fun LibraryModuleSegment(
     ) {
         content()
         Canvas(Modifier.matchParentSize()) {
-            libraryModuleEdges(flavor, accent, spore, emphasized, top, bottom, divider)
+            libraryModuleEdges(accent, emphasized, top, bottom, divider)
         }
     }
 }
 
-/** The per-flavor edge work of a module slice: hairlines, ticks, grid and glow, never shared. */
+/** MARBLE_SERVERS_FLAT_V119 — a single flat hairline frame and divider, shared by every slice. */
 private fun DrawScope.libraryModuleEdges(
-    flavor: HomeFlavor,
     accent: Color,
-    spore: Color,
     emphasized: Boolean,
     top: Boolean,
     bottom: Boolean,
     divider: Boolean
 ) {
     val hair = 1.dp.toPx()
-    val edge = accent.copy(alpha = if (emphasized) .40f else .22f)
-    val soft = accent.copy(alpha = if (emphasized) .28f else .15f)
+    val edge = accent.copy(alpha = if (emphasized) .45f else .24f)
+    val soft = accent.copy(alpha = if (emphasized) .30f else .16f)
     val inset = 14.dp.toPx()
     val w = size.width
     val h = size.height
 
-    when (flavor) {
-        HomeFlavor.PRO -> {
-            drawLine(edge, Offset(hair / 2f, 0f), Offset(hair / 2f, h), hair)
-            drawLine(edge, Offset(w - hair / 2f, 0f), Offset(w - hair / 2f, h), hair)
-            if (top) drawLine(edge, Offset(0f, hair / 2f), Offset(w, hair / 2f), hair)
-            if (bottom) drawLine(edge, Offset(0f, h - hair / 2f), Offset(w, h - hair / 2f), hair)
-            if (divider) {
-                drawLine(soft, Offset(inset, h - hair / 2f), Offset(w - inset, h - hair / 2f), hair)
-            }
-        }
-
-        HomeFlavor.ORGANIC -> {
-            // Soft cell sides plus a spore accent at the seam so the organism keeps breathing.
-            drawLine(soft.copy(alpha = soft.alpha * .70f), Offset(hair / 2f, 0f), Offset(hair / 2f, h), hair)
-            drawLine(soft.copy(alpha = soft.alpha * .70f), Offset(w - hair / 2f, 0f), Offset(w - hair / 2f, h), hair)
-            if (top) drawLine(soft, Offset(0f, hair / 2f), Offset(w, hair / 2f), hair)
-            if (bottom) drawLine(soft, Offset(0f, h - hair / 2f), Offset(w, h - hair / 2f), hair)
-            val sporeTone = if (emphasized) accent else spore
-            drawCircle(sporeTone.copy(alpha = .30f), 1.6.dp.toPx(), Offset(hair + 4.dp.toPx(), h * .30f))
-            drawCircle(sporeTone.copy(alpha = .22f), 1.2.dp.toPx(), Offset(hair + 5.dp.toPx(), h * .70f))
-            if (divider) {
-                drawLine(
-                    sporeTone.copy(alpha = .12f),
-                    Offset(inset, h - hair / 2f),
-                    Offset(w - inset, h - hair / 2f),
-                    hair,
-                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(7f, 7f))
-                )
-            }
-        }
-
-        HomeFlavor.ORBIT -> {
-            // Cockpit instrument plate: crisp corners, tick rail along the top of the module and
-            // corner brackets on the header slice.
-            drawLine(edge, Offset(hair / 2f, 0f), Offset(hair / 2f, h), hair)
-            drawLine(edge, Offset(w - hair / 2f, 0f), Offset(w - hair / 2f, h), hair)
-            if (top) {
-                drawLine(edge, Offset(0f, hair / 2f), Offset(w, hair / 2f), hair)
-                var tick = 10.dp.toPx()
-                while (tick < w - 6.dp.toPx()) {
-                    drawLine(
-                        soft.copy(alpha = .45f),
-                        Offset(tick, hair),
-                        Offset(tick, 4.dp.toPx()),
-                        hair
-                    )
-                    tick += 22.dp.toPx()
-                }
-                val corner = 7.dp.toPx()
-                drawLine(edge, Offset(corner, 0f), Offset(0f, corner), hair)
-                drawLine(edge, Offset(w - corner, 0f), Offset(w, corner), hair)
-            }
-            if (bottom) drawLine(edge, Offset(0f, h - hair / 2f), Offset(w, h - hair / 2f), hair)
-            if (divider) {
-                drawLine(
-                    soft.copy(alpha = .78f),
-                    Offset(inset, h - hair / 2f),
-                    Offset(w - inset, h - hair / 2f),
-                    hair,
-                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(4f, 6f))
-                )
-            }
-        }
-
-        HomeFlavor.NEBULA -> {
-            // A nebula bleeds light instead of drawing rulers: soft side haze and a breathing glow.
-            drawLine(soft.copy(alpha = .12f), Offset(hair / 2f, 0f), Offset(hair / 2f, h), hair)
-            drawLine(soft.copy(alpha = .12f), Offset(w - hair / 2f, 0f), Offset(w - hair / 2f, h), hair)
-            if (top) drawLine(soft.copy(alpha = .16f), Offset(0f, hair / 2f), Offset(w, hair / 2f), hair)
-            if (bottom) drawLine(soft.copy(alpha = .16f), Offset(0f, h - hair / 2f), Offset(w, h - hair / 2f), hair)
-            drawCircle(
-                brush = Brush.radialGradient(
-                    listOf(accent.copy(alpha = if (emphasized) .075f else .045f), Color.Transparent),
-                    center = Offset(w * .86f, h * .5f),
-                    radius = w * .30f
-                ),
-                radius = w * .30f,
-                center = Offset(w * .86f, h * .5f)
-            )
-            if (divider) {
-                drawLine(
-                    accent.copy(alpha = .10f),
-                    Offset(inset, h - hair / 2f),
-                    Offset(w - inset, h - hair / 2f),
-                    hair
-                )
-            }
-        }
-
-        HomeFlavor.BLUEPRINT -> {
-            // Drafting sheet: a fine grid across every slice plus crisp corner ticks on the header.
-            val grid = accent.copy(alpha = .058f)
-            val step = 28.dp.toPx()
-            var gx = step
-            while (gx < w) {
-                drawLine(grid, Offset(gx, 0f), Offset(gx, h), 1f)
-                gx += step
-            }
-            var gy = step
-            while (gy < h) {
-                drawLine(grid, Offset(0f, gy), Offset(w, gy), 1f)
-                gy += step
-            }
-            drawLine(edge, Offset(hair / 2f, 0f), Offset(hair / 2f, h), hair)
-            drawLine(edge, Offset(w - hair / 2f, 0f), Offset(w - hair / 2f, h), hair)
-            if (top) drawLine(edge, Offset(0f, hair / 2f), Offset(w, hair / 2f), hair)
-            if (bottom) drawLine(edge, Offset(0f, h - hair / 2f), Offset(w, h - hair / 2f), hair)
-            if (top) {
-                val tick = 6.dp.toPx()
-                drawLine(soft.copy(alpha = .55f), Offset(hair, hair), Offset(tick, hair), hair)
-                drawLine(soft.copy(alpha = .55f), Offset(w - tick, hair), Offset(w - hair, hair), hair)
-            }
-            if (divider) {
-                drawLine(
-                    soft.copy(alpha = .55f),
-                    Offset(inset, h - hair / 2f),
-                    Offset(w - inset, h - hair / 2f),
-                    hair,
-                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 6f))
-                )
-            }
-        }
+    drawLine(edge, Offset(hair / 2f, 0f), Offset(hair / 2f, h), hair)
+    drawLine(edge, Offset(w - hair / 2f, 0f), Offset(w - hair / 2f, h), hair)
+    if (top) drawLine(edge, Offset(0f, hair / 2f), Offset(w, hair / 2f), hair)
+    if (bottom) drawLine(edge, Offset(0f, h - hair / 2f), Offset(w, h - hair / 2f), hair)
+    if (divider) {
+        drawLine(soft, Offset(inset, h - hair / 2f), Offset(w - inset, h - hair / 2f), hair)
     }
 }
 
@@ -4193,20 +3973,8 @@ private fun LibraryMetaChip(
     flavor: HomeFlavor,
     icon: HomeIcon? = null
 ) {
-    val monospace = flavor == HomeFlavor.ORBIT || flavor == HomeFlavor.BLUEPRINT
-    val shape = when (flavor) {
-        HomeFlavor.PRO -> RoundedCornerShape(999.dp)
-        HomeFlavor.ORGANIC -> RoundedCornerShape(
-            topStart = 11.dp,
-            topEnd = 6.dp,
-            bottomStart = 6.dp,
-            bottomEnd = 11.dp
-        )
-
-        HomeFlavor.ORBIT -> RoundedCornerShape(4.dp)
-        HomeFlavor.NEBULA -> RoundedCornerShape(999.dp)
-        HomeFlavor.BLUEPRINT -> RoundedCornerShape(2.dp)
-    }
+    // MARBLE_SERVERS_FLAT_V119 — one flat pill chip: one fact, one clean look, never a per-style shape.
+    val shape = RoundedCornerShape(8.dp)
     Row(
         modifier = Modifier
             .clip(shape)
@@ -4217,11 +3985,10 @@ private fun LibraryMetaChip(
         horizontalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         if (icon != null) HomeVectorIcon(icon, tone.copy(alpha = .92f), Modifier.size(10.dp))
-        val base = MaterialTheme.typography.labelSmall
         Text(
             trx(text),
             color = tone.copy(alpha = .95f),
-            style = if (monospace) base.copy(fontFamily = FontFamily.Monospace) else base,
+            style = MaterialTheme.typography.labelSmall,
             fontWeight = FontWeight.Medium,
             maxLines = 1
         )
@@ -4252,9 +4019,9 @@ private fun subscriptionExpiryChipText(sub: Subscription): String {
 }
 
 /**
- * The head of a source module. Each Home style gets its own treatment of the same facts: a Signature
- * studio plate, a bioluminescent spore, a cockpit manifest line, a nebula orb and a drafting title
- * block — but all five show the full name, the server count and the source age.
+ * MARBLE_SERVERS_FLAT_V119 — the head of a source module (the subscription box). One flat,
+ * theme-independent treatment: a fold chevron, the full source name, the flat fact chips (count,
+ * usage, expiry, age) and the two well-shaped source actions (refresh / edit).
  */
 @Composable
 private fun LibraryModuleHeader(
@@ -4284,70 +4051,14 @@ private fun LibraryModuleHeader(
         local -> "Local source"
         else -> relativeTime(sub?.updatedAt ?: 0L)
     }
-    val titleStyle = when (flavor) {
-        HomeFlavor.PRO -> MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Medium)
-        HomeFlavor.ORGANIC -> MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Light)
-        HomeFlavor.ORBIT -> MaterialTheme.typography.labelLarge.copy(
-            fontFamily = FontFamily.Monospace,
-            fontWeight = FontWeight.SemiBold,
-            letterSpacing = .8.sp
-        )
-
-        HomeFlavor.NEBULA -> MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold)
-        HomeFlavor.BLUEPRINT -> MaterialTheme.typography.labelLarge.copy(
-            fontFamily = FontFamily.Monospace,
-            fontWeight = FontWeight.Bold,
-            letterSpacing = 1.1.sp
-        )
-    }
 
     LibraryModuleSegment(accent = accent, emphasized = emphasized, flavor = flavor, top = true) {
         Column(Modifier.fillMaxWidth()) {
-            // Per-style crown: the one decorative line that says which product this is.
-            when (flavor) {
-                HomeFlavor.ORBIT -> Canvas(
-                    Modifier
-                        .fillMaxWidth()
-                        .height(5.dp)
-                ) {
-                    val y = size.height - 1.dp.toPx()
-                    var x = 6.dp.toPx()
-                    while (x < size.width - 6.dp.toPx()) {
-                        drawLine(
-                            accent.copy(alpha = if (collapsed) .18f else .34f),
-                            Offset(x, y),
-                            Offset(x, y - 3.dp.toPx()),
-                            1.dp.toPx()
-                        )
-                        x += 9.dp.toPx()
-                    }
-                }
-
-                HomeFlavor.NEBULA -> Canvas(
-                    Modifier
-                        .fillMaxWidth()
-                        .height(4.dp)
-                ) {
-                    drawRect(
-                        Brush.horizontalGradient(
-                            listOf(
-                                Color.Transparent,
-                                accent.copy(alpha = if (collapsed) .25f else .60f),
-                                chrome.freedomTone.copy(alpha = if (collapsed) .12f else .34f),
-                                Color.Transparent
-                            )
-                        )
-                    )
-                }
-
-                else -> Unit
-            }
-
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .kineticClickable(role = Role.Button, onClick = onToggle)
-                    .padding(start = 11.dp, end = 7.dp, top = 9.dp, bottom = 9.dp),
+                    .padding(start = 11.dp, end = 7.dp, top = 10.dp, bottom = 10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 // Fold control: a chevron that rotates rather than swaps glyphs.
@@ -4368,55 +4079,6 @@ private fun LibraryModuleHeader(
                 }
                 Spacer(Modifier.width(9.dp))
 
-                // Per-style leading mark.
-                when (flavor) {
-                    HomeFlavor.ORGANIC -> Box(
-                        Modifier.size(14.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Canvas(Modifier.fillMaxSize()) {
-                            val c = Offset(size.width / 2f, size.height / 2f)
-                            drawCircle(
-                                brush = Brush.radialGradient(
-                                    listOf(
-                                        accent.copy(alpha = if (collapsed) .35f else .85f),
-                                        Color.Transparent
-                                    ),
-                                    center = c,
-                                    radius = size.minDimension / 2f
-                                ),
-                                radius = size.minDimension / 2f,
-                                center = c
-                            )
-                        }
-                    }
-
-                    HomeFlavor.NEBULA -> Box(
-                        Modifier.size(15.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Canvas(Modifier.fillMaxSize()) {
-                            val c = Offset(size.width / 2f, size.height / 2f)
-                            drawCircle(accent.copy(alpha = .30f), size.minDimension / 2f, c, style = Stroke(1.dp.toPx()))
-                            drawCircle(accent.copy(alpha = .80f), size.minDimension / 5f, c)
-                        }
-                    }
-
-                    HomeFlavor.BLUEPRINT -> Text(
-                        "%02d".format(repo.subscriptions.indexOfFirst { it.id == group.sourceId } + 1),
-                        color = accent.copy(alpha = .80f),
-                        style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
-                        fontWeight = FontWeight.Bold
-                    )
-
-                    else -> Unit
-                }
-                if (flavor == HomeFlavor.ORGANIC || flavor == HomeFlavor.NEBULA ||
-                    flavor == HomeFlavor.BLUEPRINT
-                ) {
-                    Spacer(Modifier.width(7.dp))
-                }
-
                 Column(
                     modifier = Modifier.weight(1f),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
@@ -4424,13 +4086,9 @@ private fun LibraryModuleHeader(
                     // The full name, on up to two lines — a long subscription title is a fact the
                     // user paid for, not something to ellipsize away.
                     Text(
-                        if (flavor == HomeFlavor.ORBIT || flavor == HomeFlavor.BLUEPRINT) {
-                            group.title.uppercase()
-                        } else {
-                            group.title
-                        },
+                        group.title,
                         color = Aether.Ink,
-                        style = titleStyle,
+                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -4457,8 +4115,7 @@ private fun LibraryModuleHeader(
                             }
                         )
                         // MARBLE_SUBSCRIPTION_ACCOUNTING_V115 — every remote source carries its own
-                        // data-usage and expiry chips (or one honest "Unlimited" chip), for every
-                        // one of the five Home styles: this FlowRow is shared by all of them.
+                        // data-usage and expiry chips (or one honest "Unlimited" chip).
                         if (isSubscription && !local && sub != null) {
                             if (sub.totalBytes <= 0L) {
                                 LibraryMetaChip(
@@ -4517,7 +4174,8 @@ private fun LibraryModuleHeader(
                     Box(
                         modifier = Modifier
                             .size(36.dp)
-                            .clip(CircleShape)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(accent.copy(alpha = .06f))
                             .semantics { contentDescription = "Refresh ${group.title}" }
                             .kineticClickable(
                                 enabled = !repo.busy && !local,
@@ -4543,7 +4201,8 @@ private fun LibraryModuleHeader(
                     Box(
                         modifier = Modifier
                             .size(36.dp)
-                            .clip(CircleShape)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(accent.copy(alpha = .06f))
                             .semantics { contentDescription = "Edit ${group.title}" }
                             .kineticClickable(
                                 enabled = !repo.busy,
@@ -4560,31 +4219,11 @@ private fun LibraryModuleHeader(
                     Spacer(Modifier.width(8.dp))
                 }
             }
-
-            // MARBLE_SERVERS_V114 — a drafting dimension line closes the Blueprint title block.
-            if (flavor == HomeFlavor.BLUEPRINT && !collapsed) {
-                Canvas(
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp)
-                        .height(6.dp)
-                ) {
-                    val y = size.height / 2f
-                    drawLine(accent.copy(alpha = .30f), Offset(0f, y), Offset(size.width, y), 1.dp.toPx())
-                    drawLine(accent.copy(alpha = .45f), Offset(0f, 0f), Offset(0f, size.height), 1.dp.toPx())
-                    drawLine(
-                        accent.copy(alpha = .45f),
-                        Offset(size.width, 0f),
-                        Offset(size.width, size.height),
-                        1.dp.toPx()
-                    )
-                }
-            }
         }
     }
 }
 
-/** The foot of a source module: closes the frost and reports the fold state. */
+/** MARBLE_SERVERS_FLAT_V119 — the foot of a source module: closes the flat card and reports the fold state. */
 @Composable
 private fun LibraryModuleTail(
     group: LibraryGroup,
@@ -4609,20 +4248,10 @@ private fun LibraryModuleTail(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(7.dp)
             ) {
-                val monospace = flavor == HomeFlavor.ORBIT || flavor == HomeFlavor.BLUEPRINT
-                val base = MaterialTheme.typography.labelSmall
                 Text(
-                    trx(
-                        when (flavor) {
-                            HomeFlavor.PRO -> "End of source"
-                            HomeFlavor.ORGANIC -> "Colony complete"
-                            HomeFlavor.ORBIT -> "END OF MANIFEST"
-                            HomeFlavor.NEBULA -> "Field edge"
-                            HomeFlavor.BLUEPRINT -> "END OF SHEET"
-                        }
-                    ),
+                    trx("End of source"),
                     color = Aether.InkFaint,
-                    style = if (monospace) base.copy(fontFamily = FontFamily.Monospace) else base,
+                    style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.Medium,
                     maxLines = 1
                 )
@@ -4644,11 +4273,7 @@ private fun LibraryModuleTail(
                     Text(
                         "$shown/$total",
                         color = accent.copy(alpha = .85f),
-                        style = if (monospace) {
-                            base.copy(fontFamily = FontFamily.Monospace)
-                        } else {
-                            base
-                        },
+                        style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.SemiBold,
                         maxLines = 1
                     )
@@ -4659,27 +4284,12 @@ private fun LibraryModuleTail(
 }
 
 /**
- * The silhouette of one Home style's overflow menu. Menus are chrome too: the Signature studio
- * opens rounded glass, the bioluminescent organism grows an asymmetric cell, the cockpit shows a
- * squared instrument card, the nebula blooms a wide capsule and the drafting table keeps a sharp
- * technical corner. Every page menu follows the selected style through this one helper.
+ * MARBLE_SERVERS_FLAT_V119 — one flat rounded overflow-menu silhouette, independent of Home style.
  */
-private fun libraryMenuShape(flavor: HomeFlavor): RoundedCornerShape = when (flavor) {
-    HomeFlavor.PRO -> RoundedCornerShape(18.dp)
-    HomeFlavor.ORGANIC -> RoundedCornerShape(
-        topStart = 26.dp,
-        topEnd = 10.dp,
-        bottomStart = 10.dp,
-        bottomEnd = 26.dp
-    )
-    HomeFlavor.ORBIT -> RoundedCornerShape(7.dp)
-    HomeFlavor.NEBULA -> RoundedCornerShape(26.dp)
-    HomeFlavor.BLUEPRINT -> RoundedCornerShape(4.dp)
-}
+private fun libraryMenuShape(flavor: HomeFlavor): RoundedCornerShape = RoundedCornerShape(14.dp)
 
-/** Whether a flavor draws its menu items in instrument type (cockpit / drafting sheet). */
-private fun libraryMenuMonospace(flavor: HomeFlavor): Boolean =
-    flavor == HomeFlavor.ORBIT || flavor == HomeFlavor.BLUEPRINT
+/** MARBLE_SERVERS_FLAT_V119 — menu items always use the product face, never instrument type. */
+private fun libraryMenuMonospace(flavor: HomeFlavor): Boolean = false
 
 /**
  * The protocol accent of a node, keyed by its wire scheme. Every row paints the scheme in its own
@@ -4765,13 +4375,10 @@ private fun LibraryServerIdentityLine(
 }
 
 /**
- * One server, compact, inside its source module — skinned per Home style.
- *
- * Every flavor shows the same facts (flag or initial, name, the protocol in its own colour, the
- * visible address, a reserved latency slot, live state) but none of them shows them the same way:
- * a Signature studio line, a bioluminescent spore row, a cockpit manifest entry with dotted
- * leaders, a nebula capsule row with a ring gauge, and a drafting spec line with a dimension under
- * the address. Rows share one container and never grow when a measurement lands.
+ * MARBLE_SERVERS_FLAT_V119 — one server, compact, inside its source module. A single flat,
+ * theme-independent line: state bar or ordinal, flag, name plus the protocol/address identity
+ * line, a reserved latency slot, and the per-row actions tucked behind the trailing three-dot
+ * menu. The row never grows when a measurement lands.
  */
 @Composable
 private fun LibraryServerRow(
@@ -4795,13 +4402,7 @@ private fun LibraryServerRow(
     val flag = leadingFlagGlyph(profile.name)
         ?: countryGlyph(profile.host).takeIf { it.isNotBlank() && it != "◈" }
     val initial = profile.scheme.trim().take(1).uppercase().ifBlank { "S" }
-    val rowHeight = when (flavor) {
-        HomeFlavor.PRO -> 66.dp
-        HomeFlavor.ORGANIC -> 64.dp
-        HomeFlavor.ORBIT -> 62.dp
-        HomeFlavor.NEBULA -> 64.dp
-        HomeFlavor.BLUEPRINT -> 62.dp
-    }
+    val rowHeight = 62.dp
 
     LibraryModuleSegment(
         accent = accent,
@@ -4813,15 +4414,7 @@ private fun LibraryServerRow(
         if (active || securing || testing) {
             val tone = if (testing) Aether.Cyan else routeTone
             Canvas(Modifier.matchParentSize()) {
-                drawRect(
-                    Brush.horizontalGradient(
-                        listOf(
-                            tone.copy(alpha = if (active) .16f else .10f),
-                            tone.copy(alpha = .03f),
-                            Color.Transparent
-                        )
-                    )
-                )
+                drawRect(tone.copy(alpha = if (active) .10f else .06f))
             }
         }
 
@@ -4835,336 +4428,70 @@ private fun LibraryServerRow(
                     onClick = onConnect
                 )
         ) {
-            when (flavor) {
-                // ------------------------------------------------ Signature studio line
-                HomeFlavor.PRO -> Row(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(start = 16.dp, end = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    if (active) {
-                        Box(
-                            Modifier
-                                .width(2.dp)
-                                .height(30.dp)
-                                .clip(RoundedCornerShape(999.dp))
-                                .background(routeTone)
-                        )
-                        Spacer(Modifier.width(9.dp))
-                    } else {
-                        Text(
-                            "%02d".format(ordinal + 1),
-                            color = Aether.InkFaint,
-                            style = MaterialTheme.typography.labelSmall.copy(
-                                fontFamily = FontFamily.Monospace
-                            ),
-                            modifier = Modifier.width(20.dp)
-                        )
-                        Spacer(Modifier.width(7.dp))
-                    }
-                    Text(
-                        flag ?: initial,
-                        style = MaterialTheme.typography.titleSmall,
-                        maxLines = 1
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Column(
-                        modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(1.dp)
-                    ) {
-                        Text(
-                            name,
-                            modifier = Modifier.basicMarquee(
-                                iterations = Int.MAX_VALUE,
-                                initialDelayMillis = 1600
-                            ),
-                            color = if (active) Aether.Ink else Aether.Ink.copy(alpha = .92f),
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium,
-                            maxLines = 1,
-                            softWrap = false,
-                            overflow = TextOverflow.Clip
-                        )
-                        LibraryServerIdentityLine(
-                            profile = profile,
-                            active = active,
-                            connectedLabel = chrome.connectedLabel,
-                            routeTone = routeTone
-                        )
-                    }
-                    LibraryLatencyReadout(latency, health, testing, flavor)
-                    trailing()
-                }
-
-                // ------------------------------------------------ Bioluminescent spore row
-                HomeFlavor.ORGANIC -> Row(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(start = 13.dp, end = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Box(Modifier.size(16.dp), contentAlignment = Alignment.Center) {
-                        Canvas(Modifier.fillMaxSize()) {
-                            val c = Offset(size.width / 2f, size.height / 2f)
-                            val glow = if (active || testing) routeTone else accent
-                            drawCircle(
-                                brush = Brush.radialGradient(
-                                    listOf(
-                                        glow.copy(alpha = if (active) .80f else .34f),
-                                        Color.Transparent
-                                    ),
-                                    center = c,
-                                    radius = size.minDimension / 2f
-                                ),
-                                radius = size.minDimension / 2f,
-                                center = c
-                            )
-                            drawCircle(
-                                color = glow.copy(alpha = if (active) 1f else .55f),
-                                radius = size.minDimension * (if (active) .26f else .18f),
-                                center = c
-                            )
-                        }
-                    }
-                    Spacer(Modifier.width(10.dp))
-                    Column(
-                        modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(1.dp)
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(5.dp)
-                        ) {
-                            if (flag != null) Text(flag, style = MaterialTheme.typography.labelLarge, maxLines = 1)
-                            Text(
-                                name,
-                                color = Aether.Ink,
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = if (active) FontWeight.SemiBold else FontWeight.Light,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f, fill = false)
-                            )
-                        }
-                        LibraryServerIdentityLine(
-                            profile = profile,
-                            active = active,
-                            connectedLabel = chrome.connectedLabel,
-                            routeTone = routeTone
-                        )
-                    }
-                    LibraryLatencyReadout(latency, health, testing, flavor)
-                    trailing()
-                }
-
-                // ------------------------------------------------ Cockpit manifest entry
-                HomeFlavor.ORBIT -> Row(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(start = 12.dp, end = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        "%03d".format(ordinal + 1),
-                        color = if (active) routeTone else Aether.InkFaint,
-                        style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Column(
-                        modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(3.dp)
-                    ) {
-                        Text(
-                            name.uppercase(),
-                            color = if (active) Aether.Ink else Aether.Ink.copy(alpha = .90f),
-                            style = MaterialTheme.typography.labelLarge.copy(
-                                fontFamily = FontFamily.Monospace,
-                                letterSpacing = .4.sp
-                            ),
-                            fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            softWrap = false
-                        )
-                        LibraryServerIdentityLine(
-                            profile = profile,
-                            active = active,
-                            connectedLabel = chrome.connectedLabel,
-                            routeTone = routeTone,
-                            monospace = true
-                        )
-                    }
-                    Spacer(Modifier.width(7.dp))
-                    LibraryLatencyReadout(latency, health, testing, flavor)
-                    trailing()
-                }
-
-                // ------------------------------------------------ Nebula capsule row
-                HomeFlavor.NEBULA -> Row(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(start = 11.dp, end = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(start = 14.dp, end = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (active) {
                     Box(
-                        modifier = Modifier
-                            .size(30.dp)
-                            .clip(CircleShape)
-                            .background(
-                                Brush.linearGradient(
-                                    listOf(
-                                        routeTone.copy(alpha = if (active) .30f else .14f),
-                                        Aether.VoidElevated.copy(alpha = .55f)
-                                    )
-                                )
-                            )
-                            .border(
-                                1.dp,
-                                routeTone.copy(alpha = if (active) .55f else .26f),
-                                CircleShape
-                            ),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            flag ?: initial,
-                            color = Aether.Ink,
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            maxLines = 1
-                        )
-                    }
-                    Spacer(Modifier.width(9.dp))
-                    Column(
-                        modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(2.dp)
-                    ) {
-                        Text(
-                            name,
-                            color = Aether.Ink,
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        LibraryServerIdentityLine(
-                            profile = profile,
-                            active = active,
-                            connectedLabel = chrome.connectedLabel,
-                            routeTone = routeTone
-                        )
-                    }
-                    LibraryLatencyReadout(latency, health, testing, flavor)
-                    trailing()
-                }
-
-                // ------------------------------------------------ Drafting spec line
-                HomeFlavor.BLUEPRINT -> Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(start = 12.dp, end = 4.dp),
-                    verticalArrangement = Arrangement.Center
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            "%02d".format(ordinal + 1),
-                            color = if (active) routeTone else accent.copy(alpha = .70f),
-                            style = MaterialTheme.typography.labelSmall.copy(
-                                fontFamily = FontFamily.Monospace
-                            ),
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.width(20.dp)
-                        )
-                        if (flag != null) {
-                            Text(flag, style = MaterialTheme.typography.labelMedium, maxLines = 1)
-                            Spacer(Modifier.width(5.dp))
-                        }
-                        Text(
-                            name.uppercase(),
-                            color = if (active) Aether.Ink else Aether.Ink.copy(alpha = .88f),
-                            style = MaterialTheme.typography.labelLarge.copy(
-                                fontFamily = FontFamily.Monospace,
-                                letterSpacing = .6.sp
-                            ),
-                            fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f, fill = false)
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        LibraryLatencyReadout(latency, health, testing, flavor)
-                        trailing()
-                    }
-                    // MARBLE_SERVER_ROW_V115 — the spec sheet names the wire and its endpoint in
-                    // drafting type under the node title, so a row's anatomy never depends on the
-                    // live state: protocol accent first, then the visible address.
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(start = 20.dp, end = 46.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Text(
-                            profile.scheme.trim().uppercase().ifBlank { "PROXY" },
-                            color = protocolSchemeTone(profile.scheme),
-                            style = MaterialTheme.typography.labelSmall.copy(
-                                fontFamily = FontFamily.Monospace,
-                                fontWeight = FontWeight.Bold,
-                                letterSpacing = .6.sp
-                            ),
-                            maxLines = 1
-                        )
-                        Text(
-                            proxyAddress(profile),
-                            color = Aether.InkFaint,
-                            style = MaterialTheme.typography.labelSmall.copy(
-                                fontFamily = FontFamily.Monospace
-                            ),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-                    Spacer(Modifier.height(1.dp))
-                    // Dimension line under the spec: the drafting signature of this style.
-                    Canvas(
                         Modifier
-                            .fillMaxWidth()
-                            .padding(start = 20.dp, end = 46.dp, top = 2.dp)
-                            .height(5.dp)
-                    ) {
-                        val y = size.height - 1.dp.toPx()
-                        val tone = if (active) routeTone else accent
-                        drawLine(tone.copy(alpha = .28f), Offset(0f, y), Offset(size.width, y), 1.dp.toPx())
-                        drawLine(tone.copy(alpha = .40f), Offset(0f, y - 3.dp.toPx()), Offset(0f, y), 1.dp.toPx())
-                        drawLine(
-                            tone.copy(alpha = .40f),
-                            Offset(size.width, y - 3.dp.toPx()),
-                            Offset(size.width, y),
-                            1.dp.toPx()
-                        )
-                        if (latency > 0) {
-                            val fraction = (latency / 500f).coerceIn(.04f, 1f)
-                            drawLine(
-                                health,
-                                Offset(0f, y),
-                                Offset(size.width * fraction, y),
-                                2.dp.toPx(),
-                                cap = StrokeCap.Round
-                            )
-                        }
-                    }
+                            .width(2.dp)
+                            .height(30.dp)
+                            .clip(RoundedCornerShape(999.dp))
+                            .background(routeTone)
+                    )
+                    Spacer(Modifier.width(10.dp))
+                } else {
+                    Text(
+                        "%02d".format(ordinal + 1),
+                        color = Aether.InkFaint,
+                        style = MaterialTheme.typography.labelSmall,
+                        modifier = Modifier.width(20.dp)
+                    )
+                    Spacer(Modifier.width(8.dp))
                 }
+                Text(
+                    flag ?: initial,
+                    style = MaterialTheme.typography.titleSmall,
+                    maxLines = 1
+                )
+                Spacer(Modifier.width(8.dp))
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(1.dp)
+                ) {
+                    Text(
+                        name,
+                        modifier = Modifier.basicMarquee(
+                            iterations = Int.MAX_VALUE,
+                            initialDelayMillis = 1600
+                        ),
+                        color = if (active) Aether.Ink else Aether.Ink.copy(alpha = .92f),
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Clip
+                    )
+                    LibraryServerIdentityLine(
+                        profile = profile,
+                        active = active,
+                        connectedLabel = chrome.connectedLabel,
+                        routeTone = routeTone
+                    )
+                }
+                LibraryLatencyReadout(latency, health, testing, flavor)
+                trailing()
             }
         }
     }
 }
 
 /**
- * The measured latency of one server, drawn the way its style draws instruments. Compact by design:
- * a row must never grow because a benchmark landed.
+ * The measured latency of one server, flat and compact: a row must never grow because a benchmark
+ * landed. The number is colour-coded by quality and spoken with its judgement.
  */
 @Composable
 private fun LibraryLatencyReadout(
@@ -5197,99 +4524,30 @@ private fun LibraryLatencyReadout(
                 strokeWidth = 1.8.dp
             )
 
-            latency > 0 -> when (flavor) {
-                HomeFlavor.NEBULA -> Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    // A ring gauge instead of bars: the nebula measures in arcs.
-                    Canvas(Modifier.size(15.dp)) {
-                        val stroke = 1.8.dp.toPx()
-                        val inset = stroke
-                        val arc = Size(size.width - inset * 2, size.height - inset * 2)
-                        drawArc(
-                            color = health.copy(alpha = .22f),
-                            startAngle = -90f,
-                            sweepAngle = 360f,
-                            useCenter = false,
-                            topLeft = Offset(inset, inset),
-                            size = arc,
-                            style = Stroke(width = stroke)
-                        )
-                        drawArc(
-                            color = health,
-                            startAngle = -90f,
-                            sweepAngle = 360f * (1f - (latency / 500f).coerceIn(0f, .95f)),
-                            useCenter = false,
-                            topLeft = Offset(inset, inset),
-                            size = arc,
-                            style = Stroke(width = stroke, cap = StrokeCap.Round)
-                        )
-                    }
-                    Text(
-                        "$latency",
-                        color = health,
-                        style = MaterialTheme.typography.labelLarge.copy(
-                            fontWeight = FontWeight.Bold,
-                            fontFeatureSettings = "tnum"
-                        ),
-                        maxLines = 1
-                    )
-                }
-
-                HomeFlavor.ORGANIC -> Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(3.dp)
-                ) {
-                    // Three spores brighten with the measurement instead of a bar meter.
-                    val lit = libraryPingBars(latency)
-                    repeat(3) { index ->
-                        Box(
-                            Modifier
-                                .size((4 + index).dp)
-                                .clip(CircleShape)
-                                .background(
-                                    health.copy(alpha = if (index < lit) .85f else .18f)
-                                )
-                        )
-                    }
-                    Text(
-                        "$latency",
-                        color = health,
-                        style = MaterialTheme.typography.labelLarge.copy(
-                            fontWeight = FontWeight.SemiBold,
-                            fontFeatureSettings = "tnum"
-                        ),
-                        maxLines = 1
-                    )
-                }
-
-                else -> Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(3.dp)
-                ) {
-                    Text(
-                        "$latency",
-                        color = health,
-                        style = MaterialTheme.typography.labelLarge.copy(
-                            fontFamily = if (flavor == HomeFlavor.PRO) null else FontFamily.Monospace,
-                            fontWeight = FontWeight.Bold,
-                            fontFeatureSettings = "tnum"
-                        ),
-                        maxLines = 1
-                    )
-                    Text(
-                        trx("ms"),
-                        color = Aether.InkFaint,
-                        style = MaterialTheme.typography.labelSmall,
-                        maxLines = 1
-                    )
-                }
+            latency > 0 -> Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(3.dp)
+            ) {
+                Text(
+                    "$latency",
+                    color = health,
+                    style = MaterialTheme.typography.labelLarge.copy(
+                        fontWeight = FontWeight.Bold,
+                        fontFeatureSettings = "tnum"
+                    ),
+                    maxLines = 1
+                )
+                Text(
+                    trx("ms"),
+                    color = Aether.InkFaint,
+                    style = MaterialTheme.typography.labelSmall,
+                    maxLines = 1
+                )
             }
 
-            // MARBLE_SERVER_ROW_V115 — the latency slot is deliberately reserved while nothing has
-            // been measured: fixed width, no dash, no icon. The colour-coded fine value appears only
-            // once the user asks the server for a real tunnel measurement.
+            // The latency slot is deliberately reserved while nothing has been measured: fixed
+            // width, no dash, no icon. The colour-coded fine value appears only once the user asks
+            // the server for a real tunnel measurement.
             else -> Unit
         }
     }
@@ -8432,6 +7690,46 @@ private fun SettingsHomeStylePage(
                 )
             }
         }
+        // MARBLE_CONNECT_BUTTON_STYLES_V119 — five connect-button silhouettes, each rendered inside
+        // every Home style. AUTO keeps each presentation's own signature button; the five named
+        // models pin one silhouette across all five presentations.
+        SettingsHubCard(
+            title = "Connect button",
+            subtitle = "One silhouette for every Home style",
+            tone = Aether.Cyan
+        ) {
+            val chosen = parseConnectButtonStyle(repo.settings.connectButtonStyle)
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                ConnectButtonStyle.entries.chunked(3).forEach { row ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        row.forEach { style ->
+                            CyberSegment(
+                                label = when (style) {
+                                    ConnectButtonStyle.AUTO -> "Auto"
+                                    ConnectButtonStyle.FLOAT -> "Floating"
+                                    ConnectButtonStyle.CORE -> "Core"
+                                    ConnectButtonStyle.PULSE -> "Pulse"
+                                    ConnectButtonStyle.ORBIT -> "Orbit"
+                                    ConnectButtonStyle.SHIELD -> "Shield"
+                                },
+                                detail = "",
+                                selected = chosen == style,
+                                color = Aether.Cyan,
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                repo.updateSettings(
+                                    repo.settings.copy(connectButtonStyle = style.id)
+                                )
+                            }
+                        }
+                        if (row.size == 1) Spacer(Modifier.weight(1f))
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -11307,13 +10605,6 @@ private fun libraryPingQuality(latencyMs: Int): String = when {
     latencyMs < 100 -> "Fast"
     latencyMs <= 250 -> "Fair"
     else -> "Slow"
-}
-
-private fun libraryPingBars(latencyMs: Int): Int = when {
-    latencyMs <= 0 -> 0
-    latencyMs < 100 -> 4
-    latencyMs <= 250 -> 2
-    else -> 1
 }
 
 /** One line of evidence for a measured route; speed only appears when it was actually measured. */

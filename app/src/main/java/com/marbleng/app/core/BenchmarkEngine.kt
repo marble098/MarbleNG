@@ -841,8 +841,8 @@ class BenchmarkEngine(
         val ordered = times.sorted()
         val latency = when {
             ordered.isEmpty() -> 9999.0
-            // MARBLE_REAL_PING_FLOOR_V116 — the first-sample path bypasses summarize(), so it gets
-            // the same physical floor before a stored benchmark can seed the Home ping with 4 ms.
+            // MARBLE_HONEST_PING_V119 — the first-sample path bypasses summarize(), so it gets
+            // the same positive/ceiling clamp before a stored benchmark can seed the Home ping.
             v2rayStyleDelay -> LinkQualityEstimator.sanitaryRtt(ordered.first())
             link != null -> link.medianRttMs.toDouble()
             else -> LinkQualityEstimator.sanitaryRtt(ordered[ordered.size / 2])

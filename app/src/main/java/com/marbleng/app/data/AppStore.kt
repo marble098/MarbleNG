@@ -369,6 +369,9 @@ class AppStore(context: Context) {
         proAccent = parseProAccent(prefs.getString("proAccent", ProAccent.ELECTRIC.id) ?: ProAccent.ELECTRIC.id).id,
         proShortcut = parseProShortcut(prefs.getString("proShortcut", ProShortcut.LIBRARY.id) ?: ProShortcut.LIBRARY.id).id,
 
+        // MARBLE_CONNECT_BUTTON_STYLES_V119
+        connectButtonStyle = parseConnectButtonStyle(prefs.getString("connectButtonStyle", ConnectButtonStyle.AUTO.id) ?: ConnectButtonStyle.AUTO.id).id,
+
         // MARBLE_NIGHT_OUTLINES_V112
         darkOutlineStyle = parseDarkOutlineStyle(prefs.getString("darkOutlineStyle", DarkOutlineStyle.SUBTLE.id) ?: DarkOutlineStyle.SUBTLE.id).id,
 
@@ -572,6 +575,9 @@ class AppStore(context: Context) {
         .putString("proServerCardStyle", parseProServerCardStyle(s.proServerCardStyle).id)
         .putString("proAccent", parseProAccent(s.proAccent).id)
         .putString("proShortcut", parseProShortcut(s.proShortcut).id)
+
+        // MARBLE_CONNECT_BUTTON_STYLES_V119
+        .putString("connectButtonStyle", parseConnectButtonStyle(s.connectButtonStyle).id)
 
         // MARBLE_NIGHT_OUTLINES_V112
         .putString("darkOutlineStyle", parseDarkOutlineStyle(s.darkOutlineStyle).id)

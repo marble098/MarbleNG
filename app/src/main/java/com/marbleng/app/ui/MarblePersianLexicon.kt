@@ -82,6 +82,15 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Glass" to "شیشه‌ای",
     "Colored" to "رنگی",
     "Plain" to "ساده",
+
+    // ------------------------------------------------------------------ MARBLE_CONNECT_BUTTON_STYLES_V119
+    "Connect button" to "دکمه اتصال",
+    "One silhouette for every Home style" to "یک طرح واحد برای همه استایل‌های خانه",
+    "Floating" to "شناور",
+    "Core" to "هسته",
+    "Pulse" to "ضربان",
+    "Orbit" to "مداری",
+    "Shield" to "سپر",
     "Subtle" to "ظریف",
     "Bold" to "پررنگ",
     "Hidden" to "محو",

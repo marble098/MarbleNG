@@ -242,6 +242,28 @@ fun parseProShortcut(raw: String): ProShortcut =
         ?: ProShortcut.LIBRARY
 
 /**
+ * MARBLE_CONNECT_BUTTON_STYLES_V119 — the five connection-button silhouettes, selectable from
+ * Settings. Every model renders correctly inside all five Home presentations: the model controls
+ * the button's own drawing (floating orb / core / pulse / orbit / shield) while each Home style
+ * supplies its own tone and halo, so a choice is never tied to a specific theme.
+ *
+ * [AUTO] keeps each Home style's signature button; picking one of the other five pins that
+ * silhouette everywhere the Home connect control is drawn.
+ */
+enum class ConnectButtonStyle(val id: String) {
+    AUTO("auto"),
+    FLOAT("float"),
+    CORE("core"),
+    PULSE("pulse"),
+    ORBIT("orbit"),
+    SHIELD("shield")
+}
+
+fun parseConnectButtonStyle(raw: String): ConnectButtonStyle =
+    ConnectButtonStyle.entries.firstOrNull { it.id.equals(raw.trim(), ignoreCase = true) }
+        ?: ConnectButtonStyle.AUTO
+
+/**
  * MARBLE_NIGHT_OUTLINES_V112 — dark-theme frame outline personality. The user can strengthen
  * every card/frame hairline, tint it with the brand accent, or dissolve the borders entirely.
  */
@@ -603,6 +625,13 @@ data class AppSettings(
     val proAccent: String = ProAccent.ELECTRIC.id,
     /** Which quick action the corner shortcut button runs. */
     val proShortcut: String = ProShortcut.LIBRARY.id,
+
+    /**
+     * MARBLE_CONNECT_BUTTON_STYLES_V119 — the connection-button silhouette shown on every Home
+     * style. AUTO keeps each presentation's own signature button; the five named models pin one
+     * silhouette across all five presentations.
+     */
+    val connectButtonStyle: String = ConnectButtonStyle.AUTO.id,
 
     /** MARBLE_NIGHT_OUTLINES_V112 — dark-theme hairline personality for every frame/card. */
     val darkOutlineStyle: String = DarkOutlineStyle.SUBTLE.id,

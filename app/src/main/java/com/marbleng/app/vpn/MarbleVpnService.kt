@@ -1605,8 +1605,8 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
 
         fun measureOne(host: String): Int =
             runCatching {
-                // MARBLE_REAL_PING_FLOOR_V116 — the monitor feeds the Home ping directly; a
-                // single-digit TTFB artifact is floored here so it can never reach the readout.
+                // MARBLE_HONEST_PING_V119 — the monitor feeds the Home ping directly; the sample
+                // is bounded positive/ceiling here, then published exactly as measured.
                 LinkQualityEstimator.sanitaryRtt(
                     SocksHttpClient.httpsFirstByteLatency(
                         port = port,

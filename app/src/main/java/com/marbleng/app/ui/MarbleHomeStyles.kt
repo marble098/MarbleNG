@@ -34,6 +34,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
@@ -69,6 +70,7 @@ import androidx.compose.ui.unit.sp
 import com.marbleng.app.AppRepository
 import com.marbleng.app.ServerIntelInfo
 import com.marbleng.app.model.ConnectionPingState
+import com.marbleng.app.model.ConnectButtonStyle
 import com.marbleng.app.model.HomeStyle
 import com.marbleng.app.model.ProAccent
 import com.marbleng.app.model.ProServerCardStyle
@@ -2314,9 +2316,10 @@ internal fun HomePowerControl(
     haloBrush: Brush? = null,
     model: ConnectButtonModel? = null
 ) {
-    // MARBLE_CONNECT_BUTTONS_V117 — the classic Home control is now one of the five distinct
-    // connection button models, selected by flavor. Keeping this entry point preserves the
-    // shared Home evidence and action contract for every presentation.
+    // MARBLE_CONNECT_BUTTON_STYLES_V119 — the control is one of the five connection button models,
+    // resolved in order: an explicit per-call model, then the user-pinned Settings choice, then the
+    // flavor's own signature button. Keeping this entry point preserves the shared Home evidence
+    // and action contract for every presentation.
     MarbleConnectionButton(
         evidence = evidence,
         tone = tone,
@@ -2325,7 +2328,7 @@ internal fun HomePowerControl(
         modifier = modifier,
         diameter = diameter,
         haloBrush = haloBrush,
-        model = model ?: connectionButtonModelFor(flavor)
+        model = model ?: LocalConnectButtonModel.current ?: connectionButtonModelFor(flavor)
     )
 }
 
@@ -2351,6 +2354,26 @@ internal fun connectionButtonModelFor(flavor: HomeFlavor): ConnectButtonModel = 
     HomeFlavor.NEBULA -> ConnectButtonModel.CORE
     HomeFlavor.BLUEPRINT -> ConnectButtonModel.SHIELD
 }
+
+/**
+ * MARBLE_CONNECT_BUTTON_STYLES_V119 — the user-pinned silhouette for every Home presentation.
+ * [ConnectButtonStyle.AUTO] resolves to null so each flavor keeps its own signature button; any
+ * other choice resolves to that exact model no matter which of the five Home styles is active.
+ */
+internal fun connectButtonModelFor(style: ConnectButtonStyle): ConnectButtonModel? = when (style) {
+    ConnectButtonStyle.AUTO -> null
+    ConnectButtonStyle.FLOAT -> ConnectButtonModel.FLOAT
+    ConnectButtonStyle.CORE -> ConnectButtonModel.CORE
+    ConnectButtonStyle.PULSE -> ConnectButtonModel.PULSE
+    ConnectButtonStyle.ORBIT -> ConnectButtonModel.ORBIT
+    ConnectButtonStyle.SHIELD -> ConnectButtonModel.SHIELD
+}
+
+/**
+ * MARBLE_CONNECT_BUTTON_STYLES_V119 — the Home tree provides the user's pinned model here so every
+ * [HomePowerControl] call site (all five presentations) resolves it identically. Null means AUTO.
+ */
+internal val LocalConnectButtonModel = compositionLocalOf<ConnectButtonModel?> { null }
 
 @Composable
 internal fun MarbleConnectionButton(
