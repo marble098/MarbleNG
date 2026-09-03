@@ -1572,7 +1572,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             if (!isRouteCurrent(session, generation) || host != jitterProbeHost) return
 
             val snapshot = synchronized(routeOutcomeWindow) {
-                routeOutcomeWindow.addLast(if (sample > 0) sample.coerceIn(1, 10_000) else -1)
+                routeOutcomeWindow.addLast(if (sample > 0) LinkQualityEstimator.sanitaryRtt(sample) else -1)
                 while (routeOutcomeWindow.size > ROUTE_WINDOW_SIZE) routeOutcomeWindow.removeFirst()
                 val outcomes = routeOutcomeWindow.toList()
                 val link = LinkQualityEstimator.summarize(outcomes)
@@ -1605,14 +1605,18 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
 
         fun measureOne(host: String): Int =
             runCatching {
-                SocksHttpClient.httpsFirstByteLatency(
-                    port = port,
-                    host = host,
-                    path = probePath(host),
-                    targetPort = 443,
-                    timeoutMs = LIVE_RTT_TIMEOUT_MS,
-                    tlsHost = probeTlsHost(host)
-                ).roundToInt()
+                // MARBLE_REAL_PING_FLOOR_V116 — the monitor feeds the Home ping directly; a
+                // single-digit TTFB artifact is floored here so it can never reach the readout.
+                LinkQualityEstimator.sanitaryRtt(
+                    SocksHttpClient.httpsFirstByteLatency(
+                        port = port,
+                        host = host,
+                        path = probePath(host),
+                        targetPort = 443,
+                        timeoutMs = LIVE_RTT_TIMEOUT_MS,
+                        tlsHost = probeTlsHost(host)
+                    ).roundToInt()
+                )
             }.getOrDefault(-1)
 
         fun measurePinnedBurst(host: String, firstSample: Int): List<Int> {
@@ -1656,7 +1660,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             }.getOrNull()
                 ?.samplesMs
                 ?.filter { it.isFinite() && it > 0.0 }
-                ?.map { it.roundToInt().coerceIn(1, 10_000) }
+                ?.map { LinkQualityEstimator.sanitaryRtt(it.roundToInt()) }
                 .orEmpty()
 
         var host = jitterProbeHost

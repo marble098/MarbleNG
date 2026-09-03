@@ -117,6 +117,7 @@ import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalConfiguration
@@ -276,7 +277,13 @@ fun Aether2026App(
                 .padding(padding)
                 .background(Aether.Void)
         ) {
-            DeepSpaceBackdrop(Modifier.matchParentSize())
+            // MARBLE_HOME_GRADIENTS_V116 — the whole page follows the selected Home style's
+            // multi-colour identity, so Home, Servers and Settings share the same professional
+            // gradient family instead of one grey wash.
+            DeepSpaceBackdrop(
+                Modifier.matchParentSize(),
+                flavor = homeFlavorFor(parseHomeStyle(repo.settings.homeStyle))
+            )
 
             // marble-page-transition-fast — the pager drives tab changes directly so swipes
             // track the finger with physics (instant, no staged crossfade); dock taps stay
@@ -878,8 +885,11 @@ private fun MarbleSnackbarHost(
 }
 
 @Composable
-private fun DeepSpaceBackdrop(modifier: Modifier = Modifier) {
-    PrismBackdrop(modifier)
+private fun DeepSpaceBackdrop(
+    modifier: Modifier = Modifier,
+    flavor: HomeFlavor = HomeFlavor.PRO
+) {
+    PrismBackdrop(modifier, flavor)
 }
 
 @Composable
@@ -1291,7 +1301,10 @@ private enum class HomeIcon {
     // a clipboard for the floating magic button, an information mark, a palette for the
     // theme preview, a globe for language/links, disclosure chevrons, a back arrow and a
     // typeface mark for the font picker.
-    CLIPBOARD, INFO, PALETTE, GLOBE, CHEVRON, BACK, FONT
+    CLIPBOARD, INFO, PALETTE, GLOBE, CHEVRON, BACK, FONT,
+    // MARBLE_SERVERS_STYLE_CARDS_V116 — the visible per-row delete control: delete is never
+    // buried behind the three-dot menu any more.
+    TRASH
 }
 
 @Composable
@@ -1351,6 +1364,22 @@ private fun HomeVectorIcon(
             HomeIcon.CANCEL -> {
                 drawLine(color, Offset(w*.28f,h*.28f), Offset(w*.72f,h*.72f), stroke, StrokeCap.Round)
                 drawLine(color, Offset(w*.72f,h*.28f), Offset(w*.28f,h*.72f), stroke, StrokeCap.Round)
+            }
+
+            HomeIcon.TRASH -> {
+                // Lid, handle and a rounded bin: one glance, no ambiguity.
+                drawLine(color, Offset(w*.27f, h*.31f), Offset(w*.73f, h*.31f), stroke, StrokeCap.Round)
+                drawLine(color, Offset(w*.43f, h*.24f), Offset(w*.57f, h*.24f), fine, StrokeCap.Round)
+                val bin = Path().apply {
+                    moveTo(w*.32f, h*.34f)
+                    lineTo(w*.355f, h*.76f)
+                    quadraticBezierTo(w*.37f, h*.84f, w*.45f, h*.84f)
+                    lineTo(w*.55f, h*.84f)
+                    quadraticBezierTo(w*.63f, h*.84f, w*.645f, h*.76f)
+                    lineTo(w*.68f, h*.34f)
+                    close()
+                }
+                drawPath(bin, color, style = fineLine)
             }
 
             HomeIcon.RESET -> {
@@ -3167,12 +3196,12 @@ private fun CyberLibrary(
     var pruneFailedTarget by remember { mutableStateOf<Pair<Subscription, String>?>(null) }
     var addOpen by remember { mutableStateOf(false) }
     var sortOpen by remember { mutableStateOf(false) }
-    // MARBLE_SERVERS_V115 — the global actions (refresh everything, rank everything) live in the
-    // three-dot menu pinned to the top-left of the Servers page.
-    var libraryMenuOpen by remember { mutableStateOf(false) }
 
     val flavor = homeFlavorFor(parseHomeStyle(repo.settings.homeStyle))
     val chrome = libraryChromeFor(flavor)
+    // MARBLE_SERVERS_FAB_KINETICS_V116 — the FAB tap imports the clipboard into the same source the
+    // Add page would use, so one tap and one Paste never disagree about where configs land.
+    val intakeTarget = libraryIntakeTarget(repo)
 
     LaunchedEffect(contentListState.isScrollInProgress) {
         onContentScrollChanged(contentListState.isScrollInProgress)
@@ -3465,79 +3494,20 @@ private fun CyberLibrary(
             // MARBLE_SERVERS_V114 — the list has no blanket item spacing any more. A source module is
             // ONE container painted across several lazy items, so blanket gaps would cut it into
             // slices; each item now owns the space above and below it instead.
+            // MARBLE_NO_DUPLICATES_V116 — the page-wide Refresh/Rank commands live once, in the
+            // visible control deck below; the old top-left three-dot menu duplicated both, so it is
+            // gone. Per-server actions stay in each row's own menu.
             item {
                 Column {
-                    Row(
+                    MarbleCompactTopBar(
+                        title = "Servers",
                         modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        // MARBLE_SERVERS_V115 — the three-dot menu at the top-left holds the two
-                        // page-wide commands: refresh every subscription and rank every server
-                        // through the real tunnel.
-                        Box {
-                            PrismIconButton(
-                                onClick = { libraryMenuOpen = true },
-                                size = 36.dp,
-                                tone = chrome.accent,
-                                descriptiveLabel = "Library global actions"
-                            ) {
-                                HomeVectorIcon(HomeIcon.MORE, chrome.accent, Modifier.size(18.dp))
-                            }
-                            DropdownMenu(
-                                expanded = libraryMenuOpen,
-                                onDismissRequest = { libraryMenuOpen = false },
-                                shape = libraryMenuShape(flavor),
-                                containerColor = Aether.VoidElevated
-                            ) {
-                                DropdownMenuItem(
-                                    text = {
-                                        Text(
-                                            trx("Refresh all subscriptions"),
-                                            color = Aether.Ink,
-                                            style = MaterialTheme.typography.labelLarge.copy(
-                                                fontFamily = if (libraryMenuMonospace(flavor)) {
-                                                    FontFamily.Monospace
-                                                } else null
-                                            )
-                                        )
-                                    },
-                                    leadingIcon = {
-                                        HomeVectorIcon(HomeIcon.RESET, Aether.Amethyst, Modifier.size(17.dp))
-                                    },
-                                    onClick = {
-                                        libraryMenuOpen = false
-                                        repo.refreshLibrarySource("all")
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text = {
-                                        Text(
-                                            trx("Rank all servers"),
-                                            color = Aether.Ink,
-                                            style = MaterialTheme.typography.labelLarge
-                                        )
-                                    },
-                                    leadingIcon = {
-                                        HomeVectorIcon(HomeIcon.RANK, Aether.Emerald, Modifier.size(17.dp))
-                                    },
-                                    onClick = {
-                                        libraryMenuOpen = false
-                                        repo.smartRankSource("all")
-                                    }
-                                )
-                            }
-                        }
-                        MarbleCompactTopBar(
-                            title = "Servers",
-                            modifier = Modifier.weight(1f),
-                            // Each half is translated on its own: the count goes through the "N servers"
-                            // pattern, so Persian reads "سرورهای سیگنچر • 12 سرور" instead of one
-                            // unmatched English sentence.
-                            subtitle = "${trx(chrome.headerTitle)} • " +
-                                trx("${repo.libraryProfiles.size} servers")
-                        )
-                    }
+                        // Each half is translated on its own: the count goes through the "N servers"
+                        // pattern, so Persian reads "سرورهای سیگنچر • 12 سرور" instead of one
+                        // unmatched English sentence.
+                        subtitle = "${trx(chrome.headerTitle)} • " +
+                            trx("${repo.libraryProfiles.size} servers")
+                    )
                     Spacer(Modifier.height(10.dp))
                 }
             }
@@ -3608,7 +3578,7 @@ private fun CyberLibrary(
 
                 item(key = "group-${group.sourceId}") {
                     Column {
-                        if (groupIndex > 0) Spacer(Modifier.height(13.dp))
+                        if (groupIndex > 0) Spacer(Modifier.height(libraryGroupGap(flavor)))
                         LibraryModuleHeader(
                             group = group,
                             chrome = chrome,
@@ -3676,7 +3646,10 @@ private fun CyberLibrary(
             chrome = chrome,
             modifier = Modifier.align(Alignment.BottomEnd),
             onAdd = { addOpen = true },
-            onSort = { sortOpen = true }
+            onSort = { sortOpen = true },
+            onImportClipboard = {
+                repo.importClipboard(clipboard.getText()?.text.orEmpty(), intakeTarget)
+            }
         )
     }
 
@@ -3738,75 +3711,268 @@ private fun LibraryChevron(collapsed: Boolean, color: Color, modifier: Modifier 
  */
 private const val LIBRARY_FOLD_KEPT_ROWS = 8
 
-private val LibraryModuleRadius = 18.dp
+/**
+ * MARBLE_SERVERS_STYLE_CARDS_V116 — the silhouette of one source module slice, owned by the
+ * selected Home style: Signature studio plate, organic cell, squared cockpit instrument, wide
+ * nebula capsule and a near-flat drafting sheet. Every slice of one module agrees on its flavor's
+ * radii so the segments read as one poured container.
+ */
+private fun librarySegmentShape(flavor: HomeFlavor, top: Boolean, bottom: Boolean): RoundedCornerShape =
+    when (flavor) {
+        HomeFlavor.PRO -> RoundedCornerShape(
+            topStart = if (top) 16.dp else 0.dp,
+            topEnd = if (top) 16.dp else 0.dp,
+            bottomStart = if (bottom) 16.dp else 0.dp,
+            bottomEnd = if (bottom) 16.dp else 0.dp
+        )
+        HomeFlavor.ORGANIC -> RoundedCornerShape(
+            topStart = if (top) 26.dp else 0.dp,
+            topEnd = if (top) 14.dp else 0.dp,
+            bottomStart = if (bottom) 14.dp else 0.dp,
+            bottomEnd = if (bottom) 26.dp else 0.dp
+        )
+        HomeFlavor.ORBIT -> RoundedCornerShape(
+            topStart = if (top) 6.dp else 0.dp,
+            topEnd = if (top) 6.dp else 0.dp,
+            bottomStart = if (bottom) 6.dp else 0.dp,
+            bottomEnd = if (bottom) 6.dp else 0.dp
+        )
+        HomeFlavor.NEBULA -> RoundedCornerShape(
+            topStart = if (top) 24.dp else 0.dp,
+            topEnd = if (top) 24.dp else 0.dp,
+            bottomStart = if (bottom) 24.dp else 0.dp,
+            bottomEnd = if (bottom) 24.dp else 0.dp
+        )
+        HomeFlavor.BLUEPRINT -> RoundedCornerShape(
+            topStart = if (top) 2.dp else 0.dp,
+            topEnd = if (top) 2.dp else 0.dp,
+            bottomStart = if (bottom) 2.dp else 0.dp,
+            bottomEnd = if (bottom) 2.dp else 0.dp
+        )
+    }
 
-/** The frost every module segment is poured into: translucent, matte, and never a second shadow. */
+/** The air one flavor leaves between source modules: breathing room is part of the card language. */
+private fun libraryGroupGap(flavor: HomeFlavor): Dp = when (flavor) {
+    HomeFlavor.PRO -> 13.dp
+    HomeFlavor.ORGANIC -> 11.dp
+    HomeFlavor.ORBIT -> 9.dp
+    HomeFlavor.NEBULA -> 15.dp
+    HomeFlavor.BLUEPRINT -> 8.dp
+}
+
+/** The frost one flavor pours its modules from: its own hue mix, never one shared grey slab. */
 @Composable
-private fun libraryFrost(accent: Color, emphasized: Boolean): Brush = Brush.verticalGradient(
-    listOf(
-        Color.White.copy(alpha = if (emphasized) .055f else .038f),
-        accent.copy(alpha = if (emphasized) .075f else .030f),
-        Aether.VoidElevated.copy(alpha = .80f),
-        Aether.VoidElevated.copy(alpha = .88f)
+private fun libraryFrost(flavor: HomeFlavor, accent: Color, emphasized: Boolean): Brush = when (flavor) {
+    HomeFlavor.PRO -> Brush.verticalGradient(
+        listOf(
+            Color.White.copy(alpha = if (emphasized) .055f else .038f),
+            accent.copy(alpha = if (emphasized) .075f else .030f),
+            Aether.VoidElevated.copy(alpha = .80f),
+            Aether.VoidElevated.copy(alpha = .88f)
+        )
     )
-)
+    HomeFlavor.ORGANIC -> Brush.verticalGradient(
+        listOf(
+            accent.copy(alpha = if (emphasized) .095f else .055f),
+            Aether.Amethyst.copy(alpha = .05f),
+            Aether.VoidElevated.copy(alpha = .78f),
+            Aether.VoidElevated.copy(alpha = .88f)
+        )
+    )
+    HomeFlavor.ORBIT -> Brush.verticalGradient(
+        listOf(
+            accent.copy(alpha = if (emphasized) .075f else .045f),
+            Aether.Amber.copy(alpha = .038f),
+            Aether.VoidElevated.copy(alpha = .84f),
+            Aether.VoidElevated.copy(alpha = .90f)
+        )
+    )
+    HomeFlavor.NEBULA -> Brush.verticalGradient(
+        listOf(
+            accent.copy(alpha = if (emphasized) .10f else .060f),
+            Aether.AmethystBright.copy(alpha = .05f),
+            Aether.VoidElevated.copy(alpha = .76f),
+            Aether.VoidElevated.copy(alpha = .87f)
+        )
+    )
+    HomeFlavor.BLUEPRINT -> Brush.verticalGradient(
+        listOf(
+            accent.copy(alpha = if (emphasized) .060f else .040f),
+            Aether.Slate.copy(alpha = .05f),
+            Aether.VoidElevated.copy(alpha = .85f),
+            Aether.VoidElevated.copy(alpha = .91f)
+        )
+    )
+}
 
 /**
- * One slice of a source module: the shared frost, the module hairline on the edges this slice owns,
- * and (for rows) the divider to the next server.
+ * One slice of a source module: the flavor's frost, the module hairline on the edges this slice
+ * owns, and (for rows) the divider to the next server.
  */
 @Composable
 private fun LibraryModuleSegment(
     accent: Color,
     emphasized: Boolean,
     modifier: Modifier = Modifier,
+    flavor: HomeFlavor = HomeFlavor.PRO,
     top: Boolean = false,
     bottom: Boolean = false,
     divider: Boolean = false,
     content: @Composable BoxScope.() -> Unit
 ) {
-    val radius = LibraryModuleRadius
-    val shape = RoundedCornerShape(
-        topStart = if (top) radius else 0.dp,
-        topEnd = if (top) radius else 0.dp,
-        bottomStart = if (bottom) radius else 0.dp,
-        bottomEnd = if (bottom) radius else 0.dp
-    )
+    val shape = librarySegmentShape(flavor, top, bottom)
+    // The organism spore tone is read here, inside the composable, then handed to the non-composable
+    // draw helper: Aether palette access is @Composable and cannot happen inside a DrawScope.
+    val spore = Aether.Amethyst
     Box(
         modifier = modifier
             .fillMaxWidth()
             .clip(shape)
-            .background(libraryFrost(accent, emphasized))
+            .background(libraryFrost(flavor, accent, emphasized))
     ) {
         content()
         Canvas(Modifier.matchParentSize()) {
-            val hair = 1.dp.toPx()
-            val edge = accent.copy(alpha = if (emphasized) .40f else .22f)
-            val inset = 14.dp.toPx()
-            if (top) drawLine(edge, Offset(0f, hair / 2f), Offset(size.width, hair / 2f), hair)
-            if (bottom) {
+            libraryModuleEdges(flavor, accent, spore, emphasized, top, bottom, divider)
+        }
+    }
+}
+
+/** The per-flavor edge work of a module slice: hairlines, ticks, grid and glow, never shared. */
+private fun DrawScope.libraryModuleEdges(
+    flavor: HomeFlavor,
+    accent: Color,
+    spore: Color,
+    emphasized: Boolean,
+    top: Boolean,
+    bottom: Boolean,
+    divider: Boolean
+) {
+    val hair = 1.dp.toPx()
+    val edge = accent.copy(alpha = if (emphasized) .40f else .22f)
+    val soft = accent.copy(alpha = if (emphasized) .28f else .15f)
+    val inset = 14.dp.toPx()
+    val w = size.width
+    val h = size.height
+
+    when (flavor) {
+        HomeFlavor.PRO -> {
+            drawLine(edge, Offset(hair / 2f, 0f), Offset(hair / 2f, h), hair)
+            drawLine(edge, Offset(w - hair / 2f, 0f), Offset(w - hair / 2f, h), hair)
+            if (top) drawLine(edge, Offset(0f, hair / 2f), Offset(w, hair / 2f), hair)
+            if (bottom) drawLine(edge, Offset(0f, h - hair / 2f), Offset(w, h - hair / 2f), hair)
+            if (divider) {
+                drawLine(soft, Offset(inset, h - hair / 2f), Offset(w - inset, h - hair / 2f), hair)
+            }
+        }
+
+        HomeFlavor.ORGANIC -> {
+            // Soft cell sides plus a spore accent at the seam so the organism keeps breathing.
+            drawLine(soft.copy(alpha = soft.alpha * .70f), Offset(hair / 2f, 0f), Offset(hair / 2f, h), hair)
+            drawLine(soft.copy(alpha = soft.alpha * .70f), Offset(w - hair / 2f, 0f), Offset(w - hair / 2f, h), hair)
+            if (top) drawLine(soft, Offset(0f, hair / 2f), Offset(w, hair / 2f), hair)
+            if (bottom) drawLine(soft, Offset(0f, h - hair / 2f), Offset(w, h - hair / 2f), hair)
+            val sporeTone = if (emphasized) accent else spore
+            drawCircle(sporeTone.copy(alpha = .30f), 1.6.dp.toPx(), Offset(hair + 4.dp.toPx(), h * .30f))
+            drawCircle(sporeTone.copy(alpha = .22f), 1.2.dp.toPx(), Offset(hair + 5.dp.toPx(), h * .70f))
+            if (divider) {
                 drawLine(
-                    edge,
-                    Offset(0f, size.height - hair / 2f),
-                    Offset(size.width, size.height - hair / 2f),
+                    sporeTone.copy(alpha = .12f),
+                    Offset(inset, h - hair / 2f),
+                    Offset(w - inset, h - hair / 2f),
+                    hair,
+                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(7f, 7f))
+                )
+            }
+        }
+
+        HomeFlavor.ORBIT -> {
+            // Cockpit instrument plate: crisp corners, tick rail along the top of the module and
+            // corner brackets on the header slice.
+            drawLine(edge, Offset(hair / 2f, 0f), Offset(hair / 2f, h), hair)
+            drawLine(edge, Offset(w - hair / 2f, 0f), Offset(w - hair / 2f, h), hair)
+            if (top) {
+                drawLine(edge, Offset(0f, hair / 2f), Offset(w, hair / 2f), hair)
+                var tick = 10.dp.toPx()
+                while (tick < w - 6.dp.toPx()) {
+                    drawLine(
+                        soft.copy(alpha = .45f),
+                        Offset(tick, hair),
+                        Offset(tick, 4.dp.toPx()),
+                        hair
+                    )
+                    tick += 22.dp.toPx()
+                }
+                val corner = 7.dp.toPx()
+                drawLine(edge, Offset(corner, 0f), Offset(0f, corner), hair)
+                drawLine(edge, Offset(w - corner, 0f), Offset(w, corner), hair)
+            }
+            if (bottom) drawLine(edge, Offset(0f, h - hair / 2f), Offset(w, h - hair / 2f), hair)
+            if (divider) {
+                drawLine(
+                    soft.copy(alpha = .78f),
+                    Offset(inset, h - hair / 2f),
+                    Offset(w - inset, h - hair / 2f),
+                    hair,
+                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(4f, 6f))
+                )
+            }
+        }
+
+        HomeFlavor.NEBULA -> {
+            // A nebula bleeds light instead of drawing rulers: soft side haze and a breathing glow.
+            drawLine(soft.copy(alpha = .12f), Offset(hair / 2f, 0f), Offset(hair / 2f, h), hair)
+            drawLine(soft.copy(alpha = .12f), Offset(w - hair / 2f, 0f), Offset(w - hair / 2f, h), hair)
+            if (top) drawLine(soft.copy(alpha = .16f), Offset(0f, hair / 2f), Offset(w, hair / 2f), hair)
+            if (bottom) drawLine(soft.copy(alpha = .16f), Offset(0f, h - hair / 2f), Offset(w, h - hair / 2f), hair)
+            drawCircle(
+                brush = Brush.radialGradient(
+                    listOf(accent.copy(alpha = if (emphasized) .075f else .045f), Color.Transparent),
+                    center = Offset(w * .86f, h * .5f),
+                    radius = w * .30f
+                ),
+                radius = w * .30f,
+                center = Offset(w * .86f, h * .5f)
+            )
+            if (divider) {
+                drawLine(
+                    accent.copy(alpha = .10f),
+                    Offset(inset, h - hair / 2f),
+                    Offset(w - inset, h - hair / 2f),
                     hair
                 )
             }
-            drawLine(edge, Offset(hair / 2f, 0f), Offset(hair / 2f, size.height), hair)
-            drawLine(
-                edge,
-                Offset(size.width - hair / 2f, 0f),
-                Offset(size.width - hair / 2f, size.height),
-                hair
-            )
+        }
+
+        HomeFlavor.BLUEPRINT -> {
+            // Drafting sheet: a fine grid across every slice plus crisp corner ticks on the header.
+            val grid = accent.copy(alpha = .058f)
+            val step = 28.dp.toPx()
+            var gx = step
+            while (gx < w) {
+                drawLine(grid, Offset(gx, 0f), Offset(gx, h), 1f)
+                gx += step
+            }
+            var gy = step
+            while (gy < h) {
+                drawLine(grid, Offset(0f, gy), Offset(w, gy), 1f)
+                gy += step
+            }
+            drawLine(edge, Offset(hair / 2f, 0f), Offset(hair / 2f, h), hair)
+            drawLine(edge, Offset(w - hair / 2f, 0f), Offset(w - hair / 2f, h), hair)
+            if (top) drawLine(edge, Offset(0f, hair / 2f), Offset(w, hair / 2f), hair)
+            if (bottom) drawLine(edge, Offset(0f, h - hair / 2f), Offset(w, h - hair / 2f), hair)
+            if (top) {
+                val tick = 6.dp.toPx()
+                drawLine(soft.copy(alpha = .55f), Offset(hair, hair), Offset(tick, hair), hair)
+                drawLine(soft.copy(alpha = .55f), Offset(w - tick, hair), Offset(w - hair, hair), hair)
+            }
             if (divider) {
-                // The divider is inset from both edges: servers sit in one column of glass, they are
-                // not individual cards, so the separator must not read as a card boundary.
                 drawLine(
-                    accent.copy(alpha = .13f),
-                    Offset(inset, size.height - hair / 2f),
-                    Offset(size.width - inset, size.height - hair / 2f),
-                    hair
+                    soft.copy(alpha = .55f),
+                    Offset(inset, h - hair / 2f),
+                    Offset(w - inset, h - hair / 2f),
+                    hair,
+                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 6f))
                 )
             }
         }
@@ -3929,7 +4095,7 @@ private fun LibraryModuleHeader(
         )
     }
 
-    LibraryModuleSegment(accent = accent, emphasized = emphasized, top = true) {
+    LibraryModuleSegment(accent = accent, emphasized = emphasized, flavor = flavor, top = true) {
         Column(Modifier.fillMaxWidth()) {
             // Per-style crown: the one decorative line that says which product this is.
             when (flavor) {
@@ -4229,7 +4395,7 @@ private fun LibraryModuleTail(
         exit = fadeOut(MarbleMotionSpecs.ExitFloat) +
             shrinkVertically(MarbleMotionSpecs.Layout)
     ) {
-        LibraryModuleSegment(accent = accent, emphasized = false, bottom = true) {
+        LibraryModuleSegment(accent = accent, emphasized = false, flavor = flavor, bottom = true) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -4434,6 +4600,7 @@ private fun LibraryServerRow(
     LibraryModuleSegment(
         accent = accent,
         emphasized = active || securing,
+        flavor = flavor,
         divider = divider
     ) {
         // State flood: painted under the content, so the measured box of the row never changes.
@@ -4922,6 +5089,50 @@ private fun LibraryLatencyReadout(
     }
 }
 
+/**
+ * MARBLE_SERVERS_STYLE_CARDS_V116 — the one visible delete control of a server row. Its silhouette
+ * follows the selected Home style (studio chip, organic cell, cockpit key, nebula capsule or
+ * drafting button) so the destructive action belongs to the page instead of hiding behind a menu.
+ */
+@Composable
+private fun ServerDeleteAction(
+    flavor: HomeFlavor,
+    profile: ProxyProfile,
+    enabled: Boolean,
+    onDelete: () -> Unit
+) {
+    val shape = when (flavor) {
+        HomeFlavor.PRO -> RoundedCornerShape(10.dp)
+        HomeFlavor.ORGANIC -> RoundedCornerShape(
+            topStart = 10.dp,
+            topEnd = 5.dp,
+            bottomStart = 5.dp,
+            bottomEnd = 10.dp
+        )
+        HomeFlavor.ORBIT -> RoundedCornerShape(4.dp)
+        HomeFlavor.NEBULA -> RoundedCornerShape(12.dp)
+        HomeFlavor.BLUEPRINT -> RoundedCornerShape(2.dp)
+    }
+    val tone = Aether.Danger
+    Box(
+        modifier = Modifier
+            .size(32.dp)
+            .clip(shape)
+            .background(tone.copy(alpha = .10f))
+            .border(1.dp, tone.copy(alpha = .32f), shape)
+            .kineticClickable(
+                enabled = enabled,
+                role = Role.Button,
+                boundedShape = shape,
+                onClick = onDelete
+            )
+            .semantics { contentDescription = "Delete ${profile.name}" },
+        contentAlignment = Alignment.Center
+    ) {
+        HomeVectorIcon(HomeIcon.TRASH, tone, Modifier.size(15.dp))
+    }
+}
+
 @Composable
 private fun LibraryFabAction(
     icon: HomeIcon,
@@ -4952,17 +5163,17 @@ private fun LibraryFabAction(
 }
 
 /**
- * MARBLE_SERVERS_V114 — the floating magic button of the Servers screen.
+ * MARBLE_SERVERS_V114 / MARBLE_SERVERS_FAB_KINETICS_V116 — the floating clipboard button.
  *
  * Three rules, all of them from the product owner:
  *
- *  1. a single tap opens **nothing** — the old "tap to open the add page" behaviour is gone, so the
- *     button can never fire by accident while the list is being scrolled;
- *  2. *every* action floats and appears **above** the button, and only while the finger is held;
- *  3. the button itself is a **clipboard**, because that is what it does: it collects servers.
- *
- * Releasing the finger (or tapping the dimmed field) folds the actions back. The hold is the only
- * gesture, and the button says so with a small caption until it has been used once.
+ *  1. a single tap **imports whatever the clipboard holds** — subscriptions or server configs are
+ *     detected by [AppRepository.importClipboard] and land in the right source, so the button is a
+ *     true one-tap collector;
+ *  2. holding the finger lifts the action stack above the button and turns the button into an **X**;
+ *     tapping that X (or the dimmed field) closes it instantly;
+ *  3. the button is a **clipboard**, and its reveal/lift kinetics are intentionally fast so the
+ *     tap-import and the hold-to-close both answer the finger immediately.
  */
 @Composable
 private fun LibrarySmartFab(
@@ -4970,14 +5181,15 @@ private fun LibrarySmartFab(
     chrome: LibraryChrome,
     modifier: Modifier = Modifier,
     onAdd: () -> Unit,
-    onSort: () -> Unit
+    onSort: () -> Unit,
+    onImportClipboard: () -> Unit
 ) {
     var revealed by remember { mutableStateOf(false) }
     var hintShown by rememberSaveable { mutableStateOf(true) }
     val freedomHidden = repo.libraryFreedomHidden
     val lift by animateFloatAsState(
         targetValue = if (revealed) 1f else 0f,
-        animationSpec = MarbleMotionSpecs.ResponseFloat,
+        animationSpec = MarbleMotionSpecs.FabLift,
         label = "servers-fab-lift"
     )
 
@@ -4986,8 +5198,8 @@ private fun LibrarySmartFab(
         // hold gesture an obvious way out.
         AnimatedVisibility(
             visible = revealed,
-            enter = fadeIn(MarbleMotionSpecs.ResponseFloat),
-            exit = fadeOut(MarbleMotionSpecs.ExitFloat)
+            enter = fadeIn(MarbleMotionSpecs.QuickReveal),
+            exit = fadeOut(MarbleMotionSpecs.QuickExit)
         ) {
             Box(
                 Modifier
@@ -5006,9 +5218,9 @@ private fun LibrarySmartFab(
         ) {
             AnimatedVisibility(
                 visible = revealed,
-                enter = fadeIn(MarbleMotionSpecs.ResponseFloat) +
+                enter = fadeIn(MarbleMotionSpecs.QuickReveal) +
                     slideInVertically(MarbleMotionSpecs.Spatial) { it },
-                exit = fadeOut(MarbleMotionSpecs.ExitFloat) +
+                exit = fadeOut(MarbleMotionSpecs.QuickExit) +
                     slideOutVertically(MarbleMotionSpecs.SpatialExit) { it }
             ) {
                 Column(
@@ -5047,7 +5259,7 @@ private fun LibrarySmartFab(
 
             if (hintShown && !revealed) {
                 Text(
-                    trx("Hold for actions"),
+                    trx("Tap to import • hold for options"),
                     color = Aether.InkFaint,
                     style = MaterialTheme.typography.labelSmall,
                     maxLines = 1,
@@ -5082,14 +5294,20 @@ private fun LibrarySmartFab(
                         )
                     )
                     .combinedClickable(
-                        // A single tap deliberately does nothing: no page, no sheet, no navigation.
-                        onClick = { hintShown = false },
+                        // MARBLE_SERVERS_FAB_KINETICS_V116 — tap = smart clipboard import; while the
+                        // action stack is open the button is the X and a tap closes it. The hold is
+                        // the only way to reveal the stack, so the tap can never fire by accident
+                        // during scroll.
+                        onClick = {
+                            hintShown = false
+                            if (revealed) revealed = false else onImportClipboard()
+                        },
                         onLongClick = {
                             hintShown = false
                             revealed = true
                         }
                     )
-                    .semantics { contentDescription = "Hold for servers actions" },
+                    .semantics { contentDescription = "Tap to import servers • hold for actions" },
                 contentAlignment = Alignment.Center
             ) {
                 HomeVectorIcon(
@@ -5115,6 +5333,14 @@ private fun LibrarySheetHandle() {
     )
 }
 
+/** One valid intake target for pasted/imported configs: Manual when enabled, else the first
+ *  subscription so clipboard content always has a home. Shared by the add page and the FAB so the
+ *  tap-import can never disagree with the Paste button. */
+private fun libraryIntakeTarget(repo: AppRepository): String = when {
+    repo.settings.manualSourceEnabled -> "manual"
+    else -> repo.subscriptions.firstOrNull()?.id ?: "manual"
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun LibraryAddSheet(
@@ -5126,12 +5352,7 @@ private fun LibraryAddSheet(
     var url by remember { mutableStateOf("") }
     var sourceName by remember { mutableStateOf("") }
     val clipboard = LocalClipboardManager.current
-    // A valid intake target: the Manual source when it is enabled, otherwise the first
-    // subscription so pasted/imported configs always have a home.
-    val intakeTarget = when {
-        repo.settings.manualSourceEnabled -> "manual"
-        else -> repo.subscriptions.firstOrNull()?.id ?: "manual"
-    }
+    val intakeTarget = libraryIntakeTarget(repo)
 
     // MARBLE_ADD_SERVERS_FULL_PAGE_V115 — "Add servers" opens as a complete page, never as a
     // popup or a sheet: the long-press gesture ends in a full-screen destination with its own
@@ -6680,7 +6901,9 @@ private fun SpatialServerCard(
     var jsonText by remember(profile.id,profile.configJson) {
         mutableStateOf(profile.configJson)
     }
-    var deleteBySwipe by remember(profile.id) { mutableStateOf(false) }
+    // MARBLE_SERVERS_STYLE_CARDS_V116 — one delete path: the visible per-row trash button. The
+    // three-dot menu and the swipe gesture no longer duplicate it.
+    var confirmDelete by remember(profile.id) { mutableStateOf(false) }
 
     val swipeState=rememberSwipeToDismissBoxState()
 
@@ -6690,10 +6913,9 @@ private fun SpatialServerCard(
                 onEdit()
                 swipeState.reset()
             }
-            SwipeToDismissBoxValue.EndToStart -> {
-                deleteBySwipe=true
-                swipeState.reset()
-            }
+            // MARBLE_SERVERS_STYLE_CARDS_V116 — swipe-to-delete is gone; the visible trash button
+            // is the single delete action, so the swipe slot is reserved for edit only.
+            SwipeToDismissBoxValue.EndToStart -> swipeState.reset()
             SwipeToDismissBoxValue.Settled -> Unit
         }
     }
@@ -6761,14 +6983,14 @@ private fun SpatialServerCard(
         )
     }
 
-    if(deleteBySwipe) {
+    if(confirmDelete) {
         AlertDialog(
-            onDismissRequest={ deleteBySwipe=false },
+            onDismissRequest={ confirmDelete=false },
             title={ Text(trx("Delete server?")) },
             text={
                 Text(
                     "Remove ${profile.name} from ${profile.subscriptionName}? " +
-                        "Swipe never deletes silently."
+                        "Deleting is confirmed here, never silent."
                 )
             },
             confirmButton={
@@ -6777,12 +6999,12 @@ private fun SpatialServerCard(
                     tone=Aether.Danger,
                     onClick={
                         repo.removeProfile(profile.id, profile.subscriptionId)
-                        deleteBySwipe=false
+                        confirmDelete=false
                     }
                 )
             },
             dismissButton={
-                MarbleDialogAction(label="Cancel", tone=Aether.InkMuted, onClick={ deleteBySwipe=false })
+                MarbleDialogAction(label="Cancel", tone=Aether.InkMuted, onClick={ confirmDelete=false })
             }
         )
     }
@@ -6790,7 +7012,8 @@ private fun SpatialServerCard(
     SwipeToDismissBox(
         state=swipeState,
         enableDismissFromStartToEnd=!repo.busy && !builtInFreedom,
-        enableDismissFromEndToStart=!repo.busy && !builtInFreedom,
+        // MARBLE_SERVERS_STYLE_CARDS_V116 — no duplicated delete gesture.
+        enableDismissFromEndToStart=false,
         backgroundContent={
             val edit=swipeState.dismissDirection == SwipeToDismissBoxValue.StartToEnd
             val tone=if(edit) Aether.Amethyst else Aether.Danger
@@ -6837,21 +7060,35 @@ private fun SpatialServerCard(
             enabled = !repo.busy,
             onConnect = { onConnect(profile) }
         ) {
-            Box {
-                PrismIconButton(
-                    onClick = { menuOpen = true },
-                    tone = if (menuOpen) Aether.Cyan else Aether.InkMuted,
-                    selected = menuOpen,
-                    enabled = !repo.busy,
-                    size = 34.dp,
-                    descriptiveLabel = "More actions for ${profile.name}"
-                ) {
-                    HomeVectorIcon(
-                        HomeIcon.MORE,
-                        if (menuOpen) Aether.Cyan else Aether.InkMuted,
-                        Modifier.size(16.dp)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(5.dp)
+            ) {
+                // MARBLE_SERVERS_STYLE_CARDS_V116 — delete sits on the row itself, drawn in the
+                // style's own silhouette, never hidden behind the three-dot menu.
+                if (!builtInFreedom) {
+                    ServerDeleteAction(
+                        flavor = flavor,
+                        profile = profile,
+                        enabled = !repo.busy,
+                        onDelete = { confirmDelete = true }
                     )
                 }
+                Box {
+                    PrismIconButton(
+                        onClick = { menuOpen = true },
+                        tone = if (menuOpen) Aether.Cyan else Aether.InkMuted,
+                        selected = menuOpen,
+                        enabled = !repo.busy,
+                        size = 34.dp,
+                        descriptiveLabel = "More actions for ${profile.name}"
+                    ) {
+                        HomeVectorIcon(
+                            HomeIcon.MORE,
+                            if (menuOpen) Aether.Cyan else Aether.InkMuted,
+                            Modifier.size(16.dp)
+                        )
+                    }
 
                 DropdownMenu(
                     expanded = menuOpen,
@@ -6926,14 +7163,8 @@ private fun SpatialServerCard(
                                 onEdit()
                             }
                         )
-                        DropdownMenuItem(
-                            text = { Text(trx("Delete"), color = Aether.Danger) },
-                            onClick = {
-                                menuOpen = false
-                                deleteBySwipe = true
-                            }
-                        )
                     }
+                }
                 }
             }
         }
@@ -8511,7 +8742,12 @@ private fun settingsSections(
 
     return when (tab) {
         SettingsWorkspaceTab.GENERAL -> listOf(
-            card("Appearance","Theme, typeface and Home style",HomeIcon.MODE,Aether.Cyan) { AppearanceSettings(repo) },
+            card(
+                "Signature studio",
+                "Home layers that live nowhere else",
+                HomeIcon.MODE,
+                Aether.Cyan
+            ) { SignatureStudioSettings(repo) },
             card("Connection","Tunnel, proxy, port",HomeIcon.TUNNEL,Aether.Cyan) { ConnectionSettings(repo) },
             card("Subscriptions","Refresh & sources",HomeIcon.LIBRARY,Aether.Amethyst) { SubscriptionSettings(repo) }
         )
@@ -8527,7 +8763,8 @@ private fun settingsSections(
             }
         }
         SettingsWorkspaceTab.NETWORK -> buildList {
-            add(card("Split tunneling","App tunnel / bypass",HomeIcon.PRIVACY,Aether.Emerald) { SplitTunnelSettings(repo) })
+            // MARBLE_NO_DUPLICATES_V116 — split tunneling lives once, in the hub's "Per-app proxy"
+            // card (mode + app list, always on the surface). The old duplicate card here is gone.
             if(expertMode) {
                 if(routingFocused) {
                     add(card("Routing","Geo assets & rules",HomeIcon.ROUTING,Aether.Emerald) { RoutingSettings(repo) })
@@ -8670,41 +8907,16 @@ private fun homeStyleDetail(style: HomeStyle): String = when (style) {
     HomeStyle.PARAMETRIC -> Tr.now.styleParametricDetail
 }
 
+/**
+ * MARBLE_NO_DUPLICATES_V116 — the Signature studio layers that live nowhere else in Settings.
+ * Theme, Home style, Typeface and Language all have their own hub pages, so the old combined
+ * Appearance block that repeated every one of them is gone. What remains here is the studio
+ * configuration only its own page can own: floating button, status banner, corner actions,
+ * server rail and the style switcher.
+ */
 @Composable
-private fun AppearanceSettings(repo: AppRepository) {
+private fun SignatureStudioSettings(repo: AppRepository) {
     val t = Tr.now
-
-    // MARBLE_HOME_STYLE_V110 / MARBLE_SIGNATURE_HOME_V112 — the Home presentation is the first
-    // appearance decision, because it is the screen the user sees on every launch. The Signature
-    // studio ships as the default; the four classic presentations remain one tap away.
-    SectionLabel(t.homeStyleTitle)
-    Text(
-        t.homeStyleDetail,
-        color = Aether.InkMuted,
-        style = MaterialTheme.typography.bodySmall
-    )
-    val selectedHomeStyle = parseHomeStyle(repo.settings.homeStyle)
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        HomeStyle.entries.chunked(2).forEach { row ->
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                row.forEach { style ->
-                    CyberSegment(
-                        label = homeStyleLabel(style),
-                        detail = homeStyleDetail(style),
-                        selected = selectedHomeStyle == style,
-                        color = if (style == HomeStyle.PRO) Aether.Cyan else Aether.Amethyst,
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        repo.updateSettings(repo.settings.copy(homeStyle = style.id))
-                    }
-                }
-                if (row.size == 1) Spacer(Modifier.weight(1f))
-            }
-        }
-    }
 
     // MARBLE_SIGNATURE_HOME_V112 — the studio customization surface. Every layer of the
     // professional Home is an independent user choice, mirrored live on the Home screen.
@@ -8831,163 +9043,13 @@ private fun AppearanceSettings(repo: AppRepository) {
         }
     )
 
-    // The accent driving the Signature studio's animated surfaces.
-    SectionLabel(t.proAccentColor)
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(5.dp)
-    ) {
-        ProAccent.entries.forEach { accent ->
-            CyberSegment(
-                label = accent.label,
-                detail = "",
-                selected = parseProAccent(repo.settings.proAccent) == accent,
-                selectionTone = signatureAccentColor(accent),
-                color = signatureAccentColor(accent),
-                modifier = Modifier.weight(1f)
-            ) {
-                repo.updateSettings(repo.settings.copy(proAccent = accent.id))
-            }
-        }
-    }
-
-    // MARBLE_NIGHT_OUTLINES_V112 — dark-theme frame personality: strengthen, tint or dissolve
-    // every card/frame hairline while the night theme is active.
-    SectionLabel(t.proNightOutlines)
+    // Theme, Home style, Typeface and Language live on the hub's dedicated pages; repeating them
+    // here was exactly the duplicate settings the product owner rejected.
     Text(
-        t.proNightOutlinesDetail,
-        color = Aether.InkMuted,
+        trx("Theme, Home style, Typeface and Language live under Appearance on the Settings hub."),
+        color = Aether.InkFaint,
         style = MaterialTheme.typography.bodySmall
     )
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(5.dp)
-    ) {
-        DarkOutlineStyle.entries.forEach { outline ->
-            CyberSegment(
-                label = when (outline) {
-                    DarkOutlineStyle.SUBTLE -> "Subtle"
-                    DarkOutlineStyle.BOLD -> "Bold"
-                    DarkOutlineStyle.COLORED -> "Colored"
-                    DarkOutlineStyle.HIDDEN -> "Hidden"
-                },
-                detail = "",
-                selected = parseDarkOutlineStyle(repo.settings.darkOutlineStyle) == outline,
-                color = Aether.Amethyst,
-                modifier = Modifier.weight(1f)
-            ) {
-                repo.updateSettings(repo.settings.copy(darkOutlineStyle = outline.id))
-            }
-        }
-    }
-
-    // MARBLE_BILINGUAL_V110 — default is the device language; an explicit choice always wins.
-    SectionLabel(t.languageTitle)
-    Text(
-        t.languageDetail,
-        color = Aether.InkMuted,
-        style = MaterialTheme.typography.bodySmall
-    )
-    val selectedLanguage = parseAppLanguage(repo.settings.appLanguage)
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(6.dp)
-    ) {
-        AppLanguage.entries.forEach { language ->
-            // MARBLE_VAZIR_LANGUAGE_KEY_V114 — the Persian key is written in Persian and set in
-            // Vazirmatn in every state: unselected, selected, pressed, and under an English UI.
-            val persianKey = language == AppLanguage.PERSIAN
-            CyberSegment(
-                label = when (language) {
-                    AppLanguage.SYSTEM -> t.languageSystem
-                    AppLanguage.ENGLISH -> t.languageEnglish
-                    AppLanguage.PERSIAN -> "فارسی"
-                },
-                detail = when (language) {
-                    AppLanguage.SYSTEM -> t.languageSystemDetail
-                    AppLanguage.ENGLISH -> "English"
-                    AppLanguage.PERSIAN -> "Persian"
-                },
-                selected = selectedLanguage == language,
-                color = Aether.Cyan,
-                modifier = Modifier.weight(1f),
-                labelFontFamily = if (persianKey) VazirFamily else null,
-                rawLabel = persianKey
-            ) {
-                repo.updateSettings(repo.settings.copy(appLanguage = language.id))
-            }
-        }
-    }
-
-    // Standard settings intentionally keeps the useful decisions above the expert gate.
-    SectionLabel("Theme")
-    // MARBLE_PHONE_DYNAMIC_THEME_V113 — four themes now, each with a real miniature preview.
-    // "Dynamic phone" borrows the phone's Material You palette (wallpaper colors) everywhere;
-    // its thumbnail paints the live dynamic scheme, not a fixed brand swatch.
-    SettingsThemeGrid(repo)
-
-    // MARBLE_SYSTEM_FONT_V112 — the device's own typeface is a first-class choice. Persian copy
-    // keeps shaping with the bundled Vazirmatn regardless of this selection (AetherTheme pins
-    // it whenever the product language is Persian), so this only changes the Latin ramp.
-    SectionLabel("Typeface")
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        AppFont.entries.chunked(2).forEach { row ->
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                row.forEach { font ->
-                    CyberSegment(
-                        label = font.label,
-                        detail = when (font) {
-                            AppFont.VAZIR -> "Persian"
-                            AppFont.SYSTEM -> "Device default"
-                            AppFont.GOOGLE_SANS -> "Product sans"
-                            AppFont.TIMES_NEW_ROMAN -> "Serif"
-                        },
-                        selected = repo.settings.fontFamily.equals(font.id, true),
-                        color = Aether.Cyan,
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        repo.updateSettings(repo.settings.copy(fontFamily = font.id))
-                    }
-                }
-                if (row.size == 1) Spacer(Modifier.weight(1f))
-            }
-        }
-    }
-
-    HorizontalDivider(color = Aether.GlassBorderSoft)
-
-    SettingSwitch(
-        "App update checks",
-        "Look for signed MarbleNG releases",
-        repo.settings.appUpdateCheckEnabled
-    ) { enabled ->
-        repo.updateSettings(repo.settings.copy(appUpdateCheckEnabled = enabled))
-        if (enabled) repo.checkForAppUpdate(force = true)
-    }
-
-    if (!repo.settings.expertMode) {
-        CyberButton(
-            label = "If you're an expert, tap here",
-            detail = "Reveal advanced routing, engine and diagnostic controls",
-            color = Aether.Amethyst,
-            modifier = Modifier.fillMaxWidth(),
-            variant = PrismButtonVariant.Secondary,
-            icon = HomeIcon.SHIELD
-        ) {
-            repo.updateSettings(repo.settings.copy(expertMode = true))
-        }
-    } else {
-        SettingSwitch(
-            "Expert controls enabled",
-            "Advanced workspaces are visible",
-            true
-        ) { enabled ->
-            repo.updateSettings(repo.settings.copy(expertMode = enabled))
-        }
-    }
 }
 
 @Composable

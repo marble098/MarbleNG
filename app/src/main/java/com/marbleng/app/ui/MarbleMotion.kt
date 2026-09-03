@@ -93,6 +93,15 @@ object MarbleMotionSpecs {
         dampingRatio = .70f,
         stiffness = 430f
     )
+    // MARBLE_SERVERS_FAB_KINETICS_V116 — the Servers clipboard button answers the finger, not the
+    // clock: a very stiff lift spring and short reveal tweens so the tap import and the hold
+    // action stack feel immediate instead of floating.
+    val FabLift: FiniteAnimationSpec<Float> = spring(
+        dampingRatio = .68f,
+        stiffness = 1500f
+    )
+    val QuickReveal: FiniteAnimationSpec<Float> = tween(120)
+    val QuickExit: FiniteAnimationSpec<Float> = tween(80)
 }
 
 @Stable

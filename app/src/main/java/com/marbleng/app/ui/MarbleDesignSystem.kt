@@ -117,63 +117,112 @@ internal fun marbleMetricTone(band: MarbleMetricBand): Color = when (band) {
     MarbleMetricBand.UNKNOWN -> Aether.InkMuted
 }
 
+/**
+ * MARBLE_HOME_GRADIENTS_V116 — the page-wide ambient field now belongs to the selected Home style
+ * instead of one grey-blue wash: every flavor gets its own professional multi-colour gradient
+ * (electric/violet/ice for Signature, emerald/amethyst/gold for the organism, gold/azure/magenta
+ * for Orbit, amethyst/cyan/emerald for the nebula and slate/ice/amber for the blueprint), layered
+ * softly so cards stay readable while the viewport never reads as grey.
+ */
 @Composable
 internal fun PrismBackdrop(
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    flavor: HomeFlavor = HomeFlavor.PRO
 ) {
     val base=Aether.Void
-    val cyan=Aether.Cyan
-    val violet=Aether.Amethyst
-    // MARBLE_NAVY_BRAND_THEME_V77 — the ambient glow stays inside the blue ramp
-    // (electric + bright) so the backdrop reads as deep ice rather than a multicolour wash.
-    val second=Aether.CyanBright
     val dot=Aether.InkFaint
+    // Palette: [primary, secondary, tertiary] of the flavor's own multi-colour identity.
+    val primary: Color
+    val secondary: Color
+    val tertiary: Color
+    when (flavor) {
+        HomeFlavor.PRO -> {
+            primary = Aether.CyanBright
+            secondary = Aether.Amethyst
+            tertiary = Aether.Emerald
+        }
+        HomeFlavor.ORGANIC -> {
+            primary = Aether.Emerald
+            secondary = Aether.Amethyst
+            tertiary = Aether.Amber
+        }
+        HomeFlavor.ORBIT -> {
+            primary = Aether.Amber
+            secondary = Aether.CyanBright
+            tertiary = Aether.AmethystBright
+        }
+        HomeFlavor.NEBULA -> {
+            primary = Aether.AmethystBright
+            secondary = Aether.CyanBright
+            tertiary = Aether.Emerald
+        }
+        HomeFlavor.BLUEPRINT -> {
+            primary = Aether.SlateBright
+            secondary = Aether.CyanBright
+            tertiary = Aether.Amber
+        }
+    }
 
     Canvas(modifier) {
         drawRect(base)
 
-        val cyanCenter=Offset(size.width*.84f,size.height*.05f)
-        drawCircle(
-            brush=Brush.radialGradient(
-                colors=listOf(
-                    cyan.copy(alpha=.095f),
-                    cyan.copy(alpha=.035f),
-                    Color.Transparent
+        // One diagonal multi-stop wash ties the three hues together; a wash alone stays grey-ish,
+        // so the three halos below are the actual colour story.
+        drawRect(
+            brush = Brush.linearGradient(
+                colors = listOf(
+                    primary.copy(alpha=.075f),
+                    secondary.copy(alpha=.050f),
+                    tertiary.copy(alpha=.038f)
                 ),
-                center=cyanCenter,
-                radius=size.width*.72f
-            ),
-            radius=size.width*.72f,
-            center=cyanCenter
+                start = Offset(0f, size.height * .12f),
+                end = Offset(size.width, size.height * .92f)
+            )
         )
 
-        val violetCenter=Offset(size.width*.06f,size.height*.45f)
+        val primaryCenter=Offset(size.width*.86f,size.height*.06f)
         drawCircle(
             brush=Brush.radialGradient(
                 colors=listOf(
-                    violet.copy(alpha=.075f),
-                    violet.copy(alpha=.025f),
+                    primary.copy(alpha=.16f),
+                    primary.copy(alpha=.055f),
                     Color.Transparent
                 ),
-                center=violetCenter,
-                radius=size.width*.66f
+                center=primaryCenter,
+                radius=size.width*.74f
             ),
-            radius=size.width*.66f,
-            center=violetCenter
+            radius=size.width*.74f,
+            center=primaryCenter
         )
 
-        val secondCenter=Offset(size.width*.84f,size.height*.88f)
+        val secondaryCenter=Offset(size.width*.05f,size.height*.46f)
         drawCircle(
             brush=Brush.radialGradient(
                 colors=listOf(
-                    second.copy(alpha=.055f),
+                    secondary.copy(alpha=.14f),
+                    secondary.copy(alpha=.045f),
                     Color.Transparent
                 ),
-                center=secondCenter,
-                radius=size.width*.56f
+                center=secondaryCenter,
+                radius=size.width*.68f
             ),
-            radius=size.width*.56f,
-            center=secondCenter
+            radius=size.width*.68f,
+            center=secondaryCenter
+        )
+
+        val tertiaryCenter=Offset(size.width*.82f,size.height*.90f)
+        drawCircle(
+            brush=Brush.radialGradient(
+                colors=listOf(
+                    tertiary.copy(alpha=.12f),
+                    tertiary.copy(alpha=.035f),
+                    Color.Transparent
+                ),
+                center=tertiaryCenter,
+                radius=size.width*.58f
+            ),
+            radius=size.width*.58f,
+            center=tertiaryCenter
         )
 
         val step=30.dp.toPx()

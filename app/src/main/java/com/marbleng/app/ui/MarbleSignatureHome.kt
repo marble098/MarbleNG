@@ -100,6 +100,19 @@ internal fun signatureAccentColor(accent: ProAccent): Color = when (accent) {
     ProAccent.CYAN -> Color(0xFF9BE8FF)
 }
 
+/**
+ * MARBLE_HOME_GRADIENTS_V116 — the two companion hues of each Signature accent. The studio was a
+ * single-accent wash; now every accent carries its own professional multi-colour aurora
+ * (electric → violet → teal, emerald → ice → gold, …) so the Home never reads grey.
+ */
+internal fun signatureAuraPartners(accent: ProAccent): List<Color> = when (accent) {
+    ProAccent.ELECTRIC -> listOf(Color(0xFF7C5CFF), Color(0xFF2ED3A7))
+    ProAccent.EMERALD -> listOf(Color(0xFF9BE8FF), Color(0xFFF2B45F))
+    ProAccent.AMETHYST -> listOf(Color(0xFF57E0FF), Color(0xFFE7C36B))
+    ProAccent.AMBER -> listOf(Color(0xFF9D8CFF), Color(0xFF57E0FF))
+    ProAccent.CYAN -> listOf(Color(0xFF3399FF), Color(0xFF9D8CFF))
+}
+
 /** The accent tinted by the live connection state: state always reads first, brand second. */
 @Composable
 internal fun signatureStatusTone(evidence: HomeEvidence, accent: ProAccent): Color {
@@ -133,6 +146,9 @@ internal fun HomeStyleSignature(
 ) {
     val accent = signatureAccentColor(pro.accent)
     val tone = signatureStatusTone(evidence, pro.accent)
+    // MARBLE_HOME_GRADIENTS_V116 — the accent's companion hues drive the aurora beneath the
+    // single-accent instrument, so the Signature Home is a multi-colour gradient, never grey.
+    val aura = signatureAuraPartners(pro.accent)
     val motion = MarbleMotion.current
     val drift = motion.loop(18_000)
     val breathe = motion.breathe(4_200)
@@ -145,7 +161,7 @@ internal fun HomeStyleSignature(
 
         // The studio backdrop owns the whole viewport.
         Canvas(Modifier.matchParentSize()) {
-            drawSignatureBackdrop(accent, tone, drift, breathe, ringSpin, evidence.connected)
+            drawSignatureBackdrop(accent, aura, tone, drift, breathe, ringSpin, evidence.connected)
         }
 
         Column(
@@ -242,11 +258,12 @@ internal fun HomeStyleSignature(
 }
 
 /**
- * The full-viewport Signature backdrop: an accent aurora, an instrument ring field, drifting
- * light motes and a fine dot grid. Every element loops seamlessly.
+ * The full-viewport Signature backdrop: a multi-colour accent aurora, an instrument ring field,
+ * drifting light motes and a fine dot grid. Every element loops seamlessly.
  */
 private fun DrawScope.drawSignatureBackdrop(
     accent: Color,
+    aura: List<Color>,
     tone: Color,
     drift: Float,
     breathe: Float,
@@ -256,27 +273,50 @@ private fun DrawScope.drawSignatureBackdrop(
     val w = size.width
     val h = size.height
 
-    // Deep brand wash: brighter around the hero, void at the edges.
+    // MARBLE_HOME_GRADIENTS_V116 — the brand wash is now a three-stop gradient: the accent's own
+    // hue across the top, a companion colour through the middle and a second companion at the
+    // floor, so the studio reads as a rich gradient instead of one quiet grey-blue veil.
+    val companionA = aura.getOrNull(0) ?: accent
+    val companionB = aura.getOrNull(1) ?: accent
     drawRect(
         Brush.verticalGradient(
             listOf(
-                accent.copy(alpha = .08f + .03f * breathe),
-                Color.Transparent,
-                accent.copy(alpha = .04f)
+                accent.copy(alpha = .11f + .04f * breathe),
+                companionA.copy(alpha = .055f),
+                companionB.copy(alpha = .085f)
             )
         )
     )
 
-    // Aurora halos breathing behind the hero.
+    // Aurora halos breathing behind the hero: the primary hue centered, its companions drifting
+    // to the corners so the whole viewport carries the style's colour story.
     val hero = Offset(w * .5f, h * .26f)
     drawCircle(
         brush = Brush.radialGradient(
-            listOf(accent.copy(alpha = .14f + .06f * breathe), Color.Transparent),
+            listOf(accent.copy(alpha = .16f + .06f * breathe), Color.Transparent),
             center = hero,
             radius = w * .80f
         ),
         radius = w * .80f,
         center = hero
+    )
+    drawCircle(
+        brush = Brush.radialGradient(
+            listOf(companionA.copy(alpha = .12f + .04f * breathe), Color.Transparent),
+            center = Offset(w * .10f, h * .72f),
+            radius = w * .58f
+        ),
+        radius = w * .58f,
+        center = Offset(w * .10f, h * .72f)
+    )
+    drawCircle(
+        brush = Brush.radialGradient(
+            listOf(companionB.copy(alpha = .10f + .03f * breathe), Color.Transparent),
+            center = Offset(w * .90f, h * .86f),
+            radius = w * .52f
+        ),
+        radius = w * .52f,
+        center = Offset(w * .90f, h * .86f)
     )
 
     // Instrument ring field: concentric dashed rings, each rotating a whole circle per period.
