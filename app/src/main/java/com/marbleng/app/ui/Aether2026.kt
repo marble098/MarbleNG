@@ -4312,7 +4312,12 @@ private fun libraryMenuMonospace(flavor: HomeFlavor): Boolean =
 /**
  * The protocol accent of a node, keyed by its wire scheme. Every row paints the scheme in its own
  * colour so the protocol column reads at a glance, whichever Home style the row wears.
+ *
+ * The tones come from the active theme palette, so the lookup runs through `Aether.*`
+ * CompositionLocal getters and has to be `@Composable`, exactly like the other tone resolvers in
+ * this file (settingsTabTone, healthColor). Both call sites already render inside a server row.
  */
+@Composable
 private fun protocolSchemeTone(scheme: String): Color = when (scheme.trim().uppercase()) {
     "VLESS" -> Aether.Amethyst
     "VMESS" -> Aether.Cyan
