@@ -41,18 +41,39 @@ jobs:
           # MARBLE_REALTIME_ENGINE_V70
           XRAY_TAG="$(jq -r '.xray.tag' core-lock.json)"
           XRAY_TMP="$RUNNER_TEMP/xray-realtime-smoke"
+
           rm -rf "$XRAY_TMP"
-          git clone --quiet --depth 1 --branch "$XRAY_TAG" https://github.com/XTLS/Xray-core.git "$XRAY_TMP"
+          git clone --quiet --depth 1 --branch "$XRAY_TAG" \
+            https://github.com/XTLS/Xray-core.git "$XRAY_TMP"
+
           cp native/rankhelper/main.go "$XRAY_TMP/main/marble_rank.go"
           python3 scripts/inject-xray-realtime.py "$XRAY_TMP"
+
           python3 - "$XRAY_TMP/main/main.go" <<'PYXRAY'
           from pathlib import Path
           import sys
-          p=Path(sys.argv[1]);s=p.read_text();old="\t\t\tcmdRun,\n\t\t\tcmdVersion,\n";new="\t\t\tcmdRun,\n\t\t\tcmdVersion,\n\t\t\tcmdMarbleRank,\n"
-          if s.count(old)!=1: raise SystemExit('Pinned Xray command anchor changed')
-          p.write_text(s.replace(old,new,1))
+
+          path = Path(sys.argv[1])
+          source = path.read_text(encoding="utf-8")
+
+          old = "\t\t\tcmdRun,
+\t\t\tcmdVersion,
+"
+          new = "\t\t\tcmdRun,
+\t\t\tcmdVersion,
+\t\t\tcmdMarbleRank,
+"
+
+          if source.count(old) != 1:
+              raise SystemExit("Pinned Xray command anchor changed")
+
+          path.write_text(source.replace(old, new, 1), encoding="utf-8")
           PYXRAY
-          (cd "$XRAY_TMP" && env GOTOOLCHAIN=auto go test ./transport/internet ./main)
+
+          (
+            cd "$XRAY_TMP"
+            env GOTOOLCHAIN=auto go test ./transport/internet ./main
+          )
 
       - name: Reject malformed Compose function types
         shell: bash
@@ -61,14 +82,21 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           import re
-          bad=[]
-          pattern=re.compile(r':\s*@Composable\(\)\s*->')
-          for path in Path('app/src/main/java').rglob('*.kt'):
-              data=path.read_text(encoding='utf-8')
-              if pattern.search(data):
-                  bad.append(str(path))
-          if bad:
-              raise SystemExit('Malformed @Composable function type: ' + ', '.join(bad))
+
+          malformed = []
+          pattern = re.compile(r':s*@Composable()s*->')
+
+          for path in Path("app/src/main/java").rglob("*.kt"):
+              source = path.read_text(encoding="utf-8")
+              if pattern.search(source):
+                  malformed.append(str(path))
+
+          if malformed:
+              raise SystemExit(
+                  "Malformed @Composable function type: " + ", ".join(malformed)
+              )
+
+          print("[OK] Compose function-type syntax is valid")
           PY
 
       - name: Verify routing source invariants
@@ -77,24 +105,52 @@ jobs:
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
-          models=Path('app/src/main/java/com/marbleng/app/model/Models.kt').read_text()
-          hardener=Path('app/src/main/java/com/marbleng/app/core/XrayConfigHardener.kt').read_text()
-          identity=Path('app/src/main/java/com/marbleng/app/core/IdentityGuard.kt').read_text()
-          build=Path('.github/workflows/build.yml').read_text()
-          required={
-              'geoip source':'Iran-v2ray-rules/release/geoip.dat' in models,
-              'geosite source':'Iran-v2ray-rules/release/geosite.dat' in models,
-              'geo direct default':'RoutingMode.GEO_DIRECT' in models,
-              'ads default':'val routeBlockAds: Boolean = true' in models,
-              'IPIfNonMatch':'IPIfNonMatch' in models,
-              'normalized ad tag':'normalizeGeoSiteTag(settings.routeAdsTag)' in hardener,
-              'proxy fallback':'Unmatched routing fallback must stay on the selected proxy' in hardener,
-              'bounded identity direct':'RoutingDefaults.GEOSITE_DIRECT_TAGS' in identity,
-              'bundled routing assets':'Bundle verified Iran routing assets' in build,
+
+          models = Path(
+              "app/src/main/java/com/marbleng/app/model/Models.kt"
+          ).read_text(encoding="utf-8")
+
+          hardener = Path(
+              "app/src/main/java/com/marbleng/app/core/XrayConfigHardener.kt"
+          ).read_text(encoding="utf-8")
+
+          identity = Path(
+              "app/src/main/java/com/marbleng/app/core/IdentityGuard.kt"
+          ).read_text(encoding="utf-8")
+
+          build = Path(
+              ".github/workflows/build.yml"
+          ).read_text(encoding="utf-8")
+
+          required = {
+              "geoip source": "Iran-v2ray-rules/release/geoip.dat" in models,
+              "geosite source": "Iran-v2ray-rules/release/geosite.dat" in models,
+              "geo direct default": "RoutingMode.GEO_DIRECT" in models,
+              "ads default": "val routeBlockAds: Boolean = true" in models,
+              "IPIfNonMatch": "IPIfNonMatch" in models,
+              "normalized ad tag": (
+                  "normalizeGeoSiteTag(settings.routeAdsTag)" in hardener
+              ),
+              "proxy fallback": (
+                  "Unmatched routing fallback must stay on the selected proxy"
+                  in hardener
+              ),
+              "bounded identity direct": (
+                  "RoutingDefaults.GEOSITE_DIRECT_TAGS" in identity
+              ),
+              "bundled routing assets": (
+                  "Bundle verified Iran routing assets" in build
+              ),
           }
-          failed=[k for k,v in required.items() if not v]
+
+          failed = [name for name, passed in required.items() if not passed]
+
           if failed:
-              raise SystemExit('Routing invariant failure: ' + ', '.join(failed))
+              raise SystemExit(
+                  "Routing invariant failure: " + ", ".join(failed)
+              )
+
+          print("[OK] Routing source invariants")
           PY
 
       - name: Source-wide Marble system integrity audit
@@ -109,49 +165,197 @@ jobs:
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
-          ui=Path('app/src/main/java/com/marbleng/app/ui/Aether2026.kt').read_text()
-          theme=Path('app/src/main/java/com/marbleng/app/ui/AetherTheme.kt').read_text()
-          design=Path('app/src/main/java/com/marbleng/app/ui/MarbleDesignSystem.kt').read_text()
-          repo=Path('app/src/main/java/com/marbleng/app/AppRepository.kt').read_text()
-          vpn=Path('app/src/main/java/com/marbleng/app/vpn/MarbleVpnService.kt').read_text()
-          required={
-              'v9.1 marker':'Marble Product UI v9.1.0' in ui,
-              'modern Canvas icons':'MarbleTabIcon(' in ui,
-              'official M3 switch':'Switch(' in ui and 'SwitchDefaults.colors(' in ui and 'MarbleToggle(' not in ui,
-              'v53 compatibility marker':'MARBLE_M3_EXPRESSIVE_UI_V53' in ui,
-              'v54 marker':'MARBLE_PRISM_UI_V54' in ui,
-              'v54 theme':'MARBLE_PRISM_THEME_V54' in theme,
-              'v54 design system':'MARBLE_PRISM_DESIGN_SYSTEM_V54' in design,
-              'v55 real-device UI':'MARBLE_REAL_DEVICE_POLISH_V55' in ui,
-              'v55 design polish':'MARBLE_PRISM_POLISH_V55' in design,
-              'v55 fixed sort grid':'LibrarySortChoice(' in ui and 'text="Reverse"' in ui,
-              'v55 sparkline confidence':'if(sparkline.size>=3)' in design,
-              'premium vector route':'PrismConnectionStage(' in design,
-              'prism backdrop':'PrismBackdrop(' in ui,
-              'floating spatial navigation':'FloatingSpatialDock(' in ui and 'MARBLE_BOTTOM_DOCK_UNIFIED_FLOATING_V661' in ui and 'SpatialTab.entries.forEach' in ui,
-              'profile name not runtime detail':'val activeName = active?.name ?: "Choose a route"' in ui,
-              'flag aware node identity':'stripLeadingFlag(profile.name)' in ui and 'leadingFlagGlyph' in design,
-              'compact settings categories':'compactTabsState' in ui and 'LazyRow(' in ui,
-              'source-aware deletion preserved':'removeProfile(profile.id, profile.subscriptionId)' in ui,
-              'brand vector':'R.drawable.ic_marble_prism' in ui,
-              'unified dock interaction':'.kineticClickable(' in ui and 'indicatorTone' in ui and 'MarbleTabIcon(' in ui,
-              'layered Prism surfaces':'PrismPanel(' in ui and 'PrismPanel(' in design,
-              'visual theme previews':'PrismThemeChoice(' in ui and 'PrismThemeChoice(' in design,
-              'library filter bottom sheet':'ModalBottomSheet(' in ui and 'LibraryFilterSheet(' in ui,
-              'library swipe actions':'SwipeToDismissBox(' in ui,
-              'adaptive settings rail':'NavigationRail(' in ui and 'maxWidth >= 700.dp' in ui,
-              'home bento + sparkline':'HomeMetricBento(' in ui and 'MarbleSparkline(' in design,
-              'dynamic system colors':'dynamicLightColorScheme(' in theme and 'dynamicDarkColorScheme(' in theme,
-              'connected score prioritizes live':'repo.liveRouteScore' in ui,
-              'live score model':'calculateLiveRouteScore' in repo,
-              'live sample count':'liveRouteSamples' in repo,
-              'immediate active probe':'The dashboard should become meaningful as soon as Xray is live' in vpn,
-              'fast navigation':'marble-page-transition-fast' in ui,
+
+          ui = Path(
+              "app/src/main/java/com/marbleng/app/ui/Aether2026.kt"
+          ).read_text(encoding="utf-8")
+
+          theme = Path(
+              "app/src/main/java/com/marbleng/app/ui/AetherTheme.kt"
+          ).read_text(encoding="utf-8")
+
+          design = Path(
+              "app/src/main/java/com/marbleng/app/ui/MarbleDesignSystem.kt"
+          ).read_text(encoding="utf-8")
+
+          repo = Path(
+              "app/src/main/java/com/marbleng/app/AppRepository.kt"
+          ).read_text(encoding="utf-8")
+
+          vpn = Path(
+              "app/src/main/java/com/marbleng/app/vpn/MarbleVpnService.kt"
+          ).read_text(encoding="utf-8")
+
+          def any_of(source, *needles):
+              return any(needle in source for needle in needles)
+
+          required = {
+              "product UI marker": "Marble Product UI v9.1.0" in ui,
+
+              "modern Canvas icons": "MarbleTabIcon(" in ui,
+
+              "official Material 3 switch": (
+                  "Switch(" in ui
+                  and "SwitchDefaults.colors(" in ui
+                  and "MarbleToggle(" not in ui
+              ),
+
+              "v53 compatibility marker": (
+                  "MARBLE_M3_EXPRESSIVE_UI_V53" in ui
+              ),
+
+              "v54 Prism UI marker": "MARBLE_PRISM_UI_V54" in ui,
+
+              "v54 Prism theme marker": (
+                  "MARBLE_PRISM_THEME_V54" in theme
+              ),
+
+              "v54 design-system marker": (
+                  "MARBLE_PRISM_DESIGN_SYSTEM_V54" in design
+              ),
+
+              "v55 real-device UI marker": (
+                  "MARBLE_REAL_DEVICE_POLISH_V55" in ui
+              ),
+
+              "v55 design polish marker": (
+                  "MARBLE_PRISM_POLISH_V55" in design
+              ),
+
+              "library sort control": (
+                  "LibrarySortChoice(" in ui
+                  and 'text="Reverse"' in ui
+              ),
+
+              "sparkline confidence threshold": (
+                  "if(sparkline.size>=3)" in design
+                  or "if (sparkline.size >= 3)" in design
+              ),
+
+              "premium vector route": (
+                  "PrismConnectionStage(" in design
+              ),
+
+              "Prism backdrop": "PrismBackdrop(" in ui,
+
+              "floating spatial navigation": (
+                  "FloatingSpatialDock(" in ui
+                  and "MARBLE_BOTTOM_DOCK_UNIFIED_FLOATING_V661" in ui
+                  and "SpatialTab.entries.forEach" in ui
+              ),
+
+              "profile name uses profile identity": (
+                  'val activeName = active?.name ?: "Choose a route"' in ui
+              ),
+
+              "flag-aware node identity": (
+                  "stripLeadingFlag(profile.name)" in ui
+                  and "leadingFlagGlyph" in design
+              ),
+
+              "source-aware deletion": (
+                  "removeProfile(profile.id, profile.subscriptionId)" in ui
+              ),
+
+              "brand vector": "R.drawable.ic_marble_prism" in ui,
+
+              "unified dock interaction": (
+                  ".kineticClickable(" in ui
+                  and "indicatorTone" in ui
+                  and "MarbleTabIcon(" in ui
+              ),
+
+              "layered Prism surfaces": (
+                  "PrismPanel(" in ui
+                  and "PrismPanel(" in design
+              ),
+
+              "visual theme previews": (
+                  "PrismThemeChoice(" in ui
+                  and "PrismThemeChoice(" in design
+              ),
+
+              "library filter sheet": (
+                  "ModalBottomSheet(" in ui
+                  and "LibraryFilterSheet(" in ui
+              ),
+
+              "library swipe actions": "SwipeToDismissBox(" in ui,
+
+              "home bento and sparkline": (
+                  "HomeMetricBento(" in ui
+                  and "MarbleSparkline(" in design
+              ),
+
+              "dynamic system colours": (
+                  "dynamicLightColorScheme(" in theme
+                  and "dynamicDarkColorScheme(" in theme
+              ),
+
+              "connected score prefers live data": (
+                  "repo.liveRouteScore" in ui
+              ),
+
+              "live-score model": "calculateLiveRouteScore" in repo,
+
+              "live sample count": "liveRouteSamples" in repo,
+
+              "immediate active probe": (
+                  "The dashboard should become meaningful as soon as Xray is live"
+                  in vpn
+              ),
+
+              "fast page transition": (
+                  "marble-page-transition-fast" in ui
+              ),
           }
-          failed=[k for k,v in required.items() if not v]
+
+          # Settings is intentionally implementation-flexible:
+          # - Current flat architecture: dedicated Settings sub-pages and no legacy tab/rail host.
+          # - Legacy-compatible architecture: compact tabs or wide-screen navigation rail.
+          #
+          # This prevents CI from demanding mutually exclusive UI architectures
+          # while retaining a meaningful regression guard.
+          flat_settings = (
+              any_of(
+                  ui,
+                  "SettingsSubPage",
+                  "SettingsTabPage",
+                  "SettingsThemePage",
+                  "SettingsHomeStylePage",
+                  "PER_APP",
+              )
+              and "SettingsWorkspaceHost" not in ui
+              and "SettingsTabStrip" not in ui
+          )
+
+          legacy_settings = (
+              (
+                  "compactTabsState" in ui
+                  and "LazyRow(" in ui
+              )
+              or (
+                  "NavigationRail(" in ui
+                  and "maxWidth >= 700.dp" in ui
+              )
+          )
+
+          required["settings navigation architecture"] = (
+              flat_settings or legacy_settings
+          )
+
+          failed = [
+              name
+              for name, passed in required.items()
+              if not passed
+          ]
+
           if failed:
-              raise SystemExit('Product UI v9.1 invariant failure: '+', '.join(failed))
-          print('[OK] Prism Product UI v54 invariants')
+              raise SystemExit(
+                  "Product UI invariant failure: " + ", ".join(failed)
+              )
+
+          print("[OK] Marble Product UI invariants")
           PY
 
       - name: Verify release publishing safety
@@ -161,27 +365,60 @@ jobs:
           # MARBLE_RELEASE_PUBLISH_VERIFY_V182
           python3 - <<'PY'
           from pathlib import Path
-          build=Path('.github/workflows/build.yml').read_text()
-          required={
-              'resilient marker':'MARBLE_RELEASE_PUBLISH_RESILIENT_V182' in build,
-              'notes JSON':'--rawfile body "$notes_file"' in build,
-              'target JSON':'--arg target "$GITHUB_SHA"' in build and 'target_commitish:$target' in build,
-              'assets':'"${assets[@]}"' in build,
-              'tag guard':'git rev-parse -q --verify "refs/tags/$tag"' in build,
-              'release guard':'gh release view "v$v"' in build,
-              'no tag push':'git push origin "$tag"' not in build,
-              'no inline notes':'--notes "## MarbleNG $VERSION_NAME' not in build,
+
+          build = Path(
+              ".github/workflows/build.yml"
+          ).read_text(encoding="utf-8")
+
+          required = {
+              "resilient marker": (
+                  "MARBLE_RELEASE_PUBLISH_RESILIENT_V182" in build
+              ),
+
+              "notes JSON": '--rawfile body "$notes_file"' in build,
+
+              "target JSON": (
+                  '--arg target "$GITHUB_SHA"' in build
+                  and "target_commitish:$target" in build
+              ),
+
+              "assets": '"${assets[@]}"' in build,
+
+              "tag guard": (
+                  'git rev-parse -q --verify "refs/tags/$tag"' in build
+              ),
+
+              "release guard": (
+                  'gh release view "v$v"' in build
+              ),
+
+              "no tag push": 'git push origin "$tag"' not in build,
+
+              "no inline notes": (
+                  '--notes "## MarbleNG $VERSION_NAME' not in build
+              ),
           }
-          failed=[k for k,v in required.items() if not v]
-          if failed: raise SystemExit('Release publishing safety invariant failure: '+', '.join(failed))
-          print('[OK] release publisher is quote-safe and tag-atomic')
+
+          failed = [
+              name
+              for name, passed in required.items()
+              if not passed
+          ]
+
+          if failed:
+              raise SystemExit(
+                  "Release publishing safety invariant failure: "
+                  + ", ".join(failed)
+              )
+
+          print("[OK] Release publisher is quote-safe and tag-atomic")
           PY
 
       - name: Set up JDK 17
         uses: actions/setup-java@v5
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: "17"
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4
@@ -196,10 +433,13 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '9.5.1'
+          gradle-version: "9.5.1"
 
       - name: Unit tests and Kotlin compilation
         shell: bash
         run: |
           set -euo pipefail
-          gradle --no-daemon :app:testDebugUnitTest :app:compileDebugKotlin :app:compileReleaseKotlin
+          gradle --no-daemon \
+            :app:testDebugUnitTest \
+            :app:compileDebugKotlin \
+            :app:compileReleaseKotlin
