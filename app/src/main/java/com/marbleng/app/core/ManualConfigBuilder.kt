@@ -66,6 +66,58 @@ data class ManualConfigDraft(
  * protected loopback SSH-to-SOCKS adapter; Xray remains attached to the Android TUN.
  */
 object ManualConfigBuilder {
+
+    /**
+     * MARBLE_SERVERS_QUERY_V120 — why a manual draft cannot be saved yet, or `null` when it can.
+     *
+     * The Add-node form keeps its Save button disabled until this returns `null`, and shows the
+     * returned sentence as the reason. Asking here instead of letting [build] throw means the form
+     * and the builder can never disagree about what a complete config is.
+     */
+    fun missingRequirement(draft: ManualConfigDraft): String? {
+        if (draft.protocol == ManualProtocol.XRAY_JSON) {
+            return if (draft.customJson.isBlank()) "Paste the Xray JSON first" else null
+        }
+        if (draft.host.isBlank()) return "Server address is required"
+        draft.port.trim().toIntOrNull()?.let { port ->
+            if (port !in 1..65535) return "Port must be between 1 and 65535"
+        }
+        return when (draft.protocol) {
+            ManualProtocol.VLESS -> when {
+                draft.uuid.isBlank() -> "UUID is required"
+                draft.security.isBlank() || draft.security.equals("none", true) ->
+                    if (draft.encryption.isBlank() || draft.encryption.equals("none", true)) {
+                        "VLESS needs TLS/REALITY or a non-none encryption"
+                    } else {
+                        null
+                    }
+                else -> null
+            }
+            ManualProtocol.VMESS -> if (draft.uuid.isBlank()) "UUID is required" else null
+            ManualProtocol.TROJAN -> if (draft.password.isBlank()) "Password is required" else null
+            ManualProtocol.SHADOWSOCKS -> when {
+                draft.method.isBlank() -> "Method is required"
+                draft.password.isBlank() -> "Password is required"
+                else -> null
+            }
+            ManualProtocol.HYSTERIA2 -> if (draft.password.isBlank()) "Auth password is required" else null
+            ManualProtocol.SSH -> when {
+                draft.username.isBlank() -> "SSH username is required"
+                draft.password.isBlank() -> "SSH password is required"
+                else -> null
+            }
+            ManualProtocol.WIREGUARD -> when {
+                draft.wireguardSecretKey.isBlank() -> "Private key is required"
+                draft.wireguardPeerPublicKey.isBlank() -> "Peer public key is required"
+                else -> null
+            }
+            ManualProtocol.HTTP,
+            ManualProtocol.HTTPS,
+            ManualProtocol.SOCKS5,
+            ManualProtocol.XRAY_JSON -> null
+        }
+    }
+
     fun build(draft: ManualConfigDraft): ProxyProfile {
         if (draft.protocol == ManualProtocol.XRAY_JSON) {
             val parsed = ProxyParser.parseInput(draft.customJson.trim(), "manual", "Manual")

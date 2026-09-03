@@ -809,7 +809,92 @@ private val FaLexicon: Map<String, String> = mapOf(
     // suffix / unit fragments used by NumberSetting
     " ms" to " میلی‌ثانیه",
     " sec" to " ثانیه",
-    " cycles" to " چرخه"
+    " cycles" to " چرخه",
+
+    // ------------------------------------------------------- MARBLE_SERVERS_REDESIGN_V120
+    "Clear search" to "پاک کردن جست‌وجو",
+    "Clear" to "پاک کردن",
+    "All groups" to "همه گروه‌ها",
+    "All protocols" to "همه پروتکل‌ها",
+    "Advanced filters" to "فیلترهای پیشرفته",
+    "Group by country" to "گروه‌بندی بر اساس کشور",
+    "Only reachable" to "فقط در دسترس",
+    "Max ping" to "بیشترین پینگ",
+    "Reset filters" to "بازنشانی فیلترها",
+    "Clear filters" to "پاک کردن فیلترها",
+    "Refresh all sources" to "به‌روزرسانی همه منابع",
+    "All filters…" to "همه فیلترها…",
+    "Ping every server" to "پینگ همه سرورها",
+    "Ping every server in this group" to "پینگ همه سرورهای این گروه",
+    "Measuring servers" to "در حال اندازه‌گیری سرورها",
+    "Refreshing sources" to "در حال به‌روزرسانی منابع",
+    "Add a server, paste a config or import a subscription to get started." to
+        "برای شروع یک سرور اضافه کنید، کانفیگ بچسبانید یا اشتراک وارد کنید.",
+    "No server matches the current filters." to "هیچ سروری با فیلترهای فعلی مطابقت ندارد.",
+    "This group has no servers yet." to "این گروه هنوز سروری ندارد.",
+    "Expires" to "انقضا",
+    "Website" to "وب‌سایت",
+    "Auto-update on" to "به‌روزرسانی خودکار فعال",
+    "Auto-update off" to "به‌روزرسانی خودکار خاموش",
+    "Local engine" to "موتور محلی",
+    "Local engine • no subscription" to "موتور محلی • بدون اشتراک",
+    "Group actions" to "عملیات گروه",
+    "Copy subscription URL" to "کپی نشانی اشتراک",
+    "Copy all servers" to "کپی همه سرورها",
+    "View servers" to "مشاهده سرورها",
+    "Show only this group" to "فقط این گروه",
+    "Show all groups" to "نمایش همه گروه‌ها",
+    "Ping this group" to "پینگ این گروه",
+    "Rank this group" to "رتبه‌بندی این گروه",
+    "Securing" to "در حال اتصال",
+    "Latency" to "تأخیر",
+    "Copy link" to "کپی پیوند",
+    "Export QR code" to "صادرات کد QR",
+    "Move to group" to "انتقال به گروه",
+    "Current group" to "گروه فعلی",
+    "No other group can hold this server yet." to "گروه دیگری برای این سرور در دسترس نیست.",
+    "This config is too long to fit in a QR code." to "این کانفیگ برای کد QR بلندتر از حد مجاز است.",
+    "Point another phone at the code to import this server." to
+        "گوشی دیگر را روی کد بگیرید تا این سرور وارد شود.",
+    "Deleting is confirmed here, never silent." to "حذف همیشه اینجا تأیید می‌شود، هرگز بی‌صدا.",
+    "Subscription server • a refresh can replace this edit." to
+        "سرور اشتراکی • به‌روزرسانی می‌تواند این ویرایش را جایگزین کند.",
+    "Add node" to "افزودن نود",
+    "Add chain" to "افزودن زنجیره",
+    "Build a server, chain several hops, or import a list." to
+        "یک سرور بسازید، چند گام را زنجیره کنید یا فهرستی وارد کنید.",
+    "Node" to "نود",
+    "Chain" to "زنجیره",
+    "Import text" to "متن ورودی",
+    "Import file" to "وارد کردن فایل",
+    "Manual is enabled" to "Manual فعال است",
+    "Enable Manual in Settings → Advanced before saving a built server." to
+        "پیش از ذخیره سرور ساخته‌شده، Manual را در تنظیمات → پیشرفته فعال کنید.",
+    "Encryption" to "رمزنگاری",
+    "UUID" to "UUID",
+    "Auth password" to "گذرواژه احراز",
+    "SNI" to "SNI",
+    "ALPN" to "ALPN",
+    "Cipher suites (: separated)" to "مجموعه رمزها (جداشده با :)",
+    "Allow insecure certificate" to "پذیرش گواهی ناامن",
+    "Ready to save to" to "آماده ذخیره در",
+    "Will be added to" to "افزوده می‌شود به",
+    " and kept across refreshes." to " و پس از به‌روزرسانی باقی می‌ماند.",
+    "Select a group that can hold this server first." to
+        "ابتدا گروهی را انتخاب کنید که این سرور را نگه دارد.",
+    "Server address is required" to "نشانی سرور لازم است",
+    "Port must be between 1 and 65535" to "پورت باید بین ۱ و ۶۵۵۳۵ باشد",
+    "UUID is required" to "UUID لازم است",
+    "Password is required" to "گذرواژه لازم است",
+    "Method is required" to "روش لازم است",
+    "Auth password is required" to "گذرواژه احراز لازم است",
+    "SSH username is required" to "نام کاربری SSH لازم است",
+    "SSH password is required" to "گذرواژه SSH لازم است",
+    "Private key is required" to "کلید خصوصی لازم است",
+    "Peer public key is required" to "کلید عمومی همتا لازم است",
+    "Paste the Xray JSON first" to "ابتدا JSON ایکس‌ری را بچسبانید",
+    "VLESS needs TLS/REALITY or a non-none encryption" to
+        "VLESS به TLS/REALITY یا رمزنگاری غیر none نیاز دارد"
 )
 
 /** Lowercased view of the lexicon so `UPPERCASE` renders of the same keys still match. */
@@ -819,6 +904,17 @@ private val FaLexiconLower: Map<String, String> =
 // Compound runtime strings ("12 nodes", "3 visible • 40 total", "45 sec", …).
 private val FaPatterns: List<Pair<Regex, (MatchResult) -> String>> = listOf(
     Regex("""^(\d+) servers$""") to { m -> "${m.groupValues[1]} سرور" },
+    // MARBLE_SERVERS_REDESIGN_V120 — the page header count, a folded group and the per-card menu.
+    Regex("""^(\d+) groups • (\d+) servers$""") to { m ->
+        "${m.groupValues[1]} گروه • ${m.groupValues[2]} سرور"
+    },
+    Regex("""^(\d+) servers hidden$""") to { m -> "${m.groupValues[1]} سرور پنهان" },
+    Regex("""^(\d+) servers • (.+)$""") to { m ->
+        "${m.groupValues[1]} سرور • ${m.groupValues[2]}"
+    },
+    Regex("""^(.+) • (\d+) shown$""") to { m -> "${m.groupValues[1]} • ${m.groupValues[2]} نمایان" },
+    Regex("""^Refresh (.+)$""") to { m -> "به‌روزرسانی ${m.groupValues[1]}" },
+    Regex("""^More actions for (.+)$""") to { m -> "عملیات بیشتر برای ${m.groupValues[1]}" },
     // MARBLE_SERVERS_V114 — the source module reports its visible slice, the Freedom engine its own
     // count, and the latency readout speaks its measurement to TalkBack.
     Regex("""^(\d+) shown$""") to { m -> "${m.groupValues[1]} نمایان" },

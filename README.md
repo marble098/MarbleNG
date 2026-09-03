@@ -33,7 +33,7 @@ It focuses on real proxy verification, fast one-tap connection, fail-closed rout
 - One-tap Home reconnect after app restart or process death.
 - Full-device Android TUN mode or local SOCKS proxy mode.
 - Fast TCP reachability tests and real Xray tunnel verification.
-- Smart ranking for the whole Library or one selected source.
+- Smart ranking for the whole Servers list or one selected group.
 - Navy/ice/electric-blue brand identity shared by the Solid White, Dark, and System themes.
 - Font-independent Canvas vector icons for critical actions.
 - Smart GitHub Release update checks.
@@ -41,7 +41,7 @@ It focuses on real proxy verification, fast one-tap connection, fail-closed rout
 
 ## Main navigation
 
-MarbleNG uses three primary tabs: **Home**, **Library**, and **Settings**.
+MarbleNG uses three primary tabs: **Home**, **Servers**, and **Settings**.
 
 ### Home
 
@@ -52,7 +52,7 @@ MarbleNG uses three primary tabs: **Home**, **Library**, and **Settings**.
 - Live Ping, Jitter, and Quality.
 - Optional node / Xray / mode summary metrics.
 - Iran Mode state when enabled.
-- Quick access to Rank, Library, Privacy, and Routing.
+- Quick access to Rank, Servers, Privacy, and Routing.
 - Physical-network label and live upload/download activity.
 - Tunnel and kill-switch state.
 - Five connection presentations — Signature (the default professional studio), Organic, Orbit, Nebula, and Blueprint — switchable from Settings or from the style chips at the bottom of Home.
@@ -62,11 +62,24 @@ MarbleNG uses three primary tabs: **Home**, **Library**, and **Settings**.
 
 The Home title and main connection surface use a fixed layout so changing runtime status text does not move the Connect control. The status title and sentence above the Connect ring are anchored to a reserved block, so a shorter or longer sentence swaps in place instead of pulling the control up and down. Ping and uptime readouts auto-shrink and ellipsize so they never overflow their box in any style.
 
-### Library
+### Servers
 
-Library manages subscriptions, source buckets, and nodes.
+The **Servers** tab manages subscriptions, source buckets, and nodes. It is a card system: one page
+header, one search field with a filter rail under it, one collapsible header per group and one
+independent card per server. Nothing is flush against anything else — every surface keeps its own
+radius and hairline, and every colour comes from the active theme palette.
 
-#### Sources
+#### Header, search and filters
+
+- Bold **Servers** headline with a live `2 groups • 18 servers` count.
+- Two round controls on the right: `+` opens Add node, and the sort control opens a fully rounded
+  dropdown (Default, Name, Name (Z-A), Ping, Country, Protocol) that ticks the active choice.
+- One pill-shaped search field: name, protocol, host, transport, security or country.
+- A filter rail under it: the active group capsule, an **All protocols** capsule that lists every
+  protocol with its live count, an advanced-filter menu (Group by country, Only reachable,
+  Max ping Off/100/200/500 ms, Reset) and a control that measures every server of the scope at once.
+
+#### Groups
 
 - Add **HTTPS** remote subscription URLs.
 - Create local source buckets.
@@ -77,23 +90,45 @@ Library manages subscriptions, source buckets, and nodes.
 - Filter by All, Manual, or one subscription.
 - Source-managed and user-owned local profiles are kept distinct.
 
-The Library UI keeps only functional controls: source selection, sort, Refresh, Ping, and Rank. Redundant source-dashboard chrome and duplicate counters are intentionally removed.
+A group header is one rounded box. Folded it shows a chevron, the name, the server count and the
+auto-update state; open it grows its own facts — the plan usage box (`384.7 GB / ∞`), the expiry
+line, a **Website** capsule, a refresh control and a three-dot menu (manage, refresh, copy URL, copy
+all servers, ping, rank, show only, delete). Redundant source-dashboard chrome and duplicate counters
+stay removed.
 
-#### Nodes
+#### Server cards
 
-- Search by name, protocol, host, transport, or security.
-- Sort by Ping, Name, Protocol, Source, or reverse order.
-- Connect directly to a node.
-- Run real full tests.
-- Rename or delete nodes.
-- Open connection details.
-- Copy original config/share text.
-- Copy generated Xray JSON.
-- Edit Xray JSON for supported profiles.
+Each server is its own 16dp card: the country on the left, the identity column in the middle (bold
+name, a protocol badge such as `VLESS/REALITY` or `VMESS/TLS/H2`, then the endpoint in faint ink)
+and a latency capsule plus a three-dot menu on the right.
+
+- Connect directly to a node; the connected card keeps its geometry and only changes frame and one word.
+- Per-server menu: **Edit**, **Copy link**, **Export QR code**, **Ping**, **Move to group**,
+  **Details**, **Copy Xray JSON**, **Edit Xray JSON**, **Duplicate to Manual** and **Delete**.
+- The QR export is rendered on device by Marble's own encoder — no network, no image dependency.
+- Sort by Default, Name, Name (Z-A), Ping, Country or Protocol; never-measured servers sort last
+  rather than pretending `0 ms` is fastest.
+- Run real full tests, or measure a whole group at once.
+- Rename, move between groups, or delete nodes.
+- Copy original config/share text or generated Xray JSON; edit Xray JSON for supported profiles.
 - Duplicate a profile into Manual storage when enabled.
-- Swipe for quick test / rename actions.
+- Swipe right for the rename dialog.
 - See per-card queued/testing progress.
-- The node carrying traffic is highlighted with a painted emerald frame, a verified avatar badge and a `CONNECTED` pill; the row that is still handshaking shows the same frame in violet. The emphasis never resizes the card.
+
+The latency capsule never resizes: an unmeasured server reads `0 ms` in the theme's danger tone and
+tells TalkBack the truth — that nothing has been measured yet.
+
+#### Add node
+
+`+` opens a full-screen sheet with rounded top corners: **Node**, **Chain** or **Subscription**.
+
+- Name, a comprehensive Protocol dropdown (VLESS, VMess, Trojan, Shadowsocks, Hysteria2, WireGuard,
+  SSH, SOCKS5, HTTP, HTTPS, Xray JSON — plus the protocols this core cannot dial, listed disabled
+  with the reason), a wide Server field beside Port, then UUID / password, Flow, Transport and
+  Security dropdowns.
+- **Save** stays disabled until the config is complete, and the sentence under the form says exactly
+  which field is missing — the same check the builder itself uses.
+- Paste and file import land in the group the page is currently showing.
 
 ### Settings
 
@@ -121,7 +156,7 @@ A successful connection is treated as durable user intent.
 
 1. When a profile reaches `CONNECTED`, MarbleNG saves that profile ID.
 2. Closing or killing the app does not erase it.
-3. On the next launch, Home resolves that profile from the current Library.
+3. On the next launch, Home resolves that profile from the current Servers list.
 4. Pressing **Connect** reconnects that exact profile first.
 5. If the profile was deleted, MarbleNG clears the stale reference and falls back to automatic selection.
 
@@ -210,7 +245,7 @@ Local proxy mode exposes the configured loopback proxy without forcing the whole
 
 ### Smart rank
 
-- Can rank the whole Library or the currently selected source.
+- Can rank the whole Servers list or the currently selected group.
 - Uses healthy tunnel evidence, score, and latency.
 - Tests the enabled scope without an artificial eight-node cap.
 
