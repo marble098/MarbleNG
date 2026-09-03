@@ -1,6 +1,7 @@
 package com.marbleng.app.ui
 
-import androidx.compose.animation animateFloatAsState tween
+import androidx.compose.animation animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Arrangement.Center
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Box
