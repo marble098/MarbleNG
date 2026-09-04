@@ -286,7 +286,10 @@ enum class ProbeState { IDLE, QUEUED, TESTING }
  *
  *  - [HYBRID] "Smart ping" — the product default: a fast TCP/DNS reachability gate followed by
  *    the real verified HTTPS measurement. Returns quickly when the gate fails, accurately when
- *    it succeeds. Inspired by PattNG's multi-phase probing and Lumen's confidence scoring.
+ *    it succeeds. A server that answers the gate but whose verified phase could not complete is
+ *    reported as reachable-but-unverified instead of failed, so a busy phone can no longer turn
+ *    a healthy node into a red cross. Inspired by PattNG's multi-phase probing and Lumen's
+ *    confidence scoring.
  *  - [TUNNEL] the real tunnel measurement only — HTTPS through the SOCKS proxy, proving the full
  *    route including TLS. Slowest, most accurate. Used by v2rayNG's "real delay" test.
  *  - [TCP] a plain TCP SYN handshake against the endpoint. Fastest, proves reachability only.
@@ -392,8 +395,6 @@ data class AppSettings(
     /** Check GitHub Releases whenever MarbleNG returns to the foreground. */
     val appUpdateCheckEnabled: Boolean = true,
     val subscriptionRefreshHours: Int = 12,
-    /** Virtual Manual source is opt-in and disabled by default. */
-    val manualSourceEnabled: Boolean = false,
 
     // Home composition. Hiding a card does not disable its underlying engine.
     val homeShowSummaryMetrics: Boolean = false,

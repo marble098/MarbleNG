@@ -167,6 +167,7 @@ import com.marbleng.app.core.ServerCountry
 import com.marbleng.app.core.ServerlessFreedomEngine
 import com.marbleng.app.core.ServersFilter
 import com.marbleng.app.core.ServersQuery
+import com.marbleng.app.core.SubscriptionLink
 import com.marbleng.app.model.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -1535,9 +1536,40 @@ private fun HomeVectorIcon(
             }
 
             HomeIcon.PING -> {
-                drawCircle(color, m*.07f, Offset(w*.50f,h*.66f))
-                drawArc(color,205f,130f,false,Offset(w*.34f,h*.43f),Size(w*.32f,h*.32f),style=fineLine)
-                drawArc(color,205f,130f,false,Offset(w*.22f,h*.27f),Size(w*.56f,h*.56f),style=fineLine)
+                // MARBLE_PING_GAUGE_ICON_V123 — a Wi-Fi fan with a speedometer needle.
+                //
+                // The old glyph was a dot under two hairline arcs: at the 13–17 dp the Servers
+                // page uses it, it read as a smudge and said nothing about latency. The fan now
+                // opens upward from a solid pivot and a bold needle points into its fast zone, so
+                // the control is legible as "measure the line" at every size the product renders
+                // it, and its strokes use the same weight as the neighbouring icons.
+                val pivot = Offset(w * .50f, h * .84f)
+                // 196°..324° in Compose's clockwise-from-3-o'clock system: an upward-opening fan,
+                // symmetric around the vertical, leaving the upper-right lane free for the needle.
+                val fanStart = 196f
+                val fanSweep = 128f
+                listOf(.34f, .58f, .82f).forEach { fraction ->
+                    val diameter = m * fraction
+                    drawArc(
+                        color = color,
+                        startAngle = fanStart,
+                        sweepAngle = fanSweep,
+                        useCenter = false,
+                        topLeft = Offset(pivot.x - diameter / 2f, pivot.y - diameter / 2f),
+                        size = Size(diameter, diameter),
+                        style = line
+                    )
+                }
+                // Needle at 330° — outside the fan's sweep, so it never crosses an arc.
+                // cos 330° = +0.866, sin 330° = -0.500, at 0.62 of the glyph box.
+                drawLine(
+                    color = color,
+                    start = pivot,
+                    end = Offset(pivot.x + m * .537f, pivot.y - m * .310f),
+                    strokeWidth = stroke * 1.22f,
+                    cap = StrokeCap.Round
+                )
+                drawCircle(color, radius = m * .095f, center = pivot)
             }
 
             HomeIcon.JITTER -> {
@@ -3283,7 +3315,7 @@ private fun HoloActionPill(
 // the UI cannot drift from the engine behind it.
 // =============================================================================
 
-private enum class LibraryGroupKind { SUBSCRIPTION, MANUAL, FREEDOM, COUNTRY }
+private enum class LibraryGroupKind { SUBSCRIPTION, FREEDOM, COUNTRY }
 
 private data class LibraryGroup(
     /** Subscription id for source groups, country code (or "") for country groups. */
@@ -3386,10 +3418,18 @@ private fun Modifier.serversStackedFrame(
     )
 }
 
-/** One valid intake target for pasted/imported configs: Manual when enabled, else the first source. */
-private fun libraryIntakeTarget(repo: AppRepository): String = when {
-    repo.settings.manualSourceEnabled -> "manual"
-    else -> repo.subscriptions.firstOrNull()?.id ?: "manual"
+/**
+ * MARBLE_MANUAL_SOURCE_REMOVAL_V123 — the group an import or a hand-built server is written to.
+ *
+ * It is the group the user is looking at, which is what the Add sheet has always claimed to do.
+ * A view ("All groups") and Marble Freedom cannot own rows, so those fall through to the first
+ * real source and finally to "" — which the repository resolves to its permanent local source,
+ * so an import on a fresh install lands somewhere instead of being refused.
+ */
+private fun libraryIntakeTarget(repo: AppRepository): String {
+    val visible = repo.librarySourceFilter
+    if (repo.subscriptions.any { it.id == visible }) return visible
+    return repo.subscriptions.firstOrNull()?.id.orEmpty()
 }
 
 /** Subscription accounting, straight from the provider's subscription-userinfo headers. */
@@ -3434,6 +3474,25 @@ private fun CyberLibrary(
         ActivityResultContracts.GetContent()
     ) { uri ->
         if (uri != null) repo.importQrImage(uri, libraryIntakeTarget(repo))
+    }
+    // MARBLE_QR_CAMERA_V123 — the camera is the one QR door that needs a runtime permission, so
+    // it is asked for here and the viewfinder opens only once it is granted.
+    var qrScannerOpen by remember { mutableStateOf(false) }
+    val qrCameraPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            qrScannerOpen = true
+        } else {
+            repo.publishMessage(
+                "Camera permission is needed to scan a code • the gallery works without it"
+            )
+        }
+    }
+    fun requestQrCamera() {
+        val granted = context.checkSelfPermission(Manifest.permission.CAMERA) ==
+            PackageManager.PERMISSION_GRANTED
+        if (granted) qrScannerOpen = true else qrCameraPermission.launch(Manifest.permission.CAMERA)
     }
     var sortOpen by remember { mutableStateOf(false) }
     var groupMenuOpen by remember { mutableStateOf(false) }
@@ -3495,12 +3554,6 @@ private fun CyberLibrary(
                     add(LibraryGroup(sub.id, sub.name, LibraryGroupKind.SUBSCRIPTION, profiles = nodes))
                 }
             }
-            if (settings.manualSourceEnabled) {
-                val nodes = visibleProfiles.filter { it.subscriptionId == "manual" }
-                if (nodes.isNotEmpty()) {
-                    add(LibraryGroup("manual", "Manual", LibraryGroupKind.MANUAL, profiles = nodes))
-                }
-            }
             if (!repo.libraryFreedomHidden) {
                 val nodes = visibleProfiles.filter {
                     it.subscriptionId == ServerlessFreedomEngine.SOURCE_ID
@@ -3521,7 +3574,6 @@ private fun CyberLibrary(
 
     val activeGroupLabel = when (filter.sourceId) {
         "all" -> "All groups"
-        "manual" -> "Manual"
         ServerlessFreedomEngine.SOURCE_ID -> "Marble Freedom"
         else -> repo.subscriptions.firstOrNull { it.id == filter.sourceId }?.name ?: "All groups"
     }
@@ -3529,7 +3581,6 @@ private fun CyberLibrary(
     val groupOptions: List<Pair<String, String>> = buildList {
         add("all" to "All groups")
         repo.subscriptions.forEach { add(it.id to it.name) }
-        if (settings.manualSourceEnabled) add("manual" to "Manual")
         if (!repo.libraryFreedomHidden) {
             add(ServerlessFreedomEngine.SOURCE_ID to "Marble Freedom")
         }
@@ -3590,6 +3641,27 @@ private fun CyberLibrary(
             },
             onDismiss = { moveTarget = null }
         )
+    }
+
+    // MARBLE_QR_CAMERA_V123 — the live viewfinder. The gallery door stays reachable from inside
+    // it, so switching from a code on the table to a screenshot costs one tap.
+    if (qrScannerOpen) {
+        Dialog(
+            onDismissRequest = { qrScannerOpen = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            MarbleQrCameraScanner(
+                onDecoded = { text ->
+                    qrScannerOpen = false
+                    repo.importText(text, "QR import", libraryIntakeTarget(repo))
+                },
+                onPickGallery = {
+                    qrScannerOpen = false
+                    qrImportLauncher.launch("image/*")
+                },
+                onDismiss = { qrScannerOpen = false }
+            )
+        }
     }
 
     qrTarget?.let { target ->
@@ -3770,8 +3842,11 @@ private fun CyberLibrary(
                                 repo.selectLibrarySource(intake)
                             }
                         }
+                        // MARBLE_QR_CAMERA_V123 — two doors: the live viewfinder, and the image
+                        // picker for a code that already exists as a picture.
+                        ServersAddAction.QR_CAMERA -> requestQrCamera()
                         // image/* covers screenshots and photos; no camera, no permission.
-                        ServersAddAction.QR -> qrImportLauncher.launch("image/*")
+                        ServersAddAction.QR_GALLERY -> qrImportLauncher.launch("image/*")
                         ServersAddAction.FILE -> onImportFile()
                         ServersAddAction.MANUAL_NODE -> addForm = "node"
                         ServersAddAction.MANUAL_SUBSCRIPTION -> addForm = "subscription"
@@ -3874,26 +3949,11 @@ private fun CyberLibrary(
             item(key = "servers-progress-gap") { Spacer(Modifier.height(10.dp)) }
         }
 
-        if (groups.isEmpty()) {
-            item(key = "servers-empty") {
-                ServersEmptyState(
-                    empty = allProfiles.isEmpty(),
-                    filtered = filter.isActive,
-                    onClearFilters = {
-                        search = ""
-                        repo.selectLibrarySource("all")
-                        updateSettings {
-                            copy(
-                                serversProtocolFilter = "",
-                                serversOnlyReachable = false,
-                                serversMaxPingMs = ServersQuery.MAX_PING_OFF
-                            )
-                        }
-                    },
-                    onAdd = { addForm = "node" }
-                )
-            }
-        }
+        // MARBLE_SERVERS_NO_EMPTY_STATE_V123 — the "Nothing matches" / "No connections yet"
+        // panel was removed. An empty list needs no explanation of its own emptiness: the header
+        // already carries the live server count, the search field shows what is being filtered
+        // and the + button is one tap away, so the page simply stays quiet instead of putting a
+        // card where the user expects servers.
 
         groups.forEach { group ->
             val collapsed = group.key in repo.libraryCollapsedSources
@@ -4178,14 +4238,19 @@ private fun ServersRoundButton(
 /**
  * MARBLE_ADD_SERVER_MENU_V121 — everything the + button can do.
  *
- * Importing is one tap from the menu (clipboard, QR image, file). Building something by hand is a
+ * Importing is one tap from the menu (clipboard, QR, file). Building something by hand is a
  * deliberate second choice, so "Add manually" opens its own small menu of the three things a user
  * can actually author — a single server, a subscription source, or a multi-hop chain — and only
  * then opens the form for it.
+ *
+ * MARBLE_QR_CAMERA_V123 — QR import has two doors and the menu names both: scanning a code that is
+ * physically in front of the user, and picking an image that already holds one. They were one
+ * entry before, which quietly meant "gallery only".
  */
 private enum class ServersAddAction {
     CLIPBOARD,
-    QR,
+    QR_CAMERA,
+    QR_GALLERY,
     FILE,
     MANUAL_NODE,
     MANUAL_SUBSCRIPTION,
@@ -4220,13 +4285,23 @@ private fun ServersAddMenu(
             }
         )
         ServersMenuItem(
-            label = "Import from QR code",
+            label = "Scan QR code",
             icon = HomeIcon.QR,
             tone = Aether.Amethyst,
+            detail = "Point the camera at the code",
+            onClick = {
+                onDismiss()
+                onAction(ServersAddAction.QR_CAMERA)
+            }
+        )
+        ServersMenuItem(
+            label = "QR code from gallery",
+            icon = HomeIcon.QR,
+            tone = Aether.Cyan,
             detail = "Pick a screenshot or photo of the code",
             onClick = {
                 onDismiss()
-                onAction(ServersAddAction.QR)
+                onAction(ServersAddAction.QR_GALLERY)
             }
         )
         ServersMenuItem(
@@ -4718,7 +4793,7 @@ private fun ServersFilterRail(
                     strokeWidth = 2.dp
                 )
             } else {
-                HomeVectorIcon(HomeIcon.PING, Aether.Ink, Modifier.size(17.dp))
+                HomeVectorIcon(HomeIcon.PING, Aether.Cyan, Modifier.size(21.dp))
             }
         }
     }
@@ -4881,54 +4956,6 @@ private fun ServersProbeStrip(repo: AppRepository) {
     }
 }
 
-/** What the page says when there is nothing to list: a reason, and the way out of it. */
-@Composable
-private fun ServersEmptyState(
-    empty: Boolean,
-    filtered: Boolean,
-    onClearFilters: () -> Unit,
-    onAdd: () -> Unit
-) {
-    PrismPanel(
-        modifier = Modifier.fillMaxWidth(),
-        accent = Aether.Cyan,
-        contentPadding = PaddingValues(18.dp),
-        verticalSpacing = 9.dp
-    ) {
-        Text(
-            trx(if (empty) "No connections yet" else "Nothing matches"),
-            color = Aether.Ink,
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold
-        )
-        Text(
-            if (empty) {
-                trx("Add a server, paste a config or import a subscription to get started.")
-            } else if (filtered) {
-                trx("No server matches the current filters.")
-            } else {
-                trx("This group has no servers yet.")
-            },
-            color = Aether.InkFaint,
-            style = MaterialTheme.typography.bodySmall
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (!empty) {
-                CyberButton(
-                    label = "Clear filters",
-                    color = Aether.Amber,
-                    onClick = onClearFilters
-                )
-            }
-            CyberButton(
-                label = "Add servers",
-                color = Aether.Cyan,
-                variant = PrismButtonVariant.Primary,
-                onClick = onAdd
-            )
-        }
-    }
-}
 
 /** The quiet line that replaces a folded group's servers. */
 @Composable
@@ -5729,10 +5756,10 @@ private fun ServersNodeMenu(
                         maxLines = 22
                     )
                     Text(
-                        if (profile.subscriptionId == "manual") {
-                            trx("Manual server • edits are stored locally.")
-                        } else {
+                        if (profile.sourceManaged) {
                             trx("Subscription server • a refresh can replace this edit.")
+                        } else {
+                            trx("Your server • edits are stored locally.")
                         },
                         color = Aether.InkFaint,
                         style = MaterialTheme.typography.bodySmall
@@ -5864,9 +5891,9 @@ private fun ServersNodeMenu(
                     }
                 )
             }
-            if (repo.settings.manualSourceEnabled && !builtInFreedom) {
+            if (!builtInFreedom) {
                 ServersMenuItem(
-                    label = "Duplicate to Manual",
+                    label = "Duplicate server",
                     icon = HomeIcon.LIBRARY,
                     tone = Aether.InkMuted,
                     enabled = !repo.busy,
@@ -5903,10 +5930,7 @@ private fun ServersMoveDialog(
     onPick: (String) -> Unit,
     onDismiss: () -> Unit
 ) {
-    val targets: List<Pair<String, String>> = buildList {
-        if (repo.settings.manualSourceEnabled) add("manual" to "Manual")
-        repo.subscriptions.forEach { add(it.id to it.name) }
-    }
+    val targets: List<Pair<String, String>> = repo.subscriptions.map { it.id to it.name }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -6349,10 +6373,7 @@ private fun ServersAddNodeForm(
         protocol == ManualProtocol.TROJAN
     val realityCapable = draft.transport in setOf("raw", "xhttp", "grpc")
     val missing = ManualConfigBuilder.missingRequirement(draft)
-    val targetOptions = buildList {
-        if (repo.settings.manualSourceEnabled) add("manual" to "Manual")
-        repo.subscriptions.forEach { add(it.id to it.name) }
-    }
+    val targetOptions = repo.subscriptions.map { it.id to it.name }
     val targetName = targetOptions.firstOrNull { it.first == target }?.second
 
     fun update(block: (ManualConfigDraft) -> ManualConfigDraft) {
@@ -6934,8 +6955,15 @@ private fun ServersAddPage(
     var importText by remember { mutableStateOf("") }
     var target by remember { mutableStateOf(libraryIntakeTarget(repo)) }
     val clipboard = LocalClipboardManager.current
-    val manualEnabled = repo.settings.manualSourceEnabled
-    val subscriptionReady = subName.isNotBlank() && subUrl.trim().startsWith("http", true)
+    // MARBLE_MANUAL_SOURCE_REMOVAL_V123 — the group a hand-built server or a paste lands in,
+    // named so the sheet can say where it is writing instead of asking for a Settings switch.
+    val intakeTarget = libraryIntakeTarget(repo)
+    val intakeTargetName = repo.subscriptions.firstOrNull { it.id == intakeTarget }?.name
+        ?: "Local"
+    // MARBLE_SUBSCRIPTION_PASTE_V123 — the link alone is enough to add a source; the name is
+    // derived from the provider's host when the user leaves it empty.
+    val subscriptionLink = SubscriptionLink.normalize(subUrl)
+    val subscriptionReady = subscriptionLink != null
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -7031,22 +7059,56 @@ private fun ServersAddPage(
 
                         "subscription" -> Column(verticalArrangement = Arrangement.spacedBy(MarbleSpacing.M)) {
                             OutlinedTextField(
-                                value = subName,
-                                onValueChange = { subName = it },
-                                label = { Text(trx("Source name")) },
+                                value = subUrl,
+                                onValueChange = { subUrl = it },
+                                label = { Text(trx("Subscription URL")) },
+                                placeholder = { Text("https://provider.example/sub/…") },
                                 singleLine = true,
                                 shape = ServersCardShape,
                                 colors = marbleOutlinedTextFieldColors(),
                                 modifier = Modifier.fillMaxWidth()
                             )
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                CyberButton(
+                                    label = "Paste",
+                                    color = Aether.InkMuted,
+                                    modifier = Modifier.weight(1f)
+                                ) { subUrl = clipboard.getText()?.text.orEmpty() }
+                                CyberButton(
+                                    label = "Clear",
+                                    color = Aether.InkMuted,
+                                    modifier = Modifier.weight(1f),
+                                    enabled = subUrl.isNotBlank()
+                                ) { subUrl = "" }
+                            }
                             OutlinedTextField(
-                                value = subUrl,
-                                onValueChange = { subUrl = it },
-                                label = { Text(trx("Subscription URL")) },
+                                value = subName,
+                                onValueChange = { subName = it },
+                                label = { Text(trx("Source name • optional")) },
+                                placeholder = {
+                                    Text(
+                                        subscriptionLink?.let(SubscriptionLink::nameFor)
+                                            ?: "Provider"
+                                    )
+                                },
                                 singleLine = true,
                                 shape = ServersCardShape,
                                 colors = marbleOutlinedTextFieldColors(),
                                 modifier = Modifier.fillMaxWidth()
+                            )
+                            Text(
+                                when {
+                                    subUrl.isBlank() ->
+                                        trx("Paste the https:// link of the subscription.")
+                                    subscriptionLink == null ->
+                                        trx("That does not look like a subscription link yet.")
+                                    !SubscriptionLink.isSecure(subscriptionLink) ->
+                                        trx("Remote subscriptions must use HTTPS.")
+                                    else ->
+                                        trx("Servers will be added as a new group and refreshed.")
+                                },
+                                color = if (subscriptionReady) Aether.InkFaint else Aether.Amber,
+                                style = MaterialTheme.typography.labelSmall
                             )
                             CyberButton(
                                 label = "Add subscription",
@@ -7055,12 +7117,15 @@ private fun ServersAddPage(
                                 modifier = Modifier.fillMaxWidth(),
                                 enabled = subscriptionReady && !repo.busy
                             ) {
-                                // The repository refreshes a remote source on its own and
-                                // reports every refusal through the runtime message.
-                                repo.addSubscription(subName, subUrl)
-                                subName = ""
-                                subUrl = ""
-                                onDismiss()
+                                // MARBLE_SUBSCRIPTION_PASTE_V123 — the sheet only closes when the
+                                // source was really created. A refusal (plain HTTP, a duplicate
+                                // link, a background task running) keeps the form and its content
+                                // on screen with the reason in the runtime message.
+                                if (repo.addSubscription(subName, subUrl) != null) {
+                                    subName = ""
+                                    subUrl = ""
+                                    onDismiss()
+                                }
                             }
                         }
 
@@ -7108,20 +7173,28 @@ private fun ServersAddPage(
                             modifier = Modifier.weight(1f),
                             enabled = !repo.busy && importText.isNotBlank()
                         ) {
-                            val intake = libraryIntakeTarget(repo)
-                            repo.importText(importText, "Imported", intake)
-                            importText = ""
-                            repo.selectLibrarySource(intake)
-                            onDismiss()
+                            // MARBLE_SUBSCRIPTION_PASTE_V123 — a subscription link pasted into the
+                            // generic box used to be handed to the config parser, which found no
+                            // vless:// / vmess:// link in it and reported "0 profiles imported".
+                            // It now creates the source, which is what the user meant.
+                            val pastedSubscription = SubscriptionLink.normalize(importText)
+                            if (pastedSubscription != null) {
+                                if (repo.addSubscription("", pastedSubscription) != null) {
+                                    importText = ""
+                                    onDismiss()
+                                }
+                            } else {
+                                val intake = libraryIntakeTarget(repo)
+                                repo.importText(importText, "Imported", intake)
+                                importText = ""
+                                repo.selectLibrarySource(intake)
+                                onDismiss()
+                            }
                         }
                     }
                     Text(
-                        if (manualEnabled) {
-                            trx("Manual is enabled")
-                        } else {
-                            trx("Enable Manual in Settings → Advanced before saving a built server.")
-                        },
-                        color = if (manualEnabled) Aether.InkFaint else Aether.Amber,
+                        trx("Saves into") + " • $intakeTargetName",
+                        color = Aether.InkFaint,
                         style = MaterialTheme.typography.labelSmall,
                         maxLines = 2
                     )
@@ -7159,7 +7232,9 @@ private fun ManualChainEditor(
     var name by remember { mutableStateOf("") }
     var search by remember { mutableStateOf("") }
     var hops by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
-    val targetReady = targetSourceId == "manual" && repo.settings.manualSourceEnabled ||
+    // MARBLE_MANUAL_SOURCE_REMOVAL_V123 — a blank target is valid: the repository files the
+    // chain into its permanent local source.
+    val targetReady = targetSourceId.isBlank() ||
         repo.subscriptions.any { it.id == targetSourceId }
     val selectedKeys = hops.toSet()
     val candidates = repo.libraryProfiles.asSequence()
@@ -7258,7 +7333,7 @@ private fun ManualChainEditor(
             if (repo.addManualChain(name, hops, targetSourceId)) onSaved()
         }
         if (!targetReady) {
-            Text(trx("Select one server source first, or enable Manual source."), color = Aether.Amber, style = MaterialTheme.typography.bodySmall)
+            Text(trx("Select one server source first."), color = Aether.Amber, style = MaterialTheme.typography.bodySmall)
         }
     }
 }
@@ -7420,8 +7495,6 @@ private fun LibraryFilterSheet(
     onManageSubscription: (Subscription) -> Unit,
     onDismiss: () -> Unit
 ) {
-    val manualCount=repo.libraryProfiles.count { it.subscriptionId == "manual" }
-
     ModalBottomSheet(
         onDismissRequest=onDismiss,
         containerColor=Aether.VoidElevated,
@@ -7506,17 +7579,6 @@ private fun LibraryFilterSheet(
                             color=Aether.Cyan,
                             onClick={ onSourceFilter(ServerlessFreedomEngine.SOURCE_ID) }
                         )
-                    }
-                    if(repo.settings.manualSourceEnabled) {
-                        item("source-manual") {
-                            SourceOrbitChip(
-                                title="Manual",
-                                detail="$manualCount servers",
-                                selected=sourceFilter == "manual",
-                                color=Aether.Amber,
-                                onClick={ onSourceFilter("manual") }
-                            )
-                        }
                     }
                     items(repo.subscriptions,key={ "sheet-${it.id}" }) { sub ->
                         SourceOrbitChip(
@@ -11073,14 +11135,6 @@ private fun RoutingSettings(repo: AppRepository) {
 
 @Composable
 private fun SubscriptionSettings(repo: AppRepository) {
-    SettingSwitch(
-        title = "Manual source",
-        subtitle = "Show the built-in Manual source",
-        checked = repo.settings.manualSourceEnabled
-    ) {
-        repo.updateSettings(repo.settings.copy(manualSourceEnabled = it))
-    }
-
     SettingSwitch(
         title = "Automatic refresh",
         subtitle = "Refresh stale sources on start",

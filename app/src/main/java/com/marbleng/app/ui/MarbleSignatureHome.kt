@@ -202,11 +202,16 @@ internal fun HomeStyleSignature(
                 )
             }
 
+            // MARBLE_CONNECT_BAND_PLACEMENT_V123 — the round shutter keeps the middle of the hero
+            // field, where the studio's rings are drawn around it. A band silhouette is wide and
+            // short, so centring it in that field left it floating in empty space; it now sits at
+            // the foot of the field, on the baseline of the rings, still above the fold.
+            val bandSilhouette = rememberConnectBandSilhouette()
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(heroHeight),
-                contentAlignment = Alignment.Center
+                contentAlignment = if (bandSilhouette) Alignment.BottomCenter else Alignment.Center
             ) {
                 Canvas(Modifier.matchParentSize()) {
                     drawSignatureHeroField(
@@ -218,20 +223,29 @@ internal fun HomeStyleSignature(
                         connected = evidence.connected
                     )
                 }
-                HomePowerControl(
-                    evidence = evidence,
-                    tone = tone,
-                    onToggle = actions.onToggleConnection,
-                    flavor = HomeFlavor.PRO,
-                    diameter = 168.dp,
-                    haloBrush = Brush.radialGradient(
-                        listOf(
-                            accent.copy(alpha = .30f + .12f * breathe),
-                            accent.copy(alpha = .10f),
-                            Color.Transparent
+                if (bandSilhouette) {
+                    HomeConnectionBand(
+                        evidence = evidence,
+                        tone = tone,
+                        onToggle = actions.onToggleConnection,
+                        flavor = HomeFlavor.PRO
+                    )
+                } else {
+                    HomePowerControl(
+                        evidence = evidence,
+                        tone = tone,
+                        onToggle = actions.onToggleConnection,
+                        flavor = HomeFlavor.PRO,
+                        diameter = 168.dp,
+                        haloBrush = Brush.radialGradient(
+                            listOf(
+                                accent.copy(alpha = .30f + .12f * breathe),
+                                accent.copy(alpha = .10f),
+                                Color.Transparent
+                            )
                         )
                     )
-                )
+                }
             }
 
             Text(

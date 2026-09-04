@@ -1838,6 +1838,60 @@ internal fun HomePowerControl(
 internal val LocalConnectButtonStyle = compositionLocalOf { ConnectButtonStyle.ROUND }
 
 /**
+ * MARBLE_CONNECT_BAND_PLACEMENT_V123 — true for the two *band* silhouettes (slide-to-connect and
+ * the classic switch).
+ *
+ * They are wide and short, so the round shutter's slot is the wrong home for them: dropped into
+ * the middle of a hero ring a 340 dp band either overflowed its panel or floated in empty space
+ * with the artwork arranged around a shape that was no longer there. Every style therefore keeps
+ * the round shutter where it has always been and gives a band its own lower, full-width slot
+ * through [HomeConnectionBand].
+ */
+internal fun ConnectButtonStyle.isBandSilhouette(): Boolean = this != ConnectButtonStyle.ROUND
+
+/** The band silhouette the Home tree is currently rendering, or `null` for the round shutter. */
+@Composable
+internal fun rememberConnectBandSilhouette(): Boolean =
+    LocalConnectButtonStyle.current.isBandSilhouette()
+
+/**
+ * MARBLE_CONNECT_BAND_PLACEMENT_V123 — the slot every Home style reserves for a band-shaped
+ * connection control.
+ *
+ * It fills the width the style gives it and derives the diameter [MarbleConnectionButton] needs
+ * to produce exactly that band width, so the control is as wide as the column on a narrow phone
+ * and stops growing at the same 340 dp ceiling the button has always had on a wide one. Placed at
+ * the bottom of its slot, below the artwork of the style, which is where a drag gesture belongs.
+ */
+@Composable
+internal fun HomeConnectionBand(
+    evidence: HomeEvidence,
+    tone: Color,
+    onToggle: () -> Unit,
+    flavor: HomeFlavor,
+    modifier: Modifier = Modifier
+) {
+    BoxWithConstraints(
+        modifier = modifier.fillMaxWidth(),
+        contentAlignment = Alignment.BottomCenter
+    ) {
+        // MarbleConnectionButton maps diameter → band width as (diameter × 2.1) clamped to
+        // 240..340 dp; inverting that keeps the band exactly as wide as this slot allows.
+        val diameter = (maxWidth / 2.1f).coerceIn(BAND_MIN_DIAMETER, BAND_MAX_DIAMETER)
+        HomePowerControl(
+            evidence = evidence,
+            tone = tone,
+            onToggle = onToggle,
+            flavor = flavor,
+            diameter = diameter
+        )
+    }
+}
+
+private val BAND_MIN_DIAMETER = 114.dp
+private val BAND_MAX_DIAMETER = 162.dp
+
+/**
  * MARBLE_CONNECT_BUTTON_V121 — the one connection button of the product, in three silhouettes.
  *
  *  - [ConnectButtonStyle.ROUND]   the large round shutter (default);
@@ -2375,19 +2429,33 @@ internal fun HomeStyleCosmicOrbit(
                         Canvas(Modifier.matchParentSize()) {
                             drawSolarSystem(gold, tone, orbitPhases, phase, evidence.connected)
                         }
-                        HomePowerControl(
+                        // MARBLE_CONNECT_BAND_PLACEMENT_V123 — a band silhouette never sits inside
+                        // the orbit ring: it is far wider than the ring is tall, and this column is
+                        // only a fraction of the screen. It gets its own slot below instead.
+                        if (!rememberConnectBandSilhouette()) {
+                            HomePowerControl(
+                                evidence = evidence,
+                                tone = tone,
+                                onToggle = actions.onToggleConnection,
+                                flavor = HomeFlavor.ORBIT,
+                                diameter = 118.dp,
+                                haloBrush = Brush.radialGradient(
+                                    listOf(
+                                        gold.copy(alpha = .55f),
+                                        gold.copy(alpha = .16f),
+                                        Color.Transparent
+                                    )
+                                )
+                            )
+                        }
+                    }
+                    if (rememberConnectBandSilhouette()) {
+                        HomeConnectionBand(
                             evidence = evidence,
                             tone = tone,
                             onToggle = actions.onToggleConnection,
                             flavor = HomeFlavor.ORBIT,
-                            diameter = 118.dp,
-                            haloBrush = Brush.radialGradient(
-                                listOf(
-                                    gold.copy(alpha = .55f),
-                                    gold.copy(alpha = .16f),
-                                    Color.Transparent
-                                )
-                            )
+                            modifier = Modifier.padding(top = 12.dp)
                         )
                     }
                     HomeStatusHeadline(evidence, tone, align = TextAlign.Start)
@@ -2649,20 +2717,25 @@ internal fun HomeStyleCosmicImmersion(
         ) {
             Spacer(Modifier.height(skyClearance))
 
-            HomePowerControl(
-                evidence = evidence,
-                tone = tone,
-                onToggle = actions.onToggleConnection,
-                flavor = HomeFlavor.NEBULA,
-                diameter = 134.dp,
-                haloBrush = Brush.radialGradient(
-                    listOf(
-                        cyan.copy(alpha = .30f + .12f * bloom),
-                        violet.copy(alpha = .18f),
-                        Color.Transparent
+            // MARBLE_CONNECT_BAND_PLACEMENT_V123 — the round shutter keeps its place under the
+            // sky; a band is not a celestial body and reads better anchored below the identity
+            // block, where the thumb already is.
+            if (!rememberConnectBandSilhouette()) {
+                HomePowerControl(
+                    evidence = evidence,
+                    tone = tone,
+                    onToggle = actions.onToggleConnection,
+                    flavor = HomeFlavor.NEBULA,
+                    diameter = 134.dp,
+                    haloBrush = Brush.radialGradient(
+                        listOf(
+                            cyan.copy(alpha = .30f + .12f * bloom),
+                            violet.copy(alpha = .18f),
+                            Color.Transparent
+                        )
                     )
                 )
-            )
+            }
 
             Text(
                 homeStatusText(evidence).uppercase(),
@@ -2675,6 +2748,16 @@ internal fun HomeStyleCosmicImmersion(
             )
 
             HomeIdentityBlock(evidence, tone, HomeFlavor.NEBULA, Modifier.fillMaxWidth())
+
+            if (rememberConnectBandSilhouette()) {
+                HomeConnectionBand(
+                    evidence = evidence,
+                    tone = tone,
+                    onToggle = actions.onToggleConnection,
+                    flavor = HomeFlavor.NEBULA,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+            }
 
             HomeIpRow(evidence, tone, actions, HomeFlavor.NEBULA, Modifier.fillMaxWidth())
 

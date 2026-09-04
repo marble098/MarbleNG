@@ -197,7 +197,6 @@ class AppStore(context: Context) {
         // MARBLE_APP_UPDATE_STORE_V102
         appUpdateCheckEnabled = prefs.getBoolean("appUpdateCheckEnabled", true),
         subscriptionRefreshHours = prefs.getInt("subscriptionRefreshHours", 12),
-        manualSourceEnabled = prefs.getBoolean("manualSourceEnabled", false),
         homeShowSummaryMetrics = prefs.getBoolean("homeShowSummaryMetrics", false),
         homeShowIranMode = prefs.getBoolean("homeShowIranMode", true),
         homeShowQuickActions = prefs.getBoolean("homeShowQuickActions", true),
@@ -412,7 +411,9 @@ class AppStore(context: Context) {
         .putBoolean("subscriptionAutoRefresh", s.subscriptionAutoRefresh)
         .putBoolean("appUpdateCheckEnabled", s.appUpdateCheckEnabled)
         .putInt("subscriptionRefreshHours", s.subscriptionRefreshHours)
-        .putBoolean("manualSourceEnabled", s.manualSourceEnabled)
+        // MARBLE_MANUAL_SOURCE_REMOVAL_V123 — the retired Manual-source switch is deleted on
+        // write so the preference file stops carrying a key nothing reads.
+        .remove("manualSourceEnabled")
         .putBoolean("homeShowSummaryMetrics", s.homeShowSummaryMetrics)
         .putBoolean("homeShowIranMode", s.homeShowIranMode)
         .putBoolean("homeShowQuickActions", s.homeShowQuickActions)

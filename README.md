@@ -104,14 +104,17 @@ and a latency capsule plus a three-dot menu on the right.
 
 - Connect directly to a node; the connected card keeps its geometry and only changes frame and one word.
 - Per-server menu: **Edit**, **Copy link**, **Export QR code**, **Ping**, **Move to group**,
-  **Details**, **Copy Xray JSON**, **Edit Xray JSON**, **Duplicate to Manual** and **Delete**.
+  **Details**, **Copy Xray JSON**, **Edit Xray JSON**, **Duplicate server** and **Delete**.
 - The QR export is rendered on device by Marble's own encoder — no network, no image dependency.
+- QR **import** has two doors: scan a code with the camera, or pick a screenshot/photo from the
+  gallery. Both decode on device (ZXing core) and the gallery door needs no permission at all.
 - Sort by Default, Name, Name (Z-A), Ping, Country or Protocol; never-measured servers sort last
   rather than pretending `0 ms` is fastest.
 - Run real full tests, or measure a whole group at once.
 - Rename, move between groups, or delete nodes.
 - Copy original config/share text or generated Xray JSON; edit Xray JSON for supported profiles.
-- Duplicate a profile into Manual storage when enabled.
+- Duplicate a profile into the local source, so a copy is always user-owned and survives a
+  subscription refresh.
 - Swipe right for the rename dialog.
 - See per-card queued/testing progress.
 
@@ -128,7 +131,12 @@ tells TalkBack the truth — that nothing has been measured yet.
   Security dropdowns.
 - **Save** stays disabled until the config is complete, and the sentence under the form says exactly
   which field is missing — the same check the builder itself uses.
-- Paste and file import land in the group the page is currently showing.
+- Paste and file import land in the group the page is currently showing, and the sheet names that
+  group so it is never a guess where a server was filed.
+- **Subscription** needs only the link: paste it and the group is named after the provider's host.
+  The sheet closes only when the source was really created, so a refusal (plain HTTP, a duplicate
+  link) keeps the form on screen and says why. A subscription link pasted into the generic import
+  box is recognised and creates the source instead of being handed to the config-link parser.
 
 ### Settings
 
@@ -231,9 +239,24 @@ Local proxy mode exposes the configured loopback proxy without forcing the whole
 
 ## Testing and ranking
 
-### Quick TCP ping
+One setting — Settings → Tests → Ping — drives every measurement in the product: the Home ping
+button, a group's ping and the page-wide ping.
 
-- Fast host/port reachability.
+### Smart ping (default)
+
+- A cheap reachability gate first: one TCP handshake with Happy-Eyeballs address racing, and one
+  resolver round trip as a second opinion when the handshake comes back empty. No child process,
+  so a dead endpoint is reported in well under a second.
+- Only a gate-passer then pays for the verified HTTPS measurement through a real Xray tunnel, with
+  a start-up budget that survives a busy phone.
+- A gate-passer whose verified phase could not complete is reported **reachable but unverified**
+  with its real handshake latency, never as a failure — a filtered network and a loaded CPU used to
+  paint every healthy server red. Unverified results are kept out of tunnel intelligence, so they
+  can never teach the ranker that an unproven node is a working route.
+
+### Address-level ping
+
+- TCP, ICMP, HTTP and DNS measure the endpoint or the underlay path directly.
 - Endpoint de-duplication for large aggregator subscriptions.
 - Per-node progress updates.
 
