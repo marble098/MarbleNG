@@ -18,10 +18,12 @@ package com.marbleng.app.ui
 //   * floating connect button (app-wide, draggable, v2rayNG-style shutter) — on/off;
 //   * status banner (connection state + selected server) — on/off, Home-only or every page;
 //   * corner action cluster — add server, grab ping, one configurable shortcut, more (⋮);
-//   * server rail with the servers chosen in the Library source selector — on/off;
-//   * server card backgrounds — glass / accent color / plain;
-//   * connection style switcher at the bottom of the page — on/off;
 //   * the accent color driving every one of the studio's animated surfaces.
+//
+// MARBLE_SIGNATURE_STUDIO_TRIM_V121 — the in-Home server rail, its card-background choice and the
+// bottom style switcher were removed. Choosing a route is the Servers page's job and choosing a
+// presentation is Settings' job; duplicating either on Home only made the surface noisy and gave
+// the same action two different behaviours.
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -29,7 +31,6 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -67,7 +68,6 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -79,11 +79,8 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.marbleng.app.model.ConnectionPingState
-import com.marbleng.app.model.HomeStyle
 import com.marbleng.app.model.ProAccent
-import com.marbleng.app.model.ProServerCardStyle
 import com.marbleng.app.model.ProShortcut
-import com.marbleng.app.model.ProxyProfile
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.min
@@ -126,6 +123,9 @@ internal fun signatureStatusTone(evidence: HomeEvidence, accent: ProAccent): Col
         // green. Choosing the EMERALD accent restores the classic green look.
         evidence.connected -> accentColor
         evidence.connecting -> accentColor.copy(alpha = .82f)
+        // MARBLE_CONNECT_BUTTON_V121 — a closing tunnel is its own state everywhere, including
+        // the studio chrome, so the banner cannot claim "ready" while the route is still up.
+        evidence.disconnecting -> Aether.Amber
         evidence.blocked -> Aether.Danger
         else -> accentColor
     }
@@ -137,8 +137,12 @@ internal fun signatureStatusTone(evidence: HomeEvidence, accent: ProAccent): Col
 
 /**
  * The professional, fully-customizable Home. One column of studio modules over an animated
- * accent aurora: status banner, corner action cluster, the power instrument, the shared
- * evidence blocks in their Signature skin, the server rail and the bottom style switcher.
+ * accent aurora: status banner, corner action cluster, the power instrument and the shared
+ * evidence blocks in their Signature skin.
+ *
+ * MARBLE_SIGNATURE_STUDIO_TRIM_V121 — the in-Home server rail and style switcher were removed:
+ * routes belong to the Servers page and the presentation to Settings, so Home stays one calm
+ * connection surface instead of a third place to change either.
  */
 @Composable
 internal fun HomeStyleSignature(
@@ -219,15 +223,14 @@ internal fun HomeStyleSignature(
                     tone = tone,
                     onToggle = actions.onToggleConnection,
                     flavor = HomeFlavor.PRO,
-                    diameter = 132.dp,
+                    diameter = 168.dp,
                     haloBrush = Brush.radialGradient(
                         listOf(
                             accent.copy(alpha = .30f + .12f * breathe),
                             accent.copy(alpha = .10f),
                             Color.Transparent
                         )
-                    ),
-                    model = ConnectButtonModel.FLOAT
+                    )
                 )
             }
 
@@ -244,17 +247,6 @@ internal fun HomeStyleSignature(
             HomeIdentityBlock(evidence, tone, HomeFlavor.PRO, Modifier.fillMaxWidth())
             HomeIpRow(evidence, tone, actions, HomeFlavor.PRO, Modifier.fillMaxWidth())
             HomeSessionStats(evidence, tone, actions, HomeFlavor.PRO, Modifier.fillMaxWidth())
-
-            if (pro.showServerRail) {
-                SignatureServerRail(pro = pro, actions = actions)
-            }
-
-            if (pro.showStyleSwitcher) {
-                SignatureStyleSwitcher(
-                    activeStyle = pro.selectedHomeStyle,
-                    onSelect = pro.onHomeStyleSelected
-                )
-            }
 
             Spacer(Modifier.height(2.dp))
         }
@@ -702,218 +694,6 @@ private fun SignatureCornerButton(
         contentAlignment = Alignment.Center
     ) {
         content()
-    }
-}
-
-// ---------------------------------------------------------------------------------------------
-// Server rail
-// ---------------------------------------------------------------------------------------------
-
-/**
- * The Signature server rail: the servers of the Library source the user selected, rendered as
- * chips whose background follows the chosen card style (glass / accent / plain). Tapping a chip
- * connects to that server; the server carrying traffic is framed in emerald.
- */
-@Composable
-private fun SignatureServerRail(
-    pro: HomeProContext,
-    actions: HomeActions
-) {
-    val t = Tr.now
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            HomeGlyphIcon(HomeGlyph.LIBRARY, Aether.InkFaint, Modifier.size(12.dp))
-            Text(
-                t.proServers.uppercase(),
-                color = Aether.InkFaint,
-                style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 2.sp),
-                fontWeight = FontWeight.Bold,
-                maxLines = 1
-            )
-            Text(
-                "• ${pro.railLabel}",
-                color = Aether.InkMuted,
-                style = MaterialTheme.typography.labelSmall,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-        if (pro.railProfiles.isEmpty()) {
-            Text(
-                t.proServersDetail,
-                color = Aether.InkFaint,
-                style = MaterialTheme.typography.bodySmall,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
-            )
-        } else {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                pro.railProfiles.forEach { profile ->
-                    SignatureServerChip(
-                        profile = profile,
-                        active = pro.connected && profile.id == pro.activeProfileId,
-                        cardStyle = pro.cardStyle,
-                        onClick = { actions.onConnectProfile(profile) }
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun SignatureServerChip(
-    profile: ProxyProfile,
-    active: Boolean,
-    cardStyle: ProServerCardStyle,
-    onClick: () -> Unit
-) {
-    val frame = if (active) Aether.Emerald else Aether.Cyan
-    val name = stripLeadingFlag(profile.name).ifBlank { profile.name }
-    val flag = leadingFlagGlyph(profile.name)
-    val shape = RoundedCornerShape(15.dp)
-
-    // The three user-selectable card personalities: frosted glass, solid accent tint, plain.
-    val (fill, borderTone) = when (cardStyle) {
-        ProServerCardStyle.GLASS ->
-            Aether.BarGlass to frame.copy(alpha = if (active) .55f else .24f)
-        ProServerCardStyle.ACCENT ->
-            frame.copy(alpha = if (active) .20f else .10f) to frame.copy(alpha = if (active) .60f else .30f)
-        ProServerCardStyle.PLAIN ->
-            Aether.VoidElevated to frame.copy(alpha = if (active) .50f else .16f)
-    }
-
-    Row(
-        modifier = Modifier
-            .clip(shape)
-            .background(fill)
-            .border(
-                if (active) 1.4.dp else 1.dp,
-                borderTone,
-                shape
-            )
-            .kineticClickable(role = Role.Button, boundedShape = shape, onClick = onClick)
-            .semantics {
-                contentDescription = "Connect to ${profile.name}"
-            }
-            .padding(horizontal = 11.dp, vertical = 9.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(7.dp)
-    ) {
-        Text(
-            flag ?: profile.scheme.trim().take(1).uppercase().ifBlank { "M" },
-            color = frame,
-            style = MaterialTheme.typography.labelLarge,
-            fontWeight = FontWeight.Bold,
-            maxLines = 1
-        )
-        Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
-            Text(
-                name,
-                color = Aether.Ink,
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                profile.scheme.uppercase(),
-                color = Aether.InkFaint,
-                style = MaterialTheme.typography.labelSmall,
-                maxLines = 1
-            )
-        }
-        if (active) {
-            Box(
-                Modifier
-                    .size(6.dp)
-                    .clip(CircleShape)
-                    .background(Aether.Emerald)
-            )
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------------------------
-// Style switcher
-// ---------------------------------------------------------------------------------------------
-
-/** Short style names for the switcher chips. */
-@Composable
-private fun signatureStyleLabel(style: HomeStyle): String = when (style) {
-    HomeStyle.PRO -> Tr.now.stylePro
-    HomeStyle.BIOLUMINESCENT -> Tr.now.styleBioluminescent
-    HomeStyle.COSMIC_ORBIT -> Tr.now.styleCosmicOrbit
-    HomeStyle.COSMIC_IMMERSION -> Tr.now.styleCosmicImmersion
-    HomeStyle.PARAMETRIC -> Tr.now.styleParametric
-}
-
-/**
- * Bottom-of-page connection style switcher: every Home presentation reachable in one tap,
- * without leaving the screen. The chip of the active style carries the accent frame.
- */
-@Composable
-private fun SignatureStyleSwitcher(
-    activeStyle: HomeStyle,
-    onSelect: (HomeStyle) -> Unit
-) {
-    val t = Tr.now
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(
-            t.proStyleSwitcher.uppercase(),
-            color = Aether.InkFaint,
-            style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 2.sp),
-            fontWeight = FontWeight.Bold,
-            maxLines = 1
-        )
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(7.dp)
-        ) {
-            HomeStyle.entries.forEach { style ->
-                val active = style == activeStyle
-                val shape = RoundedCornerShape(12.dp)
-                val fill by animateColorAsState(
-                    targetValue = if (active) Aether.Cyan.copy(alpha = .13f) else Aether.VoidElevated.copy(alpha = .85f),
-                    animationSpec = MarbleMotionSpecs.Color,
-                    label = "signature-style-chip"
-                )
-                Text(
-                    signatureStyleLabel(style),
-                    color = if (active) Aether.Cyan else Aether.InkMuted,
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
-                    maxLines = 1,
-                    modifier = Modifier
-                        .clip(shape)
-                        .background(fill)
-                        .border(
-                            1.dp,
-                            if (active) Aether.Cyan.copy(alpha = .45f) else Aether.GlassBorderSoft,
-                            shape
-                        )
-                        .kineticClickable(
-                            role = Role.Button,
-                            boundedShape = shape,
-                            showIndication = false,
-                            onClick = { onSelect(style) }
-                        )
-                        .semantics { selected = active }
-                        .padding(horizontal = 12.dp, vertical = 8.dp)
-                )
-            }
-        }
     }
 }
 

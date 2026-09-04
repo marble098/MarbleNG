@@ -122,35 +122,31 @@ enum class WorkloadProfile { AUTO, INTERACTIVE, STREAMING, STABILITY, STEALTH }
 enum class NodeSortMode { DEFAULT, PING, SCORE, NAME, PROTOCOL, SOURCE, COUNTRY }
 
 /**
- * MARBLE_HOME_STYLE_V110 / MARBLE_SIGNATURE_HOME_V112
+ * MARBLE_HOME_STYLE_V110 / MARBLE_SIGNATURE_HOME_V112 / MARBLE_HOME_STYLE_TRIM_V121
  *
- * The five user-selectable Home (connection) presentations. Every style renders exactly the same
+ * The three user-selectable Home (connection) presentations. Every style renders exactly the same
  * runtime evidence — node, source, IP + flag + three actions, session uptime and the one-shot
  * connection ping — so switching a style is purely a presentation choice and never changes what
  * the user can see or do.
+ *
+ * MARBLE_HOME_STYLE_TRIM_V121 removed the Bioluminescent and Parametric presentations from the
+ * whole product; any persisted value naming them falls back to the Signature studio.
  */
 enum class HomeStyle(val id: String) {
     /**
      * MARBLE_SIGNATURE_HOME_V112 — the dedicated professional Signature studio.
      *
      * A fixed, fully customizable connection surface that is the product's default: a status
-     * banner, corner quick actions (+ / ping / shortcut / more), the server rail of the source
-     * selected in Library, a bottom connection-style switcher, the optional floating connect
+     * banner, corner quick actions (+ / ping / shortcut / more), the optional floating connect
      * button (app-wide, draggable, v2rayNG-style) and an accent-tinted animated aurora backdrop.
      */
     PRO("pro"),
-
-    /** Organic bioluminescence: glowing seed, nerve-like data tendrils, pastel green/purple. */
-    BIOLUMINESCENT("bioluminescent"),
 
     /** Cosmic orbit dashboard: orbiting system card plus a network-speed graph. */
     COSMIC_ORBIT("cosmic_orbit"),
 
     /** Cosmic orbit, full-screen immersion: orbit above, cosmic energy flower below. */
-    COSMIC_IMMERSION("cosmic_immersion"),
-
-    /** Minimalist parametric architecture: isometric glass structure, precise modular panels. */
-    PARAMETRIC("parametric")
+    COSMIC_IMMERSION("cosmic_immersion")
 }
 
 fun parseHomeStyle(raw: String): HomeStyle =
@@ -191,22 +187,8 @@ fun parseAppFont(raw: String): AppFont =
         ?: AppFont.VAZIR
 
 /**
- * MARBLE_SIGNATURE_HOME_V112 — background treatment of the server cards in the Signature Home
- * rail: frosted glass, a solid accent-tinted fill, or plain flat surfaces.
- */
-enum class ProServerCardStyle(val id: String) {
-    GLASS("glass"),
-    ACCENT("accent"),
-    PLAIN("plain")
-}
-
-fun parseProServerCardStyle(raw: String): ProServerCardStyle =
-    ProServerCardStyle.entries.firstOrNull { it.id.equals(raw.trim(), ignoreCase = true) }
-        ?: ProServerCardStyle.GLASS
-
-/**
  * MARBLE_SIGNATURE_HOME_V112 — the user-chosen accent that drives the whole Signature studio
- * (banner, power rings, server rail, floating button and aurora backdrop).
+ * (banner, power rings and aurora backdrop).
  */
 enum class ProAccent(val id: String, val label: String) {
     ELECTRIC("electric", "Electric"),
@@ -248,26 +230,26 @@ fun parseProShortcut(raw: String): ProShortcut =
         ?: ProShortcut.LIBRARY
 
 /**
- * MARBLE_CONNECT_BUTTON_STYLES_V119 — the five connection-button silhouettes, selectable from
- * Settings. Every model renders correctly inside all five Home presentations: the model controls
- * the button's own drawing (floating orb / core / pulse / orbit / shield) while each Home style
- * supplies its own tone and halo, so a choice is never tied to a specific theme.
+ * MARBLE_CONNECT_BUTTON_V121 — the three connection-button silhouettes, selectable from Settings.
  *
- * [AUTO] keeps each Home style's signature button; picking one of the other five pins that
- * silhouette everywhere the Home connect control is drawn.
+ * Every model renders correctly inside every Home presentation: the model controls the button's
+ * own drawing while each Home style supplies its own tone and halo, so a choice is never tied to
+ * a specific theme. None of them ever drifts, floats or changes position — the primary action of
+ * the product stays exactly where the finger expects it, and only colour and copy animate.
+ *
+ *  - [ROUND]   the large round shutter. The product default.
+ *  - [SLIDE]   a slide-to-connect track the user drags from left to right, like a safety switch.
+ *  - [CLASSIC] the classic rectangular power switch of the old desktop clients.
  */
 enum class ConnectButtonStyle(val id: String) {
-    AUTO("auto"),
-    FLOAT("float"),
-    CORE("core"),
-    PULSE("pulse"),
-    ORBIT("orbit"),
-    SHIELD("shield")
+    ROUND("round"),
+    SLIDE("slide"),
+    CLASSIC("classic")
 }
 
 fun parseConnectButtonStyle(raw: String): ConnectButtonStyle =
     ConnectButtonStyle.entries.firstOrNull { it.id.equals(raw.trim(), ignoreCase = true) }
-        ?: ConnectButtonStyle.AUTO
+        ?: ConnectButtonStyle.ROUND
 
 /**
  * MARBLE_NIGHT_OUTLINES_V112 — dark-theme frame outline personality. The user can strengthen
@@ -296,10 +278,17 @@ enum class ConnectionPingState { IDLE, MEASURING, MEASURED, FAILED }
 enum class ProbeState { IDLE, QUEUED, TESTING }
 
 /**
- * How MarbleNG measures a node.
+ * MARBLE_UNIFIED_PING_V121 — the single ping engine of the whole product.
  *
- * TUNNEL is the only method that proves a node actually carries traffic; the others are fast
- * reachability estimates of the physical endpoint and cannot see censorship or a dead account.
+ * One user choice in Settings → Tests → Ping drives every measurement the user can trigger: the
+ * Home ping button, the per-source ping in the Servers three-dot menu and the page-wide ping.
+ * There is no second, hidden ping path any more.
+ *
+ *  - [HYBRID] "Smart ping" — the product default: a fast reachability gate followed by the real
+ *    verified measurement, so the number is honest without being slow.
+ *  - [TUNNEL] the real tunnel measurement only. Slowest, most accurate.
+ *  - [TCP] a plain TCP handshake against the endpoint. Fastest, proves reachability only.
+ *  - [ICMP] a classic ICMP echo against the endpoint.
  */
 enum class ProbeMethod { TUNNEL, TCP, ICMP, HYBRID }
 
@@ -633,23 +622,16 @@ data class AppSettings(
     val proBannerScope: String = ProBannerScope.HOME.id,
     /** Corner action cluster: add server, grab ping, one configurable shortcut, more (⋮). Off for a clean first run. */
     val proCornerActionsEnabled: Boolean = false,
-    /** Home rail with the servers chosen in the Library source selector. Off for a clean first run. */
-    val proServerRailEnabled: Boolean = false,
-    /** Bottom-of-page chips that switch the connection style without leaving Home. Off for a clean first run. */
-    val proStyleSwitcherEnabled: Boolean = false,
-    /** Background treatment of the Signature server cards: glass / accent color / plain. */
-    val proServerCardStyle: String = ProServerCardStyle.GLASS.id,
     /** Accent driving the Signature studio surfaces and animations. */
     val proAccent: String = ProAccent.ELECTRIC.id,
     /** Which quick action the corner shortcut button runs. */
     val proShortcut: String = ProShortcut.LIBRARY.id,
 
     /**
-     * MARBLE_CONNECT_BUTTON_STYLES_V119 — the connection-button silhouette shown on every Home
-     * style. AUTO keeps each presentation's own signature button; the five named models pin one
-     * silhouette across all five presentations.
+     * MARBLE_CONNECT_BUTTON_V121 — the connection-button silhouette shown on every Home style:
+     * the large round shutter (default), the slide-to-connect track or the classic power switch.
      */
-    val connectButtonStyle: String = ConnectButtonStyle.AUTO.id,
+    val connectButtonStyle: String = ConnectButtonStyle.ROUND.id,
 
     /** MARBLE_NIGHT_OUTLINES_V112 — dark-theme hairline personality for every frame/card. */
     val darkOutlineStyle: String = DarkOutlineStyle.SUBTLE.id,

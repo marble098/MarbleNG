@@ -2,19 +2,19 @@ package com.marbleng.app.ui
 
 import com.marbleng.app.model.AppFont
 import com.marbleng.app.model.AppLanguage
+import com.marbleng.app.model.ConnectButtonStyle
 import com.marbleng.app.model.DarkOutlineStyle
 import com.marbleng.app.model.HomeStyle
 import com.marbleng.app.model.ProAccent
 import com.marbleng.app.model.ProBannerScope
-import com.marbleng.app.model.ProServerCardStyle
 import com.marbleng.app.model.ProShortcut
+import com.marbleng.app.model.parseConnectButtonStyle
 import com.marbleng.app.model.parseAppFont
 import com.marbleng.app.model.parseAppLanguage
 import com.marbleng.app.model.parseDarkOutlineStyle
 import com.marbleng.app.model.parseHomeStyle
 import com.marbleng.app.model.parseProAccent
 import com.marbleng.app.model.parseProBannerScope
-import com.marbleng.app.model.parseProServerCardStyle
 import com.marbleng.app.model.parseProShortcut
 import java.util.Locale
 import org.junit.Assert.assertEquals
@@ -81,11 +81,6 @@ class MarbleHomeStyleTest {
 
     @Test
     fun everySignatureCustomizationRoundTrips() {
-        ProServerCardStyle.entries.forEach { style ->
-            assertEquals(style, parseProServerCardStyle(style.id))
-        }
-        assertEquals(ProServerCardStyle.GLASS, parseProServerCardStyle("junk"))
-
         ProAccent.entries.forEach { accent ->
             assertEquals(accent, parseProAccent(accent.id))
         }
@@ -100,6 +95,38 @@ class MarbleHomeStyleTest {
             assertEquals(shortcut, parseProShortcut(shortcut.id))
         }
         assertEquals(ProShortcut.LIBRARY, parseProShortcut("junk"))
+    }
+
+    // MARBLE_HOME_STYLE_TRIM_V121 — Parametric and Bioluminescent are gone from the product, so a
+    // device that persisted either of them must land on the default presentation, not crash.
+    @Test
+    fun retiredHomeStylesFallBackToTheDefaultPresentation() {
+        assertEquals(3, HomeStyle.entries.size)
+        listOf("parametric", "bioluminescent", "PARAMETRIC", "BIOLUMINESCENT").forEach { legacy ->
+            assertEquals(
+                "retired style $legacy must fall back",
+                HomeStyle.PRO,
+                parseHomeStyle(legacy)
+            )
+        }
+    }
+
+    // MARBLE_CONNECT_BUTTON_V121 — exactly three connection controls, the round shutter default,
+    // and every retired silhouette id resolves to it instead of an unknown state.
+    @Test
+    fun connectButtonStylesRoundTripAndRetiredOnesFallBack() {
+        assertEquals(3, ConnectButtonStyle.entries.size)
+        ConnectButtonStyle.entries.forEach { style ->
+            assertEquals(style, parseConnectButtonStyle(style.id))
+            assertEquals(style, parseConnectButtonStyle(style.id.uppercase()))
+        }
+        listOf("auto", "float", "core", "pulse", "orbit", "shield", "").forEach { legacy ->
+            assertEquals(
+                "retired connect button $legacy must fall back",
+                ConnectButtonStyle.ROUND,
+                parseConnectButtonStyle(legacy)
+            )
+        }
     }
 
     @Test

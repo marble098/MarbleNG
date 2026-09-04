@@ -341,6 +341,19 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
      */
     var activeProfileId by mutableStateOf(""); private set
     var activeProfileSourceId by mutableStateOf(""); private set
+
+    /**
+     * MARBLE_SELECT_IS_NOT_CONNECT_V121 — the server the user has *chosen*, which is not the same
+     * thing as the server that is carrying traffic.
+     *
+     * Tapping a server in the Servers list used to open a tunnel immediately, so browsing the list
+     * while disconnected kept starting connections nobody asked for. Selection is now a plain,
+     * durable choice: it moves the Home surface onto that server and the connect button acts on
+     * it, and nothing else happens until the user presses connect. (Tapping another server *while*
+     * a tunnel is up still switches the route — that is an explicit re-connect, not a browse.)
+     */
+    var selectedProfileId by mutableStateOf(store.lastProfileId()); private set
+    var selectedProfileSourceId by mutableStateOf(store.lastProfileSourceId()); private set
     var busy by mutableStateOf(false); private set
 
     // Background engines are allowed to publish status text, but Compose state itself is committed
@@ -998,6 +1011,9 @@ fun resetTelemetry() {
         state == "CONNECTED" && id.isNotBlank() && activeProfileId == id
 
     fun setRuntimeState(s: String, d: String) {
+        // A late DISCONNECTING report can never override a state the service has already moved on
+        // from; the watchdog token below is what actually clears a stuck teardown.
+        if (s == "DISCONNECTING" && state != "CONNECTED" && state != "CONNECTING") return
         diagnostics.event("APP", "state", "from" to state, "to" to s, "detail" to d.take(160))
         postToMain {
             state = s
@@ -1395,6 +1411,61 @@ private fun postToMain(block: () -> Unit) {
 
         val port = activeProxyPort()
         val sessionAtStart = connectedSinceMs
+
+        // MARBLE_ONE_PING_V121 — the Home ping obeys Settings → Testing like every other
+        // measurement in the product. Smart ping (the default) and Tunnel ping race the verified
+        // in-tunnel ladder below; the address-level methods measure the server endpoint directly,
+        // which is exactly what the user asked for when they picked TCP or ICMP.
+        val method = settings.probeMethod
+        if (method == ProbeMethod.TCP || method == ProbeMethod.ICMP) {
+            postToMain {
+                connectionPingMs = 0
+                connectionPingState = ConnectionPingState.MEASURING
+            }
+            val target = profile(activeProfileId, activeProfileSourceId)
+            io.execute {
+                val sample = target?.let { live ->
+                    runCatching {
+                        RouteProbe.measure(
+                            profile = live,
+                            icmpMode = method == ProbeMethod.ICMP,
+                            samples = settings.benchSamples.coerceIn(1, 4),
+                            timeoutMs = (settings.benchTimeoutSec * 1000).coerceIn(500, 8_000),
+                            settings = settings
+                        )
+                    }.getOrNull()
+                }
+                val measured = sample
+                    ?.takeIf { it.successPercent > 0 }
+                    ?.latencyMs
+                    ?.let { LinkQualityEstimator.sanitaryRtt(it).roundToInt() }
+                    ?: 0
+                diagnostics.event(
+                    "APP",
+                    "home-connection-ping",
+                    "measured" to measured,
+                    "mode" to if (method == ProbeMethod.ICMP) "icmp" else "tcp"
+                )
+                postToMain {
+                    connectionPingInFlight.set(false)
+                    when {
+                        state != "CONNECTED" || connectedSinceMs != sessionAtStart -> {
+                            connectionPingMs = 0
+                            connectionPingState = ConnectionPingState.IDLE
+                        }
+                        measured > 0 -> {
+                            connectionPingMs = measured
+                            connectionPingState = ConnectionPingState.MEASURED
+                        }
+                        else -> {
+                            connectionPingMs = 0
+                            connectionPingState = ConnectionPingState.FAILED
+                        }
+                    }
+                }
+            }
+            return
+        }
 
         // Guarantee 1 — seed the readout with a real measurement the tunnel already owns, so the
         // value never sits in MEASURING while the race is still running. Stored benchmarks are
@@ -1875,6 +1946,26 @@ private fun postToMain(block: () -> Unit) {
         message = "${hops.size}-hop chain saved • $name"
         return true
     }
+    /**
+     * MARBLE_QR_IMPORT_V121 — import the configs encoded in a QR image the user picked.
+     *
+     * Decoding happens off the main thread (a photo can be several megapixels) and the import
+     * itself runs through the normal [importText] path, so a QR code and a pasted link land in
+     * exactly the same place with exactly the same de-duplication.
+     */
+    fun importQrImage(uri: android.net.Uri, targetSubscriptionId: String) {
+        io.execute {
+            val decoded = runCatching { QrImageDecoder.decode(context, uri) }.getOrNull()
+            postToMain {
+                if (decoded.isNullOrBlank()) {
+                    message = "No QR code found in that image"
+                } else {
+                    importText(decoded, "QR import", targetSubscriptionId)
+                }
+            }
+        }
+    }
+
     fun importText(
         text: String,
         name: String = "Manual",
@@ -2133,6 +2224,11 @@ private fun postToMain(block: () -> Unit) {
         }
         subscriptions.removeAll { it.id == id }
         profiles.removeAll { it.subscriptionId == id }
+        if (selectedProfileId in doomedIds || selectedProfileSourceId == id) {
+            selectedProfileId = ""
+            selectedProfileSourceId = ""
+            store.clearLastProfile()
+        }
         benchmarks = benchmarks.filterNot { it.profileId in doomedIds }
         store.saveSubscriptions(subscriptions)
         store.saveProfiles(profiles)
@@ -2168,9 +2264,17 @@ private fun postToMain(block: () -> Unit) {
         val remembered = lastProfile()
         if (remembered?.id == target.id &&
             remembered.subscriptionId == target.subscriptionId) {
-            profiles.firstOrNull { it.id == target.id }?.let { surviving ->
+            val surviving = profiles.firstOrNull { it.id == target.id }
+            if (surviving != null) {
                 store.setLastProfileRef(surviving.id, surviving.subscriptionId)
-            } ?: store.clearLastProfile()
+                selectedProfileId = surviving.id
+                selectedProfileSourceId = surviving.subscriptionId
+            } else {
+                store.clearLastProfile()
+                // MARBLE_SELECT_IS_NOT_CONNECT_V121 — a deleted server cannot stay selected.
+                selectedProfileId = ""
+                selectedProfileSourceId = ""
+            }
         }
 
         store.saveProfiles(profiles)
@@ -2224,6 +2328,7 @@ private fun postToMain(block: () -> Unit) {
         )
         if (remembered?.id == moving.id && remembered.subscriptionId == moving.subscriptionId) {
             store.setLastProfileRef(moving.id, target.id)
+            if (selectedProfileId == moving.id) selectedProfileSourceId = target.id
         }
         store.saveProfiles(profiles)
         diagnostics.event(
@@ -2346,6 +2451,26 @@ private fun postToMain(block: () -> Unit) {
         return null
     }
 
+    /**
+     * MARBLE_SELECT_IS_NOT_CONNECT_V121 — remember the user's chosen server without touching the
+     * tunnel. The choice is persisted with the same key a successful connection writes, so Home,
+     * Quick Tile and the next app start all agree on which server the connect button will use.
+     */
+    fun selectProfile(p: ProxyProfile) {
+        diagnostics.event("APP", "select-server", "profile" to p.id.take(12), "name" to p.name.take(80))
+        postToMain {
+            selectedProfileId = p.id
+            selectedProfileSourceId = p.subscriptionId
+        }
+        io.execute { runCatching { store.setLastProfileRef(p.id, p.subscriptionId) } }
+    }
+
+    /** True when [p] is the server the connect button would act on. */
+    fun isSelectedProfile(p: ProxyProfile): Boolean =
+        selectedProfileId.isNotBlank() &&
+            selectedProfileId == p.id &&
+            (selectedProfileSourceId.isBlank() || selectedProfileSourceId == p.subscriptionId)
+
     /** Exact one-tap reconnect for Home after app/process restart. */
     fun reconnectLastOrAuto(onConnect: (ProxyProfile) -> Unit) {
         val remembered = lastProfile()
@@ -2411,6 +2536,10 @@ private fun postToMain(block: () -> Unit) {
             stateDetail = p.name
             activeProfileId = p.id
             activeProfileSourceId = p.subscriptionId
+            // Connecting is itself a selection: the route that carries traffic is the route the
+            // connect button acts on next.
+            selectedProfileId = p.id
+            selectedProfileSourceId = p.subscriptionId
             // A reconnect onto the same node restarts the session clock; a redundant
             // markConnected for an already-running session must not.
             if (previousState != "CONNECTED" || connectedSinceMs <= 0L) {
@@ -2566,12 +2695,46 @@ private fun postToMain(block: () -> Unit) {
     }
 
     fun stopVpn() {
+        markDisconnecting()
         runCatching {
             context.startService(Intent(context, MarbleVpnService::class.java).setAction(MarbleVpnService.ACTION_STOP))
         }.onFailure { error ->
             message = "Could not stop connection service: ${error::class.java.simpleName}: ${error.message ?: "unknown error"}"
+            // The teardown never even started: do not leave the UI in the closing state.
+            setRuntimeState("DISCONNECTED", "")
         }
     }
+
+    /**
+     * MARBLE_CONNECT_BUTTON_V121 — closing a tunnel is a state, not an instant.
+     *
+     * Tearing down TUN + Xray takes a real, visible moment. Until now the UI jumped straight back
+     * to "ready to connect" while the interface was still up, so the connect button lied for a
+     * second and an impatient second tap started a connection into a half-closed tunnel. The
+     * repository now owns an explicit DISCONNECTING state: the service's own DISCONNECTED report
+     * clears it, and a bounded watchdog clears it too if the service is killed mid-teardown so the
+     * button can never stick.
+     */
+    private fun markDisconnecting() {
+        if (state != "CONNECTED" && state != "CONNECTING") return
+        diagnostics.event("APP", "state", "from" to state, "to" to "DISCONNECTING")
+        val detail = stateDetail
+        postToMain {
+            state = "DISCONNECTING"
+            stateDetail = detail
+            MarbleQuickTileService.requestRefresh(context)
+        }
+        val token = System.nanoTime()
+        disconnectWatchdogToken = token
+        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+            if (disconnectWatchdogToken == token && state == "DISCONNECTING") {
+                setRuntimeState("DISCONNECTED", "")
+            }
+        }, DISCONNECT_WATCHDOG_MS)
+    }
+
+    /** Guards against an older teardown's watchdog clearing a newer session. */
+    private var disconnectWatchdogToken: Long = 0L
 
     /**
      * Folds a fresh measurement set into the existing evidence table instead of replacing it.
@@ -2938,24 +3101,28 @@ private fun postToMain(block: () -> Unit) {
     }
 
     /**
-     * Fast Library-wide TCP latency sweep.
-     * Full test and Smart Xray rank remain available when actual proxy usability must be proven.
+     * Library-wide ping sweep, in the method chosen in Settings.
+     * Smart Xray rank remains available when actual proxy usability must be proven.
      */
     fun testAll() = testSource("all")
 
-    /**
-     * Fast TCP ping confined to the exact selected Library source.
-     * Smart Rank remains the real Xray tunnel verifier.
-     */
+    /** Identity of one physical endpoint: what address-level probes actually measure. */
     private fun quickPingEndpointKey(profile: ProxyProfile): String =
         "${profile.host.trim().lowercase()}:${profile.port}"
 
     /**
-     * Fast TCP ping confined to the selected Library source.
+     * MARBLE_ONE_PING_V121 — the one ping of the product, confined to the selected source.
      *
-     * TCP reachability is a host:port property. Aggregator subscriptions often contain many
-     * configs pointing at the same endpoint, so v33 probes one representative per endpoint and
-     * fans the verified result back to every matching card. TUNNEL rank remains per-config.
+     * There is no longer a "quick TCP ping" that silently overrode the user's choice: this runs
+     * exactly the method configured in Settings → Testing (Smart ping by default), which is the
+     * same method the Home ping button and every other measurement in the app use. Two entry
+     * points can no longer report two different latencies for the same server.
+     *
+     * Endpoint de-duplication still applies to the address-level methods (TCP / ICMP), where
+     * reachability really is a host:port property and aggregator subscriptions repeat the same
+     * endpoint dozens of times: one representative is probed and the verified result is fanned out
+     * to every config sharing that endpoint. Tunnel and Smart ping prove a *config*, so they are
+     * measured per server, exactly as ranking does.
      */
     fun testSource(sourceId: String) {
         if (sourceId == ServerlessFreedomEngine.SOURCE_ID) {
@@ -2969,24 +3136,45 @@ private fun postToMain(block: () -> Unit) {
             return
         }
 
-        task("Quick ping • $scope") {
-            val groups = scoped.groupBy(::quickPingEndpointKey)
+        val method = settings.probeMethod
+        val methodLabel = when (method) {
+            ProbeMethod.HYBRID -> "Smart ping"
+            ProbeMethod.TUNNEL -> "Tunnel ping"
+            ProbeMethod.TCP -> "TCP ping"
+            ProbeMethod.ICMP -> "ICMP ping"
+        }
+        // Only address-level methods may share one measurement between identical endpoints.
+        val dedupe = method == ProbeMethod.TCP || method == ProbeMethod.ICMP
+
+        task("$methodLabel • $scope") {
+            val groups = if (dedupe) {
+                scoped.groupBy(::quickPingEndpointKey)
+            } else {
+                scoped.associateBy { it.id }.mapValues { (_, profile) -> listOf(profile) }
+            }
             val representatives = groups.values.mapNotNull { it.firstOrNull() }
             val quickSettings = settings.copy(
                 benchMode = BenchMode.CUSTOM,
                 benchCandidates = representatives.size.coerceAtLeast(1),
-                benchSamples = 1,
-                benchTimeoutSec = 2,
+                // Address-level probes are cheap, so they stay snappy; a real tunnel measurement
+                // keeps the user's own sample/timeout budget, clamped to a size that still feels
+                // like a ping rather than a full benchmark run.
+                benchSamples = if (dedupe) 1 else settings.benchSamples.coerceIn(1, 3),
+                benchTimeoutSec = if (dedupe) 2 else settings.benchTimeoutSec.coerceIn(2, 8),
                 tcpPrecheckTimeoutMs = minOf(settings.tcpPrecheckTimeoutMs, 750),
                 tcpWorkers = maxOf(settings.tcpWorkers, 24).coerceAtMost(32),
-                probeMethod = ProbeMethod.TCP,
+                // The method itself is never overridden: this is the user's setting.
                 probeSpeedTest = false,
                 verifiedPerformanceTuning = false,
                 udpProbeEnabled = false
             )
 
             fun membersFor(representative: ProxyProfile): List<ProxyProfile> =
-                groups[quickPingEndpointKey(representative)].orEmpty()
+                if (dedupe) {
+                    groups[quickPingEndpointKey(representative)].orEmpty()
+                } else {
+                    listOf(representative)
+                }
 
             fun runQuickPass(): List<BenchmarkResult> =
                 BenchmarkEngine(xray, intelligence).run(
@@ -3006,7 +3194,8 @@ private fun postToMain(block: () -> Unit) {
                         }
                     }
                 ) { done, total, name ->
-                    message = "TCP ping • $scope • $done/$total endpoints • $name"
+                    val unit = if (dedupe) "endpoints" else "servers"
+                    message = "$methodLabel • $scope • $done/$total $unit • $name"
                 }
 
             val firstStartedNs = System.nanoTime()
@@ -3022,7 +3211,7 @@ private fun postToMain(block: () -> Unit) {
             ) {
                 diagnostics.event(
                     "BENCHMARK",
-                    "quick-ping-fast-zero-retry",
+                    "ping-fast-zero-retry",
                     "source" to sourceId.take(24),
                     "scope" to scope,
                     "servers" to scoped.size,
@@ -3054,7 +3243,7 @@ private fun postToMain(block: () -> Unit) {
             val passed = expanded.count { it.success > 0 }
             diagnostics.event(
                 "BENCHMARK",
-                "quick-ping-source-finish",
+                "ping-source-finish",
                 "source" to sourceId.take(24),
                 "scope" to scope,
                 "requested" to scoped.size,
@@ -3062,9 +3251,12 @@ private fun postToMain(block: () -> Unit) {
                 "tested" to expanded.size,
                 "reachable" to passed
             )
-            message =
-                "Quick ping • $scope • ${expanded.size} servers / ${representatives.size} endpoints • " +
-                    "$passed reachable"
+            message = if (dedupe) {
+                "$methodLabel • $scope • ${expanded.size} servers / " +
+                    "${representatives.size} endpoints • $passed reachable"
+            } else {
+                "$methodLabel • $scope • ${expanded.size} servers • $passed reachable"
+            }
         }
     }
 
@@ -3399,5 +3591,12 @@ private fun postToMain(block: () -> Unit) {
 
         /** Remote subscription payload ceiling for both direct and SOCKS management paths. */
         const val MAX_SUBSCRIPTION_BYTES = 8 * 1024 * 1024
+
+        /**
+         * MARBLE_CONNECT_BUTTON_V121 — ceiling for the visible "disconnecting" state. A healthy
+         * teardown reports DISCONNECTED in well under a second; this only exists so a killed
+         * service can never freeze the connect button in its closing colour.
+         */
+        const val DISCONNECT_WATCHDOG_MS = 6_000L
     }
 }

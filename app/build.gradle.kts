@@ -287,6 +287,11 @@ dependencies {
 
     implementation("com.github.mwiede:jsch:2.28.6")
 
+    // MARBLE_QR_IMPORT_V121 — QR import decodes a picture the user already has (screenshot,
+    // photo, saved image) with ZXing's pure-Java core. No camera dependency, no CAMERA
+    // permission and no extra runtime: the image arrives through the system picker.
+    implementation("com.google.zxing:core:3.5.3")
+
     testImplementation("junit:junit:4.13.2")
 
     testImplementation("org.json:json:20260814")

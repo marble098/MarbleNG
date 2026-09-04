@@ -25,6 +25,12 @@ class MarbleQuickTileService : TileService() {
         super.onClick()
         unlockAndRun {
             val repo = app.repo
+            // MARBLE_CONNECT_BUTTON_V121 — a tunnel that is already closing must not be asked to
+            // close again, and must not be treated as an invitation to connect either.
+            if (repo.state == "DISCONNECTING") {
+                updateTile("Disconnecting…")
+                return@unlockAndRun
+            }
             if (repo.state in setOf("CONNECTED", "CONNECTING", "BLOCKED")) {
                 repo.stopVpn()
                 updateTile("Disconnecting…")
@@ -61,6 +67,7 @@ class MarbleQuickTileService : TileService() {
         tile.label = when (repo.state) {
             "CONNECTED" -> "MarbleNG • On"
             "CONNECTING" -> "MarbleNG • Connecting"
+            "DISCONNECTING" -> "MarbleNG • Disconnecting"
             "BLOCKED" -> "MarbleNG • Reset"
             else -> "MarbleNG"
         }
