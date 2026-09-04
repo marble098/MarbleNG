@@ -115,6 +115,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
@@ -826,36 +827,49 @@ private fun FloatingSpatialDock(
         contentAlignment = Alignment.BottomCenter
     ) {
         val barShape = RoundedCornerShape(28.dp)
-        // MARBLE_DOCK_STABLE_COLOR_V115 — the dock's base material never interpolates. A theme
-        // switch can invalidate the palette twice (system bars + Compose scheme) and springing
-        // between two palettes flashed the bar on/off while switching themes. The base is now
-        // taken from the active palette directly; only the selection wash animates, with an
-        // overshoot-free tween so clicks can never overshoot the pill alpha.
-        val dockSurface = if (glass) Aether.BarGlass else Aether.VoidElevated
+        // MARBLE_DOCK_GLASS_MOTION_V130 — the dock's base material still never interpolates on a
+        // theme switch (that used to flash the bar), but the scroll → glass transition IS now a
+        // smooth animation: the resting surface lerps into the translucent glass and back, the
+        // frost highlight fades with it, and the shadow eases up while a page moves underneath.
+        // At rest a very faint breathing shimmer keeps the bar alive without stealing attention.
+        val glassProgress by animateFloatAsState(
+            targetValue = if (glass) 1f else 0f,
+            animationSpec = tween(durationMillis = 260),
+            label = "dock-glass-progress"
+        )
+        val dockSurface = lerp(Aether.VoidElevated, Aether.BarGlass, glassProgress)
+        val dockElevation by animateDpAsState(
+            targetValue = if (glass) 20.dp else 14.dp,
+            animationSpec = tween(durationMillis = 260),
+            label = "dock-elevation"
+        )
+        val idleShimmer = MarbleMotion.current.breathe(4_200)
+        val highlightAlpha = glassProgress +
+            (1f - glassProgress) * (0.25f + 0.10f * idleShimmer)
         Row(
             modifier = Modifier
                 .widthIn(max = 420.dp)
                 .fillMaxWidth()
                 .height(62.dp)
                 .shadow(
-                    elevation = 14.dp,
+                    elevation = dockElevation,
                     shape = barShape,
                     ambientColor = Color.Black.copy(alpha = 0.16f),
                     spotColor = Color.Black.copy(alpha = 0.20f)
                 )
                 .clip(barShape)
-                // Resting state is an opaque product surface. Only active user scrolling exposes
-                // the page beneath the dock, so the glass treatment has a clear purpose instead
-                // of making the navigation permanently translucent.
+                // Resting state is an opaque product surface; the glass treatment fades in only
+                // while the current page is scrolling, then softly settles back at rest.
                 .background(dockSurface)
-                .then(
-                    if (glass) {
-                        Modifier.background(
-                            Brush.verticalGradient(
-                                listOf(Aether.BarGlassHighlight, Color.Transparent)
-                            )
+                .background(
+                    Brush.verticalGradient(
+                        listOf(
+                            Aether.BarGlassHighlight.copy(
+                                alpha = Aether.BarGlassHighlight.alpha * highlightAlpha
+                            ),
+                            Color.Transparent
                         )
-                    } else Modifier
+                    )
                 )
                 .border(1.dp, Aether.BarGlassBorder, barShape)
                 .padding(horizontal = 8.dp, vertical = 7.dp),
@@ -5482,6 +5496,9 @@ private fun ServersNodeCard(
                 // "It failed" and "it was never tried" are different facts and must look different.
                 attempted = result != null && measured == null
             )
+            // MARBLE_PING_CAPSULE_BREATHING_ROOM_V130 — the latency capsule no longer touches the
+            // three-dot menu; a little air keeps the two controls visually distinct.
+            Spacer(Modifier.width(10.dp))
             ServersNodeMenu(
                 profile = profile,
                 repo = repo,
@@ -5536,8 +5553,8 @@ private fun ServersPingCapsule(
     }
     Box(
         modifier = Modifier
-            .widthIn(min = 62.dp)
-            .height(30.dp)
+            .widthIn(min = 52.dp)
+            .height(26.dp)
             .clip(ServersPillShape)
             .background(tone.copy(alpha = .12f))
             .semantics { contentDescription = spoken },
@@ -5545,27 +5562,27 @@ private fun ServersPingCapsule(
     ) {
         when {
             testing -> CircularProgressIndicator(
-                modifier = Modifier.size(14.dp),
+                modifier = Modifier.size(12.dp),
                 color = tone,
-                strokeWidth = 1.8.dp
+                strokeWidth = 1.6.dp
             )
 
             !measured -> Text(
                 if (attempted) "✕" else "—",
                 color = tone,
-                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
                 maxLines = 1
             )
 
             else -> Row(
-                modifier = Modifier.padding(horizontal = 9.dp),
+                modifier = Modifier.padding(horizontal = 7.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(3.dp)
+                horizontalArrangement = Arrangement.spacedBy(2.dp)
             ) {
                 Text(
                     "$latencyMs",
                     color = tone,
-                    style = MaterialTheme.typography.labelMedium.copy(
+                    style = MaterialTheme.typography.labelSmall.copy(
                         fontWeight = FontWeight.Bold,
                         fontFeatureSettings = "tnum"
                     ),

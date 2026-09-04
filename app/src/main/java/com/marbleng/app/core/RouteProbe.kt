@@ -135,16 +135,34 @@ object RouteProbe {
 
             if (process.exitValue() != 0) return@runCatching UNREACHABLE
 
-            // rtt min/avg/max/mdev = 41.316/41.316/41.316/0.000 ms
-            val average = Regex("=\\s*[\\d.]+/([\\d.]+)/").find(output)
-                ?.groupValues?.getOrNull(1)
-                ?.toDoubleOrNull()
-                ?: Regex("time=([\\d.]+)").find(output)
-                    ?.groupValues?.getOrNull(1)
-                    ?.toDoubleOrNull()
-
-            average?.takeIf { it > 0.0 } ?: UNREACHABLE
+            parseIcmpRttMs(output) ?: UNREACHABLE
         }.getOrDefault(UNREACHABLE)
+    }
+
+    /**
+     * Parse the echo round trip from `/system/bin/ping` output without trusting a single locale
+     * or binary variant.
+     *
+     * Preferred shape is the `-q` summary line — `rtt min/avg/max/mdev = 41.316/41.316/41.316/0.000 ms`
+     * (toybox) or `round-trip min/avg/max/stddev = ...` (toolbox) — where the second number is the
+     * average. Devices that ignore `-q` print one `64 bytes from …: time=NN.N ms` line per reply;
+     * those are averaged instead. Integer-only latencies are handled by the same patterns, and a
+     * zero/negative value is treated as a lost echo.
+     */
+    private fun parseIcmpRttMs(output: String): Double? {
+        // Summary `avg`: the second numeric token after the `=` (min/avg/max/…).
+        Regex("=\\s*[\\d.]+/([\\d.]+)/").find(output)
+            ?.groupValues?.getOrNull(1)
+            ?.toDoubleOrNull()
+            ?.takeIf { it > 0.0 }
+            ?.let { return it }
+
+        // Per-reply fallback: average every `time=NN.N` the binary reported.
+        val replies = Regex("time=([\\d.]+)").findAll(output)
+            .mapNotNull { match -> match.groupValues.getOrNull(1)?.toDoubleOrNull() }
+            .filter { it > 0.0 }
+            .toList()
+        return if (replies.isEmpty()) null else replies.average()
     }
 
     /** Repeats a direct probe and reports median latency plus the success rate. */

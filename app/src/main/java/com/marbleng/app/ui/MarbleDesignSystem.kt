@@ -129,8 +129,7 @@ internal fun PrismBackdrop(
     modifier: Modifier = Modifier,
     flavor: HomeFlavor = HomeFlavor.PRO
 ) {
-    val base=Aether.Void
-    val dot=Aether.InkFaint
+    val base = Aether.Void
     // Palette: [primary, secondary, tertiary] of the flavor's own multi-colour identity.
     val primary: Color
     val secondary: Color
@@ -156,79 +155,83 @@ internal fun PrismBackdrop(
     Canvas(modifier) {
         drawRect(base)
 
-        // One diagonal multi-stop wash ties the three hues together; a wash alone stays grey-ish,
-        // so the three halos below are the actual colour story.
+        // MARBLE_ENERGETIC_BACKDROP_V130 — the old three-stop wash sat at single-digit alphas and
+        // read as a grey veil. It is now a four-stop diagonal wash at clearly visible strength,
+        // tying the flavour's three hues together so the viewport reads vivid, never grey.
         drawRect(
             brush = Brush.linearGradient(
                 colors = listOf(
-                    primary.copy(alpha=.075f),
-                    secondary.copy(alpha=.050f),
-                    tertiary.copy(alpha=.038f)
+                    primary.copy(alpha = .26f),
+                    secondary.copy(alpha = .17f),
+                    tertiary.copy(alpha = .12f),
+                    primary.copy(alpha = .22f)
                 ),
-                start = Offset(0f, size.height * .12f),
-                end = Offset(size.width, size.height * .92f)
+                start = Offset(0f, size.height * .10f),
+                end = Offset(size.width, size.height * .95f)
             )
         )
 
-        val primaryCenter=Offset(size.width*.86f,size.height*.06f)
+        val primaryCenter = Offset(size.width * .86f, size.height * .06f)
         drawCircle(
-            brush=Brush.radialGradient(
-                colors=listOf(
-                    primary.copy(alpha=.16f),
-                    primary.copy(alpha=.055f),
+            brush = Brush.radialGradient(
+                colors = listOf(
+                    primary.copy(alpha = .34f),
+                    primary.copy(alpha = .12f),
                     Color.Transparent
                 ),
-                center=primaryCenter,
-                radius=size.width*.74f
+                center = primaryCenter,
+                radius = size.width * .80f
             ),
-            radius=size.width*.74f,
-            center=primaryCenter
+            radius = size.width * .80f,
+            center = primaryCenter
         )
 
-        val secondaryCenter=Offset(size.width*.05f,size.height*.46f)
+        val secondaryCenter = Offset(size.width * .04f, size.height * .44f)
         drawCircle(
-            brush=Brush.radialGradient(
-                colors=listOf(
-                    secondary.copy(alpha=.14f),
-                    secondary.copy(alpha=.045f),
+            brush = Brush.radialGradient(
+                colors = listOf(
+                    secondary.copy(alpha = .30f),
+                    secondary.copy(alpha = .10f),
                     Color.Transparent
                 ),
-                center=secondaryCenter,
-                radius=size.width*.68f
+                center = secondaryCenter,
+                radius = size.width * .74f
             ),
-            radius=size.width*.68f,
-            center=secondaryCenter
+            radius = size.width * .74f,
+            center = secondaryCenter
         )
 
-        val tertiaryCenter=Offset(size.width*.82f,size.height*.90f)
+        val tertiaryCenter = Offset(size.width * .80f, size.height * .92f)
         drawCircle(
-            brush=Brush.radialGradient(
-                colors=listOf(
-                    tertiary.copy(alpha=.12f),
-                    tertiary.copy(alpha=.035f),
+            brush = Brush.radialGradient(
+                colors = listOf(
+                    tertiary.copy(alpha = .26f),
+                    tertiary.copy(alpha = .08f),
                     Color.Transparent
                 ),
-                center=tertiaryCenter,
-                radius=size.width*.58f
+                center = tertiaryCenter,
+                radius = size.width * .64f
             ),
-            radius=size.width*.58f,
-            center=tertiaryCenter
+            radius = size.width * .64f,
+            center = tertiaryCenter
         )
 
-        val step=30.dp.toPx()
-        val radius=.72.dp.toPx()
-        var y=step*.5f
-        while(y<size.height) {
-            var x=step*.5f
-            while(x<size.width) {
+        // The dot grid is now tinted by the flavour's own hue instead of the neutral ink, so the
+        // field shimmers with colour rather than reading as a grey dust.
+        val step = 30.dp.toPx()
+        val radius = .72.dp.toPx()
+        var y = step * .5f
+        while (y < size.height) {
+            var x = step * .5f
+            while (x < size.width) {
                 drawCircle(
-                    color=dot.copy(alpha=.038f),
-                    radius=radius,
-                    center=Offset(x,y)
+                    color = primary.copy(alpha = .07f),
+                    radius = radius,
+                    center = Offset(x, y)
                 )
-                x+=step
+                x += step
             }
-            y+=step
+            y += step
         }
     }
 }

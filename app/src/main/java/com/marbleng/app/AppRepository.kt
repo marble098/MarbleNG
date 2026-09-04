@@ -3086,9 +3086,14 @@ private fun postToMain(block: () -> Unit) {
             return
         }
         task("Full test ${p.name}") {
-            val result = BenchmarkEngine(xray, intelligence).run(
+            // MARBLE_PING_ENGINE_V130 — the three-dot Ping runs the one engine shared by every
+            // measurement, so a single server reports the same latency as a batch sweep. Unlike
+            // the old precheck-gated path, a fronted node that is blocked at the raw endpoint can
+            // no longer be reported as "Test failed" before its real tunnel probe ever ran.
+            val result = PingEngine(xray, intelligence).run(
                 listOf(p),
-                settings.copy(benchCandidates = 1),
+                settings,
+                method = settings.probeMethod,
                 onCandidates = ::beginProbeBatch,
                 onStart = ::markProbeStart,
                 onResult = ::markProbeResult
@@ -3177,10 +3182,10 @@ private fun postToMain(block: () -> Unit) {
                 }
 
             fun runQuickPass(): List<BenchmarkResult> =
-                BenchmarkEngine(xray, intelligence).run(
+                PingEngine(xray, intelligence).run(
                     representatives,
                     quickSettings,
-                    usePrecheck = false,
+                    method = method,
                     onCandidates = { beginProbeBatch(scoped) },
                     onStart = { representative ->
                         membersFor(representative).forEach(::markProbeStart)
