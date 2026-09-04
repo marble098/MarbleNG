@@ -385,7 +385,15 @@ object RouteProbe {
         timeoutMs: Int
     ): ProbeResult {
         return runCatching {
-            val connection = URL(url).openConnection() as HttpURLConnection
+            val proxy = if (socksPort > 0) {
+                java.net.Proxy(
+                    java.net.Proxy.Type.SOCKS,
+                    InetSocketAddress("127.0.0.1", socksPort)
+                )
+            } else {
+                java.net.Proxy.NO_PROXY
+            }
+            val connection = URL(url).openConnection(proxy) as HttpURLConnection
             try {
                 connection.connectTimeout = timeoutMs
                 connection.readTimeout = timeoutMs
@@ -394,16 +402,6 @@ object RouteProbe {
                 connection.useCaches = false
                 connection.setRequestProperty("User-Agent", "MarbleNG/1.0")
                 connection.setRequestProperty("Connection", "close")
-
-                // Route through SOCKS5 proxy if available
-                if (socksPort > 0) {
-                    connection.setProxy(
-                        java.net.Proxy(
-                            java.net.Proxy.Type.SOCKS,
-                            InetSocketAddress("127.0.0.1", socksPort)
-                        )
-                    )
-                }
 
                 val start = System.nanoTime()
                 connection.connect()
