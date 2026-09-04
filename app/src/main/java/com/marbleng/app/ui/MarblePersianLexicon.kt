@@ -594,8 +594,11 @@ private val FaLexicon: Map<String, String> = mapOf(
 
     // probes / testing
     "Real tunnel" to "تونل واقعی",
+    "Real test" to "تست واقعی",
     "TCP ping" to "پینگ TCP",
     "ICMP ping" to "پینگ ICMP",
+    "HTTP ping" to "پینگ HTTP",
+    "DNS ping" to "پینگ DNS",
     "TCP gate, then real test" to "دروازه TCP، سپس تست واقعی",
     "Most accurate" to "دقیق‌ترین",
     "Fastest" to "سریع‌ترین",
@@ -609,6 +612,8 @@ private val FaLexicon: Map<String, String> = mapOf(
     "More only from fast servers" to "بیشتر فقط از سرورهای سریع",
     "ICMP bypasses the proxy; only Real tunnel proves the route." to
         "‏ICMP از پروکسی عبور نمی‌کند؛ فقط تونل واقعی مسیر را ثابت می‌کند.",
+    "ICMP bypasses the proxy; only Smart or Real test proves the route." to
+        "‏ICMP از پروکسی عبور نمی‌کند؛ فقط هوشمند یا تست واقعی مسیر را ثابت می‌کند.",
 
     // iran mode
     "Detect ISP" to "تشخیص اپراتور",

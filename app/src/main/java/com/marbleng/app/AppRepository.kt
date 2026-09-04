@@ -3144,7 +3144,7 @@ private fun postToMain(block: () -> Unit) {
         val method = settings.probeMethod
         val methodLabel = when (method) {
             ProbeMethod.HYBRID -> "Smart ping"
-            ProbeMethod.TUNNEL -> "Tunnel ping"
+            ProbeMethod.TUNNEL -> "Real test"
             ProbeMethod.TCP -> "TCP ping"
             ProbeMethod.ICMP -> "ICMP ping"
             ProbeMethod.HTTP -> "HTTP ping"

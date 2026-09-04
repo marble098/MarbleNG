@@ -810,12 +810,14 @@ private fun FloatingSpatialDock(
     onSelect: (SpatialTab) -> Unit
 ) {
     // MARBLE_BOTTOM_DOCK_UNIFIED_FLOATING_V661 — unified floating navigation lineage
-    // MARBLE_FLOATING_DOCK_V117 / MARBLE_DOCK_SMOOTH_ANIMATION_V130
+    // MARBLE_FLOATING_DOCK_V117 / MARBLE_DOCK_SMOOTH_ANIMATION_V130 / MARBLE_DOCK_IDLE_BREATHE_V131
     //  - rendered as an overlay (no Scaffold bottomBar slot), so pages scroll under it
     //  - never flush with the screen edge: side margins + a lift above the gesture bar
     //  - smooth animated transitions between idle (opaque) and scrolling (glass) states:
     //    surface color, highlight alpha, border alpha, elevation and subtle scale all
     //    animate with a spring for a fluid, professional feel
+    //  - while idle the bar and the selected pill keep one very slow breathing wave, so the
+    //    navigation never looks frozen between gestures
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -889,6 +891,16 @@ private fun FloatingSpatialDock(
             label = "dock-border-alpha"
         )
 
+        // MARBLE_DOCK_IDLE_BREATHE_V131 — the dock is never a frozen slab. While it rests
+        // (not glass), the whole bar takes one very slow breathing lift (~±1 dp) and the selected
+        // pill softly brightens, so navigation still feels alive between gestures. The wave is
+        // gated by (1 - glassFraction), so the moment a scroll starts the breathing fades out
+        // with the same spring as the glass settle instead of snapping.
+        val motion = MarbleMotion.current
+        val idleLift = if (motion.motionEnabled) {
+            (1f - glassFraction) * (motion.breathe(5_200) - .5f) * 2f
+        } else 0f
+
         Row(
             modifier = Modifier
                 .widthIn(max = 420.dp)
@@ -897,6 +909,9 @@ private fun FloatingSpatialDock(
                 .graphicsLayer {
                     scaleX = dockScale
                     scaleY = dockScale
+                    // Slow idle breathing lift while at rest; the glass settle's own translation
+                    // is expressed through dockElevation/dockScale, this adds the gentle idle wave.
+                    translationY = idleLift * 1.4f * density
                 }
                 .shadow(
                     elevation = dockElevation,
@@ -941,8 +956,17 @@ private fun FloatingSpatialDock(
                     animationSpec = MarbleMotionSpecs.DockColor,
                     label = "dock-tone-${item.name}"
                 )
+                // The selected pill breathes very softly while the bar is idle — a living
+                // selection wash that never moves the layout.
+                val pillBreath = if (active && !glass && motion.motionEnabled) {
+                    motion.breathe(3_800)
+                } else 0f
                 val pillBg by animateColorAsState(
-                    targetValue = if (active) Aether.Cyan.copy(alpha = 0.15f) else Color.Transparent,
+                    targetValue = if (active) {
+                        Aether.Cyan.copy(alpha = 0.15f + .05f * pillBreath)
+                    } else {
+                        Color.Transparent
+                    },
                     animationSpec = MarbleMotionSpecs.DockColor,
                     label = "dock-pill-${item.name}"
                 )
@@ -5787,7 +5811,10 @@ private fun ServersNodeMenu(
                 }
             )
             ServersMenuItem(
-                label = "Ping",
+                // MARBLE_PROBE_TOOLKIT_V130 — the menu says which measurement will actually run:
+                // Smart / Real test / TCP ping / ICMP ping / HTTP ping / DNS ping are one
+                // Settings choice, so the ⋯ action can never be a silent surprise.
+                label = "${trx("Ping")} • ${trx(probeMethodTitle(repo.settings.probeMethod))}",
                 icon = HomeIcon.PING,
                 tone = Aether.Cyan,
                 enabled = !repo.busy,
@@ -11204,7 +11231,7 @@ private fun BugFinderSettings(repo: AppRepository) {
 
 private fun probeMethodTitle(method: ProbeMethod): String = when (method) {
     ProbeMethod.HYBRID -> "Smart"
-    ProbeMethod.TUNNEL -> "Real tunnel"
+    ProbeMethod.TUNNEL -> "Real test"
     ProbeMethod.TCP -> "TCP ping"
     ProbeMethod.ICMP -> "ICMP ping"
     ProbeMethod.HTTP -> "HTTP ping"
@@ -11342,7 +11369,7 @@ private fun ProbeSettings(repo: AppRepository) {
             Text("!", color = Aether.Amber, style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.width(9.dp))
             Text(
-                trx("ICMP bypasses the proxy; only Smart, Tunnel or HTTP ping proves the route."),
+                trx("ICMP bypasses the proxy; only Smart or Real test proves the route."),
                 color = Aether.InkMuted,
                 style = MaterialTheme.typography.bodySmall
             )

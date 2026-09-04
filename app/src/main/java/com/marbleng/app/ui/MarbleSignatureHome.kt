@@ -277,19 +277,20 @@ private fun DrawScope.drawSignatureBackdrop(
     drawRect(
         Brush.verticalGradient(
             listOf(
-                accent.copy(alpha = .11f + .04f * breathe),
-                companionA.copy(alpha = .055f),
-                companionB.copy(alpha = .085f)
+                accent.copy(alpha = .19f + .05f * breathe),
+                companionA.copy(alpha = .13f),
+                companionB.copy(alpha = .15f)
             )
         )
     )
 
     // Aurora halos breathing behind the hero: the primary hue centered, its companions drifting
-    // to the corners so the whole viewport carries the style's colour story.
+    // to the corners so the whole viewport carries the style's colour story. MARBLE_VIVID_GRADIENTS_V122
+    // raises the halos so the aurora is felt on any panel instead of reading as a grey veil.
     val hero = Offset(w * .5f, h * .26f)
     drawCircle(
         brush = Brush.radialGradient(
-            listOf(accent.copy(alpha = .16f + .06f * breathe), Color.Transparent),
+            listOf(accent.copy(alpha = .26f + .09f * breathe), Color.Transparent),
             center = hero,
             radius = w * .80f
         ),
@@ -298,7 +299,7 @@ private fun DrawScope.drawSignatureBackdrop(
     )
     drawCircle(
         brush = Brush.radialGradient(
-            listOf(companionA.copy(alpha = .12f + .04f * breathe), Color.Transparent),
+            listOf(companionA.copy(alpha = .20f + .06f * breathe), Color.Transparent),
             center = Offset(w * .10f, h * .72f),
             radius = w * .58f
         ),
@@ -307,7 +308,7 @@ private fun DrawScope.drawSignatureBackdrop(
     )
     drawCircle(
         brush = Brush.radialGradient(
-            listOf(companionB.copy(alpha = .10f + .03f * breathe), Color.Transparent),
+            listOf(companionB.copy(alpha = .17f + .05f * breathe), Color.Transparent),
             center = Offset(w * .90f, h * .86f),
             radius = w * .52f
         ),
@@ -370,9 +371,15 @@ private fun DrawScope.drawSignatureBackdrop(
             )
         )
     }
+    // MARBLE_VIVID_GRADIENTS_V122 — the corner settle is tinted by the accent, never a grey
+    // black veil: the same depth without washing the aurora into gray on either theme.
     drawRect(
         Brush.radialGradient(
-            listOf(Color.Transparent, Color.Black.copy(alpha = .30f)),
+            listOf(
+                Color.Transparent,
+                accent.copy(alpha = .10f + .05f * breathe),
+                Color.Black.copy(alpha = .12f)
+            ),
             center = hero,
             radius = (w + h) * .62f
         )
