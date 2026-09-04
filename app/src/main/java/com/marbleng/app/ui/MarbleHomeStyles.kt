@@ -2003,9 +2003,14 @@ internal fun MarbleConnectionButton(
     }
 }
 
-/** The action word under (or inside) every silhouette. Only the text and its colour change. */
+/**
+ * The action word under (or inside) every silhouette. Only the text and its colour change.
+ *
+ * MARBLE_CONNECT_BUTTON_STYLES_V132 — shared by every silhouette, including the two docked ones
+ * that live in MarbleHomeStudio.kt, so it is module-visible rather than file-private.
+ */
 @Composable
-private fun ConnectButtonCaption(
+internal fun ConnectButtonCaption(
     evidence: HomeEvidence,
     tone: Color,
     modifier: Modifier = Modifier
@@ -2133,8 +2138,12 @@ private fun ConnectButtonRound(
     }
 }
 
-/** The glyph in the middle of every silhouette: protected, blocked or armed. */
-private fun connectButtonGlyph(evidence: HomeEvidence): HomeGlyph = when {
+/**
+ * The glyph in the middle of every silhouette: protected, blocked or armed.
+ *
+ * MARBLE_CONNECT_BUTTON_STYLES_V132 — shared with the docked silhouettes in MarbleHomeStudio.kt.
+ */
+internal fun connectButtonGlyph(evidence: HomeEvidence): HomeGlyph = when {
     evidence.connected -> HomeGlyph.CHECK
     evidence.blocked -> HomeGlyph.RESET
     else -> HomeGlyph.POWER
