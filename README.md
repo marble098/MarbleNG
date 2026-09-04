@@ -49,6 +49,14 @@ connected and pinged in another client:
 - the node hostname was resolved by two `https+local` bootstrap literals and nothing else, so two
   filtered resolver IPs made an otherwise working server undialable.
 
+`docs/CORE_MALFUNCTION_ROOT_CAUSE_V133.md` covers the next layer down: a session in which the core
+started cleanly and never crashed, while encrypted DNS and route health failed continuously. Every
+deadline and threshold in the stack was a constant sized for a fast link, so on a ~1.1 s route each
+DoH query expired before the resolver could answer, and the failures then propagated into the
+acceleration engine — a 30-minute backoff that could neither decay nor be released, jitter control
+that oscillated, a per-socket MSS treated as a path MTU, and an IPv6 verdict that never reached the
+emitted config.
+
 ## Main navigation
 
 MarbleNG uses three primary tabs: **Home**, **Servers**, and **Settings**.

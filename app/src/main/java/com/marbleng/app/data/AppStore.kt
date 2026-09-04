@@ -49,6 +49,22 @@ class AppStore(context: Context) {
             .remove("lastProfileSourceId")
             .apply()
 
+    /**
+     * MARBLE_DURABLE_TUNNEL_INTENT_V133 — "the user asked for a tunnel and never asked to stop it".
+     *
+     * Android kills this process outright when the APK is replaced; the exit history records it as
+     * `REASON_PACKAGE_UPDATE` (reason 16) and the attached log had thirteen of them. A killed tunnel
+     * is not a user disconnect, but until now the two were indistinguishable after a restart, so the
+     * user had to notice and reconnect by hand every time the app or a core module was updated.
+     *
+     * This flag is durable user intent, written with the same commit as the last-route reference and
+     * cleared only by an explicit disconnect or a blocked startup — never by process death.
+     */
+    fun tunnelIntentActive(): Boolean = prefs.getBoolean("tunnelIntentActive", false)
+
+    fun setTunnelIntentActive(active: Boolean) =
+        prefs.edit().putBoolean("tunnelIntentActive", active).apply()
+
     /** Selected Library source is navigation state worth preserving across tabs and restarts. */
     fun librarySourceFilter(): String =
         prefs.getString("librarySourceFilter", "all")

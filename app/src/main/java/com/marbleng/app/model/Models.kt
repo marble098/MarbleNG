@@ -469,6 +469,21 @@ data class AppSettings(
     val ipv6Enabled: Boolean = true,
     val preferIpv6: Boolean = false,
 
+    /**
+     * MARBLE_MEASURED_FAMILY_V133 — *transient*, never persisted.
+     *
+     * Marble Intelligence sets this when the node's own history shows IPv6 is unhealthy on this
+     * physical network (failure streak, success EWMA below the usable floor, or sustained jitter).
+     * It has to travel inside the settings object because [AddressFamilyPolicy] is consulted from
+     * four different places — the Xray config writer, the delay-test config, the Kotlin probers and
+     * Bug Finder — and a verdict that only one of them sees is how the diagnostics ended up
+     * reporting "IPv6 preferred, IPv4 raced after 60 ms" for a tunnel that was measuring IPv6 as
+     * broken. It is deliberately absent from [com.marbleng.app.data.AppStore]: a verdict belongs to
+     * the network session that produced it, and restoring a stale one after a reboot would demote a
+     * family that was never measured on the new link.
+     */
+    val measuredIpv6Unhealthy: Boolean = false,
+
     // Realtime transport adaptation. MARBLE_REALTIME_ENGINE_V70
     val adaptiveHappyEyeballsEnabled: Boolean = true,
     val happyEyeballsTryDelayMs: Int = 60,

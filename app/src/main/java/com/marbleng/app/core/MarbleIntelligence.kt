@@ -1122,7 +1122,13 @@ class MarbleIntelligence(private val context: Context) {
             } else {
                 0
             },
-            happyEyeballsMaxConcurrent = ipRace.maxConcurrentTry
+            happyEyeballsMaxConcurrent = ipRace.maxConcurrentTry,
+            // MARBLE_MEASURED_FAMILY_V133 — publish the measured verdict inside the settings object
+            // itself. AddressFamilyPolicy is consulted from the config writer, the delay-test config,
+            // the Kotlin probers and Bug Finder; a verdict only this function knew about is why the
+            // diagnostics kept reporting "IPv6 preferred, IPv4 raced after 60 ms" while the node's own
+            // history said IPv6 was unhealthy.
+            measuredIpv6Unhealthy = measuredV6Healthy == false
         )
 
         // Only a freshly measured acceleration plan may change generic transport tuning.

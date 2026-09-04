@@ -17,14 +17,20 @@ import com.marbleng.app.core.ConnectionTuner
 import com.marbleng.app.core.ContinuousRouteOptimizer
 import com.marbleng.app.core.ConnectivityDiagnosticsObserver
 import com.marbleng.app.core.DataStallGuard
+import com.marbleng.app.core.EgressObservationPolicy
+import com.marbleng.app.core.JitterControlPolicy
+import com.marbleng.app.core.LinkDeadlinePolicy
+import com.marbleng.app.core.LinkEvidence
 import com.marbleng.app.core.LinkQualityEstimator
 import com.marbleng.app.core.NetworkSnapshot
+import com.marbleng.app.core.PathMtuPolicy
 import com.marbleng.app.core.RuntimeDiagnostics
 import com.marbleng.app.core.ServerlessFreedomEngine
 import com.marbleng.app.core.SocksHttpClient
 import com.marbleng.app.core.SmartNotificationKind
 import com.marbleng.app.core.SmartNotifier
 import com.marbleng.app.core.TransportTelemetry
+import com.marbleng.app.core.TurboBackoffPolicy
 import com.marbleng.app.core.XrayManager
 import com.marbleng.app.model.AppSettings
 import com.marbleng.app.model.ProxyProfile
@@ -91,9 +97,9 @@ class MarbleVpnService : VpnService() {
         // A bounded outcome window records both verified RTTs and misses. Twelve attempts remain
         // responsive while providing enough evidence for p90, IPDV and reliability scoring.
         private const val ROUTE_WINDOW_SIZE = 12
-        private const val JITTER_HIGH_CONFIRMATIONS = 3
-        private const val JITTER_RELEASE_CONFIRMATIONS = 4
         private const val JITTER_OPTIMIZER_COOLDOWN_MS = 180_000L
+        /** Consecutive verified good ticks required before a Turbo backoff may be released early. */
+        private const val GOOD_ROUTE_TICKS_FOR_RELEASE = 2
         private const val TURBO_INCONCLUSIVE_BASE_BACKOFF_MS = 600_000L
         private const val TURBO_INCONCLUSIVE_MAX_BACKOFF_MS = 1_800_000L
         private const val JITTER_PRIMARY_HOST = "1.1.1.1"
@@ -143,6 +149,8 @@ class MarbleVpnService : VpnService() {
 
         /** Let a fresh route settle before spending link capacity on measuring alternatives. */
         private const val FIRST_TUNE_DELAY_MS = 20_000L
+        /** First synthetic egress observation after the tunnel is up. */
+        private const val EGRESS_FIRST_OBSERVATION_DELAY_MS = 20_000L
         private const val HEAVY_TRAFFIC_BPS = 3L * 1024L * 1024L
     }
 
@@ -210,13 +218,21 @@ class MarbleVpnService : VpnService() {
     /** Positive values are verified HTTPS RTTs; -1 is a failed attempt. */
     private val routeOutcomeWindow = ArrayDeque<Int>()
     @Volatile private var jitterProbeHost = JITTER_PRIMARY_HOST
-    @Volatile private var jitterHighStreak = 0
-    @Volatile private var jitterLowStreak = 0
     @Volatile private var jitterControlActive = false
     @Volatile private var lastJitterOptimizerRequestAt = 0L
-    @Volatile private var tuningInconclusiveStreak = 0
-    @Volatile private var tuningBackoffUntilMs = 0L
     @Volatile private var verifiedRttBackoffUntilMs = 0L
+
+    // MARBLE_JITTER_HYSTERESIS_V133 / MARBLE_TURBO_BACKOFF_V133 / MARBLE_EGRESS_EVIDENCE_V133 /
+    // MARBLE_PATH_MTU_STABILITY_V133 — the four runtime state machines now live in pure policy
+    // objects. The service owns only the current state value, so every transition is testable
+    // without Android and no decision is spread across a dozen mutable fields.
+    // Guarded by the single-threaded monitor worker except where noted.
+    @Volatile private var jitterControlState = JitterControlPolicy.State()
+    @Volatile private var turboBackoffState = TurboBackoffPolicy.State()
+    @Volatile private var egressObservationState = EgressObservationPolicy.State()
+    @Volatile private var pathMtuState = PathMtuPolicy.State()
+    /** Consecutive live-route ticks that looked good; feeds the Turbo backoff early release. */
+    @Volatile private var goodRouteTicks = 0
 
     override fun onCreate() {
         super.onCreate()
@@ -392,12 +408,13 @@ class MarbleVpnService : VpnService() {
         }
         synchronized(routeOutcomeWindow) { routeOutcomeWindow.clear() }
         jitterProbeHost = JITTER_PRIMARY_HOST
-        jitterHighStreak = 0
-        jitterLowStreak = 0
+        jitterControlState = JitterControlPolicy.State()
         jitterControlActive = false
         lastJitterOptimizerRequestAt = 0L
-        tuningInconclusiveStreak = 0
-        tuningBackoffUntilMs = 0L
+        turboBackoffState = TurboBackoffPolicy.State()
+        egressObservationState = EgressObservationPolicy.State()
+        pathMtuState = PathMtuPolicy.State()
+        goodRouteTicks = 0
 
         diag.event(
             "VPN", "connect-request",
@@ -498,6 +515,10 @@ class MarbleVpnService : VpnService() {
         verifiedRttBackoffUntilMs = 0L
         val generation = routeGeneration.incrementAndGet()
 
+        // MARBLE_LINK_DEADLINE_V133 — the config this core is about to run carries deadlines. They
+        // must be sized for the link this route actually has, otherwise a healthy ~1.1 s tunnel gets
+        // 1350 ms DNS budgets and every lookup dies on a deadline before the resolver can answer.
+        val linkEvidence = linkEvidenceFor(profile.id)
         diag.event(
             "XRAY", if (recovering) "recovery-start" else "start-begin",
             "session" to session,
@@ -506,11 +527,17 @@ class MarbleVpnService : VpnService() {
             "mode" to activeMode,
             "fragment" to settings.fragmentEnabled,
             "mux" to settings.muxEnabled,
-            "dnsStrategy" to settings.dnsQueryStrategy
+            "dnsStrategy" to settings.dnsQueryStrategy,
+            "linkRttMs" to linkEvidence.rttMs.toInt(),
+            "linkJitterMs" to linkEvidence.jitterMs.toInt(),
+            "linkSamples" to linkEvidence.samples,
+            "dnsTimeoutMs" to LinkDeadlinePolicy.dnsServerTimeoutMs(
+                linkEvidence, 0, settings.fragmentEnabled
+            )
         )
 
         val coreStartNs = System.nanoTime()
-        val coreStarted = xray.start(profile, port, settings)
+        val coreStarted = xray.start(profile, port, settings, linkEvidence)
         val coreStartMs = ((System.nanoTime() - coreStartNs) / 1_000_000L).coerceAtLeast(0L)
         diag.event(
             "XRAY",
@@ -1066,8 +1093,37 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                             transport.rttVarMs >= maxOf(20, transport.rttMs / 3)
                         if (stressed) routeProbeRequested.set(true)
                         if (liveSettings.adaptiveMssEnabled && transport.pmtu in 1280..9000) {
-                            repo.intelligence.rememberPathMtu(activeProfileId, transport.pmtu)
-                            if (activeMtu > transport.pmtu) tuningRequested.set(true)
+                            // MARBLE_PATH_MTU_STABILITY_V133 — `pmtu` is the MSS of whichever socket
+                            // the telemetry happened to sample, so it legitimately alternates
+                            // between 1400 and 1360 as flows rotate. Committing every sample pinned
+                            // the last one for the whole TTL (which is why MTU differed between
+                            // sessions of the same route), and `activeMtu > pmtu` was true on every
+                            // rotation, so `tuningRequested` fired over and over — each forced pass
+                            // bypassed the sample/thermal/traffic guards and, when inconclusive,
+                            // escalated the Turbo backoff. Both now require corroboration.
+                            val mtuDecision = PathMtuPolicy.observe(
+                                state = pathMtuState,
+                                observedMtu = transport.pmtu,
+                                activeMtu = activeMtu,
+                                nowMs = System.currentTimeMillis()
+                            )
+                            pathMtuState = mtuDecision.state
+                            mtuDecision.commitMtu?.let { committed ->
+                                repo.intelligence.rememberPathMtu(activeProfileId, committed)
+                            }
+                            if (mtuDecision.requestTune) tuningRequested.set(true)
+                            if (mtuDecision.commitMtu != null || mtuDecision.requestTune) {
+                                diag.event(
+                                    "MTU", "path-mtu-learned",
+                                    "session" to session,
+                                    "observed" to transport.pmtu,
+                                    "active" to activeMtu,
+                                    "committed" to (mtuDecision.commitMtu ?: 0),
+                                    "repeats" to mtuDecision.state.repeats,
+                                    "requestTune" to mtuDecision.requestTune,
+                                    "reason" to mtuDecision.reason
+                                )
+                            }
                         }
                         if (tick % 10 == 0) diag.event("XRAY", "tcp-info", "session" to session,
                             "sockets" to transport.sockets, "rttMs" to transport.rttMs,
@@ -1121,6 +1177,63 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             ?: return ActiveRouteQuality(0, 0)
         return ActiveRouteQuality(link.medianRttMs, link.successes, link.ewmaJitterMs,
             link.p95RttMs, link.lossPercent, link.spikePercent)
+    }
+
+    /**
+     * MARBLE_LINK_DEADLINE_V133 — round-trip evidence for the route that is about to carry traffic.
+     *
+     * Every deadline the hardened config carries is derived from this. The per-node health record is
+     * the primary source because it is scoped to this physical network; the last honest live ping is
+     * the fallback for a node this network has not measured yet. When neither exists the evidence is
+     * [LinkEvidence.UNKNOWN] and the config keeps the legacy fixed budgets, which is the correct
+     * behaviour for a first-ever connect rather than a guess dressed up as a measurement.
+     */
+    private fun linkEvidenceFor(profileId: String): LinkEvidence {
+        val repo = (application as MarbleApplication).repo
+        val fromHealth = runCatching {
+            LinkEvidence.fromHealth(repo.intelligence.healthOf(profileId))
+        }.getOrDefault(LinkEvidence.UNKNOWN)
+        if (fromHealth.known) return fromHealth
+        val liveMs = repo.livePingMs
+        return if (liveMs in 1..8_000) {
+            LinkEvidence(rttMs = liveMs.toDouble(), samples = 1)
+        } else {
+            LinkEvidence.UNKNOWN
+        }
+    }
+
+    /**
+     * MARBLE_TURBO_BACKOFF_V133 — cancel an acceleration backoff that the route has outgrown.
+     *
+     * The old backoff could only end by expiring, so a link that recovered kept the engine
+     * suppressed for the rest of its timer. Release requires real evidence rather than a single good
+     * tick: jitter control must have been released by the state machine *and* the verified latency
+     * must be back under the tuning trigger for [GOOD_ROUTE_TICKS_FOR_RELEASE] consecutive samples.
+     * The policy itself bounds how often this may happen, so a flapping link cannot re-arm the
+     * engine indefinitely.
+     */
+    private fun releaseTurboBackoffIfRecovered(session: String, quality: ActiveRouteQuality) {
+        val settings = activeSettings ?: return
+        val triggerMs = settings.liveTuningPingTriggerMs.coerceIn(80, 1200)
+        val good = quality.samples >= JitterControlPolicy.MIN_SAMPLES &&
+            quality.latencyMs in 1 until triggerMs
+        goodRouteTicks = if (good) goodRouteTicks + 1 else 0
+        if (goodRouteTicks < GOOD_ROUTE_TICKS_FOR_RELEASE) return
+
+        val now = System.currentTimeMillis()
+        if (!TurboBackoffPolicy.isWaiting(turboBackoffState, now)) return
+        val released = TurboBackoffPolicy.observeRoute(turboBackoffState, now, recovered = true)
+        if (released == turboBackoffState) return
+        turboBackoffState = released
+        goodRouteTicks = 0
+        diag.event(
+            "TURBO", "backoff-released-by-recovered-route",
+            "session" to session,
+            "pingMs" to quality.latencyMs,
+            "triggerMs" to triggerMs,
+            "streak" to released.streak,
+            "earlyReleases" to released.earlyReleases
+        )
     }
 
     private fun maybeScheduleOptimizer(session: String, generation: Int) {
@@ -1292,7 +1405,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         )
 
         if (!forced) {
-            if (System.currentTimeMillis() < tuningBackoffUntilMs) return
+            if (TurboBackoffPolicy.isWaiting(turboBackoffState, System.currentTimeMillis())) return
             if (quality.samples < 3) return
             if (sessionTuned && !degraded) return
             if (elapsedConnectMs() < FIRST_TUNE_DELAY_MS) return
@@ -1348,27 +1461,51 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
 
         if (report == null || !report.healthy) {
             sessionTuned = true
-            tuningInconclusiveStreak = (tuningInconclusiveStreak + 1).coerceAtMost(8)
-            val multiplier = 1L shl (tuningInconclusiveStreak - 1).coerceIn(0, 2)
-            val backoffMs =
-                (TURBO_INCONCLUSIVE_BASE_BACKOFF_MS * multiplier)
-                    .coerceAtMost(TURBO_INCONCLUSIVE_MAX_BACKOFF_MS)
-            tuningBackoffUntilMs = System.currentTimeMillis() + backoffMs
+            // MARBLE_TURBO_BACKOFF_V133 — "the pass produced no verdict" is not one condition, it is
+            // two, and telling them apart needs evidence from outside the report: `TuningReport`
+            // is only unhealthy when *no* trial produced a successful measurement, so the report
+            // alone cannot say whether the transport is bad or the probes simply could not run.
+            //
+            // The discriminator is the live route meter. If the tunnel is answering verified HTTPS
+            // probes right now, a pass that measured nothing is a probe/resolver problem and says
+            // nothing about the transport — escalating on it is exactly what turned a DNS deadline
+            // window into a 30-minute acceleration blackout. If the live route is silent too, the
+            // transport evidence really is inconclusive and escalating is correct.
+            val liveQuality = activeRouteQuality()
+            val liveRouteAnswering = liveQuality.samples > 0
+            val cause = if (report != null && liveRouteAnswering) {
+                TurboBackoffPolicy.Cause.PROBE_UNAVAILABLE
+            } else {
+                TurboBackoffPolicy.Cause.TRANSPORT_INCONCLUSIVE
+            }
+            val outcome = TurboBackoffPolicy.inconclusive(
+                state = turboBackoffState,
+                nowMs = System.currentTimeMillis(),
+                cause = cause,
+                baseMs = TURBO_INCONCLUSIVE_BASE_BACKOFF_MS,
+                maxMs = TURBO_INCONCLUSIVE_MAX_BACKOFF_MS
+            )
+            turboBackoffState = outcome.state
 
             if (report != null) repo.intelligence.setDecision(report.summary)
             diag.event(
                 "TURBO", "live-inconclusive-backoff",
                 "session" to session,
-                "streak" to tuningInconclusiveStreak,
-                "backoffSec" to (backoffMs / 1000L),
+                "streak" to outcome.state.streak,
+                "backoffSec" to (outcome.backoffMs / 1000L),
+                "cause" to cause.name,
+                "escalated" to outcome.escalated,
+                "reason" to outcome.reason,
+                "liveRouteSamples" to liveQuality.samples,
+                "liveRoutePingMs" to liveQuality.latencyMs,
                 "jitterControl" to jitterControlActive
             )
             return
         }
 
         sessionTuned = true
-        tuningInconclusiveStreak = 0
-        tuningBackoffUntilMs = 0L
+        turboBackoffState = TurboBackoffPolicy.succeeded(turboBackoffState)
+        goodRouteTicks = 0
 
         // Compare against the method the live process is really running, not against whatever a
         // previous held pass wrote to the store.
@@ -1424,12 +1561,26 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
      * Live metrics below therefore accept certificate-verified HTTPS evidence only.
      */
 
+    /**
+     * MARBLE_EGRESS_EVIDENCE_V133 — startup egress observation, re-armed on a bounded schedule.
+     *
+     * @param attempt 0 is the first observation 20 s after the tunnel is up; later attempts use the
+     *   policy's bounded re-arm schedule so an inconclusive reading is re-checked instead of
+     *   becoming the last word for the whole session.
+     */
     private fun scheduleSyntheticEgressObservation(
         session: String,
         generation: Int,
         port: Int,
-        profile: ProxyProfile
+        profile: ProxyProfile,
+        attempt: Int = 0
     ) {
+        val delayMs = if (attempt <= 0) {
+            EGRESS_FIRST_OBSERVATION_DELAY_MS
+        } else {
+            EgressObservationPolicy.rearmDelay(attempt)
+        }
+        if (delayMs <= 0L) return
         timerWorker.schedule({
             if (isRouteCurrent(session, generation) && xray.isAlive) {
                 monitorWorker.execute {
@@ -1453,16 +1604,34 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                         )
                         return@execute
                     }
+
+                    val decision = EgressObservationPolicy.observe(
+                        state = egressObservationState,
+                        domainHealthy = domainHealthy,
+                        literalHealthy = literalHealthy
+                    )
+                    egressObservationState = decision.state
+
                     diag.event(
                         "EGRESS",
-                        if (domainHealthy) "startup-observation-ok" else "startup-observation-inconclusive",
+                        when (decision.verdict) {
+                            EgressObservationPolicy.Verdict.HEALTHY -> "startup-observation-ok"
+                            EgressObservationPolicy.Verdict.INCONCLUSIVE ->
+                                "startup-observation-inconclusive"
+                            EgressObservationPolicy.Verdict.ROUTE_SUSPECT ->
+                                "startup-observation-route-suspect"
+                        },
                         "session" to session,
                         "literalIpHttps" to literalHealthy,
                         "domainHttps" to domainHealthy,
+                        "attempt" to attempt,
+                        "observations" to decision.state.observations,
+                        "suspicions" to decision.state.consecutiveDnsSuspicions,
+                        "reason" to decision.reason,
                         "profile" to profile.id.take(12)
                     )
 
-                    if (!domainHealthy && literalHealthy) {
+                    if (decision.requestFamilyTune) {
                         val liveSettings = activeSettings ?: app.repo.settings
                         if (
                             liveSettings.intelligenceEnabled &&
@@ -1473,19 +1642,25 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                                 "TURBO", "startup-family-tune-requested",
                                 "session" to session,
                                 "profile" to profile.id.take(12),
-                                "reason" to "literal-ip-ok-domain-inconclusive"
+                                "reason" to decision.reason
                             )
                         }
-                    }
-                    if (!domainHealthy && literalHealthy) {
                         app.repo.intelligence.setDecision(
                             "DNS health probe inconclusive • route remains connected and monitored"
                         )
                         app.repo.refreshIntelligenceStatus()
                     }
+
+                    // A route that is still ambiguous gets re-checked; a healthy or exhausted one
+                    // does not keep spending link capacity on synthetic probes.
+                    if (decision.rearmDelayMs > 0L && !domainHealthy) {
+                        scheduleSyntheticEgressObservation(
+                            session, generation, port, profile, attempt + 1
+                        )
+                    }
                 }
             }
-        }, 20_000L, TimeUnit.MILLISECONDS)
+        }, delayMs, TimeUnit.MILLISECONDS)
     }
 
     private fun scheduleAdaptiveDnsObservation(
@@ -1532,35 +1707,51 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         else -> host
     }
 
+    /**
+     * MARBLE_EGRESS_EVIDENCE_V133 — the deadline both egress legs share.
+     *
+     * The two probes used to be incomparable: the domain leg did a full HTTPS GET with a 3500 ms
+     * budget while the literal leg measured only the TLS first byte with 1500 ms. On the ~1.1 s link
+     * in the attached runtime log the GET needed about three round trips and the first-byte probe
+     * about two, so the domain leg failed and the literal leg passed — an artefact of unequal
+     * budgets that the code then read as "DNS is broken". Both legs now measure the same thing with
+     * the same RTT-derived budget, so a disagreement is real evidence.
+     */
+    private fun egressProbeTimeoutMs(): Int =
+        LinkDeadlinePolicy.httpsProbeTimeoutMs(
+            linkEvidenceFor(activeProfileId),
+            floorMs = 1_500L,
+            ceilingMs = 8_000L
+        ).toInt().coerceIn(500, 30_000)
+
+    /** One measurement shape for both legs: TLS first byte through the tunnel to [host]. */
+    private fun probeEgressTarget(port: Int, host: String, path: String, timeoutMs: Int): Boolean =
+        runCatching {
+            SocksHttpClient.httpsFirstByteLatency(
+                port = port,
+                host = host,
+                path = path,
+                timeoutMs = timeoutMs,
+                tlsHost = probeTlsHost(host)
+            ) > 0.0
+        }.getOrDefault(false)
+
     private fun probeLiteralIpHttps(port: Int): Boolean {
         // No single provider is authoritative. The attached log shows a healthy tunnel while one
         // public DoH/HTTPS anycast target was unreachable, so recovery confirmation races a small
         // provider-diverse literal set without invoking Android/system DNS.
+        val timeoutMs = egressProbeTimeoutMs()
         return JITTER_PROBE_TARGETS.take(3).any { (host, path) ->
-            runCatching {
-                SocksHttpClient.httpsFirstByteLatency(
-                    port = port,
-                    host = host,
-                    path = path,
-                    timeoutMs = 1_500,
-                    tlsHost = probeTlsHost(host)
-                ) > 0.0
-            }.getOrDefault(false)
+            probeEgressTarget(port, host, path, timeoutMs)
         }
     }
 
-    private fun probeDomainHttps(port: Int): Boolean =
-        LIVE_DOMAIN_RTT_TARGETS.take(2).any { (host, path) ->
-            runCatching {
-                SocksHttpClient.get(
-                    port,
-                    host,
-                    path,
-                    3_500,
-                    1_024
-                ).status in 200..399
-            }.getOrDefault(false)
+    private fun probeDomainHttps(port: Int): Boolean {
+        val timeoutMs = egressProbeTimeoutMs()
+        return LIVE_DOMAIN_RTT_TARGETS.take(2).any { (host, path) ->
+            probeEgressTarget(port, host, path, timeoutMs)
         }
+    }
 
     /**
      * Confirms a synthetic route failure against independent HTTPS endpoints.
@@ -1623,9 +1814,11 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
 
     private fun resetJitterBaselineForProbeHost(nextHost: String) {
         synchronized(routeOutcomeWindow) { routeOutcomeWindow.clear() }
-        jitterHighStreak = 0
-        jitterLowStreak = 0
-        jitterControlActive = false
+        // A new probe target starts a fresh IPDV baseline, so the accumulated streaks no longer
+        // describe the path being measured. Dwell windows are kept: switching targets is not a
+        // recovery, and re-entering jitter control immediately would be the old flapping.
+        jitterControlState = jitterControlState.copy(highStreak = 0, lowStreak = 0)
+        jitterControlActive = jitterControlState.active
         jitterProbeHost = nextHost
         (application as MarbleApplication).repo.invalidateLiveJitter()
     }
@@ -1996,49 +2189,56 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             (quality.latencyMs / 8).coerceAtLeast(1)
         )
         val jitterReady = jitterMs >= 0 && jitterSampleCount >= 2
-        val tailJitterHigh = link.p95IpdvMs >= maxOf(highThreshold * 2, 35)
-        val instabilityHigh = link.lossPercent >= 15 || link.spikePercent >= 25
-        val instantHigh = quality.samples >= 3 && jitterReady &&
-            (jitterMs >= highThreshold || tailJitterHigh || instabilityHigh)
-        val instantLow = quality.samples >= 3 && jitterReady && jitterMs <= releaseThreshold &&
-            link.p95IpdvMs <= maxOf(releaseThreshold * 2, 20) && link.lossPercent <= 5 && link.spikePercent <= 10
 
-        when {
-            instantHigh -> {
-                jitterHighStreak = (jitterHighStreak + 1).coerceAtMost(1000)
-                jitterLowStreak = 0
-            }
-            instantLow -> {
-                jitterLowStreak = (jitterLowStreak + 1).coerceAtMost(1000)
-                jitterHighStreak = (jitterHighStreak - 1).coerceAtLeast(0)
-            }
-            else -> {
-                jitterLowStreak = 0
-                jitterHighStreak = (jitterHighStreak - 1).coerceAtLeast(0)
-            }
-        }
+        // MARBLE_JITTER_HYSTERESIS_V133 — the enter/exit decision is a state machine with real
+        // hysteresis, not an inline streak pair. The previous version wiped its release counter on
+        // every ambiguous tick, so a link whose jitter swings between 50 and 150 ms could latch into
+        // jitter control and then alternate enter/exit for the rest of the session.
+        val jitterDecision = JitterControlPolicy.evaluate(
+            sample = JitterControlPolicy.Sample(
+                samples = quality.samples,
+                jitterReady = jitterReady,
+                jitterMs = jitterMs.toDouble(),
+                triggerMs = highThreshold.toDouble(),
+                releaseMs = releaseThreshold.toDouble(),
+                p95IpdvMs = link.p95IpdvMs,
+                lossPercent = link.lossPercent,
+                spikePercent = link.spikePercent
+            ),
+            state = jitterControlState,
+            nowMs = System.currentTimeMillis()
+        )
+        jitterControlState = jitterDecision.state
+        jitterControlActive = jitterDecision.state.active
 
-        if (!jitterControlActive && jitterHighStreak >= JITTER_HIGH_CONFIRMATIONS) {
-            jitterControlActive = true
-            diag.event(
+        when (jitterDecision.verdict) {
+            JitterControlPolicy.Verdict.ENTER -> diag.event(
                 "ROUTE", "jitter-control-enter",
                 "session" to session,
                 "target" to host,
                 "pingMs" to quality.latencyMs,
                 "jitterMs" to jitterMs,
-                "highStreak" to jitterHighStreak
+                "highStreak" to jitterDecision.highStreak,
+                "tick" to jitterDecision.tick,
+                "minHoldMs" to JitterControlPolicy.MIN_HOLD_MS
             )
-        } else if (jitterControlActive && jitterLowStreak >= JITTER_RELEASE_CONFIRMATIONS) {
-            jitterControlActive = false
-            jitterHighStreak = 0
-            diag.event(
-                "ROUTE", "jitter-control-exit",
-                "session" to session,
-                "target" to host,
-                "pingMs" to quality.latencyMs,
-                "jitterMs" to jitterMs,
-                "lowStreak" to jitterLowStreak
-            )
+            JitterControlPolicy.Verdict.EXIT -> {
+                diag.event(
+                    "ROUTE", "jitter-control-exit",
+                    "session" to session,
+                    "target" to host,
+                    "pingMs" to quality.latencyMs,
+                    "jitterMs" to jitterMs,
+                    "lowStreak" to jitterDecision.lowStreak,
+                    "tick" to jitterDecision.tick,
+                    "minDwellMs" to JitterControlPolicy.MIN_DWELL_MS
+                )
+                // A released route is the evidence the Turbo backoff has been waiting for: the same
+                // observation that ends jitter control also cancels a suppression that was entered
+                // because of it.
+                releaseTurboBackoffIfRecovered(session, quality)
+            }
+            JitterControlPolicy.Verdict.HOLD -> Unit
         }
 
         val settings = activeSettings ?: repo.settings
@@ -2242,11 +2442,14 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             synchronized(routeOutcomeWindow) { routeOutcomeWindow.clear() }
             dataStallGuard.reset()
             jitterProbeHost = JITTER_PRIMARY_HOST
-            jitterHighStreak = 0
-            jitterLowStreak = 0
+            // A new physical network invalidates every measurement-derived state: the jitter
+            // baseline, the acceleration backoff and the learned PMTU all belonged to the old link.
+            jitterControlState = JitterControlPolicy.State()
             jitterControlActive = false
-            tuningInconclusiveStreak = 0
-            tuningBackoffUntilMs = 0L
+            turboBackoffState = TurboBackoffPolicy.State()
+            egressObservationState = EgressObservationPolicy.State()
+            pathMtuState = PathMtuPolicy.State()
+            goodRouteTicks = 0
             routeOptimizer.reset(0L)
             optimizerScanRequested.set(
                 settings.continuousOptimizerEnabled && !settings.identityGuardEnabled

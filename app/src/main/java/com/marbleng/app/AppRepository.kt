@@ -1521,6 +1521,20 @@ private fun postToMain(block: () -> Unit) {
                 results += ProbeSample(mode, sane, verified)
             }
 
+            // MARBLE_LINK_DEADLINE_V133 — every probe budget here used to be a constant sized for a
+            // fast link (1800/2000/1600 ms) inside a 2600 ms batch. On the ~1.1 s tunnel in the
+            // attached runtime log that truncated the race to one or two responders, so the Home
+            // readout was "the fastest of whatever happened to finish" instead of an honest median,
+            // and `responders=1` looked like four dead providers. The budgets are now derived from
+            // the same measured evidence that sizes the core's DNS deadlines.
+            val pingEvidence = LinkEvidence(
+                rttMs = seedMs.toDouble(),
+                samples = if (seedMs > 0) 1 else 0
+            )
+            val probeTimeoutMs = LinkDeadlinePolicy.httpsProbeTimeoutMs(pingEvidence).toInt()
+                .coerceIn(500, 30_000)
+            val batchBudgetMs = LinkDeadlinePolicy.probeBatchBudgetMs(probeTimeoutMs.toLong())
+
             val pool = Executors.newFixedThreadPool(literalTargets.size + domainTargets.size + 2)
             try {
                 val tasks = literalTargets.map { (ip, tlsHost, path) ->
@@ -1531,7 +1545,7 @@ private fun postToMain(block: () -> Unit) {
                                 host = ip,
                                 path = path,
                                 targetPort = 443,
-                                timeoutMs = 1_800,
+                                timeoutMs = probeTimeoutMs,
                                 tlsHost = tlsHost
                             )
                         }.getOrNull()?.let { record("first-byte:$tlsHost", it, verified = true) }
@@ -1544,7 +1558,7 @@ private fun postToMain(block: () -> Unit) {
                                 host = host,
                                 path = path,
                                 samples = 1,
-                                timeoutMs = 2_000
+                                timeoutMs = probeTimeoutMs
                             )
                         }.getOrNull()
                             ?.samplesMs
@@ -1561,7 +1575,7 @@ private fun postToMain(block: () -> Unit) {
                                 port,
                                 "cp.cloudflare.com",
                                 "/generate_204",
-                                1_800,
+                                probeTimeoutMs,
                                 2_048
                             )
                         }.getOrNull()
@@ -1578,12 +1592,16 @@ private fun postToMain(block: () -> Unit) {
                                 port = port,
                                 host = "1.1.1.1",
                                 targetPort = 443,
-                                timeoutMs = 1_600
+                                timeoutMs = probeTimeoutMs.coerceAtMost(8_000)
                             )
                         }.getOrNull()?.let { record("tunnel-handshake", it, verified = false) }
                     }
                 )
-                pool.invokeAll(tasks, 2_600, java.util.concurrent.TimeUnit.MILLISECONDS)
+                pool.invokeAll(
+                    tasks,
+                    batchBudgetMs,
+                    java.util.concurrent.TimeUnit.MILLISECONDS
+                )
             } catch (_: InterruptedException) {
                 Thread.currentThread().interrupt()
             } finally {
@@ -1613,6 +1631,8 @@ private fun postToMain(block: () -> Unit) {
                 "measured" to measured,
                 "port" to port,
                 "responders" to results.size,
+                "probeTimeoutMs" to probeTimeoutMs,
+                "batchBudgetMs" to batchBudgetMs,
                 "verified" to verifiedSamples.size,
                 "seed" to seedMs,
                 "mode" to (winner?.mode ?: if (tailMs > 0) "tunnel-monitor" else "none"),
@@ -2503,6 +2523,20 @@ private fun postToMain(block: () -> Unit) {
             selectedProfileId == p.id &&
             (selectedProfileSourceId.isBlank() || selectedProfileSourceId == p.subscriptionId)
 
+    /**
+     * MARBLE_DURABLE_TUNNEL_INTENT_V133 — true while the user's last explicit instruction was
+     * "be connected" and no new instruction has replaced it. A process kill — including Android's
+     * `REASON_PACKAGE_UPDATE` kill during an app or core update — leaves it set, which is exactly
+     * what makes the tunnel restorable instead of silently gone.
+     */
+    fun tunnelIntentActive(): Boolean = runCatching { store.tunnelIntentActive() }.getOrDefault(false)
+
+    /** Retires the tunnel intent after a startup that Android blocked or that failed outright. */
+    fun clearTunnelIntent(reason: String) {
+        diagnostics.event("APP", "tunnel-intent-cleared", "reason" to reason)
+        io.execute { runCatching { store.setTunnelIntentActive(false) } }
+    }
+
     /** Exact one-tap reconnect for Home after app/process restart. */
     fun reconnectLastOrAuto(onConnect: (ProxyProfile) -> Unit) {
         val remembered = lastProfile()
@@ -2595,6 +2629,10 @@ private fun postToMain(block: () -> Unit) {
                 // MARBLE_LAST_ROUTE_V37
                 // Successful connection is durable user intent.
                 runCatching { store.setLastProfileRef(p.id, p.subscriptionId) }
+                // MARBLE_DURABLE_TUNNEL_INTENT_V133 — written together with the route reference so a
+                // process kill (including the REASON_16 package-update kill) can never leave the two
+                // disagreeing about whether the user wanted to be connected.
+                runCatching { store.setTunnelIntentActive(true) }
                 runCatching {
                     store.saveHistory(historySnapshot)
                 }.onFailure {
@@ -2727,6 +2765,10 @@ private fun postToMain(block: () -> Unit) {
     }
 
     fun stopVpn() {
+        // MARBLE_DURABLE_TUNNEL_INTENT_V133 — an explicit user disconnect is the only thing that
+        // retires the tunnel intent. Without this the app would offer to restore a tunnel the user
+        // deliberately closed.
+        io.execute { runCatching { store.setTunnelIntentActive(false) } }
         markDisconnecting()
         runCatching {
             context.startService(Intent(context, MarbleVpnService::class.java).setAction(MarbleVpnService.ACTION_STOP))
@@ -3390,11 +3432,21 @@ private fun postToMain(block: () -> Unit) {
     fun runBugFinder() {
         task("Bug Finder Ultimate • collecting passive runtime evidence") {
             diagnostics.event("BUGFINDER", "scan-begin", "state" to state, "debugMode" to settings.debugModeEnabled)
+            // MARBLE_MEASURED_FAMILY_V133 — Bug Finder must describe the configuration the tunnel
+            // actually runs, not the stored preferences. Reporting "IPv6 preferred, IPv4 raced after
+            // 60 ms" from the raw settings while the live route had measured IPv6 as unhealthy is how
+            // a real defect hid behind a healthy-looking diagnostics line.
+            val activeProfile = profile(activeProfileId)
+            val evidenceSettings = if (activeProfile != null) {
+                runCatching { effectiveSettingsFor(activeProfile) }.getOrDefault(settings)
+            } else {
+                settings
+            }
             val report = bugFinder.scan(
                 appState = state,
                 stateDetail = stateDetail,
                 activeProfileId = activeProfileId,
-                settings = settings,
+                settings = evidenceSettings,
                 profiles = profiles.toList(),
                 history = history.toList(),
                 networkLabel = networkSnapshot.label,
