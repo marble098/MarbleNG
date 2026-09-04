@@ -86,6 +86,12 @@ private val FaLexicon: Map<String, String> = mapOf(
     // ------------------------------------------------------------------ MARBLE_CONNECT_BUTTON_STYLES_V119
     "Connect button" to "دکمه اتصال",
     "One silhouette for every Home style" to "یک طرح واحد برای همه استایل‌های خانه",
+    "Round shutter" to "دکمه‌ٔ گرد",
+    "Slide to connect" to "کشیدن برای اتصال",
+    "Classic switch" to "کلید کلاسیک",
+    "Large round shutter, centred in the hero (default)" to "دکمهٔ گرد بزرگ، در مرکز بخش اصلی (پیش‌فرض)",
+    "Wide slide track, docked at the hero floor" to "نوار کشویی پهن، در کف بخش اصلی",
+    "Classic power bar, docked under the instrument" to "نوار قدرت کلاسیک، زیر ابزار اصلی",
     "Floating" to "شناور",
     "Core" to "هسته",
     "Pulse" to "ضربان",

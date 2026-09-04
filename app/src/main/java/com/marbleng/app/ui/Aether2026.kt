@@ -122,6 +122,7 @@ import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
@@ -217,16 +218,40 @@ fun Aether2026App(
     var detailProfile by remember { mutableStateOf<ProxyProfile?>(null) }
     var ipDetailsOpen by remember { mutableStateOf(false) }
     var contentScrolling by remember { mutableStateOf(false) }
+    // MARBLE_DOCK_SCROLL_ONLY_V123 — a programmatic page turn (tab tap, Home routing focus) is
+    // marked while it animates so the bottom dock never enters its glass state; only real
+    // finger scrolls make the bar translucent.
+    var tabTurn by remember { mutableStateOf(false) }
     BackHandler(enabled = detailProfile != null) { detailProfile = null }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
+    // One suspension-safe page turn: the marker always clears — even when the animation is
+    // cancelled by a finger grab — so the dock can never get stuck translucent.
+    val goToTab: (Int) -> Unit = { page ->
+        tabTurn = true
+        scope.launch {
+            try {
+                pagerState.animateScrollToPage(page)
+            } finally {
+                tabTurn = false
+            }
+        }
+    }
+
     // Sync pager → tab name for persistence and reset the dock to its resting skin when
     // switching pages. Each scrollable page reports its own motion below.
     LaunchedEffect(pagerState.currentPage) {
+        tabTurn = false
         contentScrolling = false
         onContentScrollChanged(false)
         repo.rememberAppTab(tabs[pagerState.currentPage].name)
+    }
+
+    // Whichever coroutine owns the turn, any settled pager clears the marker, so a fast
+    // double-tap or an interrupted animation can never leave the dock semi-transparent.
+    LaunchedEffect(pagerState.isScrollInProgress) {
+        if (!pagerState.isScrollInProgress) tabTurn = false
     }
 
     val reportContentScroll: (Boolean) -> Unit = { scrolling ->
@@ -237,7 +262,7 @@ fun Aether2026App(
     // Routing focus from Home: jump to Settings tab
     LaunchedEffect(settingsFocus) {
         if (settingsFocus == "Routing") {
-            pagerState.animateScrollToPage(SpatialTab.SETTINGS.ordinal)
+            goToTab(SpatialTab.SETTINGS.ordinal)
         }
     }
 
@@ -274,9 +299,9 @@ fun Aether2026App(
         onRefreshIp = { repo.refreshServerIntel(deck.profile, force = true) },
         onIpDetails = { ipDetailsOpen = true },
         onTestPing = { repo.measureConnectionPing() },
-        onLibrary = { scope.launch { pagerState.animateScrollToPage(SpatialTab.LIBRARY.ordinal) } },
+        onLibrary = { goToTab(SpatialTab.LIBRARY.ordinal) },
         onConnectProfile = { profile -> onConnect(profile) },
-        onAddRoute = { scope.launch { pagerState.animateScrollToPage(SpatialTab.LIBRARY.ordinal) } },
+        onAddRoute = { goToTab(SpatialTab.LIBRARY.ordinal) },
         onRank = { repo.smartRank() },
         onPrivacy = {
             repo.audit()
@@ -284,9 +309,9 @@ fun Aether2026App(
         },
         onRouting = {
             settingsFocus = "Routing"
-            scope.launch { pagerState.animateScrollToPage(SpatialTab.SETTINGS.ordinal) }
+            goToTab(SpatialTab.SETTINGS.ordinal)
         },
-        onTests = { scope.launch { pagerState.animateScrollToPage(SpatialTab.SETTINGS.ordinal) } }
+        onTests = { goToTab(SpatialTab.SETTINGS.ordinal) }
     )
 
     Scaffold(
@@ -397,13 +422,17 @@ fun Aether2026App(
             // MARBLE_FLOATING_DOCK_V117 — the dock is a true overlay: no Scaffold slot
             // reserves space for it, so pages and the backdrop keep scrolling beneath the
             // glass and shine through it (per-tab lists pad their last item past it).
+            // MARBLE_DOCK_SCROLL_ONLY_V123 — glass belongs to real scrolling only. A tap on a
+            // tab is a programmatic page turn, so the turn marker keeps the bar opaque for the
+            // whole tap animation; content scroll and finger-dragged turns still fade it.
+            val glass = contentScrolling || pagerState.isScrollInProgress
             FloatingSpatialDock(
                 selected = tabs[pagerState.currentPage],
-                glass = contentScrolling || pagerState.isScrollInProgress,
+                glass = glass && !tabTurn,
                 onSelect = { next ->
                     detailProfile = null
                     settingsFocus = null
-                    scope.launch { pagerState.animateScrollToPage(next.ordinal) }
+                    goToTab(next.ordinal)
                 }
             )
 
@@ -849,11 +878,14 @@ private fun FloatingSpatialDock(
             ),
             label = "dock-surface-alpha"
         )
-        val dockSurface = if (glassFraction > 0.5f) {
-            glassSurface.copy(alpha = glassSurface.alpha * surfaceAlpha)
-        } else {
-            idleSurface
-        }
+        // MARBLE_DOCK_SCROLL_ONLY_V123 — the idle↔glass surface is a continuous colour blend,
+        // not a 50% switch: the old midpoint jump was visible as a hard snap while the spring
+        // was still animating. Both endpoints and everything between now interpolate smoothly.
+        val dockSurface = lerp(
+            idleSurface,
+            glassSurface.copy(alpha = glassSurface.alpha * surfaceAlpha),
+            glassFraction
+        )
 
         val highlightAlpha by animateFloatAsState(
             targetValue = if (glass) 1f else 0f,
@@ -984,6 +1016,18 @@ private fun FloatingSpatialDock(
                             scaleX = activeScale
                             scaleY = activeScale
                         }
+                        // MARBLE_DOCK_SELECTED_GLOW_V123 — the active tab carries a soft electric
+                        // halo so the current destination reads instantly without a heavy fill.
+                        .then(
+                            if (active) {
+                                Modifier.shadow(
+                                    elevation = 8.dp,
+                                    shape = glassShape,
+                                    ambientColor = Aether.Cyan.copy(alpha = .16f),
+                                    spotColor = Aether.Cyan.copy(alpha = .24f)
+                                )
+                            } else Modifier
+                        )
                         .clip(glassShape)
                         .background(pillBg)
                         .border(1.dp, indicatorTone, glassShape)
@@ -2579,7 +2623,10 @@ private fun CyberDeck(
                 evidence = evidence,
                 actions = actions,
                 bottomClearance = dockClearance(),
-                pro = pro
+                pro = pro,
+                // MARBLE_DOCK_SCROLL_ONLY_V123 — the Home page reports its own scrolling so the
+                // dock turns to glass exactly when content moves under it.
+                onScrollChanged = onContentScrollChanged
             )
         }
 
@@ -8751,8 +8798,10 @@ private fun SettingsHomeStylePage(
         // The old six-way picker mixed a meta choice ("Auto") with five decorations of the same
         // circle, so five of the six looked identical on a phone. What is left are three genuinely
         // different controls: the large round shutter (the product default), a slide-to-connect
-        // safety switch and the classic rectangular power switch. Whichever is chosen renders in
-        // every Home presentation, in the same fixed spot, and never moves.
+        // safety switch and the classic rectangular power switch.
+        // MARBLE_CONNECT_PLACEMENT_V123 — each silhouette renders in every Home presentation at
+        // the position its own metaphor deserves: the shutter centred in the hero, the slide
+        // track docked at the hero floor and the classic power bar docked beneath the instrument.
         SettingsHubCard(
             title = trx("Connect button"),
             subtitle = trx("One control for every Home style"),
@@ -8833,12 +8882,17 @@ private fun connectButtonStyleLabel(style: ConnectButtonStyle): String = when (s
 }
 
 private fun connectButtonStyleDetail(style: ConnectButtonStyle): String = when (style) {
-    ConnectButtonStyle.ROUND -> "Large round button, tap to connect (default)"
-    ConnectButtonStyle.SLIDE -> "Drag the knob from left to right"
-    ConnectButtonStyle.CLASSIC -> "Rectangular power switch with a state lamp"
+    ConnectButtonStyle.ROUND -> "Large round shutter, centred in the hero (default)"
+    ConnectButtonStyle.SLIDE -> "Wide slide track, docked at the hero floor"
+    ConnectButtonStyle.CLASSIC -> "Classic power bar, docked under the instrument"
 }
 
-/** A still miniature of each connection control, so the choice is recognizable at a glance. */
+/**
+ * A still miniature of each connection control at its own placement, so the choice is
+ * recognizable at a glance. MARBLE_CONNECT_PLACEMENT_V123 — the faint baseline under each
+ * silhouette shows where it sits in the Home presentation: centred (shutter), floor (slide)
+ * or docked (classic bar).
+ */
 @Composable
 private fun SettingsConnectButtonMotif(
     style: ConnectButtonStyle,
@@ -8848,67 +8902,97 @@ private fun SettingsConnectButtonMotif(
     Canvas(modifier) {
         val w = size.width
         val h = size.height
+        val baseline = h * .93f
         when (style) {
             ConnectButtonStyle.ROUND -> {
-                val c = Offset(w * .5f, h * .5f)
-                drawCircle(tone.copy(alpha = .22f), h * .46f, c)
-                drawCircle(tone.copy(alpha = .70f), h * .46f, c, style = Stroke(1.4.dp.toPx()))
+                val c = Offset(w * .5f, h * .44f)
+                val r = h * .38f
+                drawCircle(tone.copy(alpha = .22f), r, c)
+                drawCircle(tone.copy(alpha = .70f), r, c, style = Stroke(1.4.dp.toPx()))
                 drawLine(
                     tone,
-                    Offset(c.x, c.y - h * .22f),
+                    Offset(c.x, c.y - h * .19f),
                     Offset(c.x, c.y + h * .06f),
                     2.dp.toPx(),
+                    cap = StrokeCap.Round
+                )
+                drawLine(
+                    tone.copy(alpha = .28f),
+                    Offset(0f, baseline),
+                    Offset(w, baseline),
+                    1.dp.toPx(),
                     cap = StrokeCap.Round
                 )
             }
 
             ConnectButtonStyle.SLIDE -> {
-                val r = h * .34f
+                val r = h * .30f
                 drawRoundRect(
                     color = tone.copy(alpha = .18f),
-                    topLeft = Offset(0f, h * .5f - r),
+                    topLeft = Offset(0f, h * .46f - r),
                     size = Size(w, r * 2f),
                     cornerRadius = CornerRadius(r, r)
                 )
                 drawRoundRect(
                     color = tone.copy(alpha = .60f),
-                    topLeft = Offset(0f, h * .5f - r),
+                    topLeft = Offset(0f, h * .46f - r),
                     size = Size(w, r * 2f),
                     cornerRadius = CornerRadius(r, r),
                     style = Stroke(1.2.dp.toPx())
                 )
-                drawCircle(tone, r * .74f, Offset(r + 1.dp.toPx(), h * .5f))
+                drawCircle(tone, r * .74f, Offset(r + 1.dp.toPx(), h * .46f))
                 drawLine(
                     tone.copy(alpha = .55f),
-                    Offset(w * .55f, h * .5f),
-                    Offset(w * .84f, h * .5f),
+                    Offset(w * .55f, h * .46f),
+                    Offset(w * .84f, h * .46f),
                     1.4.dp.toPx(),
+                    cap = StrokeCap.Round
+                )
+                drawLine(
+                    tone.copy(alpha = .28f),
+                    Offset(0f, baseline),
+                    Offset(w, baseline),
+                    1.dp.toPx(),
                     cap = StrokeCap.Round
                 )
             }
 
             ConnectButtonStyle.CLASSIC -> {
+                // A looser outer capsule implies the power-deck chrome it docks in.
+                drawRoundRect(
+                    color = tone.copy(alpha = .10f),
+                    topLeft = Offset(0f, h * .08f),
+                    size = Size(w, h * .78f),
+                    cornerRadius = CornerRadius(6.dp.toPx(), 6.dp.toPx())
+                )
                 drawRoundRect(
                     color = tone.copy(alpha = .18f),
-                    topLeft = Offset(0f, h * .18f),
-                    size = Size(w, h * .64f),
+                    topLeft = Offset(0f, h * .24f),
+                    size = Size(w, h * .46f),
                     cornerRadius = CornerRadius(4.dp.toPx(), 4.dp.toPx())
                 )
                 drawRoundRect(
                     color = tone.copy(alpha = .60f),
-                    topLeft = Offset(0f, h * .18f),
-                    size = Size(w, h * .64f),
+                    topLeft = Offset(0f, h * .24f),
+                    size = Size(w, h * .46f),
                     cornerRadius = CornerRadius(4.dp.toPx(), 4.dp.toPx()),
                     style = Stroke(1.2.dp.toPx())
                 )
                 drawLine(
                     tone,
-                    Offset(w * .26f, h * .34f),
+                    Offset(w * .26f, h * .36f),
                     Offset(w * .26f, h * .56f),
                     2.dp.toPx(),
                     cap = StrokeCap.Round
                 )
-                drawCircle(tone, 2.dp.toPx(), Offset(w * .78f, h * .5f))
+                drawCircle(tone, 2.dp.toPx(), Offset(w * .78f, h * .47f))
+                drawLine(
+                    tone.copy(alpha = .28f),
+                    Offset(0f, baseline),
+                    Offset(w, baseline),
+                    1.dp.toPx(),
+                    cap = StrokeCap.Round
+                )
             }
         }
     }
