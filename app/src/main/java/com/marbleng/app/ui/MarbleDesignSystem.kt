@@ -118,11 +118,13 @@ internal fun marbleMetricTone(band: MarbleMetricBand): Color = when (band) {
 }
 
 /**
- * MARBLE_HOME_GRADIENTS_V116 — the page-wide ambient field now belongs to the selected Home style
- * instead of one grey-blue wash: every flavor gets its own professional multi-colour gradient
- * (electric/violet/ice for Signature, gold/azure/magenta for Cosmic Orbit and amethyst/cyan/emerald
- * for Cosmic Immersion), layered softly so cards stay readable while the viewport never reads as
- * grey.
+ * MARBLE_HOME_GRADIENTS_V116 / MARBLE_ENERGETIC_GRADIENTS_V130 — the page-wide ambient field
+ * follows the selected Home style with vivid, energetic multi-colour gradients.
+ *
+ * Gray and muted washes have been removed: every flavor now carries a clearly visible
+ * multi-colour identity (electric/violet/ice for Signature, gold/azure/magenta for Cosmic
+ * Orbit and amethyst/cyan/emerald for Cosmic Immersion). Cards stay readable while the
+ * viewport radiates energy and life.
  */
 @Composable
 internal fun PrismBackdrop(
@@ -156,14 +158,15 @@ internal fun PrismBackdrop(
     Canvas(modifier) {
         drawRect(base)
 
-        // One diagonal multi-stop wash ties the three hues together; a wash alone stays grey-ish,
-        // so the three halos below are the actual colour story.
+        // MARBLE_ENERGETIC_GRADIENTS_V130 — stronger diagonal wash: the three hues now carry
+        // enough saturation and alpha to read as a vivid multi-colour identity instead of a
+        // grey-blue wash.
         drawRect(
             brush = Brush.linearGradient(
                 colors = listOf(
-                    primary.copy(alpha=.075f),
-                    secondary.copy(alpha=.050f),
-                    tertiary.copy(alpha=.038f)
+                    primary.copy(alpha=.14f),
+                    secondary.copy(alpha=.10f),
+                    tertiary.copy(alpha=.08f)
                 ),
                 start = Offset(0f, size.height * .12f),
                 end = Offset(size.width, size.height * .92f)
@@ -174,8 +177,8 @@ internal fun PrismBackdrop(
         drawCircle(
             brush=Brush.radialGradient(
                 colors=listOf(
-                    primary.copy(alpha=.16f),
-                    primary.copy(alpha=.055f),
+                    primary.copy(alpha=.24f),
+                    primary.copy(alpha=.09f),
                     Color.Transparent
                 ),
                 center=primaryCenter,
@@ -189,8 +192,8 @@ internal fun PrismBackdrop(
         drawCircle(
             brush=Brush.radialGradient(
                 colors=listOf(
-                    secondary.copy(alpha=.14f),
-                    secondary.copy(alpha=.045f),
+                    secondary.copy(alpha=.20f),
+                    secondary.copy(alpha=.07f),
                     Color.Transparent
                 ),
                 center=secondaryCenter,
@@ -204,8 +207,8 @@ internal fun PrismBackdrop(
         drawCircle(
             brush=Brush.radialGradient(
                 colors=listOf(
-                    tertiary.copy(alpha=.12f),
-                    tertiary.copy(alpha=.035f),
+                    tertiary.copy(alpha=.18f),
+                    tertiary.copy(alpha=.06f),
                     Color.Transparent
                 ),
                 center=tertiaryCenter,

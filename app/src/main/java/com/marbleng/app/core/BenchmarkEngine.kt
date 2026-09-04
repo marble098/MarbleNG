@@ -633,7 +633,8 @@ class BenchmarkEngine(
 
     /** True when the selected method never needs a temporary Xray process. */
     private fun directProbe(s: AppSettings): Boolean =
-        s.probeMethod == ProbeMethod.TCP || s.probeMethod == ProbeMethod.ICMP
+        s.probeMethod == ProbeMethod.TCP || s.probeMethod == ProbeMethod.ICMP ||
+            s.probeMethod == ProbeMethod.HTTP || s.probeMethod == ProbeMethod.DNS
 
     private fun directResult(p: ProxyProfile, s: AppSettings): BenchmarkResult {
         val directTimeoutMs =
@@ -645,22 +646,63 @@ class BenchmarkEngine(
             } else {
                 (s.benchTimeoutSec * 1000).coerceIn(500, 10_000)
             }
-        val sample = RouteProbe.measure(
-            profile = p,
-            icmpMode = s.probeMethod == ProbeMethod.ICMP,
-            samples = s.benchSamples.coerceIn(1, 8),
-            timeoutMs = directTimeoutMs,
-            settings = s
-        )
-        return BenchmarkResult(
-            profileId = p.id,
-            name = p.name,
-            success = sample.successPercent,
-            latencyMs = sample.latencyMs,
-            bytesPerSecond = 0.0,
-            score = 0.0,
-            probeKind = if (s.probeMethod == ProbeMethod.ICMP) "ICMP" else "TCP"
-        )
+        // MARBLE_PROBE_TOOLKIT_V130 — dispatch to the right RouteProbe method
+        return when (s.probeMethod) {
+            ProbeMethod.HTTP -> {
+                val result = RouteProbe.httpPingBatch(
+                    socksPort = 0,
+                    timeoutMs = directTimeoutMs,
+                    samples = s.benchSamples.coerceIn(1, 8)
+                )
+                BenchmarkResult(
+                    profileId = p.id,
+                    name = p.name,
+                    success = result.successPercent,
+                    latencyMs = result.latencyMs,
+                    bytesPerSecond = 0.0,
+                    score = 0.0,
+                    probeKind = "HTTP",
+                    jitterMs = result.jitterMs,
+                    p95LatencyMs = result.p95Ms,
+                    lossPercent = result.lossPercent
+                )
+            }
+            ProbeMethod.DNS -> {
+                val result = RouteProbe.dnsPingExtended(
+                    host = p.host,
+                    timeoutMs = directTimeoutMs,
+                    samples = s.benchSamples.coerceIn(1, 8)
+                )
+                BenchmarkResult(
+                    profileId = p.id,
+                    name = p.name,
+                    success = result.successPercent,
+                    latencyMs = result.latencyMs,
+                    bytesPerSecond = 0.0,
+                    score = 0.0,
+                    probeKind = "DNS",
+                    jitterMs = result.jitterMs
+                )
+            }
+            else -> {
+                val sample = RouteProbe.measure(
+                    profile = p,
+                    icmpMode = s.probeMethod == ProbeMethod.ICMP,
+                    samples = s.benchSamples.coerceIn(1, 8),
+                    timeoutMs = directTimeoutMs,
+                    settings = s
+                )
+                BenchmarkResult(
+                    profileId = p.id,
+                    name = p.name,
+                    success = sample.successPercent,
+                    latencyMs = sample.latencyMs,
+                    bytesPerSecond = 0.0,
+                    score = 0.0,
+                    probeKind = if (s.probeMethod == ProbeMethod.ICMP) "ICMP" else "TCP"
+                )
+            }
+        }
     }
 
     private fun testCandidate(

@@ -810,14 +810,12 @@ private fun FloatingSpatialDock(
     onSelect: (SpatialTab) -> Unit
 ) {
     // MARBLE_BOTTOM_DOCK_UNIFIED_FLOATING_V661 — unified floating navigation lineage
-    // MARBLE_FLOATING_DOCK_V117 — a genuinely detached, frosted-glass tab bar:
+    // MARBLE_FLOATING_DOCK_V117 / MARBLE_DOCK_SMOOTH_ANIMATION_V130
     //  - rendered as an overlay (no Scaffold bottomBar slot), so pages scroll under it
-    //    and whatever is behind shines through the translucent material
     //  - never flush with the screen edge: side margins + a lift above the gesture bar
-    //  - opaque while idle; one translucent material, hairline and top highlight only while
-    //    the current page is actively scrolling
-    //  - flexible items: each button shares the row width (weight), icon + label sizes
-    //    are sp/dp-scaled so they adapt to display size and font scale
+    //  - smooth animated transitions between idle (opaque) and scrolling (glass) states:
+    //    surface color, highlight alpha, border alpha, elevation and subtle scale all
+    //    animate with a spring for a fluid, professional feel
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -826,38 +824,105 @@ private fun FloatingSpatialDock(
         contentAlignment = Alignment.BottomCenter
     ) {
         val barShape = RoundedCornerShape(28.dp)
-        // MARBLE_DOCK_STABLE_COLOR_V115 — the dock's base material never interpolates. A theme
-        // switch can invalidate the palette twice (system bars + Compose scheme) and springing
-        // between two palettes flashed the bar on/off while switching themes. The base is now
-        // taken from the active palette directly; only the selection wash animates, with an
-        // overshoot-free tween so clicks can never overshoot the pill alpha.
-        val dockSurface = if (glass) Aether.BarGlass else Aether.VoidElevated
+
+        // MARBLE_DOCK_SMOOTH_ANIMATION_V130 — every visual property animates smoothly between
+        // the idle (opaque) and scrolling (glass) states using spring animations.
+        val glassFraction by animateFloatAsState(
+            targetValue = if (glass) 1f else 0f,
+            animationSpec = androidx.compose.animation.core.spring(
+                dampingRatio = 0.78f,
+                stiffness = 260f
+            ),
+            label = "dock-glass-fraction"
+        )
+
+        val idleSurface = Aether.VoidElevated
+        val glassSurface = Aether.BarGlass
+        // Smoothly interpolate the surface alpha between opaque and glass
+        val surfaceAlpha by animateFloatAsState(
+            targetValue = if (glass) 0.78f else 1f,
+            animationSpec = androidx.compose.animation.core.spring(
+                dampingRatio = 0.80f,
+                stiffness = 240f
+            ),
+            label = "dock-surface-alpha"
+        )
+        val dockSurface = if (glassFraction > 0.5f) {
+            glassSurface.copy(alpha = glassSurface.alpha * surfaceAlpha)
+        } else {
+            idleSurface
+        }
+
+        val highlightAlpha by animateFloatAsState(
+            targetValue = if (glass) 1f else 0f,
+            animationSpec = androidx.compose.animation.core.spring(
+                dampingRatio = 0.82f,
+                stiffness = 240f
+            ),
+            label = "dock-highlight"
+        )
+
+        val dockElevation by animateDpAsState(
+            targetValue = if (glass) 20.dp else 14.dp,
+            animationSpec = androidx.compose.animation.core.spring(
+                dampingRatio = 0.80f,
+                stiffness = 220f
+            ),
+            label = "dock-elevation"
+        )
+
+        val dockScale by animateFloatAsState(
+            targetValue = if (glass) 0.985f else 1f,
+            animationSpec = androidx.compose.animation.core.spring(
+                dampingRatio = 0.75f,
+                stiffness = 200f
+            ),
+            label = "dock-scale"
+        )
+
+        val borderAlpha by animateFloatAsState(
+            targetValue = if (glass) 0.85f else 1f,
+            animationSpec = androidx.compose.animation.core.spring(
+                dampingRatio = 0.82f,
+                stiffness = 240f
+            ),
+            label = "dock-border-alpha"
+        )
+
         Row(
             modifier = Modifier
                 .widthIn(max = 420.dp)
                 .fillMaxWidth()
                 .height(62.dp)
+                .graphicsLayer {
+                    scaleX = dockScale
+                    scaleY = dockScale
+                }
                 .shadow(
-                    elevation = 14.dp,
+                    elevation = dockElevation,
                     shape = barShape,
                     ambientColor = Color.Black.copy(alpha = 0.16f),
                     spotColor = Color.Black.copy(alpha = 0.20f)
                 )
                 .clip(barShape)
-                // Resting state is an opaque product surface. Only active user scrolling exposes
-                // the page beneath the dock, so the glass treatment has a clear purpose instead
-                // of making the navigation permanently translucent.
                 .background(dockSurface)
                 .then(
-                    if (glass) {
+                    if (highlightAlpha > 0.01f) {
                         Modifier.background(
                             Brush.verticalGradient(
-                                listOf(Aether.BarGlassHighlight, Color.Transparent)
+                                listOf(
+                                    Aether.BarGlassHighlight.copy(alpha = highlightAlpha),
+                                    Color.Transparent
+                                )
                             )
                         )
                     } else Modifier
                 )
-                .border(1.dp, Aether.BarGlassBorder, barShape)
+                .border(
+                    1.dp,
+                    Aether.BarGlassBorder.copy(alpha = Aether.BarGlassBorder.alpha * borderAlpha),
+                    barShape
+                )
                 .padding(horizontal = 8.dp, vertical = 7.dp),
             horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -881,8 +946,6 @@ private fun FloatingSpatialDock(
                     animationSpec = MarbleMotionSpecs.DockColor,
                     label = "dock-pill-${item.name}"
                 )
-                // The selected segment carries a soft outline on top of its wash — the
-                // segmented-control cue, kept colour-animated so it lands with the pill.
                 val indicatorTone by animateColorAsState(
                     targetValue = if (active) Aether.Cyan.copy(alpha = .34f) else Color.Transparent,
                     animationSpec = MarbleMotionSpecs.DockColor,
@@ -5482,6 +5545,9 @@ private fun ServersNodeCard(
                 // "It failed" and "it was never tried" are different facts and must look different.
                 attempted = result != null && measured == null
             )
+            // MARBLE_PING_SPACING_V130 — breathing room between the latency capsule and the
+            // three-dot menu so they never touch. The capsule is now slightly smaller too.
+            Spacer(Modifier.width(8.dp))
             ServersNodeMenu(
                 profile = profile,
                 repo = repo,
@@ -5536,8 +5602,10 @@ private fun ServersPingCapsule(
     }
     Box(
         modifier = Modifier
-            .widthIn(min = 62.dp)
-            .height(30.dp)
+            // MARBLE_PING_SPACING_V130 — compact capsule: smaller width + font so it never crowds
+            // the three-dot menu. The value and unit are tighter but still readable.
+            .widthIn(min = 52.dp)
+            .height(26.dp)
             .clip(ServersPillShape)
             .background(tone.copy(alpha = .12f))
             .semantics { contentDescription = spoken },
@@ -5545,27 +5613,27 @@ private fun ServersPingCapsule(
     ) {
         when {
             testing -> CircularProgressIndicator(
-                modifier = Modifier.size(14.dp),
+                modifier = Modifier.size(12.dp),
                 color = tone,
-                strokeWidth = 1.8.dp
+                strokeWidth = 1.6.dp
             )
 
             !measured -> Text(
                 if (attempted) "✕" else "—",
                 color = tone,
-                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
                 maxLines = 1
             )
 
             else -> Row(
-                modifier = Modifier.padding(horizontal = 9.dp),
+                modifier = Modifier.padding(horizontal = 7.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(3.dp)
+                horizontalArrangement = Arrangement.spacedBy(2.dp)
             ) {
                 Text(
                     "$latencyMs",
                     color = tone,
-                    style = MaterialTheme.typography.labelMedium.copy(
+                    style = MaterialTheme.typography.labelSmall.copy(
                         fontWeight = FontWeight.Bold,
                         fontFeatureSettings = "tnum"
                     ),
@@ -5573,8 +5641,8 @@ private fun ServersPingCapsule(
                 )
                 Text(
                     trx("ms"),
-                    color = tone.copy(alpha = .80f),
-                    style = MaterialTheme.typography.labelSmall,
+                    color = tone.copy(alpha = .72f),
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
                     maxLines = 1
                 )
             }
@@ -11139,13 +11207,17 @@ private fun probeMethodTitle(method: ProbeMethod): String = when (method) {
     ProbeMethod.TUNNEL -> "Real tunnel"
     ProbeMethod.TCP -> "TCP ping"
     ProbeMethod.ICMP -> "ICMP ping"
+    ProbeMethod.HTTP -> "HTTP ping"
+    ProbeMethod.DNS -> "DNS ping"
 }
 
 private fun probeMethodDetail(method: ProbeMethod): String = when (method) {
-    ProbeMethod.HYBRID -> "Recommended • quick gate, then a real test"
+    ProbeMethod.HYBRID -> "Recommended • fast gate + real HTTPS test"
     ProbeMethod.TUNNEL -> "Slowest, proves the route end to end"
-    ProbeMethod.TCP -> "Fastest, only reaches the server address"
+    ProbeMethod.TCP -> "Fastest, TCP handshake to server address"
     ProbeMethod.ICMP -> "Classic ping, bypasses the proxy"
+    ProbeMethod.HTTP -> "Direct HTTPS test, includes TLS time"
+    ProbeMethod.DNS -> "DNS resolution time, fastest check"
 }
 
 private fun probeMethodShortLabel(method: ProbeMethod): String = when (method) {
@@ -11153,6 +11225,8 @@ private fun probeMethodShortLabel(method: ProbeMethod): String = when (method) {
     ProbeMethod.TUNNEL -> "Tunnel"
     ProbeMethod.TCP -> "TCP"
     ProbeMethod.ICMP -> "ICMP"
+    ProbeMethod.HTTP -> "HTTP"
+    ProbeMethod.DNS -> "DNS"
 }
 
 /**
@@ -11188,6 +11262,8 @@ private fun ProbeSettings(repo: AppRepository) {
                 ProbeMethod.TUNNEL -> Aether.Emerald
                 ProbeMethod.TCP -> Aether.Cyan
                 ProbeMethod.ICMP -> Aether.Amber
+                ProbeMethod.HTTP -> Aether.CyanBright
+                ProbeMethod.DNS -> Aether.AmethystBright
             }
             val shape = RoundedCornerShape(14.dp)
             Row(
@@ -11266,7 +11342,26 @@ private fun ProbeSettings(repo: AppRepository) {
             Text("!", color = Aether.Amber, style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.width(9.dp))
             Text(
-                trx("ICMP bypasses the proxy; only Smart or Tunnel ping proves the route."),
+                trx("ICMP bypasses the proxy; only Smart, Tunnel or HTTP ping proves the route."),
+                color = Aether.InkMuted,
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
+    }
+
+    if (method == ProbeMethod.DNS) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(15.dp))
+                .background(Aether.AmethystBright.copy(alpha = .08f))
+                .padding(11.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("i", color = Aether.AmethystBright, style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.width(9.dp))
+            Text(
+                trx("DNS ping measures resolution time only — it does not test the server itself."),
                 color = Aether.InkMuted,
                 style = MaterialTheme.typography.bodySmall
             )
