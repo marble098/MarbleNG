@@ -901,18 +901,35 @@ class XrayManager(private val context: Context) {
     /**
      * Temporary benchmark/optimizer Xray instance.
      *
-     * `port` is only a preferred starting point. Benchmark, race, Continuous Optimizer and Turbo
-     * may overlap, so XrayManager owns one reservation set and passes the real collision-free port
-     * back to the caller.
+     * `port` is only a preferred starting point, and `0` means "any free port": Benchmark, race,
+     * Continuous Optimizer and Turbo may overlap, so XrayManager owns one reservation set, coerces
+     * the preference into its own range and passes the real collision-free port back to the caller.
+     *
+     * MARBLE_TUNING_MEASUREMENT_PLANE_V134 — the guard below used to reject `0` while
+     * [reserveTemporaryPort] was perfectly able to honour it, so every caller that asked for "any
+     * port" got `false` instead of a measurement and read that as "this node is dead". The Freedom
+     * smart ranker passed 0 for every profile it ranked, which is why its probe leg never produced a
+     * single sample.
+     *
+     * MARBLE_TUNING_MEASUREMENT_PLANE_V134 — [link] is the measured round-trip evidence for the
+     * route this throwaway core is about to measure, and it is the same evidence the live tunnel
+     * config is sized from. Before it existed, every measurement core was hardened with
+     * [LinkEvidence.UNKNOWN], i.e. with the legacy 1350/1650 ms encrypted-DNS budgets that V133
+     * proved cannot survive a slow route. The consequence was invisible from the live tunnel: the
+     * tunnel resolved and carried traffic correctly while every acceleration trial, benchmark and
+     * race probe running beside it failed at DNS, so the tuning engine reported "no trial measured
+     * anything" and the backoff escalated to its 1800 s ceiling. A measurement plane that is sized
+     * for a faster link than the one it measures does not measure the link.
      */
     fun temporary(
         profile: ProxyProfile,
         port: Int,
         settings: AppSettings = AppSettings(),
         delayTest: Boolean = false,
+        link: LinkEvidence = LinkEvidence.UNKNOWN,
         block: (Int) -> Unit
     ): Boolean {
-        if (!bin.isFile || port !in 1..65535) return false
+        if (!bin.isFile || port !in 0..65535) return false
         val actualPort = reserveTemporaryPort(port) ?: return false
 
         val config = File(context.cacheDir, "bench-$actualPort.json")
@@ -972,7 +989,7 @@ class XrayManager(private val context: Context) {
                         if (delayTest) {
                             XrayConfigHardener.hardenForDelayTest(sourceConfig, actualPort)
                         } else {
-                            XrayConfigHardener.harden(sourceConfig, actualPort, benchmarkSettings)
+                            XrayConfigHardener.harden(sourceConfig, actualPort, benchmarkSettings, link)
                         }
 
                     val primaryStarted = runTemporaryConfig(primaryConfig)
@@ -989,7 +1006,8 @@ class XrayManager(private val context: Context) {
                             XrayConfigHardener.harden(
                                 sourceConfig,
                                 actualPort,
-                                benchmarkSettings
+                                benchmarkSettings,
+                                link
                             )
                         )
                     } else {

@@ -110,7 +110,8 @@ class BugFinder(private val context: Context, private val xray: XrayManager) {
         history: List<ConnectionRecord>,
         networkLabel: String,
         sentinel: PrivacySentinelState,
-        privacy: PrivacyReport?
+        privacy: PrivacyReport?,
+        tunnelUptimeMs: Long = 0L
     ): BugReport {
         // The diagnostics writer is asynchronous; a short bounded drain avoids freezing Settings
         // for two seconds while still capturing events already queued by the failing operation.
@@ -430,6 +431,41 @@ class BugFinder(private val context: Context, private val xray: XrayManager) {
         val dnsEofCount = resolverSummary.eofCount
         val certExpired = resolverSummary.certExpiredCount
 
+        /*
+         * MARBLE_RESOLVER_EVIDENCE_V134 — a count without a window is not a measurement.
+         *
+         * The absolute threshold this check used (`>= 8` events → WARN) compared sessions of
+         * different lengths, so it reported the *healthy* one as worse: 16 events inside a short
+         * disconnected session read as INFO while 29 events spread over a two-and-a-half-hour stable
+         * tunnel read as WARN. Both numbers came from the same retained log; only the denominator was
+         * missing. The rate is the measurement and the count is just its numerator.
+         *
+         * The same raw lines are also attributed to the endpoints the core named, so the report says
+         * *which* resolver was failing and whether Marble has already demoted it — the loop that
+         * turns this evidence into a different emitted resolver list lives in ResolverEvidencePolicy,
+         * MarbleIntelligence and XrayConfigHardener.
+         */
+        val resolverWindow = ResolverEvidencePolicy.window(resolverErrors, tunnelUptimeMs)
+        val endpointEvidence = ResolverEvidencePolicy.observe(rawLines.asSequence(), emptyList(), now)
+        val worstEndpoint = endpointEvidence.maxByOrNull { it.decisiveFailures }
+        val demotedEndpoints = ResolverEvidencePolicy.demoted(
+            endpointEvidence.map { it.endpoint },
+            endpointEvidence,
+            now
+        )
+        val windowMinutes = resolverWindow.windowMs / 60_000L
+        val rateLabel = if (resolverWindow.rateUnknown) {
+            "window unknown"
+        } else {
+            String.format(java.util.Locale.US, "%.2f/min over %d min", resolverWindow.perMinute, windowMinutes)
+        }
+        val attributionLabel = if (worstEndpoint == null) {
+            "no endpoint attribution in the retained log"
+        } else {
+            "worst=${worstEndpoint.endpoint} (${worstEndpoint.decisiveFailures}) • " +
+                "demoted=${demotedEndpoints.joinToString(",").ifBlank { "none" }}"
+        }
+
         checks += when {
             certExpired > 0 -> BugCheck(
                 "Resolver health",
@@ -442,18 +478,32 @@ class BugFinder(private val context: Context, private val xray: XrayManager) {
                 BugSeverity.PASS,
                 "No current-session DoH deadline, DNS EOF or TLS resolver failure observed"
             )
-            resolverErrors >= 8 -> BugCheck(
+            resolverWindow.severity == ResolverEvidencePolicy.Severity.SEVERE -> BugCheck(
                 "Resolver health",
                 BugSeverity.WARN,
-                "$resolverErrors retained latest-session resolver errors • " +
+                "$resolverErrors resolver errors at $rateLabel • " +
                     "$dohDeadlineCount DoH deadlines • $dnsEofCount DNS EOF • " +
-                    "${resolverSummary.tlsCount} TLS • $certExpired cert-expired",
-                "Encrypted fallback remains active; re-run after the next route/session if it repeats"
+                    "${resolverSummary.tlsCount} TLS • $attributionLabel",
+                "Failing endpoints are demoted and encrypted fallback stays armed; if this rate " +
+                    "survives a reconnect, the operator is filtering every resolver in the pool"
+            )
+            // With no window to divide by, fall back to the absolute reading rather than inventing a
+            // rate out of an unknown denominator.
+            resolverWindow.rateUnknown &&
+                resolverWindow.severity == ResolverEvidencePolicy.Severity.ELEVATED -> BugCheck(
+                "Resolver health",
+                BugSeverity.WARN,
+                "$resolverErrors retained resolver errors • $rateLabel • " +
+                    "$dohDeadlineCount DoH deadlines • $dnsEofCount DNS EOF • " +
+                    "${resolverSummary.tlsCount} TLS • $attributionLabel",
+                "Encrypted fallback remains active; re-run while connected for a rate-based verdict"
             )
             else -> BugCheck(
                 "Resolver health",
                 BugSeverity.INFO,
-                "$resolverErrors transient resolver event(s) observed in the current Xray session"
+                "$resolverErrors resolver events contained at $rateLabel • " +
+                    "$dohDeadlineCount DoH deadlines • $attributionLabel",
+                "Below the rate that affects resolution: encrypted failover absorbed them"
             )
         }
 

@@ -881,6 +881,143 @@ class MarbleIntelligence(private val context: Context) {
     fun healthOf(profileId: String): NodeHealthRecord? =
         db.get(profileId, currentSnapshot().key())
 
+    /**
+     * MARBLE_LINK_DEADLINE_V134 — the one place that turns stored health into deadline evidence.
+     *
+     * V133 derived every budget from this and it fixed the live tunnel, but the source it read was
+     * narrower than the evidence the store actually holds: the per-node record **for this physical
+     * network**, and nothing else. On the first connect of a session that record does not exist yet
+     * (it is written by the measurements the session is about to make), the live ping is still zero,
+     * and the config was therefore emitted with the legacy 1350/1650 ms budgets — the exact numbers
+     * V133 proved cannot survive a slow route. A node that had been measured at 444 ms ten minutes
+     * earlier on another network, and a network where every other node measures 400 ms, both knew
+     * better and were not asked.
+     *
+     * The order below is evidence strength, and the merge is [LinkEvidence.conservativeOf] because
+     * deadline sizing is asymmetric: a generous budget costs one slow failure detection, a truncated
+     * one costs every lookup on the route.
+     *
+     *  1. this node on this network (authoritative);
+     *  2. this node on a previous network (a prior about the node's own path);
+     *  3. only when the node has never been measured: the round-trip scale of *this network*, from
+     *     the nodes that actually worked on it;
+     *  4. the last honest live ping.
+     *
+     * With none of them the result is [LinkEvidence.UNKNOWN] and every budget stays exactly as it
+     * was before this policy existed.
+     */
+    fun linkEvidenceFor(profileId: String, livePingMs: Int = 0): LinkEvidence {
+        val networkKey = currentSnapshot().key()
+        val live = if (livePingMs in 1..8_000) {
+            LinkEvidence(rttMs = livePingMs.toDouble(), samples = 1)
+        } else {
+            LinkEvidence.UNKNOWN
+        }
+        val own = LinkEvidence.fromHealth(db.get(profileId, networkKey))
+            .conservativeOf(LinkEvidence.fromHealth(db.latest(profileId)))
+        return if (own.known) {
+            own.conservativeOf(live)
+        } else {
+            networkLinkPrior(networkKey).conservativeOf(live)
+        }
+    }
+
+    /**
+     * Round-trip scale of a physical network, taken from the nodes that were measured working on it.
+     *
+     * A node that never connected says nothing about the link, so records below a 50 % success EWMA
+     * are excluded: a dead server must not inflate the deadlines of a healthy one. Medians rather
+     * than means, because one 8 s outlier is a broken node, not a slow network.
+     */
+    private fun networkLinkPrior(networkKey: String): LinkEvidence {
+        val records = db.all(networkKey).values
+            .filter { it.samples > 0 && it.latencyEwma in 1.0..8_000.0 && it.successEwma >= 50.0 }
+        if (records.isEmpty()) return LinkEvidence.UNKNOWN
+        val latencies = records.map { it.latencyEwma }.sorted()
+        val jitters = records.map { it.jitterEwma.coerceIn(0.0, 2_000.0) }.sorted()
+        val medianRtt = latencies[latencies.size / 2]
+        val medianJitter = jitters[jitters.size / 2]
+        val worstLoss = records.maxOf {
+            if (it.successEwma in 1.0..100.0) 100.0 - it.successEwma else 0.0
+        }
+        return LinkEvidence(
+            rttMs = medianRtt,
+            tailRttMs = medianRtt + medianJitter * 2.0,
+            jitterMs = medianJitter,
+            lossPercent = worstLoss,
+            samples = records.maxOf { it.samples }
+        )
+    }
+
+    // ------------------------------------------------------------------
+    // MARBLE_RESOLVER_EVIDENCE_V134 — attributed resolver health
+    // ------------------------------------------------------------------
+
+    private fun resolverEvidenceKey(): String = "resolver-evidence:${currentSnapshot().key()}"
+
+    /**
+     * Encrypted resolver failures attributed to an endpoint and scoped to the current physical
+     * network. Empty means "nothing has been observed failing here", never "all resolvers are good".
+     */
+    fun resolverEvidence(): List<ResolverEvidencePolicy.EndpointEvidence> =
+        ResolverEvidencePolicy.deserialize(prefs.getString(resolverEvidenceKey(), "") ?: "")
+
+    /**
+     * Fold raw core-log lines into the persisted evidence set.
+     *
+     * Only attributed, decisive failures are stored; shutdown-safe cancellations and closed-pipe
+     * teardown lines are dropped by [ResolverEvidencePolicy.observe], so a reconnect can never
+     * demote a resolver for having been interrupted.
+     */
+    fun recordResolverEvidence(
+        lines: Sequence<String>,
+        nowMs: Long = System.currentTimeMillis()
+    ): List<ResolverEvidencePolicy.EndpointEvidence> {
+        val key = resolverEvidenceKey()
+        val next = ResolverEvidencePolicy.observe(lines, resolverEvidence(), nowMs)
+        val encoded = ResolverEvidencePolicy.serialize(next)
+        if (encoded != (prefs.getString(key, "") ?: "")) {
+            prefs.edit().putString(key, encoded).apply()
+        }
+        return next
+    }
+
+    /**
+     * A proven answer clears the pressure on that endpoint immediately.
+     *
+     * This is the recovery half of the loop. Without it a demotion would only ever expire by TTL,
+     * and a resolver that came back would keep its demoted rank for half an hour.
+     */
+    fun recordResolverSuccess(
+        endpoint: String,
+        nowMs: Long = System.currentTimeMillis()
+    ) {
+        val key = resolverEvidenceKey()
+        val next = ResolverEvidencePolicy.recordSuccess(endpoint, resolverEvidence(), nowMs)
+        val encoded = ResolverEvidencePolicy.serialize(next)
+        if (encoded != (prefs.getString(key, "") ?: "")) {
+            prefs.edit().putString(key, encoded).apply()
+        }
+    }
+
+    /** Every encrypted resolver Marble may emit: the user's pair first, then independent stock. */
+    fun dnsCandidatePool(settings: AppSettings): List<String> =
+        (listOf(settings.dnsPrimaryDoH, settings.dnsSecondaryDoH) + STOCK_DOH_RESOLVERS)
+            .map { it.trim() }
+            .filter { it.startsWith("https://") }
+            .distinctBy { ResolverEvidencePolicy.normalize(it) }
+
+    /** Endpoints of [settings]' resolver pool that are currently demoted on this network. */
+    fun resolverDemotedEndpoints(settings: AppSettings): List<String> {
+        if (!settings.adaptiveDnsEnabled) return emptyList()
+        val nowMs = System.currentTimeMillis()
+        return ResolverEvidencePolicy.demoted(
+            dnsCandidatePool(settings),
+            resolverEvidence(),
+            nowMs
+        )
+    }
+
     private fun accelerationKey(profileId: String): String =
         "$profileId|${currentSnapshot().key()}"
 
@@ -1091,6 +1228,26 @@ class MarbleIntelligence(private val context: Context) {
         }
 
         val dnsOrdered = preferredDnsOrder(base)
+
+        /*
+         * MARBLE_RESOLVER_EVIDENCE_V134 — publish the resolver verdict inside the settings object,
+         * exactly like the IPv6 verdict below it. The encrypted resolver list is assembled by the
+         * config writer from these settings, so a verdict that only this function knew about is why
+         * 29 attributed `DoH deadline` events never changed a single emitted resolver: the
+         * observation and the emission were two ends of an open loop.
+         */
+        val resolverPool = dnsCandidatePool(base)
+        val endpointEvidence = if (base.adaptiveDnsEnabled) resolverEvidence() else emptyList()
+        val resolverNowMs = System.currentTimeMillis()
+        val dnsDemoted = if (base.adaptiveDnsEnabled) {
+            ResolverEvidencePolicy.demoted(resolverPool, endpointEvidence, resolverNowMs)
+        } else {
+            emptyList()
+        }
+        val dnsParallel = base.adaptiveDnsEnabled &&
+            ResolverEvidencePolicy.parallelQueryJustified(
+                resolverPool, endpointEvidence, resolverNowMs
+            )
         val ipRace = SmartIpRacePolicy.decide(n, db.get(profile.id, n.key()), base.copy(preferIpv6 = effectivePreferIpv6))
         // The underlay decides which records are even worth asking for; the plan then decides the
         // family order for the tunnel, the delay test and the probers in one place. A measured IPv6
@@ -1128,7 +1285,9 @@ class MarbleIntelligence(private val context: Context) {
             // the Kotlin probers and Bug Finder; a verdict only this function knew about is why the
             // diagnostics kept reporting "IPv6 preferred, IPv4 raced after 60 ms" while the node's own
             // history said IPv6 was unhealthy.
-            measuredIpv6Unhealthy = measuredV6Healthy == false
+            measuredIpv6Unhealthy = measuredV6Healthy == false,
+            measuredDnsDemotedEndpoints = dnsDemoted.joinToString(","),
+            measuredDnsParallel = dnsParallel
         )
 
         // Only a freshly measured acceleration plan may change generic transport tuning.
@@ -1805,7 +1964,8 @@ class MarbleIntelligence(private val context: Context) {
 
     fun probeDnsResolvers(
         port: Int,
-        settings: AppSettings
+        settings: AppSettings,
+        link: LinkEvidence = LinkEvidence.UNKNOWN
     ) {
         if (
             !settings.adaptiveDnsEnabled ||
@@ -1832,6 +1992,19 @@ class MarbleIntelligence(private val context: Context) {
         // A bare GET /dns-query can return HTTP 400 quickly even when the resolver itself cannot
         // answer DNS. Send a real RFC 8484 wire-format query so the learned winner represents a
         // usable encrypted resolver rather than just a reachable HTTPS socket.
+        //
+        // MARBLE_TUNING_MEASUREMENT_PLANE_V134 — the audit's own budget was the same species of
+        // constant: 2500 ms for a DoH transaction that travels *through the tunnel it is auditing*
+        // (SOCKS connect, TLS handshake, query — four round trips). On the 267–444 ms route in the
+        // attached runtime log that left no margin at all, so every endpoint timed out, the audit
+        // reported "current order retained", and the resolver order was never learned on exactly the
+        // links that need it most. Derived from the same evidence as every other budget, with 2500 ms
+        // kept as the floor.
+        val auditTimeoutMs = LinkDeadlinePolicy.httpsProbeTimeoutMs(
+            link,
+            floorMs = 2_500L,
+            ceilingMs = 8_000L
+        ).toInt().coerceIn(1_000, 30_000)
         val dnsQuery = java.io.ByteArrayOutputStream().apply {
             write(byteArrayOf(0x4d, 0x47, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00))
             "example.com".split('.').forEach { label ->
@@ -1866,7 +2039,7 @@ class MarbleIntelligence(private val context: Context) {
                             "POST",
                             path,
                             dnsQuery,
-                            2_500,
+                            auditTimeoutMs,
                             4096,
                             mapOf(
                                 "Content-Type" to "application/dns-message",
@@ -1884,6 +2057,15 @@ class MarbleIntelligence(private val context: Context) {
             }.sortedBy {
                 it.second
             }
+
+        // MARBLE_RESOLVER_EVIDENCE_V134 — a real RFC 8484 answer is the strongest evidence
+        // available that an endpoint works on this network right now, so it clears the attributed
+        // failure pressure immediately. This is the recovery half of the loop: without it a demotion
+        // could only expire by TTL, and a resolver that came back mid-session would keep its demoted
+        // rank for the whole window.
+        timings.forEach { (endpoint, _) ->
+            recordResolverSuccess(endpoint)
+        }
 
         if (timings.isEmpty()) {
             setDecision("Encrypted DNS audit failed • current order retained; serial fallback remains armed")
@@ -1938,6 +2120,26 @@ class MarbleIntelligence(private val context: Context) {
             .apply()
     }
 
+    /**
+     * MARBLE_RESOLVER_EVIDENCE_V134 — resolver order for the config that is about to be emitted.
+     *
+     * This used to be a latency audit with two possible outcomes: the user's pair, or the user's
+     * pair swapped. That is why 29 attributed `DoH deadline` events changed nothing — the audit ran
+     * before the connect, measured how *fast* an endpoint answered, and had no input at all for how
+     * often an endpoint failed once the tunnel was carrying traffic.
+     *
+     * Two evidence sources now decide, in this order:
+     *
+     *  1. **attributed failures** ([ResolverEvidencePolicy]) — an endpoint the core itself was seen
+     *     failing decisively on this physical network loses its rank to any endpoint that was not.
+     *     Decayed on a half-life, expired by a TTL, and cleared by a single proven answer, so a
+     *     filtering window that ends stops influencing the order;
+     *  2. **measured latency** (the pre-connect RFC 8484 audit) — decides the order *within* the
+     *     healthy group, with the hysteresis it already had.
+     *
+     * A latency winner may never outrank failure evidence: an endpoint that answered fast once and
+     * has been timing out since is not the resolver you want first.
+     */
     private fun preferredDnsOrder(
         settings: AppSettings
     ): Pair<String, String> {
@@ -1948,6 +2150,7 @@ class MarbleIntelligence(private val context: Context) {
 
         val key =
             currentSnapshot().key()
+        val nowMs = System.currentTimeMillis()
 
         val winner =
             prefs.getString(
@@ -1963,26 +2166,36 @@ class MarbleIntelligence(private val context: Context) {
 
         val fresh =
             learnedAt > 0L &&
-                System.currentTimeMillis() -
-                    learnedAt <=
-                    7L *
-                    24L *
-                    60L *
-                    60L *
-                    1000L
+                nowMs - learnedAt <= DNS_WINNER_TTL_MS
 
-        return if (
-            fresh &&
-            winner ==
-            settings.dnsSecondaryDoH &&
-            winner.isNotBlank()
-        ) {
-            settings.dnsSecondaryDoH to
-                settings.dnsPrimaryDoH
-        } else {
-            settings.dnsPrimaryDoH to
+        val evidence = resolverEvidence()
+        val ordered = ResolverEvidencePolicy.order(
+            dnsCandidatePool(settings),
+            evidence,
+            nowMs
+        )
+        if (ordered.size < 2) {
+            return settings.dnsPrimaryDoH to
                 settings.dnsSecondaryDoH
         }
+
+        val promoted = if (fresh && winner.isNotBlank() &&
+            !ResolverEvidencePolicy.isDemoted(winner, evidence, nowMs)
+        ) {
+            val winnerIndex = ordered.indexOfFirst {
+                ResolverEvidencePolicy.normalize(it) == ResolverEvidencePolicy.normalize(winner)
+            }
+            if (winnerIndex > 0) {
+                listOf(ordered[winnerIndex]) +
+                    ordered.filterIndexed { index, _ -> index != winnerIndex }
+            } else {
+                ordered
+            }
+        } else {
+            ordered
+        }
+
+        return promoted[0] to promoted[1]
     }
 
     private fun kernelSuDetected(): Boolean =
@@ -2013,5 +2226,19 @@ class MarbleIntelligence(private val context: Context) {
         const val ACCELERATION_LIMIT = 160
         const val ACCELERATION_TTL_MS = 6L * 60L * 60L * 1000L
         const val PATH_MTU_TTL_MS = 7L * 24L * 60L * 60L * 1000L
+
+        /**
+         * MARBLE_RESOLVER_EVIDENCE_V134 — the same independent stock resolvers the config writer
+         * appends, kept here so the ordering decision and the emitted list are drawn from one pool.
+         * A demotion can only promote an endpoint that is actually a candidate.
+         */
+        val STOCK_DOH_RESOLVERS = listOf(
+            "https://1.1.1.1/dns-query",
+            "https://8.8.8.8/dns-query",
+            "https://9.9.9.9/dns-query"
+        )
+
+        /** The learned resolver order stays valid for this long before it must be re-measured. */
+        const val DNS_WINNER_TTL_MS = 7L * 24L * 60L * 60L * 1000L
     }
 }

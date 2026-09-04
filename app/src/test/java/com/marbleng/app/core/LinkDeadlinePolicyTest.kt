@@ -130,6 +130,118 @@ class LinkDeadlinePolicyTest {
         assertEquals(LinkEvidence.UNKNOWN, LinkEvidence.fromHealth(null))
     }
 
+    // ------------------------------------------------------------------
+    // MARBLE_LINK_DEADLINE_V134 — merging evidence, and the measurement plane
+    // ------------------------------------------------------------------
+
+    /** The link from the second runtime log: a stable tunnel with 267-444 ms verified pings. */
+    private val noisyCellular = LinkEvidence(
+        rttMs = 444.0,
+        tailRttMs = 644.0,
+        jitterMs = 90.0,
+        lossPercent = 3.0,
+        samples = 6
+    )
+
+    @Test
+    fun `unknown evidence is the identity of a conservative merge`() {
+        assertEquals(noisyCellular, LinkEvidence.UNKNOWN.conservativeOf(noisyCellular))
+        assertEquals(noisyCellular, noisyCellular.conservativeOf(LinkEvidence.UNKNOWN))
+        assertEquals(LinkEvidence.UNKNOWN, LinkEvidence.UNKNOWN.conservativeOf(LinkEvidence.UNKNOWN))
+        assertFalse(LinkEvidence.UNKNOWN.conservativeOf(LinkEvidence.UNKNOWN).known)
+    }
+
+    @Test
+    fun `a conservative merge keeps the slower of two observations`() {
+        val fast = LinkEvidence(rttMs = 60.0, tailRttMs = 80.0, jitterMs = 5.0, samples = 9)
+        val merged = fast.conservativeOf(noisyCellular)
+        assertEquals(noisyCellular.rttMs, merged.rttMs, 0.001)
+        assertEquals(noisyCellular.tailRttMs, merged.tailRttMs, 0.001)
+        assertEquals(noisyCellular.jitterMs, merged.jitterMs, 0.001)
+        assertEquals(noisyCellular.lossPercent, merged.lossPercent, 0.001)
+        // Sample count is confidence, not latency: the merge keeps the better-supported figure.
+        assertEquals(maxOf(fast.samples, noisyCellular.samples), merged.samples)
+        assertTrue(
+            "a merged prior must never shorten a deadline below the slower observation",
+            LinkDeadlinePolicy.dnsServerTimeoutMs(merged, 0, false) >=
+                LinkDeadlinePolicy.dnsServerTimeoutMs(noisyCellular, 0, false)
+        )
+        assertTrue(
+            "and it must lengthen it relative to the fast one",
+            LinkDeadlinePolicy.dnsServerTimeoutMs(merged, 0, false) >
+                LinkDeadlinePolicy.dnsServerTimeoutMs(fast, 0, false)
+        )
+    }
+
+    @Test
+    fun `a first connect with a prior is not sent back to the legacy constants`() {
+        // This is the regression V133 left behind: the per-node record for *this* network is written
+        // by the measurements the session is about to make, so the first config of a session had no
+        // evidence at all and was emitted with 1350/1650 ms budgets on a 444 ms route.
+        val legacy = LinkDeadlinePolicy.dnsServerTimeoutMs(LinkEvidence.UNKNOWN, 0, false)
+        val withPrior = LinkDeadlinePolicy.dnsServerTimeoutMs(
+            LinkEvidence.UNKNOWN.conservativeOf(noisyCellular),
+            0,
+            false
+        )
+        assertEquals(LinkDeadlinePolicy.PRIMARY_DNS_FLOOR_MS, legacy)
+        assertTrue("the prior must reach the emitted budget, got $withPrior", withPrior > legacy)
+        // Three round trips of the tail is the floor a cold encrypted query needs.
+        assertTrue(withPrior >= 3 * noisyCellular.tailRttMs.toLong())
+    }
+
+    @Test
+    fun `a tuning trial keeps the legacy budget as its floor and grows with the link`() {
+        assertEquals(
+            4_000L,
+            LinkDeadlinePolicy.tuningTrialTimeoutMs(LinkEvidence.UNKNOWN, 4_000L)
+        )
+        assertEquals(
+            2_000L,
+            LinkDeadlinePolicy.tuningTrialTimeoutMs(LinkEvidence.UNKNOWN, 2_000L)
+        )
+        // A 444 ms route with 90 ms of jitter still fits inside the legacy 4 s trial budget. A floor
+        // is a floor: a policy that only ever inflates is not derived from evidence.
+        assertEquals(
+            4_000L,
+            LinkDeadlinePolicy.tuningTrialTimeoutMs(noisyCellular, 4_000L)
+        )
+        val derived = LinkDeadlinePolicy.tuningTrialTimeoutMs(slowCellular, 4_000L)
+        assertTrue(
+            "a trial on the ~1.1 s route needs more than the legacy 4 s, got $derived",
+            derived > 4_000L
+        )
+        assertTrue(
+            "it has to cover four round trips of the tail, got $derived",
+            derived >= 4 * slowCellular.tailRttMs.toLong()
+        )
+        assertTrue(derived <= LinkDeadlinePolicy.MAX_TUNING_TRIAL_MS)
+        // And an extreme route is capped, not unbounded.
+        val extreme = LinkEvidence(
+            rttMs = 2_500.0, tailRttMs = 2_800.0, jitterMs = 200.0, samples = 4
+        )
+        assertEquals(
+            LinkDeadlinePolicy.MAX_TUNING_TRIAL_MS,
+            LinkDeadlinePolicy.tuningTrialTimeoutMs(extreme, 4_000L)
+        )
+    }
+
+    @Test
+    fun `an acceleration pass always contains at least one whole trial`() {
+        val trial = LinkDeadlinePolicy.tuningTrialTimeoutMs(slowCellular, 4_000L)
+        val pass = LinkDeadlinePolicy.tuningPassBudgetMs(trial, 4_000L)
+        assertEquals(trial + LinkDeadlinePolicy.TUNING_PASS_SLACK_MS, pass)
+        assertTrue(pass <= LinkDeadlinePolicy.MAX_TUNING_PASS_MS)
+
+        // The user's configured tuning budget is a floor, never a ceiling that truncates the pass.
+        assertEquals(12_000L, LinkDeadlinePolicy.tuningPassBudgetMs(2_000L, 12_000L))
+        // And an extreme link still cannot make a pass unbounded.
+        assertEquals(
+            LinkDeadlinePolicy.MAX_TUNING_PASS_MS,
+            LinkDeadlinePolicy.tuningPassBudgetMs(LinkDeadlinePolicy.MAX_TUNING_PASS_MS, 30_000L)
+        )
+    }
+
     @Test
     fun `health evidence carries jitter and loss into the deadline`() {
         val evidence = LinkEvidence.fromHealth(

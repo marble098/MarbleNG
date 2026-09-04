@@ -852,12 +852,34 @@ object XrayConfigHardener {
         // Runtime evidence has now shown transient deadlines from both stock Cloudflare and Google
         // endpoints on different networks. Adaptive DNS must therefore never collapse to a single
         // provider. Preserve the user's order, then add independent encrypted fallbacks.
+        //
+        // MARBLE_RESOLVER_EVIDENCE_V134 — the pool is assembled first and *then* ordered by evidence.
+        // Before this, the list was a fixed `[user pair] + [Cloudflare, Google, Quad9]` truncated to
+        // three in that order forever, so an endpoint the operator was actively disrupting kept its
+        // rank for the life of the installation and every cold lookup paid its whole (RTT-derived,
+        // therefore generous) deadline before failover reached a resolver that could answer. The
+        // demotion set is measured per physical network, decays on a half-life, and is cleared by a
+        // single proven answer — see ResolverEvidencePolicy.
+        val demotedResolvers = ResolverEvidencePolicy.normalize(
+            settings.measuredDnsDemotedEndpoints
+        ).split(',')
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+        fun demoteLast(pool: List<String>): List<String> {
+            if (demotedResolvers.isEmpty() || pool.size < 2) return pool
+            val (healthy, failing) = pool.partition { candidate ->
+                ResolverEvidencePolicy.normalize(candidate) !in demotedResolvers
+            }
+            return if (healthy.isEmpty()) pool else healthy + failing
+        }
+
         val remoteDoh = if (isFreedomProfile && freedomDnsReady.isNotEmpty()) {
             freedomDnsReady.take(6)
         } else if (settings.adaptiveDnsEnabled) {
-            (configuredRemoteDoh + listOf(stockCloudflareDoh, stockGoogleDoh, stockQuad9Doh))
-                .distinctBy { it.lowercase() }
-                .take(3)
+            demoteLast(
+                (configuredRemoteDoh + listOf(stockCloudflareDoh, stockGoogleDoh, stockQuad9Doh))
+                    .distinctBy { it.lowercase() }
+            ).take(3)
         } else {
             configuredRemoteDoh
                 .take(2)
@@ -885,6 +907,13 @@ object XrayConfigHardener {
         // configured resolvers and can reorder primary/secondary for the current network; Xray then
         // uses serial failover. This prevents a blocked resolver from creating parallel background
         // fan-out while still allowing the learned healthy provider to become primary next time.
+        //
+        // MARBLE_RESOLVER_EVIDENCE_V134 — "reorder for the current network" used to mean only the
+        // pre-connect latency audit, and only ever a swap of the two user-configured endpoints. The
+        // failures the core actually logged at runtime were classified, counted, reported by Bug
+        // Finder and then thrown away, so the same disrupted endpoint kept its rank forever. The
+        // order above is now also driven by that attributed runtime evidence, and the serial-failover
+        // rule below is now a default rather than an absolute: see `dnsParallelQuery`.
         // Endpoint bootstrap keeps its dedicated https+local rules and is still leak-contained.
         // v59 real-device evidence: a healthy ~120 ms cellular tunnel produced deadline bursts
         // at the previous 850/1050 ms budgets during concurrent Android DNS fan-out. Keep serial,
@@ -946,6 +975,21 @@ object XrayConfigHardener {
             )
         }
 
+        // MARBLE_RESOLVER_EVIDENCE_V134 — serial failover stays the default (one query, one answer,
+        // no fan-out) and is abandoned only on evidence. When an endpoint that is about to be emitted
+        // is failing decisively, serial failover pays that endpoint's whole RTT-derived deadline on
+        // every cold lookup before failover reaches a resolver that can answer; Xray's own DNS
+        // documentation names `enableParallelQuery` as the remedy for exactly that symptom. Racing
+        // costs three tiny queries per lookup, so it is armed by attributed failure evidence for this
+        // physical network and disarmed as soon as that evidence decays or a proven answer arrives.
+        //
+        // The Freedom fragment chain keeps serial failover: there the first write of every stream is
+        // fragmented into 1-byte packets with 4 ms pacing, so racing six resolvers multiplies the
+        // pacing cost instead of the odds of getting an answer.
+        val dnsParallelQuery = settings.adaptiveDnsEnabled &&
+            !isFreedomProfile &&
+            settings.measuredDnsParallel
+
         val dnsConfig = JSONObject()
             .put("servers", dnsServers)
             .put("queryStrategy", queryStrategy)
@@ -957,7 +1001,7 @@ object XrayConfigHardener {
             // (googlevideo, twimg, redditmedia) survive brief DoH stalls without re-fragmenting.
             .put("serveStale", true)
             .put("serveExpiredTTL", if (isFreedomProfile) 21_600 else 1_800)
-            .put("enableParallelQuery", false)
+            .put("enableParallelQuery", dnsParallelQuery)
         // Pin the domain-host Freedom DoH endpoints to stable IPs. (Upstream instead remaps the
         // hostname to another domain in dns.hosts, e.g. cloudflare-dns.com →
         // challenges.cloudflare.com; a plain IP list is the other form HostAddress parses and

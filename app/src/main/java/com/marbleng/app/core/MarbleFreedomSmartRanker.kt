@@ -180,7 +180,7 @@ object MarbleFreedomSmartRanker {
 
         for (profile in profiles) {
             Thread {
-                val attempt = probeProfile(profile, xray, settings, baseTimeout, iranActive)
+                val attempt = probeProfile(profile, xray, settings, baseTimeout, iranActive, intelligence)
                 synchronized(results) {
                     results[profile.id] = attempt
                 }
@@ -370,8 +370,15 @@ object MarbleFreedomSmartRanker {
         xray: XrayManager,
         settings: AppSettings,
         timeoutMs: Int,
-        iranActive: Boolean
+        iranActive: Boolean,
+        intelligence: MarbleIntelligence? = null
     ): ProbeAttempt {
+        // MARBLE_TUNING_MEASUREMENT_PLANE_V134 — the throwaway core this ranker judges a node with is
+        // hardened from the same measured link evidence as the live tunnel. Without it the measurement
+        // core kept the legacy 1350/1650 ms encrypted-DNS budgets and could not resolve the probe
+        // hostname on a slow route, so every attempt looked like a dead node.
+        val linkEvidence = runCatching { intelligence?.linkEvidenceFor(profile.id) }.getOrNull()
+            ?: LinkEvidence.UNKNOWN
         // Try filtered targets first, then IP targets
         val targets = if (iranActive) {
             FILTERED_TARGETS.shuffled().take(2) + IP_TARGETS
@@ -392,7 +399,12 @@ object MarbleFreedomSmartRanker {
             while (attempt < 2 && targetMs <= 0) {
                 attempt++
                 val targetResult = runCatching {
-                    xray.temporary(profile, 0, settings.copy(benchSamples = 1)) { port ->
+                    xray.temporary(
+                        profile,
+                        0,
+                        settings.copy(benchSamples = 1),
+                        link = linkEvidence
+                    ) { port ->
                         val r = SocksHttpClient.get(port, target.first, target.second, timeoutMs, 8192)
                         if (r.status in 200..499) {
                             targetMs = r.elapsedMs

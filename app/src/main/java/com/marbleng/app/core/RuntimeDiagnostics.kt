@@ -72,6 +72,20 @@ class RuntimeDiagnostics(private val context: Context) {
         private const val MAX_VALUE_CHARS = 4_000
         private const val QUEUE_CAPACITY = 4_096
         private const val RING_CAPACITY = 2_000
+
+        /**
+         * MARBLE_RESIDENT_V134 — the retained event ring is bounded by size as well as by count.
+         *
+         * [RING_CAPACITY] alone bounds how *many* lines survive, never how much they hold: every line
+         * is caller-sized, [safe] caps each field at [MAX_VALUE_CHARS] but nothing caps the number of
+         * fields, and `error()` adds a 24-frame stack on top. Two thousand multi-field lines is tens
+         * of megabytes of retained UTF-16 inside a process whose resident cost is already dominated
+         * by a Go runtime and a native tunnel — and it grows on exactly the session shape this
+         * release fixed: long, stable, and quietly accumulating. The full history is mirrored to the
+         * report file, so the ring is a recent-events window and losing its oldest lines loses
+         * nothing durable. One million chars keeps the window around two megabytes.
+         */
+        private const val RING_MAX_CHARS = 1_000_000L
         private const val MIRROR_CHUNK_BYTES = 256 * 1024
         private const val HEARTBEAT_INTERVAL_MS = 30_000L
 
@@ -83,6 +97,8 @@ class RuntimeDiagnostics(private val context: Context) {
         private val ringLock = Any()
         private val fileLock = Any()
         private val ring = ArrayDeque<String>()
+        /** Chars currently retained by [ring]; guarded by [ringLock] like the ring itself. */
+        private var ringChars = 0L
         private val watchedOffsets = HashMap<String, Long>()
 
         @Volatile private var appContext: Context? = null
@@ -496,7 +512,12 @@ class RuntimeDiagnostics(private val context: Context) {
             val line = "${Instant.now()} | thread=${Thread.currentThread().name} | ${redact(message)}"
             synchronized(ringLock) {
                 ring.addLast(line)
-                while (ring.size > RING_CAPACITY) ring.removeFirst()
+                ringChars += line.length
+                // Oldest-first: the retained window is always the most recent evidence.
+                while (ring.size > RING_CAPACITY || ringChars > RING_MAX_CHARS) {
+                    val evicted = ring.pollFirst() ?: break
+                    ringChars -= evicted.length
+                }
             }
             if (!queue.offer(DiagnosticItem.Line(line))) dropped.incrementAndGet()
         }

@@ -826,6 +826,13 @@ class BenchmarkEngine(
             candidate.success >= baseline.success + 25
     }
 
+    /**
+     * Round-trip evidence for the node about to be measured, or [LinkEvidence.UNKNOWN] when neither
+     * the node nor this physical network has been measured yet.
+     */
+    private fun linkEvidenceFor(profileId: String): LinkEvidence =
+        runCatching { intelligence?.linkEvidenceFor(profileId) }.getOrNull() ?: LinkEvidence.UNKNOWN
+
     private fun measure(
         p: ProxyProfile,
         port: Int,
@@ -834,6 +841,17 @@ class BenchmarkEngine(
         v2rayStyleDelay: Boolean = false
     ): Measurement {
         val requested = if (v2rayStyleDelay) 2 else s.benchSamples.coerceIn(1, 8)
+        /*
+         * MARBLE_TUNING_MEASUREMENT_PLANE_V134 — the throwaway core a node is judged by is hardened
+         * with the same measured link evidence as the live tunnel. It used to be hardened with
+         * `LinkEvidence.UNKNOWN`, i.e. with the legacy 1350/1650 ms encrypted-DNS budgets, so on a
+         * slow route the measurement core could not resolve the probe hostname and every node scored
+         * as unreachable no matter how good it was. The per-sample probe budget below is deliberately
+         * *not* inflated with it: Rank is a comparative measurement with a user-visible wall clock,
+         * and a node that needs seconds per sample deserves the score it gets. What was mis-sized
+         * here was the resolver inside the measurement core, not the stopwatch outside it.
+         */
+        val linkEvidence = linkEvidenceFor(p.id)
         val timeoutMs = if (v2rayStyleDelay) {
             (s.benchTimeoutSec * 1000).coerceIn(4_000, 12_000)
         } else {
@@ -850,7 +868,7 @@ class BenchmarkEngine(
             // used by a real user connection. The old delayTest=true path deliberately stripped
             // managed runtime pieces; a config could therefore fail Rank yet work immediately when
             // tapped. v2rayStyleDelay still controls the lightweight HTTP measurement semantics.
-            xray.temporary(p, port, s, delayTest = false) { livePort ->
+            xray.temporary(p, port, s, delayTest = false, link = linkEvidence) { livePort ->
                 // Official Xray HTTPing defaults to gstatic 204. Cloudflare is an independent
                 // fallback for routes where that origin is unavailable. A timeout is a failed
                 // sample, never a synthetic 5000/9999 ms latency value.
@@ -979,7 +997,7 @@ class BenchmarkEngine(
         var elapsed = 9999.0
         var ok = 0
         runCatching {
-            xray.temporary(p, port, s.copy(benchSamples = 1)) { livePort ->
+            xray.temporary(p, port, s.copy(benchSamples = 1), link = linkEvidenceFor(p.id)) { livePort ->
                 val r = SocksHttpClient.get(livePort, "cp.cloudflare.com", "/generate_204", s.benchTimeoutSec * 1000, 4096)
                 if (r.status in 200..399) {
                     elapsed = r.elapsedMs
