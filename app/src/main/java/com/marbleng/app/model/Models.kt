@@ -392,8 +392,8 @@ data class AppSettings(
     /** Check GitHub Releases whenever MarbleNG returns to the foreground. */
     val appUpdateCheckEnabled: Boolean = true,
     val subscriptionRefreshHours: Int = 12,
-    /** Virtual Manual source is opt-in and disabled by default. */
-    val manualSourceEnabled: Boolean = false,
+    // MARBLE_MANUAL_BUCKET_V122 — the Manual bucket is a permanent, always-on local source.
+    // The old opt-in toggle is gone: every install can save servers locally without a setting.
 
     // Home composition. Hiding a card does not disable its underlying engine.
     val homeShowSummaryMetrics: Boolean = false,

@@ -121,10 +121,10 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
 
     var settings by mutableStateOf(store.settings()); private set
 
+    // MARBLE_MANUAL_BUCKET_V122 — Manual is a permanent local bucket, never a gated option.
     private fun normalizeLibrarySourceFilter(id: String): String = when {
         id == "all" -> "all"
-        id == "manual" && settings.manualSourceEnabled -> "manual"
-        id == "manual" -> "all"
+        id == "manual" -> "manual"
         id == ServerlessFreedomEngine.SOURCE_ID -> ServerlessFreedomEngine.SOURCE_ID
         subscriptions.any { it.id == id } -> id
         else -> "all"
@@ -236,15 +236,21 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
 
     private data class LibraryTarget(val id: String, val name: String)
 
-    /** A concrete Library source can receive user imports; "all" is only a view. */
+    /**
+     * A concrete Library source can receive user imports; "all" is only a view.
+     * MARBLE_MANUAL_BUCKET_V122 — Manual always accepts imports, no toggle involved.
+     */
     private fun resolveLibraryTarget(id: String): LibraryTarget? = when {
-        id == "manual" && settings.manualSourceEnabled -> LibraryTarget("manual", "Manual")
-        id == "manual" || id == "all" || id == ServerlessFreedomEngine.SOURCE_ID || id.isBlank() -> null
+        id == "manual" -> LibraryTarget("manual", "Manual")
+        id == "all" || id == ServerlessFreedomEngine.SOURCE_ID || id.isBlank() -> null
         else -> subscriptions.firstOrNull { it.id == id }?.let { LibraryTarget(it.id, it.name) }
     }
 
-    private fun profileSourceEnabled(profile: ProxyProfile): Boolean =
-        settings.manualSourceEnabled || profile.subscriptionId != "manual"
+    /**
+     * A concrete source id that can receive imports; anything else falls back to the
+     * always-on Manual bucket instead of refusing the import.
+     */
+    fun intakeTargetOrManual(id: String): String = resolveLibraryTarget(id)?.id ?: "manual"
 
     /**
      * Library is also the chooser for the offline Marble Freedom engine. Freedom rows are
@@ -255,13 +261,13 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         ServerlessFreedomEngine.profiles(settings, iranMode)
 
     val libraryProfiles: List<ProxyProfile>
-        get() = (profiles.filter(::profileSourceEnabled) + freedomLibraryProfiles())
+        get() = (profiles.toList() + freedomLibraryProfiles())
             .distinctBy { it.id }
 
     // Ranking/auto-connect keeps its historical contract: generated Freedom rows are selected
     // through their own adaptive engine, never mixed into subscription benchmark waves.
     private fun enabledProfilesSnapshot(): List<ProxyProfile> =
-        profiles.filter(::profileSourceEnabled).distinctBy { it.id }
+        profiles.toList().distinctBy { it.id }
 
     /**
      * Resolve the exact Library source selected by the user.
@@ -275,11 +281,7 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
             // "All" remains the subscription test scope. Freedom has a dedicated source chip
             // and a separate adaptive check, so it cannot poison a TCP/TUN wave with host="".
             "all" -> available
-            "manual" -> if (settings.manualSourceEnabled) {
-                available.filter { it.subscriptionId == "manual" }
-            } else {
-                emptyList()
-            }
+            "manual" -> available.filter { it.subscriptionId == "manual" }
             ServerlessFreedomEngine.SOURCE_ID -> freedomLibraryProfiles()
             else -> {
                 if (subscriptions.none { it.id == sourceId }) emptyList()
@@ -1861,11 +1863,7 @@ private fun postToMain(block: () -> Unit) {
         }
         val target = resolveLibraryTarget(targetSubscriptionId)
         if (target == null) {
-            message = if (targetSubscriptionId == "manual" && !settings.manualSourceEnabled) {
-                "Manual source is disabled • enable it in Settings → Subscriptions or select another source"
-            } else {
-                "Select one source in Servers before adding a manual config"
-            }
+            message = "Select one source in Servers before adding a manual config"
             return false
         }
         val stored = built.copy(
@@ -1965,7 +1963,29 @@ private fun postToMain(block: () -> Unit) {
                 if (decoded.isNullOrBlank()) {
                     message = "No QR code found in that image"
                 } else {
-                    importText(decoded, "QR import", targetSubscriptionId)
+                    // A QR code may encode a subscription URL, so this runs through the smart
+                    // intake instead of straight config parsing (which used to mint a bogus
+                    // proxy profile out of the provider URL).
+                    val addedId = importClipboard(decoded, targetSubscriptionId)
+                    selectLibrarySource(addedId ?: intakeTargetOrManual(targetSubscriptionId))
+                }
+            }
+        }
+    }
+
+    /**
+     * MARBLE_QR_CAMERA_V122 — a live camera frame decoded to text lands exactly like a picked
+     * QR image: configs are imported, subscription URLs become real subscriptions.
+     */
+    fun importQrBitmap(bitmap: android.graphics.Bitmap, targetSubscriptionId: String) {
+        io.execute {
+            val decoded = runCatching { QrImageDecoder.decode(bitmap) }.getOrNull()
+            postToMain {
+                if (decoded.isNullOrBlank()) {
+                    message = "No QR code found • hold the camera steady and fill the frame"
+                } else {
+                    val addedId = importClipboard(decoded, targetSubscriptionId)
+                    selectLibrarySource(addedId ?: intakeTargetOrManual(targetSubscriptionId))
                 }
             }
         }
@@ -1978,11 +1998,7 @@ private fun postToMain(block: () -> Unit) {
     ) {
         val target = resolveLibraryTarget(targetSubscriptionId)
         if (target == null) {
-            message = if (targetSubscriptionId == "manual" && !settings.manualSourceEnabled) {
-                "Manual source is disabled • enable it in Settings → Subscriptions or select another source"
-            } else {
-                "Select one source in Servers before importing configs"
-            }
+            message = "Select one source in Servers before importing configs"
             return
         }
         task("Importing into ${target.name}") {
@@ -2005,12 +2021,20 @@ private fun postToMain(block: () -> Unit) {
         }
     }
 
-    /** Smart clipboard intake used by the Library magic button. */
-    fun importClipboard(text: String, targetSubscriptionId: String = "manual") {
+    /**
+     * MARBLE_SMART_INTAKE_V122 — the one smart intake for pasted/imported text, used by the
+     * Library + menu, the Add-page import box and decoded QR payloads.
+     *
+     * Config links and JSON go through [importText]; one or more bare subscription URLs become
+     * real subscriptions (added, then refreshed) instead of being mis-parsed into bogus proxy
+     * profiles — the old paste-a-sub bug. Returns the first added (or already-known)
+     * subscription id so the UI can land on it, or null when the text was handled as configs.
+     */
+    fun importClipboard(text: String, targetSubscriptionId: String = "manual"): String? {
         val clean = text.trim()
         if (clean.isBlank()) {
             message = "Clipboard is empty"
-            return
+            return null
         }
 
         val lines = clean.lineSequence().map(String::trim).filter(String::isNotBlank).toList()
@@ -2018,13 +2042,16 @@ private fun postToMain(block: () -> Unit) {
         val hasShareLinks = Regex(
             "(?im)^(vless|vmess|trojan|ss|socks5?|hysteria2|hy2|ssh)://"
         ).containsMatchIn(clean)
-        val hasAuthenticatedHttpProxy = Regex(
-            "(?im)^https?://[^\\s/@]+:[^\\s/@]*@"
-        ).containsMatchIn(clean)
+        // An authenticated HTTP(S) proxy config is user:pass@host[:port] with NO path. A
+        // subscription URL that merely carries credentials (/sub/xxxx?token=...) must never be
+        // mistaken for one, or the sub would again land as a bogus proxy profile.
+        val hasAuthenticatedHttpProxy = lines.any { line ->
+            Regex("(?i)^https?://[^\\s/@:]+:[^\\s/@]*@[^\\s/]+/?$").matches(line)
+        }
 
         if (looksLikeJson || hasShareLinks || hasAuthenticatedHttpProxy) {
             importText(clean, "Clipboard", targetSubscriptionId)
-            return
+            return null
         }
 
         val allWebUrls = lines.isNotEmpty() && lines.all {
@@ -2033,13 +2060,14 @@ private fun postToMain(block: () -> Unit) {
         }
         if (!allWebUrls) {
             importText(clean, "Clipboard", targetSubscriptionId)
-            return
+            return null
         }
         if (lines.any { it.startsWith("http://", ignoreCase = true) }) {
             message = "Remote subscriptions must use HTTPS"
-            return
+            return null
         }
 
+        var firstAddedId: String? = null
         var added = 0
         lines.distinct().take(32).forEachIndexed { index, rawUrl ->
             val cleanUrl = rawUrl.trim()
@@ -2055,16 +2083,20 @@ private fun postToMain(block: () -> Unit) {
                 url = cleanUrl,
                 updatedAt = 0L
             )
+            if (firstAddedId == null) firstAddedId = id
             added++
         }
 
         if (added == 0) {
             message = "Clipboard subscriptions are already in Servers"
-            return
+            return lines.firstNotNullOfOrNull { line ->
+                subscriptions.firstOrNull { it.url.trim().equals(line.trim(), true) }?.id
+            }
         }
         store.saveSubscriptions(subscriptions)
         message = "$added clipboard source${if (added == 1) "" else "s"} added • refreshing"
         refreshAll()
+        return firstAddedId
     }
 
     /** Original links (or JSON fallback) for every node owned by one subscription. */
@@ -2144,10 +2176,6 @@ private fun postToMain(block: () -> Unit) {
     fun duplicateProfile(id: String, sourceId: String? = null): Boolean {
         if (busy) {
             message = "Wait for the current background task before duplicating a server"
-            return false
-        }
-        if (!settings.manualSourceEnabled) {
-            message = "Manual source is disabled • enable it in Settings → Subscriptions first"
             return false
         }
         val source = profile(id, sourceId) ?: run {
@@ -2311,7 +2339,6 @@ private fun postToMain(block: () -> Unit) {
             message = when (targetSourceId) {
                 ServerlessFreedomEngine.SOURCE_ID ->
                     "Marble Freedom is generated locally • servers cannot be moved into it"
-                "manual" -> "Manual source is disabled • enable it in Settings → Subscriptions first"
                 else -> "Select one server source before moving a server"
             }
             return false
@@ -2441,7 +2468,7 @@ private fun postToMain(block: () -> Unit) {
         if (id.isNotBlank() && !ServerlessFreedomEngine.matches(id, store.lastProfileSourceId())) {
             val sourceId = store.lastProfileSourceId()
             val exact = profile(id, sourceId)
-            val candidate = (exact ?: profile(id))?.takeIf(::profileSourceEnabled)
+            val candidate = (exact ?: profile(id))
             if (candidate != null) return candidate
         }
 
@@ -2449,7 +2476,7 @@ private fun postToMain(block: () -> Unit) {
         // history in reverse to seamlessly restore the most recent enabled library node.
         val fromHistory = history.asReversed().asSequence()
             .filterNot { ServerlessFreedomEngine.matches(it.profileId, "") }
-            .mapNotNull { rec -> profile(rec.profileId)?.takeIf(::profileSourceEnabled) }
+            .mapNotNull { rec -> profile(rec.profileId) }
             .firstOrNull()
         if (fromHistory != null) return fromHistory
 
@@ -2498,7 +2525,7 @@ private fun postToMain(block: () -> Unit) {
     ) {
         val available = enabledProfilesSnapshot()
         if (available.isEmpty()) {
-            message = "No enabled servers • select a source or enable Manual source"
+            message = "No servers yet • add a subscription or import configs first"
             return
         }
         val remembered = lastProfile()
@@ -2773,10 +2800,17 @@ private fun postToMain(block: () -> Unit) {
                 return@task
             }
             val engine = BenchmarkEngine(xray, intelligence)
+            // MARBLE_SMART_PING_V122 — electing the connected route needs real-tunnel evidence;
+            // a light Smart gate must never choose which server carries traffic.
+            val selectSettings = if (settings.probeMethod == ProbeMethod.HYBRID) {
+                settings.copy(probeMethod = ProbeMethod.TUNNEL)
+            } else {
+                settings
+            }
             if (settings.intelligenceEnabled && settings.raceConnectEnabled && available.size > 1) {
                 val raced = engine.race(
                     available,
-                    settings,
+                    selectSettings,
                     onCandidates = ::beginProbeBatch,
                     onStart = ::markProbeStart,
                     onResult = ::markProbeResult
@@ -2791,7 +2825,7 @@ private fun postToMain(block: () -> Unit) {
             }
             val results = engine.run(
                 available,
-                settings,
+                selectSettings,
                 onCandidates = ::beginProbeBatch,
                 onStart = ::markProbeStart,
                 onResult = ::markProbeResult
@@ -3123,11 +3157,11 @@ private fun postToMain(block: () -> Unit) {
      * same method the Home ping button and every other measurement in the app use. Two entry
      * points can no longer report two different latencies for the same server.
      *
-     * Endpoint de-duplication still applies to the address-level methods (TCP / ICMP), where
-     * reachability really is a host:port property and aggregator subscriptions repeat the same
-     * endpoint dozens of times: one representative is probed and the verified result is fanned out
-     * to every config sharing that endpoint. Tunnel and Smart ping prove a *config*, so they are
-     * measured per server, exactly as ranking does.
+     * Endpoint de-duplication still applies to the address-level methods (TCP / ICMP / DNS) and
+     * to Smart ping, where reachability really is a host:port property and aggregator
+     * subscriptions repeat the same endpoint dozens of times: one representative is probed and
+     * the verified result is fanned out to every config sharing that endpoint. The real tunnel
+     * test proves a *config*, so it is measured per server, exactly as ranking does.
      */
     fun testSource(sourceId: String) {
         if (sourceId == ServerlessFreedomEngine.SOURCE_ID) {
@@ -3150,9 +3184,12 @@ private fun postToMain(block: () -> Unit) {
             ProbeMethod.HTTP -> "HTTP ping"
             ProbeMethod.DNS -> "DNS ping"
         }
-        // Only address-level methods may share one measurement between identical endpoints.
+        // MARBLE_SMART_PING_V122 — Smart's gate is an endpoint (host:port) property plus a
+        // provider-diverse direct HTTPS check that is identical for every config on that
+        // endpoint, so it shares one measurement between identical endpoints exactly like the
+        // other address-level methods. Only the real per-config tunnel test stays per server.
         val dedupe = method == ProbeMethod.TCP || method == ProbeMethod.ICMP ||
-            method == ProbeMethod.DNS
+            method == ProbeMethod.DNS || method == ProbeMethod.HYBRID
 
         task("$methodLabel • $scope") {
             val groups = if (dedupe) {

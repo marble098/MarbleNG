@@ -31,13 +31,40 @@ object QrImageDecoder {
     fun decode(context: Context, uri: Uri): String? {
         val bitmap = loadBitmap(context, uri) ?: return null
         return try {
-            decode(bitmap)
+            decodePixelsOf(bitmap)
         } finally {
             bitmap.recycle()
         }
     }
 
-    private fun decode(bitmap: Bitmap): String? {
+    /**
+     * MARBLE_QR_CAMERA_V122 — decode a live camera frame. The preview bitmap belongs to the
+     * caller (it may be reused for the next frame), so it is never recycled here; small working
+     * copies are made internally instead.
+     */
+    fun decode(frame: Bitmap): String? {
+        if (frame.isRecycled || frame.width <= 0 || frame.height <= 0) return null
+        val longestEdge = maxOf(frame.width, frame.height)
+        // A camera preview frame is already small; only downscale when it is not.
+        val working = if (longestEdge > MAX_EDGE) {
+            val scale = MAX_EDGE.toFloat() / longestEdge
+            Bitmap.createScaledBitmap(
+                frame,
+                (frame.width * scale).toInt().coerceAtLeast(1),
+                (frame.height * scale).toInt().coerceAtLeast(1),
+                true
+            )
+        } else {
+            frame
+        }
+        return try {
+            decodePixelsOf(working)
+        } finally {
+            if (working !== frame) working.recycle()
+        }
+    }
+
+    private fun decodePixelsOf(bitmap: Bitmap): String? {
         val width = bitmap.width
         val height = bitmap.height
         if (width <= 0 || height <= 0) return null

@@ -567,61 +567,89 @@ object RouteProbe {
         timeoutMs: Int = 5000,
         settings: AppSettings = AppSettings()
     ): ProbeResult {
-        if (profile.host.isBlank()) {
-            return ProbeResult("SMART", UNREACHABLE, 0, failureReason = "blank-host")
+        // MARBLE_SMART_PING_V122 — the default ping method must never blanket-fail healthy
+        // servers. The old logic chained hard gates (TCP, then DNS, then HTTPS) so that one
+        // filtered phase on a censored underlay (direct SYN blocked, direct Google unreachable)
+        // convicted the whole node even when other signals proved it alive. The new logic is
+        // evidence-accumulating: every phase that passes contributes reachability, confidence
+        // only degrades, and FAILED (0%) is reserved for "every signal failed".
+        val host = profile.host.trim()
+        if (host.isBlank() || profile.port !in 1..65535) {
+            return ProbeResult("SMART", UNREACHABLE, 0, failureReason = "invalid-target")
         }
+        val budgetMs = timeoutMs.coerceIn(1_200, 6_000)
 
-        // Phase 1: Fast TCP gate (budget: 40% of timeout)
-        val gateTimeoutMs = (timeoutMs * 0.4).toInt().coerceIn(300, 3000)
-        val tcpResult = tcpExtended(profile.host, profile.port, gateTimeoutMs, samples = 1, settings = settings)
+        // Phase 1: fast TCP gate (roughly a third of the budget). A single SYN decides quickly
+        // whether the endpoint listens; only an abnormally fast local failure gets one retry
+        // inside [tcp], a genuine timeout stays failed without burning the HTTPS budget.
+        val gateTimeoutMs = (budgetMs * 0.35).toInt().coerceIn(350, 2_200)
+        val tcpResult = tcpExtended(host, profile.port, gateTimeoutMs, samples = 1, settings = settings)
+        val tcpOk = tcpResult.latencyMs < UNREACHABLE
 
-        if (tcpResult.latencyMs >= UNREACHABLE) {
-            // Gate failed — try DNS as a secondary check before giving up
-            val dnsResult = dnsPing(profile.host, gateTimeoutMs)
-            if (dnsResult >= UNREACHABLE) {
-                return ProbeResult("SMART", UNREACHABLE, 0, failureReason = "gate-failed:tcp+dns")
-            }
-            // DNS works but TCP doesn't — endpoint might be filtering SYN
-            // Still try the real test if we have a tunnel
-            if (tunnelPort <= 0) {
-                return ProbeResult(
-                    "SMART", dnsResult, 50,
-                    failureReason = "tcp-blocked-dns-ok"
-                )
-            }
-        }
-
-        // Phase 2: Real HTTPS measurement through tunnel (or direct)
-        val realTimeoutMs = (timeoutMs * 0.6).toInt().coerceIn(1000, 8000)
-        val httpResult = if (tunnelPort > 0) {
-            httpPingBatch(tunnelPort, realTimeoutMs, samples = 2)
+        // Phase 1b: DNS gate — but only for domain hosts. Resolving a literal IP always
+        // "succeeds" instantly without touching the network, so counting it would fake
+        // reachability for dead IP endpoints and fake latency for live ones.
+        val hostNeedsDns = host.any { it.isLetter() }
+        val dnsMs = if (!tcpOk && hostNeedsDns) {
+            dnsPing(host, gateTimeoutMs)
         } else {
-            // No tunnel: do a direct HTTP test as the best available measurement
-            httpPingBatch(0, realTimeoutMs, samples = 2)
+            UNREACHABLE
         }
+        val dnsOk = dnsMs < UNREACHABLE
+
+        // A dead TCP gate with no DNS signal and no tunnel is the fast-failure path: report it
+        // immediately instead of spending the whole HTTPS budget on a node nothing can reach.
+        if (!tcpOk && !dnsOk && tunnelPort <= 0) {
+            return ProbeResult("SMART", UNREACHABLE, 0, failureReason = "gate-failed:tcp+dns")
+        }
+
+        // Phase 2: real HTTPS measurement — through the live tunnel when one is supplied,
+        // otherwise directly as the best available user-experience signal. Several independent
+        // 204 origins are raced so one censored CDN can never fail the node on its own.
+        val realTimeoutMs = (budgetMs * 0.65).toInt().coerceIn(800, 4_000)
+        val httpResult = httpPingBatch(
+            socksPort = tunnelPort.coerceAtLeast(0),
+            timeoutMs = realTimeoutMs,
+            samples = 2
+        )
 
         if (httpResult.latencyMs < UNREACHABLE) {
-            // Combine TCP handshake time with HTTP result for a richer picture
+            // Both signals agree: full confidence. The TCP handshake time is kept only when it
+            // is a real measurement, never the UNREACHABLE sentinel.
             return httpResult.copy(
                 method = "SMART",
-                tcpHandshakeMs = tcpResult.latencyMs.coerceAtMost(httpResult.latencyMs)
+                tcpHandshakeMs = tcpResult.latencyMs.takeIf { it < UNREACHABLE }
+                    ?.coerceAtMost(httpResult.latencyMs) ?: 0.0
             )
         }
 
-        // HTTP failed but TCP gate passed — the endpoint listens but the proxy
-        // route might not work. Return the TCP time with reduced confidence.
-        if (tcpResult.latencyMs < UNREACHABLE) {
+        // HTTPS failed but the endpoint gate passed — the address listens (or at least resolves)
+        // while the direct HTTPS origins are filtered. The node is reachable with reduced
+        // confidence, never failed: a filtered google.com must not × a working server.
+        if (tcpOk) {
             return ProbeResult(
                 method = "SMART",
                 latencyMs = tcpResult.latencyMs,
-                successPercent = (tcpResult.successPercent * 0.6).toInt(),
+                successPercent = 60,
                 samples = tcpResult.samples,
                 jitterMs = tcpResult.jitterMs,
+                minMs = tcpResult.latencyMs,
+                maxMs = tcpResult.latencyMs,
                 tcpHandshakeMs = tcpResult.latencyMs,
-                failureReason = "http-failed-tcp-ok"
+                failureReason = "http-filtered-tcp-ok"
+            )
+        }
+        if (dnsOk) {
+            return ProbeResult(
+                method = "SMART",
+                latencyMs = dnsMs,
+                successPercent = 40,
+                samples = 1,
+                failureReason = "tcp-blocked-dns-ok"
             )
         }
 
+        // Tunnel HTTPS failed and no gate signal either: genuinely unreachable.
         return ProbeResult("SMART", UNREACHABLE, 0, failureReason = "all-methods-failed")
     }
 
