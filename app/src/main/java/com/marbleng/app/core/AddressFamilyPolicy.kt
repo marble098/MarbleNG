@@ -174,7 +174,14 @@ object AddressFamilyPolicy {
         // families and let the engine pick one at random — the exact behaviour this file removes.
         val wantsV6 = settings.preferIpv6 || underlayHasIpv6
         if (!wantsV6) return IpFamilyPreference.DUAL
-        if (measuredV6Healthy == false && !settings.preferIpv6) return IpFamilyPreference.DUAL
+        // MARBLE_MEASURED_FAMILY_V133 — the measured verdict may arrive either as the explicit
+        // [measuredV6Healthy] argument or inside the settings object. Both are honoured, because the
+        // callers that only have settings (the Xray config writer and Bug Finder) previously
+        // re-derived "IPv6 first" from the underlay alone and discarded the measurement the
+        // intelligence layer had already made. An explicit user demand for IPv6 still wins: a
+        // measurement demotes the automatic ordering, it never overrides what the user asked for.
+        val measuredUnhealthy = measuredV6Healthy == false || settings.measuredIpv6Unhealthy
+        if (measuredUnhealthy && !settings.preferIpv6) return IpFamilyPreference.DUAL
         return IpFamilyPreference.IPV6_FIRST
     }
 
@@ -257,15 +264,28 @@ object AddressFamilyPolicy {
         chained: Boolean = false,
         dialerProxy: String = "",
         importedStrategy: String = "",
-        measuredV6Healthy: Boolean? = null
+        measuredV6Healthy: Boolean? = null,
+        link: LinkEvidence = LinkEvidence.UNKNOWN
     ): IpFamilyPlan {
-        val preference = preference(settings, underlayHasIpv6, importedStrategy, measuredV6Healthy)
-        val prioritize = prioritizeIpv6(preference, underlayHasIpv6, measuredV6Healthy)
+        // One verdict for the whole plan. An explicit argument wins; otherwise the transient
+        // measurement carried by the settings object is used, so every consumer of this plan agrees
+        // on whether IPv6 is actually working on this link.
+        val measured = measuredV6Healthy ?: if (settings.measuredIpv6Unhealthy) false else null
+        val preference = preference(settings, underlayHasIpv6, importedStrategy, measured)
+        val prioritize = prioritizeIpv6(preference, underlayHasIpv6, measured)
         val race = canRace(settings, preference, tcpTransport, chained, dialerProxy)
         val strategy = endpointStrategy(preference, race, underlayHasIpv6 && prioritize)
         val armed = race && strategy in raceableStrategies
         val delay = if (armed) {
-            settings.happyEyeballsTryDelayMs.coerceIn(MIN_TRY_DELAY_MS, MAX_TRY_DELAY_MS)
+            // MARBLE_LINK_DEADLINE_V133 — the attempt delay is a fraction of the measured RTT. A
+            // fixed 60 ms on a ~1.1 s link starts the second dial long before the first SYN-ACK can
+            // arrive, so both families are dialled on every connection and the preferred family can
+            // never actually win the race. Scaling only ever lengthens a race the policy already
+            // armed; a disarmed race (delay 0 on a measured-bad node) stays disarmed.
+            LinkDeadlinePolicy.raceTryDelayMs(
+                link,
+                settings.happyEyeballsTryDelayMs.coerceIn(MIN_TRY_DELAY_MS, MAX_TRY_DELAY_MS)
+            )
         } else {
             0
         }

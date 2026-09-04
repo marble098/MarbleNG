@@ -170,6 +170,32 @@ class MainActivity : ComponentActivity() {
             }
         }
         handleQuickTileIntent(intent)
+        restoreInterruptedTunnel()
+    }
+
+    /**
+     * MARBLE_DURABLE_TUNNEL_INTENT_V133 — finish what the user asked for before the process died.
+     *
+     * Android kills this process to install an updated APK (`REASON_PACKAGE_UPDATE`, reason 16 in the
+     * exit history) with no teardown callback, so a tunnel that was carrying traffic simply stopped.
+     * The durable tunnel intent survives that kill and the last-route reference survives with it, so
+     * the exact route can be restored instead of the user having to notice and reconnect by hand.
+     *
+     * It runs only when nothing else is already in flight: a pending connect, a permission prompt or
+     * a live tunnel all take precedence.
+     */
+    private fun restoreInterruptedTunnel() {
+        if (pending != null || permissionStep != null) return
+        val repo = app.repo
+        if (repo.state != "DISCONNECTED") return
+        if (!repo.tunnelIntentActive()) return
+        val route = repo.lastProfile()
+        if (route == null) {
+            repo.clearTunnelIntent("no-restorable-route")
+            return
+        }
+        repo.setRuntimeMessage("Restoring the route the app update interrupted")
+        connect(route)
     }
 
     override fun onNewIntent(intent: Intent) {

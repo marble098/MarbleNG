@@ -47,6 +47,20 @@
             </intent-filter>
         </service>
 
+        <!--
+          MARBLE_DURABLE_TUNNEL_INTENT_V133 — Android kills this process to install a new APK
+          (ApplicationExitInfo.REASON_PACKAGE_UPDATE, reason 16) and gives it no teardown callback.
+          This receiver runs in the fresh process, discards the stale runtime state the killed
+          process left on disk, and offers the one-tap restore of the route the user was on.
+        -->
+        <receiver
+            android:name=".MarblePackageReplacedReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+
         <service
             android:name=".quicktile.MarbleQuickTileService"
             android:exported="true"

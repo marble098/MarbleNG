@@ -324,7 +324,18 @@ object XrayConfigHardener {
         return root.toString()
     }
 
-    fun harden(source: String, socksPort: Int, settings: AppSettings = AppSettings()): String {
+    /**
+     * MARBLE_LINK_DEADLINE_V133 — [link] is the measured round-trip evidence for the path this
+     * config is about to carry. It defaults to [LinkEvidence.UNKNOWN], which reproduces the legacy
+     * fixed budgets exactly, so callers that have not measured yet (delay tests, ranking configs,
+     * a first-ever connect) get the same config they always got.
+     */
+    fun harden(
+        source: String,
+        socksPort: Int,
+        settings: AppSettings = AppSettings(),
+        link: LinkEvidence = LinkEvidence.UNKNOWN
+    ): String {
         val src = JSONObject(source)
         val old = src.optJSONArray("outbounds") ?: JSONArray()
         val byTag = linkedMapOf<String, JSONObject>()
@@ -584,7 +595,8 @@ object XrayConfigHardener {
         // so they can never disagree with the per-outbound endpoint plans below.
         val dnsPlan = AddressFamilyPolicy.plan(
             settings = settings,
-            underlayHasIpv6 = underlayHasIpv6
+            underlayHasIpv6 = underlayHasIpv6,
+            link = link
         )
 
         val out = JSONArray()
@@ -889,10 +901,24 @@ object XrayConfigHardener {
         // Freedom first-write fragmentation can take 1–2 s alone; official XTLS uses 10 s.
         // 8 s primary + 1 s per fallback is enough for cold multi-CDN lookups (YouTube/X/Reddit)
         // without waiting the full 10 s on a genuinely dead resolver.
+        // MARBLE_LINK_DEADLINE_V133 — these budgets used to be four hardcoded constants. They are
+        // the direct cause of the `DoH deadline` storms with zero TLS/cert errors: ordinary DNS is
+        // routed *through the tunnel* (see the `xgc-dns` routing rule below), so on the ~1.1 s link
+        // in the attached runtime log a single encrypted query needed ~3.4 s and the 1350/1650 ms
+        // budgets expired first. Every lookup then failed with a deadline, Xray could not resolve
+        // any destination domain, and a perfectly healthy tunnel delivered no internet.
+        //
+        // The budget is now `3 × tail-RTT + jitter/loss headroom`, clamped to the old constants as a
+        // floor (so an unmeasured link behaves exactly as before) and to the 10 s ceiling the
+        // official XTLS reference configuration uses. The Freedom fragment chain keeps its own
+        // upstream schedule because there the 1-byte first-write pacing, not the link, dominates.
         val freedomDnsTimed = isFreedomProfile
         fun dnsTimeoutMs(index: Int): Long =
-            if (freedomDnsTimed) 8_000L + index * 1_000L
-            else if (index == 0) 1_350L else 1_650L + (index - 1) * 250L
+            LinkDeadlinePolicy.dnsServerTimeoutMs(
+                evidence = link,
+                index = index,
+                fragmented = freedomDnsTimed
+            )
 
         remoteDoh.firstOrNull()?.let { address ->
             dnsServers.put(

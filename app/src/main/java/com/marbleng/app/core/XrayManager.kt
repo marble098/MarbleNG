@@ -227,6 +227,71 @@ class XrayManager(private val context: Context) {
     private val runtimeConfig: File get() = File(context.filesDir, "runtime.json")
 
     /**
+     * MARBLE_DURABLE_RUNTIME_STATE_V133 — atomic runtime-config write.
+     *
+     * Android kills this process outright when the APK is replaced; the exit history records it as
+     * `REASON_PACKAGE_UPDATE` (reason 16) and the log in question showed thirteen of them. A kill
+     * lands at an arbitrary instruction, and a plain `writeText` truncates the target *before* the
+     * new bytes arrive, so an unlucky kill leaves a zero-length or half-written `runtime.json`
+     * behind. The next start then hands the core a corrupt config and the failure looks like a
+     * broken server instead of a broken file.
+     *
+     * Writing a sibling temp file and renaming over the target makes the on-disk config always
+     * either the previous complete document or the new complete one: `rename` is atomic inside a
+     * single filesystem, which `context.filesDir` always is.
+     */
+    private fun writeRuntimeConfig(target: File, text: String) {
+        val temp = File(target.parentFile, target.name + ".tmp")
+        runCatching {
+            java.io.FileOutputStream(temp).use { output ->
+                output.write(text.toByteArray(Charsets.UTF_8))
+                output.flush()
+                // fsync before the rename: without it a power cut can leave the directory entry
+                // pointing at a file whose data never reached storage.
+                runCatching { output.fd.sync() }
+            }
+        }.onFailure {
+            runCatching { temp.delete() }
+            throw it
+        }
+        if (!temp.renameTo(target)) {
+            // Only reachable if the platform refuses the rename; a direct write still leaves a
+            // usable config, and the connection must not fail because of a filesystem quirk.
+            target.writeText(text)
+            runCatching { temp.delete() }
+        }
+    }
+
+    /**
+     * MARBLE_DURABLE_RUNTIME_STATE_V133 — discard state the previous process owned.
+     *
+     * Called when Android reports that this APK was replaced while a tunnel was running. The old
+     * process was killed without any teardown, so everything it left on disk is stale by
+     * definition: a truncated runtime config, a TCP_INFO telemetry file whose timestamps belong to
+     * a dead process, and a half-written temp file. JNI state needs no handling — `libmarbleng.so`
+     * and its tunnel handles die with the process and are re-created by the fresh one.
+     *
+     * The Xray log is deliberately preserved: it is the evidence Bug Finder reads, and the next
+     * start rotates it anyway.
+     *
+     * @return the artifacts that were actually removed, for diagnostics.
+     */
+    fun discardStaleRuntimeArtifacts(): List<String> {
+        val removed = mutableListOf<String>()
+        listOf(
+            runtimeConfig to "runtime.json",
+            File(runtimeConfig.parentFile, runtimeConfig.name + ".tmp") to "runtime.json.tmp",
+            transportTelemetryFile to "xray-transport.jsonl"
+        ).forEach { (file, label) ->
+            runCatching {
+                if (file.isFile && file.delete()) removed += label
+            }
+        }
+        synchronized(validatedConfigHashes) { validatedConfigHashes.clear() }
+        return removed
+    }
+
+    /**
      * Ensures geoip.dat and geosite.dat exist. If a user URL is configured, the file is downloaded
      * once for that exact URL and then reused on every start. Changing the URL triggers one new
      * download. force=true explicitly refreshes the selected source.
@@ -652,10 +717,16 @@ class XrayManager(private val context: Context) {
         }
     }
 
+    /**
+     * @param link measured round-trip evidence for this route. It sizes every deadline the hardened
+     *   config carries (see [LinkDeadlinePolicy]); [LinkEvidence.UNKNOWN] reproduces the legacy
+     *   fixed budgets for callers that have not measured the path yet.
+     */
     fun start(
         profile: ProxyProfile,
         port: Int,
-        settings: AppSettings = AppSettings()
+        settings: AppSettings = AppSettings(),
+        link: LinkEvidence = LinkEvidence.UNKNOWN
     ): Boolean {
         val ticket = beginStartTicket()
         publishStartState(ticket.generation, "begin", "")
@@ -697,7 +768,7 @@ class XrayManager(private val context: Context) {
             } else {
                 profile.configJson
             }
-            config.writeText(XrayConfigHardener.harden(sourceConfig, port, settings))
+            writeRuntimeConfig(config, XrayConfigHardener.harden(sourceConfig, port, settings, link))
 
             if (!startStillCurrent(ticket.generation)) return@runCatching false
 
