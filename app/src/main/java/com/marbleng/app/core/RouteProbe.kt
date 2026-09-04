@@ -3,13 +3,11 @@ package com.marbleng.app.core
 import com.marbleng.app.model.AppSettings
 import com.marbleng.app.model.ProbeMethod
 import com.marbleng.app.model.ProxyProfile
-import java.io.OutputStream
 import java.net.HttpURLConnection
 import java.net.InetSocketAddress
 import java.net.Socket
 import java.net.URL
 import java.util.concurrent.TimeUnit
-import javax.net.ssl.HttpsURLConnection
 import kotlin.math.abs
 import kotlin.math.sqrt
 
@@ -671,6 +669,8 @@ object RouteProbe {
     ): ProbeResult = when (method) {
         ProbeMethod.TCP -> tcpExtended(profile.host, profile.port, timeoutMs, samples, settings)
         ProbeMethod.ICMP -> icmpExtended(profile.host, timeoutMs, samples, settings)
+        ProbeMethod.HTTP -> httpPingBatch(socksPort = 0, timeoutMs = timeoutMs, samples = samples)
+        ProbeMethod.DNS -> dnsPingExtended(host = profile.host, timeoutMs = timeoutMs, samples = samples)
         ProbeMethod.TUNNEL -> {
             if (tunnelPort > 0) {
                 httpPingBatch(tunnelPort, timeoutMs, samples)
