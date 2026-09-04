@@ -106,8 +106,10 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
@@ -216,7 +218,6 @@ fun Aether2026App(
     var ipDetailsOpen by remember { mutableStateOf(false) }
     var contentScrolling by remember { mutableStateOf(false) }
     BackHandler(enabled = detailProfile != null) { detailProfile = null }
-    val snackbar = remember { SnackbarHostState() }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
@@ -240,11 +241,16 @@ fun Aether2026App(
         }
     }
 
+    // MARBLE_NO_IN_APP_NOTIFICATIONS_V121 — the product no longer raises in-app toasts.
+    //
+    // Every runtime message the engine produces is already visible where it belongs: connection
+    // state on the connect button, failures under it, test outcomes on the node cards, import
+    // results in the Servers list. The floating snackbar duplicated all of that on top of the
+    // surface the user was already looking at, so it is gone. Messages are still recorded by the
+    // repository (diagnostics, Bug Finder), they simply never interrupt the UI. System
+    // notifications — the ongoing VPN notification and system alerts — are untouched.
     LaunchedEffect(repo.message, repo.busy) {
-        if (!repo.busy && repo.message.isNotBlank()) {
-            snackbar.showSnackbar(repo.message, duration = SnackbarDuration.Short)
-            repo.clearMessage()
-        }
+        if (!repo.busy && repo.message.isNotBlank()) repo.clearMessage()
     }
 
     // MARBLE_SIGNATURE_HOME_V112 — one shared deck truth: the Home page, the app-wide Signature
@@ -254,8 +260,14 @@ fun Aether2026App(
     val deckActions = HomeActions(
         onToggleConnection = {
             with(deck.evidence) {
-                if (connected || connecting || blocked) repo.stopVpn()
-                else repo.reconnectLastOrAuto(onConnect)
+                when {
+                    // A tunnel that is already closing ignores the button until it has closed.
+                    disconnecting -> Unit
+                    connected || connecting || blocked -> repo.stopVpn()
+                    // The selected server is the one the button acts on; reconnectLastOrAuto
+                    // resolves it (selection is persisted with the same reference).
+                    else -> repo.reconnectLastOrAuto(onConnect)
+                }
             }
         },
         onCopyIp = deckCopyIp,
@@ -381,18 +393,6 @@ fun Aether2026App(
                     trackColor = Color.Transparent
                 )
             }
-
-            // Bottom toast: sits above Marble's floating dock, follows the IME, and never
-            // covers page headers / connection controls at the top of the screen.
-            MarbleSnackbarHost(
-                hostState = snackbar,
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .imePadding()
-                    .padding(start = 14.dp, end = 14.dp)
-                    .padding(bottom = dockClearance())
-                    .widthIn(max = 520.dp)
-            )
 
             // MARBLE_FLOATING_DOCK_V117 — the dock is a true overlay: no Scaffold slot
             // reserves space for it, so pages and the backdrop keep scrolling beneath the
@@ -786,112 +786,6 @@ private fun compactInAppMessage(raw: String): String {
     }
 }
 
-@Composable
-private fun MarbleSnackbarHost(
-    hostState: SnackbarHostState,
-    modifier: Modifier = Modifier
-) {
-    SnackbarHost(hostState = hostState, modifier = modifier) { data ->
-        val message = compactInAppMessage(data.visuals.message)
-        val lower = message.lowercase()
-
-        val tone = when {
-            listOf("fail", "error", "blocked", "denied", "could not", "missing", "rejected", "unsupported")
-                .any(lower::contains) -> Aether.Danger
-            listOf("warn", "inconclusive", "unavailable", "skipped", "timeout")
-                .any(lower::contains) -> Aether.Amber
-            listOf("connected", "ready", "saved", "added", "refreshed", "verified", "best", "copied", "complete")
-                .any(lower::contains) -> Aether.Emerald
-            else -> Aether.Cyan
-        }
-
-        val noticeIcon = when (tone) {
-            Aether.Danger -> HomeIcon.RESET
-            Aether.Amber -> HomeIcon.STATUS
-            Aether.Emerald -> HomeIcon.VERIFIED
-            else -> HomeIcon.SPARK
-        }
-        val title = when (tone) {
-            Aether.Danger -> "Connection issue"
-            Aether.Amber -> "Heads up"
-            Aether.Emerald -> "Completed"
-            else -> "Marble"
-        }
-        val shape = RoundedCornerShape(18.dp)
-
-        Surface(
-            modifier = Modifier
-                .fillMaxWidth()
-                .animateContentSize(MarbleMotionSpecs.Layout),
-            shape = shape,
-            color = Aether.VoidElevated,
-            contentColor = Aether.Ink,
-            tonalElevation = 0.dp,
-            shadowElevation = 0.dp
-        ) {
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Box(
-                    Modifier
-                        .size(36.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(tone.copy(alpha = .11f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    HomeVectorIcon(
-                        noticeIcon,
-                        tone,
-                        Modifier.size(20.dp)
-                    )
-                }
-
-                Column(
-                    Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(1.dp)
-                ) {
-                    Text(
-                        title,
-                        color = tone,
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        message,
-                        color = Aether.Ink,
-                        style = MaterialTheme.typography.bodySmall,
-                        maxLines = 3,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-
-                data.visuals.actionLabel?.let { action ->
-                    PrismButton(
-                        label = action,
-                        onClick = data::performAction,
-                        tone = tone,
-                        variant = PrismButtonVariant.Secondary,
-                        compact = true,
-                        contentPadding = PaddingValues(horizontal = 9.dp, vertical = 4.dp)
-                    )
-                }
-
-                Box(
-                    Modifier
-                        .size(48.dp)
-                        .clip(CircleShape)
-                        .semantics { contentDescription = "Dismiss message" }
-                        .clickable { data.dismiss() },
-                    contentAlignment = Alignment.Center
-                ) {
-                    HomeVectorIcon(HomeIcon.CANCEL, Aether.InkMuted, Modifier.size(16.dp))
-                }
-            }
-        }
-    }
-}
 
 @Composable
 private fun DeepSpaceBackdrop(
@@ -2481,10 +2375,15 @@ private class DeckEvidence(
 
 @Composable
 private fun rememberDeckEvidence(repo: AppRepository): DeckEvidence {
+    // MARBLE_SELECT_IS_NOT_CONNECT_V121 — Home follows, in order: the route actually carrying
+    // traffic, then the server the user selected on the Servers page, then the remembered one.
+    // Reading the selection state here is what makes a tap on a server move Home immediately.
     val active = repo.profile(
         repo.activeProfileId,
         repo.activeProfileSourceId
-    ) ?: repo.lastProfile()
+    )
+        ?: repo.profile(repo.selectedProfileId, repo.selectedProfileSourceId)
+        ?: repo.lastProfile()
     // Identity always comes from the selected profile, never from the runtime state detail
     // string (which carries engine progress copy and is not a node name).
     val activeName = active?.name ?: "Choose a route"
@@ -2552,14 +2451,13 @@ private fun CyberDeck(
     // The Signature studio configuration: every layer is an independent Settings choice.
     val pro = rememberSignatureProContext(repo, deck)
 
-    // MARBLE_CONNECT_BUTTON_STYLES_V119 — the user-pinned connection-button silhouette reaches
-    // every Home presentation through one composition local, so all five styles render the same
-    // chosen model without each presentation needing to read Settings itself.
-    val pinnedButtonModel =
-        connectButtonModelFor(parseConnectButtonStyle(repo.settings.connectButtonStyle))
+    // MARBLE_CONNECT_BUTTON_V121 — the chosen connection-button silhouette reaches every Home
+    // presentation through one composition local, so each style renders the same button without
+    // reading Settings itself.
+    val connectButtonStyle = parseConnectButtonStyle(repo.settings.connectButtonStyle)
 
     Box(Modifier.fillMaxSize()) {
-        CompositionLocalProvider(LocalConnectButtonModel provides pinnedButtonModel) {
+        CompositionLocalProvider(LocalConnectButtonStyle provides connectButtonStyle) {
             HomeStyleSurface(
                 style = parseHomeStyle(repo.settings.homeStyle),
                 evidence = evidence,
@@ -2587,49 +2485,23 @@ private fun CyberDeck(
 }
 
 /**
- * MARBLE_SIGNATURE_HOME_V112 — resolves the Signature studio snapshot from the current settings
- * and Library selection. The rail follows the source the user selected in the Library (the
- * Freedom source maps to its engine profile), with the active server pinned first.
+ * MARBLE_SIGNATURE_HOME_V112 — resolves the Signature studio snapshot from the current settings.
+ *
+ * MARBLE_SIGNATURE_STUDIO_TRIM_V121 — the snapshot no longer carries a server rail or a style
+ * switcher: routes are chosen on the Servers page and the presentation in Settings, so Home is a
+ * single connection surface and this context is only the studio's own chrome.
  */
 @Composable
+@Suppress("UNUSED_PARAMETER")
 private fun rememberSignatureProContext(
     repo: AppRepository,
     deck: DeckEvidence
-): HomeProContext {
-    val t = Tr.now
-    val filter = repo.librarySourceFilter
-    val railLabel = when {
-        filter == "all" -> t.library
-        filter == "manual" -> "Manual"
-        filter == ServerlessFreedomEngine.SOURCE_ID -> "Freedom"
-        else -> repo.subscriptions.firstOrNull { it.id == filter }?.name ?: t.library
-    }
-    val base = when {
-        filter == "all" -> repo.profiles.toList()
-        filter == ServerlessFreedomEngine.SOURCE_ID -> listOfNotNull(repo.serverlessProfile())
-        else -> repo.profiles.filter { it.subscriptionId == filter }
-    }
-    val activeId = deck.profile?.id
-    val rail = (base.filter { it.id == activeId } + base.filterNot { it.id == activeId }).take(14)
-    return HomeProContext(
-        railProfiles = rail,
-        railLabel = railLabel,
-        cardStyle = parseProServerCardStyle(repo.settings.proServerCardStyle),
-        showBanner = repo.settings.proStatusBannerEnabled,
-        showCornerActions = repo.settings.proCornerActionsEnabled,
-        showServerRail = repo.settings.proServerRailEnabled,
-        showStyleSwitcher = repo.settings.proStyleSwitcherEnabled,
-        shortcut = parseProShortcut(repo.settings.proShortcut),
-        accent = parseProAccent(repo.settings.proAccent),
-        selectedHomeStyle = parseHomeStyle(repo.settings.homeStyle),
-        onHomeStyleSelected = { style ->
-            repo.updateSettings(repo.settings.copy(homeStyle = style.id))
-        },
-        activeProfileId = repo.activeProfileId,
-        connected = deck.evidence.connected,
-        connecting = deck.evidence.connecting
-    )
-}
+): HomeProContext = HomeProContext(
+    showBanner = repo.settings.proStatusBannerEnabled,
+    showCornerActions = repo.settings.proCornerActionsEnabled,
+    shortcut = parseProShortcut(repo.settings.proShortcut),
+    accent = parseProAccent(repo.settings.proAccent)
+)
 
 @Composable
 @Suppress("UNUSED_PARAMETER")
@@ -3391,6 +3263,42 @@ private val ServersMenuShape = RoundedCornerShape(16.dp)
 private val ServersBadgeShape = RoundedCornerShape(8.dp)
 private val ServersPillShape = RoundedCornerShape(999.dp)
 
+// MARBLE_SERVERS_STACKED_GROUPS_V121 — the two halves of a subscription box.
+//
+// A group is a single card: the header rounds only its top, every server row below it is square,
+// and the last row rounds only the bottom. Nothing between them is rounded or spaced, so the
+// servers of a subscription read as one continuous stack instead of a pile of separate cards.
+private val ServersGroupHeadShape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
+private val ServersGroupTailShape = RoundedCornerShape(bottomStart = 16.dp, bottomEnd = 16.dp)
+private val ServersGroupBodyShape = RoundedCornerShape(0.dp)
+
+/**
+ * Draws the box hairline of one slice of a stacked group.
+ *
+ * The frame is a single rounded rectangle stroke that is deliberately extended past the slice on
+ * whichever side continues (`openTop` / `openBottom`) and clipped away there, so neighbouring
+ * slices contribute one continuous outline with no doubled hairline at the seams.
+ */
+private fun Modifier.serversStackedFrame(
+    openTop: Boolean = false,
+    openBottom: Boolean = false,
+    color: Color,
+    width: Dp = 1.dp,
+    radius: Dp = 16.dp
+): Modifier = drawBehind {
+    val stroke = width.toPx()
+    val r = radius.toPx()
+    val top = if (openTop) -r * 2f else 0f
+    val bottom = if (openBottom) size.height + r * 2f else size.height
+    drawRoundRect(
+        color = color,
+        topLeft = Offset(stroke / 2f, top + stroke / 2f),
+        size = Size(size.width - stroke, bottom - top - stroke),
+        cornerRadius = CornerRadius(r, r),
+        style = Stroke(width = stroke)
+    )
+}
+
 /** One valid intake target for pasted/imported configs: Manual when enabled, else the first source. */
 private fun libraryIntakeTarget(repo: AppRepository): String = when {
     repo.settings.manualSourceEnabled -> "manual"
@@ -3431,7 +3339,15 @@ private fun CyberLibrary(
     val settings = repo.settings
 
     var search by rememberSaveable { mutableStateOf("") }
-    var addOpen by remember { mutableStateOf(false) }
+    // MARBLE_ADD_SERVER_MENU_V121 — the + button opens a menu; `addForm` holds which authoring
+    // form the user asked for (null = no form open).
+    var addMenuOpen by remember { mutableStateOf(false) }
+    var addForm by remember { mutableStateOf<String?>(null) }
+    val qrImportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri != null) repo.importQrImage(uri, libraryIntakeTarget(repo))
+    }
     var sortOpen by remember { mutableStateOf(false) }
     var groupMenuOpen by remember { mutableStateOf(false) }
     var protocolMenuOpen by remember { mutableStateOf(false) }
@@ -3737,14 +3653,44 @@ private fun CyberLibrary(
             end = 16.dp,
             top = 8.dp,
             bottom = dockClearance() + 28.dp
-        ),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+        )
+        // MARBLE_SERVERS_STACKED_GROUPS_V121 — no list-wide spacing.
+        //
+        // A subscription is one box: its header and every one of its servers are stacked flush
+        // against each other, so the group reads as a single continuous card instead of a header
+        // followed by a drift of loose per-server cards. Gaps between page sections and between
+        // groups are explicit spacer items below, which is the only way a LazyColumn can space
+        // *some* neighbours without spacing the rows inside a group.
     ) {
         item(key = "servers-header") {
             ServersTopBar(
                 groupCount = groups.size,
                 serverCount = allProfiles.size,
-                onAdd = { addOpen = true },
+                addOpen = addMenuOpen,
+                onAdd = { addMenuOpen = !addMenuOpen },
+                onAddDismiss = { addMenuOpen = false },
+                onAddAction = { action ->
+                    when (action) {
+                        ServersAddAction.CLIPBOARD -> {
+                            val pasted = clipboard.getText()?.text.orEmpty()
+                            if (pasted.isBlank()) {
+                                // Nothing to import: rather than fail silently, hand the user
+                                // the sheet with the paste box already open.
+                                addForm = "node"
+                            } else {
+                                val intake = libraryIntakeTarget(repo)
+                                repo.importText(pasted, "Clipboard", intake)
+                                repo.selectLibrarySource(intake)
+                            }
+                        }
+                        // image/* covers screenshots and photos; no camera, no permission.
+                        ServersAddAction.QR -> qrImportLauncher.launch("image/*")
+                        ServersAddAction.FILE -> onImportFile()
+                        ServersAddAction.MANUAL_NODE -> addForm = "node"
+                        ServersAddAction.MANUAL_SUBSCRIPTION -> addForm = "subscription"
+                        ServersAddAction.CHAIN -> addForm = "chain"
+                    }
+                },
                 onSort = { sortOpen = true },
                 sortOpen = sortOpen,
                 sortMode = settings.nodeSortMode,
@@ -3757,6 +3703,8 @@ private fun CyberLibrary(
             )
         }
 
+        item(key = "servers-header-gap") { Spacer(Modifier.height(10.dp)) }
+
         item(key = "servers-search") {
             ServersSearchField(
                 value = search,
@@ -3764,6 +3712,8 @@ private fun CyberLibrary(
                 onClear = { search = "" }
             )
         }
+
+        item(key = "servers-search-gap") { Spacer(Modifier.height(10.dp)) }
 
         item(key = "servers-filters") {
             ServersFilterRail(
@@ -3828,10 +3778,13 @@ private fun CyberLibrary(
             )
         }
 
+        item(key = "servers-filters-gap") { Spacer(Modifier.height(10.dp)) }
+
         if (repo.inlineProgressActive) {
             item(key = "servers-progress") {
                 ServersProbeStrip(repo = repo)
             }
+            item(key = "servers-progress-gap") { Spacer(Modifier.height(10.dp)) }
         }
 
         if (groups.isEmpty()) {
@@ -3850,7 +3803,7 @@ private fun CyberLibrary(
                             )
                         }
                     },
-                    onAdd = { addOpen = true }
+                    onAdd = { addForm = "node" }
                 )
             }
         }
@@ -3863,9 +3816,13 @@ private fun CyberLibrary(
                 else -> group.profiles.size
             }
 
+            // The header is the top of the group's box; the rows below close it.
+            val stacked = !collapsed && group.profiles.isNotEmpty()
+
             item(key = "group-${group.key}") {
                 ServersGroupHeader(
                     group = group,
+                    attachedBelow = stacked,
                     subscription = subscription,
                     collapsed = collapsed,
                     shown = group.profiles.size,
@@ -3893,7 +3850,6 @@ private fun CyberLibrary(
                                     "${repo.subscriptionNodeCount(group.key)} server links copied"
                                 )
                             }
-                            ServersGroupAction.RANK -> repo.smartRankSource(group.key)
                             ServersGroupAction.PING -> repo.testSource(group.key)
                             ServersGroupAction.SHOW_ONLY -> repo.selectLibrarySource(group.key)
                             ServersGroupAction.SHOW_ALL -> repo.selectLibrarySource("all")
@@ -3911,14 +3867,25 @@ private fun CyberLibrary(
                 itemsIndexed(
                     items = group.profiles,
                     key = { _, profile -> "${group.key}:${profile.id}" }
-                ) { _, profile ->
+                ) { index, profile ->
                     ServersNodeCard(
                         profile = profile,
                         repo = repo,
                         result = benchmarks[profile.id],
                         active = repo.isActiveProfile(profile),
+                        selected = repo.isSelectedProfile(profile),
+                        lastInGroup = index == group.profiles.lastIndex,
                         probeState = repo.probeStateOf(profile.id),
-                        onConnect = { onConnect(profile) },
+                        // MARBLE_SELECT_IS_NOT_CONNECT_V121 — a tap selects. It only connects when
+                        // a tunnel is already up (switching route is an explicit re-connect) or is
+                        // being established, so browsing the list can never open a connection.
+                        onConnect = {
+                            if (repo.state == "CONNECTED" || repo.state == "CONNECTING") {
+                                onConnect(profile)
+                            } else {
+                                repo.selectProfile(profile)
+                            }
+                        },
                         onEdit = {
                             renameTarget = profile
                             renameText = stripLeadingFlag(profile.name)
@@ -3930,14 +3897,17 @@ private fun CyberLibrary(
                     )
                 }
             }
+
+            item(key = "group-${group.key}-gap") { Spacer(Modifier.height(10.dp)) }
         }
     }
 
-    if (addOpen) {
+    addForm?.let { form ->
         ServersAddPage(
             repo = repo,
+            initialMode = form,
             onImportFile = onImportFile,
-            onDismiss = { addOpen = false }
+            onDismiss = { addForm = null }
         )
     }
 
@@ -3974,7 +3944,9 @@ private enum class ServersGroupAction {
     REFRESH,
     COPY_URL,
     COPY_SERVERS,
-    RANK,
+    // MARBLE_ONE_PING_V121 — a subscription menu offers exactly one measurement entry. The old
+    // "Rank this group" ran a second, differently-configured probe that ignored the ping method
+    // chosen in Settings, so the same menu reported two different latencies for the same server.
     PING,
     SHOW_ONLY,
     SHOW_ALL,
@@ -4007,7 +3979,10 @@ private val SERVERS_SORT_OPTIONS = listOf(
 private fun ServersTopBar(
     groupCount: Int,
     serverCount: Int,
+    addOpen: Boolean,
     onAdd: () -> Unit,
+    onAddDismiss: () -> Unit,
+    onAddAction: (ServersAddAction) -> Unit,
     onSort: () -> Unit,
     sortOpen: Boolean,
     sortMode: NodeSortMode,
@@ -4039,11 +4014,22 @@ private fun ServersTopBar(
                 )
             }
             Spacer(Modifier.width(10.dp))
-            ServersRoundButton(
-                icon = HomeIcon.PLUS,
-                label = "Add server",
-                onClick = onAdd
-            )
+            // MARBLE_ADD_SERVER_MENU_V121 — every way to get a server into Marble, in one menu
+            // anchored to the + button instead of a sheet that had to be opened before the user
+            // could even see the options.
+            Box {
+                ServersRoundButton(
+                    icon = HomeIcon.PLUS,
+                    label = "Add server",
+                    selected = addOpen,
+                    onClick = onAdd
+                )
+                ServersAddMenu(
+                    expanded = addOpen,
+                    onDismiss = onAddDismiss,
+                    onAction = onAddAction
+                )
+            }
             Spacer(Modifier.width(8.dp))
             // The dropdown is anchored to the sort control's own box, so it always opens exactly
             // under the button that summoned it.
@@ -4102,7 +4088,139 @@ private fun ServersRoundButton(
     }
 }
 
-/** One row of a Marble dropdown menu: label on the left, a small tick on the right when chosen. */
+/**
+ * MARBLE_ADD_SERVER_MENU_V121 — everything the + button can do.
+ *
+ * Importing is one tap from the menu (clipboard, QR image, file). Building something by hand is a
+ * deliberate second choice, so "Add manually" opens its own small menu of the three things a user
+ * can actually author — a single server, a subscription source, or a multi-hop chain — and only
+ * then opens the form for it.
+ */
+private enum class ServersAddAction {
+    CLIPBOARD,
+    QR,
+    FILE,
+    MANUAL_NODE,
+    MANUAL_SUBSCRIPTION,
+    CHAIN
+}
+
+@Composable
+private fun ServersAddMenu(
+    expanded: Boolean,
+    onDismiss: () -> Unit,
+    onAction: (ServersAddAction) -> Unit
+) {
+    // The manual submenu replaces the first menu in the same anchor, so the two never overlap and
+    // "back" is simply dismissing it.
+    var manualOpen by remember { mutableStateOf(false) }
+    LaunchedEffect(expanded) { if (!expanded) manualOpen = false }
+
+    DropdownMenu(
+        expanded = expanded && !manualOpen,
+        onDismissRequest = onDismiss,
+        shape = ServersMenuShape,
+        containerColor = Aether.VoidElevated
+    ) {
+        ServersMenuItem(
+            label = "Import from clipboard",
+            icon = HomeIcon.CLIPBOARD,
+            tone = Aether.Cyan,
+            detail = "Paste vless:// vmess:// ss:// trojan:// links",
+            onClick = {
+                onDismiss()
+                onAction(ServersAddAction.CLIPBOARD)
+            }
+        )
+        ServersMenuItem(
+            label = "Import from QR code",
+            icon = HomeIcon.QR,
+            tone = Aether.Amethyst,
+            detail = "Pick a screenshot or photo of the code",
+            onClick = {
+                onDismiss()
+                onAction(ServersAddAction.QR)
+            }
+        )
+        ServersMenuItem(
+            label = "Import from file",
+            icon = HomeIcon.SHARE,
+            tone = Aether.Emerald,
+            detail = "A .txt / .json / subscription export",
+            onClick = {
+                onDismiss()
+                onAction(ServersAddAction.FILE)
+            }
+        )
+        HorizontalDivider(color = Aether.GlassBorderSoft)
+        ServersMenuItem(
+            label = "Add manually",
+            icon = HomeIcon.PENCIL,
+            tone = Aether.Ink,
+            detail = "Choose what to build",
+            onClick = { manualOpen = true }
+        )
+        ServersMenuItem(
+            label = "Chain",
+            icon = HomeIcon.ROUTING,
+            tone = Aether.Amber,
+            detail = "Route through several servers in order",
+            onClick = {
+                onDismiss()
+                onAction(ServersAddAction.CHAIN)
+            }
+        )
+    }
+
+    DropdownMenu(
+        expanded = expanded && manualOpen,
+        onDismissRequest = {
+            manualOpen = false
+            onDismiss()
+        },
+        shape = ServersMenuShape,
+        containerColor = Aether.VoidElevated
+    ) {
+        ServersMenuItem(
+            label = "Server",
+            icon = HomeIcon.SERVER,
+            tone = Aether.Cyan,
+            detail = "Enter protocol, address and credentials",
+            onClick = {
+                manualOpen = false
+                onDismiss()
+                onAction(ServersAddAction.MANUAL_NODE)
+            }
+        )
+        ServersMenuItem(
+            label = "Subscription",
+            icon = HomeIcon.LIBRARY,
+            tone = Aether.Emerald,
+            detail = "A provider URL Marble keeps up to date",
+            onClick = {
+                manualOpen = false
+                onDismiss()
+                onAction(ServersAddAction.MANUAL_SUBSCRIPTION)
+            }
+        )
+        ServersMenuItem(
+            label = "Chain",
+            icon = HomeIcon.ROUTING,
+            tone = Aether.Amber,
+            detail = "Several hops, in order",
+            onClick = {
+                manualOpen = false
+                onDismiss()
+                onAction(ServersAddAction.CHAIN)
+            }
+        )
+    }
+}
+
+/**
+ * One row of a Marble dropdown menu: an optional glyph, the label, an optional second line of
+ * detail, and a small tick on the right when the row is the chosen one.
+ */
 @Composable
 private fun ServersMenuItem(
     label: String,
@@ -4749,6 +4867,9 @@ private fun ServersFoldedNote(count: Int) {
 private fun ServersGroupHeader(
     group: LibraryGroup,
     subscription: Subscription?,
+    // MARBLE_SERVERS_STACKED_GROUPS_V121 — true when this header opens a box whose servers are
+    // stacked flush beneath it, so it drops its bottom corners and its bottom hairline.
+    attachedBelow: Boolean,
     collapsed: Boolean,
     shown: Int,
     total: Int,
@@ -4769,18 +4890,24 @@ private fun ServersGroupHeader(
         animationSpec = MarbleMotionSpecs.ResponseFloat,
         label = "servers-group-chevron"
     )
+    val shape = if (attachedBelow) ServersGroupHeadShape else ServersCardShape
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(ServersCardShape)
+            .clip(shape)
             .background(Aether.VoidElevated)
-            .border(1.dp, Aether.GlassBorderSoft, ServersCardShape)
+            // An attached header keeps its side and top hairlines and lets the rows below draw the
+            // rest of the box, so the group never shows a seam between its own parts.
+            .serversStackedFrame(
+                openBottom = attachedBelow,
+                color = Aether.GlassBorderSoft
+            )
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .kineticClickable(role = Role.Button, boundedShape = ServersCardShape, onClick = onToggle)
+                .kineticClickable(role = Role.Button, boundedShape = shape, onClick = onToggle)
                 .padding(start = 11.dp, end = 6.dp, top = 11.dp, bottom = 11.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -5069,15 +5196,6 @@ private fun ServersGroupMenu(
                 onMenu(ServersGroupAction.PING)
             }
         )
-        ServersMenuItem(
-            label = "Rank this group",
-            icon = HomeIcon.RANK,
-            tone = Aether.Cyan,
-            onClick = {
-                onDismiss()
-                onMenu(ServersGroupAction.RANK)
-            }
-        )
         HorizontalDivider(color = Aether.GlassBorderSoft)
         ServersMenuItem(
             label = "Show only this group",
@@ -5138,12 +5256,20 @@ private fun protocolTone(scheme: String): Color = when (scheme.trim().uppercase(
 }
 
 /**
- * One server, one card.
+ * One server, one row of its subscription's box.
  *
- * Anatomy, left to right: the country, the identity column (bold name above a protocol badge and
- * the endpoint), the latency capsule and the row's own menu. The card is a button — tapping it
- * connects — and swiping right still opens the rename dialog for people who liked that shortcut.
- * The connected server keeps its geometry: only the frame and one word change.
+ * Anatomy, left to right: the state bar, the country, the identity column (bold name above a
+ * protocol badge and the endpoint), the latency capsule and the row's own menu. Swiping right
+ * still opens the rename dialog for people who liked that shortcut.
+ *
+ * MARBLE_SERVERS_STACKED_GROUPS_V121 — the row has no card of its own. It stacks flush under the
+ * subscription header, shares the group's outline, and is separated from its neighbours by a
+ * hairline only, so a subscription reads as one box of servers.
+ *
+ * MARBLE_SELECT_IS_NOT_CONNECT_V121 — three distinct row states, none of which change geometry:
+ * connected (emerald bar + "Connected"), selected (cyan bar + "Selected", the server the connect
+ * button will use) and plain. Tapping a row selects it; see the call site for the one case where
+ * a tap re-connects.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -5152,6 +5278,8 @@ private fun ServersNodeCard(
     repo: AppRepository,
     result: BenchmarkResult?,
     active: Boolean,
+    selected: Boolean,
+    lastInGroup: Boolean,
     probeState: ProbeState,
     onConnect: () -> Unit,
     onEdit: () -> Unit,
@@ -5165,11 +5293,24 @@ private fun ServersNodeCard(
     val testing = probeState == ProbeState.TESTING
     val securing = !active && repo.state == "CONNECTING" && repo.stateDetail == profile.name
     val routeTone = if (active) Aether.Emerald else Aether.Cyan
-    val frameTone = when {
+    // The row states, in priority order. Only colour and one word ever change.
+    val stateTone = when {
         active -> Aether.Emerald
         securing -> Aether.Amethyst
-        else -> Aether.GlassBorderSoft
+        selected -> Aether.Cyan
+        else -> Color.Transparent
     }
+    val rowShape = if (lastInGroup) ServersGroupTailShape else ServersGroupBodyShape
+    val rowFill by animateColorAsState(
+        targetValue = when {
+            active -> Aether.Emerald.copy(alpha = .09f)
+            securing -> Aether.Amethyst.copy(alpha = .09f)
+            selected -> Aether.Cyan.copy(alpha = .07f)
+            else -> Color.Transparent
+        },
+        animationSpec = MarbleMotionSpecs.Color,
+        label = "servers-row-state"
+    )
     val country = ServersQuery.countryOf(profile)
     val name = stripLeadingFlag(profile.name)
     val flag = leadingFlagGlyph(profile.name) ?: country.flag
@@ -5197,7 +5338,7 @@ private fun ServersNodeCard(
             Row(
                 modifier = Modifier
                     .fillMaxSize()
-                    .clip(ServersCardShape)
+                    .clip(rowShape)
                     .background(tone.copy(alpha = .12f))
                     .padding(horizontal = 18.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -5216,22 +5357,34 @@ private fun ServersNodeCard(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(ServersCardShape)
+                .clip(rowShape)
                 .background(Aether.VoidElevated)
-                .border(
-                    width = if (active || securing) 1.4.dp else 1.dp,
-                    color = frameTone.copy(alpha = if (active || securing) .55f else 1f),
-                    shape = ServersCardShape
+                .background(rowFill)
+                // The group's own outline continues through this row; the top edge is a hairline
+                // separator drawn by the frame's neighbour, never a second frame.
+                .serversStackedFrame(
+                    openTop = true,
+                    openBottom = !lastInGroup,
+                    color = Aether.GlassBorderSoft
                 )
                 .kineticClickable(
                     enabled = !repo.busy && !active,
                     role = Role.Button,
-                    boundedShape = ServersCardShape,
+                    boundedShape = rowShape,
                     onClick = onConnect
                 )
                 .padding(start = 12.dp, end = 5.dp, top = 11.dp, bottom = 11.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            // State bar: the whole vocabulary of "which server is this?" in three pixels.
+            Box(
+                Modifier
+                    .width(3.dp)
+                    .height(26.dp)
+                    .clip(ServersPillShape)
+                    .background(stateTone)
+            )
+            Spacer(Modifier.width(9.dp))
             // Country: the flag the label carried, else the resolved one, else the scheme initial.
             Text(
                 flag.takeIf { it.isNotBlank() && it != ServerCountry.UNKNOWN.flag }
@@ -5281,6 +5434,18 @@ private fun ServersNodeCard(
                             fontWeight = FontWeight.Bold,
                             maxLines = 1
                         )
+                    } else if (selected) {
+                        Text(
+                            trx("Selected"),
+                            color = Aether.Cyan,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            modifier = Modifier
+                                .clip(ServersBadgeShape)
+                                .background(Aether.Cyan.copy(alpha = .12f))
+                                .padding(horizontal = 6.dp, vertical = 1.dp)
+                        )
                     }
                 }
                 Row(
@@ -5313,7 +5478,9 @@ private fun ServersNodeCard(
             ServersPingCapsule(
                 latencyMs = latency,
                 measured = measured != null,
-                testing = testing
+                testing = testing,
+                // "It failed" and "it was never tried" are different facts and must look different.
+                attempted = result != null && measured == null
             )
             ServersNodeMenu(
                 profile = profile,
@@ -5340,19 +5507,31 @@ private fun ServersNodeCard(
 }
 
 /**
- * The latency capsule. It never changes size: an unmeasured server reads "0 ms" in the theme's
- * danger tone, and TalkBack is told the truth — that nothing has been measured yet.
+ * The latency capsule. It never changes size.
+ *
+ * MARBLE_NO_PHANTOM_PING_V121 — a server that has never been measured reads "—" in a quiet tone,
+ * not "0 ms" in red. A freshly imported subscription has no measurements at all, and printing a
+ * zero next to every one of its servers claimed both a measurement and an impossible latency.
+ * Red is reserved for a probe that actually ran and actually failed.
  */
 @Composable
 private fun ServersPingCapsule(
     latencyMs: Int,
     measured: Boolean,
-    testing: Boolean
+    testing: Boolean,
+    attempted: Boolean = false
 ) {
-    val tone = serverPingTone(latencyMs, measured, testing)
+    val tone = when {
+        testing -> Aether.Cyan
+        measured -> serverPingTone(latencyMs, true, false)
+        // A probe that ran and failed is a real, red fact; one that never ran is simply unknown.
+        attempted -> Aether.Danger
+        else -> Aether.InkFaint
+    }
     val spoken = when {
         testing -> trx("Testing server")
         measured -> trx("Latency") + " $latencyMs ms, " + libraryPingQuality(latencyMs)
+        attempted -> trx("No response")
         else -> trx("Not measured")
     }
     Box(
@@ -5369,6 +5548,13 @@ private fun ServersPingCapsule(
                 modifier = Modifier.size(14.dp),
                 color = tone,
                 strokeWidth = 1.8.dp
+            )
+
+            !measured -> Text(
+                if (attempted) "✕" else "—",
+                color = tone,
+                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                maxLines = 1
             )
 
             else -> Row(
@@ -6641,10 +6827,13 @@ private fun ServersSecretField(
 @Composable
 private fun ServersAddPage(
     repo: AppRepository,
+    initialMode: String,
     onImportFile: () -> Unit,
     onDismiss: () -> Unit
 ) {
-    var mode by remember { mutableStateOf("node") }
+    // MARBLE_ADD_SERVER_MENU_V121 — the menu already asked what the user wants to build, so the
+    // form opens on that exact mode. The chips remain so a change of mind costs one tap.
+    var mode by remember(initialMode) { mutableStateOf(initialMode) }
     var subName by remember { mutableStateOf("") }
     var subUrl by remember { mutableStateOf("") }
     var importText by remember { mutableStateOf("") }
@@ -7892,10 +8081,8 @@ private fun SettingsStyleMiniRow(repo: AppRepository) {
                 val selected = active == style
                 val tone = when (style) {
                     HomeStyle.PRO -> Aether.Cyan
-                    HomeStyle.BIOLUMINESCENT -> Aether.Emerald
                     HomeStyle.COSMIC_ORBIT -> Aether.Amber
                     HomeStyle.COSMIC_IMMERSION -> Aether.Amethyst
-                    HomeStyle.PARAMETRIC -> Aether.SlateBright
                 }
                 val shape = RoundedCornerShape(11.dp)
                 Column(
@@ -7946,12 +8133,6 @@ private fun SettingsStyleMotif(style: HomeStyle, tone: Color, modifier: Modifier
                     cap = StrokeCap.Round
                 )
             }
-            // Abyss: light shafts and a seed.
-            HomeStyle.BIOLUMINESCENT -> {
-                drawLine(tone.copy(alpha = .45f), Offset(w * .28f, 0f), Offset(w * .38f, h), 1.6.dp.toPx())
-                drawLine(tone.copy(alpha = .30f), Offset(w * .58f, 0f), Offset(w * .70f, h), 1.6.dp.toPx())
-                drawCircle(tone, h * .22f, Offset(w * .50f, h * .55f))
-            }
             // Command deck: orbits with one body.
             HomeStyle.COSMIC_ORBIT -> {
                 val c = Offset(w * .50f, h * .50f)
@@ -7966,15 +8147,6 @@ private fun SettingsStyleMotif(style: HomeStyle, tone: Color, modifier: Modifier
                 drawCircle(tone.copy(alpha = .80f), h * .16f, c)
                 drawCircle(tone.copy(alpha = .50f), 1.dp.toPx(), Offset(w * .20f, h * .22f))
                 drawCircle(tone.copy(alpha = .50f), 1.dp.toPx(), Offset(w * .80f, h * .28f))
-            }
-            // Blueprint: a grid with corner brackets.
-            HomeStyle.PARAMETRIC -> {
-                val inset = 2.dp.toPx()
-                drawLine(tone.copy(alpha = .28f), Offset(inset, inset), Offset(w - inset, inset), 1.dp.toPx())
-                drawLine(tone.copy(alpha = .28f), Offset(inset, h - inset), Offset(w - inset, h - inset), 1.dp.toPx())
-                drawLine(tone.copy(alpha = .28f), Offset(inset, inset), Offset(inset, h - inset), 1.dp.toPx())
-                drawLine(tone.copy(alpha = .28f), Offset(w - inset, inset), Offset(w - inset, h - inset), 1.dp.toPx())
-                drawLine(tone, Offset(w * .30f, h * .50f), Offset(w * .70f, h * .50f), 1.6.dp.toPx())
             }
         }
     }
@@ -8375,7 +8547,7 @@ private fun SettingsThemePage(
     }
 }
 
-/** Home style: five thumbnails, each drawn from the style's own artwork. */
+/** Home style: one thumbnail per presentation, drawn from the style's own artwork. */
 @Composable
 private fun SettingsHomeStylePage(
     repo: AppRepository,
@@ -8401,10 +8573,8 @@ private fun SettingsHomeStylePage(
                             val selected = active == style
                             val tone = when (style) {
                                 HomeStyle.PRO -> Aether.Cyan
-                                HomeStyle.BIOLUMINESCENT -> Aether.Emerald
                                 HomeStyle.COSMIC_ORBIT -> Aether.Amber
                                 HomeStyle.COSMIC_IMMERSION -> Aether.Amethyst
-                                HomeStyle.PARAMETRIC -> Aether.SlateBright
                             }
                             val shape = RoundedCornerShape(14.dp)
                             Column(
@@ -8462,44 +8632,169 @@ private fun SettingsHomeStylePage(
                 )
             }
         }
-        // MARBLE_CONNECT_BUTTON_STYLES_V119 — five connect-button silhouettes, each rendered inside
-        // every Home style. AUTO keeps each presentation's own signature button; the five named
-        // models pin one silhouette across all five presentations.
+        // MARBLE_CONNECT_BUTTON_V121 — three connect buttons, one product decision.
+        //
+        // The old six-way picker mixed a meta choice ("Auto") with five decorations of the same
+        // circle, so five of the six looked identical on a phone. What is left are three genuinely
+        // different controls: the large round shutter (the product default), a slide-to-connect
+        // safety switch and the classic rectangular power switch. Whichever is chosen renders in
+        // every Home presentation, in the same fixed spot, and never moves.
         SettingsHubCard(
-            title = "Connect button",
-            subtitle = "One silhouette for every Home style",
+            title = trx("Connect button"),
+            subtitle = trx("One control for every Home style"),
             tone = Aether.Cyan
         ) {
             val chosen = parseConnectButtonStyle(repo.settings.connectButtonStyle)
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                ConnectButtonStyle.entries.chunked(3).forEach { row ->
+            Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                ConnectButtonStyle.entries.forEach { style ->
+                    val selected = chosen == style
+                    val shape = RoundedCornerShape(14.dp)
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        row.forEach { style ->
-                            CyberSegment(
-                                label = when (style) {
-                                    ConnectButtonStyle.AUTO -> "Auto"
-                                    ConnectButtonStyle.FLOAT -> "Floating"
-                                    ConnectButtonStyle.CORE -> "Core"
-                                    ConnectButtonStyle.PULSE -> "Pulse"
-                                    ConnectButtonStyle.ORBIT -> "Orbit"
-                                    ConnectButtonStyle.SHIELD -> "Shield"
-                                },
-                                detail = "",
-                                selected = chosen == style,
-                                color = Aether.Cyan,
-                                modifier = Modifier.weight(1f)
-                            ) {
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(shape)
+                            .background(Aether.Glass.copy(alpha = .42f))
+                            .border(
+                                1.dp,
+                                if (selected) Aether.Cyan.copy(alpha = .58f)
+                                else Aether.GlassBorderSoft.copy(alpha = .5f),
+                                shape
+                            )
+                            .kineticClickable(role = Role.Button, boundedShape = shape) {
                                 repo.updateSettings(
                                     repo.settings.copy(connectButtonStyle = style.id)
                                 )
                             }
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        SettingsConnectButtonMotif(
+                            style = style,
+                            tone = if (selected) Aether.Cyan else Aether.InkMuted,
+                            modifier = Modifier
+                                .width(54.dp)
+                                .height(34.dp)
+                        )
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(1.dp)
+                        ) {
+                            Text(
+                                trx(connectButtonStyleLabel(style)),
+                                color = if (selected) Aether.Cyan else Aether.Ink,
+                                style = settingsRowTitleStyle(),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                trx(connectButtonStyleDetail(style)),
+                                color = Aether.InkFaint,
+                                style = settingsBodyStyle(),
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
                         }
-                        if (row.size == 1) Spacer(Modifier.weight(1f))
+                        Box(
+                            Modifier
+                                .size(9.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    if (selected) Aether.Cyan
+                                    else Aether.InkFaint.copy(alpha = .30f)
+                                )
+                        )
                     }
                 }
+            }
+        }
+    }
+}
+
+/** MARBLE_CONNECT_BUTTON_V121 — the name of each connection control. */
+private fun connectButtonStyleLabel(style: ConnectButtonStyle): String = when (style) {
+    ConnectButtonStyle.ROUND -> "Round shutter"
+    ConnectButtonStyle.SLIDE -> "Slide to connect"
+    ConnectButtonStyle.CLASSIC -> "Classic switch"
+}
+
+private fun connectButtonStyleDetail(style: ConnectButtonStyle): String = when (style) {
+    ConnectButtonStyle.ROUND -> "Large round button, tap to connect (default)"
+    ConnectButtonStyle.SLIDE -> "Drag the knob from left to right"
+    ConnectButtonStyle.CLASSIC -> "Rectangular power switch with a state lamp"
+}
+
+/** A still miniature of each connection control, so the choice is recognizable at a glance. */
+@Composable
+private fun SettingsConnectButtonMotif(
+    style: ConnectButtonStyle,
+    tone: Color,
+    modifier: Modifier = Modifier
+) {
+    Canvas(modifier) {
+        val w = size.width
+        val h = size.height
+        when (style) {
+            ConnectButtonStyle.ROUND -> {
+                val c = Offset(w * .5f, h * .5f)
+                drawCircle(tone.copy(alpha = .22f), h * .46f, c)
+                drawCircle(tone.copy(alpha = .70f), h * .46f, c, style = Stroke(1.4.dp.toPx()))
+                drawLine(
+                    tone,
+                    Offset(c.x, c.y - h * .22f),
+                    Offset(c.x, c.y + h * .06f),
+                    2.dp.toPx(),
+                    cap = StrokeCap.Round
+                )
+            }
+
+            ConnectButtonStyle.SLIDE -> {
+                val r = h * .34f
+                drawRoundRect(
+                    color = tone.copy(alpha = .18f),
+                    topLeft = Offset(0f, h * .5f - r),
+                    size = Size(w, r * 2f),
+                    cornerRadius = CornerRadius(r, r)
+                )
+                drawRoundRect(
+                    color = tone.copy(alpha = .60f),
+                    topLeft = Offset(0f, h * .5f - r),
+                    size = Size(w, r * 2f),
+                    cornerRadius = CornerRadius(r, r),
+                    style = Stroke(1.2.dp.toPx())
+                )
+                drawCircle(tone, r * .74f, Offset(r + 1.dp.toPx(), h * .5f))
+                drawLine(
+                    tone.copy(alpha = .55f),
+                    Offset(w * .55f, h * .5f),
+                    Offset(w * .84f, h * .5f),
+                    1.4.dp.toPx(),
+                    cap = StrokeCap.Round
+                )
+            }
+
+            ConnectButtonStyle.CLASSIC -> {
+                drawRoundRect(
+                    color = tone.copy(alpha = .18f),
+                    topLeft = Offset(0f, h * .18f),
+                    size = Size(w, h * .64f),
+                    cornerRadius = CornerRadius(4.dp.toPx(), 4.dp.toPx())
+                )
+                drawRoundRect(
+                    color = tone.copy(alpha = .60f),
+                    topLeft = Offset(0f, h * .18f),
+                    size = Size(w, h * .64f),
+                    cornerRadius = CornerRadius(4.dp.toPx(), 4.dp.toPx()),
+                    style = Stroke(1.2.dp.toPx())
+                )
+                drawLine(
+                    tone,
+                    Offset(w * .26f, h * .34f),
+                    Offset(w * .26f, h * .56f),
+                    2.dp.toPx(),
+                    cap = StrokeCap.Round
+                )
+                drawCircle(tone, 2.dp.toPx(), Offset(w * .78f, h * .5f))
             }
         }
     }
@@ -9010,7 +9305,13 @@ private fun settingsSections(
         // option is shown across all sections. The `expertMode` value is kept for persistence/compat and
         // the hub row is retained as a display read-out, but it never hides a card.
         SettingsWorkspaceTab.TESTS -> listOf(
-            card("Testing","Tunnel, ICMP and live route",HomeIcon.BENCHMARK,Aether.Amethyst) { ProbeSettings(repo) },
+            card(
+                "Testing",
+                // The one ping method, named on the card so it is visible without opening it.
+                "Ping method • ${probeMethodShortLabel(repo.settings.probeMethod)}",
+                HomeIcon.BENCHMARK,
+                Aether.Amethyst
+            ) { ProbeSettings(repo) },
             card("Intelligence","Adaptive routing",HomeIcon.SPARK,Aether.Cyan) { IntelligenceSettings(repo) }
         )
         SettingsWorkspaceTab.NETWORK -> buildList {
@@ -9134,27 +9435,26 @@ private fun SettingsSectionCard(
 @Composable
 private fun homeStyleLabel(style: HomeStyle): String = when (style) {
     HomeStyle.PRO -> Tr.now.stylePro
-    HomeStyle.BIOLUMINESCENT -> Tr.now.styleBioluminescent
     HomeStyle.COSMIC_ORBIT -> Tr.now.styleCosmicOrbit
     HomeStyle.COSMIC_IMMERSION -> Tr.now.styleCosmicImmersion
-    HomeStyle.PARAMETRIC -> Tr.now.styleParametric
 }
 
 @Composable
 private fun homeStyleDetail(style: HomeStyle): String = when (style) {
     HomeStyle.PRO -> Tr.now.styleProDetail
-    HomeStyle.BIOLUMINESCENT -> Tr.now.styleBioluminescentDetail
     HomeStyle.COSMIC_ORBIT -> Tr.now.styleCosmicOrbitDetail
     HomeStyle.COSMIC_IMMERSION -> Tr.now.styleCosmicImmersionDetail
-    HomeStyle.PARAMETRIC -> Tr.now.styleParametricDetail
 }
 
 /**
  * MARBLE_NO_DUPLICATES_V116 — the Signature studio layers that live nowhere else in Settings.
  * Theme, Home style, Typeface and Language all have their own hub pages, so the old combined
  * Appearance block that repeated every one of them is gone. What remains here is the studio
- * configuration only its own page can own: floating button, status banner, corner actions,
- * server rail and the style switcher.
+ * configuration only its own page can own: the floating button, the status banner and the corner
+ * action cluster.
+ *
+ * MARBLE_SIGNATURE_STUDIO_TRIM_V121 — the server rail and the style switcher were removed from
+ * Home, so their switches are gone from here too.
  */
 @Composable
 private fun SignatureStudioSettings(repo: AppRepository) {
@@ -9240,51 +9540,6 @@ private fun SignatureStudioSettings(repo: AppRepository) {
             }
         }
     }
-    SettingSwitch(
-        title = t.proServerRail,
-        subtitle = t.proServerRailDetail,
-        checked = repo.settings.proServerRailEnabled,
-        onChecked = { enabled ->
-            repo.updateSettings(repo.settings.copy(proServerRailEnabled = enabled))
-        }
-    )
-    if (repo.settings.proServerRailEnabled) {
-        Text(
-            t.proServerCardStyle,
-            color = Aether.InkFaint,
-            style = MaterialTheme.typography.labelSmall,
-            fontWeight = FontWeight.Bold
-        )
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            ProServerCardStyle.entries.forEach { cardStyle ->
-                CyberSegment(
-                    label = when (cardStyle) {
-                        ProServerCardStyle.GLASS -> "Glass"
-                        ProServerCardStyle.ACCENT -> "Colored"
-                        ProServerCardStyle.PLAIN -> "Plain"
-                    },
-                    detail = "",
-                    selected = parseProServerCardStyle(repo.settings.proServerCardStyle) == cardStyle,
-                    color = Aether.Amber,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    repo.updateSettings(repo.settings.copy(proServerCardStyle = cardStyle.id))
-                }
-            }
-        }
-    }
-    SettingSwitch(
-        title = t.proStyleSwitcher,
-        subtitle = t.proStyleSwitcherDetail,
-        checked = repo.settings.proStyleSwitcherEnabled,
-        onChecked = { enabled ->
-            repo.updateSettings(repo.settings.copy(proStyleSwitcherEnabled = enabled))
-        }
-    )
-
     // Theme, Home style, Typeface and Language live on the hub's dedicated pages; repeating them
     // here was exactly the duplicate settings the product owner rejected.
     Text(
@@ -10887,10 +11142,10 @@ private fun probeMethodTitle(method: ProbeMethod): String = when (method) {
 }
 
 private fun probeMethodDetail(method: ProbeMethod): String = when (method) {
-    ProbeMethod.HYBRID -> "TCP gate, then real test"
-    ProbeMethod.TUNNEL -> "Most accurate"
-    ProbeMethod.TCP -> "Fastest"
-    ProbeMethod.ICMP -> "Classic ping"
+    ProbeMethod.HYBRID -> "Recommended • quick gate, then a real test"
+    ProbeMethod.TUNNEL -> "Slowest, proves the route end to end"
+    ProbeMethod.TCP -> "Fastest, only reaches the server address"
+    ProbeMethod.ICMP -> "Classic ping, bypasses the proxy"
 }
 
 private fun probeMethodShortLabel(method: ProbeMethod): String = when (method) {
@@ -10900,55 +11155,125 @@ private fun probeMethodShortLabel(method: ProbeMethod): String = when (method) {
     ProbeMethod.ICMP -> "ICMP"
 }
 
+/**
+ * MARBLE_ONE_PING_V121 — one ping setting for the whole product.
+ *
+ * Marble used to run several differently-configured probes behind buttons that all said "ping":
+ * the Servers group menu forced TCP, the Home button ran its own tunnel ladder, and this page
+ * quietly rewrote a TCP choice into a tunnel test. The same server therefore reported different
+ * latencies depending on which button was pressed. There is now exactly one method, chosen here,
+ * and every measurement in the app — the Home ping button, a subscription's ping entry, Ping all
+ * and ranking — runs it.
+ *
+ * Smart ping is the default and the right answer for almost everyone. The engine's raw operating
+ * numbers (samples, timeouts, batch size) are no longer standalone controls on this page: they
+ * are engine defaults, exposed only under Expert mode for people who genuinely tune them.
+ */
 @Composable
 private fun ProbeSettings(repo: AppRepository) {
     val s = repo.settings
+    val method = s.probeMethod
 
+    Text(
+        trx("Used by the Home ping button, subscription ping and Ping all."),
+        color = Aether.InkMuted,
+        style = settingsBodyStyle()
+    )
 
-    FlowRow(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(7.dp),
-        verticalArrangement = Arrangement.spacedBy(7.dp)
-    ) {
-        // MARBLE_SERVERS_V115 — TCP ping measured nothing but the firewall port, never the route,
-        // so it is gone from the product. Ranking and testing always exercise the real tunnel.
-        val effectiveMethod = if (s.probeMethod == ProbeMethod.TCP) ProbeMethod.TUNNEL else s.probeMethod
-        ProbeMethod.entries.filter { it != ProbeMethod.TCP }.forEach { method ->
-            CyberSegment(
-                label = probeMethodTitle(method),
-                detail = probeMethodDetail(method),
-                selected = effectiveMethod == method,
-                color = when (method) {
-                    ProbeMethod.TUNNEL -> Aether.Emerald
-                    ProbeMethod.TCP -> Aether.Cyan
-                    ProbeMethod.ICMP -> Aether.Amber
-                    ProbeMethod.HYBRID -> Aether.Amethyst
-                },
-                modifier = Modifier.width(150.dp)
-            ) { repo.updateSettings(repo.settings.copy(probeMethod = method)) }
+    Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+        ProbeMethod.entries.forEach { candidate ->
+            val selected = method == candidate
+            val tone = when (candidate) {
+                ProbeMethod.HYBRID -> Aether.Amethyst
+                ProbeMethod.TUNNEL -> Aether.Emerald
+                ProbeMethod.TCP -> Aether.Cyan
+                ProbeMethod.ICMP -> Aether.Amber
+            }
+            val shape = RoundedCornerShape(14.dp)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(shape)
+                    .background(Aether.Glass.copy(alpha = .42f))
+                    .border(
+                        1.dp,
+                        if (selected) tone.copy(alpha = .58f) else Aether.GlassBorderSoft.copy(alpha = .5f),
+                        shape
+                    )
+                    .kineticClickable(role = Role.Button, boundedShape = shape) {
+                        repo.updateSettings(repo.settings.copy(probeMethod = candidate))
+                    }
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(1.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            trx(probeMethodTitle(candidate)),
+                            color = if (selected) tone else Aether.Ink,
+                            style = settingsRowTitleStyle(),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        if (candidate == ProbeMethod.HYBRID) {
+                            Text(
+                                trx("Default"),
+                                color = tone,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                modifier = Modifier
+                                    .clip(ServersBadgeShape)
+                                    .background(tone.copy(alpha = .13f))
+                                    .padding(horizontal = 6.dp, vertical = 1.dp)
+                            )
+                        }
+                    }
+                    Text(
+                        trx(probeMethodDetail(candidate)),
+                        color = Aether.InkFaint,
+                        style = settingsBodyStyle(),
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                Box(
+                    Modifier
+                        .size(9.dp)
+                        .clip(CircleShape)
+                        .background(if (selected) tone else Aether.InkFaint.copy(alpha = .30f))
+                )
+            }
+        }
+    }
+
+    if (method == ProbeMethod.ICMP) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(15.dp))
+                .background(Aether.Amber.copy(alpha = .08f))
+                .padding(11.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("!", color = Aether.Amber, style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.width(9.dp))
+            Text(
+                trx("ICMP bypasses the proxy; only Smart or Tunnel ping proves the route."),
+                color = Aether.InkMuted,
+                style = MaterialTheme.typography.bodySmall
+            )
         }
     }
 
     HorizontalDivider(color = Aether.GlassBorderSoft)
-
-    NumberSetting(
-        title = "Samples per server",
-        value = s.benchSamples,
-        range = 1..8
-    ) { repo.updateSettings(repo.settings.copy(benchSamples = it)) }
-
-    NumberSetting(
-        title = "Timeout per try",
-        value = s.benchTimeoutSec,
-        range = 2..20,
-        suffix = " sec"
-    ) { repo.updateSettings(repo.settings.copy(benchTimeoutSec = it)) }
-
-    NumberSetting(
-        title = "Servers per test run",
-        value = s.benchCandidates,
-        range = 5..200
-    ) { repo.updateSettings(repo.settings.copy(benchCandidates = it)) }
 
     SettingSwitch(
         title = "Also measure download speed",
@@ -10966,24 +11291,10 @@ private fun ProbeSettings(repo: AppRepository) {
         }
     }
 
-    if (s.probeMethod != ProbeMethod.TUNNEL && s.probeMethod != ProbeMethod.HYBRID) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(15.dp))
-                .background(Aether.Amber.copy(alpha = .08f))
-                .padding(11.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text("!", color = Aether.Amber, style = MaterialTheme.typography.titleMedium)
-            Spacer(Modifier.width(9.dp))
-            Text(
-                trx("ICMP bypasses the proxy; only Real tunnel proves the route."),
-                color = Aether.InkMuted,
-                style = MaterialTheme.typography.bodySmall
-            )
-        }
-    }
+    // MARBLE_ONE_PING_V121 — the engine's raw operating numbers (samples per server, timeout per
+    // try, servers per run) are no longer controls. They were standalone technical operators with
+    // no right answer a user could know, and every combination of them produced a different
+    // "ping" for the same server. They remain as tuned engine defaults in AppSettings.
 }
 
 // =================================================================================================

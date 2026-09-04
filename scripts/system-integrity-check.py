@@ -158,26 +158,36 @@ check(
     and "ipDetails" in files["strings"],
 )
 
-# MARBLE_HOME_STYLE_V110 â€” four presentations of one connection surface.
-home_styles = ("BIOLUMINESCENT", "COSMIC_ORBIT", "COSMIC_IMMERSION", "PARAMETRIC")
+# MARBLE_HOME_STYLE_TRIM_V121 — three presentations of one connection surface.
+# Parametric and Bioluminescent were removed from the product: they are not modelled, not
+# implemented, not translated and not reachable anywhere.
+home_styles = ("PRO", "COSMIC_ORBIT", "COSMIC_IMMERSION")
+retired_home_styles = ("BIOLUMINESCENT", "PARAMETRIC")
 check(
-    "all four Home styles are modelled and persisted",
+    "all three Home styles are modelled and persisted",
     "enum class HomeStyle" in files["models"]
     and all(style in files["models"] for style in home_styles)
     and "homeStyle" in files["store"]
     and "homeStyle = style.id" in files["ui"],
 )
 check(
+    "retired Home styles are gone from every layer",
+    all(
+        style not in blob
+        for style in retired_home_styles
+        for blob in (files["models"], files["homeStyles"], files["signature"], files["ui"])
+    ),
+)
+check(
     "every Home style has an implementation and is reachable",
     all(
         name in files["homeStyles"]
         for name in (
-            "HomeStyleBioluminescent",
             "HomeStyleCosmicOrbit",
             "HomeStyleCosmicImmersion",
-            "HomeStyleParametric",
         )
     )
+    and "HomeStyleSignature(" in files["signature"]
     and "HomeStyleSurface(" in files["homeStyles"]
     and "HomeStyleSurface(" in files["ui"],
 )
@@ -186,7 +196,7 @@ check(
     "data class HomeEvidence" in files["homeStyles"]
     and "buildHomeEvidence(" in files["ui"]
     and all(
-        files["homeStyles"].count(widget) >= 4
+        files["homeStyles"].count(widget) >= 2
         for widget in ("HomeIdentityBlock(", "HomeIpRow(", "HomeSessionStats(", "HomePowerControl(")
     ),
 )
@@ -234,21 +244,26 @@ check(
     "proFloatingButtonEnabled" in files["store"]
     and "proStatusBannerEnabled" in files["store"]
     and "proCornerActionsEnabled" in files["store"]
-    and "proServerRailEnabled" in files["store"]
-    and "proStyleSwitcherEnabled" in files["store"]
-    and "proServerCardStyle" in files["store"]
     and "proAccent" in files["store"]
     and "proShortcut" in files["store"]
     and "rememberSignatureProContext(" in files["ui"],
 )
+# MARBLE_SIGNATURE_STUDIO_TRIM_V121 — Home no longer duplicates the Servers page or Settings:
+# the in-Home server rail and the style switcher are gone from every layer.
 check(
-    "Signature floating button, banner, corner cluster and style switcher exist",
+    "Signature floating button, banner and corner cluster exist",
     "SignatureFloatingConnectOverlay(" in files["ui"]
     and "SignatureStatusBanner(" in files["ui"]
     and "SignatureCornerCluster(" in files["signature"]
-    and "SignatureServerRail(" in files["signature"]
-    and "SignatureStyleSwitcher(" in files["signature"]
     and "SignatureFloatingConnectOverlay(" in files["signature"],
+)
+check(
+    "Home carries no server rail, style switcher or server-card setting",
+    "SignatureServerRail" not in files["signature"]
+    and "SignatureStyleSwitcher" not in files["signature"]
+    and "ProServerCardStyle" not in files["models"]
+    and "proServerRailEnabled" not in files["store"]
+    and "proStyleSwitcherEnabled" not in files["store"],
 )
 check(
     "floating button position persists as normalized fractions",

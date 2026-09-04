@@ -120,9 +120,9 @@ internal fun marbleMetricTone(band: MarbleMetricBand): Color = when (band) {
 /**
  * MARBLE_HOME_GRADIENTS_V116 — the page-wide ambient field now belongs to the selected Home style
  * instead of one grey-blue wash: every flavor gets its own professional multi-colour gradient
- * (electric/violet/ice for Signature, emerald/amethyst/gold for the organism, gold/azure/magenta
- * for Orbit, amethyst/cyan/emerald for the nebula and slate/ice/amber for the blueprint), layered
- * softly so cards stay readable while the viewport never reads as grey.
+ * (electric/violet/ice for Signature, gold/azure/magenta for Cosmic Orbit and amethyst/cyan/emerald
+ * for Cosmic Immersion), layered softly so cards stay readable while the viewport never reads as
+ * grey.
  */
 @Composable
 internal fun PrismBackdrop(
@@ -141,11 +141,6 @@ internal fun PrismBackdrop(
             secondary = Aether.Amethyst
             tertiary = Aether.Emerald
         }
-        HomeFlavor.ORGANIC -> {
-            primary = Aether.Emerald
-            secondary = Aether.Amethyst
-            tertiary = Aether.Amber
-        }
         HomeFlavor.ORBIT -> {
             primary = Aether.Amber
             secondary = Aether.CyanBright
@@ -155,11 +150,6 @@ internal fun PrismBackdrop(
             primary = Aether.AmethystBright
             secondary = Aether.CyanBright
             tertiary = Aether.Emerald
-        }
-        HomeFlavor.BLUEPRINT -> {
-            primary = Aether.SlateBright
-            secondary = Aether.CyanBright
-            tertiary = Aether.Amber
         }
     }
 
