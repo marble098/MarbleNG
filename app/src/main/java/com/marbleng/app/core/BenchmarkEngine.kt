@@ -86,8 +86,12 @@ class BenchmarkEngine(
                 results += result
                 // TCP/ICMP proves endpoint reachability, not that the Xray route/account works.
                 // Never poison persistent tunnel intelligence with underlay-only measurements.
+                // MARBLE_SMART_PING_RESCUE_V123 — the same rule covers a Smart ping that only
+                // reached its reachability gate: it is honest evidence for the card, not proof
+                // of a working route, so it must not enter the ranker's memory.
                 if (
                     !directProbe(s) &&
+                    result.probeKind != SMART_PROBE_KIND &&
                     (batchNetworkKey == null || intelligence?.currentSnapshot()?.key() == batchNetworkKey)
                 ) {
                     intelligence?.recordBenchmark(p, result, s)
@@ -705,6 +709,73 @@ class BenchmarkEngine(
         }
     }
 
+    /**
+     * MARBLE_SMART_PING_RESCUE_V123 — Smart ping: cheap reachability gate first, real tunnel
+     * verification second, and an honest verdict when only the first of those completes.
+     *
+     * Why the old behaviour failed healthy servers: [ProbeMethod.HYBRID] was not a method of its
+     * own, it fell through to the same code path as [ProbeMethod.TUNNEL]. Every server therefore
+     * paid for a child Xray process plus a two-second HTTPS budget, and on a phone that budget is
+     * routinely lost to process start-up and CPU contention — the measurement came back empty and
+     * the node was painted red even though the endpoint answers a handshake in 40 ms.
+     *
+     * Now:
+     *  1. [RouteProbe.smartGate] proves the endpoint answers (one TCP handshake, one resolver
+     *     round trip as a second opinion). No child process, so a dead node is reported in well
+     *     under a second instead of after a full start-up timeout.
+     *  2. Only a gate-passer pays for the verified tunnel measurement, and it is given a
+     *     start-up budget ([SMART_VERIFY_START_SEC]) that survives a busy phone.
+     *  3. A gate-passer whose verification could not complete is reported *reachable but
+     *     unverified* — [RouteProbe.GATE_ONLY_SUCCESS] with the real handshake latency — and is
+     *     never recorded as tunnel intelligence, so it can neither show a false red cross nor
+     *     teach the ranker that an unverified node is a proven route.
+     */
+    private fun smartCandidate(p: ProxyProfile, port: Int, s: AppSettings): BenchmarkResult {
+        val gateTimeoutMs = (s.benchTimeoutSec * 400).coerceIn(700, 2_500)
+        val gate = RouteProbe.smartGate(p, gateTimeoutMs, s)
+        if (!gate.reached) {
+            return BenchmarkResult(
+                profileId = p.id,
+                name = p.name,
+                success = 0,
+                latencyMs = 9999.0,
+                bytesPerSecond = 0.0,
+                score = 0.0,
+                probeKind = SMART_PROBE_KIND,
+                failureReason = gate.reason
+            )
+        }
+
+        val effective = intelligence?.effectiveSettings(p, s) ?: s
+        // The verified phase keeps the user's sample count but never inherits a start-up budget
+        // that is smaller than the time a cold Xray child needs on a loaded device.
+        val verifySettings = effective.copy(
+            benchTimeoutSec = max(s.benchTimeoutSec, SMART_VERIFY_START_SEC),
+            probeSpeedTest = false,
+            udpProbeEnabled = false
+        )
+        val verified = measure(p, port, verifySettings, includeThroughput = false)
+        if (verified.success > 0) {
+            return benchmarkResult(
+                p,
+                verified,
+                effective.fragmentEnabled && !s.fragmentEnabled,
+                effective.muxEnabled && !s.muxEnabled
+            )
+        }
+
+        return BenchmarkResult(
+            profileId = p.id,
+            name = p.name,
+            success = RouteProbe.GATE_ONLY_SUCCESS,
+            latencyMs = LinkQualityEstimator.sanitaryRtt(gate.latencyMs),
+            bytesPerSecond = 0.0,
+            score = 0.0,
+            probeKind = SMART_PROBE_KIND,
+            failureReason = "unverified:${verified.failureReason.ifBlank { "tunnel" }}"
+        )
+    }
+
     private fun testCandidate(
         p: ProxyProfile,
         port: Int,
@@ -715,6 +786,11 @@ class BenchmarkEngine(
         if (v2rayStyleDelay) {
             return benchmarkResult(p, measure(p, port, s, false, true), false, false)
         }
+        // MARBLE_SMART_PING_RESCUE_V123 — Smart ping is its own method, not a rename of the real
+        // tunnel test. It used to fall through to the tunnel path, so the product default paid
+        // for a child Xray process per server and reported 0% whenever that process lost the
+        // race against a two-second budget: every server, healthy ones included, came back red.
+        if (s.probeMethod == ProbeMethod.HYBRID) return smartCandidate(p, port, s)
         val effective = intelligence?.effectiveSettings(p, s) ?: s
         if (!s.verifiedPerformanceTuning) {
             val direct = measure(p, port, effective, true)
@@ -1017,6 +1093,20 @@ class BenchmarkEngine(
         const val BENCHMARK_PORT_SLOTS = 10_000
         const val RACE_BASE_PORT = 19280
         const val OPTIMIZER_BASE_PORT = 20580
+
+        /**
+         * MARBLE_SMART_PING_RESCUE_V123 — evidence tier of a Smart ping that proved reachability
+         * but could not complete the verified tunnel phase. Deliberately *not* `TUNNEL`: this
+         * result must never be recorded as tunnel intelligence.
+         */
+        const val SMART_PROBE_KIND = "SMART"
+
+        /**
+         * Minimum start-up budget (seconds) for the Smart ping verification phase. `measure()`
+         * clamps its own sample timeout, so this only widens the window [XrayManager.temporary]
+         * gives a cold child process to open its SOCKS listener.
+         */
+        const val SMART_VERIFY_START_SEC = 6
         // Spread nodes across independent verified endpoints. Domain targets travel as SOCKS
         // ATYP=domain (no Android resolver); literal targets remain available when proxy DNS fails.
         val TUNNEL_PROBE_TARGETS = listOf(

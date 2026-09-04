@@ -46,8 +46,22 @@ import kotlin.math.sqrt
  */
 object RouteProbe {
     // MARBLE_PROBE_TOOLKIT_V130 — full rewrite inspired by v2rayNG, PattNG, Incy, Exclave, Lumen
+    // MARBLE_SMART_PING_RESCUE_V123 — Smart ping stops failing healthy servers.
 
     const val UNREACHABLE = 99_999.0
+
+    /**
+     * MARBLE_SMART_PING_RESCUE_V123 — the success percentage of a *reachable but unverified*
+     * verdict.
+     *
+     * Smart ping proves reachability cheaply (TCP handshake, then DNS) and only then spends a
+     * real tunnel measurement. When that second phase cannot complete — the local core did not
+     * come up in time, the phone was thermal-throttled, the 2 s HTTPS budget ran out on a
+     * far-away edge — the endpoint has still answered a TCP handshake, so reporting 0% turned a
+     * perfectly usable server into a red cross. Reachable-but-unverified keeps the node green
+     * with its real handshake latency while the ranking still trusts a verified node more.
+     */
+    const val GATE_ONLY_SUCCESS = 60
 
     private const val FAST_FAILURE_RETRY_WINDOW_MS = 300L
     private const val FAST_FAILURE_RETRY_DELAY_MS = 120L
@@ -539,27 +553,91 @@ object RouteProbe {
     // ─── Smart Ping (HYBRID) ──────────────────────────────────────────────────
 
     /**
-     * Smart ping — the unified HYBRID method that combines fast reachability gating
-     * with accurate real-delay measurement.
+     * MARBLE_SMART_PING_RESCUE_V123 — the verdict of the cheap reachability phase.
+     *
+     * [evidence] records *what* proved the endpoint alive: `"tcp"` (a real handshake, the
+     * strongest cheap signal), `"dns"` (the name resolves but no handshake completed — a
+     * provider that drops bare SYN still answers through its own core) or `""` when nothing did.
+     */
+    data class SmartGate(
+        val reached: Boolean,
+        val latencyMs: Double,
+        val evidence: String,
+        val reason: String
+    )
+
+    /** True for an IPv4/IPv6 literal, where a resolver round trip would prove nothing. */
+    private fun isAddressLiteral(host: String): Boolean =
+        host.all { it.isDigit() || it == '.' } || host.contains(':')
+
+    /**
+     * MARBLE_SMART_PING_RESCUE_V123 — the reachability gate every Smart ping trusts before it
+     * spends anything on a real tunnel measurement.
+     *
+     * One TCP handshake to the endpoint (with the Happy-Eyeballs address racing and the single
+     * transient-failure retry [tcp] already performs) and, only when that comes back empty and
+     * the host is a real name, one resolver round trip as a second opinion. Both are
+     * socket-cheap: no child process, no TLS, no traffic through the proxy, so a dead endpoint
+     * is reported in well under a second and a live one costs one handshake.
+     */
+    fun smartGate(
+        profile: ProxyProfile,
+        timeoutMs: Int,
+        settings: AppSettings = AppSettings()
+    ): SmartGate {
+        val host = profile.host.trim()
+        if (host.isBlank()) return SmartGate(false, UNREACHABLE, "", "blank-host")
+        if (profile.port !in 1..65535) return SmartGate(false, UNREACHABLE, "", "invalid-port")
+
+        val budgetMs = timeoutMs.coerceIn(400, 3_000)
+        val handshakeMs = tcp(host, profile.port, budgetMs, settings)
+        if (handshakeMs < UNREACHABLE) {
+            return SmartGate(true, handshakeMs, "tcp", "")
+        }
+
+        if (!isAddressLiteral(host)) {
+            val resolvedMs = dnsPing(host, budgetMs)
+            if (resolvedMs < UNREACHABLE) {
+                return SmartGate(true, resolvedMs, "dns", "tcp-silent-dns-ok")
+            }
+        }
+        return SmartGate(false, UNREACHABLE, "", "gate-failed:tcp+dns")
+    }
+
+    /** A reachable-but-unverified verdict: the gate passed, the verified phase could not run. */
+    private fun gateOnly(gate: SmartGate, reason: String): ProbeResult = ProbeResult(
+        method = "SMART",
+        latencyMs = gate.latencyMs,
+        successPercent = GATE_ONLY_SUCCESS,
+        samples = 1,
+        tcpHandshakeMs = gate.latencyMs,
+        failureReason = reason
+    )
+
+    /**
+     * Smart ping — the unified HYBRID method: a cheap reachability gate, then the real
+     * verified measurement, and an honest verdict when only the first of those completes.
      *
      * ## Algorithm (inspired by PattNG, Lumen and v2rayNG)
      *
-     * 1. **Fast gate** (TCP or DNS): A quick reachability check. If the endpoint
-     *    is unreachable, return immediately — no point spending time on HTTPS.
-     *    This is the "fast failure" path: a dead node is reported in <500ms.
+     * 1. **Fast gate** ([smartGate]) — one TCP handshake, one resolver round trip as a second
+     *    opinion. An endpoint that answers neither is reported dead immediately, so a dead node
+     *    never pays for a child process or a TLS handshake.
      *
-     * 2. **Real measurement** (HTTP through tunnel if available): If the gate passes,
-     *    fire a real HTTPS request through the tunnel (or directly if no tunnel) to
-     *    measure the actual latency the user would experience.
+     * 2. **Real measurement** — a verified HTTPS round trip *through the tunnel*, which is the
+     *    only measurement that says anything about this particular server. MARBLE_SMART_PING_RESCUE_V123
+     *    removed the direct (no-proxy) HTTPS phase that used to run when no tunnel existed:
+     *    that request never touches the server under test, it is blocked on every filtered
+     *    network, and its failure used to poison the verdict of servers that were fine.
      *
-     * 3. **Confidence scoring**: The result carries a confidence weight based on
-     *    how many methods agreed. A node that passes TCP + HTTP is more trustworthy
-     *    than one that only passes TCP.
+     * 3. **Honest fallback** — a gate that passed but a verification that could not complete is
+     *    reported as reachable-but-unverified ([GATE_ONLY_SUCCESS]) with the real handshake
+     *    latency, never as a failure.
      *
      * @param profile The proxy profile to test
-     * @param tunnelPort SOCKS port of the running Xray tunnel (0 = direct test only)
-     * @param timeoutMs Per-method timeout budget
-     * @param settings Current app settings for family policy
+     * @param tunnelPort SOCKS port of the running Xray tunnel (0 = gate only)
+     * @param timeoutMs Total budget, split 40% gate / 60% verified measurement
+     * @param settings Current app settings for the address-family policy
      */
     fun smartPing(
         profile: ProxyProfile,
@@ -567,62 +645,25 @@ object RouteProbe {
         timeoutMs: Int = 5000,
         settings: AppSettings = AppSettings()
     ): ProbeResult {
-        if (profile.host.isBlank()) {
-            return ProbeResult("SMART", UNREACHABLE, 0, failureReason = "blank-host")
+        val gate = smartGate(profile, (timeoutMs * 0.4).toInt(), settings)
+        if (!gate.reached) {
+            return ProbeResult("SMART", UNREACHABLE, 0, failureReason = gate.reason)
+        }
+        if (tunnelPort <= 0) {
+            // Nothing to verify against: this process has no tunnel for this server. The gate is
+            // the measurement — reporting a failure here is what marked healthy nodes red.
+            return gateOnly(gate, if (gate.evidence == "dns") "gate-dns-only" else "gate-only")
         }
 
-        // Phase 1: Fast TCP gate (budget: 40% of timeout)
-        val gateTimeoutMs = (timeoutMs * 0.4).toInt().coerceIn(300, 3000)
-        val tcpResult = tcpExtended(profile.host, profile.port, gateTimeoutMs, samples = 1, settings = settings)
-
-        if (tcpResult.latencyMs >= UNREACHABLE) {
-            // Gate failed — try DNS as a secondary check before giving up
-            val dnsResult = dnsPing(profile.host, gateTimeoutMs)
-            if (dnsResult >= UNREACHABLE) {
-                return ProbeResult("SMART", UNREACHABLE, 0, failureReason = "gate-failed:tcp+dns")
-            }
-            // DNS works but TCP doesn't — endpoint might be filtering SYN
-            // Still try the real test if we have a tunnel
-            if (tunnelPort <= 0) {
-                return ProbeResult(
-                    "SMART", dnsResult, 50,
-                    failureReason = "tcp-blocked-dns-ok"
-                )
-            }
-        }
-
-        // Phase 2: Real HTTPS measurement through tunnel (or direct)
-        val realTimeoutMs = (timeoutMs * 0.6).toInt().coerceIn(1000, 8000)
-        val httpResult = if (tunnelPort > 0) {
-            httpPingBatch(tunnelPort, realTimeoutMs, samples = 2)
-        } else {
-            // No tunnel: do a direct HTTP test as the best available measurement
-            httpPingBatch(0, realTimeoutMs, samples = 2)
-        }
-
+        val realTimeoutMs = (timeoutMs * 0.6).toInt().coerceIn(1_500, 8_000)
+        val httpResult = httpPingBatch(tunnelPort, realTimeoutMs, samples = 2)
         if (httpResult.latencyMs < UNREACHABLE) {
-            // Combine TCP handshake time with HTTP result for a richer picture
             return httpResult.copy(
                 method = "SMART",
-                tcpHandshakeMs = tcpResult.latencyMs.coerceAtMost(httpResult.latencyMs)
+                tcpHandshakeMs = gate.latencyMs.coerceAtMost(httpResult.latencyMs)
             )
         }
-
-        // HTTP failed but TCP gate passed — the endpoint listens but the proxy
-        // route might not work. Return the TCP time with reduced confidence.
-        if (tcpResult.latencyMs < UNREACHABLE) {
-            return ProbeResult(
-                method = "SMART",
-                latencyMs = tcpResult.latencyMs,
-                successPercent = (tcpResult.successPercent * 0.6).toInt(),
-                samples = tcpResult.samples,
-                jitterMs = tcpResult.jitterMs,
-                tcpHandshakeMs = tcpResult.latencyMs,
-                failureReason = "http-failed-tcp-ok"
-            )
-        }
-
-        return ProbeResult("SMART", UNREACHABLE, 0, failureReason = "all-methods-failed")
+        return gateOnly(gate, "unverified:${httpResult.failureReason.ifBlank { "tunnel" }}")
     }
 
     // ─── Unified Measure ───────────────────────────────────────────────────────
