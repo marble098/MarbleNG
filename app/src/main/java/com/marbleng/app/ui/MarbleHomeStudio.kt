@@ -692,7 +692,7 @@ internal fun ConnectButtonStream(
     val label = homeActionLabel(evidence)
 
     androidx.compose.runtime.CompositionLocalProvider(
-        androidx.compose.ui.unit.LocalLayoutDirection provides
+        androidx.compose.ui.platform.LocalLayoutDirection provides
             androidx.compose.ui.unit.LayoutDirection.Ltr
     ) {
         Box(
