@@ -150,7 +150,10 @@ object JitterControlPolicy {
         }
 
         if (next.active && next.lowStreak >= RELEASE_CONFIRMATIONS) {
-            if (next.enteredAtMs > 0L && nowMs - next.enteredAtMs < MIN_HOLD_MS) {
+            // No sentinel test here: being active already proves the state was entered, so the hold
+            // window applies unconditionally. Gating it on a non-zero timestamp silently skipped the
+            // minimum hold whenever the entry timestamp happened to equal the "never" value.
+            if (nowMs - next.enteredAtMs < MIN_HOLD_MS) {
                 return Decision(next, Verdict.HOLD, "hold", next.highStreak, next.lowStreak)
             }
             val exited = next.copy(active = false, highStreak = 0, lowStreak = 0, exitedAtMs = nowMs)

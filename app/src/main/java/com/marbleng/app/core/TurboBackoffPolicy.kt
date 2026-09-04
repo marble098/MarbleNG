@@ -123,7 +123,15 @@ object TurboBackoffPolicy {
             )
         }
 
-        val quietMs = if (state.lastOutcomeAtMs > 0L) nowMs - state.lastOutcomeAtMs else 0L
+        // Whether anything can decay is answered by the streak, not by the timestamp: a non-zero
+        // streak means an inconclusive outcome was already recorded. Testing the timestamp against
+        // zero instead would treat a legitimate `0` clock as "no previous outcome" and silently skip
+        // the decay.
+        val quietMs = if (state.streak > 0 && nowMs >= state.lastOutcomeAtMs) {
+            nowMs - state.lastOutcomeAtMs
+        } else {
+            0L
+        }
         val streak = decayedStreak(state.streak, quietMs).coerceAtMost(MAX_STREAK - 1) + 1
         val multiplier = 1L shl (streak - 1).coerceIn(0, MAX_STREAK - 1)
         val backoff = (baseMs * multiplier).coerceAtMost(maxMs)

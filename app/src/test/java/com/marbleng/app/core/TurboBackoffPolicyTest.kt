@@ -70,10 +70,15 @@ class TurboBackoffPolicyTest {
         }
         assertEquals(3, state.streak)
 
-        // One half-life of quiet forgives one step; three half-lives forgive the whole streak.
+        // One half-life of quiet forgives half the streak (floored, so a streak of three drops to
+        // one); three half-lives forgive all of it.
+        assertEquals(
+            1,
+            TurboBackoffPolicy.decayedStreak(3, TurboBackoffPolicy.STREAK_HALF_LIFE_MS)
+        )
         assertEquals(
             2,
-            TurboBackoffPolicy.decayedStreak(3, TurboBackoffPolicy.STREAK_HALF_LIFE_MS)
+            TurboBackoffPolicy.decayedStreak(4, TurboBackoffPolicy.STREAK_HALF_LIFE_MS)
         )
         assertEquals(
             0,
@@ -90,6 +95,18 @@ class TurboBackoffPolicyTest {
         )
         assertEquals(1, afterQuiet.state.streak)
         assertEquals(600_000L, afterQuiet.backoffMs)
+
+        // One quiet half-life leaves one step of escalation (3 >> 1 == 1), so the next failure lands
+        // on 1200 s instead of restarting at the ceiling or staying there.
+        val partlyDecayed = TurboBackoffPolicy.inconclusive(
+            state = state,
+            nowMs = TurboBackoffPolicy.STREAK_HALF_LIFE_MS,
+            cause = TurboBackoffPolicy.Cause.TRANSPORT_INCONCLUSIVE,
+            baseMs = base,
+            maxMs = max
+        )
+        assertEquals(2, partlyDecayed.state.streak)
+        assertEquals(1_200_000L, partlyDecayed.backoffMs)
     }
 
     @Test

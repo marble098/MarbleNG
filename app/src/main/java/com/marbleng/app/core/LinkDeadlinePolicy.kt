@@ -70,7 +70,14 @@ data class LinkEvidence(
                 // measured jitter instead of pretending a p95 was recorded.
                 tailRttMs = latency + record.jitterEwma.coerceIn(0.0, 2_000.0) * 2.0,
                 jitterMs = record.jitterEwma.coerceIn(0.0, 2_000.0),
-                lossPercent = (100.0 - record.successEwma.coerceIn(0.0, 100.0)),
+                // Only a real success measurement may become a loss figure. `successEwma` defaults to
+                // 0.0 for "never measured", and reading that as 100% loss inflated every deadline on
+                // the node's first session — a guess dressed up as evidence.
+                lossPercent = if (record.successEwma in 1.0..100.0) {
+                    100.0 - record.successEwma
+                } else {
+                    0.0
+                },
                 samples = record.samples
             )
         }
