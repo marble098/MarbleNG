@@ -1838,6 +1838,62 @@ internal fun HomePowerControl(
 internal val LocalConnectButtonStyle = compositionLocalOf { ConnectButtonStyle.ROUND }
 
 /**
+ * MARBLE_CONNECT_PLACEMENT_V123 — every silhouette owns its own zone in a Home presentation.
+ *
+ * The three controls are three physically different metaphors, so they never share one spot:
+ *
+ *  - [ConnectButtonStyle.ROUND]   the round shutter is the focal instrument → centred in the hero;
+ *  - [ConnectButtonStyle.SLIDE]   the wide drag track is a console floor bar → docked at the hero
+ *    floor, low and full width, with settle room underneath the drag travel;
+ *  - [ConnectButtonStyle.CLASSIC] the rectangular power bar is a piece of hardware → docks below
+ *    the hero in its own slim power-deck capsule, clear of the orbiting artwork.
+ */
+internal enum class ConnectControlZone { HERO_CENTER, HERO_FLOOR, POWER_DOCK }
+
+internal fun connectControlZone(style: ConnectButtonStyle): ConnectControlZone = when (style) {
+    ConnectButtonStyle.ROUND -> ConnectControlZone.HERO_CENTER
+    ConnectButtonStyle.SLIDE -> ConnectControlZone.HERO_FLOOR
+    ConnectButtonStyle.CLASSIC -> ConnectControlZone.POWER_DOCK
+}
+
+/**
+ * MARBLE_CONNECT_PLACEMENT_V123 — the chrome behind the docked classic power bar. A slim ambient
+ * capsule in the presentation's own tone, so the rectangular switch reads as a deliberately
+ * docked instrument instead of a floating rectangle between the artwork and the status copy.
+ */
+@Composable
+internal fun HomePowerDock(
+    evidence: HomeEvidence,
+    tone: Color,
+    onToggle: () -> Unit,
+    flavor: HomeFlavor,
+    modifier: Modifier = Modifier
+) {
+    val shape = RoundedCornerShape(24.dp)
+    Box(
+        modifier = modifier
+            .clip(shape)
+            .background(Aether.VoidElevated.copy(alpha = .72f))
+            .background(
+                Brush.verticalGradient(
+                    listOf(tone.copy(alpha = .11f), Color.Transparent)
+                )
+            )
+            .border(1.dp, tone.copy(alpha = .20f), shape)
+            .padding(horizontal = 12.dp, vertical = 9.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        HomePowerControl(
+            evidence = evidence,
+            tone = tone,
+            onToggle = onToggle,
+            flavor = flavor,
+            diameter = 156.dp
+        )
+    }
+}
+
+/**
  * MARBLE_CONNECT_BUTTON_V121 — the one connection button of the product, in three silhouettes.
  *
  *  - [ConnectButtonStyle.ROUND]   the large round shutter (default);
@@ -2321,7 +2377,8 @@ private fun formatBps(bps: Long): String = when {
 internal fun HomeStyleCosmicOrbit(
     evidence: HomeEvidence,
     actions: HomeActions,
-    bottomClearance: Dp
+    bottomClearance: Dp,
+    onScrollChanged: (Boolean) -> Unit = {}
 ) {
     val tone = styleStateTone(HomeFlavor.ORBIT, evidence)
     val gold = Color(0xFFE7C36B)
@@ -2332,6 +2389,12 @@ internal fun HomeStyleCosmicOrbit(
     // MARBLE_SEAMLESS_LOOPS_V114 — one full turn per orbit on coprime periods: the bodies keep
     // genuinely different speeds, and every orbit closes exactly where it opened.
     val orbitPhases = listOf(motion.loop(14_000), motion.loop(23_000), motion.loop(37_000))
+    // MARBLE_DOCK_SCROLL_ONLY_V123 — the deck reports its own scroll so the bottom dock can
+    // turn to glass only while content genuinely moves, never during a tab transition.
+    val orbitScroll = rememberScrollState()
+    LaunchedEffect(orbitScroll.isScrollInProgress) {
+        onScrollChanged(orbitScroll.isScrollInProgress)
+    }
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val heroHeight = (maxHeight * .34f).coerceIn(210.dp, 300.dp)
@@ -2351,7 +2414,7 @@ internal fun HomeStyleCosmicOrbit(
             Column(
                 modifier = Modifier
                     .weight(1f)
-                    .verticalScroll(rememberScrollState()),
+                    .verticalScroll(orbitScroll),
                 verticalArrangement = Arrangement.spacedBy(11.dp)
             ) {
                 PrismPanel(
@@ -2360,42 +2423,53 @@ internal fun HomeStyleCosmicOrbit(
                     selected = evidence.connected,
                     contentPadding = PaddingValues(14.dp)
                 ) {
-                    // MARBLE_SLIDE_PLACEMENT_V122 — the strip/switch sit low in the orbit box
-                    // with air above the headline; the round shutter stays centred.
-                    val orbitStripLike = LocalConnectButtonStyle.current != ConnectButtonStyle.ROUND
+                    // MARBLE_CONNECT_PLACEMENT_V123 — the hero: round shutter centred, slide track
+                    // docked at the floor, classic power bar below the instrument ring.
+                    val zone = connectControlZone(LocalConnectButtonStyle.current)
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(heroHeight + if (orbitStripLike) 26.dp else 0.dp)
+                            .height(heroHeight + if (zone == ConnectControlZone.HERO_FLOOR) 26.dp else 0.dp)
                             .clip(RoundedCornerShape(18.dp))
                             .background(
                                 Brush.radialGradient(
                                     listOf(deep.copy(alpha = .30f), Color.Transparent)
                                 )
                             ),
-                        contentAlignment = if (orbitStripLike) Alignment.BottomCenter else Alignment.Center
+                        contentAlignment = if (zone == ConnectControlZone.HERO_FLOOR) Alignment.BottomCenter else Alignment.Center
                     ) {
                         Canvas(Modifier.matchParentSize()) {
                             drawSolarSystem(gold, tone, orbitPhases, phase, evidence.connected)
                         }
-                        HomePowerControl(
+                        if (zone != ConnectControlZone.POWER_DOCK) {
+                            HomePowerControl(
+                                evidence = evidence,
+                                tone = tone,
+                                onToggle = actions.onToggleConnection,
+                                flavor = HomeFlavor.ORBIT,
+                                modifier = if (zone == ConnectControlZone.HERO_FLOOR) Modifier.padding(
+                                    start = 10.dp,
+                                    end = 10.dp,
+                                    bottom = 18.dp
+                                ) else Modifier,
+                                diameter = 118.dp,
+                                haloBrush = Brush.radialGradient(
+                                    listOf(
+                                        gold.copy(alpha = .55f),
+                                        gold.copy(alpha = .16f),
+                                        Color.Transparent
+                                    )
+                                )
+                            )
+                        }
+                    }
+                    if (zone == ConnectControlZone.POWER_DOCK) {
+                        HomePowerDock(
                             evidence = evidence,
                             tone = tone,
                             onToggle = actions.onToggleConnection,
                             flavor = HomeFlavor.ORBIT,
-                            modifier = if (orbitStripLike) Modifier.padding(
-                                start = 10.dp,
-                                end = 10.dp,
-                                bottom = 18.dp
-                            ) else Modifier,
-                            diameter = 118.dp,
-                            haloBrush = Brush.radialGradient(
-                                listOf(
-                                    gold.copy(alpha = .55f),
-                                    gold.copy(alpha = .16f),
-                                    Color.Transparent
-                                )
-                            )
+                            modifier = Modifier.fillMaxWidth()
                         )
                     }
                     HomeStatusHeadline(evidence, tone, align = TextAlign.Start)
@@ -2625,7 +2699,8 @@ private fun DrawScope.drawSpeedGraph(tone: Color, gold: Color, phase: Float, dow
 internal fun HomeStyleCosmicImmersion(
     evidence: HomeEvidence,
     actions: HomeActions,
-    bottomClearance: Dp
+    bottomClearance: Dp,
+    onScrollChanged: (Boolean) -> Unit = {}
 ) {
     val tone = styleStateTone(HomeFlavor.NEBULA, evidence)
     val cyan = Color(0xFF57E0FF)
@@ -2638,6 +2713,12 @@ internal fun HomeStyleCosmicImmersion(
     // crosses the whole sky exactly once per loop, so no star teleports when the clock wraps.
     val starPhases = listOf(motion.loop(126_000), motion.loop(84_000), motion.loop(58_000))
     val skyOrbits = listOf(motion.loop(21_000), motion.loop(34_000), motion.loop(55_000))
+    // MARBLE_DOCK_SCROLL_ONLY_V123 — the HUD reports its own scroll so the bottom dock turns to
+    // glass only while content genuinely moves, never during a tab transition.
+    val immersionScroll = rememberScrollState()
+    LaunchedEffect(immersionScroll.isScrollInProgress) {
+        onScrollChanged(immersionScroll.isScrollInProgress)
+    }
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val skyClearance = (maxHeight * .10f).coerceIn(40.dp, 110.dp)
@@ -2649,32 +2730,51 @@ internal fun HomeStyleCosmicImmersion(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(immersionScroll)
                 .padding(horizontal = 20.dp)
                 .padding(top = 16.dp, bottom = bottomClearance),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // MARBLE_SLIDE_PLACEMENT_V122 — the wide strip/switch read as a low console bar:
-            // extra sky above pushes them down the viewport, with settle room underneath.
-            val nebulaStripLike = LocalConnectButtonStyle.current != ConnectButtonStyle.ROUND
-            Spacer(Modifier.height(skyClearance + if (nebulaStripLike) 56.dp else 0.dp))
-
-            HomePowerControl(
-                evidence = evidence,
-                tone = tone,
-                onToggle = actions.onToggleConnection,
-                flavor = HomeFlavor.NEBULA,
-                modifier = if (nebulaStripLike) Modifier.padding(bottom = 6.dp) else Modifier,
-                diameter = 134.dp,
-                haloBrush = Brush.radialGradient(
-                    listOf(
-                        cyan.copy(alpha = .30f + .12f * bloom),
-                        violet.copy(alpha = .18f),
-                        Color.Transparent
-                    )
+            // MARBLE_CONNECT_PLACEMENT_V123 — each silhouette owns its own line of the sky:
+            // round shutter at the instrument height, classic power bar a step lower, slide
+            // track lowest so its drag travel keeps clear air underneath.
+            val zone = connectControlZone(LocalConnectButtonStyle.current)
+            Spacer(
+                Modifier.height(
+                    skyClearance + when (zone) {
+                        ConnectControlZone.HERO_FLOOR -> 56.dp
+                        ConnectControlZone.POWER_DOCK -> 26.dp
+                        ConnectControlZone.HERO_CENTER -> 0.dp
+                    }
                 )
             )
+
+            if (zone == ConnectControlZone.POWER_DOCK) {
+                HomePowerDock(
+                    evidence = evidence,
+                    tone = tone,
+                    onToggle = actions.onToggleConnection,
+                    flavor = HomeFlavor.NEBULA,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            } else {
+                HomePowerControl(
+                    evidence = evidence,
+                    tone = tone,
+                    onToggle = actions.onToggleConnection,
+                    flavor = HomeFlavor.NEBULA,
+                    modifier = if (zone == ConnectControlZone.HERO_FLOOR) Modifier.padding(bottom = 6.dp) else Modifier,
+                    diameter = 134.dp,
+                    haloBrush = Brush.radialGradient(
+                        listOf(
+                            cyan.copy(alpha = .30f + .12f * bloom),
+                            violet.copy(alpha = .18f),
+                            Color.Transparent
+                        )
+                    )
+                )
+            }
 
             Text(
                 homeStatusText(evidence).uppercase(),
@@ -2868,7 +2968,8 @@ internal fun HomeStyleSurface(
     evidence: HomeEvidence,
     actions: HomeActions,
     bottomClearance: Dp,
-    pro: HomeProContext? = null
+    pro: HomeProContext? = null,
+    onScrollChanged: (Boolean) -> Unit = {}
 ) {
     when (style) {
         HomeStyle.PRO -> HomeStyleSignature(
@@ -2880,10 +2981,21 @@ internal fun HomeStyleSurface(
                 shortcut = ProShortcut.LIBRARY,
                 accent = ProAccent.ELECTRIC
             ),
-            bottomClearance = bottomClearance
+            bottomClearance = bottomClearance,
+            onScrollChanged = onScrollChanged
         )
-        HomeStyle.COSMIC_ORBIT -> HomeStyleCosmicOrbit(evidence, actions, bottomClearance)
-        HomeStyle.COSMIC_IMMERSION -> HomeStyleCosmicImmersion(evidence, actions, bottomClearance)
+        HomeStyle.COSMIC_ORBIT -> HomeStyleCosmicOrbit(
+            evidence,
+            actions,
+            bottomClearance,
+            onScrollChanged
+        )
+        HomeStyle.COSMIC_IMMERSION -> HomeStyleCosmicImmersion(
+            evidence,
+            actions,
+            bottomClearance,
+            onScrollChanged
+        )
     }
 }
 

@@ -78,7 +78,6 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.marbleng.app.model.ConnectButtonStyle
 import com.marbleng.app.model.ConnectionPingState
 import com.marbleng.app.model.ProAccent
 import com.marbleng.app.model.ProShortcut
@@ -150,7 +149,8 @@ internal fun HomeStyleSignature(
     evidence: HomeEvidence,
     actions: HomeActions,
     pro: HomeProContext,
-    bottomClearance: Dp
+    bottomClearance: Dp,
+    onScrollChanged: (Boolean) -> Unit = {}
 ) {
     val accent = signatureAccentColor(pro.accent)
     val tone = signatureStatusTone(evidence, pro.accent)
@@ -163,6 +163,12 @@ internal fun HomeStyleSignature(
     val ringSpin = motion.loop(22_000)
     val cometPhase = motion.loop(9_000)
     val microPhase = motion.loop(6_200)
+    // MARBLE_DOCK_SCROLL_ONLY_V123 — the studio reports its own scroll so the bottom dock can
+    // turn to glass only while content genuinely moves, never during a tab transition.
+    val signatureScroll = rememberScrollState()
+    LaunchedEffect(signatureScroll.isScrollInProgress) {
+        onScrollChanged(signatureScroll.isScrollInProgress)
+    }
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val heroHeight = (maxHeight * .34f).coerceIn(220.dp, 330.dp)
@@ -175,7 +181,7 @@ internal fun HomeStyleSignature(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(signatureScroll)
                 .padding(horizontal = 18.dp)
                 .padding(top = 8.dp, bottom = bottomClearance),
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -203,15 +209,16 @@ internal fun HomeStyleSignature(
                 )
             }
 
-            // MARBLE_SLIDE_PLACEMENT_V122 — the wide strip/switch silhouettes sit low in the
-            // hero with air above the status line; the round shutter stays centred. The hero
-            // grows a little so the anchored control never touches the status text.
-            val heroStripLike = LocalConnectButtonStyle.current != ConnectButtonStyle.ROUND
+            // MARBLE_CONNECT_PLACEMENT_V123 — each silhouette owns its own zone of the hero:
+            // round shutter centred as the focal instrument, slide track docked at the floor,
+            // classic power bar docked below the instrument ring. The hero grows a little for
+            // the floor bar so the anchored control never touches the status text.
+            val zone = connectControlZone(LocalConnectButtonStyle.current)
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(heroHeight + if (heroStripLike) 30.dp else 0.dp),
-                contentAlignment = if (heroStripLike) Alignment.BottomCenter else Alignment.Center
+                    .height(heroHeight + if (zone == ConnectControlZone.HERO_FLOOR) 30.dp else 0.dp),
+                contentAlignment = if (zone == ConnectControlZone.HERO_FLOOR) Alignment.BottomCenter else Alignment.Center
             ) {
                 Canvas(Modifier.matchParentSize()) {
                     drawSignatureHeroField(
@@ -223,22 +230,33 @@ internal fun HomeStyleSignature(
                         connected = evidence.connected
                     )
                 }
-                HomePowerControl(
+                if (zone != ConnectControlZone.POWER_DOCK) {
+                    HomePowerControl(
+                        evidence = evidence,
+                        tone = tone,
+                        onToggle = actions.onToggleConnection,
+                        flavor = HomeFlavor.PRO,
+                        modifier = if (zone == ConnectControlZone.HERO_FLOOR) Modifier.padding(bottom = 22.dp) else Modifier,
+                        // The strip is diameter * 2.1 wide: shrink it so the track (with its drag
+                        // travel) always fits inside the padded hero on narrow screens.
+                        diameter = if (zone == ConnectControlZone.HERO_FLOOR) 148.dp else 168.dp,
+                        haloBrush = Brush.radialGradient(
+                            listOf(
+                                accent.copy(alpha = .30f + .12f * breathe),
+                                accent.copy(alpha = .10f),
+                                Color.Transparent
+                            )
+                        )
+                    )
+                }
+            }
+            if (zone == ConnectControlZone.POWER_DOCK) {
+                HomePowerDock(
                     evidence = evidence,
                     tone = tone,
                     onToggle = actions.onToggleConnection,
                     flavor = HomeFlavor.PRO,
-                    modifier = if (heroStripLike) Modifier.padding(bottom = 22.dp) else Modifier,
-                    // The strip is diameter * 2.1 wide: shrink it so the track (with its drag
-                    // travel) always fits inside the padded hero on narrow screens.
-                    diameter = if (heroStripLike) 148.dp else 168.dp,
-                    haloBrush = Brush.radialGradient(
-                        listOf(
-                            accent.copy(alpha = .30f + .12f * breathe),
-                            accent.copy(alpha = .10f),
-                            Color.Transparent
-                        )
-                    )
+                    modifier = Modifier.fillMaxWidth()
                 )
             }
 
