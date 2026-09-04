@@ -46,9 +46,7 @@ object SubscriptionLink {
         val token = text
             .split(Regex("\\s+"))
             .map(::trimWrappers)
-            .firstOrNull {
-                it.startsWith(HTTPS_SCHEME, true) || it.startsWith(HTTP_SCHEME, true)
-            }
+            .firstOrNull(::holdsUrl)
             ?: return null
 
         val lowered = token.lowercase()
@@ -96,6 +94,17 @@ object SubscriptionLink {
             .joinToString(" ") { part -> part.replaceFirstChar(Char::uppercaseChar) }
         return label.ifBlank { host.ifBlank { "Subscription" } }
     }
+
+    /**
+     * True when the token holds a URL anywhere inside it.
+     *
+     * The scheme is searched for rather than anchored at the front because a paste is rarely a
+     * bare link: messengers and keyboards prefix it (`link:https://…`, `subscribe:https://…`) and
+     * glue it to the word before it. [normalize] cuts whatever sits in front of the last scheme,
+     * so recognizing the token here is what lets that cut happen.
+     */
+    private fun holdsUrl(token: String): Boolean =
+        token.contains(HTTPS_SCHEME, ignoreCase = true) || token.contains(HTTP_SCHEME, ignoreCase = true)
 
     private fun trimWrappers(value: String): String {
         var start = 0

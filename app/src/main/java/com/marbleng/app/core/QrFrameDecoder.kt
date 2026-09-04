@@ -3,6 +3,7 @@ package com.marbleng.app.core
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.BinaryBitmap
 import com.google.zxing.DecodeHintType
+import com.google.zxing.LuminanceSource
 import com.google.zxing.MultiFormatReader
 import com.google.zxing.PlanarYUVLuminanceSource
 import com.google.zxing.common.GlobalHistogramBinarizer
@@ -123,17 +124,22 @@ object QrFrameDecoder {
         // Hybrid handles the uneven lighting of a photograph; global histogram is cheaper and
         // wins on the flat, high-contrast image of a screen. The inverted pass covers light
         // modules on a dark background, which is how every dark-mode wallet renders its code.
+        //
+        // Inversion happens on the *luminance source*, not on the binary bitmap: ZXing's
+        // BinaryBitmap has no invert() of its own — it is the LuminanceSource that hands back
+        // an inverted view of the same pixels (InvertedLuminanceSource), which each binarizer
+        // then turns into its own black matrix. Two sources × two binarizers, four cheap
+        // attempts, and the next frame is the retry.
+        val source = PlanarYUVLuminanceSource(
+            luminance, width, height, 0, 0, width, height, false
+        )
         val attempts = listOf(
-            { source: PlanarYUVLuminanceSource -> BinaryBitmap(HybridBinarizer(source)) },
-            { source: PlanarYUVLuminanceSource -> BinaryBitmap(GlobalHistogramBinarizer(source)) }
+            { view: LuminanceSource -> BinaryBitmap(HybridBinarizer(view)) },
+            { view: LuminanceSource -> BinaryBitmap(GlobalHistogramBinarizer(view)) }
         )
         for (attempt in attempts) {
-            val source = PlanarYUVLuminanceSource(
-                luminance, width, height, 0, 0, width, height, false
-            )
-            val bitmap = attempt(source)
-            read(bitmap)?.let { return it }
-            read(bitmap.invert())?.let { return it }
+            read(attempt(source))?.let { return it }
+            read(attempt(source.invert()))?.let { return it }
         }
         return null
     }
