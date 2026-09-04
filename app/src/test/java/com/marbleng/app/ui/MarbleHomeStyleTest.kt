@@ -157,11 +157,12 @@ class MarbleHomeStyleTest {
         }
     }
 
-    // MARBLE_CONNECT_BUTTON_V121 — exactly three connection controls, the round shutter default,
-    // and every retired silhouette id resolves to it instead of an unknown state.
+    // MARBLE_CONNECT_BUTTON_V121 / MARBLE_CONNECT_BUTTON_STYLES_V132 — five connection controls
+    // (three in the hero, two docked at the page floor), the round shutter default, and every
+    // retired silhouette id resolves to it instead of an unknown state.
     @Test
     fun connectButtonStylesRoundTripAndRetiredOnesFallBack() {
-        assertEquals(3, ConnectButtonStyle.entries.size)
+        assertEquals(5, ConnectButtonStyle.entries.size)
         ConnectButtonStyle.entries.forEach { style ->
             assertEquals(style, parseConnectButtonStyle(style.id))
             assertEquals(style, parseConnectButtonStyle(style.id.uppercase()))
