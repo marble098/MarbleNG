@@ -62,6 +62,25 @@ class DnsDeadlineConfigTest {
     private fun hardened(settings: AppSettings, link: LinkEvidence): JSONObject =
         JSONObject(XrayConfigHardener.harden(proxySource(), 21080, settings, link))
 
+    private fun hardened(
+        settings: AppSettings,
+        underlayHasIpv6: Boolean
+    ): JSONObject =
+        JSONObject(
+            XrayConfigHardener.harden(
+                proxySource(), 21080, settings, LinkEvidence.UNKNOWN, underlayHasIpv6
+            )
+        )
+
+    /** Addresses of the underlay-direct `https+local://` bootstrap resolvers, in emitted order. */
+    private fun bootstrapAddresses(root: JSONObject): List<String> {
+        val servers = root.getJSONObject("dns").getJSONArray("servers")
+        return (0 until servers.length())
+            .map { servers.getJSONObject(it) }
+            .filter { it.optString("address").startsWith("https+local://") }
+            .map { it.optString("address") }
+    }
+
     /** Timeouts of the encrypted resolvers that answer ordinary app DNS (not the +local bootstrap). */
     private fun remoteDnsTimeouts(root: JSONObject): List<Long> {
         val servers = root.getJSONObject("dns").getJSONArray("servers")
@@ -293,5 +312,65 @@ class DnsDeadlineConfigTest {
         )
         assertFalse(plan.raceEnabled)
         assertEquals(0, plan.tryDelayMs)
+    }
+
+    // ------------------------------------------------------------------
+    // MARBLE_IPV6_DNS_PURGE_V135 — the underlay verdict purges the resolver graph
+    // ------------------------------------------------------------------
+
+    @Test
+    fun `an ipv4-only underlay emits no ipv6 bootstrap resolver`() {
+        // The attached log's Wi-Fi had no global IPv6, yet the resolver graph still carried
+        // `[2606:4700:4700::1111]`-class literals; each one burned its whole timeout with
+        // `context deadline exceeded` before failover could reach a resolver that answers.
+        val root = hardened(AppSettings(), underlayHasIpv6 = false)
+        val bootstrap = bootstrapAddresses(root)
+        assertTrue("the node hostname still needs bootstrap resolvers", bootstrap.isNotEmpty())
+        bootstrap.forEach { address ->
+            assertFalse(
+                "an unreachable v6 resolver survived on an IPv4-only underlay: $address",
+                address.contains("[") || address.substringAfter("https+local://").contains(':')
+            )
+        }
+    }
+
+    @Test
+    fun `a user-configured ipv6 resolver is dropped on an ipv4-only underlay`() {
+        val settings = AppSettings(
+            dnsPrimaryIp = "2606:4700:4700::1111",
+            dnsSecondaryIp = "2001:4860:4860::8888"
+        )
+        val root = hardened(settings, underlayHasIpv6 = false)
+        val bootstrap = bootstrapAddresses(root)
+        assertTrue("stock IPv4 literals must still resolve the node", bootstrap.isNotEmpty())
+        bootstrap.forEach { address ->
+            assertFalse(
+                "a configured-but-unreachable v6 resolver must be purged: $address",
+                address.substringAfter("https+local://").startsWith("[")
+            )
+        }
+    }
+
+    @Test
+    fun `a v6-capable underlay keeps ipv6 bootstrap resolvers`() {
+        val root = hardened(AppSettings(ipv6Enabled = true), underlayHasIpv6 = true)
+        val bootstrap = bootstrapAddresses(root)
+        assertTrue(bootstrap.isNotEmpty())
+        assertTrue(
+            "a v6-capable underlay should keep at least one v6 bootstrap resolver",
+            bootstrap.any { it.substringAfter("https+local://").startsWith("[") }
+        )
+    }
+
+    @Test
+    fun `turning ipv6 off purges v6 resolvers even on a v6-capable underlay`() {
+        val root = hardened(AppSettings(ipv6Enabled = false), underlayHasIpv6 = true)
+        val bootstrap = bootstrapAddresses(root)
+        bootstrap.forEach { address ->
+            assertFalse(
+                "IPv6 disabled but a v6 resolver was emitted: $address",
+                address.substringAfter("https+local://").startsWith("[")
+            )
+        }
     }
 }

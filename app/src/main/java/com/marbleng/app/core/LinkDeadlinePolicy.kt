@@ -132,11 +132,27 @@ object LinkDeadlinePolicy {
     /**
      * Freedom profiles fragment the first write of every TCP stream into 1-byte packets with 4 ms
      * pacing (up to `maxSplit` 517), so a DoH TLS handshake alone can need seconds before the first
-     * response byte. Those budgets stay on the upstream XTLS schedule and are not RTT-derived: the
-     * fragmentation pacing, not the link, dominates.
+     * response byte. An UNMEASURED link therefore keeps the upstream XTLS schedule: the
+     * fragmentation pacing, not the link, dominates and nothing better is known.
      */
     const val FRAGMENTED_DNS_BASE_MS = 8_000L
     const val FRAGMENTED_DNS_STEP_MS = 1_000L
+
+    /**
+     * MARBLE_FRAGMENT_DEADLINE_V135 — worst-case first-write pacing of the fragment chain:
+     * `maxSplit` 517 packets × 4 ms pacing ≈ 2.1 s before the TLS ClientHello has fully left the
+     * device. This overhead is independent of the link and therefore ADDS to the RTT-derived
+     * transaction budget on a measured path instead of being confused with it.
+     */
+    const val FRAGMENT_PACING_OVERHEAD_MS = 2_100L
+
+    /**
+     * Floor for one fragment-chain resolver on a MEASURED link. It covers the pacing overhead plus
+     * one round trip of headroom; the runtime evidence that introduced this constant was a
+     * 242–347 ms route whose every lookup sat behind an 8 s budget while serial failover waited
+     * for each dead resolver in turn.
+     */
+    const val FRAGMENT_DNS_FLOOR_MS = 3_000L
 
     /** Round trips in one cold HTTPS/DoH transaction: TCP + TLS 1.3 + request/response. */
     const val TLS_TRANSACTION_HOPS = 3
@@ -210,7 +226,17 @@ object LinkDeadlinePolicy {
      *
      * @param index 0 for the primary server, 1+ for each failover server. Each extra server keeps
      *   the legacy +250 ms so a rotating provider still gets progressively more room.
-     * @param fragmented true for the Freedom fragment chain, which keeps the upstream XTLS budget.
+     * @param fragmented true for the Freedom fragment chain.
+     *
+     * MARBLE_FRAGMENT_DEADLINE_V135 — the fragment chain used to pay the upstream XTLS schedule
+     * (8 s, 9 s, 10 s) on EVERY link because the pacing of its 1-byte first writes once dominated
+     * a 1.1 s route. On a measured 242–347 ms route that same budget meant a dead resolver held
+     * the whole serial-failover ladder for 8 s before the next one was tried — the exact
+     * `context deadline exceeded` stall in the attached runtime log. The budget is now
+     * `pacing overhead + hops × tail-RTT + jitter/loss headroom` whenever the link is measured
+     * (floor [FRAGMENT_DNS_FLOOR_MS], ceiling the 10 s XTLS reference); an unmeasured link keeps
+     * the legacy schedule bit for bit, because there the pacing, not the RTT, dominates and
+     * nothing better is known.
      */
     fun dnsServerTimeoutMs(
         evidence: LinkEvidence,
@@ -219,8 +245,17 @@ object LinkDeadlinePolicy {
     ): Long {
         val step = index.coerceAtLeast(0)
         if (fragmented) {
-            return (FRAGMENTED_DNS_BASE_MS + step * FRAGMENTED_DNS_STEP_MS)
-                .coerceAtMost(MAX_DNS_TIMEOUT_MS * 2L)
+            if (!evidence.known) {
+                return (FRAGMENTED_DNS_BASE_MS + step * FRAGMENTED_DNS_STEP_MS)
+                    .coerceAtMost(MAX_DNS_TIMEOUT_MS * 2L)
+            }
+            val tail = evidence.effectiveRttMs
+            val jitterHeadroom = evidence.jitterMs.coerceAtLeast(0.0) * JITTER_HEADROOM_MULTIPLIER
+            val lossHeadroom = tail * LOSS_HEADROOM_FACTOR * evidence.lossPercent.coerceIn(0.0, 100.0)
+            val derived = ceil(TLS_TRANSACTION_HOPS * tail + jitterHeadroom + lossHeadroom).toLong() +
+                FRAGMENT_PACING_OVERHEAD_MS +
+                step * SECONDARY_DNS_STEP_MS
+            return derived.coerceIn(FRAGMENT_DNS_FLOOR_MS, MAX_DNS_TIMEOUT_MS)
         }
         val floor = if (step == 0) {
             PRIMARY_DNS_FLOOR_MS

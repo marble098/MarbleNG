@@ -952,20 +952,35 @@ fun resetTelemetry() {
      * The live VPN/Xray route, profiles, subscriptions, health DB and durable history are retained.
      * Numeric levels follow ComponentCallbacks2: 15 critical, 20 UI hidden, 40 background,
      * 60 moderate, 80 complete.
+     *
+     * MARBLE_MEMORY_TRIM_V135 — the attached runtime log showed trim levels 20 and 40 arriving
+     * repeatedly while PSS sat near 318 MB and the OS eventually revoked the VPN permission. The
+     * old ladder released too little too late (bug report at 40, benchmarks only at 60), so the
+     * reconstructable Kotlin-side caches kept occupying pages while the kernel was visibly asking
+     * for them back. Everything that can be rebuilt by a later tap or refresh is now released one
+     * step earlier; the heap footprint is reported inside the trim event so the next log shows
+     * whether the trim actually freed Java-side memory.
      */
     fun onMemoryPressure(level: Int) {
+        val runtime = Runtime.getRuntime()
+        val heapUsedKb = (runtime.totalMemory() - runtime.freeMemory()) / 1024L
         diagnostics.event(
             "MEMORY", "trim",
             "level" to level,
             "state" to state,
             "benchmarks" to benchmarks.size,
-            "hasBugReport" to (bugReport != null)
+            "hasBugReport" to (bugReport != null),
+            "heapUsedKb" to heapUsedKb
         )
         if (level < 15) return
         postToMain {
-            if (level >= 20) privacy = null
-            if (level >= 40) bugReport = null
-            if (level >= 60 && !probeActive && probeRunning.isEmpty()) {
+            if (level >= 15) privacy = null
+            if (level >= 20) {
+                bugReport = null
+                // Server intel (exit IP / flag / geo) is rebuilt by the next refresh cycle.
+                serverIntel = null
+            }
+            if (level >= 40 && !probeActive && probeRunning.isEmpty()) {
                 val active = activeProfileId
                 benchmarks = if (active.isBlank()) emptyList()
                 else benchmarks.filter { it.profileId == active }.take(1)

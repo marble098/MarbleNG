@@ -178,7 +178,11 @@ internal fun HomeStyleSignature(
     val zone = connectControlZone(LocalConnectButtonStyle.current)
     val docked = zone.isPageDocked()
     // Vertical space the docked control owns at the floor of the page.
-    val floorReserve = if (docked) 96.dp else 0.dp
+    // MARBLE_LIVE_PING_FIXED_SLOT_V135 — the docked stage now ALWAYS carries the live ping
+    // instrument slot above the control (it only fades, it never enters or leaves the layout), so
+    // the reserve covers the meter + spacing + control once, for every connection state, instead
+    // of being sized for the control alone and letting the grown dock cover scrolling content.
+    val floorReserve = if (docked) 220.dp else 0.dp
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val heroHeight = (maxHeight * .32f).coerceIn(200.dp, 310.dp)
@@ -233,10 +237,12 @@ internal fun HomeStyleSignature(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        // MARBLE_HOME_LIVE_PING_V132 — the hero has a MINIMUM height, not a
-                        // fixed one: when the live ping instrument opens above the control the
-                        // hero grows to hold it instead of letting a fixed box overflow into
-                        // the readouts below. The reveal is the growth.
+                        // MARBLE_LIVE_PING_FIXED_SLOT_V135 — the hero has a MINIMUM height and the
+                        // live ping instrument inside the stage occupies a PERMANENT slot: the hero
+                        // therefore measures the same height in every connection state. The old
+                        // reveal grew the hero when the meter appeared, which pushed the status
+                        // word, the deck and every block below it down the page; the meter now
+                        // fades inside a slot that always exists, so the geometry is fixed.
                         .heightIn(
                             min = heroHeight +
                                 if (zone == ConnectControlZone.HERO_FLOOR) 30.dp else 0.dp

@@ -69,15 +69,42 @@ class LinkDeadlinePolicyTest {
     }
 
     @Test
-    fun `the freedom fragment chain keeps the upstream xtls schedule`() {
+    fun `the freedom fragment chain keeps the upstream xtls schedule when unmeasured`() {
         assertEquals(
             LinkDeadlinePolicy.FRAGMENTED_DNS_BASE_MS,
             LinkDeadlinePolicy.dnsServerTimeoutMs(LinkEvidence.UNKNOWN, 0, fragmented = true)
         )
         assertEquals(
             LinkDeadlinePolicy.FRAGMENTED_DNS_BASE_MS + LinkDeadlinePolicy.FRAGMENTED_DNS_STEP_MS,
-            LinkDeadlinePolicy.dnsServerTimeoutMs(slowCellular, 1, fragmented = true)
+            LinkDeadlinePolicy.dnsServerTimeoutMs(LinkEvidence.UNKNOWN, 1, fragmented = true)
         )
+    }
+
+    @Test
+    fun `a measured link pulls the fragment budget down from the 8s xtls constant`() {
+        // MARBLE_FRAGMENT_DEADLINE_V135 — the attached log was a 242–347 ms route that still paid
+        // the full 8 s per resolver; serial failover therefore sat behind a dead endpoint for the
+        // whole budget before rotating. On measured evidence the budget must be the pacing
+        // overhead plus round trips of the tail, never the legacy constant.
+        val irancell = LinkEvidence(
+            rttMs = 300.0, tailRttMs = 347.0, jitterMs = 60.0, lossPercent = 1.0, samples = 9
+        )
+        val primary = LinkDeadlinePolicy.dnsServerTimeoutMs(irancell, 0, fragmented = true)
+        assertTrue(
+            "the measured budget must beat the 8 s constant, got $primary",
+            primary < LinkDeadlinePolicy.FRAGMENTED_DNS_BASE_MS
+        )
+        assertTrue(
+            "the budget must still cover pacing + three tail round trips, got $primary",
+            primary >= LinkDeadlinePolicy.FRAGMENT_PACING_OVERHEAD_MS +
+                3 * irancell.tailRttMs.toLong()
+        )
+        assertTrue("the floor must hold, got $primary", primary >= LinkDeadlinePolicy.FRAGMENT_DNS_FLOOR_MS)
+        assertTrue("the ceiling must hold, got $primary", primary <= LinkDeadlinePolicy.MAX_DNS_TIMEOUT_MS)
+        // A slower measured link gets a bigger budget than the fast one, but stays bounded.
+        val slowPrimary = LinkDeadlinePolicy.dnsServerTimeoutMs(slowCellular, 0, fragmented = true)
+        assertTrue(slowPrimary > primary)
+        assertTrue(slowPrimary <= LinkDeadlinePolicy.MAX_DNS_TIMEOUT_MS)
     }
 
     @Test

@@ -274,7 +274,10 @@ object XrayConfigHardener {
     ): String {
         // The local port is discarded with the inbounds below; it exists only so production
         // hardening executes through exactly the same code path.
-        val root = JSONObject(harden(source, 19091, settings))
+        // MARBLE_IPV6_DNS_PURGE_V135 — the rank instance must build on the SAME underlay verdict
+        // as the real tunnel: before this, the parameter existed but never reached `harden()`, so
+        // ranking could resolve node hostnames over a family the production session had purged.
+        val root = JSONObject(harden(source, 19091, settings, underlayHasIpv6 = underlayHasIpv6))
         root.put("inbounds", JSONArray())
         // Xray installs its *system* resolver whenever a config has no dns app, so removing the
         // section did not just simplify the rank instance — it made ranking resolve node hostnames in
@@ -286,11 +289,23 @@ object XrayConfigHardener {
             "observatory", "burstObservatory"
         ).forEach(root::remove)
 
+        // MARBLE_IPV6_DNS_PURGE_V135 — rank resolvers are also `https+local://` (they dial the
+        // underlay directly), so the same family gate applies: a v6 literal on an IPv4-only
+        // network would make every rank lookup pay a dead-resolver timeout.
+        val rankPlan = AddressFamilyPolicy.plan(
+            settings = settings,
+            underlayHasIpv6 = underlayHasIpv6
+        )
+        val rankIpv6Allowed = underlayHasIpv6 &&
+            rankPlan.preference != IpFamilyPreference.IPV4_ONLY
         val rankResolvers = listOf(settings.dnsPrimaryIp, settings.dnsSecondaryIp)
             .map { it.trim() }
             .filter { it.isNotBlank() }
+            .filter { resolver ->
+                val isV6 = resolver.removePrefix("[").removeSuffix("]").contains(':')
+                if (isV6) rankIpv6Allowed else true
+            }
             .distinct()
-        val rankPlan = AddressFamilyPolicy.plan(settings = settings)
         if (rankResolvers.isEmpty()) {
             root.remove("dns")
         } else {
@@ -329,12 +344,19 @@ object XrayConfigHardener {
      * config is about to carry. It defaults to [LinkEvidence.UNKNOWN], which reproduces the legacy
      * fixed budgets exactly, so callers that have not measured yet (delay tests, ranking configs,
      * a first-ever connect) get the same config they always got.
+     *
+     * MARBLE_IPV6_DNS_PURGE_V135 — [underlayHasIpv6] is the one verdict about whether the physical
+     * network under the tunnel can carry IPv6 at all. It defaults to the live probe so production
+     * callers are unchanged, but it is a PARAMETER so every DNS endpoint below can be purged of the
+     * family the underlay cannot dial, and so the rule is unit-testable instead of depending on the
+     * network interfaces of whatever machine runs the test.
      */
     fun harden(
         source: String,
         socksPort: Int,
         settings: AppSettings = AppSettings(),
-        link: LinkEvidence = LinkEvidence.UNKNOWN
+        link: LinkEvidence = LinkEvidence.UNKNOWN,
+        underlayHasIpv6: Boolean = AddressFamilyPolicy.underlayHasIpv6()
     ): String {
         val src = JSONObject(source)
         val old = src.optJSONArray("outbounds") ?: JSONArray()
@@ -587,10 +609,10 @@ object XrayConfigHardener {
             byTag[tag]?.let { bootstrapDomains += endpointDomains(it) }
         }
 
-        // One underlay probe per config build. Both the endpoint strategies and the DNS record
-        // selection are derived from it, so "IPv6 enabled" can never mean different things in two
-        // parts of the same config.
-        val underlayHasIpv6 = AddressFamilyPolicy.underlayHasIpv6()
+        // MARBLE_IPV6_DNS_PURGE_V135 — the underlay verdict is now a `harden()` parameter (one
+        // probe per config build at the call site, deterministic in tests). Both the endpoint
+        // strategies and the DNS record selection are derived from it, so "IPv6 enabled" can never
+        // mean different things in two parts of the same config.
         // The config-level plan: DNS record selection and the IPv6 block rule are decided once here
         // so they can never disagree with the per-outbound endpoint plans below.
         val dnsPlan = AddressFamilyPolicy.plan(
@@ -598,6 +620,22 @@ object XrayConfigHardener {
             underlayHasIpv6 = underlayHasIpv6,
             link = link
         )
+        // MARBLE_IPV6_DNS_PURGE_V135 — a DNS endpoint the underlay cannot dial is not a fallback,
+        // it is a deadline. Runtime evidence: a Wi-Fi network with no global IPv6 still received a
+        // resolver graph containing `https+local://[2606:4700:4700::1111]/dns-query`-style entries;
+        // every one of them burned its whole `timeoutMs` (up to 8 s on the fragment chain) with
+        // `context deadline exceeded` before serial failover reached a resolver that could answer,
+        // and apps saw `unexpected EOF` because no IP ever came back. The rule is one-directional on
+        // purpose: an IPv4 literal stays on every network (Android without IPv4 is not a product
+        // case), but an IPv6 literal only survives when the underlay can actually carry it AND the
+        // user has not demanded IPv4-only.
+        val ipv6ResolverAllowed = underlayHasIpv6 &&
+            dnsPlan.preference != IpFamilyPreference.IPV4_ONLY
+        fun resolverFamilyAllowed(candidate: String): Boolean {
+            val host = candidate.removePrefix("[").removeSuffix("]").substringBefore('/')
+            val isV6Literal = host.contains(':')
+            return if (isV6Literal) ipv6ResolverAllowed else true
+        }
 
         val out = JSONArray()
         keep.forEach { tag ->
@@ -788,7 +826,7 @@ object XrayConfigHardener {
             val host = dohHost(url)
             host.isNotBlank() && (isIpLiteralHost(host) || FREEDOM_DOH_HOST_PINS.keys.any {
                 it.equals(host, ignoreCase = true)
-            })
+            }) && resolverFamilyAllowed(host)
         }
         val freedomDnsHosts = if (isFreedomProfile && freedomDnsReady.isNotEmpty()) {
             val used = FREEDOM_DOH_HOST_PINS.filter { (host, _) ->
@@ -818,13 +856,30 @@ object XrayConfigHardener {
         // families so a single filtered address can never orphan the node hostname. IPv6
         // literals only join when the underlay can actually carry IPv6; handing a v4-only
         // network a v6 resolver would just add entries that can never dial.
-        val bootstrapIps = (
-            configuredBootstrapIps +
-                STOCK_BOOTSTRAP_DNS_IPS +
-                (if (underlayHasIpv6) STOCK_BOOTSTRAP_DNS_IPV6 else emptyList())
-            )
-            .distinct()
-            .take(MAX_BOOTSTRAP_DNS_IPS)
+        // MARBLE_IPV6_DNS_PURGE_V135 — two structural defects fixed together:
+        //  1. the family gate now also covers the USER's own configured resolvers — they were the
+        //     source of the unreachable v6 entries in the runtime log, because only the stock
+        //     literals were gated before. `https+local://` resolvers dial the underlay DIRECTLY,
+        //     so an IPv6 literal there on an IPv4-only network is a guaranteed deadline, not a
+        //     resolver;
+        //  2. on a dual-stack underlay one stock v6 literal is placed INSIDE the six-entry budget
+        //     instead of appended after it — the old `take(6)` truncated every v6 entry, so the
+        //     "both families" promise of V132 never actually shipped whenever the user had
+        //     configured any resolver at all.
+        val bootstrapIps = run {
+            val configured = configuredBootstrapIps.filter { resolverFamilyAllowed(it) }.distinct()
+            val stockV4 = STOCK_BOOTSTRAP_DNS_IPS.filter { resolverFamilyAllowed(it) }
+            if (!ipv6ResolverAllowed) {
+                configured + stockV4
+            } else {
+                val alreadyHasV6 = configured.any { it.contains(':') }
+                if (alreadyHasV6) {
+                    configured + stockV4
+                } else {
+                    configured + STOCK_BOOTSTRAP_DNS_IPV6.first() + stockV4
+                }
+            }
+        }.distinct().take(MAX_BOOTSTRAP_DNS_IPS)
 
         val stockCloudflareDoh = "https://1.1.1.1/dns-query"
         val stockGoogleDoh = "https://8.8.8.8/dns-query"
@@ -873,6 +928,9 @@ object XrayConfigHardener {
             return if (healthy.isEmpty()) pool else healthy + failing
         }
 
+        // MARBLE_IPV6_DNS_PURGE_V135 — the Freedom chain dials its resolvers DIRECTLY on the
+        // underlay (there is no tunnel yet to carry them), so its list obeys the same family gate
+        // as the bootstrap literals above.
         val remoteDoh = if (isFreedomProfile && freedomDnsReady.isNotEmpty()) {
             freedomDnsReady.take(6)
         } else if (settings.adaptiveDnsEnabled) {

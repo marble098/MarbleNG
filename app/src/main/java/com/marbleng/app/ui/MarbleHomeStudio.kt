@@ -17,15 +17,8 @@ package com.marbleng.app.ui
 //   5. [ConnectButtonStream]    the floor bar with a light band travelling right → left.
 //   6. [ConnectButtonFloating]  the compact pill docked above the bottom of the page.
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -61,6 +54,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -218,13 +212,22 @@ internal fun HomeSelectedRouteCard(
 // ---------------------------------------------------------------------------------------------
 
 /**
- * MARBLE_HOME_LIVE_PING_V132 — the instrument that opens while the route comes up.
+ * MARBLE_HOME_LIVE_PING_V132 — the instrument that measures the attached route.
  *
  * A compact latency meter in the spirit of the dedicated ping utilities: an arc gauge for the
  * current sample, the number in the middle, a sparkline of the last probes underneath and the
  * name of the ONE server being measured. It never ranks, never compares and never touches
  * another node — it re-arms [HomeActions.onTestPing], which measures the live tunnel and nothing
  * else, so the value on screen is always the latency of the server the user is attached to.
+ *
+ * MARBLE_LIVE_PING_FIXED_SLOT_V135 — the meter owns a PERMANENT layout slot: it is composed in
+ * every connection state and [visible] only animates its opacity and interactivity. The old
+ * `AnimatedVisibility` reveal inserted the instrument into the layout the moment a connect fired,
+ * which grew the hero and pushed every readout below it — the "everything jumps" defect users
+ * reported after tapping Connect. A slot that never appears and never disappears can never move
+ * anything. The meter is the visual companion of the connect control: same elevated glass, the
+ * control's own state tone in its hairline and wash, revealed only once the control itself has
+ * reached the CONNECTED state.
  */
 @Composable
 internal fun HomeLivePingMeter(
@@ -232,7 +235,8 @@ internal fun HomeLivePingMeter(
     actions: HomeActions,
     tone: Color,
     modifier: Modifier = Modifier,
-    active: Boolean = true
+    active: Boolean = true,
+    visible: Boolean = true
 ) {
     val t = Tr.now
     val measuring = evidence.pingState == ConnectionPingState.MEASURING
@@ -272,7 +276,7 @@ internal fun HomeLivePingMeter(
     )
     val pulse = if (measuring) MarbleMotion.current.loop(1_200) else 0f
 
-    val shape = RoundedCornerShape(18.dp)
+    val shape = RoundedCornerShape(20.dp)
     val valueLabel = when {
         measured -> "${evidence.pingMs}"
         measuring -> "•••"
@@ -285,14 +289,30 @@ internal fun HomeLivePingMeter(
     // Resolved in composable scope: the semantics lambda below is not a composable context.
     val spokenPing = homePingLabel(evidence)
 
+    // MARBLE_LIVE_PING_FIXED_SLOT_V135 — opacity is the ONLY reveal: the slot this column
+    // occupies is identical in every state, so nothing around the meter can ever move.
+    val presence by animateFloatAsState(
+        targetValue = if (visible) 1f else 0f,
+        animationSpec = if (visible) MarbleMotionSpecs.ResponseFloat else MarbleMotionSpecs.ExitFloat,
+        label = "live-ping-presence"
+    )
+
     Column(
         modifier = modifier
-            .width(140.dp)
+            .width(150.dp)
+            .graphicsLayer { alpha = presence }
             .clip(shape)
-            .background(Aether.VoidElevated.copy(alpha = .94f))
-            .border(1.dp, valueTone.copy(alpha = .30f), shape)
+            // Companion chrome of the connect control: the same elevated glass as the power
+            // dock, washed and hairlined with the control's own state tone.
+            .background(Aether.VoidElevated.copy(alpha = .88f))
+            .background(
+                Brush.verticalGradient(
+                    listOf(tone.copy(alpha = .12f), Color.Transparent)
+                )
+            )
+            .border(1.dp, tone.copy(alpha = .30f), shape)
             .kineticClickable(
-                enabled = homePingTappable(evidence),
+                enabled = visible && homePingTappable(evidence),
                 role = Role.Button,
                 boundedShape = shape,
                 onClick = actions.onTestPing
@@ -423,8 +443,13 @@ internal fun HomeLivePingMeter(
  *
  * The two classic presentations keep their own hero geometry, so they host the meter as its own
  * row directly beneath the connect control instead of inside it. The contract is identical: the
- * meter is visible only while the route is up or coming up, and it measures only the connected
- * server.
+ * meter measures only the connected server.
+ *
+ * MARBLE_LIVE_PING_FIXED_SLOT_V135 — the slab is a PERMANENT row. It used to be an
+ * `AnimatedVisibility` that entered the layout when a connect fired; entering the layout is
+ * exactly what pushed the status headline, the identity block and every readout beneath it down
+ * the page. The row is now always measured, the instrument is always composed, and only its
+ * opacity reveals it — the moment the connect control itself reaches CONNECTED, never before.
  */
 @Composable
 internal fun HomeLivePingSlab(
@@ -433,22 +458,16 @@ internal fun HomeLivePingSlab(
     tone: Color,
     modifier: Modifier = Modifier
 ) {
-    val live = evidence.connected || evidence.connecting
-    AnimatedVisibility(
-        visible = live,
-        modifier = modifier,
-        enter = fadeIn(MarbleMotionSpecs.ResponseFloat) +
-            slideInVertically(MarbleMotionSpecs.Spatial) { it / 4 },
-        exit = fadeOut(MarbleMotionSpecs.ExitFloat) +
-            slideOutVertically(MarbleMotionSpecs.SpatialExit) { it / 4 }
+    Box(
+        modifier = modifier.fillMaxWidth(),
+        contentAlignment = Alignment.Center
     ) {
-        Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-            HomeLivePingMeter(
-                evidence = evidence,
-                actions = actions,
-                tone = tone
-            )
-        }
+        HomeLivePingMeter(
+            evidence = evidence,
+            actions = actions,
+            tone = tone,
+            visible = evidence.connected
+        )
     }
 }
 
@@ -469,9 +488,11 @@ internal fun HomePowerStage(
     sideBySide: Boolean? = null,
     control: @Composable () -> Unit
 ) {
-    // The instrument opens the moment the route starts moving and closes the moment it stops.
-    val live = evidence.connected || evidence.connecting
-    val visible = live && meterEnabled
+    // MARBLE_LIVE_PING_FIXED_SLOT_V135 — the instrument is revealed only once the connect control
+    // has reached CONNECTED (never during the CONNECTING ramp), and the reveal is an opacity fade
+    // inside a permanently measured slot. The control and everything around it keeps its exact
+    // geometry in every state.
+    val visible = evidence.connected && meterEnabled
 
     BoxWithConstraints(modifier = modifier, contentAlignment = Alignment.Center) {
         // `null` means "decide from the available width". Side by side only when BOTH 140 dp
@@ -524,21 +545,15 @@ private fun StageMeter(
     actions: HomeActions,
     tone: Color
 ) {
-    AnimatedVisibility(
-        visible = visible,
-        enter = fadeIn(MarbleMotionSpecs.ResponseFloat) +
-            slideInHorizontally(MarbleMotionSpecs.Spatial) { it / 3 } +
-            slideInVertically(MarbleMotionSpecs.Spatial) { it / 6 },
-        exit = fadeOut(MarbleMotionSpecs.ExitFloat) +
-            slideOutHorizontally(MarbleMotionSpecs.SpatialExit) { it / 3 } +
-            slideOutVertically(MarbleMotionSpecs.SpatialExit) { it / 6 }
-    ) {
-        HomeLivePingMeter(
-            evidence = evidence,
-            actions = actions,
-            tone = tone
-        )
-    }
+    // MARBLE_LIVE_PING_FIXED_SLOT_V135 — no AnimatedVisibility here: inserting/removing the meter
+    // from composition is precisely what changed the stage height and moved the connect control.
+    // The meter is always composed; `visible` only fades it.
+    HomeLivePingMeter(
+        evidence = evidence,
+        actions = actions,
+        tone = tone,
+        visible = visible
+    )
 }
 
 // ---------------------------------------------------------------------------------------------
