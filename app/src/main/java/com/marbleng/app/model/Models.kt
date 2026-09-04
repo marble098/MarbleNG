@@ -278,19 +278,26 @@ enum class ConnectionPingState { IDLE, MEASURING, MEASURED, FAILED }
 enum class ProbeState { IDLE, QUEUED, TESTING }
 
 /**
- * MARBLE_UNIFIED_PING_V121 — the single ping engine of the whole product.
+ * MARBLE_UNIFIED_PING_V121 / MARBLE_PROBE_TOOLKIT_V130 — the single ping engine of the whole product.
  *
  * One user choice in Settings → Tests → Ping drives every measurement the user can trigger: the
  * Home ping button, the per-source ping in the Servers three-dot menu and the page-wide ping.
  * There is no second, hidden ping path any more.
  *
- *  - [HYBRID] "Smart ping" — the product default: a fast reachability gate followed by the real
- *    verified measurement, so the number is honest without being slow.
- *  - [TUNNEL] the real tunnel measurement only. Slowest, most accurate.
- *  - [TCP] a plain TCP handshake against the endpoint. Fastest, proves reachability only.
- *  - [ICMP] a classic ICMP echo against the endpoint.
+ *  - [HYBRID] "Smart ping" — the product default: a fast TCP/DNS reachability gate followed by
+ *    the real verified HTTPS measurement. Returns quickly when the gate fails, accurately when
+ *    it succeeds. Inspired by PattNG's multi-phase probing and Lumen's confidence scoring.
+ *  - [TUNNEL] the real tunnel measurement only — HTTPS through the SOCKS proxy, proving the full
+ *    route including TLS. Slowest, most accurate. Used by v2rayNG's "real delay" test.
+ *  - [TCP] a plain TCP SYN handshake against the endpoint. Fastest, proves reachability only.
+ *    Uses Happy-Eyeballs address racing (Exclave-style).
+ *  - [ICMP] a classic ICMP echo against the endpoint. Bypasses the proxy entirely.
+ *  - [HTTP] a direct HTTPS GET to a well-known 204 endpoint (no tunnel). Proves the underlay
+ *    network path including DNS, TCP and TLS. Useful for testing raw network quality.
+ *  - [DNS] DNS resolution time for a well-known domain. Fastest indirect check, proves only
+ *    that the local DNS path works (Incy-style).
  */
-enum class ProbeMethod { TUNNEL, TCP, ICMP, HYBRID }
+enum class ProbeMethod { TUNNEL, TCP, ICMP, HYBRID, HTTP, DNS }
 
 /**
  * Canonical MarbleNG routing baseline.

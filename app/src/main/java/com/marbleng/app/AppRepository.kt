@@ -1412,39 +1412,44 @@ private fun postToMain(block: () -> Unit) {
         val port = activeProxyPort()
         val sessionAtStart = connectedSinceMs
 
-        // MARBLE_ONE_PING_V121 — the Home ping obeys Settings → Testing like every other
-        // measurement in the product. Smart ping (the default) and Tunnel ping race the verified
-        // in-tunnel ladder below; the address-level methods measure the server endpoint directly,
-        // which is exactly what the user asked for when they picked TCP or ICMP.
+        // MARBLE_ONE_PING_V121 / MARBLE_PROBE_TOOLKIT_V130 — the Home ping obeys Settings → Testing
+        // like every other measurement in the product. Smart ping (the default) and Tunnel ping
+        // race the verified in-tunnel ladder below; the address-level methods (TCP, ICMP, HTTP, DNS)
+        // measure the server endpoint or network path directly.
         val method = settings.probeMethod
-        if (method == ProbeMethod.TCP || method == ProbeMethod.ICMP) {
+        if (method == ProbeMethod.TCP || method == ProbeMethod.ICMP ||
+            method == ProbeMethod.HTTP || method == ProbeMethod.DNS) {
             postToMain {
                 connectionPingMs = 0
                 connectionPingState = ConnectionPingState.MEASURING
             }
             val target = profile(activeProfileId, activeProfileSourceId)
             io.execute {
-                val sample = target?.let { live ->
+                // MARBLE_PROBE_TOOLKIT_V130 — dispatch to the right RouteProbe method
+                val timeoutMs = (settings.benchTimeoutSec * 1000).coerceIn(500, 8_000)
+                val samples = settings.benchSamples.coerceIn(1, 4)
+                val probeResult = target?.let { live ->
                     runCatching {
-                        RouteProbe.measure(
+                        RouteProbe.measureUnified(
                             profile = live,
-                            icmpMode = method == ProbeMethod.ICMP,
-                            samples = settings.benchSamples.coerceIn(1, 4),
-                            timeoutMs = (settings.benchTimeoutSec * 1000).coerceIn(500, 8_000),
+                            method = method,
+                            tunnelPort = if (state == "CONNECTED") activeProxyPort() else 0,
+                            samples = samples,
+                            timeoutMs = timeoutMs,
                             settings = settings
                         )
                     }.getOrNull()
                 }
-                val measured = sample
-                    ?.takeIf { it.successPercent > 0 }
+                val measured = probeResult
+                    ?.takeIf { it.successPercent > 0 && it.latencyMs < RouteProbe.UNREACHABLE }
                     ?.latencyMs
-                    ?.let { LinkQualityEstimator.sanitaryRtt(it).roundToInt() }
+                    ?.let { LinkQualityEstimator.sanitaryRtt(it.roundToInt()) }
                     ?: 0
                 diagnostics.event(
                     "APP",
                     "home-connection-ping",
                     "measured" to measured,
-                    "mode" to if (method == ProbeMethod.ICMP) "icmp" else "tcp"
+                    "mode" to method.name.lowercase()
                 )
                 postToMain {
                     connectionPingInFlight.set(false)
@@ -3139,12 +3144,15 @@ private fun postToMain(block: () -> Unit) {
         val method = settings.probeMethod
         val methodLabel = when (method) {
             ProbeMethod.HYBRID -> "Smart ping"
-            ProbeMethod.TUNNEL -> "Tunnel ping"
+            ProbeMethod.TUNNEL -> "Real test"
             ProbeMethod.TCP -> "TCP ping"
             ProbeMethod.ICMP -> "ICMP ping"
+            ProbeMethod.HTTP -> "HTTP ping"
+            ProbeMethod.DNS -> "DNS ping"
         }
         // Only address-level methods may share one measurement between identical endpoints.
-        val dedupe = method == ProbeMethod.TCP || method == ProbeMethod.ICMP
+        val dedupe = method == ProbeMethod.TCP || method == ProbeMethod.ICMP ||
+            method == ProbeMethod.DNS
 
         task("$methodLabel • $scope") {
             val groups = if (dedupe) {
