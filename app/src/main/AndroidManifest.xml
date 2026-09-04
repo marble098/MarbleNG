@@ -8,6 +8,14 @@
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <!-- Android 8/9 only. Android 10+ Debug Mode uses MediaStore Downloads. -->
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
+    <!--
+      MARBLE_QR_CAMERA_V123 — asked for only when the user opens the QR scanner, and used only to
+      read a code off the viewfinder. Frames are decoded on-device by ZXing and never leave the
+      phone. Declared optional so a device without a camera still installs and still imports QR
+      codes from the gallery.
+    -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera.any" android:required="false" />
 
     <queries>
         <intent>

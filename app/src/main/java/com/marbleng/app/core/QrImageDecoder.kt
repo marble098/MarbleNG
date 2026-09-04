@@ -7,7 +7,9 @@ import android.net.Uri
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.BinaryBitmap
 import com.google.zxing.DecodeHintType
+import com.google.zxing.LuminanceSource
 import com.google.zxing.MultiFormatReader
+import com.google.zxing.PlanarYUVLuminanceSource
 import com.google.zxing.RGBLuminanceSource
 import com.google.zxing.common.HybridBinarizer
 
@@ -57,6 +59,40 @@ object QrImageDecoder {
 
     private fun decodePixels(pixels: IntArray, width: Int, height: Int): String? {
         val source = RGBLuminanceSource(width, height, pixels)
+        return decodeSource(source)
+    }
+
+    /**
+     * MARBLE_QR_CAMERA_V123 — decode one camera frame straight from its luminance plane.
+     *
+     * A viewfinder frame is YUV, not a bitmap: converting it to ARGB just to feed ZXing would cost
+     * an allocation per frame on the analysis thread. The Y plane *is* the grayscale image the
+     * binarizer wants, so it is handed over directly. [rowStride] is the plane's row stride, which
+     * carries padding on most sensors — but not on all of them, so the buffer's own length decides
+     * which stride is real instead of trusting the reported one.
+     *
+     * Deliberately no inversion pass here: a live viewfinder is lit, and frames arrive ~30 a second,
+     * so the next frame is a cheaper answer than a second decode of this one.
+     */
+    fun decodeLuminance(
+        yuv: ByteArray,
+        rowStride: Int,
+        width: Int,
+        height: Int
+    ): String? {
+        if (width <= 0 || height <= 0) return null
+        val dataWidth = when {
+            rowStride >= width && yuv.size >= rowStride * height -> rowStride
+            yuv.size >= width * height -> width
+            else -> return null
+        }
+        val source = runCatching {
+            PlanarYUVLuminanceSource(yuv, dataWidth, height, 0, 0, width, height, false)
+        }.getOrNull() ?: return null
+        return decodeSource(source)
+    }
+
+    private fun decodeSource(source: LuminanceSource): String? {
         val reader = MultiFormatReader().apply {
             setHints(
                 mapOf(

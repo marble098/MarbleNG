@@ -234,8 +234,6 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Sources" to "منابع",
     "Sort" to "مرتب‌سازی",
     "SORT:" to "مرتب‌سازی:",
-    "No connections yet" to "هنوز اتصالی وجود ندارد",
-    "Nothing matches" to "چیزی مطابقت ندارد",
     "Nothing here yet." to "هنوز چیزی اینجا نیست.",
     "Filter & sort" to "فیلتر و مرتب‌سازی",
     "Focus Servers without changing any server" to "تمرکز روی سرورها بدون تغییر هیچ سروری",
@@ -253,6 +251,16 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Local source" to "منبع محلی",
     "Create local source" to "ساخت منبع محلی",
     "Add subscription" to "افزودن اشتراک",
+    // MARBLE_ADD_SUBSCRIPTION_V123 — the rebuilt subscription form.
+    "Source name • optional" to "نام منبع • اختیاری",
+    "Paste link" to "چسباندن لینک",
+    "Subscription links must start with https://" to "لینک اشتراک باید با https:// شروع شود",
+    "The name is filled from the address when left empty." to
+        "اگر نام را خالی بگذارید، از آدرس لینک پر می‌شود.",
+    "Paste the provider link, or name an empty local source." to
+        "لینک ارائه‌دهنده را بچسبانید، یا برای یک منبع محلی خالی نام بگذارید.",
+    "Marble keeps this source up to date for you." to
+        "ماربل این منبع را برای شما به‌روز نگه می‌دارد.",
     "Subscription URL • optional" to "لینک اشتراک • اختیاری",
     "Name • optional" to "نام • اختیاری",
     "Display name" to "نام نمایشی",
@@ -262,13 +270,14 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Edit server" to "ویرایش سرور",
     "Edit Xray JSON" to "ویرایش JSON اکس‌ری",
     "Effective config JSON" to "JSON پیکربندی نهایی",
-    "Manual server • edits are stored locally." to "سرور دستی • ویرایش‌ها به‌صورت محلی ذخیره می‌شوند.",
+    "Your own server • edits are stored locally." to
+        "سرور شخصی شما • ویرایش‌ها به‌صورت محلی ذخیره می‌شوند.",
     "Save JSON" to "ذخیره JSON",
     "Delete server?" to "این سرور حذف شود؟",
     "Swipe never deletes silently." to "کشیدن هرگز بی‌صدا حذف نمی‌کند.",
     "Copy config link" to "کپی لینک پیکربندی",
     "Copy Xray JSON" to "کپی JSON اکس‌ری",
-    "Duplicate to Manual" to "کپی به منبع دستی",
+    "Duplicate" to "کپی گرفتن",
     "Test this server" to "تست این سرور",
     "Copy config" to "کپی پیکربندی",
     "Config copied" to "پیکربندی کپی شد",
@@ -283,8 +292,8 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Remove hop" to "حذف گام",
     "Showing 24 servers • search to find any other server" to
         "نمایش ۲۴ سرور • برای یافتن سرورهای دیگر جستجو کنید",
-    "Select one server source first, or enable Manual source." to
-        "ابتدا یک منبع سرور انتخاب کنید یا منبع دستی را فعال کنید.",
+    "Add a server source first, then save the chain into it." to
+        "ابتدا یک منبع سرور بسازید، سپس زنجیره را در آن ذخیره کنید.",
     "Select one server source first" to "ابتدا یک منبع سرور انتخاب کنید",
     "Will be added to the selected source and kept across refreshes." to
         "به منبع انتخاب‌شده افزوده می‌شود و با به‌روزرسانی‌ها حفظ خواهد شد.",
@@ -572,8 +581,7 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Custom direct IP / CIDR / geoip tags" to "آی‌پی / CIDR / برچسب‌های مستقیم سفارشی",
 
     // subscriptions settings
-    "Manual source" to "منبع دستی",
-    "Show the built-in Manual source" to "نمایش منبع دستی داخلی",
+    // MARBLE_MANUAL_SOURCE_REMOVED_V123 — the "Manual source" switch and its copy are retired.
     "Automatic refresh" to "به‌روزرسانی خودکار",
     "Refresh stale sources on start" to "به‌روزرسانی منابع قدیمی هنگام شروع",
     "Refresh cadence" to "آهنگ به‌روزرسانی",
@@ -828,10 +836,7 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Ping every server in this group" to "پینگ همه سرورهای این گروه",
     "Measuring servers" to "در حال اندازه‌گیری سرورها",
     "Refreshing sources" to "در حال به‌روزرسانی منابع",
-    "Add a server, paste a config or import a subscription to get started." to
-        "برای شروع یک سرور اضافه کنید، کانفیگ بچسبانید یا اشتراک وارد کنید.",
-    "No server matches the current filters." to "هیچ سروری با فیلترهای فعلی مطابقت ندارد.",
-    "This group has no servers yet." to "این گروه هنوز سروری ندارد.",
+
     "Expires" to "انقضا",
     "Website" to "وب‌سایت",
     "Auto-update on" to "به‌روزرسانی خودکار فعال",
@@ -850,6 +855,24 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Latency" to "تأخیر",
     "Copy link" to "کپی پیوند",
     "Export QR code" to "صادرات کد QR",
+    // MARBLE_QR_CAMERA_V123 — the two QR intakes and the live scanner sheet.
+    "Import from QR code" to "وارد کردن از کد QR",
+    "Scan with camera" to "اسکن با دوربین",
+    "From gallery" to "از گالری",
+    "Gallery" to "گالری",
+    "Read the code in front of you" to "کد روبه‌روی خود را بخوانید",
+    "Scan the code in front of you" to "کد روبه‌روی خود را اسکن کنید",
+    "A screenshot or photo of the code" to "اسکرین‌شات یا عکسی از کد",
+    "Pick a screenshot or photo of the code" to "اسکرین‌شات یا عکسی از کد انتخاب کنید",
+    "Point the camera at the QR code" to "دوربین را روی کد QR بگیرید",
+    "Decoded on this device • nothing is uploaded" to
+        "روی همین دستگاه خوانده می‌شود • چیزی ارسال نمی‌شود",
+    "Camera unavailable" to "دوربین در دسترس نیست",
+    "Waiting for camera permission" to "در انتظار اجازه دسترسی به دوربین",
+    "You can still read a code from a screenshot or photo." to
+        "همچنان می‌توانید کد را از یک اسکرین‌شات یا عکس بخوانید.",
+    "Marble only reads codes while this screen is open." to
+        "ماربل فقط تا وقتی این صفحه باز است کدها را می‌خواند.",
     "Move to group" to "انتقال به گروه",
     "Current group" to "گروه فعلی",
     "No other group can hold this server yet." to "گروه دیگری برای این سرور در دسترس نیست.",
@@ -867,9 +890,7 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Chain" to "زنجیره",
     "Import text" to "متن ورودی",
     "Import file" to "وارد کردن فایل",
-    "Manual is enabled" to "Manual فعال است",
-    "Enable Manual in Settings → Advanced before saving a built server." to
-        "پیش از ذخیره سرور ساخته‌شده، Manual را در تنظیمات → پیشرفته فعال کنید.",
+    "Saved into" to "ذخیره می‌شود در",
     "Encryption" to "رمزنگاری",
     "UUID" to "UUID",
     "Auth password" to "گذرواژه احراز",

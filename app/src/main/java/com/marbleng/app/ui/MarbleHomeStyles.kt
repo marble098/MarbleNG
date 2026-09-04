@@ -1838,6 +1838,71 @@ internal fun HomePowerControl(
  */
 internal val LocalConnectButtonStyle = compositionLocalOf { ConnectButtonStyle.ROUND }
 
+// ---------------------------------------------------------------------------------------------
+// MARBLE_SLIDE_BAND_PLACEMENT_V123 — where the slide-to-connect band lives
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * Vertical space every Home style keeps free while the slide band is showing.
+ *
+ * The band is 66 dp of track plus its caption, plus the glass shelf it sits on. Each style adds
+ * this to the bottom of its scroll content so the last card is never buried underneath it.
+ */
+internal val MarbleSlideBandReserve = 132.dp
+
+/** True when the user's chosen connection silhouette is the wide slide band. */
+@Composable
+internal fun rememberConnectBandShown(): Boolean =
+    LocalConnectButtonStyle.current == ConnectButtonStyle.SLIDE
+
+/**
+ * The one resting place of the slide band: a shelf pinned to the bottom of the viewport, above the
+ * tab dock.
+ *
+ * The round shutter is a centred object and belongs in the hero; the band is a *bar*, and a bar
+ * reads correctly at the bottom edge of the screen — thumb reach, no overlap with the evidence
+ * cards, and the same position on every Home style and every screen size. The band never floats,
+ * never drifts and never resizes: this shelf is fixed for as long as the silhouette is selected.
+ */
+@Composable
+internal fun HomeConnectBandDock(
+    evidence: HomeEvidence,
+    tone: Color,
+    flavor: HomeFlavor,
+    onToggle: () -> Unit,
+    bottomClearance: Dp,
+    modifier: Modifier = Modifier
+) {
+    BoxWithConstraints(
+        modifier = modifier
+            .fillMaxWidth()
+            // A short fade so the shelf reads as part of the surface, not a card dropped on it.
+            .background(
+                Brush.verticalGradient(
+                    listOf(
+                        Color.Transparent,
+                        Aether.Void.copy(alpha = .88f),
+                        Aether.Void.copy(alpha = .97f)
+                    )
+                )
+            )
+            .padding(start = 18.dp, end = 18.dp, top = 18.dp)
+            .padding(bottom = bottomClearance + 12.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        // The slide silhouette is 2.1 × diameter wide (clamped 240..340 dp), so solving for the
+        // diameter is what makes the band fit this exact viewport instead of overflowing it.
+        val bandDiameter = ((maxWidth - 36.dp) / 2.1f).coerceIn(114.dp, 162.dp)
+        HomePowerControl(
+            evidence = evidence,
+            tone = tone,
+            onToggle = onToggle,
+            flavor = flavor,
+            diameter = bandDiameter
+        )
+    }
+}
+
 /**
  * MARBLE_CONNECT_BUTTON_V121 — the one connection button of the product, in three silhouettes.
  *
@@ -2337,6 +2402,8 @@ internal fun HomeStyleCosmicOrbit(
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val heroHeight = (maxHeight * .34f).coerceIn(210.dp, 300.dp)
+        // MARBLE_SLIDE_BAND_PLACEMENT_V123 — the band gets the bottom shelf, not the orbit slot.
+        val bandShown = rememberConnectBandShown()
 
         // Full-viewport starfield behind the whole console.
         Canvas(Modifier.matchParentSize()) {
@@ -2353,7 +2420,8 @@ internal fun HomeStyleCosmicOrbit(
             Column(
                 modifier = Modifier
                     .weight(1f)
-                    .verticalScroll(scrollState),
+                    .verticalScroll(scrollState)
+                    .padding(bottom = if (bandShown) MarbleSlideBandReserve else 0.dp),
                 verticalArrangement = Arrangement.spacedBy(11.dp)
             ) {
                 PrismPanel(
@@ -2377,20 +2445,22 @@ internal fun HomeStyleCosmicOrbit(
                         Canvas(Modifier.matchParentSize()) {
                             drawSolarSystem(gold, tone, orbitPhases, phase, evidence.connected)
                         }
-                        HomePowerControl(
-                            evidence = evidence,
-                            tone = tone,
-                            onToggle = actions.onToggleConnection,
-                            flavor = HomeFlavor.ORBIT,
-                            diameter = 118.dp,
-                            haloBrush = Brush.radialGradient(
-                                listOf(
-                                    gold.copy(alpha = .55f),
-                                    gold.copy(alpha = .16f),
-                                    Color.Transparent
+                        if (!bandShown) {
+                            HomePowerControl(
+                                evidence = evidence,
+                                tone = tone,
+                                onToggle = actions.onToggleConnection,
+                                flavor = HomeFlavor.ORBIT,
+                                diameter = 118.dp,
+                                haloBrush = Brush.radialGradient(
+                                    listOf(
+                                        gold.copy(alpha = .55f),
+                                        gold.copy(alpha = .16f),
+                                        Color.Transparent
+                                    )
                                 )
                             )
-                        )
+                        }
                     }
                     HomeStatusHeadline(evidence, tone, align = TextAlign.Start)
                     HomeIdentityBlock(evidence, tone, HomeFlavor.ORBIT, Modifier.fillMaxWidth())
@@ -2465,6 +2535,21 @@ internal fun HomeStyleCosmicOrbit(
                     descriptiveLabel = Tr.now.ipDetails
                 ) { HomeGlyphIcon(HomeGlyph.MORE, Aether.InkMuted, Modifier.size(16.dp)) }
             }
+        }
+
+        if (bandShown) {
+            // The console's 50 dp navigation rail owns the trailing edge, so the shelf stops short
+            // of it and the band stays centred over the instrument column.
+            HomeConnectBandDock(
+                evidence = evidence,
+                tone = tone,
+                flavor = HomeFlavor.ORBIT,
+                onToggle = actions.onToggleConnection,
+                bottomClearance = bottomClearance,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(end = 58.dp)
+            )
         }
     }
 }
@@ -2636,6 +2721,8 @@ internal fun HomeStyleCosmicImmersion(
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val skyClearance = (maxHeight * .10f).coerceIn(40.dp, 110.dp)
+        // MARBLE_SLIDE_BAND_PLACEMENT_V123 — the band gets the bottom shelf, not the sky slot.
+        val bandShown = rememberConnectBandShown()
 
         Canvas(Modifier.matchParentSize()) {
             drawImmersiveCosmos(cyan, violet, starPhases, skyOrbits, orbitPhase, auroraPhase, bloom, evidence.connected)
@@ -2646,26 +2733,29 @@ internal fun HomeStyleCosmicImmersion(
                 .fillMaxSize()
                 .verticalScroll(scrollState)
                 .padding(horizontal = 20.dp)
-                .padding(top = 16.dp, bottom = bottomClearance),
+                .padding(top = 16.dp)
+                .padding(bottom = bottomClearance + if (bandShown) MarbleSlideBandReserve else 0.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Spacer(Modifier.height(skyClearance))
 
-            HomePowerControl(
-                evidence = evidence,
-                tone = tone,
-                onToggle = actions.onToggleConnection,
-                flavor = HomeFlavor.NEBULA,
-                diameter = 134.dp,
-                haloBrush = Brush.radialGradient(
-                    listOf(
-                        cyan.copy(alpha = .30f + .12f * bloom),
-                        violet.copy(alpha = .18f),
-                        Color.Transparent
+            if (!bandShown) {
+                HomePowerControl(
+                    evidence = evidence,
+                    tone = tone,
+                    onToggle = actions.onToggleConnection,
+                    flavor = HomeFlavor.NEBULA,
+                    diameter = 134.dp,
+                    haloBrush = Brush.radialGradient(
+                        listOf(
+                            cyan.copy(alpha = .30f + .12f * bloom),
+                            violet.copy(alpha = .18f),
+                            Color.Transparent
+                        )
                     )
                 )
-            )
+            }
 
             Text(
                 homeStatusText(evidence).uppercase(),
@@ -2684,6 +2774,17 @@ internal fun HomeStyleCosmicImmersion(
             HomeSessionStats(evidence, tone, actions, HomeFlavor.NEBULA, Modifier.fillMaxWidth())
 
             Spacer(Modifier.height(4.dp))
+        }
+
+        if (bandShown) {
+            HomeConnectBandDock(
+                evidence = evidence,
+                tone = tone,
+                flavor = HomeFlavor.NEBULA,
+                onToggle = actions.onToggleConnection,
+                bottomClearance = bottomClearance,
+                modifier = Modifier.align(Alignment.BottomCenter)
+            )
         }
     }
 }

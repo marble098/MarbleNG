@@ -58,6 +58,14 @@ data class ServerIntelInfo(
         get() = listOf(city, region, country).filter(String::isNotBlank).distinct().joinToString(", ")
 }
 
+// MARBLE_MANUAL_SOURCE_REMOVED_V123 — the retired Manual pseudo-source. The id survives in stored
+// profiles, in a persisted source filter and in a remembered route reference, so it is kept here as
+// a migration key only: nothing in the product creates or shows a "manual" source any more.
+private const val LEGACY_MANUAL_SOURCE_ID = "manual"
+
+/** Name of the real local source that owns user-authored configs when the library starts empty. */
+private const val USER_SOURCE_NAME = "My servers"
+
 class AppRepository(private val context: Context, val xray: XrayManager) {
     // MARBLE_LIBRARY_POWER_V10
     // MARBLE_ENGINE_RESCUE_V11
@@ -123,10 +131,10 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
 
     private fun normalizeLibrarySourceFilter(id: String): String = when {
         id == "all" -> "all"
-        id == "manual" && settings.manualSourceEnabled -> "manual"
-        id == "manual" -> "all"
         id == ServerlessFreedomEngine.SOURCE_ID -> ServerlessFreedomEngine.SOURCE_ID
         subscriptions.any { it.id == id } -> id
+        // Includes the retired "manual" pseudo-source id: an old persisted filter falls back to
+        // "all" instead of pointing at a source that no longer exists.
         else -> "all"
     }
 
@@ -236,15 +244,50 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
 
     private data class LibraryTarget(val id: String, val name: String)
 
-    /** A concrete Library source can receive user imports; "all" is only a view. */
-    private fun resolveLibraryTarget(id: String): LibraryTarget? = when {
-        id == "manual" && settings.manualSourceEnabled -> LibraryTarget("manual", "Manual")
-        id == "manual" || id == "all" || id == ServerlessFreedomEngine.SOURCE_ID || id.isBlank() -> null
-        else -> subscriptions.firstOrNull { it.id == id }?.let { LibraryTarget(it.id, it.name) }
+    /**
+     * MARBLE_MANUAL_SOURCE_REMOVED_V123 — the source user-authored configs land in.
+     *
+     * "Somewhere of my own" is now a real local source instead of a virtual one behind a Settings
+     * switch: the first URL-less source when the user already has one, otherwise the first source
+     * at all, and only when the library is completely empty is a source created. Creating it here —
+     * at the moment an import genuinely needs it — means a fresh install never shows a group the
+     * user did not ask for, and a paste can never fail for want of a destination.
+     */
+    private fun ensureUserSource(): LibraryTarget {
+        subscriptions.firstOrNull { it.url.isBlank() }?.let { return LibraryTarget(it.id, it.name) }
+        subscriptions.firstOrNull()?.let { return LibraryTarget(it.id, it.name) }
+
+        val id = sha("local:${System.nanoTime()}:${java.util.UUID.randomUUID()}").take(12)
+        subscriptions += Subscription(
+            id = id,
+            name = USER_SOURCE_NAME,
+            url = "",
+            updatedAt = System.currentTimeMillis()
+        )
+        store.saveSubscriptions(subscriptions)
+        diagnostics.event("LIBRARY", "local-source-created", "source" to id.take(12))
+        return LibraryTarget(id, USER_SOURCE_NAME)
     }
 
-    private fun profileSourceEnabled(profile: ProxyProfile): Boolean =
-        settings.manualSourceEnabled || profile.subscriptionId != "manual"
+    /** Id of the source that receives user-authored configs; created on first use. */
+    fun userIntakeSourceId(): String = ensureUserSource().id
+
+    /**
+     * Display name of the source user-authored configs land in, without creating anything. Used by
+     * the add sheet to tell the user where a paste or a hand-built server will be filed.
+     */
+    val userSourceName: String
+        get() = subscriptions.firstOrNull { it.url.isBlank() }?.name
+            ?: subscriptions.firstOrNull()?.name
+            ?: USER_SOURCE_NAME
+
+    /** A concrete Library source can receive user imports; "all" is only a view. */
+    private fun resolveLibraryTarget(id: String): LibraryTarget? = when {
+        id == "all" || id == ServerlessFreedomEngine.SOURCE_ID -> null
+        // Blank and the retired Manual id both mean "my own servers".
+        id.isBlank() || id == LEGACY_MANUAL_SOURCE_ID -> ensureUserSource()
+        else -> subscriptions.firstOrNull { it.id == id }?.let { LibraryTarget(it.id, it.name) }
+    }
 
     /**
      * Library is also the chooser for the offline Marble Freedom engine. Freedom rows are
@@ -254,14 +297,16 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     private fun freedomLibraryProfiles(): List<ProxyProfile> =
         ServerlessFreedomEngine.profiles(settings, iranMode)
 
+    // MARBLE_MANUAL_SOURCE_REMOVED_V123 — every stored profile belongs to a real source, so there
+    // is no longer a source whose rows can be switched out of the library.
     val libraryProfiles: List<ProxyProfile>
-        get() = (profiles.filter(::profileSourceEnabled) + freedomLibraryProfiles())
+        get() = (profiles.toList() + freedomLibraryProfiles())
             .distinctBy { it.id }
 
     // Ranking/auto-connect keeps its historical contract: generated Freedom rows are selected
     // through their own adaptive engine, never mixed into subscription benchmark waves.
     private fun enabledProfilesSnapshot(): List<ProxyProfile> =
-        profiles.filter(::profileSourceEnabled).distinctBy { it.id }
+        profiles.toList().distinctBy { it.id }
 
     /**
      * Resolve the exact Library source selected by the user.
@@ -275,11 +320,6 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
             // "All" remains the subscription test scope. Freedom has a dedicated source chip
             // and a separate adaptive check, so it cannot poison a TCP/TUN wave with host="".
             "all" -> available
-            "manual" -> if (settings.manualSourceEnabled) {
-                available.filter { it.subscriptionId == "manual" }
-            } else {
-                emptyList()
-            }
             ServerlessFreedomEngine.SOURCE_ID -> freedomLibraryProfiles()
             else -> {
                 if (subscriptions.none { it.id == sourceId }) emptyList()
@@ -290,7 +330,6 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
 
     private fun libraryScopeLabel(sourceId: String): String = when (sourceId) {
         "all" -> "All sources"
-        "manual" -> "Manual"
         ServerlessFreedomEngine.SOURCE_ID -> "Marble Freedom"
         else -> subscriptions.firstOrNull { it.id == sourceId }?.name ?: "Missing source"
     }
@@ -299,7 +338,6 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     fun refreshLibrarySource(sourceId: String) {
         when (sourceId) {
             "all" -> refreshAll()
-            "manual" -> message = "Manual source has no remote subscription to refresh"
             else -> {
                 val sub = subscriptions.firstOrNull { it.id == sourceId }
                 when {
@@ -318,7 +356,7 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         var changed = false
         for (index in profiles.indices) {
             val current = profiles[index]
-            val userOwnedBucket = current.subscriptionId == "manual" ||
+            val userOwnedBucket = current.subscriptionId == LEGACY_MANUAL_SOURCE_ID ||
                 current.subscriptionId in localIds
             if (userOwnedBucket && current.sourceManaged) {
                 profiles[index] = current.copy(sourceManaged = false)
@@ -326,6 +364,51 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
             }
         }
         if (changed) store.saveProfiles(profiles)
+    }
+
+    /**
+     * MARBLE_MANUAL_SOURCE_REMOVED_V123 — one-time repair of data written by the retired Manual
+     * pseudo-source.
+     *
+     * Older builds stored user-authored configs under the virtual id `manual` and hid them behind a
+     * Settings switch. That switch is gone, so those rows are re-homed into a real local source —
+     * they keep their identity, their measurements and their learned acceleration, and they show up
+     * in a group again. A remembered route and a persisted source filter that pointed at `manual`
+     * are re-pointed with them, so a restart lands on the same server instead of on nothing.
+     */
+    private fun migrateLegacyManualSource() {
+        val needsRepair = profiles.any { it.subscriptionId == LEGACY_MANUAL_SOURCE_ID } ||
+            selectedProfileSourceId == LEGACY_MANUAL_SOURCE_ID ||
+            librarySourceFilter == LEGACY_MANUAL_SOURCE_ID
+        if (!needsRepair) return
+
+        val target = ensureUserSource()
+        for (index in profiles.indices) {
+            val current = profiles[index]
+            if (current.subscriptionId == LEGACY_MANUAL_SOURCE_ID) {
+                profiles[index] = current.copy(
+                    subscriptionId = target.id,
+                    subscriptionName = target.name,
+                    sourceManaged = false
+                )
+            }
+        }
+        store.saveProfiles(profiles)
+
+        if (selectedProfileSourceId == LEGACY_MANUAL_SOURCE_ID) {
+            selectedProfileSourceId = target.id
+            store.setLastProfileRef(selectedProfileId, target.id)
+        }
+        if (store.librarySourceFilter() == LEGACY_MANUAL_SOURCE_ID) {
+            librarySourceFilter = normalizeLibrarySourceFilter(librarySourceFilter)
+            store.setLibrarySourceFilter(librarySourceFilter)
+        }
+        diagnostics.event(
+            "LIBRARY",
+            "legacy-manual-source-migrated",
+            "source" to target.id.take(12),
+            "name" to target.name
+        )
     }
 
     var networkSnapshot by mutableStateOf(intelligence.currentSnapshot()); private set
@@ -485,6 +568,8 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
 
     init {
         migrateLocalSourceOwnershipIfNeeded()
+        // MARBLE_MANUAL_SOURCE_REMOVED_V123 — re-home anything the retired Manual source owned.
+        migrateLegacyManualSource()
         RuntimeDiagnostics.setDebugEnabled(context, settings.debugModeEnabled)
         diagnostics.event("APP", "repository-init", "debugMode" to settings.debugModeEnabled)
         notifier.ensureChannels()
@@ -1651,11 +1736,25 @@ private fun postToMain(block: () -> Unit) {
         return "Local ${System.currentTimeMillis().toString(36).takeLast(6).uppercase()}"
     }
 
-    fun addSubscription(name: String, url: String) {
+    /**
+     * Create a remote subscription, or a local (URL-less) source when [url] is blank.
+     *
+     * MARBLE_ADD_SUBSCRIPTION_V123 — returns whether the source was really created. The add sheet
+     * used to close itself the instant the button was pressed, so every refusal (an `http://` link,
+     * a duplicate URL) dismissed the form and left the user with a toast they had already lost:
+     * "adding a subscription does not work". Callers now keep the sheet open on `false` and show
+     * the reason. A blank [name] is derived from the URL's host — a user who pastes a provider link
+     * has already named the source.
+     */
+    fun addSubscription(name: String, url: String): Boolean {
         val cleanUrl = url.trim()
         if (cleanUrl.isNotBlank() && !isHttpsSubscriptionUrl(cleanUrl)) {
-            message = "Remote subscriptions must use HTTPS • leave URL empty for a local source"
-            return
+            message = if (cleanUrl.startsWith("http://", ignoreCase = true)) {
+                "That link is plain HTTP • subscription links must start with https://"
+            } else {
+                "Remote subscriptions must use HTTPS • leave URL empty for a local source"
+            }
+            return false
         }
         if (cleanUrl.isNotBlank()) {
             val duplicate = subscriptions.firstOrNull {
@@ -1663,10 +1762,12 @@ private fun postToMain(block: () -> Unit) {
             }
             if (duplicate != null) {
                 message = "Subscription already exists • ${duplicate.name}"
-                return
+                return false
             }
         }
-        val sourceName = name.trim().ifBlank { randomSourceName() }
+        val sourceName = name.trim()
+            .ifBlank { subscriptionHostLabel(cleanUrl) }
+            .ifBlank { randomSourceName() }
         val seed = cleanUrl.ifBlank { "local:${System.nanoTime()}:${java.util.UUID.randomUUID()}" }
         val baseId = sha(seed).take(12)
         var id = baseId
@@ -1685,7 +1786,34 @@ private fun postToMain(block: () -> Unit) {
             message = "Subscription added • refreshing source"
             refresh(id)
         }
+        return true
     }
+
+    /**
+     * The subscription URL inside whatever the user pasted.
+     *
+     * MARBLE_ADD_SUBSCRIPTION_V123 — a provider link copied out of Telegram, a browser or a notes
+     * app rarely arrives alone: it comes with a title line, trailing punctuation, line breaks and
+     * sometimes angle brackets. Dropping that blob into the URL field used to leave the form
+     * permanently disabled, which read as a dead button. This returns the first URL in the text
+     * (http included, so the HTTPS refusal can name the real reason); with no URL present the
+     * trimmed text comes back untouched so the field shows what was actually pasted.
+     */
+    fun extractSubscriptionUrl(pasted: String): String {
+        val clean = pasted.trim()
+        if (clean.isEmpty()) return ""
+        val found = Regex("https?://[^\\s\"'<>\\[\\]{}|\\\\^`]+", RegexOption.IGNORE_CASE)
+            .find(clean)
+            ?.value
+            ?.trimEnd('.', ',', ';', ':', '!', '?', ')')
+        return found ?: clean
+    }
+
+    /** A readable source name for a subscription URL: its host without the `www.` prefix. */
+    fun subscriptionHostLabel(url: String): String =
+        runCatching { URL(url.trim()).host.removePrefix("www.") }
+            .getOrDefault("")
+            .trim()
 
     /**
      * Replace provider-managed rows atomically while preserving the live config snapshot.
@@ -1842,9 +1970,10 @@ private fun postToMain(block: () -> Unit) {
     }
 
     // MARBLE_MANUAL_IMPORT_V20
+    // MARBLE_MANUAL_SOURCE_REMOVED_V123 — a blank target means "the user's own local source".
     fun addManualProfile(
         draft: ManualConfigDraft,
-        targetSubscriptionId: String = "manual"
+        targetSubscriptionId: String = ""
     ): Boolean {
         if (busy) {
             message = "Wait for the current task before adding a manual config"
@@ -1856,11 +1985,7 @@ private fun postToMain(block: () -> Unit) {
         }
         val target = resolveLibraryTarget(targetSubscriptionId)
         if (target == null) {
-            message = if (targetSubscriptionId == "manual" && !settings.manualSourceEnabled) {
-                "Manual source is disabled • enable it in Settings → Subscriptions or select another source"
-            } else {
-                "Select one source in Servers before adding a manual config"
-            }
+            message = "Select one source in Servers before adding a manual config"
             return false
         }
         val stored = built.copy(
@@ -1960,24 +2085,57 @@ private fun postToMain(block: () -> Unit) {
                 if (decoded.isNullOrBlank()) {
                     message = "No QR code found in that image"
                 } else {
-                    importText(decoded, "QR import", targetSubscriptionId)
+                    importQrPayload(decoded, targetSubscriptionId)
                 }
             }
         }
     }
 
+    /**
+     * MARBLE_QR_CAMERA_V123 — one intake for every decoded code, however it was read.
+     *
+     * A QR code carries one of two very different things: a server share link, or a subscription
+     * URL. Deciding between them here is what makes a scanned code land in the right place — a
+     * share link becomes a node, a provider link becomes a source Marble keeps up to date — instead
+     * of a URL being parsed as though it were a dead node.
+     */
+    fun importQrPayload(payload: String, targetSubscriptionId: String) {
+        val clean = payload.trim()
+        if (clean.isBlank()) {
+            message = "That code holds no config"
+            return
+        }
+        val lines = clean.lineSequence().map(String::trim).filter(String::isNotBlank).toList()
+        val allWebUrls = lines.isNotEmpty() && lines.all {
+            it.startsWith("https://", ignoreCase = true) ||
+                it.startsWith("http://", ignoreCase = true)
+        }
+        if (!allWebUrls) {
+            importText(clean, "QR import", targetSubscriptionId)
+            return
+        }
+        if (lines.any { it.startsWith("http://", ignoreCase = true) }) {
+            message = "That code points at a plain HTTP link • subscriptions must use HTTPS"
+            return
+        }
+        val added = addSubscriptionSources(lines, "Scanned source")
+        message = if (added == 0) {
+            "That subscription is already in Servers"
+        } else {
+            "$added scanned source${if (added == 1) "" else "s"} added • refreshing"
+        }
+        if (added > 0) refreshAll()
+    }
+
     fun importText(
         text: String,
-        name: String = "Manual",
-        targetSubscriptionId: String = "manual"
+        name: String = "Imported",
+        // MARBLE_MANUAL_SOURCE_REMOVED_V123 — blank means the user's own local source.
+        targetSubscriptionId: String = ""
     ) {
         val target = resolveLibraryTarget(targetSubscriptionId)
         if (target == null) {
-            message = if (targetSubscriptionId == "manual" && !settings.manualSourceEnabled) {
-                "Manual source is disabled • enable it in Settings → Subscriptions or select another source"
-            } else {
-                "Select one source in Servers before importing configs"
-            }
+            message = "Select one source in Servers before importing configs"
             return
         }
         task("Importing into ${target.name}") {
@@ -2001,7 +2159,7 @@ private fun postToMain(block: () -> Unit) {
     }
 
     /** Smart clipboard intake used by the Library magic button. */
-    fun importClipboard(text: String, targetSubscriptionId: String = "manual") {
+    fun importClipboard(text: String, targetSubscriptionId: String = "") {
         val clean = text.trim()
         if (clean.isBlank()) {
             message = "Clipboard is empty"
@@ -2035,8 +2193,24 @@ private fun postToMain(block: () -> Unit) {
             return
         }
 
+        val added = addSubscriptionSources(lines, "Clipboard source")
+        if (added == 0) {
+            message = "Clipboard subscriptions are already in Servers"
+            return
+        }
+        message = "$added clipboard source${if (added == 1) "" else "s"} added • refreshing"
+        refreshAll()
+    }
+
+    /**
+     * Creates one subscription per distinct HTTPS URL and persists the batch.
+     *
+     * Shared by the clipboard intake and the QR intake so a provider link becomes a source — and is
+     * de-duplicated — identically however it reached the app. Returns how many were new.
+     */
+    private fun addSubscriptionSources(urls: List<String>, fallbackName: String): Int {
         var added = 0
-        lines.distinct().take(32).forEachIndexed { index, rawUrl ->
+        urls.distinct().take(32).forEachIndexed { index, rawUrl ->
             val cleanUrl = rawUrl.trim()
             if (subscriptions.any { it.url.trim().equals(cleanUrl, true) }) return@forEachIndexed
             val baseId = sha(cleanUrl).take(12)
@@ -2046,20 +2220,14 @@ private fun postToMain(block: () -> Unit) {
             val host = runCatching { URL(cleanUrl).host.removePrefix("www.") }.getOrDefault("")
             subscriptions += Subscription(
                 id = id,
-                name = host.ifBlank { "Clipboard source ${index + 1}" },
+                name = host.ifBlank { "$fallbackName ${index + 1}" },
                 url = cleanUrl,
                 updatedAt = 0L
             )
             added++
         }
-
-        if (added == 0) {
-            message = "Clipboard subscriptions are already in Servers"
-            return
-        }
-        store.saveSubscriptions(subscriptions)
-        message = "$added clipboard source${if (added == 1) "" else "s"} added • refreshing"
-        refreshAll()
+        if (added > 0) store.saveSubscriptions(subscriptions)
+        return added
     }
 
     /** Original links (or JSON fallback) for every node owned by one subscription. */
@@ -2135,36 +2303,41 @@ private fun postToMain(block: () -> Unit) {
         return true
     }
 
-    /** Make a durable Manual copy of any node, including subscription-owned nodes. */
+    /**
+     * Make a durable, user-owned copy of any node — including a subscription-owned one.
+     *
+     * MARBLE_MANUAL_SOURCE_REMOVED_V123 — the copy lands in the user's local source, which survives
+     * a provider refresh exactly as the retired Manual bucket did. Duplicating no longer needs a
+     * Settings switch turned on first; it simply works.
+     */
     fun duplicateProfile(id: String, sourceId: String? = null): Boolean {
         if (busy) {
             message = "Wait for the current background task before duplicating a server"
-            return false
-        }
-        if (!settings.manualSourceEnabled) {
-            message = "Manual source is disabled • enable it in Settings → Subscriptions first"
             return false
         }
         val source = profile(id, sourceId) ?: run {
             message = "Server no longer exists"
             return false
         }
+        val target = ensureUserSource()
         val newId = sha("${source.id}:${System.nanoTime()}:${profiles.size}").take(12)
         var name = "${source.name} • copy"
         var n = 2
-        while (profiles.any { it.name.equals(name, true) && it.subscriptionId == "manual" }) {
+        while (profiles.any {
+                it.name.equals(name, true) && it.subscriptionId == target.id
+            }) {
             name = "${source.name} • copy $n"
             n++
         }
         profiles += source.copy(
             id = newId,
             name = name,
-            subscriptionId = "manual",
-            subscriptionName = "Manual",
+            subscriptionId = target.id,
+            subscriptionName = target.name,
             sourceManaged = false
         )
         store.saveProfiles(profiles)
-        message = "Manual copy created • $name"
+        message = "Copy created in ${target.name} • $name"
         return true
     }
 
@@ -2306,7 +2479,6 @@ private fun postToMain(block: () -> Unit) {
             message = when (targetSourceId) {
                 ServerlessFreedomEngine.SOURCE_ID ->
                     "Marble Freedom is generated locally • servers cannot be moved into it"
-                "manual" -> "Manual source is disabled • enable it in Settings → Subscriptions first"
                 else -> "Select one server source before moving a server"
             }
             return false
@@ -2429,7 +2601,7 @@ private fun postToMain(block: () -> Unit) {
         return doomedIds.size
     }
 
-    /** Reassigns a profile to another subscription bucket (or "manual") so nodes can move between library sources. */
+    /** The route Marble resumes: the last profile the user connected, when it still exists. */
     fun lastProfile(): ProxyProfile? {
         if (settings.serverlessModeEnabled) return serverlessProfile()
         val id = store.lastProfileId()
@@ -2493,7 +2665,7 @@ private fun postToMain(block: () -> Unit) {
     ) {
         val available = enabledProfilesSnapshot()
         if (available.isEmpty()) {
-            message = "No enabled servers • select a source or enable Manual source"
+            message = "No servers yet • add or import one in Servers"
             return
         }
         val remembered = lastProfile()

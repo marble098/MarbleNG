@@ -92,6 +92,61 @@ class RouteProbeTest {
     }
 
     @Test
+    fun busyboxSeqSpellingCountsAsReplies() {
+        // busybox prints `seq=`, iputils and toybox print `icmp_seq=`; both are one reply each.
+        val output = """
+            PING 1.1.1.1 (1.1.1.1): 56 data bytes
+            64 bytes from 1.1.1.1: seq=0 ttl=57 time=31.2 ms
+            64 bytes from 1.1.1.1: seq=1 ttl=57 time=29.8 ms
+
+            --- 1.1.1.1 ping statistics ---
+            2 packets transmitted, 2 packets received, 0% packet loss
+            round-trip min/avg/max = 29.800/30.500/31.200 ms
+        """.trimIndent()
+
+        val sample = RouteProbe.parseIcmpOutput(output, requestedCount = 2)
+
+        assertEquals(100, sample.successPercent)
+        assertEquals(2, sample.samples)
+        assertEquals(31.2, sample.latencyMs, 0.1)
+    }
+
+    @Test
+    fun statisticsTableNeverCountsAsAReply() {
+        // MARBLE_ICMP_REPLY_ANCHOR_V123 — the tally line ends with `time 3008ms`. It must not be
+        // read as a fifth reply, which is what silently halved every reported loss figure.
+        val output = """
+            PING 1.1.1.1 (1.1.1.1) 56(84) bytes of data.
+            64 bytes from 1.1.1.1: icmp_seq=1 ttl=57 time=44.0 ms
+
+            --- 1.1.1.1 ping statistics ---
+            4 packets transmitted, 1 received, 75% packet loss, time 3008ms
+            rtt min/avg/max/mdev = 44.000/44.000/44.000/0.000 ms
+        """.trimIndent()
+
+        val sample = RouteProbe.parseIcmpOutput(output, requestedCount = 4)
+
+        assertEquals(25, sample.successPercent)
+        assertEquals(1, sample.samples)
+        assertEquals(4, sample.attempts)
+        assertEquals(44.0, sample.latencyMs, 0.1)
+    }
+
+    @Test
+    fun subMillisecondReplyIsKept() {
+        // A LAN echo can round below a millisecond; iputils then prints `time<1 ms`.
+        val output = """
+            64 bytes from 192.168.1.1: icmp_seq=1 ttl=64 time<1 ms
+            64 bytes from 192.168.1.1: icmp_seq=2 ttl=64 time=1.40 ms
+        """.trimIndent()
+
+        val sample = RouteProbe.parseIcmpOutput(output, requestedCount = 2)
+
+        assertEquals(2, sample.samples)
+        assertEquals(1.4, sample.latencyMs, 0.1)
+    }
+
+    @Test
     fun rejectsImplausibleReplyTimes() {
         val output = """
             PING 1.1.1.1 (1.1.1.1) 56(84) bytes of data.

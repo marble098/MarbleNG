@@ -25,6 +25,11 @@ import kotlin.math.roundToInt
  *    replies is reported, so one slow/duplicated reply can never drag the number up, and a binary
  *    whose summary layout differs between Android releases still works. ICMP is the only method
  *    that can report true packet loss for the underlay path.
+ *  - **ICMP loss is the binary's own tally.** MARBLE_ICMP_REPLY_ANCHOR_V123 — a reply is only a
+ *    reply when its line carries a sequence counter (`icmp_seq=` / busybox `seq=`), because the
+ *    statistics line ends with `…, time 3008ms` and used to be counted as one extra multi-second
+ *    reply on every single batch. The success rate now comes from `transmitted/received` when the
+ *    binary prints it, so 3 lost echoes out of 4 read as 25 % — not 100 %.
  *  - **TCP connect** stops timing a candidate the moment *its own* SYN is answered. The previous
  *    clock kept running through the earlier family candidates, so a node whose first answer
  *    family was black-holed was billed the timeout of the dead family plus the live connect.
@@ -142,12 +147,37 @@ object RouteProbe {
     // ICMP echo ping (/system/bin/ping)
     // ------------------------------------------------------------------------------------------
 
-    /** Individual reply lines look like `64 bytes from 1.1.1.1: icmp_seq=1 ttl=57 time=12.3 ms`. */
-    private val ICMP_REPLY_TIME = Regex("time[= <]+([0-9]+(?:\\.[0-9]+)?)\\s*ms", RegexOption.IGNORE_CASE)
+    /**
+     * What proves a line is one echo *reply* rather than the batch's statistics table.
+     *
+     * MARBLE_ICMP_REPLY_ANCHOR_V123 — the old parser matched any `time <n> ms`, and the
+     * statistics line ends with exactly that (`4 packets transmitted, 4 received, 0% packet loss,
+     * time 3005ms`). Every batch was therefore credited with one extra 3-second "reply": loss
+     * reported 25-75 % instead of the truth, and a fully dropped batch looked reachable. A reply
+     * line always carries a sequence counter, so that counter is the anchor:
+     * `icmp_seq=` on iputils/toybox, `seq=` on busybox.
+     */
+    private val ICMP_REPLY_MARKER = Regex("(?:icmp_)?seq\\s*=", RegexOption.IGNORE_CASE)
+
+    /** The RTT of one reply: `… time=12.3 ms`, or `time<1 ms` when a build rounds down. */
+    private val ICMP_REPLY_TIME =
+        Regex("time\\s*[=<]\\s*([0-9]+(?:\\.[0-9]+)?)\\s*ms", RegexOption.IGNORE_CASE)
 
     /** The stock binary's own summary: `rtt min/avg/max/mdev = 41.3/41.9/42.6/0.5 ms`. */
     private val ICMP_SUMMARY =
         Regex("=\\s*[0-9.]+/([0-9.]+)/[0-9.]+(?:/[0-9.]+)?\\s*ms", RegexOption.IGNORE_CASE)
+
+    /**
+     * The binary's own tally: `4 packets transmitted, 2 received, 50% packet loss, time 3004ms`.
+     * busybox repeats the noun (`2 packets received`), so the second noun is optional.
+     */
+    private val ICMP_STATISTICS = Regex(
+        "([0-9]+)\\s+packets?\\s+transmitted,\\s+([0-9]+)\\s+(?:packets?\\s+)?received",
+        RegexOption.IGNORE_CASE
+    )
+
+    /** Anything at or above this is a timeout artifact, not a round trip. */
+    private const val PLAUSIBLE_REPLY_MS = 10_000.0
 
     /**
      * One ICMP echo batch through the system binary.
@@ -221,39 +251,54 @@ object RouteProbe {
      * Per-reply `time=… ms` lines win because they are present in every Android ping build and
      * let us report the *median* (plus real jitter) instead of trusting the summary average; the
      * `rtt min/avg/max/mdev` summary covers the rare build that prints only the table.
+     *
+     * MARBLE_ICMP_REPLY_ANCHOR_V123 — only lines carrying a sequence counter count as replies, and
+     * the loss percentage is the binary's own `transmitted/received` tally when it prints one, so a
+     * statistics line can no longer masquerade as a reply and quietly halve the reported loss.
      */
     internal fun parseIcmpOutput(output: String, requestedCount: Int): Sample {
         val count = requestedCount.coerceAtLeast(1)
         // Per-reply times: one binary's summary layout differs across Android releases, but every
-        // reply line prints `time=… ms`.
-        val replies = ICMP_REPLY_TIME
-            .findAll(output)
-            .mapNotNull { it.groupValues.getOrNull(1)?.toDoubleOrNull() }
-            .filter { it.isFinite() && it > 0.0 && it < 10_000.0 }
-            .toList()
+        // reply line prints its sequence counter and its `time=… ms`.
+        val replies = output.lineSequence()
+            .filter { line -> ICMP_REPLY_MARKER.containsMatchIn(line) }
+            .mapNotNull { line ->
+                ICMP_REPLY_TIME.find(line)?.groupValues?.getOrNull(1)?.toDoubleOrNull()
+            }
+            .filter { it.isFinite() && it > 0.0 && it < PLAUSIBLE_REPLY_MS }
             .sorted()
+            .toList()
 
         val summaryAverage = ICMP_SUMMARY.find(output)
             ?.groupValues?.getOrNull(1)
             ?.toDoubleOrNull()
-            ?.takeIf { it > 0.0 && it < 10_000.0 }
+            ?.takeIf { it > 0.0 && it < PLAUSIBLE_REPLY_MS }
+
+        // The binary's own tally is the authority on how many echoes were sent and answered.
+        val tally = ICMP_STATISTICS.find(output)?.groupValues
+        val transmitted = tally?.getOrNull(1)?.toIntOrNull()?.takeIf { it > 0 }
+        val received = tally?.getOrNull(2)?.toIntOrNull()?.takeIf { it >= 0 }
+        val attempts = transmitted ?: count
 
         val times = when {
             replies.isNotEmpty() -> replies
             // Fallback for the rare build that prints only the summary table.
             summaryAverage != null -> listOf(summaryAverage)
-            else -> return Sample(0, UNREACHABLE, attempts = count)
+            else -> return Sample(0, UNREACHABLE, attempts = attempts)
         }
 
         val median = times[times.size / 2]
-        val jitter = medianDelta(times)
-        val success = (times.size * 100.0 / count).roundToInt().coerceIn(0, 100)
+        val success = when {
+            received != null && transmitted != null -> received * 100.0 / transmitted
+            else -> times.size * 100.0 / attempts
+        }.roundToInt().coerceIn(0, 100)
+
         return Sample(
             successPercent = success,
             latencyMs = median,
             samples = times.size,
-            attempts = count,
-            jitterMs = jitter
+            attempts = attempts,
+            jitterMs = medianDelta(times)
         )
     }
 

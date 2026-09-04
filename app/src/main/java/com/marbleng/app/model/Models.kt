@@ -385,8 +385,9 @@ data class AppSettings(
     /** Check GitHub Releases whenever MarbleNG returns to the foreground. */
     val appUpdateCheckEnabled: Boolean = true,
     val subscriptionRefreshHours: Int = 12,
-    /** Virtual Manual source is opt-in and disabled by default. */
-    val manualSourceEnabled: Boolean = false,
+    // MARBLE_MANUAL_SOURCE_REMOVED_V123 — the virtual "Manual" pseudo-source is gone. User-authored
+    // configs (paste, QR, file, hand-built node, chain, duplicate) live in a real local source, so
+    // there is nothing left to opt into and no switch that can hide a user's own servers.
 
     // Home composition. Hiding a card does not disable its underlying engine.
     val homeShowSummaryMetrics: Boolean = false,

@@ -197,7 +197,8 @@ class AppStore(context: Context) {
         // MARBLE_APP_UPDATE_STORE_V102
         appUpdateCheckEnabled = prefs.getBoolean("appUpdateCheckEnabled", true),
         subscriptionRefreshHours = prefs.getInt("subscriptionRefreshHours", 12),
-        manualSourceEnabled = prefs.getBoolean("manualSourceEnabled", false),
+        // MARBLE_MANUAL_SOURCE_REMOVED_V123 — the old "manualSourceEnabled" key is deliberately no
+        // longer read; the Manual pseudo-source it gated does not exist any more.
         homeShowSummaryMetrics = prefs.getBoolean("homeShowSummaryMetrics", false),
         homeShowIranMode = prefs.getBoolean("homeShowIranMode", true),
         homeShowQuickActions = prefs.getBoolean("homeShowQuickActions", true),
@@ -412,7 +413,7 @@ class AppStore(context: Context) {
         .putBoolean("subscriptionAutoRefresh", s.subscriptionAutoRefresh)
         .putBoolean("appUpdateCheckEnabled", s.appUpdateCheckEnabled)
         .putInt("subscriptionRefreshHours", s.subscriptionRefreshHours)
-        .putBoolean("manualSourceEnabled", s.manualSourceEnabled)
+        // MARBLE_MANUAL_SOURCE_REMOVED_V123 — nothing to persist for the retired Manual source.
         .putBoolean("homeShowSummaryMetrics", s.homeShowSummaryMetrics)
         .putBoolean("homeShowIranMode", s.homeShowIranMode)
         .putBoolean("homeShowQuickActions", s.homeShowQuickActions)

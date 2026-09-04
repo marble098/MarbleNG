@@ -168,6 +168,8 @@ internal fun HomeStyleSignature(
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val heroHeight = (maxHeight * .34f).coerceIn(220.dp, 330.dp)
+        // MARBLE_SLIDE_BAND_PLACEMENT_V123 — the band gets the bottom shelf, not the studio slot.
+        val bandShown = rememberConnectBandShown()
 
         // The studio backdrop owns the whole viewport.
         Canvas(Modifier.matchParentSize()) {
@@ -179,7 +181,8 @@ internal fun HomeStyleSignature(
                 .fillMaxSize()
                 .verticalScroll(scrollState)
                 .padding(horizontal = 18.dp)
-                .padding(top = 8.dp, bottom = bottomClearance),
+                .padding(top = 8.dp)
+                .padding(bottom = bottomClearance + if (bandShown) MarbleSlideBandReserve else 0.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
@@ -221,20 +224,22 @@ internal fun HomeStyleSignature(
                         connected = evidence.connected
                     )
                 }
-                HomePowerControl(
-                    evidence = evidence,
-                    tone = tone,
-                    onToggle = actions.onToggleConnection,
-                    flavor = HomeFlavor.PRO,
-                    diameter = 168.dp,
-                    haloBrush = Brush.radialGradient(
-                        listOf(
-                            accent.copy(alpha = .30f + .12f * breathe),
-                            accent.copy(alpha = .10f),
-                            Color.Transparent
+                if (!bandShown) {
+                    HomePowerControl(
+                        evidence = evidence,
+                        tone = tone,
+                        onToggle = actions.onToggleConnection,
+                        flavor = HomeFlavor.PRO,
+                        diameter = 168.dp,
+                        haloBrush = Brush.radialGradient(
+                            listOf(
+                                accent.copy(alpha = .30f + .12f * breathe),
+                                accent.copy(alpha = .10f),
+                                Color.Transparent
+                            )
                         )
                     )
-                )
+                }
             }
 
             Text(
@@ -252,6 +257,17 @@ internal fun HomeStyleSignature(
             HomeSessionStats(evidence, tone, actions, HomeFlavor.PRO, Modifier.fillMaxWidth())
 
             Spacer(Modifier.height(2.dp))
+        }
+
+        if (bandShown) {
+            HomeConnectBandDock(
+                evidence = evidence,
+                tone = tone,
+                flavor = HomeFlavor.PRO,
+                onToggle = actions.onToggleConnection,
+                bottomClearance = bottomClearance,
+                modifier = Modifier.align(Alignment.BottomCenter)
+            )
         }
     }
 }

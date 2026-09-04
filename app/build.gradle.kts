@@ -288,9 +288,17 @@ dependencies {
     implementation("com.github.mwiede:jsch:2.28.6")
 
     // MARBLE_QR_IMPORT_V121 — QR import decodes a picture the user already has (screenshot,
-    // photo, saved image) with ZXing's pure-Java core. No camera dependency, no CAMERA
-    // permission and no extra runtime: the image arrives through the system picker.
+    // photo, saved image) with ZXing's pure-Java core.
     implementation("com.google.zxing:core:3.5.3")
+
+    // MARBLE_QR_CAMERA_V123 — the second QR intake: a live in-app scanner. CameraX only owns the
+    // preview surface and the frame pipe; decoding is still the ZXing core above, so no ML model is
+    // downloaded, nothing is uploaded and the code stays offline-first. The CAMERA permission is
+    // asked for at the moment the user opens the scanner and nothing else in the app uses it.
+    implementation("androidx.camera:camera-core:1.6.2")
+    implementation("androidx.camera:camera-camera2:1.6.2")
+    implementation("androidx.camera:camera-lifecycle:1.6.2")
+    implementation("androidx.camera:camera-view:1.6.2")
 
     testImplementation("junit:junit:4.13.2")
 
