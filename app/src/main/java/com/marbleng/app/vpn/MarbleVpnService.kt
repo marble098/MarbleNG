@@ -2201,9 +2201,10 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                 jitterMs = jitterMs.toDouble(),
                 triggerMs = highThreshold.toDouble(),
                 releaseMs = releaseThreshold.toDouble(),
-                p95IpdvMs = link.p95IpdvMs,
-                lossPercent = link.lossPercent,
-                spikePercent = link.spikePercent
+                // LinkQualityEstimator.Summary reports whole milliseconds/percent as Int.
+                p95IpdvMs = link.p95IpdvMs.toDouble(),
+                lossPercent = link.lossPercent.toDouble(),
+                spikePercent = link.spikePercent.toDouble()
             ),
             state = jitterControlState,
             nowMs = System.currentTimeMillis()
