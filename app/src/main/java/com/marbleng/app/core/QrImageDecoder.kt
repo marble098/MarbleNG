@@ -31,7 +31,7 @@ object QrImageDecoder {
     fun decode(context: Context, uri: Uri): String? {
         val bitmap = loadBitmap(context, uri) ?: return null
         return try {
-            decode(bitmap)
+            decodePixelsOf(bitmap)
         } finally {
             bitmap.recycle()
         }
@@ -62,10 +62,6 @@ object QrImageDecoder {
         } finally {
             if (working !== frame) working.recycle()
         }
-    }
-
-    private fun decode(bitmap: Bitmap): String? {
-        return decodePixelsOf(bitmap)
     }
 
     private fun decodePixelsOf(bitmap: Bitmap): String? {
