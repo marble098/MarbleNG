@@ -31,6 +31,29 @@ object XrayConfigHardener {
     private val muxProtocols = setOf("shadowsocks", "trojan", "vless", "vmess")
 
     /**
+     * MARBLE_ENDPOINT_BOOTSTRAP_V132 — independent literal resolvers for the node hostname.
+     *
+     * The endpoint hostname is resolved by the `https+local://` servers below and by NOTHING
+     * else: Xray builds "list 1" from every server whose `domains` field matches the query and
+     * `disableFallbackIfMatch` then suppresses "list 2" completely, so the proxy-routed DoH
+     * chain is invisible to the endpoint lookup (it has to be — that chain needs the endpoint
+     * IP before it can carry anything).
+     *
+     * Two literals are therefore a single point of failure, and the two defaults (1.1.1.1 and
+     * 8.8.8.8) are the two most-filtered public resolvers on censored networks. When both were
+     * unreachable Xray never dialled the node at all, while the very same server connected and
+     * pinged in another client that lets the OS or the remote resolve the name. The user's own
+     * resolvers keep first place; these independent literals follow them.
+     */
+    private val STOCK_BOOTSTRAP_DNS_IPS = listOf(
+        "1.1.1.1", "8.8.8.8", "9.9.9.9", "1.0.0.1", "8.8.4.4", "149.112.112.112"
+    )
+    private val STOCK_BOOTSTRAP_DNS_IPV6 = listOf(
+        "2606:4700:4700::1111", "2001:4860:4860::8888", "2620:fe::fe"
+    )
+    private const val MAX_BOOTSTRAP_DNS_IPS = 6
+
+    /**
      * RFC1918/RFC6598/RFC3927/link-local/loopback/multicast ranges. Kept as literal CIDRs so
      * "private bypass" never depends on geoip.dat: Xray matches these without any geo database.
      */
@@ -766,7 +789,9 @@ object XrayConfigHardener {
             null
         }
 
-        val bootstrapIps = if (isFreedomProfile && settings.freedomDnsPrimaryIp.isNotBlank()) {
+        val configuredBootstrapIps = if (
+            isFreedomProfile && settings.freedomDnsPrimaryIp.isNotBlank()
+        ) {
             listOf(settings.freedomDnsPrimaryIp, settings.freedomDnsSecondaryIp)
                 .map { it.trim() }
                 .filter { it.isNotBlank() }
@@ -777,6 +802,17 @@ object XrayConfigHardener {
                 .filter { it.isNotBlank() }
                 .distinct()
         }
+        // MARBLE_ENDPOINT_BOOTSTRAP_V132 — user intent first, then independent literals in both
+        // families so a single filtered address can never orphan the node hostname. IPv6
+        // literals only join when the underlay can actually carry IPv6; handing a v4-only
+        // network a v6 resolver would just add entries that can never dial.
+        val bootstrapIps = (
+            configuredBootstrapIps +
+                STOCK_BOOTSTRAP_DNS_IPS +
+                (if (underlayHasIpv6) STOCK_BOOTSTRAP_DNS_IPV6 else emptyList())
+            )
+            .distinct()
+            .take(MAX_BOOTSTRAP_DNS_IPS)
 
         val stockCloudflareDoh = "https://1.1.1.1/dns-query"
         val stockGoogleDoh = "https://8.8.8.8/dns-query"
@@ -818,14 +854,17 @@ object XrayConfigHardener {
         val dnsServers = JSONArray()
 
         if (bootstrapDomains.isNotEmpty()) {
-            bootstrapIps.forEach { ip ->
+            bootstrapIps.forEachIndexed { index, ip ->
+                // A single blocked literal must not burn the whole endpoint budget: the first
+                // (user-chosen) resolver keeps its tight budget and every later candidate gets a
+                // little more room before the next one is tried.
                 dnsServers.put(
                     JSONObject()
                         .put("address", "https+local://${dnsHostLiteral(ip)}/dns-query")
                         .put("domains", JSONArray(bootstrapDomains.map { "full:$it" }))
                         .put("skipFallback", true)
                         .put("queryStrategy", queryStrategy)
-                        .put("timeoutMs", 2500)
+                        .put("timeoutMs", if (index == 0) 2_500 else 3_000)
                 )
             }
         }

@@ -282,6 +282,24 @@ fun Aether2026App(
     // status banner and the floating connect button all read this exact evidence + action set.
     val deck = rememberDeckEvidence(repo)
     val deckCopyIp = rememberCopyIpAction(repo, deck.evidence.ip)
+
+    // MARBLE_HOME_REDESIGN_V132 — the Home shortcut deck brings the two import entries a user
+    // reaches for most (paste and QR) onto the connection surface, so adding a route no longer
+    // requires a detour through the Servers tab. Both land in exactly the same smart intake the
+    // Servers page uses, so a pasted subscription can never become a bogus proxy profile.
+    val deckClipboard = LocalClipboardManager.current
+    val deckQrImageLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri != null) repo.importQrImage(uri, libraryIntakeTarget(repo))
+    }
+    val deckQrCameraLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.TakePicturePreview()
+    ) { bitmap ->
+        if (bitmap != null) repo.importQrBitmap(bitmap, libraryIntakeTarget(repo))
+    }
+    var deckQrSourceOpen by remember { mutableStateOf(false) }
+
     val deckActions = HomeActions(
         onToggleConnection = {
             with(deck.evidence) {
@@ -311,7 +329,16 @@ fun Aether2026App(
             settingsFocus = "Routing"
             goToTab(SpatialTab.SETTINGS.ordinal)
         },
-        onTests = { goToTab(SpatialTab.SETTINGS.ordinal) }
+        onTests = { goToTab(SpatialTab.SETTINGS.ordinal) },
+        onPasteImport = {
+            val pasted = deckClipboard.getText()?.text.orEmpty()
+            if (pasted.isBlank()) {
+                repo.setRuntimeMessage("Clipboard is empty")
+            } else {
+                repo.importClipboard(pasted, libraryIntakeTarget(repo))
+            }
+        },
+        onQrImport = { deckQrSourceOpen = true }
     )
 
     Scaffold(
@@ -453,6 +480,53 @@ fun Aether2026App(
                         .statusBarsPadding()
                         .padding(horizontal = 14.dp)
                         .widthIn(max = 560.dp)
+                )
+            }
+
+            // MARBLE_HOME_REDESIGN_V132 — the QR entry of the Home shortcut deck. One entry,
+            // two ways in: a live camera scan or a saved image.
+            if (deckQrSourceOpen) {
+                AlertDialog(
+                    onDismissRequest = { deckQrSourceOpen = false },
+                    containerColor = Aether.VoidElevated,
+                    shape = ServersCardShape,
+                    title = { Text(trx("Add from QR code"), color = Aether.Ink) },
+                    text = {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            CyberButton(
+                                label = "Scan with camera",
+                                color = Aether.Emerald,
+                                variant = PrismButtonVariant.Primary,
+                                icon = HomeIcon.CAMERA,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                deckQrSourceOpen = false
+                                deckQrCameraLauncher.launch(null)
+                            }
+                            CyberButton(
+                                label = "Pick from gallery",
+                                color = Aether.Amethyst,
+                                icon = HomeIcon.QR,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                deckQrSourceOpen = false
+                                deckQrImageLauncher.launch("image/*")
+                            }
+                            Text(
+                                trx("Point the camera at the code, or pick a screenshot or photo."),
+                                color = Aether.InkFaint,
+                                style = MaterialTheme.typography.labelSmall
+                            )
+                        }
+                    },
+                    confirmButton = {},
+                    dismissButton = {
+                        MarbleDialogAction(
+                            label = "Cancel",
+                            tone = Aether.InkMuted,
+                            onClick = { deckQrSourceOpen = false }
+                        )
+                    }
                 )
             }
 
@@ -839,14 +913,21 @@ private fun FloatingSpatialDock(
     onSelect: (SpatialTab) -> Unit
 ) {
     // MARBLE_BOTTOM_DOCK_UNIFIED_FLOATING_V661 — unified floating navigation lineage
-    // MARBLE_FLOATING_DOCK_V117 / MARBLE_DOCK_SMOOTH_ANIMATION_V130 / MARBLE_DOCK_IDLE_BREATHE_V131
+    // MARBLE_FLOATING_DOCK_V117 / MARBLE_DOCK_STILL_BAR_V132
     //  - rendered as an overlay (no Scaffold bottomBar slot), so pages scroll under it
     //  - never flush with the screen edge: side margins + a lift above the gesture bar
-    //  - smooth animated transitions between idle (opaque) and scrolling (glass) states:
-    //    surface color, highlight alpha, border alpha, elevation and subtle scale all
-    //    animate with a spring for a fluid, professional feel
-    //  - while idle the bar and the selected pill keep one very slow breathing wave, so the
-    //    navigation never looks frozen between gestures
+    //  - THE BAR ITSELF NEVER MOVES. Earlier revisions breathed the whole dock up and down on
+    //    the shared frame clock and shrank it by 1.5% during a page turn. On a real screen that
+    //    read as a wobble under the thumb, so every ambient transform is gone: no translation,
+    //    no scale, no selection pulsation. Only colour, shadow depth and the selection wash
+    //    animate, and all three use overshoot-free tweens.
+    //  - MARBLE_DOCK_NIGHT_FLASH_V132 — the glass sheen used to be written as
+    //    `Aether.BarGlassHighlight.copy(alpha = highlightAlpha)`. `copy(alpha = …)` REPLACES the
+    //    token's own alpha with the raw 0..1 animation value, so the moment a tab was tapped
+    //    (a tap sets `pagerState.isScrollInProgress`, which switches glass on) the AMOLED bar
+    //    was painted with a full-opacity ice-blue #ADD8E6 band across its top — the "the bar
+    //    turns white when I tap it in night/AMOLED" bug. Every overlay now scales the token's
+    //    own alpha, exactly like the surface and the border already did.
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -856,29 +937,20 @@ private fun FloatingSpatialDock(
     ) {
         val barShape = RoundedCornerShape(28.dp)
 
-        // MARBLE_DOCK_SMOOTH_ANIMATION_V130 — every visual property animates smoothly between
-        // the idle (opaque) and scrolling (glass) states using spring animations.
         val glassFraction by animateFloatAsState(
             targetValue = if (glass) 1f else 0f,
-            animationSpec = androidx.compose.animation.core.spring(
-                dampingRatio = 0.78f,
-                stiffness = 260f
-            ),
+            animationSpec = MarbleMotionSpecs.DockFloat,
             label = "dock-glass-fraction"
         )
 
         val idleSurface = Aether.VoidElevated
         val glassSurface = Aether.BarGlass
-        // Smoothly interpolate the surface alpha between opaque and glass
         val surfaceAlpha by animateFloatAsState(
             targetValue = if (glass) 0.78f else 1f,
-            animationSpec = androidx.compose.animation.core.spring(
-                dampingRatio = 0.80f,
-                stiffness = 240f
-            ),
+            animationSpec = MarbleMotionSpecs.DockFloat,
             label = "dock-surface-alpha"
         )
-        // MARBLE_DOCK_SCROLL_ONLY_V123 — the idle↔glass surface is a continuous colour blend,
+        // MARBLE_DOCK_SCROLL_ONLY_V123 — the idle<->glass surface is a continuous colour blend,
         // not a 50% switch: the old midpoint jump was visible as a hard snap while the spring
         // was still animating. Both endpoints and everything between now interpolate smoothly.
         val dockSurface = lerp(
@@ -889,62 +961,29 @@ private fun FloatingSpatialDock(
 
         val highlightAlpha by animateFloatAsState(
             targetValue = if (glass) 1f else 0f,
-            animationSpec = androidx.compose.animation.core.spring(
-                dampingRatio = 0.82f,
-                stiffness = 240f
-            ),
+            animationSpec = MarbleMotionSpecs.DockFloat,
             label = "dock-highlight"
         )
 
+        // Depth is the only thing that changes size-wise while scrolling, and a shadow does not
+        // move the surface itself, so the bar keeps its exact footprint on the screen.
         val dockElevation by animateDpAsState(
             targetValue = if (glass) 20.dp else 14.dp,
-            animationSpec = androidx.compose.animation.core.spring(
-                dampingRatio = 0.80f,
-                stiffness = 220f
-            ),
+            animationSpec = MarbleMotionSpecs.DockDp,
             label = "dock-elevation"
-        )
-
-        val dockScale by animateFloatAsState(
-            targetValue = if (glass) 0.985f else 1f,
-            animationSpec = androidx.compose.animation.core.spring(
-                dampingRatio = 0.75f,
-                stiffness = 200f
-            ),
-            label = "dock-scale"
         )
 
         val borderAlpha by animateFloatAsState(
             targetValue = if (glass) 0.85f else 1f,
-            animationSpec = androidx.compose.animation.core.spring(
-                dampingRatio = 0.82f,
-                stiffness = 240f
-            ),
+            animationSpec = MarbleMotionSpecs.DockFloat,
             label = "dock-border-alpha"
         )
-
-        // MARBLE_DOCK_IDLE_BREATHE_V131 — the dock is never a frozen slab. While it rests
-        // (not glass), the whole bar takes one very slow breathing lift (~±1 dp) and the selected
-        // pill softly brightens, so navigation still feels alive between gestures. The wave is
-        // gated by (1 - glassFraction), so the moment a scroll starts the breathing fades out
-        // with the same spring as the glass settle instead of snapping.
-        val motion = MarbleMotion.current
-        val idleLift = if (motion.motionEnabled) {
-            (1f - glassFraction) * (motion.breathe(5_200) - .5f) * 2f
-        } else 0f
 
         Row(
             modifier = Modifier
                 .widthIn(max = 420.dp)
                 .fillMaxWidth()
                 .height(62.dp)
-                .graphicsLayer {
-                    scaleX = dockScale
-                    scaleY = dockScale
-                    // Slow idle breathing lift while at rest; the glass settle's own translation
-                    // is expressed through dockElevation/dockScale, this adds the gentle idle wave.
-                    translationY = idleLift * 1.4f * density
-                }
                 .shadow(
                     elevation = dockElevation,
                     shape = barShape,
@@ -958,7 +997,9 @@ private fun FloatingSpatialDock(
                         Modifier.background(
                             Brush.verticalGradient(
                                 listOf(
-                                    Aether.BarGlassHighlight.copy(alpha = highlightAlpha),
+                                    Aether.BarGlassHighlight.copy(
+                                        alpha = Aether.BarGlassHighlight.alpha * highlightAlpha
+                                    ),
                                     Color.Transparent
                                 )
                             )
@@ -978,27 +1019,16 @@ private fun FloatingSpatialDock(
                 val active = item == selected
                 val glassShape = RoundedCornerShape(20.dp)
 
-                val activeScale by animateFloatAsState(
-                    targetValue = if (active) 1.03f else 1f,
-                    animationSpec = MarbleMotionSpecs.ResponseFloat,
-                    label = "dock-scale-${item.name}"
-                )
+                // MARBLE_DOCK_STABLE_COLOR_V115 — a spring interpolates past its target on the
+                // way in (underdamped) and that overshoot flashed the pill/text on every click
+                // and theme switch, so the chrome animates with a short overshoot-free tween.
                 val inkTone by animateColorAsState(
                     targetValue = if (active) Aether.Cyan else Aether.InkMuted,
                     animationSpec = MarbleMotionSpecs.DockColor,
                     label = "dock-tone-${item.name}"
                 )
-                // The selected pill breathes very softly while the bar is idle — a living
-                // selection wash that never moves the layout.
-                val pillBreath = if (active && !glass && motion.motionEnabled) {
-                    motion.breathe(3_800)
-                } else 0f
                 val pillBg by animateColorAsState(
-                    targetValue = if (active) {
-                        Aether.Cyan.copy(alpha = 0.15f + .05f * pillBreath)
-                    } else {
-                        Color.Transparent
-                    },
+                    targetValue = if (active) Aether.Cyan.copy(alpha = .16f) else Color.Transparent,
                     animationSpec = MarbleMotionSpecs.DockColor,
                     label = "dock-pill-${item.name}"
                 )
@@ -1012,28 +1042,13 @@ private fun FloatingSpatialDock(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxHeight()
-                        .graphicsLayer {
-                            scaleX = activeScale
-                            scaleY = activeScale
-                        }
-                        // MARBLE_DOCK_SELECTED_GLOW_V123 — the active tab carries a soft electric
-                        // halo so the current destination reads instantly without a heavy fill.
-                        .then(
-                            if (active) {
-                                Modifier.shadow(
-                                    elevation = 8.dp,
-                                    shape = glassShape,
-                                    ambientColor = Aether.Cyan.copy(alpha = .16f),
-                                    spotColor = Aether.Cyan.copy(alpha = .24f)
-                                )
-                            } else Modifier
-                        )
                         .clip(glassShape)
                         .background(pillBg)
                         .border(1.dp, indicatorTone, glassShape)
                         .kineticClickable(
                             boundedShape = glassShape,
                             role = Role.Tab,
+                            pressScale = .98f,
                             showIndication = false
                         ) { onSelect(item) }
                         .semantics {
@@ -8879,12 +8894,16 @@ private fun connectButtonStyleLabel(style: ConnectButtonStyle): String = when (s
     ConnectButtonStyle.ROUND -> "Round shutter"
     ConnectButtonStyle.SLIDE -> "Slide to connect"
     ConnectButtonStyle.CLASSIC -> "Classic switch"
+    ConnectButtonStyle.STREAM -> "Stream bar"
+    ConnectButtonStyle.FLOATING -> "Floating pill"
 }
 
 private fun connectButtonStyleDetail(style: ConnectButtonStyle): String = when (style) {
     ConnectButtonStyle.ROUND -> "Large round shutter, centred in the hero (default)"
     ConnectButtonStyle.SLIDE -> "Wide slide track, docked at the hero floor"
     ConnectButtonStyle.CLASSIC -> "Classic power bar, docked under the instrument"
+    ConnectButtonStyle.STREAM -> "Full-width bar at the page floor with a light band moving right to left"
+    ConnectButtonStyle.FLOATING -> "Compact pill docked above the bottom of the page"
 }
 
 /**
@@ -8945,6 +8964,98 @@ private fun SettingsConnectButtonMotif(
                     tone.copy(alpha = .55f),
                     Offset(w * .55f, h * .46f),
                     Offset(w * .84f, h * .46f),
+                    1.4.dp.toPx(),
+                    cap = StrokeCap.Round
+                )
+                drawLine(
+                    tone.copy(alpha = .28f),
+                    Offset(0f, baseline),
+                    Offset(w, baseline),
+                    1.dp.toPx(),
+                    cap = StrokeCap.Round
+                )
+            }
+
+            ConnectButtonStyle.STREAM -> {
+                // A floor bar: full width, with the travelling band drawn as an off-centre
+                // highlight and a small arrow echoing its right-to-left direction.
+                val r = h * .26f
+                val trackTop = h * .46f - r
+                drawRoundRect(
+                    color = tone.copy(alpha = .18f),
+                    topLeft = Offset(0f, trackTop),
+                    size = Size(w, r * 2f),
+                    cornerRadius = CornerRadius(r, r)
+                )
+                drawRoundRect(
+                    color = tone.copy(alpha = .60f),
+                    topLeft = Offset(0f, trackTop),
+                    size = Size(w, r * 2f),
+                    cornerRadius = CornerRadius(r, r),
+                    style = Stroke(1.2.dp.toPx())
+                )
+                // The band, drawn mid-travel: a soft block that has entered from the right.
+                val bandWidth = w * .34f
+                val bandX = w * .58f
+                drawRoundRect(
+                    color = tone.copy(alpha = .34f),
+                    topLeft = Offset(bandX - bandWidth / 2f, trackTop),
+                    size = Size(bandWidth, r * 2f),
+                    cornerRadius = CornerRadius(r, r)
+                )
+                // Direction arrow, right to left.
+                drawLine(
+                    tone,
+                    Offset(w * .84f, h * .46f),
+                    Offset(w * .62f, h * .46f),
+                    1.6.dp.toPx(),
+                    cap = StrokeCap.Round
+                )
+                drawLine(
+                    tone,
+                    Offset(w * .62f, h * .46f),
+                    Offset(w * .69f, h * .40f),
+                    1.6.dp.toPx(),
+                    cap = StrokeCap.Round
+                )
+                drawLine(
+                    tone,
+                    Offset(w * .62f, h * .46f),
+                    Offset(w * .69f, h * .52f),
+                    1.6.dp.toPx(),
+                    cap = StrokeCap.Round
+                )
+            }
+
+            ConnectButtonStyle.FLOATING -> {
+                // A pill floating over the page floor: the dock line sits well below it.
+                val pillHeight = h * .44f
+                val pillTop = h * .34f
+                drawRoundRect(
+                    color = tone.copy(alpha = .22f),
+                    topLeft = Offset(w * .16f, pillTop),
+                    size = Size(w * .68f, pillHeight),
+                    cornerRadius = CornerRadius(pillHeight / 2f, pillHeight / 2f)
+                )
+                drawRoundRect(
+                    color = tone.copy(alpha = .70f),
+                    topLeft = Offset(w * .16f, pillTop),
+                    size = Size(w * .68f, pillHeight),
+                    cornerRadius = CornerRadius(pillHeight / 2f, pillHeight / 2f),
+                    style = Stroke(1.3.dp.toPx())
+                )
+                drawCircle(tone, pillHeight * .26f, Offset(w * .31f, pillTop + pillHeight / 2f))
+                drawLine(
+                    tone.copy(alpha = .45f),
+                    Offset(w * .44f, pillTop + pillHeight * .34f),
+                    Offset(w * .68f, pillTop + pillHeight * .34f),
+                    1.4.dp.toPx(),
+                    cap = StrokeCap.Round
+                )
+                drawLine(
+                    tone.copy(alpha = .28f),
+                    Offset(w * .44f, pillTop + pillHeight * .68f),
+                    Offset(w * .58f, pillTop + pillHeight * .68f),
                     1.4.dp.toPx(),
                     cap = StrokeCap.Round
                 )

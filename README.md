@@ -39,6 +39,16 @@ It focuses on real proxy verification, fast one-tap connection, fail-closed rout
 - Smart GitHub Release update checks.
 - Signed multi-ABI APKs built by GitHub Actions.
 
+## Connection reliability
+
+`docs/CONNECTION_ROOT_CAUSE_V132.md` documents the full trace of the connect path and the five
+defects found in it, including the two that made a healthy server fail in MarbleNG while it
+connected and pinged in another client:
+
+- a background routing-data refresh could veto every connection for minutes at a time;
+- the node hostname was resolved by two `https+local` bootstrap literals and nothing else, so two
+  filtered resolver IPs made an otherwise working server undialable.
+
 ## Main navigation
 
 MarbleNG uses three primary tabs: **Home**, **Servers**, and **Settings**.
@@ -47,7 +57,7 @@ MarbleNG uses three primary tabs: **Home**, **Servers**, and **Settings**.
 
 - Connect / Disconnect / Cancel / Reset control.
 - Exact last-route one-tap reconnect.
-- Current selected route.
+- **Only the selected route** — the one server or subscription group you chose, never a list.
 - Full TUN / local proxy state.
 - Live Ping, Jitter, and Quality.
 - Optional node / Xray / mode summary metrics.
@@ -55,10 +65,15 @@ MarbleNG uses three primary tabs: **Home**, **Servers**, and **Settings**.
 - Quick access to Rank, Servers, Privacy, and Routing.
 - Physical-network label and live upload/download activity.
 - Tunnel and kill-switch state.
-- Five connection presentations — Signature (the default professional studio), Organic, Orbit, Nebula, and Blueprint — switchable from Settings or from the style chips at the bottom of Home.
-- Signature studio extras, every layer optional from Settings: a draggable floating connect button, a status banner (Home-only or on all pages), a top-right action cluster (add server, ping grab, user-selected shortcut, overflow menu), a Home rail of your selected servers with glass / colored / plain card backgrounds.
+- Three Home presentations — Signature (the default professional studio), Cosmic orbit and Cosmic immersion — switchable from Settings.
+- Five connection controls, one product decision: the round shutter, slide-to-connect, classic power bar, a **stream bar** with a light band travelling right to left, and a **floating pill** docked above the bottom of the page. The last two are pinned to the floor of the page so the primary action is always in reach.
+- A **live ping instrument** that opens with an animation beside the connection control while the route comes up: arc gauge, current value, sparkline of the last probes — and it only ever measures the one server you are attached to.
+- A **shortcut deck** above the status banner: add server, paste, QR code and a permanent ping readout.
+- Signature studio extras, every layer optional from Settings: a draggable floating connect button, a status banner (Home-only or on all pages), a configurable corner shortcut.
 - Real connection ping: parallel HTTPS first-byte + tunnel RTT probes with a healthy-minimum ladder, so a busy edge no longer reads as "no response".
 - Seamless loop animations in every style — no visible start or end boundary.
+
+The floating bottom tab bar is completely still: no breathing, no resize, no selection pulse. Only its colour, shadow depth and selection wash animate, and all of them use overshoot-free tweens so a tap can never flash the bar.
 
 The Home title and main connection surface use a fixed layout so changing runtime status text does not move the Connect control. The status title and sentence above the Connect ring are anchored to a reserved block, so a shorter or longer sentence swaps in place instead of pulling the control up and down. Ping and uptime readouts auto-shrink and ellipsize so they never overflow their box in any style.
 

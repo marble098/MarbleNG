@@ -286,6 +286,26 @@ class XrayManager(private val context: Context) {
         val needGeoSite = requiresGeoSite(settings)
         if (!needGeoIp && !needGeoSite) return routingAssetStatus()
 
+        // MARBLE_CONNECT_ASSET_LOCK_V132 — a connect must never be gated on the geo-asset
+        // updater.
+        //
+        // The default routing policy (GEO_DIRECT + ad blocking) needs BOTH geoip.dat and
+        // geosite.dat, so the old code took the global asset lock on literally every connect.
+        // `prepareRoutingAssets()` holds that lock for two HTTPS downloads (15 s connect /
+        // 60 s read timeout each, plus a jsDelivr retry), so any routing-asset refresh running
+        // in the background turned every connect attempt during that window into
+        // `IllegalStateException: Routing assets are being updated; retry after preparation
+        // finishes` — a perfectly healthy server that answers in another client failed here
+        // with a message that named nothing the user could act on.
+        //
+        // The lock is only ever needed to WRITE an asset that is missing. When everything the
+        // selected policy needs is already on disk there is nothing to protect against, so the
+        // connect path reads the status and moves on.
+        val present = routingAssetStatus()
+        val complete =
+            (!needGeoIp || present.geoIpReady) && (!needGeoSite || present.geoSiteReady)
+        if (complete) return present
+
         val acquired = try {
             assetLock.tryLock(250L, TimeUnit.MILLISECONDS)
         } catch (_: InterruptedException) {

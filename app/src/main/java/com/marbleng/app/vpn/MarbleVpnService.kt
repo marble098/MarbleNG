@@ -2,6 +2,9 @@ package com.marbleng.app.vpn
 
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
 import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
@@ -601,9 +604,34 @@ class MarbleVpnService : VpnService() {
             .addAddress("198.18.0.1", 32)
             .addRoute("0.0.0.0", 0)
 
+        // MARBLE_UPSTREAM_PIN_LIVENESS_V132 — never pin the tunnel to a network that is gone.
+        //
+        // `setUnderlyingNetworks()` binds everything the TUN forwards to one concrete Network
+        // object. That object is captured from a ConnectivityManager callback and stays valid
+        // as a handle even after the network behind it has lost INTERNET, stalled behind a
+        // captive portal, or been handed over to another transport. Pinning it then routes the
+        // whole session into a dead end while Xray's own egress socket — the app is excluded
+        // from its own VPN, so it is NOT bound by this call — happily reaches the server over a
+        // different network. The result is the exact asymmetry users reported: the node answers
+        // and pings in another client, but the MarbleNG tunnel carries nothing.
+        //
+        // Re-check INTERNET + NOT_VPN at establish time and drop the pin when the network can
+        // no longer prove it carries traffic; Android then applies its own network selection
+        // and failover again.
         if (Build.VERSION.SDK_INT >= 22) {
-            val upstream = app.repo.intelligence.underlyingNetworks()
-            if (upstream.isNotEmpty()) runCatching { builder.setUnderlyingNetworks(upstream.toTypedArray()) }
+            val upstream = usableUpstreamNetworks(app.repo.intelligence.underlyingNetworks())
+            if (upstream.isNotEmpty()) {
+                runCatching { builder.setUnderlyingNetworks(upstream.toTypedArray()) }
+                    .onFailure {
+                        diag.error("TUN", "underlying-networks-failed", it, "session" to session)
+                    }
+                diag.event(
+                    "TUN", "underlying-networks",
+                    "session" to session,
+                    "pinned" to upstream.size,
+                    "candidates" to app.repo.intelligence.underlyingNetworks().size
+                )
+            }
         }
 
         // This resolver list is what apps use whenever the encrypted DNS hijack is not answering,
@@ -624,6 +652,24 @@ class MarbleVpnService : VpnService() {
             // user configured IPv4 DNS only. Both are literals, so no lookup is needed to reach them.
             dnsServers += "2606:4700:4700::1111"
             dnsServers += "2001:4860:4860::8888"
+        }
+
+        // MARBLE_TUN_DNS_NEVER_EMPTY_V132 — a VPN's DNS server list is a FALLBACK here: Xray
+        // hijacks port 53 itself, so these addresses only answer when the encrypted path is not
+        // in use. The old filter dropped every IPv4 resolver whenever
+        // `NetworkSnapshot.hasIpv4` was false and then REFUSED TO ESTABLISH THE TUN, so a
+        // connect fired before the intelligence callback had published link properties (or on
+        // a network whose link properties never arrive, or with both DNS fields blanked in
+        // Settings) died as a bare "VPN establish failed" before the server was ever dialled.
+        if (dnsServers.isEmpty()) {
+            dnsServers += "8.8.8.8"
+            dnsServers += "1.1.1.1"
+            diag.event(
+                "TUN", "dns-fallback-literals",
+                "session" to session,
+                "underlayIpv4" to underlay.hasIpv4,
+                "underlayIpv6" to underlay.hasIpv6
+            )
         }
 
         var dnsCount = 0
@@ -650,9 +696,22 @@ class MarbleVpnService : VpnService() {
         }.onFailure {
             diag.error("TUN", "ipv6-builder-failed", it, "session" to session)
         }
-        if (settings.identityGuardEnabled && !ipv6Ok) {
+        // MARBLE_IDENTITY_IPV6_SCOPE_V132 — Identity Guard is about EXIT stability, not about
+        // capturing IPv6. The old gate failed the connect closed whenever `addRoute("::", 0)`
+        // could not be applied, which meant an IPv4-only underlay — or a ROM that refuses the
+        // v6 route — could never connect at all while Identity Guard (on by default) was
+        // enabled. Guard the case that actually leaks: IPv6 exists on the underlay but the TUN
+        // could not capture it. When there is no IPv6 to capture there is nothing to leak.
+        if (settings.identityGuardEnabled && !ipv6Ok && underlay.hasIpv6) {
             diag.event("TUN", "identity-ipv6-fail-closed", "session" to session)
             return false
+        }
+        if (settings.identityGuardEnabled && !ipv6Ok) {
+            diag.event(
+                "TUN", "identity-ipv6-unavailable",
+                "session" to session,
+                "underlayIpv6" to underlay.hasIpv6
+            )
         }
 
         val packages = settings.splitTunnelPackages
@@ -718,6 +777,28 @@ class MarbleVpnService : VpnService() {
         app.repo.refreshIntelligenceStatus()
         updateSentinel(killSwitch = true)
         return true
+    }
+
+    /**
+     * MARBLE_UPSTREAM_PIN_LIVENESS_V132 — keep only the candidate networks that can still prove
+     * they carry Internet traffic right now, and never pin another VPN.
+     *
+     * An empty result is intentional: it leaves `setUnderlyingNetworks()` unset so Android keeps
+     * its own transport selection and failover instead of committing the session to one dead
+     * underlay.
+     */
+    private fun usableUpstreamNetworks(candidates: List<Network>): List<Network> {
+        if (candidates.isEmpty()) return emptyList()
+        val connectivity = runCatching {
+            getSystemService(ConnectivityManager::class.java)
+        }.getOrNull() ?: return emptyList()
+
+        return candidates.filter { network ->
+            val caps = runCatching { connectivity.getNetworkCapabilities(network) }.getOrNull()
+                ?: return@filter false
+            caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+        }
     }
 
     private fun runTun(

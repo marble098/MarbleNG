@@ -73,6 +73,11 @@ object MarbleMotionSpecs {
     // tween. A spring interpolates alpha beyond its target on the way in (underdamped), which
     // flashed the dock pill/text on every click and theme switch; tweens cannot overshoot.
     val DockColor: FiniteAnimationSpec<Color> = tween(180)
+    // MARBLE_DOCK_STILL_BAR_V132 — the floating dock's geometry is fixed, so its alpha and
+    // elevation channels use the same overshoot-free tween as its colours. A spring here made
+    // the bar visibly bounce/settle on every page turn.
+    val DockFloat: FiniteAnimationSpec<Float> = tween(180)
+    val DockDp: FiniteAnimationSpec<Dp> = tween(180)
     val Dp: FiniteAnimationSpec<Dp> = spring(
         dampingRatio = .74f,
         stiffness = 650f
