@@ -3111,18 +3111,31 @@ private fun postToMain(block: () -> Unit) {
         "${profile.host.trim().lowercase()}:${profile.port}"
 
     /**
-     * MARBLE_ONE_PING_V121 — the one ping of the product, confined to the selected source.
+     * MARBLE_ONE_PING_V121 / MARBLE_PING_ENGINE_V122 — the one ping of the product, confined to
+     * the selected source and run in exactly the method configured in Settings → Testing.
      *
-     * There is no longer a "quick TCP ping" that silently overrode the user's choice: this runs
-     * exactly the method configured in Settings → Testing (Smart ping by default), which is the
-     * same method the Home ping button and every other measurement in the app use. Two entry
-     * points can no longer report two different latencies for the same server.
+     * The four methods are genuinely different measurements, matching how v2rayNG, PattNG,
+     * Exclave, Hiddify and Lumen separate them:
      *
-     * Endpoint de-duplication still applies to the address-level methods (TCP / ICMP), where
-     * reachability really is a host:port property and aggregator subscriptions repeat the same
-     * endpoint dozens of times: one representative is probed and the verified result is fanned out
-     * to every config sharing that endpoint. Tunnel and Smart ping prove a *config*, so they are
-     * measured per server, exactly as ranking does.
+     *  - **Smart ping (HYBRID, default)** — the fast PattNG/v2rayNG-style real delay: the whole
+     *    source is measured in ONE native wave. The Xray cores live in-process and dial the
+     *    generate_204 target through core.Dial (no localhost SOCKS, no CLI child per node), every
+     *    node is tested concurrently (up to 128 workers), each gets 2 real HTTPS samples with a
+     *    gstatic → cloudflare automatic failover, and median RTT / jitter / loss come straight
+     *    from the samples. This is the bug-fixed smart ping: it used to spawn a temporary Xray
+     *    CLI process per server behind a 2–4 worker ceiling, so a big subscription took minutes
+     *    and frequently answered with all-failed cards.
+     *  - **Tunnel ping (TUNNEL)** — the exact runtime path: one hardened Xray CLI child per node,
+     *    verified HTTPS RTT through the real SOCKS inbound. Slower and deliberately parallelism-
+     *    capped (same-host bursts manufacture resets), but it proves the *config* end to end.
+     *  - **TCP ping** — direct TCP connect time to the endpoint, de-duplicated by host:port because
+     *    reachability is an endpoint property and aggregator subscriptions repeat endpoints.
+     *  - **ICMP ping** — one `/system/bin/ping -c N` batch per endpoint, median of the real
+     *    `time=` replies with the binary's own loss count.
+     *
+     * Endpoint de-duplication applies only to the address-level methods (TCP / ICMP): one
+     * representative is probed and the verified result fans out to every config sharing that
+     * endpoint. Smart and Tunnel ping prove a *config*, so they measure every server.
      */
     fun testSource(sourceId: String) {
         if (sourceId == ServerlessFreedomEngine.SOURCE_ID) {
@@ -3153,21 +3166,6 @@ private fun postToMain(block: () -> Unit) {
                 scoped.associateBy { it.id }.mapValues { (_, profile) -> listOf(profile) }
             }
             val representatives = groups.values.mapNotNull { it.firstOrNull() }
-            val quickSettings = settings.copy(
-                benchMode = BenchMode.CUSTOM,
-                benchCandidates = representatives.size.coerceAtLeast(1),
-                // Address-level probes are cheap, so they stay snappy; a real tunnel measurement
-                // keeps the user's own sample/timeout budget, clamped to a size that still feels
-                // like a ping rather than a full benchmark run.
-                benchSamples = if (dedupe) 1 else settings.benchSamples.coerceIn(1, 3),
-                benchTimeoutSec = if (dedupe) 2 else settings.benchTimeoutSec.coerceIn(2, 8),
-                tcpPrecheckTimeoutMs = minOf(settings.tcpPrecheckTimeoutMs, 750),
-                tcpWorkers = maxOf(settings.tcpWorkers, 24).coerceAtMost(32),
-                // The method itself is never overridden: this is the user's setting.
-                probeSpeedTest = false,
-                verifiedPerformanceTuning = false,
-                udpProbeEnabled = false
-            )
 
             fun membersFor(representative: ProxyProfile): List<ProxyProfile> =
                 if (dedupe) {
@@ -3176,33 +3174,83 @@ private fun postToMain(block: () -> Unit) {
                     listOf(representative)
                 }
 
-            fun runQuickPass(): List<BenchmarkResult> =
-                BenchmarkEngine(xray, intelligence).run(
-                    representatives,
-                    quickSettings,
-                    usePrecheck = false,
-                    onCandidates = { beginProbeBatch(scoped) },
-                    onStart = { representative ->
-                        membersFor(representative).forEach(::markProbeStart)
-                    },
-                    onResult = { representative, result ->
-                        membersFor(representative).forEach { member ->
-                            markProbeResult(
-                                member,
-                                result.copy(profileId = member.id, name = member.name)
-                            )
-                        }
+            // MARBLE_PING_ENGINE_V122 — Smart ping shares Rank's engine: the native in-process
+            // batch dialer (PattNG measureOutboundDelay architecture). One wave, every node in
+            // parallel, two verified HTTPS samples each, provider-diverse target failover.
+            val smartPing = method == ProbeMethod.HYBRID
+
+            val pingSettings = when (method) {
+                ProbeMethod.HYBRID -> settings.copy(
+                    benchMode = BenchMode.CUSTOM,
+                    benchCandidates = representatives.size.coerceAtLeast(1),
+                    benchSamples = 2,
+                    benchTimeoutSec = settings.benchTimeoutSec.coerceIn(3, 6),
+                    tcpWorkers = maxOf(settings.tcpWorkers, 64).coerceAtMost(128),
+                    probeMethod = ProbeMethod.TUNNEL,
+                    probeSpeedTest = false,
+                    verifiedPerformanceTuning = false,
+                    udpProbeEnabled = false
+                )
+                else -> settings.copy(
+                    benchMode = BenchMode.CUSTOM,
+                    benchCandidates = representatives.size.coerceAtLeast(1),
+                    // Address-level probes are cheap, so they stay snappy; a real tunnel
+                    // measurement keeps the user's own sample/timeout budget, clamped to a size
+                    // that still feels like a ping rather than a full benchmark run.
+                    benchSamples = if (dedupe) 1 else settings.benchSamples.coerceIn(1, 3),
+                    benchTimeoutSec = if (dedupe) 2 else settings.benchTimeoutSec.coerceIn(2, 8),
+                    tcpPrecheckTimeoutMs = minOf(settings.tcpPrecheckTimeoutMs, 750),
+                    tcpWorkers = maxOf(settings.tcpWorkers, 24).coerceAtMost(32),
+                    // The method itself is never overridden: this is the user's setting.
+                    probeSpeedTest = false,
+                    verifiedPerformanceTuning = false,
+                    udpProbeEnabled = false
+                )
+            }
+
+            fun runPass(passSettings: AppSettings): List<BenchmarkResult> {
+                val onCandidates: (List<ProxyProfile>) -> Unit = { beginProbeBatch(scoped) }
+                val onStart: (ProxyProfile) -> Unit = { representative ->
+                    membersFor(representative).forEach(::markProbeStart)
+                }
+                val onResult: (ProxyProfile, BenchmarkResult) -> Unit = { representative, result ->
+                    membersFor(representative).forEach { member ->
+                        markProbeResult(
+                            member,
+                            result.copy(profileId = member.id, name = member.name)
+                        )
                     }
-                ) { done, total, name ->
+                }
+                val onProgress: (Int, Int, String) -> Unit = { done, total, name ->
                     val unit = if (dedupe) "endpoints" else "servers"
                     message = "$methodLabel • $scope • $done/$total $unit • $name"
                 }
+                return if (smartPing) {
+                    PattRankEngine(
+                        context = context,
+                        xray = xray,
+                        intelligence = intelligence
+                    ).run(representatives, passSettings, onCandidates, onStart, onResult, onProgress)
+                } else {
+                    BenchmarkEngine(xray, intelligence).run(
+                        representatives,
+                        passSettings,
+                        usePrecheck = false,
+                        onCandidates = onCandidates,
+                        onStart = onStart,
+                        onResult = onResult,
+                        onProgress = onProgress
+                    )
+                }
+            }
 
             val firstStartedNs = System.nanoTime()
-            var representativeResults = runQuickPass()
+            var representativeResults = runPass(pingSettings)
             val firstElapsedMs =
                 ((System.nanoTime() - firstStartedNs) / 1_000_000L).coerceAtLeast(0L)
 
+            // A sub-350 ms all-failed pass is a radio/process warm-up artifact, not evidence:
+            // real SYN/TLS timeouts take far longer. One bounded confirmation re-run covers it.
             if (
                 representatives.size >= 4 &&
                 representativeResults.isNotEmpty() &&
@@ -3214,6 +3262,7 @@ private fun postToMain(block: () -> Unit) {
                     "ping-fast-zero-retry",
                     "source" to sourceId.take(24),
                     "scope" to scope,
+                    "method" to method.name,
                     "servers" to scoped.size,
                     "endpoints" to representatives.size,
                     "firstElapsedMs" to firstElapsedMs
@@ -3224,7 +3273,7 @@ private fun postToMain(block: () -> Unit) {
                     Thread.currentThread().interrupt()
                 }
                 if (!Thread.currentThread().isInterrupted) {
-                    representativeResults = runQuickPass()
+                    representativeResults = runPass(pingSettings)
                 }
             }
 
@@ -3246,6 +3295,7 @@ private fun postToMain(block: () -> Unit) {
                 "ping-source-finish",
                 "source" to sourceId.take(24),
                 "scope" to scope,
+                "method" to method.name,
                 "requested" to scoped.size,
                 "uniqueEndpoints" to representatives.size,
                 "tested" to expanded.size,

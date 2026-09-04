@@ -652,14 +652,29 @@ class BenchmarkEngine(
             timeoutMs = directTimeoutMs,
             settings = s
         )
+        val succeeded = sample.successPercent > 0
         return BenchmarkResult(
             profileId = p.id,
             name = p.name,
             success = sample.successPercent,
-            latencyMs = sample.latencyMs,
+            latencyMs = if (succeeded) sample.latencyMs else DEAD_LATENCY,
             bytesPerSecond = 0.0,
             score = 0.0,
-            probeKind = if (s.probeMethod == ProbeMethod.ICMP) "ICMP" else "TCP"
+            probeKind = if (s.probeMethod == ProbeMethod.ICMP) "ICMP" else "TCP",
+            // MARBLE_PING_ENGINE_V122 — direct probes now carry the same evidence shape as tunnel
+            // probes: real per-reply jitter, loss and attempt counts, so Quality and the multi-
+            // signal scorer see TCP/ICMP evidence instead of a bare latency number.
+            jitterMs = if (succeeded) sample.jitterMs else 0.0,
+            sampleCount = sample.samples,
+            p90LatencyMs = if (succeeded) sample.latencyMs else DEAD_LATENCY,
+            p95LatencyMs = if (succeeded) sample.latencyMs else DEAD_LATENCY,
+            lossPercent = (100 - sample.successPercent).toDouble(),
+            tcpHandshakeSuccessRatio = if (sample.attempts > 0) {
+                sample.samples.toDouble() / sample.attempts
+            } else {
+                0.0
+            },
+            handshakeAttempts = sample.attempts
         )
     }
 

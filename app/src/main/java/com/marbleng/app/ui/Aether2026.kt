@@ -79,6 +79,8 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -818,6 +820,11 @@ private fun FloatingSpatialDock(
     //    the current page is actively scrolling
     //  - flexible items: each button shares the row width (weight), icon + label sizes
     //    are sp/dp-scaled so they adapt to display size and font scale
+    //
+    // MARBLE_DOCK_SCROLL_V122 — every visual change between the resting and scrolling states is
+    // now animated instead of snapping: surface translucency, the top sheen, border alpha,
+    // elevation and a gentle lift/sub-scale all ride one soft spring when the user starts or
+    // stops scrolling, so the dock breathes with the page instead of flashing its material.
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -826,38 +833,90 @@ private fun FloatingSpatialDock(
         contentAlignment = Alignment.BottomCenter
     ) {
         val barShape = RoundedCornerShape(28.dp)
-        // MARBLE_DOCK_STABLE_COLOR_V115 — the dock's base material never interpolates. A theme
-        // switch can invalidate the palette twice (system bars + Compose scheme) and springing
-        // between two palettes flashed the bar on/off while switching themes. The base is now
-        // taken from the active palette directly; only the selection wash animates, with an
-        // overshoot-free tween so clicks can never overshoot the pill alpha.
+        // Resting state paints the opaque product surface (VoidElevated); active scrolling paints
+        // the translucent frosted glass so the page moving beneath the dock shines through.
         val dockSurface = if (glass) Aether.BarGlass else Aether.VoidElevated
+
+        // MARBLE_DOCK_STABLE_COLOR_V115 — the dock's base material never interpolates between
+        // palettes. A theme switch can invalidate the palette twice (system bars + Compose
+        // scheme) and springing between two palettes flashed the bar on/off while switching
+        // themes. The base is taken from the active palette directly; only the GLASS morph
+        // (translucency/sheen/border/elevation) animates, with overshoot-free motion.
+        val glassProgress by animateFloatAsState(
+            targetValue = if (glass) 1f else 0f,
+            animationSpec = spring(dampingRatio = 0.82f, stiffness = Spring.StiffnessMediumLow),
+            label = "dock-glass-progress"
+        )
+        // A slight settle: while content moves, the bar lifts a pixel and narrows a hair so the
+        // page feels like it slides underneath; it eases back when scrolling stops.
+        val dockLift by animateFloatAsState(
+            targetValue = if (glass) 3f else 0f,
+            animationSpec = spring(dampingRatio = 0.80f, stiffness = Spring.StiffnessMediumLow),
+            label = "dock-lift"
+        )
+        val dockScale by animateFloatAsState(
+            targetValue = if (glass) 0.992f else 1f,
+            animationSpec = spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMediumLow),
+            label = "dock-scale"
+        )
+        val dockElevation by animateDpAsState(
+            targetValue = if (glass) 9.dp else 16.dp,
+            animationSpec = tween(320),
+            label = "dock-elevation"
+        )
+        val sheenAlpha by animateFloatAsState(
+            targetValue = if (glass) 1f else 0f,
+            animationSpec = tween(300),
+            label = "dock-sheen"
+        )
+        val borderTone by animateColorAsState(
+            targetValue = if (glass) {
+                Aether.BarGlassBorder
+            } else {
+                Aether.BarGlassBorder.copy(alpha = (Aether.BarGlassBorder.alpha * 0.55f).coerceIn(0f, 1f))
+            },
+            animationSpec = tween(300),
+            label = "dock-border"
+        )
+
         Row(
             modifier = Modifier
+                .graphicsLayer {
+                    translationY = -dockLift.dp.toPx()
+                    scaleX = dockScale
+                    scaleY = dockScale
+                }
                 .widthIn(max = 420.dp)
                 .fillMaxWidth()
                 .height(62.dp)
                 .shadow(
-                    elevation = 14.dp,
+                    elevation = dockElevation,
                     shape = barShape,
                     ambientColor = Color.Black.copy(alpha = 0.16f),
                     spotColor = Color.Black.copy(alpha = 0.20f)
                 )
                 .clip(barShape)
-                // Resting state is an opaque product surface. Only active user scrolling exposes
-                // the page beneath the dock, so the glass treatment has a clear purpose instead
-                // of making the navigation permanently translucent.
+                // Resting state is the opaque dockSurface; scrolling cross-fades it to the
+                // translucent glass in the same draw so content underneath bleeds through smoothly
+                // instead of snapping between two materials on one frame.
                 .background(dockSurface)
+                .background(Aether.BarGlass.copy(alpha = glassProgress))
+                // The top sheen fades in with the glass instead of appearing on one frame.
                 .then(
-                    if (glass) {
+                    if (sheenAlpha > 0.01f) {
                         Modifier.background(
                             Brush.verticalGradient(
-                                listOf(Aether.BarGlassHighlight, Color.Transparent)
+                                listOf(
+                                    Aether.BarGlassHighlight.copy(
+                                        alpha = Aether.BarGlassHighlight.alpha * sheenAlpha
+                                    ),
+                                    Color.Transparent
+                                )
                             )
                         )
                     } else Modifier
                 )
-                .border(1.dp, Aether.BarGlassBorder, barShape)
+                .border(1.dp, borderTone, barShape)
                 .padding(horizontal = 8.dp, vertical = 7.dp),
             horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -2422,7 +2481,12 @@ private fun CyberDeck(
     val serverless = active?.let { ServerlessFreedomEngine.isServerless(it) }
         ?: repo.settings.serverlessModeEnabled
 
-    LaunchedEffect(Unit) { onContentScrollChanged(false) }
+    // MARBLE_DOCK_SCROLL_V122 — one hoisted scroll state for whichever Home style is showing, so
+    // the dock gets the same live scrolling signal on Home that Library and Settings send.
+    val homeScrollState = rememberScrollState()
+    LaunchedEffect(homeScrollState.isScrollInProgress) {
+        onContentScrollChanged(homeScrollState.isScrollInProgress)
+    }
     LaunchedEffect(connected, active?.id, active?.subscriptionId, endpoint) {
         if (connected && active != null && (serverless || endpoint.isNotBlank())) {
             repo.refreshServerIntel(active)
@@ -2463,7 +2527,8 @@ private fun CyberDeck(
                 evidence = evidence,
                 actions = actions,
                 bottomClearance = dockClearance(),
-                pro = pro
+                pro = pro,
+                scrollState = homeScrollState
             )
         }
 
@@ -5474,7 +5539,10 @@ private fun ServersNodeCard(
                     )
                 }
             }
-            Spacer(Modifier.width(6.dp))
+            // MARBLE_PING_CAPSULE_SPACING_V122 — the latency readout used to sit flush against the
+            // three-dot button, which read as one cramped clump. A clear gap separates the measured
+            // fact (ping) from the row action (menu) so the card breathes and the number is legible.
+            Spacer(Modifier.width(8.dp))
             ServersPingCapsule(
                 latencyMs = latency,
                 measured = measured != null,
@@ -5482,6 +5550,7 @@ private fun ServersNodeCard(
                 // "It failed" and "it was never tried" are different facts and must look different.
                 attempted = result != null && measured == null
             )
+            Spacer(Modifier.width(4.dp))
             ServersNodeMenu(
                 profile = profile,
                 repo = repo,
@@ -5536,8 +5605,10 @@ private fun ServersPingCapsule(
     }
     Box(
         modifier = Modifier
-            .widthIn(min = 62.dp)
-            .height(30.dp)
+            // MARBLE_PING_CAPSULE_SPACING_V122 — one notch smaller than the row's controls so the
+            // number reads as an annotation, not a button: 58×26 with tighter inner padding.
+            .widthIn(min = 56.dp)
+            .height(26.dp)
             .clip(ServersPillShape)
             .background(tone.copy(alpha = .12f))
             .semantics { contentDescription = spoken },
@@ -5545,28 +5616,32 @@ private fun ServersPingCapsule(
     ) {
         when {
             testing -> CircularProgressIndicator(
-                modifier = Modifier.size(14.dp),
+                modifier = Modifier.size(13.dp),
                 color = tone,
-                strokeWidth = 1.8.dp
+                strokeWidth = 1.7.dp
             )
 
             !measured -> Text(
                 if (attempted) "✕" else "—",
                 color = tone,
-                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                style = MaterialTheme.typography.labelSmall.copy(
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 11.sp
+                ),
                 maxLines = 1
             )
 
             else -> Row(
-                modifier = Modifier.padding(horizontal = 9.dp),
+                modifier = Modifier.padding(horizontal = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(3.dp)
+                horizontalArrangement = Arrangement.spacedBy(2.dp)
             ) {
                 Text(
                     "$latencyMs",
                     color = tone,
-                    style = MaterialTheme.typography.labelMedium.copy(
+                    style = MaterialTheme.typography.labelSmall.copy(
                         fontWeight = FontWeight.Bold,
+                        fontSize = 11.sp,
                         fontFeatureSettings = "tnum"
                     ),
                     maxLines = 1
@@ -5574,7 +5649,9 @@ private fun ServersPingCapsule(
                 Text(
                     trx("ms"),
                     color = tone.copy(alpha = .80f),
-                    style = MaterialTheme.typography.labelSmall,
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontSize = 9.sp
+                    ),
                     maxLines = 1
                 )
             }
@@ -9103,6 +9180,24 @@ private fun SpatialSettings(
     fun workspaceListState(tab: SettingsWorkspaceTab): LazyListState =
         workspaceListStates.getValue(tab)
 
+    // MARBLE_DOCK_SCROLL_V122 — Settings never told the dock it was scrolling: its pages own
+    // independent list states above the page switch, so aggregate them and report the union.
+    // Only the visible page can actually be scrolling, but reading every state costs nothing.
+    val settingsScrolling by remember {
+        derivedStateOf {
+            hubListState.isScrollInProgress ||
+                themeListState.isScrollInProgress ||
+                homeStyleListState.isScrollInProgress ||
+                typefaceListState.isScrollInProgress ||
+                languageListState.isScrollInProgress ||
+                informationListState.isScrollInProgress ||
+                workspaceListStates.values.any { it.isScrollInProgress }
+        }
+    }
+    LaunchedEffect(settingsScrolling) {
+        onContentScrollChanged(settingsScrolling)
+    }
+
     // Persist the current page so the next visit restores it.
     LaunchedEffect(page) {
         repo.rememberSettingsPage(page)
@@ -11142,10 +11237,10 @@ private fun probeMethodTitle(method: ProbeMethod): String = when (method) {
 }
 
 private fun probeMethodDetail(method: ProbeMethod): String = when (method) {
-    ProbeMethod.HYBRID -> "Recommended • quick gate, then a real test"
-    ProbeMethod.TUNNEL -> "Slowest, proves the route end to end"
-    ProbeMethod.TCP -> "Fastest, only reaches the server address"
-    ProbeMethod.ICMP -> "Classic ping, bypasses the proxy"
+    ProbeMethod.HYBRID -> "Recommended • fast real HTTPS delay, all servers in one wave"
+    ProbeMethod.TUNNEL -> "Slowest, proves the exact runtime route end to end"
+    ProbeMethod.TCP -> "Fast direct connect time, only reaches the server address"
+    ProbeMethod.ICMP -> "Classic echo ping, bypasses the proxy and is often blocked"
 }
 
 private fun probeMethodShortLabel(method: ProbeMethod): String = when (method) {

@@ -28,6 +28,7 @@ package com.marbleng.app.ui
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -149,7 +150,9 @@ internal fun HomeStyleSignature(
     evidence: HomeEvidence,
     actions: HomeActions,
     pro: HomeProContext,
-    bottomClearance: Dp
+    bottomClearance: Dp,
+    // MARBLE_DOCK_SCROLL_V122 — hoisted by the deck so the bottom dock sees the Home scroll.
+    scrollState: ScrollState = rememberScrollState()
 ) {
     val accent = signatureAccentColor(pro.accent)
     val tone = signatureStatusTone(evidence, pro.accent)
@@ -174,7 +177,7 @@ internal fun HomeStyleSignature(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(scrollState)
                 .padding(horizontal = 18.dp)
                 .padding(top = 8.dp, bottom = bottomClearance),
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -269,17 +272,18 @@ private fun DrawScope.drawSignatureBackdrop(
     val w = size.width
     val h = size.height
 
-    // MARBLE_HOME_GRADIENTS_V116 — the brand wash is now a three-stop gradient: the accent's own
-    // hue across the top, a companion colour through the middle and a second companion at the
-    // floor, so the studio reads as a rich gradient instead of one quiet grey-blue veil.
+    // MARBLE_HOME_GRADIENTS_V116 / MARBLE_ENERGETIC_GRADIENTS_V122 — the brand wash is a
+    // three-stop gradient: the accent's own hue across the top, a companion colour through the
+    // middle and a second companion at the floor, so the studio reads as a rich vivid gradient
+    // instead of one quiet grey-blue veil. V122 lifts the stops so the field carries real energy.
     val companionA = aura.getOrNull(0) ?: accent
     val companionB = aura.getOrNull(1) ?: accent
     drawRect(
         Brush.verticalGradient(
             listOf(
-                accent.copy(alpha = .11f + .04f * breathe),
-                companionA.copy(alpha = .055f),
-                companionB.copy(alpha = .085f)
+                accent.copy(alpha = .17f + .05f * breathe),
+                companionA.copy(alpha = .095f),
+                companionB.copy(alpha = .13f)
             )
         )
     )
@@ -289,7 +293,11 @@ private fun DrawScope.drawSignatureBackdrop(
     val hero = Offset(w * .5f, h * .26f)
     drawCircle(
         brush = Brush.radialGradient(
-            listOf(accent.copy(alpha = .16f + .06f * breathe), Color.Transparent),
+            listOf(
+                accent.copy(alpha = .26f + .07f * breathe),
+                accent.copy(alpha = .10f),
+                Color.Transparent
+            ),
             center = hero,
             radius = w * .80f
         ),
@@ -298,7 +306,11 @@ private fun DrawScope.drawSignatureBackdrop(
     )
     drawCircle(
         brush = Brush.radialGradient(
-            listOf(companionA.copy(alpha = .12f + .04f * breathe), Color.Transparent),
+            listOf(
+                companionA.copy(alpha = .20f + .05f * breathe),
+                companionA.copy(alpha = .07f),
+                Color.Transparent
+            ),
             center = Offset(w * .10f, h * .72f),
             radius = w * .58f
         ),
@@ -307,7 +319,11 @@ private fun DrawScope.drawSignatureBackdrop(
     )
     drawCircle(
         brush = Brush.radialGradient(
-            listOf(companionB.copy(alpha = .10f + .03f * breathe), Color.Transparent),
+            listOf(
+                companionB.copy(alpha = .17f + .04f * breathe),
+                companionB.copy(alpha = .06f),
+                Color.Transparent
+            ),
             center = Offset(w * .90f, h * .86f),
             radius = w * .52f
         ),

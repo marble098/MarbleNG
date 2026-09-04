@@ -25,6 +25,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -2321,7 +2322,8 @@ private fun formatBps(bps: Long): String = when {
 internal fun HomeStyleCosmicOrbit(
     evidence: HomeEvidence,
     actions: HomeActions,
-    bottomClearance: Dp
+    bottomClearance: Dp,
+    scrollState: ScrollState = rememberScrollState()
 ) {
     val tone = styleStateTone(HomeFlavor.ORBIT, evidence)
     val gold = Color(0xFFE7C36B)
@@ -2351,7 +2353,7 @@ internal fun HomeStyleCosmicOrbit(
             Column(
                 modifier = Modifier
                     .weight(1f)
-                    .verticalScroll(rememberScrollState()),
+                    .verticalScroll(scrollState),
                 verticalArrangement = Arrangement.spacedBy(11.dp)
             ) {
                 PrismPanel(
@@ -2617,7 +2619,8 @@ private fun DrawScope.drawSpeedGraph(tone: Color, gold: Color, phase: Float, dow
 internal fun HomeStyleCosmicImmersion(
     evidence: HomeEvidence,
     actions: HomeActions,
-    bottomClearance: Dp
+    bottomClearance: Dp,
+    scrollState: ScrollState = rememberScrollState()
 ) {
     val tone = styleStateTone(HomeFlavor.NEBULA, evidence)
     val cyan = Color(0xFF57E0FF)
@@ -2641,7 +2644,7 @@ internal fun HomeStyleCosmicImmersion(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(scrollState)
                 .padding(horizontal = 20.dp)
                 .padding(top = 16.dp, bottom = bottomClearance),
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -2856,7 +2859,9 @@ internal fun HomeStyleSurface(
     evidence: HomeEvidence,
     actions: HomeActions,
     bottomClearance: Dp,
-    pro: HomeProContext? = null
+    pro: HomeProContext? = null,
+    // MARBLE_DOCK_SCROLL_V122 — hoisted by the deck so the bottom dock sees the Home scroll.
+    scrollState: ScrollState = rememberScrollState()
 ) {
     when (style) {
         HomeStyle.PRO -> HomeStyleSignature(
@@ -2868,10 +2873,21 @@ internal fun HomeStyleSurface(
                 shortcut = ProShortcut.LIBRARY,
                 accent = ProAccent.ELECTRIC
             ),
-            bottomClearance = bottomClearance
+            bottomClearance = bottomClearance,
+            scrollState = scrollState
         )
-        HomeStyle.COSMIC_ORBIT -> HomeStyleCosmicOrbit(evidence, actions, bottomClearance)
-        HomeStyle.COSMIC_IMMERSION -> HomeStyleCosmicImmersion(evidence, actions, bottomClearance)
+        HomeStyle.COSMIC_ORBIT -> HomeStyleCosmicOrbit(
+            evidence,
+            actions,
+            bottomClearance,
+            scrollState = scrollState
+        )
+        HomeStyle.COSMIC_IMMERSION -> HomeStyleCosmicImmersion(
+            evidence,
+            actions,
+            bottomClearance,
+            scrollState = scrollState
+        )
     }
 }
 

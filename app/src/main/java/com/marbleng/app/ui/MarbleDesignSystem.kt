@@ -118,19 +118,22 @@ internal fun marbleMetricTone(band: MarbleMetricBand): Color = when (band) {
 }
 
 /**
- * MARBLE_HOME_GRADIENTS_V116 — the page-wide ambient field now belongs to the selected Home style
- * instead of one grey-blue wash: every flavor gets its own professional multi-colour gradient
+ * MARBLE_HOME_GRADIENTS_V116 / MARBLE_ENERGETIC_GRADIENTS_V122 — the page-wide ambient field
+ * belongs to the selected Home style. Every flavor gets its own vivid multi-colour identity
  * (electric/violet/ice for Signature, gold/azure/magenta for Cosmic Orbit and amethyst/cyan/emerald
- * for Cosmic Immersion), layered softly so cards stay readable while the viewport never reads as
- * grey.
+ * for Cosmic Immersion).
+ *
+ * V122 removes the grey wash that dominated the old backdrop: the neutral dot grid is gone, the
+ * diagonal field now runs five saturated stops across the whole viewport, and three brighter
+ * halos plus a bottom aurora glow carry real energy while staying behind the cards — the field
+ * peaks near the screen edges where there is no content to wash out.
  */
 @Composable
 internal fun PrismBackdrop(
     modifier: Modifier = Modifier,
     flavor: HomeFlavor = HomeFlavor.PRO
 ) {
-    val base=Aether.Void
-    val dot=Aether.InkFaint
+    val base = Aether.Void
     // Palette: [primary, secondary, tertiary] of the flavor's own multi-colour identity.
     val primary: Color
     val secondary: Color
@@ -156,79 +159,105 @@ internal fun PrismBackdrop(
     Canvas(modifier) {
         drawRect(base)
 
-        // One diagonal multi-stop wash ties the three hues together; a wash alone stays grey-ish,
-        // so the three halos below are the actual colour story.
+        // The energetic diagonal field: five vivid stops sweep corner to corner. Alphas are
+        // deliberately stronger than the old wash, and no stop is neutral grey.
         drawRect(
             brush = Brush.linearGradient(
                 colors = listOf(
-                    primary.copy(alpha=.075f),
-                    secondary.copy(alpha=.050f),
-                    tertiary.copy(alpha=.038f)
+                    primary.copy(alpha = .16f),
+                    secondary.copy(alpha = .12f),
+                    tertiary.copy(alpha = .10f),
+                    secondary.copy(alpha = .13f),
+                    primary.copy(alpha = .15f)
                 ),
-                start = Offset(0f, size.height * .12f),
-                end = Offset(size.width, size.height * .92f)
+                start = Offset(-size.width * .08f, size.height * .02f),
+                end = Offset(size.width * 1.08f, size.height * .98f)
             )
         )
 
-        val primaryCenter=Offset(size.width*.86f,size.height*.06f)
+        // Primary halo — top-right, the brightest source of light.
+        val primaryCenter = Offset(size.width * .88f, size.height * .02f)
         drawCircle(
-            brush=Brush.radialGradient(
-                colors=listOf(
-                    primary.copy(alpha=.16f),
-                    primary.copy(alpha=.055f),
+            brush = Brush.radialGradient(
+                colors = listOf(
+                    primary.copy(alpha = .30f),
+                    primary.copy(alpha = .13f),
+                    primary.copy(alpha = .04f),
                     Color.Transparent
                 ),
-                center=primaryCenter,
-                radius=size.width*.74f
+                center = primaryCenter,
+                radius = size.width * .82f
             ),
-            radius=size.width*.74f,
-            center=primaryCenter
+            radius = size.width * .82f,
+            center = primaryCenter
         )
 
-        val secondaryCenter=Offset(size.width*.05f,size.height*.46f)
+        // Secondary halo — left edge, deep and saturated.
+        val secondaryCenter = Offset(size.width * .02f, size.height * .44f)
         drawCircle(
-            brush=Brush.radialGradient(
-                colors=listOf(
-                    secondary.copy(alpha=.14f),
-                    secondary.copy(alpha=.045f),
+            brush = Brush.radialGradient(
+                colors = listOf(
+                    secondary.copy(alpha = .26f),
+                    secondary.copy(alpha = .11f),
+                    secondary.copy(alpha = .035f),
                     Color.Transparent
                 ),
-                center=secondaryCenter,
-                radius=size.width*.68f
+                center = secondaryCenter,
+                radius = size.width * .76f
             ),
-            radius=size.width*.68f,
-            center=secondaryCenter
+            radius = size.width * .76f,
+            center = secondaryCenter
         )
 
-        val tertiaryCenter=Offset(size.width*.82f,size.height*.90f)
+        // Tertiary aurora — bottom, a two-hue glow that lifts the lower third where the dock
+        // floats: the dock's own glass reads colour instead of black/grey behind it.
+        val tertiaryCenter = Offset(size.width * .78f, size.height * 1.02f)
         drawCircle(
-            brush=Brush.radialGradient(
-                colors=listOf(
-                    tertiary.copy(alpha=.12f),
-                    tertiary.copy(alpha=.035f),
+            brush = Brush.radialGradient(
+                colors = listOf(
+                    tertiary.copy(alpha = .24f),
+                    tertiary.copy(alpha = .10f),
+                    tertiary.copy(alpha = .03f),
                     Color.Transparent
                 ),
-                center=tertiaryCenter,
-                radius=size.width*.58f
+                center = tertiaryCenter,
+                radius = size.width * .72f
             ),
-            radius=size.width*.58f,
-            center=tertiaryCenter
+            radius = size.width * .72f,
+            center = tertiaryCenter
+        )
+        val bottomMixer = Offset(size.width * .16f, size.height * 1.04f)
+        drawCircle(
+            brush = Brush.radialGradient(
+                colors = listOf(
+                    secondary.copy(alpha = .18f),
+                    secondary.copy(alpha = .07f),
+                    Color.Transparent
+                ),
+                center = bottomMixer,
+                radius = size.width * .60f
+            ),
+            radius = size.width * .60f,
+            center = bottomMixer
         )
 
-        val step=30.dp.toPx()
-        val radius=.72.dp.toPx()
-        var y=step*.5f
-        while(y<size.height) {
-            var x=step*.5f
-            while(x<size.width) {
+        // Flavour-tinted micro-dot texture. The dots used to be neutral ink, which is what made
+        // the field read as grey at a distance; tinting them with the primary hue keeps the
+        // texture while contributing colour instead of washing it out.
+        val step = 34.dp.toPx()
+        val dotRadius = .8.dp.toPx()
+        var y = step * .5f
+        while (y < size.height) {
+            var x = step * .5f
+            while (x < size.width) {
                 drawCircle(
-                    color=dot.copy(alpha=.038f),
-                    radius=radius,
-                    center=Offset(x,y)
+                    color = primary.copy(alpha = .055f),
+                    radius = dotRadius,
+                    center = Offset(x, y)
                 )
-                x+=step
+                x += step
             }
-            y+=step
+            y += step
         }
     }
 }

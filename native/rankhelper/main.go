@@ -215,7 +215,10 @@ func marbleProbeTarget(client *http.Client, target string, timeout time.Duration
 }
 func measure(job Job, primaryURL, fallbackURL string, timeout time.Duration) Event {
     inst,err:=newInstance(job.Config);if err!=nil{return Event{Event:"result",ID:job.ID,Error:compactError(err)}};defer inst.Close()
-    transport:=&http.Transport{TLSHandshakeTimeout:minDuration(timeout,6*time.Second),DisableKeepAlives:false,MaxIdleConns:2,MaxIdleConnsPerHost:2,IdleConnTimeout:10*time.Second,
+    // MARBLE_PING_ENGINE_V122 — ResponseHeaderTimeout bounds the whole request (dial through the
+    // Xray instance + TLS + first response byte), so a half-open tunnel can never burn the full
+    // batch deadline; DisableCompression keeps the 204 body empty like v2rayNG's URL test.
+    transport:=&http.Transport{TLSHandshakeTimeout:minDuration(timeout,6*time.Second),ResponseHeaderTimeout:timeout,DisableKeepAlives:false,DisableCompression:true,MaxIdleConns:2,MaxIdleConnsPerHost:2,IdleConnTimeout:10*time.Second,
         DialContext:func(ctx context.Context,network,addr string)(net.Conn,error){dest,err:=corenet.ParseDestination(fmt.Sprintf("%s:%s",network,addr));if err!=nil{return nil,err};return core.Dial(ctx,inst,dest)}}
     defer transport.CloseIdleConnections();client:=&http.Client{Transport:transport};target:=primaryURL
     samples,attempts,firstErr:=marbleProbeTarget(client,primaryURL,timeout)
