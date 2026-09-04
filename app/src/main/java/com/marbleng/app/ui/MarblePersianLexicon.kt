@@ -92,6 +92,14 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Large round shutter, centred in the hero (default)" to "دکمهٔ گرد بزرگ، در مرکز بخش اصلی (پیش‌فرض)",
     "Wide slide track, docked at the hero floor" to "نوار کشویی پهن، در کف بخش اصلی",
     "Classic power bar, docked under the instrument" to "نوار قدرت کلاسیک، زیر ابزار اصلی",
+    // ------------------------------------------------------------------ MARBLE_CONNECT_BUTTON_STYLES_V132
+    "Stream bar" to "نوار جریان",
+    "Floating pill" to "دکمهٔ شناور",
+    "Full-width bar at the page floor with a light band moving right to left" to
+        "نوار تمام‌عرض در پایین صفحه با نوری که از راست به چپ حرکت می‌کند",
+    "Compact pill docked above the bottom of the page" to
+        "دکمه‌ای جمع‌وجور و ثابت در پایین صفحه",
+    "One control for every Home style" to "یک دکمه برای همه استایل‌های خانه",
     "Floating" to "شناور",
     "Core" to "هسته",
     "Pulse" to "ضربان",

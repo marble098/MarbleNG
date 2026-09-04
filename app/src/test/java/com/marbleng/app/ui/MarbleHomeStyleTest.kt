@@ -31,6 +31,52 @@ class MarbleHomeStyleTest {
     }
 
     @Test
+    fun everyPersistedConnectButtonStyleRoundTrips() {
+        ConnectButtonStyle.entries.forEach { style ->
+            assertEquals(style, parseConnectButtonStyle(style.id))
+            assertEquals(style, parseConnectButtonStyle(style.id.uppercase()))
+        }
+    }
+
+    @Test
+    fun unknownConnectButtonStyleFallsBackToTheRoundShutter() {
+        assertEquals(ConnectButtonStyle.ROUND, parseConnectButtonStyle(""))
+        assertEquals(ConnectButtonStyle.ROUND, parseConnectButtonStyle("marquee"))
+    }
+
+    @Test
+    fun everyConnectButtonStyleOwnsExactlyOnePlacement() {
+        val zones = ConnectButtonStyle.entries.associateWith(::connectControlZone)
+        assertEquals(
+            "two silhouettes must never compete for the same spot",
+            ConnectButtonStyle.entries.size,
+            zones.values.distinct().size
+        )
+        assertEquals(ConnectControlZone.HERO_CENTER, zones[ConnectButtonStyle.ROUND])
+        assertEquals(ConnectControlZone.HERO_FLOOR, zones[ConnectButtonStyle.SLIDE])
+        assertEquals(ConnectControlZone.POWER_DOCK, zones[ConnectButtonStyle.CLASSIC])
+        assertEquals(ConnectControlZone.PAGE_FLOOR, zones[ConnectButtonStyle.STREAM])
+        assertEquals(ConnectControlZone.PAGE_PILL, zones[ConnectButtonStyle.FLOATING])
+    }
+
+    @Test
+    fun onlyTheDockedSilhouettesLeaveTheHero() {
+        assertEquals(
+            listOf(ConnectButtonStyle.STREAM, ConnectButtonStyle.FLOATING),
+            ConnectButtonStyle.entries.filter { connectControlZone(it).isPageDocked() }
+        )
+        // The three hero placements stay exactly where the classic presentations expect them.
+        assertEquals(
+            emptyList<ConnectButtonStyle>(),
+            listOf(
+                ConnectButtonStyle.ROUND,
+                ConnectButtonStyle.SLIDE,
+                ConnectButtonStyle.CLASSIC
+            ).filter { connectControlZone(it).isPageDocked() }
+        )
+    }
+
+    @Test
     fun unknownHomeStyleFallsBackToTheDefaultPresentation() {
         // MARBLE_SIGNATURE_HOME_V112 — the Signature studio is the product default, so an
         // unknown/legacy persisted value lands on it rather than on a classic style.
@@ -111,11 +157,12 @@ class MarbleHomeStyleTest {
         }
     }
 
-    // MARBLE_CONNECT_BUTTON_V121 — exactly three connection controls, the round shutter default,
-    // and every retired silhouette id resolves to it instead of an unknown state.
+    // MARBLE_CONNECT_BUTTON_V121 / MARBLE_CONNECT_BUTTON_STYLES_V132 — five connection controls
+    // (three in the hero, two docked at the page floor), the round shutter default, and every
+    // retired silhouette id resolves to it instead of an unknown state.
     @Test
     fun connectButtonStylesRoundTripAndRetiredOnesFallBack() {
-        assertEquals(3, ConnectButtonStyle.entries.size)
+        assertEquals(5, ConnectButtonStyle.entries.size)
         ConnectButtonStyle.entries.forEach { style ->
             assertEquals(style, parseConnectButtonStyle(style.id))
             assertEquals(style, parseConnectButtonStyle(style.id.uppercase()))

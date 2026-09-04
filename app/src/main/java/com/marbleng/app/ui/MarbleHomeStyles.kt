@@ -171,7 +171,11 @@ internal data class HomeActions(
     val onRank: () -> Unit = {},
     val onPrivacy: () -> Unit = {},
     val onRouting: () -> Unit = {},
-    val onTests: () -> Unit = {}
+    val onTests: () -> Unit = {},
+    // MARBLE_HOME_REDESIGN_V132 — the Home shortcut deck. Both are safe no-ops in the classic
+    // presentations, which never render the deck that calls them.
+    val onPasteImport: () -> Unit = {},
+    val onQrImport: () -> Unit = {}
 )
 
 /**
@@ -490,7 +494,9 @@ internal fun HomeStatHintSlot(
 internal enum class HomeGlyph {
     POWER, CHECK, RESET, COPY, REFRESH, MORE, PULSE, CLOCK, LIBRARY,
     // MARBLE_SIGNATURE_HOME_V112 — corner-action glyphs for the Signature studio.
-    PLUS, BOLT
+    PLUS, BOLT,
+    // MARBLE_HOME_REDESIGN_V132 — the Home shortcut deck: paste an import and scan a QR code.
+    PASTE, QR
 }
 
 @Composable
@@ -614,6 +620,48 @@ internal fun HomeGlyphIcon(glyph: HomeGlyph, color: Color, modifier: Modifier = 
                 color,
                 style = line
             )
+            HomeGlyph.PASTE -> {
+                // A clipboard: the sheet behind the board, drawn as one continuous outline.
+                drawRoundRect(
+                    color = color,
+                    topLeft = Offset(w * .16f, h * .14f),
+                    size = Size(w * .68f, h * .72f),
+                    cornerRadius = CornerRadius(w * .12f),
+                    style = line
+                )
+                drawRoundRect(
+                    color = color,
+                    topLeft = Offset(w * .36f, h * .06f),
+                    size = Size(w * .28f, h * .16f),
+                    cornerRadius = CornerRadius(w * .06f),
+                    style = line
+                )
+                drawLine(color, Offset(w * .30f, h * .42f), Offset(w * .70f, h * .42f), stroke, StrokeCap.Round)
+                drawLine(color, Offset(w * .30f, h * .58f), Offset(w * .58f, h * .58f), stroke, StrokeCap.Round)
+            }
+            HomeGlyph.QR -> {
+                // Three finder squares plus a sparse data field: unmistakably a QR code at 17 dp.
+                val finder = w * .22f
+                val thick = stroke * 1.05f
+                listOf(
+                    Offset(w * .16f, h * .16f),
+                    Offset(w * .62f, h * .16f),
+                    Offset(w * .16f, h * .62f)
+                ).forEach { origin ->
+                    drawRoundRect(
+                        color = color,
+                        topLeft = origin,
+                        size = Size(finder, finder),
+                        cornerRadius = CornerRadius(w * .05f),
+                        style = Stroke(width = thick, cap = StrokeCap.Round, join = StrokeJoin.Round)
+                    )
+                }
+                drawLine(color, Offset(w * .62f, h * .68f), Offset(w * .84f, h * .68f), thick, StrokeCap.Round)
+                drawLine(color, Offset(w * .68f, h * .62f), Offset(w * .68f, h * .84f), thick, StrokeCap.Round)
+                drawLine(color, Offset(w * .46f, h * .16f), Offset(w * .46f, h * .30f), thick, StrokeCap.Round)
+                drawLine(color, Offset(w * .46f, h * .62f), Offset(w * .46f, h * .84f), thick, StrokeCap.Round)
+                drawLine(color, Offset(w * .16f, h * .46f), Offset(w * .30f, h * .46f), thick, StrokeCap.Round)
+            }
         }
     }
 }
@@ -1838,25 +1886,6 @@ internal fun HomePowerControl(
 internal val LocalConnectButtonStyle = compositionLocalOf { ConnectButtonStyle.ROUND }
 
 /**
- * MARBLE_CONNECT_PLACEMENT_V123 — every silhouette owns its own zone in a Home presentation.
- *
- * The three controls are three physically different metaphors, so they never share one spot:
- *
- *  - [ConnectButtonStyle.ROUND]   the round shutter is the focal instrument → centred in the hero;
- *  - [ConnectButtonStyle.SLIDE]   the wide drag track is a console floor bar → docked at the hero
- *    floor, low and full width, with settle room underneath the drag travel;
- *  - [ConnectButtonStyle.CLASSIC] the rectangular power bar is a piece of hardware → docks below
- *    the hero in its own slim power-deck capsule, clear of the orbiting artwork.
- */
-internal enum class ConnectControlZone { HERO_CENTER, HERO_FLOOR, POWER_DOCK }
-
-internal fun connectControlZone(style: ConnectButtonStyle): ConnectControlZone = when (style) {
-    ConnectButtonStyle.ROUND -> ConnectControlZone.HERO_CENTER
-    ConnectButtonStyle.SLIDE -> ConnectControlZone.HERO_FLOOR
-    ConnectButtonStyle.CLASSIC -> ConnectControlZone.POWER_DOCK
-}
-
-/**
  * MARBLE_CONNECT_PLACEMENT_V123 — the chrome behind the docked classic power bar. A slim ambient
  * capsule in the presentation's own tone, so the rectangular switch reads as a deliberately
  * docked instrument instead of a floating rectangle between the artwork and the status copy.
@@ -1953,12 +1982,35 @@ internal fun MarbleConnectionButton(
             modifier = modifier,
             width = (diameter * 1.55f).coerceIn(200.dp, 280.dp)
         )
+
+        // MARBLE_CONNECT_BUTTON_STYLES_V132 — the two bottom-docked silhouettes. Both are
+        // full-bleed by nature, so they take the caller's modifier and never a derived width.
+        ConnectButtonStyle.STREAM -> ConnectButtonStream(
+            evidence = evidence,
+            animatedTone = animatedTone,
+            armed = armed,
+            onToggle = onToggle,
+            modifier = modifier
+        )
+
+        ConnectButtonStyle.FLOATING -> ConnectButtonFloating(
+            evidence = evidence,
+            animatedTone = animatedTone,
+            armed = armed,
+            onToggle = onToggle,
+            modifier = modifier
+        )
     }
 }
 
-/** The action word under (or inside) every silhouette. Only the text and its colour change. */
+/**
+ * The action word under (or inside) every silhouette. Only the text and its colour change.
+ *
+ * MARBLE_CONNECT_BUTTON_STYLES_V132 — shared by every silhouette, including the two docked ones
+ * that live in MarbleHomeStudio.kt, so it is module-visible rather than file-private.
+ */
 @Composable
-private fun ConnectButtonCaption(
+internal fun ConnectButtonCaption(
     evidence: HomeEvidence,
     tone: Color,
     modifier: Modifier = Modifier
@@ -2086,8 +2138,12 @@ private fun ConnectButtonRound(
     }
 }
 
-/** The glyph in the middle of every silhouette: protected, blocked or armed. */
-private fun connectButtonGlyph(evidence: HomeEvidence): HomeGlyph = when {
+/**
+ * The glyph in the middle of every silhouette: protected, blocked or armed.
+ *
+ * MARBLE_CONNECT_BUTTON_STYLES_V132 — shared with the docked silhouettes in MarbleHomeStudio.kt.
+ */
+internal fun connectButtonGlyph(evidence: HomeEvidence): HomeGlyph = when {
     evidence.connected -> HomeGlyph.CHECK
     evidence.blocked -> HomeGlyph.RESET
     else -> HomeGlyph.POWER
@@ -2472,6 +2528,9 @@ internal fun HomeStyleCosmicOrbit(
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
+                    // MARBLE_HOME_LIVE_PING_V132 — the live instrument opens directly under the
+                    // control, in its own reserved row, so the hero geometry never changes.
+                    HomeLivePingSlab(evidence, actions, tone, Modifier.fillMaxWidth())
                     HomeStatusHeadline(evidence, tone, align = TextAlign.Start)
                     HomeIdentityBlock(evidence, tone, HomeFlavor.ORBIT, Modifier.fillMaxWidth())
                 }
@@ -2745,6 +2804,10 @@ internal fun HomeStyleCosmicImmersion(
                     skyClearance + when (zone) {
                         ConnectControlZone.HERO_FLOOR -> 56.dp
                         ConnectControlZone.POWER_DOCK -> 26.dp
+                        // The docked silhouettes are pinned to the floor of the page by the
+                        // presentation itself, so the sky keeps its full clearance for them.
+                        ConnectControlZone.PAGE_FLOOR -> 0.dp
+                        ConnectControlZone.PAGE_PILL -> 0.dp
                         ConnectControlZone.HERO_CENTER -> 0.dp
                     }
                 )
@@ -2785,6 +2848,10 @@ internal fun HomeStyleCosmicImmersion(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
+
+            // MARBLE_HOME_LIVE_PING_V132 — the live instrument, nebula skin, one row under
+            // the state word so both presentations answer a connect with the same reveal.
+            HomeLivePingSlab(evidence, actions, tone, Modifier.fillMaxWidth())
 
             HomeIdentityBlock(evidence, tone, HomeFlavor.NEBULA, Modifier.fillMaxWidth())
 

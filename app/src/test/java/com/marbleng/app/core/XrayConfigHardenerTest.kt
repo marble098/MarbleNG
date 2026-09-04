@@ -236,6 +236,83 @@ class XrayConfigHardenerTest {
      * contain no proxy besides a freedom/direct outbound. The hardener must treat that as the exit
      * instead of rejecting it with "No proxy outbound".
      */
+    /**
+     * MARBLE_ENDPOINT_BOOTSTRAP_V132 — the node hostname is resolved by the `https+local://`
+     * bootstrap servers and by nothing else (Xray's list-1 / disableFallbackIfMatch flow), so
+     * the bootstrap set must never collapse to a single filtered resolver.
+     */
+    @Test
+    fun `domain endpoint gets an independent bootstrap resolver ladder`() {
+        val settings = AppSettings(
+            routingMode = com.marbleng.app.model.RoutingMode.PROXY_ALL,
+            routeBlockAds = false
+        )
+        val source = JSONObject()
+            .put(
+                "outbounds",
+                org.json.JSONArray().put(
+                    JSONObject()
+                        .put("tag", "proxy")
+                        .put("protocol", "vless")
+                        .put(
+                            "settings",
+                            JSONObject().put(
+                                "vnext",
+                                org.json.JSONArray().put(
+                                    JSONObject()
+                                        .put("address", "node.example.net")
+                                        .put("port", 443)
+                                        .put(
+                                            "users",
+                                            org.json.JSONArray().put(
+                                                JSONObject()
+                                                    .put("id", "11111111-1111-1111-1111-111111111111")
+                                                    .put("encryption", "none")
+                                            )
+                                        )
+                                )
+                            )
+                        )
+                        .put(
+                            "streamSettings",
+                            JSONObject()
+                                .put("network", "tcp")
+                                .put("security", "tls")
+                        )
+                )
+            )
+            .toString()
+
+        val dns = harden(settings, source).getJSONObject("dns")
+        val servers = dns.getJSONArray("servers")
+        val addresses = (0 until servers.length()).map { servers.getJSONObject(it).optString("address") }
+        val bootstrap = addresses.filter { it.startsWith("https+local://") }
+
+        assertTrue("a domain endpoint must own a bootstrap ladder", bootstrap.size >= 4)
+        assertTrue(
+            "the user's configured resolver stays first",
+            bootstrap.first().contains(settings.dnsPrimaryIp)
+        )
+        assertEquals("bootstrap literals are unique", bootstrap.size, bootstrap.distinct().size)
+        assertTrue(
+            "every bootstrap entry keeps skipFallback so ordinary DNS never leaks to it",
+            (0 until servers.length())
+                .map { servers.getJSONObject(it) }
+                .filter { it.optString("address").startsWith("https+local://") }
+                .all { it.optBoolean("skipFallback") }
+        )
+        assertTrue(
+            "the endpoint hostname is the only domain the bootstrap servers claim",
+            (0 until servers.length())
+                .map { servers.getJSONObject(it) }
+                .filter { it.optString("address").startsWith("https+local://") }
+                .all { server ->
+                    val domains = server.getJSONArray("domains")
+                    domains.length() == 1 && domains.optString(0) == "full:node.example.net"
+                }
+        )
+    }
+
     @Test
     fun `freedom only config without fragment is accepted as serverless normal`() {
         val source = JSONObject()

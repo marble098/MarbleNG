@@ -230,21 +230,33 @@ fun parseProShortcut(raw: String): ProShortcut =
         ?: ProShortcut.LIBRARY
 
 /**
- * MARBLE_CONNECT_BUTTON_V121 — the three connection-button silhouettes, selectable from Settings.
+ * MARBLE_CONNECT_BUTTON_V121 — the connection-button silhouettes, selectable from Settings.
  *
  * Every model renders correctly inside every Home presentation: the model controls the button's
  * own drawing while each Home style supplies its own tone and halo, so a choice is never tied to
- * a specific theme. None of them ever drifts, floats or changes position — the primary action of
- * the product stays exactly where the finger expects it, and only colour and copy animate.
+ * a specific theme. None of them ever drifts or changes position — the primary action of the
+ * product stays exactly where the finger expects it, and only colour and copy animate.
  *
- *  - [ROUND]   the large round shutter. The product default.
- *  - [SLIDE]   a slide-to-connect track the user drags from left to right, like a safety switch.
- *  - [CLASSIC] the classic rectangular power switch of the old desktop clients.
+ *  - [ROUND]    the large round shutter. The product default.
+ *  - [SLIDE]    a slide-to-connect track the user drags from left to right, like a safety switch.
+ *  - [CLASSIC]  the classic rectangular power switch of the old desktop clients.
+ *
+ * MARBLE_CONNECT_BUTTON_STYLES_V132 — two docked additions. Both live at the floor of the Home
+ * page instead of inside the hero, so the primary action is always one thumb away without the
+ * artwork having to fight it for space:
+ *
+ *  - [STREAM]   a full-width floor bar carrying a light band that travels right to left across
+ *               the track. The motion is the button's own "the route is live" language: it only
+ *               runs while the tunnel is up, and it reads identically in LTR and RTL.
+ *  - [FLOATING] a compact pill floating above the bottom edge of the page, v2rayNG-style but
+ *               docked rather than draggable, so it can never cover the readouts behind it.
  */
 enum class ConnectButtonStyle(val id: String) {
     ROUND("round"),
     SLIDE("slide"),
-    CLASSIC("classic")
+    CLASSIC("classic"),
+    STREAM("stream"),
+    FLOATING("floating")
 }
 
 fun parseConnectButtonStyle(raw: String): ConnectButtonStyle =

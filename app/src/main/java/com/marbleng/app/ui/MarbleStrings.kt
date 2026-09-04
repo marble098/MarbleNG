@@ -159,7 +159,23 @@ data class MarbleStrings(
     val proShortcutRank: String,
     val proShortcutPrivacy: String,
     val proShortcutRouting: String,
-    val proShortcutTests: String
+    val proShortcutTests: String,
+
+    // MARBLE_HOME_REDESIGN_V132 — the selected route card, the shortcut deck and the live meter.
+    val selectedRoute: String,
+    val changeRoute: String,
+    val livePing: String,
+    val livePingWaiting: String,
+    val livePingHint: String,
+    val livePingHide: String,
+    val livePingShow: String,
+    val pasteShortcut: String,
+    val qrShortcut: String,
+    // MARBLE_CONNECT_BUTTON_STYLES_V132 — the two docked connection controls.
+    val styleStream: String,
+    val styleStreamDetail: String,
+    val styleFloating: String,
+    val styleFloatingDetail: String
 )
 
 private val EnglishStrings = MarbleStrings(
@@ -281,7 +297,20 @@ private val EnglishStrings = MarbleStrings(
     proShortcutRank = "Rank",
     proShortcutPrivacy = "Privacy",
     proShortcutRouting = "Routing",
-    proShortcutTests = "Tests"
+    proShortcutTests = "Tests",
+    selectedRoute = "Selected server",
+    changeRoute = "Change",
+    livePing = "Live ping",
+    livePingWaiting = "Waiting for the tunnel",
+    livePingHint = "Only the server you are connected to",
+    livePingHide = "Hide live ping",
+    livePingShow = "Show live ping",
+    pasteShortcut = "Paste",
+    qrShortcut = "QR code",
+    styleStream = "Stream bar",
+    styleStreamDetail = "Full-width floor bar with a travelling light band",
+    styleFloating = "Floating pill",
+    styleFloatingDetail = "Compact pill docked above the bottom of the page"
 )
 
 private val PersianStrings = MarbleStrings(
@@ -405,7 +434,20 @@ private val PersianStrings = MarbleStrings(
     proShortcutRank = "رتبه‌بندی",
     proShortcutPrivacy = "حریم خصوصی",
     proShortcutRouting = "مسیریابی",
-    proShortcutTests = "تست‌ها"
+    proShortcutTests = "تست‌ها",
+    selectedRoute = "سرور انتخاب‌شده",
+    changeRoute = "تغییر",
+    livePing = "پینگ لحظه‌ای",
+    livePingWaiting = "در انتظار تونل",
+    livePingHint = "فقط سروری که به آن متصل هستید",
+    livePingHide = "پنهان کردن پینگ لحظه‌ای",
+    livePingShow = "نمایش پینگ لحظه‌ای",
+    pasteShortcut = "چسباندن",
+    qrShortcut = "کیوآر کد",
+    styleStream = "نوار جریان",
+    styleStreamDetail = "نوار تمام‌عرض پایین صفحه با نوری که از راست به چپ می‌رود",
+    styleFloating = "دکمه شناور",
+    styleFloatingDetail = "دکمه‌ای جمع‌وجور و ثابت در پایین صفحه"
 )
 
 internal val LocalMarbleStrings = staticCompositionLocalOf { EnglishStrings }
