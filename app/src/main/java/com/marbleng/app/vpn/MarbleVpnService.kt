@@ -24,6 +24,7 @@ import com.marbleng.app.core.LinkEvidence
 import com.marbleng.app.core.LinkQualityEstimator
 import com.marbleng.app.core.NetworkSnapshot
 import com.marbleng.app.core.PathMtuPolicy
+import com.marbleng.app.core.ResolverEvidencePolicy
 import com.marbleng.app.core.RuntimeDiagnostics
 import com.marbleng.app.core.ServerlessFreedomEngine
 import com.marbleng.app.core.SocksHttpClient
@@ -36,6 +37,7 @@ import com.marbleng.app.model.AppSettings
 import com.marbleng.app.model.ProxyProfile
 import com.marbleng.app.nativebridge.HevTunnel
 import java.io.Closeable
+import java.io.RandomAccessFile
 import java.util.ArrayDeque
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -102,6 +104,11 @@ class MarbleVpnService : VpnService() {
         private const val GOOD_ROUTE_TICKS_FOR_RELEASE = 2
         private const val TURBO_INCONCLUSIVE_BASE_BACKOFF_MS = 600_000L
         private const val TURBO_INCONCLUSIVE_MAX_BACKOFF_MS = 1_800_000L
+        // MARBLE_RESOLVER_EVIDENCE_V134 — how often the core's own resolver failures are attributed
+        // to endpoints. 30 s is far slower than a filtering window develops and far cheaper than the
+        // 2 s TCP_INFO pass beside it; the read is incremental, so the cost is the new bytes only.
+        private const val RESOLVER_EVIDENCE_INTERVAL_TICKS = 30
+        private const val RESOLVER_EVIDENCE_CHUNK_BYTES = 256 * 1024
         private const val JITTER_PRIMARY_HOST = "1.1.1.1"
         private val JITTER_PROBE_TARGETS = listOf(
             "1.1.1.1" to "/cdn-cgi/trace",
@@ -229,6 +236,13 @@ class MarbleVpnService : VpnService() {
     // Guarded by the single-threaded monitor worker except where noted.
     @Volatile private var jitterControlState = JitterControlPolicy.State()
     @Volatile private var turboBackoffState = TurboBackoffPolicy.State()
+
+    /**
+     * MARBLE_RESOLVER_EVIDENCE_V134 — byte offset into the current Xray log already attributed to
+     * resolver endpoints. Reset per session, because the log rotates on every live start and the
+     * evidence must describe the tunnel that is running now.
+     */
+    @Volatile private var resolverLogOffset = 0L
     @Volatile private var egressObservationState = EgressObservationPolicy.State()
     @Volatile private var pathMtuState = PathMtuPolicy.State()
     /** Consecutive live-route ticks that looked good; feeds the Turbo backoff early release. */
@@ -412,6 +426,7 @@ class MarbleVpnService : VpnService() {
         jitterControlActive = false
         lastJitterOptimizerRequestAt = 0L
         turboBackoffState = TurboBackoffPolicy.State()
+        resolverLogOffset = 0L
         egressObservationState = EgressObservationPolicy.State()
         pathMtuState = PathMtuPolicy.State()
         goodRouteTicks = 0
@@ -1159,6 +1174,10 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                     )
                 }
 
+                if (tick % RESOLVER_EVIDENCE_INTERVAL_TICKS == 0) {
+                    harvestResolverEvidence(session)
+                }
+
                 if (tick % 10 == 0) {
                     repo.refreshIntelligenceStatus()
                     updateSentinel(killSwitch = true)
@@ -1180,26 +1199,109 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
     }
 
     /**
-     * MARBLE_LINK_DEADLINE_V133 — round-trip evidence for the route that is about to carry traffic.
+     * MARBLE_LINK_DEADLINE_V133 / V134 — round-trip evidence for the route that is about to carry
+     * traffic, and for every throwaway core that measures beside it.
      *
-     * Every deadline the hardened config carries is derived from this. The per-node health record is
-     * the primary source because it is scoped to this physical network; the last honest live ping is
-     * the fallback for a node this network has not measured yet. When neither exists the evidence is
-     * [LinkEvidence.UNKNOWN] and the config keeps the legacy fixed budgets, which is the correct
-     * behaviour for a first-ever connect rather than a guess dressed up as a measurement.
+     * Every deadline the hardened config carries is derived from this. V133 read one source: the
+     * per-node health record scoped to this physical network, with the last honest live ping as a
+     * fallback. That is correct but narrow, and the narrowness showed up as a first-connect
+     * regression — the record is written by the measurements the session is about to make, so the
+     * very first config of a session was emitted with the legacy 1350/1650 ms budgets even for a node
+     * that had been measured at 444 ms minutes earlier.
+     *
+     * The derivation therefore moved into [MarbleIntelligence.linkEvidenceFor], which owns the
+     * health store and can merge this node on this network, this node on a previous network, the
+     * round-trip scale of this network, and the last live ping — conservatively, because a generous
+     * budget costs one slow failure detection while a truncated one costs every lookup on the route.
+     * One implementation, two callers: the live tunnel and the acceleration trials that measure it.
+     * With no evidence at all the result is [LinkEvidence.UNKNOWN] and every budget stays exactly as
+     * it was before the policy existed.
      */
     private fun linkEvidenceFor(profileId: String): LinkEvidence {
         val repo = (application as MarbleApplication).repo
-        val fromHealth = runCatching {
-            LinkEvidence.fromHealth(repo.intelligence.healthOf(profileId))
+        return runCatching {
+            repo.intelligence.linkEvidenceFor(profileId, repo.livePingMs)
         }.getOrDefault(LinkEvidence.UNKNOWN)
-        if (fromHealth.known) return fromHealth
-        val liveMs = repo.livePingMs
-        return if (liveMs in 1..8_000) {
-            LinkEvidence(rttMs = liveMs.toDouble(), samples = 1)
-        } else {
-            LinkEvidence.UNKNOWN
-        }
+    }
+
+    /**
+     * MARBLE_RESOLVER_EVIDENCE_V134 — close the resolver-health loop at its observing end.
+     *
+     * The core already says which resolver failed and why:
+     *
+     * ```
+     * [Error] app/dns: failed to retrieve response for www.google.com. >
+     *   Post "https://1.1.1.1/dns-query": context deadline exceeded
+     * ```
+     *
+     * That line was classified, counted and *reported* — and then discarded, so the next emitted
+     * config put the same disrupted endpoint back in the same position. This harvests the new bytes
+     * of the core log incrementally, attributes each decisive failure to the endpoint the core
+     * named, and folds it into the network-scoped evidence [MarbleIntelligence] persists. The
+     * ordering half of the loop lives in `preferredDnsOrder` / [XrayConfigHardener]; the recovery
+     * half is a proven answer from the adaptive DNS audit.
+     *
+     * Cheap by construction: at most one bounded read per 30 monitor ticks, only whole lines, and a
+     * prefs write only when the attributed evidence actually changed.
+     */
+    private fun harvestResolverEvidence(session: String) {
+        val file = xray.logFile
+        if (!file.isFile) return
+        val length = file.length()
+        if (length <= 0L) return
+        // The log rotates on every live start, so a shorter file means the offset belongs to a dead
+        // one and the evidence would otherwise never be read again.
+        if (length < resolverLogOffset) resolverLogOffset = 0L
+        val available = length - resolverLogOffset
+        if (available <= 0L) return
+        val chunk = available.coerceAtMost(RESOLVER_EVIDENCE_CHUNK_BYTES.toLong()).toInt()
+
+        val read = runCatching {
+            RandomAccessFile(file, "r").use { raf ->
+                raf.seek(resolverLogOffset)
+                val buffer = ByteArray(chunk)
+                val count = raf.read(buffer)
+                if (count <= 0) {
+                    0 to ""
+                } else {
+                    // Only whole lines are attributed: a line cut in half by the chunk boundary may
+                    // name no endpoint at all, and charging a fragment to whoever it half-mentions
+                    // is how a healthy resolver gets demoted for somebody else's failure.
+                    val lastNewline = buffer.indexOfLast { it.toInt() == 10 }
+                    val usable = if (lastNewline >= 0) lastNewline + 1 else count
+                    usable to String(buffer, 0, usable, Charsets.UTF_8)
+                }
+            }
+        }.getOrDefault(0 to "")
+
+        val consumedBytes = read.first
+        if (consumedBytes <= 0) return
+        resolverLogOffset += consumedBytes.toLong()
+        val text = read.second
+        if (text.isBlank()) return
+
+        val repo = (application as MarbleApplication).repo
+        val settings = activeSettings ?: repo.settings
+        val before = repo.intelligence.resolverEvidence()
+        val after = runCatching {
+            repo.intelligence.recordResolverEvidence(
+                text.lineSequence().filter { it.isNotBlank() }
+            )
+        }.getOrDefault(before)
+        if (after == before) return
+
+        val nowMs = System.currentTimeMillis()
+        diag.event(
+            "DNS", "resolver-evidence-updated",
+            "session" to session,
+            "endpoints" to after.size,
+            "demoted" to repo.intelligence.resolverDemotedEndpoints(settings)
+                .joinToString(",").ifBlank { "none" },
+            "parallelQuery" to ResolverEvidencePolicy.parallelQueryJustified(
+                repo.intelligence.dnsCandidatePool(settings), after, nowMs
+            ),
+            "detail" to ResolverEvidencePolicy.describe(after, nowMs).take(300)
+        )
     }
 
     /**
@@ -1449,11 +1551,13 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             "budgetMs" to budgetMs
         )
 
+        var tunerFailure = ""
         val report = runCatching {
             tuner.accelerate(profile, base, budgetMs, measureSpeed) { label ->
                 repo.intelligence.setDecision("Marble Turbo • ${profile.name} • $label")
             }
         }.onFailure {
+            tunerFailure = "${it::class.java.simpleName}: ${it.message ?: "no message"}".take(160)
             diag.error("TURBO", "live-failed", it, "session" to session)
         }.getOrNull()
 
@@ -1473,10 +1577,17 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             // transport evidence really is inconclusive and escalating is correct.
             val liveQuality = activeRouteQuality()
             val liveRouteAnswering = liveQuality.samples > 0
-            val cause = if (report != null && liveRouteAnswering) {
-                TurboBackoffPolicy.Cause.PROBE_UNAVAILABLE
-            } else {
-                TurboBackoffPolicy.Cause.TRANSPORT_INCONCLUSIVE
+            // MARBLE_TURBO_BACKOFF_V134 — this was two branches pretending to be three. `report ==
+            // null` means the pass never produced a verdict at all: the tuner vetoed itself on the
+            // thermal budget, found fewer than two methods to compare, lost its baseline trial to the
+            // deadline, or threw. Asking `report != null` to distinguish that from an unhealthy
+            // report answered TRANSPORT_INCONCLUSIVE for every one of those cases by construction, so
+            // a thermal veto bought the same 600 s → 1800 s transport suppression that V133 had
+            // just removed from the probe branch. Absence of a measurement is not a measurement.
+            val cause = when {
+                report == null -> TurboBackoffPolicy.Cause.NOT_ATTEMPTED
+                liveRouteAnswering -> TurboBackoffPolicy.Cause.PROBE_UNAVAILABLE
+                else -> TurboBackoffPolicy.Cause.TRANSPORT_INCONCLUSIVE
             }
             val outcome = TurboBackoffPolicy.inconclusive(
                 state = turboBackoffState,
@@ -1498,7 +1609,8 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                 "reason" to outcome.reason,
                 "liveRouteSamples" to liveQuality.samples,
                 "liveRoutePingMs" to liveQuality.latencyMs,
-                "jitterControl" to jitterControlActive
+                "jitterControl" to jitterControlActive,
+                "tunerFailure" to tunerFailure.ifBlank { "none" }
             )
             return
         }
@@ -1677,7 +1789,13 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                 if (throughput < HEAVY_TRAFFIC_BPS) {
                     monitorWorker.execute {
                         if (isRouteCurrent(session, generation) && xray.isAlive) {
-                            runCatching { repo.intelligence.probeDnsResolvers(port, settings) }
+                            runCatching {
+                                repo.intelligence.probeDnsResolvers(
+                                    port,
+                                    settings,
+                                    linkEvidenceFor(activeProfileId)
+                                )
+                            }
                         }
                     }
                 } else {

@@ -60,6 +60,65 @@ class TurboBackoffPolicyTest {
     }
 
     @Test
+    fun `a pass that never ran cannot escalate the transport backoff`() {
+        // MARBLE_TURBO_BACKOFF_V134 — `report == null` is not an unhealthy verdict, it is no verdict:
+        // the tuner vetoed itself on the thermal budget, found fewer than two methods to compare, or
+        // threw. The service used to answer TRANSPORT_INCONCLUSIVE for all of them by construction.
+        var state = TurboBackoffPolicy.State()
+        repeat(4) { index ->
+            val outcome = TurboBackoffPolicy.inconclusive(
+                state = state,
+                nowMs = index * 1_000L,
+                cause = TurboBackoffPolicy.Cause.NOT_ATTEMPTED,
+                baseMs = base,
+                maxMs = max
+            )
+            assertEquals(0, outcome.state.streak)
+            assertFalse(outcome.escalated)
+            assertEquals(TurboBackoffPolicy.NOT_ATTEMPTED_RETRY_MS, outcome.backoffMs)
+            assertEquals("pass-not-attempted-no-escalation", outcome.reason)
+            state = outcome.state
+        }
+        // A vetoed pass must not consume the escalation budget either: the next genuine transport
+        // verdict still starts at the base window instead of inheriting a streak it did not earn.
+        val transport = TurboBackoffPolicy.inconclusive(
+            state,
+            10_000L,
+            TurboBackoffPolicy.Cause.TRANSPORT_INCONCLUSIVE,
+            base,
+            max
+        )
+        assertEquals(1, transport.state.streak)
+        assertEquals(base, transport.backoffMs)
+    }
+
+    @Test
+    fun `the three causes are distinguishable in the recorded reason`() {
+        val state = TurboBackoffPolicy.State()
+        val notAttempted = TurboBackoffPolicy.inconclusive(
+            state, 0L, TurboBackoffPolicy.Cause.NOT_ATTEMPTED, base, max
+        )
+        val probeUnavailable = TurboBackoffPolicy.inconclusive(
+            state, 0L, TurboBackoffPolicy.Cause.PROBE_UNAVAILABLE, base, max
+        )
+        val transport = TurboBackoffPolicy.inconclusive(
+            state, 0L, TurboBackoffPolicy.Cause.TRANSPORT_INCONCLUSIVE, base, max
+        )
+        assertEquals("pass-not-attempted-no-escalation", notAttempted.reason)
+        assertEquals("probe-unavailable-no-escalation", probeUnavailable.reason)
+        assertEquals("transport-inconclusive-streak-1", transport.reason)
+        assertTrue(
+            "only real transport evidence may escalate",
+            !notAttempted.escalated && !probeUnavailable.escalated
+        )
+        assertTrue(
+            "a non-escalating cause must not arm the 1800 s ceiling",
+            notAttempted.backoffMs < TurboBackoffPolicy.NOT_ATTEMPTED_RETRY_MS + 1 &&
+                notAttempted.backoffMs < base
+        )
+    }
+
+    @Test
     fun `a stale escalation decays instead of lasting the whole session`() {
         // Three failures in a row reach the 1800 s ceiling.
         var state = TurboBackoffPolicy.State()

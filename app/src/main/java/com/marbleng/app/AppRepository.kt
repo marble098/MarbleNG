@@ -3451,7 +3451,16 @@ private fun postToMain(block: () -> Unit) {
                 history = history.toList(),
                 networkLabel = networkSnapshot.label,
                 sentinel = sentinel,
-                privacy = privacy
+                privacy = privacy,
+                // MARBLE_RESOLVER_EVIDENCE_V134 — the denominator for the resolver-health rate. The
+                // core log rotates on every live start, so while connected its contents and this
+                // window describe the same session; disconnected there is no honest window and the
+                // check falls back to the absolute reading instead of inventing a rate.
+                tunnelUptimeMs = if (state == "CONNECTED" && connectedSinceMs > 0L) {
+                    (System.currentTimeMillis() - connectedSinceMs).coerceAtLeast(0L)
+                } else {
+                    0L
+                }
             )
             if (settings.debugModeEnabled) diagnostics.exportReport("bugfinder-auto", report.asText())
             diagnostics.event("BUGFINDER", "scan-finish", "failures" to report.failures, "warnings" to report.warnings, "autoExport" to settings.debugModeEnabled)

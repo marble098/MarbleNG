@@ -52,6 +52,29 @@ data class LinkEvidence(
     val effectiveRttMs: Double
         get() = max(rttMs, tailRttMs)
 
+    /**
+     * MARBLE_LINK_DEADLINE_V134 — merge two observations, keeping the more cautious of each.
+     *
+     * Deadline sizing is asymmetric: a budget that is too generous costs one slow failure
+     * detection, while a budget that is too short costs *every* lookup on the route. When two
+     * independent observations describe the same path (this node on this network, this node on a
+     * previous network, the last honest live ping), the union has to be the cautious one.
+     *
+     * [LinkEvidence.UNKNOWN] is the identity, so folding a list of sources that are mostly
+     * unmeasured reproduces the legacy constants exactly.
+     */
+    fun conservativeOf(other: LinkEvidence): LinkEvidence = when {
+        !other.known -> this
+        !known -> other
+        else -> LinkEvidence(
+            rttMs = max(rttMs, other.rttMs),
+            tailRttMs = max(tailRttMs, other.tailRttMs),
+            jitterMs = max(jitterMs, other.jitterMs),
+            lossPercent = max(lossPercent, other.lossPercent),
+            samples = max(samples, other.samples)
+        )
+    }
+
     companion object {
         /** No measurement available: every derived budget falls back to its floor. */
         val UNKNOWN = LinkEvidence()
@@ -147,6 +170,18 @@ object LinkDeadlinePolicy {
     const val PROBE_BATCH_SLACK_MS = 600L
 
     /**
+     * MARBLE_TUNING_MEASUREMENT_PLANE_V134 — ceilings for one acceleration *measurement*.
+     *
+     * A tuning trial is a throwaway Xray process plus one HTTPS probe through it, so its budget has
+     * to cover a core start and a teardown as well as the round trips. The pass budget then has to
+     * cover at least one whole trial: sizing the pass independently of the trial is the exact defect
+     * that truncated the Home ping race to `responders=1`, one layer up.
+     */
+    const val MAX_TUNING_TRIAL_MS = 9_000L
+    const val TUNING_PASS_SLACK_MS = 4_000L
+    const val MAX_TUNING_PASS_MS = 24_000L
+
+    /**
      * Budget for `hops` round trips on the measured link.
      *
      * Returns [floorMs] when there is no evidence, so unmeasured paths keep the legacy behaviour.
@@ -214,6 +249,33 @@ object LinkDeadlinePolicy {
         floorMs: Long = 2_600L,
         ceilingMs: Long = 9_000L
     ): Long = (perProbeTimeoutMs + PROBE_BATCH_SLACK_MS).coerceIn(floorMs, ceilingMs)
+
+    /**
+     * MARBLE_TUNING_MEASUREMENT_PLANE_V134 — per-trial probe budget for the acceleration engine.
+     *
+     * [floorMs] is the constant the tuner used before this existed (`min(benchTimeoutSec, 4) ×
+     * 1000`), so an unmeasured link keeps the legacy behaviour bit for bit. On a measured link the
+     * trial gets the same RTT-derived budget as any other full HTTPS request, because the trial's
+     * destination is a *domain* (`cp.cloudflare.com`): the throwaway core has to resolve it through
+     * its own encrypted DNS before it can fetch it, inside this one number.
+     */
+    fun tuningTrialTimeoutMs(evidence: LinkEvidence, floorMs: Long): Long =
+        httpsProbeTimeoutMs(evidence, floorMs = floorMs, ceilingMs = MAX_TUNING_TRIAL_MS)
+
+    /**
+     * Wall-clock budget for one acceleration *pass*.
+     *
+     * At least [requestedMs] — the user's configured tuning budget is a floor, never a ceiling that
+     * truncates the measurement — and large enough for one trial plus the throwaway core's start and
+     * teardown, bounded by [MAX_TUNING_PASS_MS] so no link can make a background pass unbounded.
+     * A pass that cannot fit a single trial measures nothing,
+     * reports an unhealthy verdict, and — before [TurboBackoffPolicy.Cause.NOT_ATTEMPTED] existed —
+     * bought a 30-minute suppression of the engine that was supposed to improve the route.
+     */
+    fun tuningPassBudgetMs(trialTimeoutMs: Long, requestedMs: Long): Long =
+        (trialTimeoutMs + TUNING_PASS_SLACK_MS)
+            .coerceAtLeast(requestedMs)
+            .coerceAtMost(MAX_TUNING_PASS_MS)
 
     /**
      * Happy Eyeballs connection-attempt delay scaled to the measured link.

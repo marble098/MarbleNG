@@ -484,6 +484,28 @@ data class AppSettings(
      */
     val measuredIpv6Unhealthy: Boolean = false,
 
+    /**
+     * MARBLE_RESOLVER_EVIDENCE_V134 — *transient*, never persisted. Comma-separated resolver
+     * endpoints that the current network session observed failing decisively (DoH deadline storms,
+     * EOF bursts, TLS or certificate failures attributed to that exact endpoint by
+     * [com.marbleng.app.core.ResolverEvidencePolicy]).
+     *
+     * It travels inside the settings object for the same reason [measuredIpv6Unhealthy] does: the
+     * resolver list is assembled by the config writer, and a verdict that only the intelligence
+     * layer knew about is exactly why 29 attributed `DoH deadline` events never changed a single
+     * emitted resolver. Demotion is time-bounded and reversible, so a verdict belongs to the
+     * session that measured it and is deliberately absent from
+     * [com.marbleng.app.data.AppStore].
+     */
+    val measuredDnsDemotedEndpoints: String = "",
+
+    /**
+     * MARBLE_RESOLVER_EVIDENCE_V134 — *transient*, never persisted. True only when an endpoint that
+     * is about to be emitted is decisively failing, which is the one condition under which racing
+     * every encrypted resolver beats paying a dead one's full deadline on each cold lookup.
+     */
+    val measuredDnsParallel: Boolean = false,
+
     // Realtime transport adaptation. MARBLE_REALTIME_ENGINE_V70
     val adaptiveHappyEyeballsEnabled: Boolean = true,
     val happyEyeballsTryDelayMs: Int = 60,

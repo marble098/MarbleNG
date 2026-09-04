@@ -41,7 +41,21 @@ object TurboBackoffPolicy {
          * The pass could not measure anything (probes unavailable, resolver dead, no samples).
          * Not evidence about the transport, so it must not escalate the transport backoff.
          */
-        PROBE_UNAVAILABLE
+        PROBE_UNAVAILABLE,
+
+        /**
+         * MARBLE_TURBO_BACKOFF_V134 — the pass never ran at all: the tuner vetoed itself on the
+         * thermal budget, found fewer than two methods to compare, or threw before producing a
+         * report.
+         *
+         * This is not evidence about anything. It is the absence of a measurement, and treating the
+         * absence as a verdict is the same cause-blindness V133 removed from the probe branch, one
+         * condition over: the service collapsed "no report" and "unhealthy report" into one `if`,
+         * then asked `report != null` to tell them apart — which by construction answered "transport
+         * inconclusive" for every pass that never started. A thermal veto at 40 % budget therefore
+         * escalated the transport backoff to its 1800 s ceiling.
+         */
+        NOT_ATTEMPTED
     }
 
     /**
@@ -80,6 +94,15 @@ object TurboBackoffPolicy {
      * a filtering window, short enough that a recovered resolver is retried promptly.
      */
     const val PROBE_UNAVAILABLE_RETRY_MS = 180_000L
+
+    /**
+     * MARBLE_TURBO_BACKOFF_V134 — retry window when the pass never ran.
+     *
+     * Shorter than [PROBE_UNAVAILABLE_RETRY_MS] on purpose: a self-vetoed pass says nothing about
+     * the link, and the veto conditions (thermal budget, method count) usually clear within a few
+     * monitor ticks.
+     */
+    const val NOT_ATTEMPTED_RETRY_MS = 90_000L
 
     /** After this many early releases the engine trusts the full timer again. */
     const val MAX_EARLY_RELEASES = 2
@@ -120,6 +143,19 @@ object TurboBackoffPolicy {
                 backoffMs = backoff,
                 escalated = false,
                 reason = "probe-unavailable-no-escalation"
+            )
+        }
+
+        if (cause == Cause.NOT_ATTEMPTED) {
+            // No measurement happened, so nothing is learned: keep the streak exactly as it was
+            // (its decay is driven by elapsed quiet time, not by this call) and arm only a short
+            // retry window.
+            val backoff = NOT_ATTEMPTED_RETRY_MS.coerceAtMost(maxMs)
+            return Outcome(
+                state = state.copy(untilMs = nowMs + backoff),
+                backoffMs = backoff,
+                escalated = false,
+                reason = "pass-not-attempted-no-escalation"
             )
         }
 

@@ -40,6 +40,9 @@ files = {
     "manual": read("app/src/main/java/com/marbleng/app/core/ManualConfigBuilder.kt"),
     "ssh": read("app/src/main/java/com/marbleng/app/core/SshTransportManager.kt"),
     "socks": read("app/src/main/java/com/marbleng/app/core/SocksHttpClient.kt"),
+    "resolverPolicy": read("app/src/main/java/com/marbleng/app/core/ResolverEvidencePolicy.kt"),
+    "deadlinePolicy": read("app/src/main/java/com/marbleng/app/core/LinkDeadlinePolicy.kt"),
+    "backoffPolicy": read("app/src/main/java/com/marbleng/app/core/TurboBackoffPolicy.kt"),
     "dpiFetch": read("app/src/main/java/com/marbleng/app/core/DpiAwareFetcher.kt"),
     "dpiPolicy": read("app/src/main/java/com/marbleng/app/core/DpiEvasionPolicy.kt"),
     "serverless": read("app/src/main/java/com/marbleng/app/core/ServerlessFreedomEngine.kt"),
@@ -404,7 +407,68 @@ check(
     and "https+local://${dnsHostLiteral(resolver)}/dns-query" in files["hardener"],
 )
 check("ordinary Xray DNS has no plaintext tcp53 fallback", '"tcp://$ip:53"' not in files["hardener"])
-check("Xray encrypted DNS fallback is bounded and serial", 'put("enableParallelQuery", false)' in files["hardener"])
+# MARBLE_RESOLVER_EVIDENCE_V134 — serial failover is the default, not an absolute. Racing every
+# encrypted resolver costs fan-out, so it may only be armed by attributed evidence that an endpoint
+# in the emitted list is decisively failing. The default-off half of this invariant is pinned by
+# DnsDeadlineConfigTest, which hardens with plain AppSettings and asserts a serial resolver graph.
+check(
+    "Xray encrypted DNS races only on attributed resolver-failure evidence",
+    'put("enableParallelQuery", dnsParallelQuery)' in files["hardener"]
+    and "val dnsParallelQuery = settings.adaptiveDnsEnabled &&" in files["hardener"]
+    and "settings.measuredDnsParallel" in files["hardener"]
+    and "fun parallelQueryJustified(" in files["resolverPolicy"]
+    and "parallelQueryJustified(" in files["intel"],
+)
+check(
+    "resolver failures are attributed to the endpoint the core named",
+    "fun endpointOf(line: String): String?" in files["resolverPolicy"]
+    and "ResolverFailureClassifier.isDnsRelated(line)" in files["resolverPolicy"],
+)
+check(
+    "resolver demotion decays, is time-bounded and never deletes a resolver",
+    "DECAY_HALF_LIFE_MS" in files["resolverPolicy"]
+    and "DEMOTE_TTL_MS" in files["resolverPolicy"]
+    and "fun order(" in files["resolverPolicy"]
+    and "if (healthy.isEmpty()) distinct else healthy + failing" in files["resolverPolicy"],
+)
+check(
+    "the emitted resolver list is ordered by attributed runtime evidence",
+    "measuredDnsDemotedEndpoints" in files["models"]
+    and "measuredDnsDemotedEndpoints" in files["hardener"]
+    and "demoteLast(" in files["hardener"]
+    and "recordResolverEvidence" in files["intel"],
+)
+check(
+    "resolver health is reported as a rate over the session window, not a raw total",
+    "ResolverEvidencePolicy.window(" in files["bug"]
+    and "perMinute" in files["bug"],
+)
+check(
+    "throwaway measurement cores inherit the measured link deadlines",
+    files["xray"].count("link: LinkEvidence") >= 2
+    and "benchmarkSettings, link" in files["xray"],
+)
+check(
+    "acceleration trials budget themselves from the measured link",
+    "LinkDeadlinePolicy.tuningTrialTimeoutMs" in files["tuner"]
+    and "LinkDeadlinePolicy.tuningPassBudgetMs" in files["tuner"],
+)
+check(
+    "an acceleration pass that never ran cannot escalate the transport backoff",
+    "NOT_ATTEMPTED" in files["backoffPolicy"]
+    and "TurboBackoffPolicy.Cause.NOT_ATTEMPTED" in files["vpn"],
+)
+check(
+    "link evidence merges conservatively instead of guessing",
+    "fun conservativeOf(other: LinkEvidence): LinkEvidence" in files["deadlinePolicy"]
+    and "fun linkEvidenceFor(" in files["intel"],
+)
+check(
+    "the resident diagnostics ring is bounded by size, not only by count",
+    "RING_MAX_CHARS" in files["diag"]
+    and "ringChars" in files["diag"]
+    and "while (ring.size > RING_CAPACITY || ringChars > RING_MAX_CHARS)" in files["diag"],
+)
 check(
     "adaptive resolver test sends a real DNS wire query",
     'application/dns-message' in files["intel"]

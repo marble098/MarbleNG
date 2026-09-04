@@ -126,6 +126,119 @@ class DnsDeadlineConfigTest {
         assertTrue("optimistic cache must stay on", dns.optBoolean("serveStale", false))
     }
 
+    /** Addresses of the encrypted resolvers that answer ordinary app DNS, in emitted order. */
+    private fun remoteDnsAddresses(root: JSONObject): List<String> {
+        val servers = root.getJSONObject("dns").getJSONArray("servers")
+        return (0 until servers.length())
+            .map { servers.getJSONObject(it) }
+            .filter { it.optString("address").startsWith("https://") }
+            .map { it.optString("address") }
+    }
+
+    // ------------------------------------------------------------------
+    // MARBLE_RESOLVER_EVIDENCE_V134 — the emitted resolver graph follows the evidence
+    // ------------------------------------------------------------------
+
+    @Test
+    fun `the emitted resolver list keeps three independent encrypted providers`() {
+        val addresses = remoteDnsAddresses(hardened(AppSettings(), slowCellular))
+        assertEquals(3, addresses.size)
+        assertEquals("https://1.1.1.1/dns-query", addresses[0])
+        assertEquals(3, addresses.distinct().size)
+    }
+
+    @Test
+    fun `a demoted resolver moves to the end of the emitted list`() {
+        // 29 attributed `DoH deadline` events used to change nothing: this list was a fixed order
+        // forever, so a disrupted endpoint kept its rank and every cold lookup paid its full
+        // RTT-derived deadline before failover reached a resolver that could answer.
+        val settings = AppSettings(
+            measuredDnsDemotedEndpoints = "https://1.1.1.1/dns-query"
+        )
+        val addresses = remoteDnsAddresses(hardened(settings, slowCellular))
+        assertEquals(3, addresses.size)
+        assertEquals(
+            "a healthy provider must take the primary slot",
+            "https://8.8.8.8/dns-query",
+            addresses[0]
+        )
+        assertEquals(
+            "the demoted provider stays in the graph as the last fallback, it is never deleted",
+            "https://1.1.1.1/dns-query",
+            addresses.last()
+        )
+    }
+
+    @Test
+    fun `demoting every provider leaves the configured order alone`() {
+        val settings = AppSettings(
+            measuredDnsDemotedEndpoints = "https://1.1.1.1/dns-query,https://8.8.8.8/dns-query," +
+                "https://9.9.9.9/dns-query"
+        )
+        val addresses = remoteDnsAddresses(hardened(settings, slowCellular))
+        assertEquals(
+            listOf(
+                "https://1.1.1.1/dns-query",
+                "https://8.8.8.8/dns-query",
+                "https://9.9.9.9/dns-query"
+            ),
+            addresses
+        )
+    }
+
+    @Test
+    fun `the endpoint bootstrap resolvers are never demoted or reordered`() {
+        val settings = AppSettings(
+            measuredDnsDemotedEndpoints = "https://1.1.1.1/dns-query",
+            measuredDnsParallel = true
+        )
+        val root = hardened(settings, slowCellular)
+        val servers = root.getJSONObject("dns").getJSONArray("servers")
+        val bootstrap = (0 until servers.length())
+            .map { servers.getJSONObject(it) }
+            .filter { it.optString("address").startsWith("https+local://") }
+        assertTrue("the node hostname still needs its bootstrap resolvers", bootstrap.isNotEmpty())
+        bootstrap.forEach { entry ->
+            assertTrue(
+                "bootstrap resolvers dial the underlay, not the tunnel: their budget must not move",
+                entry.optLong("timeoutMs") in 2_500L..3_000L
+            )
+            assertTrue(entry.optBoolean("skipFallback", false))
+        }
+        // They are emitted before the tunnel resolvers, so the node hostname can still be resolved
+        // while the tunnel's own encrypted providers are being raced.
+        assertTrue(
+            servers.getJSONObject(0).optString("address").startsWith("https+local://")
+        )
+    }
+
+    @Test
+    fun `resolver racing is armed only by measured evidence`() {
+        val serial = hardened(AppSettings(), slowCellular).getJSONObject("dns")
+        assertFalse(
+            "serial failover is the default: one query, one answer, no fan-out",
+            serial.optBoolean("enableParallelQuery", true)
+        )
+
+        val raced = hardened(
+            AppSettings(measuredDnsParallel = true),
+            slowCellular
+        ).getJSONObject("dns")
+        assertTrue(
+            "a decisively failing provider in the emitted list is exactly what racing is for",
+            raced.optBoolean("enableParallelQuery", false)
+        )
+
+        val userOptedOut = hardened(
+            AppSettings(adaptiveDnsEnabled = false, measuredDnsParallel = true),
+            slowCellular
+        ).getJSONObject("dns")
+        assertFalse(
+            "adaptive DNS off means the deterministic serial graph the user asked for",
+            userOptedOut.optBoolean("enableParallelQuery", true)
+        )
+    }
+
     @Test
     fun `a measured unhealthy ipv6 demotes the family order`() {
         val plan = AddressFamilyPolicy.plan(

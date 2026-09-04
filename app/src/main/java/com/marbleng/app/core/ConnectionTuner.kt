@@ -176,11 +176,41 @@ class ConnectionTuner(
         val thermal = intelligence.thermalBudget(base)
         if (thermal < 0.40) return null
 
+        /*
+         * MARBLE_TUNING_MEASUREMENT_PLANE_V134 — a trial is not "one HTTPS GET".
+         *
+         * `runTrial` probes `cp.cloudflare.com`, a *domain*, through a throwaway Xray core whose own
+         * encrypted DNS is routed through the tunnel it is measuring. One trial therefore costs a
+         * core start, a DoH lookup (three tunnel round trips) and the GET (four more). Two constants
+         * ignored that:
+         *
+         *  - the throwaway core was hardened with `LinkEvidence.UNKNOWN`, so it kept the legacy
+         *    1350/1650 ms resolver budgets that V133 proved cannot survive a slow route. On the
+         *    267–444 ms link in the attached runtime log every trial died inside DNS;
+         *  - the pass budget (`connectTuningBudgetSec`, 4–12 s) was set independently of the trial
+         *    budget (`min(benchTimeoutSec,4) × 1000`), so a pass could be too short to contain even
+         *    one trial. That is the Home-ping `responders=1` defect, one layer down.
+         *
+         * A pass that measures nothing reports an unhealthy verdict, and an unhealthy verdict is what
+         * escalated the Turbo backoff to 1800 s. Both budgets now come from the same measured
+         * evidence that sizes the live tunnel, with the legacy constants kept as floors so an
+         * unmeasured link behaves exactly as it did before.
+         */
+        val link = intelligence.linkEvidenceFor(profile.id)
+        val legacyTrialMs = (min(base.benchTimeoutSec, 4).coerceAtLeast(2)) * 1_000L
+        val trialTimeoutMs = LinkDeadlinePolicy.tuningTrialTimeoutMs(link, floorMs = legacyTrialMs)
+            .toInt()
+            .coerceIn(1_000, 30_000)
+        val passBudgetMs = LinkDeadlinePolicy.tuningPassBudgetMs(
+            trialTimeoutMs = trialTimeoutMs.toLong(),
+            requestedMs = budgetMs.coerceIn(3_000L, 15_000L)
+        )
+
         // Stage 1: broad + shallow. Race every compatible strategy with one real HTTPS sample.
-        val deadline = System.currentTimeMillis() + budgetMs.coerceIn(3_000L, 15_000L)
+        val deadline = System.currentTimeMillis() + passBudgetMs
         val methods = methodsFor(profile, base, thermal)
         if (methods.size < 2) return null
-        val fastTimeoutMs = (min(base.benchTimeoutSec, 4).coerceAtLeast(2)) * 1_000
+        val fastTimeoutMs = trialTimeoutMs
         val parallelism = when {
             thermal >= 0.82 -> min(4, methods.size)
             thermal >= 0.62 -> min(3, methods.size)
@@ -192,7 +222,7 @@ class ConnectionTuner(
             pool.submit {
                 if (System.currentTimeMillis() < deadline) {
                     onProgress("Quick race • ${plan.label}")
-                    fastTrials += runTrial(profile, plan, base, TUNE_BASE_PORT + index * PORT_STRIDE, 1, 0, fastTimeoutMs)
+                    fastTrials += runTrial(profile, plan, base, TUNE_BASE_PORT + index * PORT_STRIDE, 1, 0, fastTimeoutMs, link)
                 }
             }
         }
@@ -217,7 +247,7 @@ class ConnectionTuner(
             refinePlans.forEachIndexed { index, plan ->
                 if (System.currentTimeMillis() + MIN_REFINE_MS >= deadline) return@forEachIndexed
                 onProgress("Confirm • ${plan.label}")
-                val refined = runTrial(profile, plan, base, REFINE_BASE_PORT + index * PORT_STRIDE, 2, if (measureSpeed) REFINE_SPEED_BYTES else 0, fastTimeoutMs)
+                val refined = runTrial(profile, plan, base, REFINE_BASE_PORT + index * PORT_STRIDE, 2, if (measureSpeed) REFINE_SPEED_BYTES else 0, fastTimeoutMs, link)
                 measured = measured.filterNot { it.methodId == refined.methodId } + refined
             }
         }
@@ -419,12 +449,13 @@ class ConnectionTuner(
         port: Int,
         samples: Int,
         speedBytes: Int,
-        probeTimeoutMs: Int
+        probeTimeoutMs: Int,
+        link: LinkEvidence = LinkEvidence.UNKNOWN
     ): TuningTrial {
         val settings = plan.applyTo(base).copy(benchSamples = samples, benchTimeoutSec = (probeTimeoutMs / 1_000).coerceAtLeast(3))
         val outcomes = mutableListOf<Int>(); var bytesPerSecond = 0.0
         runCatching {
-            xray.temporary(profile, port, settings) { livePort ->
+            xray.temporary(profile, port, settings, link = link) { livePort ->
                 repeat(samples) {
                     val p = SocksHttpClient.get(livePort, LATENCY_HOST, LATENCY_PATH, probeTimeoutMs, 32 * 1024)
                     outcomes += if (p.status in 200..399) kotlin.math.round(p.elapsedMs).toInt().coerceIn(1, 10_000) else -1
