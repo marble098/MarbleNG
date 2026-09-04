@@ -57,6 +57,18 @@ acceleration engine — a 30-minute backoff that could neither decay nor be rele
 that oscillated, a per-socket MSS treated as a path MTU, and an IPv6 verdict that never reached the
 emitted config.
 
+`docs/RESOLVER_EVIDENCE_AND_MEASUREMENT_PLANE_V134.md` closes the resolver feedback loop: failures
+the core logs are attributed to the endpoint it named, demote it in the emitted resolver order for
+the current physical network, and arm parallel query only on that evidence.
+
+`docs/ROOT_CAUSE_V135.md` covers the IPv6/memory/socket triangle: a Wi-Fi network with no global
+IPv6 still received an unreachable IPv6 resolver graph and a captured `::/0` route, paid 8 s per
+dead resolver on the fragment chain, and re-dialled six times in two minutes with zero pacing
+until the OS revoked the VPN permission. The fixes purge resolver families the underlay cannot
+dial, gate the IPv6 route capture on real underlay capability, size fragment-chain DNS budgets
+from the measured link, and pace every automatic recovery behind an exponential ladder with a
+rolling circuit breaker.
+
 ## Main navigation
 
 MarbleNG uses three primary tabs: **Home**, **Servers**, and **Settings**.
@@ -75,7 +87,7 @@ MarbleNG uses three primary tabs: **Home**, **Servers**, and **Settings**.
 - Tunnel and kill-switch state.
 - Three Home presentations — Signature (the default professional studio), Cosmic orbit and Cosmic immersion — switchable from Settings.
 - Five connection controls, one product decision: the round shutter, slide-to-connect, classic power bar, a **stream bar** with a light band travelling right to left, and a **floating pill** docked above the bottom of the page. The last two are pinned to the floor of the page so the primary action is always in reach.
-- A **live ping instrument** that opens with an animation beside the connection control while the route comes up: arc gauge, current value, sparkline of the last probes — and it only ever measures the one server you are attached to.
+- A **live ping instrument** in a permanent, reserved slot beside the connection control: arc gauge, current value, sparkline of the last probes. It only ever measures the one server you are attached to, it is revealed — with an opacity fade, never a layout change — only once the connect control itself shows CONNECTED, and its chrome complements the connect button (same elevated glass, the control's own state tone in its hairline), so nothing on the page ever shifts when it appears.
 - A **shortcut deck** above the status banner: add server, paste, QR code and a permanent ping readout.
 - Signature studio extras, every layer optional from Settings: a draggable floating connect button, a status banner (Home-only or on all pages), a configurable corner shortcut.
 - Real connection ping: parallel HTTPS first-byte + tunnel RTT probes with a healthy-minimum ladder, so a busy edge no longer reads as "no response".

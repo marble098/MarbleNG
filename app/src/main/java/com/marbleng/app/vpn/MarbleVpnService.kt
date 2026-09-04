@@ -12,6 +12,7 @@ import androidx.core.app.ServiceCompat
 import com.marbleng.app.MarbleApplication
 import com.marbleng.app.core.AccelerationPlan
 import com.marbleng.app.core.ActiveRouteQuality
+import com.marbleng.app.core.AddressFamilyPolicy
 import com.marbleng.app.core.BenchmarkEngine
 import com.marbleng.app.core.ConnectionTuner
 import com.marbleng.app.core.ContinuousRouteOptimizer
@@ -24,6 +25,7 @@ import com.marbleng.app.core.LinkEvidence
 import com.marbleng.app.core.LinkQualityEstimator
 import com.marbleng.app.core.NetworkSnapshot
 import com.marbleng.app.core.PathMtuPolicy
+import com.marbleng.app.core.RecoveryBackoffPolicy
 import com.marbleng.app.core.ResolverEvidencePolicy
 import com.marbleng.app.core.RuntimeDiagnostics
 import com.marbleng.app.core.ServerlessFreedomEngine
@@ -209,6 +211,9 @@ class MarbleVpnService : VpnService() {
     @Volatile private var connectStartedNs = 0L
     @Volatile private var consecutiveProbeFailures = 0
     @Volatile private var identityRecoveryAttempts = 0
+    // MARBLE_RECOVERY_CIRCUIT_V135 — the automatic-recovery ladder: when each attempt is recorded,
+    // and how many live inside the rolling window. See RecoveryBackoffPolicy.
+    @Volatile private var recoveryBackoff = RecoveryBackoffPolicy.State()
     @Volatile private var ipv6RouteCaptured = false
     @Volatile private var pinnedExitV4 = ""
     @Volatile private var pinnedExitV6 = ""
@@ -403,6 +408,10 @@ class MarbleVpnService : VpnService() {
         connectStartedNs = System.nanoTime()
         consecutiveProbeFailures = 0
         identityRecoveryAttempts = 0
+        // MARBLE_RECOVERY_CIRCUIT_V135 — a fresh, user-initiated connect is a new decision: the
+        // automatic-recovery ladder starts empty so a manual retry is never punished for an
+        // earlier automated storm.
+        recoveryBackoff = RecoveryBackoffPolicy.reset()
         ipv6RouteCaptured = false
         pinnedExitV4 = ""
         pinnedExitV6 = ""
@@ -686,12 +695,19 @@ class MarbleVpnService : VpnService() {
             .map(String::trim)
             .filter(String::isNotBlank)
             .forEach { candidate ->
-                // A v4 resolver on a network that has no IPv4 can only ever time out.
-                if (candidate.contains(':') || underlay.hasIpv4) dnsServers += candidate
+                // MARBLE_IPV6_DNS_PURGE_V135 — a resolver whose family the underlay cannot carry is
+                // not a fallback, it is a guaranteed timeout: these TUN DNS servers are reached over
+                // the physical network, not through the tunnel. The old rule admitted v6 resolvers on
+                // ANY network, which is exactly how an IPv4-only Wi-Fi ended up with unreachable
+                // `[2606:4700:4700::1111]`-class resolvers in its resolver graph.
+                val isV6 = candidate.contains(':')
+                if ((isV6 && underlay.hasIpv6) || (!isV6 && underlay.hasIpv4)) dnsServers += candidate
             }
-        if (settings.ipv6Enabled && dnsServers.none { it.contains(':') }) {
+        if (settings.ipv6Enabled && underlay.hasIpv6 && dnsServers.none { it.contains(':') }) {
             // Bootstrap v6 resolvers so the underlay can resolve a node's AAAA records even when the
             // user configured IPv4 DNS only. Both are literals, so no lookup is needed to reach them.
+            // MARBLE_IPV6_DNS_PURGE_V135 — only on a v6-capable underlay: handing them to an
+            // IPv4-only network used to plant two resolvers that could never answer.
             dnsServers += "2606:4700:4700::1111"
             dnsServers += "2001:4860:4860::8888"
         }
@@ -704,8 +720,16 @@ class MarbleVpnService : VpnService() {
         // a network whose link properties never arrive, or with both DNS fields blanked in
         // Settings) died as a bare "VPN establish failed" before the server was ever dialled.
         if (dnsServers.isEmpty()) {
-            dnsServers += "8.8.8.8"
-            dnsServers += "1.1.1.1"
+            // MARBLE_IPV6_DNS_NEVER_WRONG_FAMILY_V135 — the never-empty fallback must match the
+            // family the underlay can actually carry; a v6-only underlay used to receive two IPv4
+            // literals it could never dial.
+            if (underlay.hasIpv6 && !underlay.hasIpv4) {
+                dnsServers += "2606:4700:4700::1111"
+                dnsServers += "2001:4860:4860::8888"
+            } else {
+                dnsServers += "8.8.8.8"
+                dnsServers += "1.1.1.1"
+            }
             diag.event(
                 "TUN", "dns-fallback-literals",
                 "session" to session,
@@ -728,15 +752,40 @@ class MarbleVpnService : VpnService() {
             return false
         }
 
-        // Always attempt to capture IPv6. Privacy state must reflect the real Builder result.
+        // MARBLE_IPV6_CAPTURE_GATE_V135 — the IPv6 route is captured only when the underlay can
+        // actually carry IPv6.
+        //
+        // Runtime evidence: a Wi-Fi network with NO global IPv6 still received `::/0` into the TUN
+        // (`ipv6Captured=true`), because `Builder.addRoute("::", 0)` succeeds on almost every
+        // device regardless of what the physical network can route. Every IPv6 attempt on that
+        // network — Android Private DNS dialling `[2606:4700:4700::1111]:853`, any AAAA-derived
+        // destination — was then swallowed by the tunnel and died somewhere on an unreachable
+        // path while the apps waited. That is the "IPv6 leg of the triangle" in the attached log:
+        // the capture looked like protection but behaved like a blackhole.
+        //
+        // The two intelligence sources are UNIONED so the gate fails towards capturing: the
+        // snapshot's link properties OR the direct interface probe may prove IPv6, and only when
+        // NEITHER sees a routable global address does the capture stay off. When it stays off
+        // there is also nothing to leak — an IPv4-only underlay cannot emit IPv6 packets — and the
+        // Identity Guard scope below already treats exactly that case as safe.
+        val canCarryIpv6 = underlay.hasIpv6 || AddressFamilyPolicy.underlayHasIpv6()
         var ipv6Ok = false
-        runCatching {
-            builder.addAddress("fc00::1", 128).addRoute("::", 0)
-        }.onSuccess {
-            ipv6Ok = true
-            diag.event("TUN", "ipv6-enabled", "session" to session)
-        }.onFailure {
-            diag.error("TUN", "ipv6-builder-failed", it, "session" to session)
+        if (canCarryIpv6) {
+            runCatching {
+                builder.addAddress("fc00::1", 128).addRoute("::", 0)
+            }.onSuccess {
+                ipv6Ok = true
+                diag.event("TUN", "ipv6-enabled", "session" to session)
+            }.onFailure {
+                diag.error("TUN", "ipv6-builder-failed", it, "session" to session)
+            }
+        } else {
+            diag.event(
+                "TUN", "ipv6-capture-skipped",
+                "session" to session,
+                "reason" to "underlay-cannot-carry-ipv6",
+                "snapshotIpv6" to underlay.hasIpv6
+            )
         }
         // MARBLE_IDENTITY_IPV6_SCOPE_V132 — Identity Guard is about EXIT stability, not about
         // capturing IPv6. The old gate failed the connect closed whenever `addRoute("::", 0)`
@@ -926,6 +975,10 @@ class MarbleVpnService : VpnService() {
             if (isRouteCurrent(session, generation) && hevActive && xray.isAlive) {
                 if (tunReadyPublished.compareAndSet(false, true) && isRouteCurrent(session, generation)) {
                 startupTimedOut.set(false)
+                // MARBLE_RECOVERY_CIRCUIT_V135 — a route that published readiness proved the path:
+                // the recovery ladder is cleared so a LATER, unrelated failure starts a fresh,
+                // fast escalation instead of inheriting an old storm's delay.
+                recoveryBackoff = RecoveryBackoffPolicy.reset()
                 app.repo.markConnected(profile)
                 app.repo.intelligence.recordConnect(profile.id, true, elapsedConnectMs(), settings)
                 val iran = app.repo.iranMode
@@ -2852,9 +2905,22 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                 identityRecoveryAttempts++
                 val attempt =
                     identityRecoveryAttempts
-                val delayMs =
+                // MARBLE_RECOVERY_CIRCUIT_V135 — identity same-route retries share the recovery
+                // ladder with Smart Fallback, so the two paths cannot combine into one storm: the
+                // legacy linear 750 ms ramp becomes a FLOOR and the exponential ladder wins once
+                // the window has seen repeated failures.
+                val identityNowMs = System.currentTimeMillis()
+                val identityLadder = RecoveryBackoffPolicy.recordAttempt(recoveryBackoff, identityNowMs)
+                recoveryBackoff = identityLadder
+                val legacyDelayMs =
                     (750L * attempt)
                         .coerceAtMost(3_000L)
+                val delayMs = maxOf(
+                    legacyDelayMs,
+                    RecoveryBackoffPolicy.delayMs(
+                        RecoveryBackoffPolicy.recentAttempts(identityLadder, identityNowMs)
+                    )
+                )
 
                 running.set(true)
                 repo.setRuntimeState(
@@ -2965,6 +3031,61 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                     true
                 )
         ) {
+            // MARBLE_RECOVERY_CIRCUIT_V135 — six automatic recoveries inside five minutes mean the
+            // failure cause is structural (dead DNS path, filtered underlay, OS memory pressure)
+            // and identical for every candidate: re-dialling only burns CPU, native buffers and
+            // battery. The circuit opens, recovery holds fail-closed, and the decision goes back
+            // to the user. The runtime log that introduced this guard showed six full HEV/Xray
+            // lifecycles in 113 seconds with nothing surviving any of them.
+            val circuitNowMs = System.currentTimeMillis()
+            if (RecoveryBackoffPolicy.circuitOpen(recoveryBackoff, circuitNowMs)) {
+                recoveryScheduled.set(false)
+                diag.event(
+                    "VPN", "recovery-circuit-open",
+                    "session" to activeSession,
+                    "attemptsInWindow" to RecoveryBackoffPolicy.recentAttempts(recoveryBackoff, circuitNowMs),
+                    "windowMs" to RecoveryBackoffPolicy.WINDOW_MS,
+                    "reason" to reason
+                )
+                if (holdTun) {
+                    running.set(true)
+                    repo.setRuntimeState(
+                        "BLOCKED",
+                        "Automatic recovery paused • repeated failures • tap Connect to retry"
+                    )
+                    promoteForeground(
+                        "BLOCKED • Recovery paused • tap Connect",
+                        ongoing = true
+                    )
+                    notifier.alert(
+                        SmartNotificationKind.PRIVACY,
+                        "recovery-circuit:${activeSession}:$failedId",
+                        "Recovery paused",
+                        "Too many automatic reconnects in a short window • traffic stays blocked • tap Connect to try again",
+                        settings,
+                        minIntervalOverrideMs = 60_000L
+                    )
+                    return
+                }
+                running.set(false)
+                closeTun()
+                repo.setRuntimeState("BLOCKED", reason)
+                runCatching { stopForeground(STOP_FOREGROUND_REMOVE) }
+                stopSelf()
+                return
+            }
+            val ladderWithAttempt = RecoveryBackoffPolicy.recordAttempt(recoveryBackoff, circuitNowMs)
+            recoveryBackoff = ladderWithAttempt
+            val fallbackDelayMs = RecoveryBackoffPolicy.delayMs(
+                RecoveryBackoffPolicy.nextAttemptIndex(ladderWithAttempt, circuitNowMs) - 1
+            )
+            diag.event(
+                "VPN", "recovery-paced",
+                "session" to activeSession,
+                "attempt" to RecoveryBackoffPolicy.recentAttempts(ladderWithAttempt, circuitNowMs),
+                "delayMs" to fallbackDelayMs
+            )
+
             synchronized(
                 recoveryTried
             ) {
@@ -3046,6 +3167,20 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
 
                 connectionWorker
                     .execute {
+                        // MARBLE_RECOVERY_CIRCUIT_V135 — exponential pacing before the re-dial.
+                        // A single transient death still recovers quickly; a structural fault gets
+                        // progressively quieter instead of a reconnect storm.
+                        if (fallbackDelayMs > 0L) {
+                            try {
+                                Thread.sleep(fallbackDelayMs)
+                            } catch (_: InterruptedException) {
+                                Thread.currentThread().interrupt()
+                            }
+                        }
+                        if (!isCurrent(session)) {
+                            recoveryScheduled.set(false)
+                            return@execute
+                        }
                         // Clear before the candidate starts so a failed fallback can advance to
                         // the next bounded candidate.
                         recoveryScheduled
