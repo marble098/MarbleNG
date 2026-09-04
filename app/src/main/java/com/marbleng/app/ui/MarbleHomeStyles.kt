@@ -2360,17 +2360,20 @@ internal fun HomeStyleCosmicOrbit(
                     selected = evidence.connected,
                     contentPadding = PaddingValues(14.dp)
                 ) {
+                    // MARBLE_SLIDE_PLACEMENT_V122 — the strip/switch sit low in the orbit box
+                    // with air above the headline; the round shutter stays centred.
+                    val orbitStripLike = LocalConnectButtonStyle.current != ConnectButtonStyle.ROUND
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(heroHeight)
+                            .height(heroHeight + if (orbitStripLike) 26.dp else 0.dp)
                             .clip(RoundedCornerShape(18.dp))
                             .background(
                                 Brush.radialGradient(
                                     listOf(deep.copy(alpha = .30f), Color.Transparent)
                                 )
                             ),
-                        contentAlignment = Alignment.Center
+                        contentAlignment = if (orbitStripLike) Alignment.BottomCenter else Alignment.Center
                     ) {
                         Canvas(Modifier.matchParentSize()) {
                             drawSolarSystem(gold, tone, orbitPhases, phase, evidence.connected)
@@ -2380,6 +2383,11 @@ internal fun HomeStyleCosmicOrbit(
                             tone = tone,
                             onToggle = actions.onToggleConnection,
                             flavor = HomeFlavor.ORBIT,
+                            modifier = if (orbitStripLike) Modifier.padding(
+                                start = 10.dp,
+                                end = 10.dp,
+                                bottom = 18.dp
+                            ) else Modifier,
                             diameter = 118.dp,
                             haloBrush = Brush.radialGradient(
                                 listOf(
@@ -2647,13 +2655,17 @@ internal fun HomeStyleCosmicImmersion(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Spacer(Modifier.height(skyClearance))
+            // MARBLE_SLIDE_PLACEMENT_V122 — the wide strip/switch read as a low console bar:
+            // extra sky above pushes them down the viewport, with settle room underneath.
+            val nebulaStripLike = LocalConnectButtonStyle.current != ConnectButtonStyle.ROUND
+            Spacer(Modifier.height(skyClearance + if (nebulaStripLike) 56.dp else 0.dp))
 
             HomePowerControl(
                 evidence = evidence,
                 tone = tone,
                 onToggle = actions.onToggleConnection,
                 flavor = HomeFlavor.NEBULA,
+                modifier = if (nebulaStripLike) Modifier.padding(bottom = 6.dp) else Modifier,
                 diameter = 134.dp,
                 haloBrush = Brush.radialGradient(
                     listOf(

@@ -111,7 +111,7 @@ and a latency capsule plus a three-dot menu on the right.
 - Run real full tests, or measure a whole group at once.
 - Rename, move between groups, or delete nodes.
 - Copy original config/share text or generated Xray JSON; edit Xray JSON for supported profiles.
-- Duplicate a profile into Manual storage when enabled.
+- Duplicate a profile into the always-on Manual storage.
 - Swipe right for the rename dialog.
 - See per-card queued/testing progress.
 

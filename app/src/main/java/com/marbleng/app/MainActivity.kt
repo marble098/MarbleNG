@@ -88,7 +88,8 @@ class MainActivity : ComponentActivity() {
             app.repo.importText(
                 text,
                 "Imported file",
-                app.repo.librarySourceFilter
+                // MARBLE_MANUAL_BUCKET_V122 — "all" is a view, not a bucket; land in Manual.
+                app.repo.intakeTargetOrManual(app.repo.librarySourceFilter)
             )
         }
     }

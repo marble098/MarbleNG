@@ -78,6 +78,7 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.marbleng.app.model.ConnectButtonStyle
 import com.marbleng.app.model.ConnectionPingState
 import com.marbleng.app.model.ProAccent
 import com.marbleng.app.model.ProShortcut
@@ -202,11 +203,15 @@ internal fun HomeStyleSignature(
                 )
             }
 
+            // MARBLE_SLIDE_PLACEMENT_V122 — the wide strip/switch silhouettes sit low in the
+            // hero with air above the status line; the round shutter stays centred. The hero
+            // grows a little so the anchored control never touches the status text.
+            val heroStripLike = LocalConnectButtonStyle.current != ConnectButtonStyle.ROUND
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(heroHeight),
-                contentAlignment = Alignment.Center
+                    .height(heroHeight + if (heroStripLike) 30.dp else 0.dp),
+                contentAlignment = if (heroStripLike) Alignment.BottomCenter else Alignment.Center
             ) {
                 Canvas(Modifier.matchParentSize()) {
                     drawSignatureHeroField(
@@ -223,7 +228,10 @@ internal fun HomeStyleSignature(
                     tone = tone,
                     onToggle = actions.onToggleConnection,
                     flavor = HomeFlavor.PRO,
-                    diameter = 168.dp,
+                    modifier = if (heroStripLike) Modifier.padding(bottom = 22.dp) else Modifier,
+                    // The strip is diameter * 2.1 wide: shrink it so the track (with its drag
+                    // travel) always fits inside the padded hero on narrow screens.
+                    diameter = if (heroStripLike) 148.dp else 168.dp,
                     haloBrush = Brush.radialGradient(
                         listOf(
                             accent.copy(alpha = .30f + .12f * breathe),
