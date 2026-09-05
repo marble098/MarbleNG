@@ -267,6 +267,7 @@ class AppStore(context: Context) {
         notificationLiveStats = prefs.getBoolean("notificationLiveStats", true),
         notificationCooldownSec = prefs.getInt("notificationCooldownSec", 20).coerceIn(5, 300),
 
+        routingEnabled = prefs.getBoolean("routingEnabled", true),
         routingMode = enumValue("routingMode", RoutingMode.GEO_DIRECT),
         geoAssetSourceId = prefs.getString("geoAssetSourceId", RoutingDefaults.SOURCE_CHOCOLATE4U)
             ?: RoutingDefaults.SOURCE_CHOCOLATE4U,
@@ -414,7 +415,8 @@ class AppStore(context: Context) {
         theme = prefs.getString("theme", "light") ?: "light",
         fontFamily = parseAppFont(prefs.getString("fontFamily", AppFont.VAZIR.id) ?: AppFont.VAZIR.id).id,
         // MARBLE_HOME_STYLE_V110 / MARBLE_BILINGUAL_V110 / MARBLE_SIGNATURE_HOME_V112
-        homeStyle = parseHomeStyle(prefs.getString("homeStyle", HomeStyle.PRO.id) ?: HomeStyle.PRO.id).id,
+        homeStyle = parseHomeStyle(prefs.getString("homeStyle", HomeStyle.SLIDE.id) ?: HomeStyle.SLIDE.id).id,
+        homeHiddenBoxes = prefs.getString("homeHiddenBoxes", "") ?: "",
         appLanguage = parseAppLanguage(prefs.getString("appLanguage", AppLanguage.SYSTEM.id) ?: AppLanguage.SYSTEM.id).id,
 
         // MARBLE_SIGNATURE_HOME_V112 — the Signature studio customization surface.
@@ -486,6 +488,7 @@ class AppStore(context: Context) {
         .putBoolean("notificationLiveStats", s.notificationLiveStats)
         .putInt("notificationCooldownSec", s.notificationCooldownSec.coerceIn(5, 300))
 
+        .putBoolean("routingEnabled", s.routingEnabled)
         .putString("routingMode", s.routingMode.name)
         .putString("geoIpUrl", s.geoIpUrl)
         .putString("geoSiteUrl", s.geoSiteUrl)
@@ -624,6 +627,7 @@ class AppStore(context: Context) {
         .putString("theme", s.theme)
         .putString("fontFamily", parseAppFont(s.fontFamily).id)
         .putString("homeStyle", parseHomeStyle(s.homeStyle).id)
+        .putString("homeHiddenBoxes", s.homeHiddenBoxes)
         .putString("appLanguage", parseAppLanguage(s.appLanguage).id)
 
         // MARBLE_SIGNATURE_HOME_V112

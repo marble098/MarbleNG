@@ -198,25 +198,27 @@ enum class NodeSortMode { DEFAULT, PING, SCORE, NAME, PROTOCOL, SOURCE, COUNTRY 
  * whole product; any persisted value naming them falls back to the Signature studio.
  */
 enum class HomeStyle(val id: String) {
-    /**
-     * MARBLE_SIGNATURE_HOME_V112 — the dedicated professional Signature studio.
-     *
-     * A fixed, fully customizable connection surface that is the product's default: a status
-     * banner, corner quick actions (+ / ping / shortcut / more), the optional floating connect
-     * button (app-wide, draggable, v2rayNG-style) and an accent-tinted animated aurora backdrop.
-     */
-    PRO("pro"),
-
-    /** Cosmic orbit dashboard: orbiting system card plus a network-speed graph. */
-    COSMIC_ORBIT("cosmic_orbit"),
-
-    /** Cosmic orbit, full-screen immersion: orbit above, cosmic energy flower below. */
-    COSMIC_IMMERSION("cosmic_immersion")
+    /** RTL slide-to-connect bar; iOS boxes; no page scroll. */
+    SLIDE("slide"),
+    /** FAB on the right that expands into disconnect + ping. */
+    FLOAT("float"),
+    /** Bold circular connect control in the centre. */
+    ORB("orb"),
+    /** User can hide / rearrange the iOS boxes. */
+    CUSTOM("custom")
 }
 
-fun parseHomeStyle(raw: String): HomeStyle =
-    HomeStyle.entries.firstOrNull { it.id.equals(raw.trim(), ignoreCase = true) }
-        ?: HomeStyle.PRO
+fun parseHomeStyle(raw: String): HomeStyle {
+    val t = raw.trim().lowercase()
+    return when (t) {
+        "slide", "pro", "stream" -> HomeStyle.SLIDE
+        "float", "floating", "cosmic_orbit" -> HomeStyle.FLOAT
+        "orb", "round", "cosmic_immersion" -> HomeStyle.ORB
+        "custom" -> HomeStyle.CUSTOM
+        else -> HomeStyle.entries.firstOrNull { it.id.equals(t, ignoreCase = true) }
+            ?: HomeStyle.SLIDE
+    }
+}
 
 /**
  * MARBLE_BILINGUAL_V110
@@ -544,6 +546,8 @@ data class AppSettings(
     val notificationLiveStats: Boolean = true,
     val notificationCooldownSec: Int = 20,
 
+    /** Master switch: when false, Xray ships only DNS/IPv6 infrastructure rules — no geo or user lists. */
+    val routingEnabled: Boolean = true,
     val routingMode: RoutingMode = RoutingMode.GEO_DIRECT,
     val geoAssetSourceId: String = RoutingDefaults.SOURCE_CHOCOLATE4U,
     val routingRulesJson: String = "",
@@ -775,7 +779,9 @@ data class AppSettings(
      * picked. The Signature studio (PRO) is the product default: the main connection theme ships
      * enabled out of the box and every one of its layers stays independently customizable below.
      */
-    val homeStyle: String = HomeStyle.PRO.id,
+    val homeStyle: String = HomeStyle.SLIDE.id,
+    /** CUSTOM theme: comma-separated hidden box ids (status, servers, extras). */
+    val homeHiddenBoxes: String = "",
 
     // MARBLE_SIGNATURE_HOME_V112 — the Signature studio customization surface. Every layer of
     // the professional Home is an independent user choice; nothing is hard-wired.

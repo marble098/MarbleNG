@@ -220,9 +220,9 @@ internal enum class HomeFlavor { ORBIT, NEBULA, PRO }
 
 /** The single source of truth for which presentation skin a [HomeStyle] renders through. */
 internal fun homeFlavorFor(style: HomeStyle): HomeFlavor = when (style) {
-    HomeStyle.PRO -> HomeFlavor.PRO
-    HomeStyle.COSMIC_ORBIT -> HomeFlavor.ORBIT
-    HomeStyle.COSMIC_IMMERSION -> HomeFlavor.NEBULA
+    HomeStyle.SLIDE, HomeStyle.CUSTOM -> HomeFlavor.PRO
+    HomeStyle.FLOAT -> HomeFlavor.ORBIT
+    HomeStyle.ORB -> HomeFlavor.NEBULA
 }
 
 @Composable
@@ -2785,7 +2785,7 @@ internal fun HomeStyleCosmicOrbit(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            Tr.now.networkSpeed,
+          Tr.now.networkSpeed,
                             color = Aether.InkFaint,
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold
@@ -3184,6 +3184,7 @@ private fun DrawScope.drawImmersiveCosmos(
         val baseY = h * (.16f + ribbon * .09f)
         val amp = h * (.028f - ribbon * .008f)
         val path = Path()
+         = Path()
         var x = 0f
         while (x <= w) {
             val y = baseY + sin((x / w * 4f + aurora * 2f + ribbon) * PI.toFloat()) * amp
@@ -3281,33 +3282,14 @@ internal fun HomeStyleSurface(
     // the group, the filter and the selection from the repository's single source of truth.
     repo: AppRepository
 ) {
-    when (style) {
-        HomeStyle.PRO -> HomeStyleSignature(
-            repo = repo,
-            evidence = evidence,
-            actions = actions,
-            pro = pro ?: HomeProContext(
-                showBanner = false,
-                showCornerActions = false,
-                shortcut = ProShortcut.LIBRARY,
-                accent = ProAccent.ELECTRIC
-            ),
-            bottomClearance = bottomClearance,
-            onScrollChanged = onScrollChanged
-        )
-        HomeStyle.COSMIC_ORBIT -> HomeStyleCosmicOrbit(
-            evidence,
-            actions,
-            bottomClearance,
-            onScrollChanged
-        )
-        HomeStyle.COSMIC_IMMERSION -> HomeStyleCosmicImmersion(
-            evidence,
-            actions,
-            bottomClearance,
-            onScrollChanged
-        )
-    }
+    LaunchedEffect(Unit) { onScrollChanged(false) }
+    MarbleIosHome(
+        style = style,
+        repo = repo,
+        evidence = evidence,
+        actions = actions,
+        bottomClearance = bottomClearance
+    )
 }
 
 /** Clipboard helper shared by every style so "copy" behaves identically across presentations. */

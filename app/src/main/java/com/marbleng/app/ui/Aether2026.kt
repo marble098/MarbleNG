@@ -8270,9 +8270,9 @@ private fun SettingsStyleMiniRow(repo: AppRepository) {
             HomeStyle.entries.forEach { style ->
                 val selected = active == style
                 val tone = when (style) {
-                    HomeStyle.PRO -> Aether.Cyan
-                    HomeStyle.COSMIC_ORBIT -> Aether.Amber
-                    HomeStyle.COSMIC_IMMERSION -> Aether.Amethyst
+                    HomeStyle.SLIDE -> Aether.Cyan
+                    HomeStyle.FLOAT -> Aether.Amber
+                    HomeStyle.ORB -> Aether.Amethyst
                 }
                 val shape = RoundedCornerShape(11.dp)
                 Column(
@@ -8313,7 +8313,7 @@ private fun SettingsStyleMotif(style: HomeStyle, tone: Color, modifier: Modifier
         val h = size.height
         when (style) {
             // Signature studio: a shutter bar over a quiet dot grid.
-            HomeStyle.PRO -> {
+            HomeStyle.SLIDE -> {
                 drawCircle(tone.copy(alpha = .45f), h * .30f, Offset(w * .50f, h * .42f))
                 drawLine(
                     tone.copy(alpha = .80f),
@@ -8324,14 +8324,14 @@ private fun SettingsStyleMotif(style: HomeStyle, tone: Color, modifier: Modifier
                 )
             }
             // Command deck: orbits with one body.
-            HomeStyle.COSMIC_ORBIT -> {
+            HomeStyle.FLOAT -> {
                 val c = Offset(w * .50f, h * .50f)
                 drawCircle(tone.copy(alpha = .35f), h * .42f, c, style = Stroke(1.dp.toPx()))
                 drawCircle(tone.copy(alpha = .55f), h * .22f, c, style = Stroke(1.dp.toPx()))
                 drawCircle(tone, h * .10f, Offset(c.x + h * .42f, c.y))
             }
             // Nebula: a ring, a core and starfield specks.
-            HomeStyle.COSMIC_IMMERSION -> {
+            HomeStyle.ORB -> {
                 val c = Offset(w * .50f, h * .52f)
                 drawCircle(tone.copy(alpha = .28f), h * .46f, c, style = Stroke(1.4.dp.toPx()))
                 drawCircle(tone.copy(alpha = .80f), h * .16f, c)
@@ -8762,9 +8762,9 @@ private fun SettingsHomeStylePage(
                         row.forEach { style ->
                             val selected = active == style
                             val tone = when (style) {
-                                HomeStyle.PRO -> Aether.Cyan
-                                HomeStyle.COSMIC_ORBIT -> Aether.Amber
-                                HomeStyle.COSMIC_IMMERSION -> Aether.Amethyst
+                                HomeStyle.SLIDE -> Aether.Cyan
+                                HomeStyle.FLOAT -> Aether.Amber
+                                HomeStyle.ORB -> Aether.Amethyst
                             }
                             val shape = RoundedCornerShape(14.dp)
                             Column(
@@ -8813,7 +8813,7 @@ private fun SettingsHomeStylePage(
                 }
             }
         }
-        if (active == HomeStyle.PRO) {
+        if (active == HomeStyle.SLIDE) {
             SettingsHubCard(title = t.proStudioTitle, subtitle = t.proStudioDetail, tone = Aether.Amethyst) {
                 Text(
                     trx("Every layer of the Signature studio is customizable under General."),
@@ -9748,16 +9748,16 @@ private fun SettingsSectionCard(
 
 @Composable
 private fun homeStyleLabel(style: HomeStyle): String = when (style) {
-    HomeStyle.PRO -> Tr.now.stylePro
-    HomeStyle.COSMIC_ORBIT -> Tr.now.styleCosmicOrbit
-    HomeStyle.COSMIC_IMMERSION -> Tr.now.styleCosmicImmersion
+    HomeStyle.SLIDE -> Tr.now.stylePro
+    HomeStyle.FLOAT -> Tr.now.styleCosmicOrbit
+    HomeStyle.ORB -> Tr.now.styleCosmicImmersion
 }
 
 @Composable
 private fun homeStyleDetail(style: HomeStyle): String = when (style) {
-    HomeStyle.PRO -> Tr.now.styleProDetail
-    HomeStyle.COSMIC_ORBIT -> Tr.now.styleCosmicOrbitDetail
-    HomeStyle.COSMIC_IMMERSION -> Tr.now.styleCosmicImmersionDetail
+    HomeStyle.SLIDE -> Tr.now.styleProDetail
+    HomeStyle.FLOAT -> Tr.now.styleCosmicOrbitDetail
+    HomeStyle.ORB -> Tr.now.styleCosmicImmersionDetail
 }
 
 /**
@@ -11050,6 +11050,20 @@ private fun RoutingSettings(repo: AppRepository) {
     }
 
     var confirmPreset by remember { mutableStateOf<RoutingPresets.Preset?>(null) }
+
+    SettingSwitch(
+        title = "Routing",
+        subtitle = "When off, every connection uses the selected proxy with no geo or user rules.",
+        checked = s.routingEnabled
+    ) { enabled -> repo.updateSettings(s.copy(routingEnabled = enabled)) }
+    if (!s.routingEnabled) {
+        Text(
+            trx("Routing is off. DNS hijack and IPv6 policy still apply; site/IP lists do not."),
+            color = Aether.InkMuted,
+            style = MaterialTheme.typography.bodySmall
+        )
+        return
+    }
 
     // ------------------------------------------------------------------ 1. Routing mode
     Text(trx("Routing mode"), color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)

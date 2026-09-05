@@ -595,8 +595,10 @@ object XrayConfigHardener {
 
         val needsDirect = RoutingEngine.needsDirectOutbound(settings) ||
             (isFreedomSelected && settings.freedomDirectDomestic) ||
-            settings.routeDirectDomains.isNotBlank() ||
-            settings.routeDirectIps.isNotBlank()
+            (settings.routingEnabled && (
+                settings.routeDirectDomains.isNotBlank() ||
+                    settings.routeDirectIps.isNotBlank()
+                ))
 
         /*
          * Prevent proxy-server hostname resolution from falling back to Android/system DNS.
@@ -1126,11 +1128,12 @@ object XrayConfigHardener {
             )
         }
 
-        addDomainRule(rules, splitDomains(settings.routeBlockDomains), "block")
-        addIpRule(rules, splitIps(settings.routeBlockIps), "block")
-        addDomainRule(rules, splitDomains(settings.routeProxyDomains), firstTag)
-        // Ads geosite tag: normalizeGeoSiteTag(settings.routeAdsTag) — now RoutingEngine + RoutingDefaults.ADS_TAG
-        RoutingEngine.applyUserRules(rules, settings, firstTag)
+        if (settings.routingEnabled) {
+            addDomainRule(rules, splitDomains(settings.routeBlockDomains), "block")
+            addIpRule(rules, splitIps(settings.routeBlockIps), "block")
+            addDomainRule(rules, splitDomains(settings.routeProxyDomains), firstTag)
+            RoutingEngine.applyUserRules(rules, settings, firstTag)
+        }
 
         // Freedom: block Iran's DNS injector ranges and null answers before anything else can
         // dial them. Without this, half-resolved multi-CDN hosts (YouTube googlevideo shards,
