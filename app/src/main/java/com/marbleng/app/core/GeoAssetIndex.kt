@@ -93,6 +93,12 @@ object GeoAssetIndex {
     /** The index the UI and the config writer should consult; null until the first scan ran. */
     fun current(): Snapshot? = snapshot
 
+    /** Test isolation only: the index is a process-wide singleton keyed by the assets dir. */
+    internal fun resetForTests() {
+        snapshot = null
+        assetsDirPath = null
+    }
+
     /**
      * Re-index the managed assets when they changed. Never throws: a malformed or half-written
      * download must degrade into "no suggestions" instead of breaking the caller. The in-memory
@@ -148,9 +154,11 @@ object GeoAssetIndex {
      * back to the entry count, so a huge real category outranks an obscure one.
      */
     fun suggest(kind: Kind, query: String, limit: Int = 8): List<GeoEntry> {
+        // An empty scan (missing/corrupt files) falls back to the built-in discovery catalog too:
+        // "no database yet" and "database with no entries" must suggest identically.
         val entries = when (kind) {
-            Kind.GEOSITE -> snapshot?.geosite ?: BUILTIN_GEOSITE
-            Kind.GEOIP -> snapshot?.geoip ?: BUILTIN_GEOIP
+            Kind.GEOSITE -> snapshot?.geosite?.ifEmpty { BUILTIN_GEOSITE } ?: BUILTIN_GEOSITE
+            Kind.GEOIP -> snapshot?.geoip?.ifEmpty { BUILTIN_GEOIP } ?: BUILTIN_GEOIP
         }
         val q = normalizeToken(query)
         if (q.isEmpty()) {

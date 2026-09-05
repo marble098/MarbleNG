@@ -11,9 +11,18 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
 
 class RoutingEngineTest {
+
+    @Before
+    fun resetGeoIndex() {
+        // Validation consults the process-wide geo index; tests must run without one so the
+        // "unknown tag" verdicts stay deterministic regardless of execution order.
+        GeoAssetIndex.resetForTests()
+    }
+
 
     private fun proxyConfigSource(): String = JSONObject()
         .put(

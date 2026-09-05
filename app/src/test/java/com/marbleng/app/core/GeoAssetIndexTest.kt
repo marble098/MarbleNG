@@ -4,6 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
@@ -14,6 +15,12 @@ class GeoAssetIndexTest {
 
     @get:Rule
     val tmp = TemporaryFolder()
+
+    @Before
+    fun resetIndex() {
+        // The index is a process-wide singleton; every test must scan its own fixture cleanly.
+        GeoAssetIndex.resetForTests()
+    }
 
     // ---------------------------------------------------------------------------------------
     // Hand-encoded protobuf fixtures — the exact wire format Xray's geo files use.
