@@ -128,10 +128,15 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.zIndex
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -156,7 +161,9 @@ import androidx.compose.foundation.pager.rememberPagerState
 import com.marbleng.app.AppRepository
 import com.marbleng.app.R
 import com.marbleng.app.core.AddressFamilyPolicy
+import com.marbleng.app.core.GeoAssetIndex
 import com.marbleng.app.core.RoutingEngine
+import com.marbleng.app.core.RoutingPresets
 import com.marbleng.app.core.BugSeverity
 import com.marbleng.app.core.IranModeState
 import com.marbleng.app.core.ManualConfigBuilder
@@ -175,6 +182,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import android.net.Uri
+import androidx.compose.foundation.BorderStroke
+import org.json.JSONArray
+import org.json.JSONObject
 import java.text.DateFormat
 import java.util.Date
 import kotlin.math.PI
@@ -11020,12 +11030,104 @@ private fun RoutingAssetCard(
 
 @Composable
 private fun RoutingSettings(repo: AppRepository) {
+    // MARBLE_ROUTING_UI_V136 — the routing workspace, rebuilt around one honest model:
+    // the mode decides the implicit behaviour, the rule list is the user's own ordered policy,
+    // the geo databases power live suggestions + validation, and the simulator answers the
+    // only question that matters when a site breaks: *which rule did it, and what now?*
     val s = repo.settings
     val assets = repo.routingAssetStatus()
     val rules = remember(s.routingRulesJson) { RoutingEngine.effectiveRules(s) }
+    val implicit = remember(s.routingMode, s.routeBlockAds, s.routeAdsTag, s.routeGeoIpTags, s.routeGeoSiteTags, s.routeBypassPrivate) {
+        RoutingEngine.implicitRules(s)
+    }
     var sourceMenu by remember { mutableStateOf(false) }
     val currentSource = RoutingDefaults.sourceById(s.geoAssetSourceId)
 
+    // Sheet state: null = closed; a rule + isNew flag = the professional editor.
+    var editorRule by remember { mutableStateOf<RoutingRule?>(null) }
+    var editorIsNew by remember { mutableStateOf(false) }
+
+    // Drag-reorder state (pixel space; heights measured per card).
+    var dragIndex by remember { mutableStateOf(-1) }
+    var dragOffsetPx by remember { mutableStateOf(0f) }
+    val itemHeights = remember { mutableStateMapOf<Int, Int>() }
+    val density = LocalDensity.current
+    val defaultItemHeightPx = with(density) { 96.dp.toPx() }
+    fun heightAt(index: Int): Float = itemHeights[index]?.toFloat() ?: defaultItemHeightPx
+    val dragTarget = if (dragIndex in rules.indices) {
+        routingDragTarget(rules.size, dragIndex, dragOffsetPx, ::heightAt)
+    } else {
+        -1
+    }
+
+    var confirmPreset by remember { mutableStateOf<RoutingPresets.Preset?>(null) }
+
+    // ------------------------------------------------------------------ 1. Routing mode
+    Text(trx("Routing mode"), color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        RoutingModeCard(
+            title = "Proxy all",
+            detail = "Everything rides the tunnel",
+            selected = s.routingMode == RoutingMode.PROXY_ALL,
+            tone = Aether.Cyan,
+            modifier = Modifier.weight(1f),
+            enabled = !repo.busy
+        ) { repo.updateSettings(s.copy(routingMode = RoutingMode.PROXY_ALL)) }
+        RoutingModeCard(
+            title = "Private direct",
+            detail = "LAN never enters the tunnel",
+            selected = s.routingMode == RoutingMode.BYPASS_PRIVATE,
+            tone = Aether.Emerald,
+            modifier = Modifier.weight(1f),
+            enabled = !repo.busy
+        ) { repo.updateSettings(s.copy(routingMode = RoutingMode.BYPASS_PRIVATE)) }
+    }
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        RoutingModeCard(
+            title = "Geo direct",
+            detail = "Selected countries bypass the tunnel",
+            selected = s.routingMode == RoutingMode.GEO_DIRECT,
+            tone = Aether.Emerald,
+            modifier = Modifier.weight(1f),
+            enabled = !repo.busy
+        ) { repo.updateSettings(s.copy(routingMode = RoutingMode.GEO_DIRECT)) }
+        RoutingModeCard(
+            title = "Custom",
+            detail = "Only your rules decide",
+            selected = s.routingMode == RoutingMode.CUSTOM,
+            tone = Aether.Amethyst,
+            modifier = Modifier.weight(1f),
+            enabled = !repo.busy
+        ) { repo.updateSettings(s.copy(routingMode = RoutingMode.CUSTOM)) }
+    }
+    if (s.routingMode == RoutingMode.GEO_DIRECT &&
+        (implicit.directIpTags.isNotEmpty() || implicit.directSiteTags.isNotEmpty())
+    ) {
+        Text(
+            trx("Geo direct sends these straight over the underlay:") + " " +
+                (implicit.directIpTags + implicit.directSiteTags).joinToString(", "),
+            color = Aether.InkMuted,
+            style = MaterialTheme.typography.bodySmall
+        )
+    }
+
+    // ------------------------------------------------------------------ 2. Presets
+    Text(trx("Presets"), color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
+    FlowRow(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(7.dp),
+        verticalArrangement = Arrangement.spacedBy(7.dp)
+    ) {
+        RoutingPresets.Preset.entries.forEach { preset ->
+            CyberChoiceChip(
+                text = preset.title,
+                selected = rules.map { it.id } == preset.rules.map { it.id },
+                color = Aether.Emerald
+            ) { confirmPreset = preset }
+        }
+    }
+
+    // ------------------------------------------------------------------ 3. Geo databases
     Text(trx("Geo data source"), color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
     Box {
         CyberButton(
@@ -11082,77 +11184,850 @@ private fun RoutingSettings(repo: AppRepository) {
         }
     }
 
+    // ------------------------------------------------------------------ 4. Switches the mode leaves independent
+    SettingSwitch(
+        title = "Block ads",
+        subtitle = "geosite ad categories never load — in every mode",
+        checked = s.routeBlockAds
+    ) { repo.updateSettings(s.copy(routeBlockAds = it)) }
+    // SettingSwitch has no enabled lane: when the mode pins the bypass on, the switch reads
+    // pinned-on and the subtitle says so instead of offering a toggle that cannot do anything.
     SettingSwitch(
         title = "Bypass private LAN",
-        subtitle = "RFC1918 stays off the tunnel",
-        checked = s.routeBypassPrivate
-    ) { repo.updateSettings(s.copy(routeBypassPrivate = it)) }
+        subtitle = if (implicit.forceBypassPrivate) "Always on in this mode" else "RFC1918 stays off the tunnel",
+        checked = s.routeBypassPrivate || implicit.forceBypassPrivate
+    ) { pinnedOn -> repo.updateSettings(s.copy(routeBypassPrivate = pinnedOn || implicit.forceBypassPrivate)) }
 
-    Text(trx("Rules (top = highest priority)"), color = Aether.Ink, style = MaterialTheme.typography.titleMedium)
-    Text(
-        trx("Default: block ads, Iranian IP direct, Iranian domain direct."),
-        color = Aether.InkMuted,
-        style = MaterialTheme.typography.bodySmall
-    )
-
-    rules.forEachIndexed { index, rule ->
-        val tone = when (rule.outbound) {
-            RoutingOutbound.BLOCK -> Aether.Danger
-            RoutingOutbound.DIRECT -> Aether.Emerald
-            RoutingOutbound.PROXY -> Aether.Cyan
+    // ------------------------------------------------------------------ 5. The rule list
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(
+                trx("Rules"),
+                color = Aether.Ink,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                trx("Top wins. Drag to reorder, tap to edit."),
+                color = Aether.InkMuted,
+                style = MaterialTheme.typography.bodySmall
+            )
         }
-        val shape = RoundedCornerShape(14.dp)
+        HoloBadge("${rules.size}", Aether.Cyan, compact = true)
+    }
+
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        rules.forEachIndexed { index, rule ->
+            val displacement = when {
+                dragIndex < 0 -> 0f
+                index == dragIndex -> 0f
+                dragIndex < index && index <= dragTarget -> -heightAt(dragIndex)
+                dragTarget <= index && index < dragIndex -> heightAt(dragIndex)
+                else -> 0f
+            }
+            RoutingRuleCard(
+                rule = rule,
+                repo = repo,
+                dragging = dragIndex == index,
+                dragOffset = dragOffsetPx,
+                displacementPx = displacement,
+                onHeight = { itemHeights[index] = it },
+                onEdit = {
+                    editorRule = rule
+                    editorIsNew = false
+                },
+                onDragStart = {
+                    dragIndex = index
+                    dragOffsetPx = 0f
+                },
+                onDrag = { dragOffsetPx += it },
+                onDragEnd = {
+                    val target = routingDragTarget(rules.size, dragIndex, dragOffsetPx, ::heightAt)
+                    if (dragIndex in rules.indices && target in rules.indices && target != dragIndex) {
+                        repo.setRoutingRules(RoutingEngine.move(rules, dragIndex, target))
+                    }
+                    dragIndex = -1
+                    dragOffsetPx = 0f
+                },
+                onDragCancel = {
+                    dragIndex = -1
+                    dragOffsetPx = 0f
+                }
+            )
+        }
+    }
+
+    CyberButton(
+        label = "Add rule",
+        color = Aether.Cyan,
+        modifier = Modifier.fillMaxWidth(),
+        icon = HomeIcon.PLUS
+    ) {
+        editorRule = RoutingEngine.newRule()
+        editorIsNew = true
+    }
+
+    // ------------------------------------------------------------------ 6. Route simulator
+    RoutingSimulatorCard(repo)
+
+    // ------------------------------------------------------------------ 7. Expert
+    RoutingExpertSection(repo, s)
+
+    confirmPreset?.let { preset ->
+        AlertDialog(
+            onDismissRequest = { confirmPreset = null },
+            title = { Text(trx("Apply ${preset.title} preset?"), color = Aether.Ink) },
+            text = {
+                Text(
+                    trx("This replaces your current rules with the preset list. Your mode, geo source and expert lists stay untouched."),
+                    color = Aether.InkMuted
+                )
+            },
+            confirmButton = {
+                MarbleDialogAction("Replace", Aether.Emerald, variant = PrismButtonVariant.Primary) {
+                    repo.applyRoutingPreset(preset)
+                    confirmPreset = null
+                }
+            },
+            dismissButton = {
+                MarbleDialogAction("Cancel", Aether.InkMuted) { confirmPreset = null }
+            },
+            containerColor = Aether.VoidElevated
+        )
+    }
+
+    editorRule?.let { initial ->
+        RoutingRuleEditorSheet(
+            repo = repo,
+            initial = initial,
+            isNew = editorIsNew,
+            onDismiss = { editorRule = null }
+        )
+    }
+}
+
+/** Slot under the dragged card's centre — the index a live reorder would land on. */
+private fun routingDragTarget(count: Int, from: Int, delta: Float, heightAt: (Int) -> Float): Int {
+    if (from !in 0 until count) return from
+    val newCenter = run {
+        var acc = 0f
+        for (j in 0 until from) acc += heightAt(j)
+        acc + heightAt(from) / 2f + delta
+    }
+    var acc = 0f
+    for (i in 0 until count) {
+        val h = heightAt(i)
+        if (newCenter < acc + h) return i
+        acc += h
+    }
+    return count - 1
+}
+
+@Composable
+private fun RoutingModeCard(
+    title: String,
+    detail: String,
+    selected: Boolean,
+    tone: Color,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    onClick: () -> Unit
+) {
+    val shape = RoundedCornerShape(15.dp)
+    PrismWell(
+        modifier = modifier,
+        tone = tone,
+        selected = selected,
+        onClick = if (enabled) onClick else null,
+        enabled = enabled,
+        contentPadding = PaddingValues(horizontal = 11.dp, vertical = 9.dp)
+    ) {
+        Column {
+            Text(
+                trx(title),
+                color = if (selected) tone else Aether.Ink,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Spacer(Modifier.height(2.dp))
+            Text(
+                trx(detail),
+                color = Aether.InkMuted,
+                style = MaterialTheme.typography.labelSmall,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+@Composable
+private fun RoutingRuleCard(
+    rule: RoutingRule,
+    repo: AppRepository,
+    dragging: Boolean,
+    dragOffset: Float,
+    displacementPx: Float,
+    onHeight: (Int) -> Unit,
+    onEdit: () -> Unit,
+    onDragStart: () -> Unit,
+    onDrag: (Float) -> Unit,
+    onDragEnd: () -> Unit,
+    onDragCancel: () -> Unit
+) {
+    val tone = when (rule.outbound) {
+        RoutingOutbound.BLOCK -> Aether.Danger
+        RoutingOutbound.DIRECT -> Aether.Emerald
+        RoutingOutbound.PROXY -> Aether.Cyan
+    }
+    val issues = remember(rule) { RoutingEngine.validateRule(rule) }
+    val errors = issues.filter { it.severity == RoutingEngine.IssueSeverity.ERROR }
+    val haptics = LocalHapticFeedback.current
+    val shape = RoundedCornerShape(15.dp)
+
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .onGloballyPositioned { onHeight(it.size.height) }
+            .graphicsLayer {
+                translationY = if (dragging) {
+                    // The dragged card follows the finger so the grab never feels binary;
+                    // displacement cards get the exact swap offset instead.
+                    dragOffset
+                } else {
+                    displacementPx
+                }
+                shadowElevation = if (dragging) 18f else 0f
+            }
+            .zIndex(if (dragging) 1f else 0f)
+            .clip(shape)
+            .background(
+                when {
+                    dragging -> Aether.GlassStrong.copy(alpha = .6f)
+                    else -> Aether.GlassStrong.copy(alpha = .35f)
+                }
+            )
+            .border(
+                1.dp,
+                when {
+                    errors.isNotEmpty() -> Aether.Danger.copy(alpha = .55f)
+                    dragging -> tone.copy(alpha = .6f)
+                    else -> tone.copy(alpha = .28f)
+                },
+                shape
+            )
+            .kineticClickable(role = Role.Button, boundedShape = shape, onClick = onEdit)
+            .padding(start = 4.dp, end = 10.dp, top = 8.dp, bottom = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(5.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            // The drag handle: a long-press anywhere on it lifts the card, then plain dragging
+            // reorders live. Icon-only, so the whole row stays one tap-to-edit surface.
+            Box(
+                Modifier
+                    .size(30.dp, 40.dp)
+                    .pointerInput(rule.id, repo.settings.routingRulesJson) {
+                        detectDragGesturesAfterLongPress(
+                            onDragStart = {
+                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                onDragStart()
+                            },
+                            onDrag = { change, amount ->
+                                change.consume()
+                                onDrag(amount.y)
+                            },
+                            onDragEnd = { onDragEnd() },
+                            onDragCancel = { onDragCancel() }
+                        )
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                HomeVectorIcon(HomeIcon.SORT, if (dragging) tone else Aether.InkFaint, Modifier.size(15.dp))
+            }
+            Spacer(Modifier.width(6.dp))
+            // Outbound colour spine: one glance says what this rule does.
+            Box(
+                Modifier
+                    .size(3.dp, 34.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(tone)
+            )
+            Spacer(Modifier.width(9.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    trx(rule.remark.ifBlank { rule.kind.name.lowercase() }),
+                    color = if (rule.enabled) Aether.Ink else Aether.InkFaint,
+                    style = MaterialTheme.typography.labelLarge,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    routingMatcherSummary(rule),
+                    color = Aether.InkMuted,
+                    style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            Spacer(Modifier.width(6.dp))
+            if (errors.isNotEmpty()) {
+                PrismBadge("!", Aether.Danger, strong = true)
+                Spacer(Modifier.width(6.dp))
+            }
+            Switch(
+                checked = rule.enabled,
+                onCheckedChange = { on ->
+                    val current = RoutingEngine.effectiveRules(repo.settings)
+                    val i = current.indexOfFirst { it.id == rule.id }
+                    if (i >= 0) repo.setRoutingRules(
+                        current.toMutableList().also { it[i] = current[i].copy(enabled = on) }
+                    )
+                },
+                colors = marbleSwitchColors()
+            )
+            Box {
+                var menu by remember { mutableStateOf(false) }
+                Box(
+                    Modifier
+                        .size(34.dp)
+                        .clip(CircleShape)
+                        .kineticClickable(role = Role.Button, showIndication = false) { menu = true },
+                    contentAlignment = Alignment.Center
+                ) {
+                    HomeVectorIcon(HomeIcon.MORE, Aether.InkMuted, Modifier.size(16.dp))
+                }
+                DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                    DropdownMenuItem(
+                        text = { Text(trx("Edit")) },
+                        onClick = { menu = false; onEdit() }
+                    )
+                    DropdownMenuItem(
+                        text = { Text(trx("Duplicate")) },
+                        onClick = {
+                            menu = false
+                            val current = RoutingEngine.effectiveRules(repo.settings)
+                            val i = current.indexOfFirst { it.id == rule.id }
+                            if (i >= 0) repo.setRoutingRules(
+                                current.toMutableList().also { it.add(i + 1, RoutingEngine.duplicate(rule)) }
+                            )
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text(trx("Move to top")) },
+                        onClick = {
+                            menu = false
+                            val current = RoutingEngine.effectiveRules(repo.settings)
+                            val i = current.indexOfFirst { it.id == rule.id }
+                            if (i > 0) repo.setRoutingRules(RoutingEngine.move(current, i, 0))
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text(trx("Move to bottom")) },
+                        onClick = {
+                            menu = false
+                            val current = RoutingEngine.effectiveRules(repo.settings)
+                            val i = current.indexOfFirst { it.id == rule.id }
+                            if (i in 0 until current.lastIndex) {
+                                repo.setRoutingRules(RoutingEngine.move(current, i, current.lastIndex))
+                            }
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text(trx("Delete"), color = Aether.Danger) },
+                        onClick = {
+                            menu = false
+                            repo.setRoutingRules(
+                                RoutingEngine.effectiveRules(repo.settings).filterNot { it.id == rule.id }
+                            )
+                        }
+                    )
+                }
+            }
+        }
+        if (errors.isNotEmpty()) {
+            Text(
+                errors.first().message,
+                color = Aether.Danger,
+                style = MaterialTheme.typography.labelSmall,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+private fun routingMatcherSummary(rule: RoutingRule): String {
+    val matcher = rule.matcher.ifBlank { "…" }
+    val extras = buildList {
+        if (rule.port.isNotBlank() && rule.kind != RoutingRuleKind.PORT) add("port ${rule.port}")
+        if (rule.network.isNotBlank()) add(rule.network)
+        if (rule.protocol.isNotBlank()) add(rule.protocol)
+    }
+    val prefix = when (rule.kind) {
+        RoutingRuleKind.GEOSITE -> "geosite:"
+        RoutingRuleKind.GEOIP -> "geoip:"
+        else -> ""
+    }
+    return (prefix + matcher + extras.joinToString(" • ", prefix = "  •  ")).trim()
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun RoutingRuleEditorSheet(
+    repo: AppRepository,
+    initial: RoutingRule,
+    isNew: Boolean,
+    onDismiss: () -> Unit
+) {
+    var draft by remember(initial.id) { mutableStateOf(initial) }
+    val issues = remember(draft) { RoutingEngine.validateRule(draft) }
+    val errors = issues.filter { it.severity == RoutingEngine.IssueSeverity.ERROR }
+    val preview = remember(draft) { routingRulePreviewJson(draft) }
+
+    // Live suggestions from the geo databases — the app guesses while the user types.
+    val suggestions = remember(draft.kind, draft.matcher) {
+        when {
+            draft.kind == RoutingRuleKind.GEOSITE ->
+                GeoAssetIndex.suggest(GeoAssetIndex.Kind.GEOSITE, draft.matcher)
+            draft.kind == RoutingRuleKind.GEOIP ->
+                GeoAssetIndex.suggest(GeoAssetIndex.Kind.GEOIP, draft.matcher)
+            draft.kind == RoutingRuleKind.DOMAIN &&
+                draft.matcher.trim().lowercase().startsWith("geosite:") ->
+                GeoAssetIndex.suggest(
+                    GeoAssetIndex.Kind.GEOSITE,
+                    draft.matcher.trim().substringAfter(':')
+                )
+            else -> emptyList()
+        }
+    }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = Aether.VoidElevated,
+        dragHandle = {
+            Box(
+                Modifier
+                    .padding(top = 10.dp, bottom = 6.dp)
+                    .width(42.dp)
+                    .height(4.dp)
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(Aether.InkFaint.copy(alpha = .55f))
+            )
+        }
+    ) {
         Column(
-            Modifier
+            modifier = Modifier
                 .fillMaxWidth()
-                .clip(shape)
-                .background(Aether.GlassStrong.copy(alpha = .35f))
-                .border(1.dp, tone.copy(alpha = .28f), shape)
-                .padding(10.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp)
+                .padding(bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Switch(
-                    checked = rule.enabled,
-                    onCheckedChange = { on ->
-                        repo.setRoutingRules(rules.toMutableList().also { it[index] = rule.copy(enabled = on) })
-                    },
-                    colors = marbleSwitchColors()
-                )
                 Column(Modifier.weight(1f)) {
-                    Text(rule.remark.ifBlank { rule.kind.name }, color = Aether.Ink, style = MaterialTheme.typography.labelLarge)
-                    Text("${rule.kind.name} • ${rule.matcher} → ${rule.outbound.name}", color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
+                    Text(
+                        trx(if (isNew) "New rule" else "Edit rule"),
+                        color = Aether.Ink,
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        trx("First matching rule wins"),
+                        color = Aether.InkMuted,
+                        style = MaterialTheme.typography.bodySmall
+                    )
                 }
-                Column {
-                    Text("↑", color = Aether.Cyan, modifier = Modifier.kineticClickable { if (index > 0) repo.setRoutingRules(RoutingEngine.move(rules, index, index - 1)) })
-                    Text("↓", color = Aether.Cyan, modifier = Modifier.kineticClickable { if (index < rules.lastIndex) repo.setRoutingRules(RoutingEngine.move(rules, index, index + 1)) })
+                Box(
+                    Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(Aether.Cyan.copy(alpha = .085f))
+                        .kineticClickable(role = Role.Button, onClick = onDismiss),
+                    contentAlignment = Alignment.Center
+                ) {
+                    HomeVectorIcon(HomeIcon.CANCEL, Aether.Cyan, Modifier.size(17.dp))
                 }
             }
-            TinyField("Matcher", rule.matcher, Modifier.fillMaxWidth()) { value ->
-                repo.setRoutingRules(rules.toMutableList().also { it[index] = rule.copy(matcher = value) })
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                RoutingOutbound.entries.forEach { outbound ->
+
+            // ---- Kind
+            Text(trx("What does it match?"), color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(7.dp),
+                verticalArrangement = Arrangement.spacedBy(7.dp)
+            ) {
+                listOf(
+                    RoutingRuleKind.DOMAIN to "Domains",
+                    RoutingRuleKind.GEOSITE to "GeoSite tag",
+                    RoutingRuleKind.GEOIP to "GeoIP tag",
+                    RoutingRuleKind.IP to "IP / CIDR",
+                    RoutingRuleKind.PORT to "Port"
+                ).forEach { (kind, label) ->
                     CyberChoiceChip(
-                        text = outbound.name,
-                        selected = rule.outbound == outbound,
-                        color = tone
-                    ) {
-                        repo.setRoutingRules(rules.toMutableList().also { it[index] = rule.copy(outbound = outbound) })
+                        text = label,
+                        selected = draft.kind == kind,
+                        color = Aether.Cyan
+                    ) { draft = draft.copy(kind = kind) }
+                }
+            }
+            Text(
+                trx(
+                    when (draft.kind) {
+                        RoutingRuleKind.DOMAIN -> "One entry per token: example.com, domain:example.com, full:host, keyword:text, regexp:pattern — separated by commas"
+                        RoutingRuleKind.GEOSITE -> "A category from geosite.dat — pick a suggestion or type to search it live"
+                        RoutingRuleKind.GEOIP -> "A country or provider tag from geoip.dat — private expands to all LAN ranges"
+                        RoutingRuleKind.IP -> "IPs and ranges: 1.2.3.4, 10.0.0.0/8, 2001:db8::/32, or geoip:private"
+                        RoutingRuleKind.PORT -> "Ports: 443, 80,8443 or 1000-2000"
+                    }
+                ),
+                color = Aether.InkMuted,
+                style = MaterialTheme.typography.labelSmall
+            )
+
+            // ---- Matcher
+            TinyField(
+                label = when (draft.kind) {
+                    RoutingRuleKind.GEOSITE -> "GeoSite tag"
+                    RoutingRuleKind.GEOIP -> "GeoIP tag"
+                    RoutingRuleKind.DOMAIN -> "Domains"
+                    RoutingRuleKind.IP -> "IPs / CIDRs"
+                    RoutingRuleKind.PORT -> "Ports"
+                },
+                value = draft.matcher,
+                modifier = Modifier.fillMaxWidth()
+            ) { draft = draft.copy(matcher = it) }
+
+            if (suggestions.isNotEmpty()) {
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    suggestions.forEach { entry ->
+                        SuggestionChip(
+                            onClick = {
+                                val text = if (draft.kind == RoutingRuleKind.DOMAIN) {
+                                    "geosite:${entry.tag}"
+                                } else {
+                                    entry.tag
+                                }
+                                draft = draft.copy(matcher = text)
+                            },
+                            label = {
+                                Text(
+                                    if (entry.count > 0) "${entry.tag} • ${entry.count}" else entry.tag,
+                                    style = MaterialTheme.typography.labelMedium
+                                )
+                            },
+                            shape = RoundedCornerShape(12.dp),
+                            border = BorderStroke(1.dp, Aether.Cyan.copy(alpha = .35f)),
+                            colors = SuggestionChipDefaults.suggestionChipColors(
+                                containerColor = Color.Transparent,
+                                labelColor = Aether.Ink
+                            )
+                        )
                     }
                 }
             }
-            CyberButton("Remove", Aether.Danger, Modifier.fillMaxWidth(), compact = true) {
-                repo.setRoutingRules(rules.filterNot { it.id == rule.id })
+
+            // ---- Refinements
+            Text(trx("Refine (optional)"), color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
+            Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                listOf("" to "Any net", "tcp" to "TCP", "udp" to "UDP").forEach { (value, label) ->
+                    CyberChoiceChip(
+                        text = label,
+                        selected = draft.network.trim().lowercase() == value,
+                        color = Aether.Amethyst
+                    ) { draft = draft.copy(network = value) }
+                }
+            }
+            if (draft.kind != RoutingRuleKind.PORT) {
+                TinyField("Ports (optional) — 443 or 80,8443", draft.port, Modifier.fillMaxWidth()) {
+                    draft = draft.copy(port = it.trim())
+                }
+            }
+            TinyField("Protocols (optional) — quic, bittorrent", draft.protocol, Modifier.fillMaxWidth()) {
+                draft = draft.copy(protocol = it.trim())
+            }
+
+            // ---- Outbound
+            Text(trx("Then what?"), color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
+            Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                listOf(
+                    RoutingOutbound.PROXY to Aether.Cyan,
+                    RoutingOutbound.DIRECT to Aether.Emerald,
+                    RoutingOutbound.BLOCK to Aether.Danger
+                ).forEach { (outbound, tone) ->
+                    Box(Modifier.weight(1f)) {
+                        CyberChoiceChip(
+                            text = outbound.name,
+                            selected = draft.outbound == outbound,
+                            color = tone
+                        ) { draft = draft.copy(outbound = outbound) }
+                    }
+                }
+            }
+
+            // ---- Issues
+            issues.forEach { issue ->
+                Text(
+                    issue.message,
+                    color = if (issue.severity == RoutingEngine.IssueSeverity.ERROR) Aether.Danger else Aether.Amber,
+                    style = MaterialTheme.typography.labelSmall
+                )
+            }
+
+            // ---- Emitted-shape preview
+            if (errors.isEmpty()) {
+                Text(
+                    trx("Emitted Xray rule"),
+                    color = Aether.InkFaint,
+                    style = MaterialTheme.typography.labelSmall
+                )
+                Text(
+                    preview,
+                    color = Aether.InkMuted,
+                    style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                    maxLines = 4,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                CyberButton(
+                    label = if (isNew) "Add rule" else "Save",
+                    color = Aether.Emerald,
+                    modifier = Modifier.weight(1f),
+                    enabled = errors.isEmpty(),
+                    variant = PrismButtonVariant.Primary
+                ) {
+                    val current = RoutingEngine.effectiveRules(repo.settings)
+                    val updated = if (isNew) {
+                        current + draft
+                    } else {
+                        current.map { if (it.id == initial.id) draft else it }
+                    }
+                    repo.setRoutingRules(updated)
+                    onDismiss()
+                }
+                if (!isNew) {
+                    CyberButton(
+                        label = "Delete",
+                        color = Aether.Danger,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        repo.setRoutingRules(
+                            RoutingEngine.effectiveRules(repo.settings).filterNot { it.id == initial.id }
+                        )
+                        onDismiss()
+                    }
+                }
             }
         }
     }
+}
 
-    CyberButton("Add rule", Aether.Cyan, Modifier.fillMaxWidth()) {
-        repo.setRoutingRules(rules + RoutingEngine.newRule())
+/** The exact `type: field` shape this rule becomes in the emitted config. */
+private fun routingRulePreviewJson(rule: RoutingRule): String {
+    val obj = JSONObject().put("type", "field")
+    when (rule.kind) {
+        RoutingRuleKind.GEOSITE ->
+            RoutingEngine.normalizeGeoSite(rule.matcher)?.let {
+                obj.put("domain", JSONArray(listOf(it)))
+            }
+        RoutingRuleKind.GEOIP ->
+            RoutingEngine.normalizeGeoIp(rule.matcher)?.let { token ->
+                if (token == "geoip:private") {
+                    obj.put("ip", JSONArray(RoutingEngine.PRIVATE_CIDRS))
+                } else {
+                    obj.put("ip", JSONArray(listOf(token)))
+                }
+            }
+        RoutingRuleKind.DOMAIN -> obj.put("domain", JSONArray(RoutingEngine.splitDomains(rule.matcher)))
+        RoutingRuleKind.IP -> obj.put("ip", JSONArray(RoutingEngine.splitIps(rule.matcher)))
+        RoutingRuleKind.PORT -> {
+            val ports = rule.matcher.trim().ifBlank { rule.port }.trim()
+            if (ports.isNotBlank()) obj.put("port", ports)
+        }
     }
-    CyberButton("Restore recommended Iran rules", Aether.Emerald, Modifier.fillMaxWidth(), !repo.busy) {
-        repo.applyIranRoutingPreset()
+    val ports = rule.port.trim()
+    if (rule.kind != RoutingRuleKind.PORT && ports.isNotBlank()) obj.put("port", ports)
+    if (rule.network.isNotBlank()) obj.put("network", rule.network.trim().lowercase())
+    val protocols = rule.protocol.split(',').map(String::trim).filter(String::isNotBlank)
+    if (protocols.isNotEmpty()) obj.put("protocol", JSONArray(protocols))
+    obj.put(
+        "outboundTag",
+        when (rule.outbound) {
+            RoutingOutbound.PROXY -> "<proxy>"
+            RoutingOutbound.DIRECT -> "direct"
+            RoutingOutbound.BLOCK -> "block"
+        }
+    )
+    return obj.toString()
+}
+
+@Composable
+private fun RoutingSimulatorCard(repo: AppRepository) {
+    var query by rememberSaveable { mutableStateOf("") }
+    val settings = repo.settings
+    val result = remember(query, settings.routingRulesJson, settings.routingMode, settings.routeBlockAds, settings.ipv6Enabled) {
+        if (query.isBlank()) null else repo.simulateRoute(query)
+    }
+
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(Aether.GlassStrong.copy(alpha = .25f))
+            .border(1.dp, Aether.GlassBorderSoft, RoundedCornerShape(16.dp))
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text(
+            trx("Why is a site failing?"),
+            color = Aether.Ink,
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold
+        )
+        Text(
+            trx("Type the address — Marble walks every rule in order and names the winner."),
+            color = Aether.InkMuted,
+            style = MaterialTheme.typography.labelSmall
+        )
+        TinyField("example.com or 1.2.3.4", query, Modifier.fillMaxWidth()) { query = it }
+        result?.let { sim ->
+            val (verdictLabel, verdictTone) = when (sim.verdict) {
+                RoutingOutbound.PROXY -> "PROXY" to Aether.Cyan
+                RoutingOutbound.DIRECT -> "DIRECT" to Aether.Emerald
+                RoutingOutbound.BLOCK -> "BLOCKED" to Aether.Danger
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                PrismBadge(verdictLabel, verdictTone, strong = true)
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    trx(sim.verdictReason),
+                    color = Aether.InkMuted,
+                    style = MaterialTheme.typography.labelSmall,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            sim.steps.forEach { step ->
+                Row(verticalAlignment = Alignment.Top) {
+                    Text(
+                        when {
+                            step.skipped -> "–"
+                            step.matched == true -> "✓"
+                            step.matched == null -> "?"
+                            else -> "·"
+                        },
+                        color = when {
+                            step.matched == true -> verdictTone
+                            step.matched == null -> Aether.Amber
+                            else -> Aether.InkFaint
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        modifier = Modifier.width(16.dp)
+                    )
+                    Column {
+                        Text(
+                            trx(step.title),
+                            color = if (step.matched == true) Aether.Ink else Aether.InkMuted,
+                            style = MaterialTheme.typography.labelMedium
+                        )
+                        if (step.detail.isNotBlank()) {
+                            Text(
+                                trx(step.detail),
+                                color = Aether.InkFaint,
+                                style = MaterialTheme.typography.labelSmall,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RoutingExpertSection(repo: AppRepository, s: AppSettings) {
+    var expanded by rememberSaveable { mutableStateOf(false) }
+
+    CyberButton(
+        label = if (expanded) "Hide expert routing" else "Expert routing",
+        color = Aether.InkMuted,
+        modifier = Modifier.fillMaxWidth(),
+        icon = HomeIcon.FILTER
+    ) { expanded = !expanded }
+
+    AnimatedVisibility(visible = expanded, enter = expandVertically(), exit = shrinkVertically()) {
+        Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+            Text(
+                trx("Domain strategy"),
+                color = Aether.InkFaint,
+                style = MaterialTheme.typography.labelSmall
+            )
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(7.dp),
+                verticalArrangement = Arrangement.spacedBy(7.dp)
+            ) {
+                listOf(
+                    "AsIs" to "Route on the address the app dialled",
+                    "IPIfNonMatch" to "Resolve after domain rules miss — geoip rules work on domains",
+                    "IPOnDemand" to "Resolve whenever an IP rule is met first"
+                ).forEach { (value, label) ->
+                    CyberChoiceChip(
+                        text = value,
+                        selected = s.routeDomainStrategy == value,
+                        color = Aether.Cyan
+                    ) { repo.updateSettings(s.copy(routeDomainStrategy = value)) }
+                }
+            }
+            Text(
+                trx(
+                    when (s.routeDomainStrategy) {
+                        "IPOnDemand" -> "Resolve whenever an IP rule is met first"
+                        "AsIs" -> "Route on the address the app dialled"
+                        else -> "Resolve after domain rules miss — geoip rules work on domains"
+                    }
+                ),
+                color = Aether.InkMuted,
+                style = MaterialTheme.typography.labelSmall
+            )
+
+            TinyField("Ad-block GeoSite tag", s.routeAdsTag, Modifier.fillMaxWidth()) {
+                repo.updateSettings(s.copy(routeAdsTag = it.trim()))
+            }
+            TinyField("GeoIP direct tags (comma separated)", s.routeGeoIpTags, Modifier.fillMaxWidth()) {
+                repo.updateSettings(s.copy(routeGeoIpTags = it))
+            }
+            TinyField("GeoSite direct tags (comma separated)", s.routeGeoSiteTags, Modifier.fillMaxWidth()) {
+                repo.updateSettings(s.copy(routeGeoSiteTags = it))
+            }
+
+            Text(
+                trx("Expert text lists — rules below your own"),
+                color = Aether.InkFaint,
+                style = MaterialTheme.typography.labelSmall
+            )
+            TinyField("Direct domains", s.routeDirectDomains, Modifier.fillMaxWidth()) {
+                repo.updateSettings(s.copy(routeDirectDomains = it))
+            }
+            TinyField("Direct IPs", s.routeDirectIps, Modifier.fillMaxWidth()) {
+                repo.updateSettings(s.copy(routeDirectIps = it))
+            }
+            TinyField("Proxy domains", s.routeProxyDomains, Modifier.fillMaxWidth()) {
+                repo.updateSettings(s.copy(routeProxyDomains = it))
+            }
+            TinyField("Blocked domains", s.routeBlockDomains, Modifier.fillMaxWidth()) {
+                repo.updateSettings(s.copy(routeBlockDomains = it))
+            }
+            TinyField("Blocked IPs", s.routeBlockIps, Modifier.fillMaxWidth()) {
+                repo.updateSettings(s.copy(routeBlockIps = it))
+            }
+        }
     }
 }
 

@@ -115,13 +115,29 @@ enum class RoutingMode { PROXY_ALL, BYPASS_PRIVATE, GEO_DIRECT, CUSTOM }
 enum class RoutingRuleKind { GEOSITE, GEOIP, DOMAIN, IP, PORT }
 enum class RoutingOutbound { PROXY, DIRECT, BLOCK }
 
+/**
+ * MARBLE_ROUTING_MODEL_V136 — one user rule maps to one Xray `type: field` rule.
+ *
+ * v2rayNG/RoutingEditActivity parity: a rule may combine a primary matcher ([kind] + [matcher])
+ * with optional port, network and protocol refinements, and every rule carries a human remark.
+ * Order in the list is priority; the first matching rule wins inside the engine.
+ */
 data class RoutingRule(
     val id: String,
     val enabled: Boolean = true,
     val kind: RoutingRuleKind,
     val matcher: String,
     val outbound: RoutingOutbound,
-    val remark: String = ""
+    val remark: String = "",
+    /** Optional Xray `network` refinement: "", "tcp", "udp" or "tcp,udp". */
+    val network: String = "",
+    /** Optional Xray `protocol` list, comma separated (e.g. "quic,bittorrent"). */
+    val protocol: String = "",
+    /**
+     * Optional Xray `port` refinement ("443", "80,8443", "1000-2000"). The PORT kind keeps its
+     * ports here too, so one field always means one thing.
+     */
+    val port: String = ""
 ) {
     fun toJson() = JSONObject().apply {
         put("id", id)
@@ -130,6 +146,9 @@ data class RoutingRule(
         put("matcher", matcher)
         put("outbound", outbound.name)
         put("remark", remark)
+        if (network.isNotBlank()) put("network", network)
+        if (protocol.isNotBlank()) put("protocol", protocol)
+        if (port.isNotBlank()) put("port", port)
     }
 
     companion object {
@@ -141,7 +160,10 @@ data class RoutingRule(
             matcher = o.optString("matcher"),
             outbound = runCatching { RoutingOutbound.valueOf(o.optString("outbound", "PROXY")) }
                 .getOrDefault(RoutingOutbound.PROXY),
-            remark = o.optString("remark")
+            remark = o.optString("remark"),
+            network = o.optString("network"),
+            protocol = o.optString("protocol"),
+            port = o.optString("port")
         )
     }
 }
@@ -374,7 +396,12 @@ object RoutingDefaults {
     const val GEOSITE_DIRECT_TAGS = "ir"
     const val ADS_TAG = "category-ads-all"
     const val DOMAIN_STRATEGY = "IPIfNonMatch"
-    const val PREFS_SCHEMA_VERSION = 1
+    /**
+     * v2 — MARBLE_SMART_FAMILY_V136: installs migrated by v1 had IPv6 forced off; the smart
+     * address-family policy makes IPv6-on safe (underlay gate + per-node measurement), so this
+     * schema turns both family switches on exactly once. Any later user choice persists.
+     */
+    const val PREFS_SCHEMA_VERSION = 2
     const val SOURCE_CHOCOLATE4U = "chocolate4u-iran"
     const val STALE_ASSET_MS = 7L * 24L * 60L * 60L * 1000L
 
@@ -543,10 +570,13 @@ data class AppSettings(
     val dnsSecondaryDoH: String = "https://8.8.8.8/dns-query",
     val dnsQueryStrategy: String = "UseIP",
 
-    // Android TUN still captures IPv6 when disabled here. The Xray layer blocks ::/0 so turning
-    // IPv6 off can never become an operating-system bypass around the protected route.
-    val ipv6Enabled: Boolean = false,
-    val preferIpv6: Boolean = false,
+    // MARBLE_SMART_FAMILY_V136 — IPv6 and the v6 preference are ON by default; the app, not the
+    // user, decides which family actually carries each connection. The decision lives in
+    // AddressFamilyPolicy: the underlay must expose a real global IPv6 address, the node's own
+    // IPv6 history on this network must be healthy, and an explicit user demand still wins over
+    // both. Turning the master switch off remains fail-closed (::/0 blocked inside the tunnel).
+    val ipv6Enabled: Boolean = true,
+    val preferIpv6: Boolean = true,
 
     /**
      * MARBLE_MEASURED_FAMILY_V133 — *transient*, never persisted.

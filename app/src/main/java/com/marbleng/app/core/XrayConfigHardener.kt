@@ -1591,7 +1591,10 @@ object XrayConfigHardener {
         return false
     }
 
-    RoutingEngine.effectiveRules(settings).filter { it.enabled }.forEach { rule ->
+    // MARBLE_ROUTING_ENGINE_V136 — the same emittable list applyUserRules walked. A rule the
+    // engine would reject (unknown geo tag, malformed port) is skipped by emission and therefore
+    // must not be demanded here either: the two halves can never disagree about what shipped.
+    RoutingEngine.emittableUserRules(settings).forEach { rule ->
         val tag = RoutingEngine.outboundTag(rule.outbound, selectedTag)
         when (rule.kind) {
             com.marbleng.app.model.RoutingRuleKind.GEOSITE ->

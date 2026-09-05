@@ -136,40 +136,65 @@ class AppStore(context: Context) {
      * v8.1 migration: existing installs already have old proxy-all/ads-off preferences persisted,
      * so changing AppSettings constructor defaults alone would not activate the new policy.
      * Apply the new Iran baseline exactly once while preserving user custom block/proxy lists.
+     *
+     * v2 (MARBLE_SMART_FAMILY_V136 / MARBLE_ROUTING_ENGINE_V136): the routing rules list is now
+     * the single source of truth, so v1 installs receive the recommended rule set **once**, and
+     * the smart address-family policy makes IPv6-on safe — both family switches are enabled once;
+     * any later user choice persists because the schema only ever advances.
      */
     private fun migrateRoutingDefaultsIfNeeded() {
-        if (prefs.getInt("routingDefaultsSchema", 0) >= RoutingDefaults.PREFS_SCHEMA_VERSION) return
+        val from = prefs.getInt("routingDefaultsSchema", 0)
+        if (from >= RoutingDefaults.PREFS_SCHEMA_VERSION) return
 
-        fun merged(raw: String?, required: List<String>): String =
-            ((raw ?: "")
-                .split(',', '\n', '\r', ';')
-                .map(String::trim)
-                .filter(String::isNotBlank) + required)
-                .distinctBy { it.lowercase() }
-                .joinToString(",")
+        if (from < 1) {
+            fun merged(raw: String?, required: List<String>): String =
+                ((raw ?: "")
+                    .split(',', '\n', '\r', ';')
+                    .map(String::trim)
+                    .filter(String::isNotBlank) + required)
+                    .distinctBy { it.lowercase() }
+                    .joinToString(",")
 
-        val ipTags = merged(prefs.getString("routeGeoIpTags", ""), listOf("ir", "private"))
-        val siteTags = merged(prefs.getString("routeGeoSiteTags", ""), listOf("ir"))
+            val ipTags = merged(prefs.getString("routeGeoIpTags", ""), listOf("ir", "private"))
+            val siteTags = merged(prefs.getString("routeGeoSiteTags", ""), listOf("ir"))
+
+            prefs.edit()
+                .putString("routingMode", RoutingMode.GEO_DIRECT.name)
+                .putString("geoIpUrl", RoutingDefaults.GEOIP_URL)
+                .putString("geoSiteUrl", RoutingDefaults.GEOSITE_URL)
+                .putString("routeGeoIpTags", ipTags)
+                .putString("routeGeoSiteTags", siteTags)
+                .putBoolean("routeBypassPrivate", true)
+                .putBoolean("routeBlockAds", true)
+                .putString("routeAdsTag", RoutingDefaults.ADS_TAG)
+                .putString("routeDomainStrategy", RoutingDefaults.DOMAIN_STRATEGY)
+                .putBoolean("iranDomesticDirect", true)
+                .putString("geoAssetSourceId", RoutingDefaults.SOURCE_CHOCOLATE4U)
+                .putString(
+                    "routingRulesJson",
+                    com.marbleng.app.core.RoutingEngine.serializeRules(
+                        com.marbleng.app.core.RoutingEngine.DEFAULT_RULES
+                    )
+                )
+                .putString("iranModePolicy", IranModePolicy.OFF.name)
+                .putBoolean("intelligenceEnabled", false)
+                .putBoolean("connectTuningEnabled", false)
+                .putBoolean("continuousOptimizerEnabled", false)
+                .putBoolean("raceConnectEnabled", false)
+                .apply()
+        }
+
+        if (from < 2) {
+            // The v1 baseline forced IPv6 off. The underlay gate + per-node measurement in
+            // AddressFamilyPolicy make IPv6-on safe on every link now, so both switches turn on
+            // exactly once; a user who turns them off afterwards keeps that choice.
+            prefs.edit()
+                .putBoolean("ipv6Enabled", true)
+                .putBoolean("preferIpv6", true)
+                .apply()
+        }
 
         prefs.edit()
-            .putString("routingMode", RoutingMode.GEO_DIRECT.name)
-            .putString("geoIpUrl", RoutingDefaults.GEOIP_URL)
-            .putString("geoSiteUrl", RoutingDefaults.GEOSITE_URL)
-            .putString("routeGeoIpTags", ipTags)
-            .putString("routeGeoSiteTags", siteTags)
-            .putBoolean("routeBypassPrivate", true)
-            .putBoolean("routeBlockAds", true)
-            .putString("routeAdsTag", RoutingDefaults.ADS_TAG)
-            .putString("routeDomainStrategy", RoutingDefaults.DOMAIN_STRATEGY)
-            .putBoolean("iranDomesticDirect", true)
-            .putString("geoAssetSourceId", RoutingDefaults.SOURCE_CHOCOLATE4U)
-            .putString("routingRulesJson", com.marbleng.app.core.RoutingEngine.serializeRules(com.marbleng.app.core.RoutingEngine.DEFAULT_RULES))
-            .putBoolean("ipv6Enabled", false)
-            .putString("iranModePolicy", IranModePolicy.OFF.name)
-            .putBoolean("intelligenceEnabled", false)
-            .putBoolean("connectTuningEnabled", false)
-            .putBoolean("continuousOptimizerEnabled", false)
-            .putBoolean("raceConnectEnabled", false)
             .putInt("routingDefaultsSchema", RoutingDefaults.PREFS_SCHEMA_VERSION)
             .apply()
     }
@@ -268,8 +293,10 @@ class AppStore(context: Context) {
         dnsPrimaryDoH = prefs.getString("dnsPrimaryDoH", "https://1.1.1.1/dns-query") ?: "https://1.1.1.1/dns-query",
         dnsSecondaryDoH = prefs.getString("dnsSecondaryDoH", "https://8.8.8.8/dns-query") ?: "https://8.8.8.8/dns-query",
         dnsQueryStrategy = prefs.getString("dnsQueryStrategy", "UseIP") ?: "UseIP",
-        ipv6Enabled = prefs.getBoolean("ipv6Enabled", false),
-        preferIpv6 = prefs.getBoolean("preferIpv6", false),
+        // MARBLE_SMART_FAMILY_V136 — both family switches default ON; AddressFamilyPolicy decides
+        // which family each connection actually uses (underlay gate + per-node measurement).
+        ipv6Enabled = prefs.getBoolean("ipv6Enabled", true),
+        preferIpv6 = prefs.getBoolean("preferIpv6", true),
         // MARBLE_REALTIME_ENGINE_V70
         adaptiveHappyEyeballsEnabled = prefs.getBoolean("adaptiveHappyEyeballsEnabled", true),
         happyEyeballsTryDelayMs = prefs.getInt("happyEyeballsTryDelayMs", 60).coerceIn(0, 500),
