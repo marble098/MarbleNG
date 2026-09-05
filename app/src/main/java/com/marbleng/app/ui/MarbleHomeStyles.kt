@@ -39,6 +39,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -58,9 +59,11 @@ import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -119,6 +122,14 @@ internal data class HomeEvidence(
     val connectedSinceMs: Long,
     val pingMs: Int,
     val pingState: ConnectionPingState,
+    // MARBLE_HOME_V137 — the *why* behind a FAILED tunnel ping ("timeout" / "unreachable" /
+    // "error", empty otherwise) plus the selected-server endpoint ping for the states where no
+    // tunnel exists to measure through. Both ride the same evidence so every Home presentation
+    // agrees on what the ping shortcut and the live-ping panel show.
+    val pingFailure: String,
+    val selectedPingMs: Int,
+    val selectedPingState: ConnectionPingState,
+    val selectedPingFailure: String,
     val downBps: Long,
     val upBps: Long
 )
@@ -151,6 +162,10 @@ internal fun buildHomeEvidence(
         connectedSinceMs = repo.connectedSinceMs,
         pingMs = repo.connectionPingMs,
         pingState = repo.connectionPingState,
+        pingFailure = repo.connectionPingFailure,
+        selectedPingMs = repo.selectedPingMs,
+        selectedPingState = repo.selectedPingState,
+        selectedPingFailure = repo.selectedPingFailure,
         downBps = if (connected) repo.liveDownBps else 0L,
         upBps = if (connected) repo.liveUpBps else 0L
     )
@@ -303,39 +318,58 @@ internal fun rememberUptimeLabel(connectedSinceMs: Long): String {
  * one constant glyph budget — the measured number, three dots while the probe is in flight, or an
  * em dash when the route has never been measured.
  */
+/**
+ * MARBLE_HOME_V137 — which ping channel Home shows. Connected measures the live tunnel ladder;
+ * every other state measures the selected server's endpoint directly, so the shortcut and the
+ * live-ping panel always describe the server the connect button would act on.
+ */
+internal fun homeV137PingChannel(evidence: HomeEvidence): Triple<Int, ConnectionPingState, String> =
+    if (evidence.connected) {
+        Triple(evidence.pingMs, evidence.pingState, evidence.pingFailure)
+    } else {
+        Triple(evidence.selectedPingMs, evidence.selectedPingState, evidence.selectedPingFailure)
+    }
+
 @Composable
 internal fun homePingLabel(evidence: HomeEvidence): String {
     val t = Tr.now
-    return when (evidence.pingState) {
+    val (ms, state, _) = homeV137PingChannel(evidence)
+    return when (state) {
         ConnectionPingState.MEASURING -> t.pingMeasuringValue
-        ConnectionPingState.MEASURED -> if (evidence.pingMs >= 20) "${evidence.pingMs} ms" else "✕"
+        ConnectionPingState.MEASURED -> if (ms >= 20) "$ms ms" else "✕"
         ConnectionPingState.FAILED -> "✕"
         ConnectionPingState.IDLE -> t.pingIdleValue
     }
 }
 
 @Composable
-internal fun homePingTone(evidence: HomeEvidence, fallback: Color): Color =
-    when (evidence.pingState) {
-        ConnectionPingState.MEASURED -> if (evidence.pingMs >= 20) marbleMetricTone(pingMetricBand(evidence.pingMs)) else Aether.Danger
+internal fun homePingTone(evidence: HomeEvidence, fallback: Color): Color {
+    val (ms, state, _) = homeV137PingChannel(evidence)
+    return when (state) {
+        ConnectionPingState.MEASURED -> if (ms >= 20) marbleMetricTone(pingMetricBand(ms)) else Aether.Danger
         ConnectionPingState.FAILED -> Aether.Danger
         else -> fallback
     }
+}
 
 /** Ping element hint under the value: what a tap will do right now. */
 @Composable
 internal fun homePingActionHint(evidence: HomeEvidence): String {
     val t = Tr.now
-    return when {
-        !evidence.connected -> ""
-        evidence.pingState == ConnectionPingState.MEASURING -> t.measuring
-        evidence.pingState == ConnectionPingState.MEASURED -> t.retestPing
+    if (evidence.profile == null) return ""
+    val (_, state, _) = homeV137PingChannel(evidence)
+    return when (state) {
+        ConnectionPingState.MEASURING -> t.measuring
+        ConnectionPingState.MEASURED -> t.retestPing
         else -> t.testPing
     }
 }
 
-internal fun homePingTappable(evidence: HomeEvidence): Boolean =
-    evidence.connected && evidence.pingState != ConnectionPingState.MEASURING
+internal fun homePingTappable(evidence: HomeEvidence): Boolean {
+    if (evidence.profile == null) return false
+    val (_, state, _) = homeV137PingChannel(evidence)
+    return state != ConnectionPingState.MEASURING
+}
 
 /** Deterministic 0..1 noise so particles/stars need no random state and no allocations. */
 private fun hash01(seed: Int): Float {
@@ -2028,6 +2062,11 @@ internal fun ConnectButtonCaption(
 /**
  * Style 1 — the round shutter. Big, centred, fixed. A hairline rim states the state colour, and a
  * single indeterminate arc is drawn only while the route is actually being secured or closed.
+ *
+ * MARBLE_HOME_V137 — Style A (Classic). The tap answers the finger: the face compresses under
+ * pressure and springs back, an acknowledgement ring expands outward once, the securing arc
+ * rotates with a breathing pulse while busy, and the connected ring glows with a slow halo
+ * instead of sitting static. Disconnected stays calm — a resting instrument, not a screensaver.
  */
 @Composable
 private fun ConnectButtonRound(
@@ -2043,7 +2082,20 @@ private fun ConnectButtonRound(
     val motion = MarbleMotion.current
     val busy = evidence.connecting || evidence.disconnecting
     val sweep = if (busy) motion.loop(1_150) * 360f else 0f
+    // The securing arc breathes while it rotates: width and alpha pulse on a shared clock.
+    val busyPulse = if (busy) motion.breathe(1_150) else 0f
+    // The connected halo breathes slowly; disconnected holds still.
+    val haloPulse = if (evidence.connected) motion.breathe(2_800) else 0f
     val label = homeActionLabel(evidence)
+    // One-shot acknowledgement ring: 0 = rest, 1 = fully expanded and faded.
+    val tapRipple = remember { Animatable(0f) }
+    val rippleScope = rememberCoroutineScope()
+    // The icon eases between its connected/disconnected sizes instead of jumping.
+    val iconFraction by animateFloatAsState(
+        targetValue = if (evidence.connected) .22f else .26f,
+        animationSpec = MarbleMotionSpecs.ResponseFloat,
+        label = "round-icon-size"
+    )
 
     Column(
         modifier = modifier,
@@ -2076,9 +2128,18 @@ private fun ConnectButtonRound(
                 .kineticClickable(
                     enabled = armed,
                     role = Role.Button,
-                    pressScale = 1f,
+                    pressScale = .94f,
                     boundedShape = CircleShape,
-                    onClick = onToggle
+                    onClick = {
+                        // The acknowledgement ring expands outward once per tap, on the shared
+                        // response spring, while the press scale (owned by kineticClickable)
+                        // compresses and releases the face.
+                        rippleScope.launch {
+                            tapRipple.snapTo(0f)
+                            tapRipple.animateTo(1f, MarbleMotionSpecs.ResponseFloat)
+                        }
+                        onToggle()
+                    }
                 )
                 .semantics { contentDescription = "$label connection button" },
             contentAlignment = Alignment.Center
@@ -2100,28 +2161,63 @@ private fun ConnectButtonRound(
                     center = c
                 )
                 when {
-                    busy -> drawArc(
-                        color = animatedTone,
-                        startAngle = -90f + sweep,
-                        sweepAngle = 104f,
-                        useCenter = false,
-                        topLeft = Offset(c.x - r * .80f, c.y - r * .80f),
-                        size = Size(r * 1.60f, r * 1.60f),
-                        style = Stroke(width = 5.dp.toPx(), cap = StrokeCap.Round)
-                    )
+                    busy -> {
+                        // Rotating securing arc with a breathing pulse: the width swells and the
+                        // alpha lifts on the shared clock, so progress reads as alive, not stuck.
+                        drawArc(
+                            color = animatedTone.copy(alpha = .85f + .15f * busyPulse),
+                            startAngle = -90f + sweep,
+                            sweepAngle = 104f,
+                            useCenter = false,
+                            topLeft = Offset(c.x - r * .80f, c.y - r * .80f),
+                            size = Size(r * 1.60f, r * 1.60f),
+                            style = Stroke(
+                                width = (4.2f + 1.6f * busyPulse).dp.toPx(),
+                                cap = StrokeCap.Round
+                            )
+                        )
+                        // Faint full track so the arc travels a visible orbit.
+                        drawCircle(
+                            color = animatedTone.copy(alpha = .18f),
+                            radius = r * .80f,
+                            center = c,
+                            style = Stroke(width = 2.dp.toPx())
+                        )
+                    }
 
-                    evidence.connected -> drawCircle(
-                        color = animatedTone.copy(alpha = .80f),
-                        radius = r * .80f,
-                        center = c,
-                        style = Stroke(width = 4.dp.toPx())
-                    )
+                    evidence.connected -> {
+                        // Breathing halo: the ring swells outward a touch and glows, on a slow
+                        // loop that never distracts.
+                        drawCircle(
+                            color = animatedTone.copy(alpha = .16f + .10f * haloPulse),
+                            radius = r * (.84f + .03f * haloPulse),
+                            center = c,
+                            style = Stroke(width = 2.dp.toPx())
+                        )
+                        drawCircle(
+                            color = animatedTone.copy(alpha = .74f + .14f * haloPulse),
+                            radius = r * (.80f + .012f * haloPulse),
+                            center = c,
+                            style = Stroke(width = 4.dp.toPx())
+                        )
+                    }
 
                     else -> drawCircle(
                         color = animatedTone.copy(alpha = .45f),
                         radius = r * .80f,
                         center = c,
                         style = Stroke(width = 2.4.dp.toPx())
+                    )
+                }
+                // Tap acknowledgement: one ring expanding outward and fading, driven by the
+                // one-shot ripple progress. Invisible at rest (progress 0 or 1).
+                val ripple = tapRipple.value
+                if (ripple in 0.001f..0.999f) {
+                    drawCircle(
+                        color = animatedTone.copy(alpha = .55f * (1f - ripple)),
+                        radius = r * (.70f + .30f * ripple),
+                        center = c,
+                        style = Stroke(width = (3f * (1f - ripple) + 1f).dp.toPx())
                     )
                 }
             }
@@ -2132,7 +2228,7 @@ private fun ConnectButtonRound(
                 HomeGlyphIcon(
                     connectButtonGlyph(evidence),
                     animatedTone,
-                    Modifier.size(if (evidence.connected) diameter * .22f else diameter * .26f)
+                    Modifier.size(diameter * iconFraction)
                 )
                 if (evidence.connected) {
                     Spacer(Modifier.height(4.dp))
@@ -2200,6 +2296,12 @@ internal fun connectButtonGlyph(evidence: HomeEvidence): HomeGlyph = when {
  * springs back when the gesture is released before the end of the track, so a pocket tap can
  * never toggle the connection. The gesture is pinned to LTR because it is a physical, screen-space
  * control: it reads left → right in Persian exactly as it does in English.
+ *
+ * MARBLE_HOME_V137 — Style B (Lumen swipe). Crossing the generous threshold answers with a
+ * haptic tick and lights the end chevrons; releasing past it flies the knob home through the
+ * end first (a visible completion beat) instead of vanishing mid-track; releasing short of it
+ * springs back with the response spring. The track fill deepens with progress so the drag reads
+ * as charging the action.
  */
 @Composable
 private fun ConnectButtonSlide(
@@ -2212,6 +2314,7 @@ private fun ConnectButtonSlide(
 ) {
     val motion = MarbleMotion.current
     val density = LocalDensity.current
+    val haptics = LocalHapticFeedback.current
     val trackHeight = 66.dp
     val knobSize = 54.dp
     val padding = 6.dp
@@ -2220,11 +2323,22 @@ private fun ConnectButtonSlide(
     val shape = RoundedCornerShape(trackHeight / 2)
     val busy = evidence.connecting || evidence.disconnecting
     val label = homeActionLabel(evidence)
+    // Generous on purpose: the last fifth of the travel is all commitment.
+    val threshold = .78f
 
     val scope = rememberCoroutineScope()
     val knob = remember { Animatable(0f) }
     val progress = (knob.value / travelPx).coerceIn(0f, 1f)
     val shimmer = if (busy) motion.loop(1_400) else 0f
+    var dragging by remember { mutableStateOf(false) }
+    val thresholdReached = progress >= threshold
+    // One haptic tick at the exact moment the finger crosses the threshold — never while the
+    // knob animates on its own (completion beat, spring-back), only while dragged.
+    LaunchedEffect(thresholdReached, dragging) {
+        if (thresholdReached && dragging) {
+            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+        }
+    }
 
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
         Column(
@@ -2274,8 +2388,39 @@ private fun ConnectButtonSlide(
                     textAlign = TextAlign.Center,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(start = knobSize, end = 12.dp)
+                        // The threshold chevrons own the end of the track; the word stays clear.
+                        .padding(start = knobSize, end = 44.dp)
                 )
+                // Threshold chevrons: dim at rest, lit once the knob crosses the commitment
+                // point, so the eye knows exactly where the action arms.
+                Canvas(
+                    Modifier
+                        .align(Alignment.CenterEnd)
+                        .padding(end = 14.dp)
+                        .size(width = 22.dp, height = 18.dp)
+                ) {
+                    val chevronTone = animatedTone.copy(
+                        alpha = if (thresholdReached) .95f else .35f
+                    )
+                    val stroke = Stroke(
+                        width = 2.4.dp.toPx(),
+                        cap = StrokeCap.Round,
+                        join = StrokeJoin.Round
+                    )
+                    val midY = size.height / 2f
+                    val arm = size.height * .32f
+                    listOf(size.width * .30f, size.width * .62f).forEach { x ->
+                        drawPath(
+                            path = Path().apply {
+                                moveTo(x - arm * .55f, midY - arm)
+                                lineTo(x + arm * .55f, midY)
+                                lineTo(x - arm * .55f, midY + arm)
+                            },
+                            color = chevronTone,
+                            style = stroke
+                        )
+                    }
+                }
                 Box(
                     modifier = Modifier
                         .padding(horizontal = padding)
@@ -2286,17 +2431,30 @@ private fun ConnectButtonSlide(
                         .pointerInput(armed, travelPx) {
                             if (!armed) return@pointerInput
                             detectHorizontalDragGestures(
+                                onDragStart = { dragging = true },
                                 onDragEnd = {
-                                    // The switch only fires when the knob really reached the end
-                                    // of its travel, then springs home so the control is once
-                                    // again exactly where it started.
-                                    val completed = knob.value >= travelPx * .82f
+                                    dragging = false
+                                    // The switch only fires when the knob really crossed the
+                                    // threshold. Completion flies through the end first — one
+                                    // visible beat that the action armed — then springs home.
+                                    // A short drag springs straight back: nothing happened.
+                                    val completed = knob.value >= travelPx * threshold
                                     scope.launch {
+                                        if (completed) {
+                                            knob.animateTo(
+                                                travelPx,
+                                                MarbleMotionSpecs.QuickReveal
+                                            )
+                                            haptics.performHapticFeedback(
+                                                HapticFeedbackType.TextHandleMove
+                                            )
+                                            onToggle()
+                                        }
                                         knob.animateTo(0f, MarbleMotionSpecs.ResponseFloat)
                                     }
-                                    if (completed) onToggle()
                                 },
                                 onDragCancel = {
+                                    dragging = false
                                     scope.launch {
                                         knob.animateTo(0f, MarbleMotionSpecs.ResponseFloat)
                                     }
@@ -3118,10 +3276,14 @@ internal fun HomeStyleSurface(
     actions: HomeActions,
     bottomClearance: Dp,
     pro: HomeProContext? = null,
-    onScrollChanged: (Boolean) -> Unit = {}
+    onScrollChanged: (Boolean) -> Unit = {},
+    // MARBLE_HOME_V137 — the Signature presentation renders the synced server deck, which reads
+    // the group, the filter and the selection from the repository's single source of truth.
+    repo: AppRepository
 ) {
     when (style) {
         HomeStyle.PRO -> HomeStyleSignature(
+            repo = repo,
             evidence = evidence,
             actions = actions,
             pro = pro ?: HomeProContext(

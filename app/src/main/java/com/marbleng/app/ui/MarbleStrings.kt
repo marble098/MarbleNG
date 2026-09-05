@@ -175,7 +175,21 @@ data class MarbleStrings(
     val styleStream: String,
     val styleStreamDetail: String,
     val styleFloating: String,
-    val styleFloatingDetail: String
+    val styleFloatingDetail: String,
+    // MARBLE_HOME_V137 — the rebuilt Home deck: live-ping states, the server selector and the
+    // status banner. Every word here has a Persian twin below.
+    val pingChecking: String,
+    val pingTimeout: String,
+    val pingUnreachable: String,
+    val pingFailedShort: String,
+    val homeCurrentGroup: String,
+    val homeAllGroups: String,
+    val homeServersInGroup: String,
+    val homeNoServers: String,
+    val homeOpenServers: String,
+    val homeConnectedBadge: String,
+    val homeSelectedBadge: String,
+    val homeProtocol: String
 )
 
 private val EnglishStrings = MarbleStrings(
@@ -309,8 +323,20 @@ private val EnglishStrings = MarbleStrings(
     qrShortcut = "QR code",
     styleStream = "Stream bar",
     styleStreamDetail = "Full-width floor bar with a travelling light band",
-    styleFloating = "Floating pill",
-    styleFloatingDetail = "Compact pill docked above the bottom of the page"
+    styleFloating = "Floating button",
+    styleFloatingDetail = "Circular v2rayNG-style button pinned to the bottom corner",
+    pingChecking = "Checking…",
+    pingTimeout = "Timeout",
+    pingUnreachable = "Unreachable",
+    pingFailedShort = "Failed",
+    homeCurrentGroup = "Current group",
+    homeAllGroups = "All groups",
+    homeServersInGroup = "Servers",
+    homeNoServers = "No servers in this group",
+    homeOpenServers = "Open Servers",
+    homeConnectedBadge = "Connected",
+    homeSelectedBadge = "Selected",
+    homeProtocol = "Protocol"
 )
 
 private val PersianStrings = MarbleStrings(
@@ -447,7 +473,19 @@ private val PersianStrings = MarbleStrings(
     styleStream = "نوار جریان",
     styleStreamDetail = "نوار تمام‌عرض پایین صفحه با نوری که از راست به چپ می‌رود",
     styleFloating = "دکمه شناور",
-    styleFloatingDetail = "دکمه‌ای جمع‌وجور و ثابت در پایین صفحه"
+    styleFloatingDetail = "دکمه دایره‌ای به‌سبک v2rayNG در گوشه پایین صفحه",
+    pingChecking = "در حال بررسی…",
+    pingTimeout = "تایم‌اوت",
+    pingUnreachable = "غیرقابل دسترس",
+    pingFailedShort = "ناموفق",
+    homeCurrentGroup = "گروه فعلی",
+    homeAllGroups = "همه گروه‌ها",
+    homeServersInGroup = "سرورها",
+    homeNoServers = "سروری در این گروه نیست",
+    homeOpenServers = "باز کردن سرورها",
+    homeConnectedBadge = "متصل",
+    homeSelectedBadge = "انتخاب‌شده",
+    homeProtocol = "پروتکل"
 )
 
 internal val LocalMarbleStrings = staticCompositionLocalOf { EnglishStrings }

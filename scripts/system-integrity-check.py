@@ -55,6 +55,9 @@ files = {
     "strings": read("app/src/main/java/com/marbleng/app/ui/MarbleStrings.kt"),
     "marbleApp": read("app/src/main/java/com/marbleng/app/ui/MarbleApp.kt"),
     "signature": read("app/src/main/java/com/marbleng/app/ui/MarbleSignatureHome.kt"),
+    "homeV137": read("app/src/main/java/com/marbleng/app/ui/MarbleHomeV137.kt"),
+    "homeStudio": read("app/src/main/java/com/marbleng/app/ui/MarbleHomeStudio.kt"),
+    "connectPlacement": read("app/src/main/java/com/marbleng/app/ui/MarbleConnectPlacement.kt"),
     "tile": read("app/src/main/java/com/marbleng/app/quicktile/MarbleQuickTileService.kt"),
     "manifest": read("app/src/main/AndroidManifest.xml"),
     "security": read("app/src/main/res/xml/network_security_config.xml"),
@@ -251,8 +254,11 @@ check(
     and "proShortcut" in files["store"]
     and "rememberSignatureProContext(" in files["ui"],
 )
-# MARBLE_SIGNATURE_STUDIO_TRIM_V121 — Home no longer duplicates the Servers page or Settings:
-# the in-Home server rail and the style switcher are gone from every layer.
+# MARBLE_SIGNATURE_STUDIO_TRIM_V121 — Home carries no style switcher or server-card setting:
+# the presentation is chosen in Settings, never on the Home page itself.
+# MARBLE_HOME_V137 — the trim's server-rail ban is superseded by the synced server deck: Home
+# renders the Servers group through the same selection state (not a second rail with second
+# state), so group switching updates both pages at once.
 check(
     "Signature floating button, banner and corner cluster exist",
     "SignatureFloatingConnectOverlay(" in files["ui"]
@@ -261,12 +267,43 @@ check(
     and "SignatureFloatingConnectOverlay(" in files["signature"],
 )
 check(
-    "Home carries no server rail, style switcher or server-card setting",
-    "SignatureServerRail" not in files["signature"]
-    and "SignatureStyleSwitcher" not in files["signature"]
+    "Home carries no style switcher or server-card setting",
+    "SignatureStyleSwitcher" not in files["signature"]
     and "ProServerCardStyle" not in files["models"]
     and "proServerRailEnabled" not in files["store"]
     and "proStyleSwitcherEnabled" not in files["store"],
+)
+check(
+    "Home server deck is synced with the Servers group, not a second rail",
+    "HomeServerDeckV137(" in files["homeV137"]
+    and "HomeServerDeckV137(" in files["signature"]
+    and "librarySourceFilter" in files["homeV137"]
+    and "ServersQuery.visible(" in files["homeV137"]
+    and "selectProfile(" in files["homeV137"]
+    and "SignatureServerRail" not in files["signature"]
+    and "SignatureServerRail" not in files["homeV137"],
+)
+check(
+    "Home V137 hierarchy is shortcuts, banner, deck, control, live ping",
+    "HomeShortcutRowV137(" in files["homeV137"]
+    and "HomeStatusBannerV137(" in files["homeV137"]
+    and "HomeLivePingPanelV137(" in files["homeV137"]
+    and "HomeShortcutRowV137(" in files["signature"]
+    and "HomeStatusBannerV137(" in files["signature"]
+    and "HomeLivePingPanelV137(" in files["signature"],
+)
+check(
+    "selected-server endpoint ping is one-shot with failure kinds",
+    "fun measureSelectedPing()" in files["repo"]
+    and "selectedPingInFlight" in files["repo"]
+    and "fun measureHomePing()" in files["repo"]
+    and "classifyPingFailure(" in files["repo"],
+)
+check(
+    "floating connection control is a bottom-end circular shutter",
+    "fun ConnectButtonFloating(" in files["homeStudio"]
+    and ".size(76.dp)" in files["homeStudio"]
+    and "bottom-end" in files["connectPlacement"],
 )
 check(
     "floating button position persists as normalized fractions",

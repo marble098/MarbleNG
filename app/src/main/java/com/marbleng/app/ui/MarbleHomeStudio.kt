@@ -15,7 +15,7 @@ package com.marbleng.app.ui
 //      up. It only ever measures the one server the tunnel is attached to.
 //   4. [HomeShortcutDeck]       add / paste / QR / always-visible ping, sitting above the banner.
 //   5. [ConnectButtonStream]    the floor bar with a light band travelling right → left.
-//   6. [ConnectButtonFloating]  the compact pill docked above the bottom of the page.
+//   6. [ConnectButtonFloating]  the circular shutter pinned to the bottom-end corner (V137).
 
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.animateColorAsState
@@ -794,15 +794,16 @@ internal fun ConnectButtonStream(
 }
 
 // ---------------------------------------------------------------------------------------------
-// 6. Floating pill — the docked primary action
+// 6. Floating circular shutter — the bottom-end primary action
 // ---------------------------------------------------------------------------------------------
 
 /**
- * MARBLE_CONNECT_BUTTON_STYLES_V132 — the compact pill docked above the bottom of the page.
- *
- * v2rayNG made the floating shutter famous; this is the docked reading of it. The pill keeps a
- * fixed slot above the page floor, so it never covers a readout behind it and never has to be
- * hunted for after a drag. Only its colour, its glyph and its halo animate.
+ * MARBLE_HOME_V137 — Style C. The circular shutter pinned to the bottom-end corner of the page,
+ * v2rayNG-style: a round 76 dp instrument with a state-coloured rim, a securing arc while the
+ * tunnel opens or closes, and a slow halo once it is up. Disconnected is calm and static;
+ * connecting rotates with a breathing pulse; connected glows. The press compresses the face and
+ * springs back; the icon eases between its sizes. The caller pins it above the navigation dock
+ * with safe-area clearance — it never consumes a hero row and never covers a readout.
  */
 @Composable
 internal fun ConnectButtonFloating(
@@ -814,113 +815,104 @@ internal fun ConnectButtonFloating(
 ) {
     val motion = MarbleMotion.current
     val busy = evidence.connecting || evidence.disconnecting
-    val breathe = motion.breathe(3_200)
+    val breathe = if (busy || evidence.connected) motion.breathe(2_400) else 0f
     val sweep = if (busy) motion.loop(1_150) * 360f else 0f
-    val shape = RoundedCornerShape(31.dp)
     val label = homeActionLabel(evidence)
+    val iconFraction by animateFloatAsState(
+        targetValue = if (evidence.connected) .30f else .36f,
+        animationSpec = MarbleMotionSpecs.ResponseFloat,
+        label = "floating-icon-size"
+    )
 
-    Row(
-        modifier = modifier
-            .height(62.dp)
-            .width(216.dp)
-            .shadow(
-                elevation = 18.dp,
-                shape = shape,
-                ambientColor = animatedTone.copy(alpha = .22f),
-                spotColor = animatedTone.copy(alpha = .30f)
-            )
-            .clip(shape)
-            .background(Aether.VoidElevated.copy(alpha = .97f))
-            .background(
-                Brush.horizontalGradient(
-                    listOf(
-                        animatedTone.copy(alpha = .26f + .10f * breathe),
-                        animatedTone.copy(alpha = .08f)
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Box(
+            modifier = Modifier
+                .size(76.dp)
+                .shadow(
+                    elevation = 18.dp,
+                    shape = CircleShape,
+                    clip = false,
+                    ambientColor = animatedTone.copy(alpha = .24f),
+                    spotColor = animatedTone.copy(alpha = .34f)
+                )
+                .clip(CircleShape)
+                .background(Aether.VoidElevated.copy(alpha = .97f))
+                .background(
+                    Brush.radialGradient(
+                        listOf(
+                            animatedTone.copy(alpha = .24f + .08f * breathe),
+                            animatedTone.copy(alpha = .06f)
+                        )
                     )
                 )
-            )
-            .border(1.5.dp, animatedTone.copy(alpha = .50f), shape)
-            .kineticClickable(
-                enabled = armed,
-                role = Role.Button,
-                pressScale = .98f,
-                boundedShape = shape,
-                onClick = onToggle
-            )
-            .semantics { contentDescription = "$label connection button" }
-            .padding(horizontal = 18.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(13.dp)
-    ) {
-        Box(Modifier.size(26.dp), contentAlignment = Alignment.Center) {
-            Canvas(Modifier.matchParentSize()) {
-                if (busy) {
-                    drawArc(
-                        color = animatedTone,
-                        startAngle = -90f + sweep,
-                        sweepAngle = 100f,
-                        useCenter = false,
-                        topLeft = Offset(2.dp.toPx(), 2.dp.toPx()),
-                        size = Size(size.width - 4.dp.toPx(), size.height - 4.dp.toPx()),
-                        style = Stroke(width = 2.4.dp.toPx(), cap = StrokeCap.Round)
+                .border(1.6.dp, animatedTone.copy(alpha = .55f), CircleShape)
+                .kineticClickable(
+                    enabled = armed,
+                    role = Role.Button,
+                    pressScale = .93f,
+                    boundedShape = CircleShape,
+                    onClick = onToggle
+                )
+                .semantics { contentDescription = "$label floating connection button" },
+            contentAlignment = Alignment.Center
+        ) {
+            Canvas(Modifier.matchParentSize().padding(7.dp)) {
+                val r = size.minDimension / 2f
+                val c = Offset(size.width / 2f, size.height / 2f)
+                when {
+                    busy -> {
+                        drawCircle(
+                            color = animatedTone.copy(alpha = .18f),
+                            radius = r * .86f,
+                            center = c,
+                            style = Stroke(width = 2.dp.toPx())
+                        )
+                        drawArc(
+                            color = animatedTone.copy(alpha = .85f + .15f * breathe),
+                            startAngle = -90f + sweep,
+                            sweepAngle = 100f,
+                            useCenter = false,
+                            topLeft = Offset(c.x - r * .86f, c.y - r * .86f),
+                            size = Size(r * 1.72f, r * 1.72f),
+                            style = Stroke(
+                                width = (3.4f + 1.2f * breathe).dp.toPx(),
+                                cap = StrokeCap.Round
+                            )
+                        )
+                    }
+                    evidence.connected -> {
+                        drawCircle(
+                            color = animatedTone.copy(alpha = .14f + .08f * breathe),
+                            radius = r * (.90f + .02f * breathe),
+                            center = c,
+                            style = Stroke(width = 1.8.dp.toPx())
+                        )
+                        drawCircle(
+                            color = animatedTone.copy(alpha = .78f + .12f * breathe),
+                            radius = r * .86f,
+                            center = c,
+                            style = Stroke(width = 3.dp.toPx())
+                        )
+                    }
+                    else -> drawCircle(
+                        color = animatedTone.copy(alpha = .45f),
+                        radius = r * .86f,
+                        center = c,
+                        style = Stroke(width = 2.2.dp.toPx())
                     )
                 }
             }
-            HomeGlyphIcon(connectButtonGlyph(evidence), animatedTone, Modifier.size(22.dp))
-        }
-        Column(
-            modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(1.dp)
-        ) {
-            ConnectButtonCaption(evidence, animatedTone)
-            Text(
-                homeStatusText(evidence),
-                color = Aether.InkFaint,
-                style = MaterialTheme.typography.labelSmall,
-                maxLines = 1,
-                softWrap = false,
-                overflow = TextOverflow.Ellipsis
+            HomeGlyphIcon(
+                connectButtonGlyph(evidence),
+                animatedTone,
+                Modifier.size(76.dp * iconFraction)
             )
         }
-        if (evidence.connected) {
-            val pingLabel = when {
-                evidence.pingState == ConnectionPingState.MEASURED && evidence.pingMs >= 20 -> "${evidence.pingMs} ms"
-                evidence.pingState == ConnectionPingState.MEASURING -> "•••"
-                evidence.pingState == ConnectionPingState.FAILED -> "✕"
-                else -> "—"
-            }
-            val pingTone = when {
-                evidence.pingState == ConnectionPingState.MEASURED && evidence.pingMs >= 20 -> marbleMetricTone(pingMetricBand(evidence.pingMs))
-                evidence.pingState == ConnectionPingState.FAILED -> Aether.Danger
-                else -> animatedTone
-            }
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(3.dp),
-                modifier = Modifier
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(animatedTone.copy(alpha = .14f))
-                    .padding(horizontal = 6.dp, vertical = 2.dp)
-            ) {
-                Box(
-                    Modifier
-                        .size(4.dp)
-                        .clip(CircleShape)
-                        .background(pingTone)
-                )
-                Text(
-                    pingLabel,
-                    color = pingTone,
-                    style = MaterialTheme.typography.labelSmall.copy(
-                        fontWeight = FontWeight.Bold,
-                        fontFeatureSettings = "tnum",
-                        fontSize = 11.sp
-                    ),
-                    maxLines = 1,
-                    softWrap = false
-                )
-            }
-        }
+        Spacer(Modifier.height(6.dp))
+        ConnectButtonCaption(evidence, animatedTone)
     }
 }
 
