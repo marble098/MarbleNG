@@ -442,7 +442,6 @@ private fun BannerFactV137(
 @Composable
 internal fun HomeServerDeckV137(
     repo: AppRepository,
-    evidence: HomeEvidence,
     actions: HomeActions,
     tone: Color,
     modifier: Modifier = Modifier
@@ -900,11 +899,11 @@ internal fun HomeLivePingPanelV137(
         visible = live,
         modifier = modifier.fillMaxWidth(),
         enter = fadeIn(MarbleMotionSpecs.ResponseFloat) + expandVertically(
-            animationSpec = MarbleMotionSpecs.ResponseFloat,
+            animationSpec = MarbleMotionSpecs.Layout,
             expandFrom = Alignment.Top
         ),
         exit = fadeOut(MarbleMotionSpecs.ExitFloat) + shrinkVertically(
-            animationSpec = MarbleMotionSpecs.ExitFloat,
+            animationSpec = MarbleMotionSpecs.Layout,
             shrinkTowards = Alignment.Top
         ),
         label = "live-ping-panel"

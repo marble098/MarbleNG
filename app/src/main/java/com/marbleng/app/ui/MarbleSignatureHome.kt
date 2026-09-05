@@ -221,7 +221,6 @@ internal fun HomeStyleSignature(
             HomeStatusBannerV137(
                 evidence = evidence,
                 tone = tone,
-                accent = pro.accent,
                 onToggle = actions.onToggleConnection,
                 modifier = Modifier.fillMaxWidth()
             )
