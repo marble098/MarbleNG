@@ -164,18 +164,6 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         store.setLastSettingsPage(normalized)
     }
 
-    // MARBLE_SIGNATURE_HOME_V112 — the floating connect button's dragged spot, stored as
-    // normalized viewport fractions so it survives restarts on any screen size.
-    var proFabPosition by mutableStateOf(store.proFabPosition())
-        private set
-
-    fun rememberProFabPosition(nx: Float, ny: Float) {
-        val clamped = nx.coerceIn(0.05f, 0.95f) to ny.coerceIn(0.12f, 0.80f)
-        if (proFabPosition == clamped) return
-        proFabPosition = clamped
-        store.setProFabPosition(clamped.first, clamped.second)
-    }
-
     /** Public diagnostics hook for UI-level tripwires (e.g. the Settings viewport fallback). */
     fun diagnosticsEvent(component: String, event: String, vararg fields: Pair<String, Any?>) {
         diagnostics.event(component, event, *fields)

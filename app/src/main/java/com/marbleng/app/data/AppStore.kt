@@ -566,22 +566,6 @@ class AppStore(context: Context) {
         .putBoolean("expertMode", s.expertMode)
         .apply()
 
-    // MARBLE_SIGNATURE_HOME_V112 — the floating connect button keeps its dragged position as
-    // normalized fractions of the viewport, so the spot survives restarts on any screen size.
-    // Written on drag end only, never per frame.
-    fun proFabPosition(): Pair<Float, Float> {
-        val x = prefs.getFloat("proFabX", 0.86f)
-        val y = prefs.getFloat("proFabY", 0.42f)
-        return x.coerceIn(0.05f, 0.95f) to y.coerceIn(0.12f, 0.80f)
-    }
-
-    fun setProFabPosition(nx: Float, ny: Float) {
-        prefs.edit()
-            .putFloat("proFabX", nx.coerceIn(0.05f, 0.95f))
-            .putFloat("proFabY", ny.coerceIn(0.12f, 0.80f))
-            .apply()
-    }
-
     private inline fun <reified T : Enum<T>> enumValue(key: String, fallback: T): T =
         runCatching { enumValueOf<T>(prefs.getString(key, fallback.name) ?: fallback.name) }.getOrDefault(fallback)
 
