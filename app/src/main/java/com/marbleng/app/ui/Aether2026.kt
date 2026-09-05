@@ -5326,7 +5326,10 @@ private fun ServersNodeCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(rowShape)
-                .background(Aether.VoidElevated)
+                .background(Aether.VoidElevated.copy(alpha = .98f))
+                // Keep every server surface opaque and self-contained: state tint sits inside
+                // the rounded row instead of leaking into the list behind it.
+                .background(Color.White.copy(alpha = if (homeCloudDark()) .025f else .88f))
                 .background(rowFill)
                 // The group's own outline continues through this row; the top edge is a hairline
                 // separator drawn by the frame's neighbour, never a second frame.
