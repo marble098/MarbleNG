@@ -1352,6 +1352,13 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             "parallelQuery" to ResolverEvidencePolicy.parallelQueryJustified(
                 repo.intelligence.dnsCandidatePool(settings), after, nowMs
             ),
+            // MARBLE_INTELLIGENCE_V141 — the storm verdict is part of the event so a post-mortem
+            // can see whether the pool was already being raced when a deadline was still missed.
+            "storm" to if (repo.intelligence.dnsStormActive()) {
+                "armed:${"%.2f".format(repo.intelligence.dnsStormRatePerMinute())}/min"
+            } else {
+                "calm"
+            },
             "detail" to ResolverEvidencePolicy.describe(after, nowMs).take(300)
         )
     }

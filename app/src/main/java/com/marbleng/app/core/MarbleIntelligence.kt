@@ -13,7 +13,6 @@ import android.os.Build
 import android.os.PowerManager
 import com.marbleng.app.model.AppSettings
 import com.marbleng.app.model.BenchmarkResult
-import com.marbleng.app.model.ConnectionMode
 import com.marbleng.app.model.IranModePolicy
 import com.marbleng.app.model.ProxyProfile
 import com.marbleng.app.model.SplitTunnelMode
@@ -132,6 +131,10 @@ data class IntelligenceStatus(
     val historyRecords: Int = 0,
     val accelerationLabel: String = "OFF",
     val acceleratedRoutes: Int = 0,
+    /** MARBLE_INTELLIGENCE_V141 — live DNS storm verdict for the current physical network. */
+    val dnsStormActive: Boolean = false,
+    /** MARBLE_INTELLIGENCE_V141 — non-empty when the family plan is locked to IPv4 by evidence. */
+    val familyLock: String = "",
     val lastDecision: String = "Waiting for network intelligence"
 )
 
@@ -146,6 +149,150 @@ data class TunnelTuning(
     val udpBufferBytes: Int,
     val label: String
 )
+
+/**
+ * MARBLE_INTELLIGENCE_V141 — protocol fitness under a measured noisy link.
+ *
+ * The attached Turkey-14 vs Netherlands-3 log pair is the specification: the same app on the same
+ * network kept a stable multi-hour session on a hysteria2 exit, while a VLESS+xhttp exit produced
+ * jitter-driven teardowns, DNS error buffers and six forced restarts in seven minutes. Transport
+ * shape is evidence, and ranking/recovery must consume it:
+ *
+ *  - QUIC-native transports (hysteria2/hysteria/tuic) carry their own loss recovery and pacing,
+ *    so they are the right answer on jitter/loss exactly when a TCP-based proxy transport starts
+ *    folding. That is the green reference's shape.
+ *  - VLESS+xhttp multiplexes several streams over one h2/h3 connection and re-chunks TLS records,
+ *    so a lossy link stalls every stream behind the slowest record (head-of-line blocking). Under
+ *    noise it is both fragile and memory-hungry: error buffers queue behind the stalled stream.
+ *  - Plain TCP transports with TLS (trojan/vless+vision/vmess) are neutral-to-good.
+ *
+ * The bias is additive and bounded, exactly like [IranShield.profileBias]: it may reorder
+ * candidates on a noisy link, but it can never push a dead node above a proven one, because the
+ * reliability term still dominates [MarbleIntelligence.predictedScoreOf].
+ */
+object ProtocolFitness {
+
+    /** A link is "noisy" when measured jitter/loss/rtt say reassembly and retransmits dominate. */
+    fun noisy(link: LinkEvidence): Boolean = link.known && (
+        link.jitterMs >= 20.0 ||
+            link.lossPercent >= 6.0 ||
+            (link.rttMs >= 250.0 && link.jitterMs >= 12.0)
+        )
+
+    /**
+     * Additive ranking bias for one profile on the given link. Positive favours, negative
+     * penalises, and the magnitude is capped so history still wins on a clean link.
+     */
+    fun bias(profile: ProxyProfile, link: LinkEvidence): Double {
+        val scheme = profile.scheme.trim().lowercase()
+        val transport = profile.transport.trim().lowercase()
+        if (scheme.isEmpty()) return 0.0
+        val onNoisy = noisy(link)
+
+        // QUIC-native, FEC/ARQ-carrying transports: the green reference's shape.
+        if (scheme in setOf("hysteria2", "hysteria", "tuic")) return if (onNoisy) 12.0 else 3.0
+        if (scheme == "wireguard") return if (onNoisy) 5.0 else 1.0
+
+        // Multiplexed-over-one-connection transports: head-of-line blocking amplifies loss.
+        if (transport in setOf("xhttp", "splithttp", "httpupgrade", "h2", "h2c", "quic")) {
+            return if (onNoisy) -12.0 else -2.0
+        }
+        if (transport == "websocket") return if (onNoisy) -7.0 else -1.0
+
+        // Stream transports over TCP with TLS: neutral baseline, vision/reality slightly favoured
+        // because their first-flight shape is the least reassembly-sensitive.
+        if (scheme == "vless" || scheme == "trojan" || scheme == "vmess") {
+            val secured = profile.security.trim().lowercase() in setOf("tls", "reality")
+            return when {
+                !secured -> -8.0
+                transport == "raw" || transport.isEmpty() -> if (onNoisy) 2.0 else 1.0
+                else -> 0.0
+            }
+        }
+        return 0.0
+    }
+
+    /**
+     * Multiplexing on top of a multiplexed/record-chunked transport under noise stacks two
+     * head-of-line blockers; the config must not arm it on a measured noisy link.
+     */
+    fun prefersMuxOff(profile: ProxyProfile, link: LinkEvidence): Boolean {
+        if (!noisy(link)) return false
+        val transport = profile.transport.trim().lowercase()
+        return transport in setOf("xhttp", "splithttp", "httpupgrade", "h2", "h2c", "websocket")
+    }
+}
+
+/**
+ * MARBLE_INTELLIGENCE_V141 — DNS storm detector.
+ *
+ * The log pair defines the healthy and broken regimes precisely:
+ *
+ *  - healthy (Netherlands-3, v7.0.4): about one attributed DoH failure every six minutes
+ *    (~0.17/min) while the tunnel stays up for hours;
+ *  - broken (Turkey-14, v7.0.9): six `context deadline exceeded` failures per minute against
+ *    1.1.1.1/8.8.8.8/9.9.9.9, apps receiving no IPs and `rejected proxy/socks` socket closures,
+ *    worst windows reaching 29/min.
+ *
+ * Endpoint demotion (V134) already removes a *decisively failing* resolver from the order, but a
+ * storm is a property of the moment, not of one endpoint: when every resolver in the pool is
+ * missing its budget at once, the correct responses are to race the pool instead of walking it
+ * serially, to stop asking for the address family that doubles the failure surface, and to stop
+ * the ranking engine from treating DNS-induced socket closures as node failures (which is what
+ * turned a resolver problem into six forced restarts).
+ *
+ * The detector is a rolling window over *attributed deadline events* fed from
+ * [MarbleIntelligence.recordResolverEvidence]. It arms fast (three events inside five minutes —
+ * already 3.5x the healthy rate) and stands down slowly (at most one event inside ten minutes),
+ * because flipping the query mode on every blip is its own instability.
+ */
+private class DnsStormGuard {
+
+    private val events = ArrayDeque<Long>()
+
+    @Synchronized
+    fun recordDeadlineFailures(count: Int, nowMs: Long) {
+        repeat(count.coerceIn(0, 64)) { events.addLast(nowMs) }
+        trim(nowMs)
+    }
+
+    @Synchronized
+    fun armMs(nowMs: Long): Long? {
+        trim(nowMs)
+        val recent = events.count { nowMs - it <= STORM_ARM_WINDOW_MS }
+        return if (recent >= STORM_ARM_EVENTS) nowMs else null
+    }
+
+    /** True while the storm regime is active: armed recently and not yet quiet for the stand-down window. */
+    @Synchronized
+    fun active(nowMs: Long): Boolean {
+        trim(nowMs)
+        val recent = events.count { nowMs - it <= STAND_DOWN_WINDOW_MS }
+        return recent > STORM_QUIET_EVENTS
+    }
+
+    /** Attributed deadline events per minute over the arm window, for diagnostics. */
+    @Synchronized
+    fun eventsPerMinute(nowMs: Long): Double {
+        trim(nowMs)
+        val recent = events.count { nowMs - it <= STORM_ARM_WINDOW_MS }
+        return recent / (STORM_ARM_WINDOW_MS / 60_000.0)
+    }
+
+    @Synchronized
+    private fun trim(nowMs: Long) {
+        val horizon = maxOf(STORM_ARM_WINDOW_MS, STAND_DOWN_WINDOW_MS)
+        while (events.isNotEmpty() && nowMs - events.first() > horizon) events.removeFirst()
+        while (events.size > 512) events.removeFirst()
+    }
+
+    companion object {
+        const val STORM_ARM_WINDOW_MS = 5L * 60_000L
+        const val STORM_ARM_EVENTS = 3
+        const val STAND_DOWN_WINDOW_MS = 10L * 60_000L
+        const val STORM_QUIET_EVENTS = 1
+    }
+}
 
 /**
  * Persistent, network-scoped health store. SQLite keeps the hot path dependency-free and bounded.
@@ -579,6 +726,27 @@ private class HealthDb(context: Context) : SQLiteOpenHelper(context, "marble-int
 /**
  * MarbleNG's policy brain. It intentionally does not claim KernelSU/eBPF or bandwidth bonding:
  * those are surfaced as detected capabilities only until a real datapath backend exists.
+ *
+ * MARBLE_INTELLIGENCE_V141 — rewritten around the five failure classes of the attached
+ * Turkey-14 (v7.0.9) vs Netherlands-3 (v7.0.4) log pair:
+ *
+ *  1. **DNS crisis** — [DnsStormGuard] watches the rate of attributed DoH deadline failures
+ *     (healthy ≈ 1 per 6 min; broken 6/min, worst 29/min). While a storm is active the resolver
+ *     pool is raced (`measuredDnsParallel`), the family plan collapses to IPv4, and tunnel
+ *     buffers shrink so error queues cannot grow into the PSS regression.
+ *  2. **IPv6 penalty** — "IPv6 preferred, IPv4 raced after 60 ms" is eliminated by evidence:
+ *     an unstable race, a stored per-network verdict, a noisy link or a DNS storm locks the plan
+ *     to IPv4-first with a zero race delay, and the verdict is persisted per network for 24 h so
+ *     it survives reconnects.
+ *  3. **Protocol fitness** — [ProtocolFitness] biases ranking and recovery toward QUIC-native
+ *     transports (the green reference ran hysteria2) and away from VLESS+xhttp on measured noisy
+ *     links, and disables multiplexing under the same evidence.
+ *  4. **Memory** — tunnel sizing gains a DNS-storm guard next to the existing loss/thermal
+ *     caps; the DNS error buffers that inflated PSS from 98 to 104 MB are bounded again.
+ *  5. **Reconnect storms** — the node that just carried traffic successfully gets a bounded
+ *     fresh-success bonus, so a DNS-induced socket closure no longer reshuffles the candidate
+ *     list behind nodes with no evidence — the direct antidote to six forced restarts in seven
+ *     minutes.
  */
 // MARBLE_MEASURED_FIRST_V14
 class MarbleIntelligence(private val context: Context) {
@@ -600,6 +768,9 @@ class MarbleIntelligence(private val context: Context) {
         ConcurrentHashMap<Network, LinkProperties>()
     private val availableTransports =
         ConcurrentHashMap<Network, Set<String>>()
+
+    /** MARBLE_INTELLIGENCE_V141 — attributed-deadline storm detector for the current network. */
+    private val stormGuard = DnsStormGuard()
 
     @Volatile private var started = false
     @Volatile private var iranState = IranModeState()
@@ -949,9 +1120,7 @@ class MarbleIntelligence(private val context: Context) {
         )
     }
 
-    // ------------------------------------------------------------------
-    // MARBLE_RESOLVER_EVIDENCE_V134 — attributed resolver health
-    // ------------------------------------------------------------------
+    // ------------------------------------------------------------------ resolver evidence + storm
 
     private fun resolverEvidenceKey(): String = "resolver-evidence:${currentSnapshot().key()}"
 
@@ -963,19 +1132,31 @@ class MarbleIntelligence(private val context: Context) {
         ResolverEvidencePolicy.deserialize(prefs.getString(resolverEvidenceKey(), "") ?: "")
 
     /**
-     * Fold raw core-log lines into the persisted evidence set.
+     * Fold raw core-log lines into the persisted evidence set, and feed every *new* attributed
+     * deadline into the storm detector.
      *
      * Only attributed, decisive failures are stored; shutdown-safe cancellations and closed-pipe
      * teardown lines are dropped by [ResolverEvidencePolicy.observe], so a reconnect can never
-     * demote a resolver for having been interrupted.
+     * demote a resolver for having been interrupted — and can never arm the storm guard either.
      */
     fun recordResolverEvidence(
         lines: Sequence<String>,
         nowMs: Long = System.currentTimeMillis()
     ): List<ResolverEvidencePolicy.EndpointEvidence> {
         val key = resolverEvidenceKey()
-        val next = ResolverEvidencePolicy.observe(lines, resolverEvidence(), nowMs)
+        val before = resolverEvidence()
+        val next = ResolverEvidencePolicy.observe(lines, before, nowMs)
         val encoded = ResolverEvidencePolicy.serialize(next)
+
+        // MARBLE_INTELLIGENCE_V141 — the storm is measured on the *delta*, never on the stored
+        // counters: decay must not look like recovery, and a re-observed old failure must not
+        // look like a new one.
+        val deadlinesBefore = before.sumOf { it.deadlines }
+        val deadlinesAfter = next.sumOf { it.deadlines }
+        if (deadlinesAfter > deadlinesBefore) {
+            stormGuard.recordDeadlineFailures(deadlinesAfter - deadlinesBefore, nowMs)
+        }
+
         if (encoded != (prefs.getString(key, "") ?: "")) {
             prefs.edit().putString(key, encoded).apply()
         }
@@ -1016,6 +1197,45 @@ class MarbleIntelligence(private val context: Context) {
             resolverEvidence(),
             nowMs
         )
+    }
+
+    /**
+     * MARBLE_INTELLIGENCE_V141 — live DNS storm verdict for the current physical network.
+     *
+     * Healthy is ~1 attributed deadline per 6 minutes (0.17/min); the broken log ran 6/min with
+     * worst windows at 29/min. The guard arms at 3 events per 5 minutes — already 3.5× the healthy
+     * rate — and stands down only after ten quiet minutes, so the query mode never flaps.
+     */
+    fun dnsStormActive(): Boolean = stormGuard.active(System.currentTimeMillis())
+
+    /** Attributed deadline rate per minute for diagnostics; 0.0 when the window is calm. */
+    fun dnsStormRatePerMinute(): Double = stormGuard.eventsPerMinute(System.currentTimeMillis())
+
+    // ------------------------------------------------------------------ per-network IPv6 verdict
+
+    private fun ipv6VerdictKey(networkKey: String): String = "ipv6-verdict|$networkKey"
+
+    /**
+     * MARBLE_INTELLIGENCE_V141 — persist the measured IPv6 verdict for this physical network.
+     *
+     * "IPv6 preferred, IPv4 raced after 60 ms" cost every connection of the broken log a 60 ms
+     * penalty and a wasted socket on a family the link could not carry. An unstable race is
+     * remembered for 24 h so reconnects and app restarts do not re-learn it the hard way; a
+     * healthy verdict is deliberately *not* persisted, because v6 health must be re-proven by
+     * [SmartIpRacePolicy] on every session — only the pathology is sticky.
+     */
+    fun rememberIpv6Unhealthy() {
+        prefs.edit()
+            .putString(ipv6VerdictKey(currentSnapshot().key()), "${System.currentTimeMillis()}")
+            .apply()
+    }
+
+    /** Stored verdict for the current network: false = measured unhealthy, true/unknown = keep automatic. */
+    fun storedIpv6Unhealthy(): Boolean {
+        val networkKey = currentSnapshot().key()
+        val at = prefs.getString(ipv6VerdictKey(networkKey), "")?.toLongOrNull() ?: return false
+        if (System.currentTimeMillis() - at !in 0L..IPV6_VERDICT_TTL_MS) return false
+        return true
     }
 
     private fun accelerationKey(profileId: String): String =
@@ -1154,7 +1374,7 @@ class MarbleIntelligence(private val context: Context) {
                 (
                     settings.workloadProfile != WorkloadProfile.STREAMING &&
                         (network.transport == "cellular" || network.metered)
-                )
+                    )
 
         val latencyCapped = if (latencyFirst) {
             TunnelTuning(
@@ -1187,15 +1407,34 @@ class MarbleIntelligence(private val context: Context) {
             )
         } else latencyCapped
 
-        // Never let a bigger datapath fight the thermal governor for the same silicon.
-        return if (thermal < 0.55) {
+        /*
+         * MARBLE_INTELLIGENCE_V141 — DNS storm memory guard.
+         *
+         * The broken log's PSS regression (104 MB vs the 98 MB green reference) grew exactly while
+         * the DoH deadline storm ran: every failed lookup parked an error buffer, and the resolver
+         * pool was retried serially, so the buffers accumulated faster than they drained. While the
+         * storm detector is armed the userspace datapath is clamped to the baseline-or-smaller
+         * shape regardless of measured throughput, because throughput measured before the storm
+         * describes a link that no longer exists.
+         */
+        val stormCapped = if (dnsStormActive()) {
             TunnelTuning(
                 maxSessions = min(pathCapped.maxSessions, 2048),
                 tcpBufferBytes = min(pathCapped.tcpBufferBytes, 65_536),
-                udpBufferBytes = min(pathCapped.udpBufferBytes, 262_144),
-                label = "${pathCapped.label}/thermal"
+                udpBufferBytes = min(pathCapped.udpBufferBytes, 131_072),
+                label = "${pathCapped.label}/dns-storm"
             )
         } else pathCapped
+
+        // Never let a bigger datapath fight the thermal governor for the same silicon.
+        return if (thermal < 0.55) {
+            TunnelTuning(
+                maxSessions = min(stormCapped.maxSessions, 2048),
+                tcpBufferBytes = min(stormCapped.tcpBufferBytes, 65_536),
+                udpBufferBytes = min(stormCapped.udpBufferBytes, 262_144),
+                label = "${stormCapped.label}/thermal"
+            )
+        } else stormCapped
     }
 
     /**
@@ -1211,6 +1450,12 @@ class MarbleIntelligence(private val context: Context) {
         startMonitoring()
 
         val n = snapshot
+        val nowMs = System.currentTimeMillis()
+        val storm = stormGuard.active(nowMs)
+        val health = db.get(profile.id, n.key())
+        val link = LinkEvidence.fromHealth(health)
+            .conservativeOf(networkLinkPrior(n.key()))
+        val noisy = ProtocolFitness.noisy(link)
 
         // Prefer IPv6 is a preference, not a demand. Suspend it on IPv4-only links and restore it
         // automatically when a real global IPv6 underlay becomes available.
@@ -1219,9 +1464,53 @@ class MarbleIntelligence(private val context: Context) {
                 base.preferIpv6 &&
                 n.hasIpv6
 
+        val ipRace = SmartIpRacePolicy.decide(
+            n,
+            health,
+            base.copy(preferIpv6 = effectivePreferIpv6)
+        )
+        val raceUnstable = ipRace.reason == "unstable-race"
+
+        /*
+         * MARBLE_INTELLIGENCE_V141 — the 60 ms penalty is eliminated by evidence, not by guess.
+         *
+         * The broken log showed "IPv6 preferred, IPv4 raced after 60 ms" on a link whose IPv6 path
+         * was never proven: every connection paid the race delay and a dead-family socket. The
+         * family plan now collapses to IPv4-first whenever any of the following holds:
+         *
+         *  - the race itself was unstable (SmartIpRacePolicy measured failure streak, low success
+         *    EWMA or high jitter on this node) — and the verdict is persisted for 24 h;
+         *  - this physical network carries a stored unhealthy verdict from an earlier session;
+         *  - the link is measured noisy and IPv6 has no *positive* proof (the green reference was
+         *    IPv4-only end to end, and an unproven family is the first thing a noisy link breaks);
+         *  - a DNS storm is active — AAAA lookups double the failure surface exactly when the
+         *    resolver pool is already missing its budgets.
+         *
+         * Only strict user demands (IPv6 off, or an explicit v6-only strategy) outrank evidence;
+         * everything else keeps the automatic behaviour when IPv6 is actually proven healthy.
+         */
+        if (raceUnstable) rememberIpv6Unhealthy()
+        val storedV6Unhealthy = storedIpv6Unhealthy()
+        val measuredV6Healthy = when {
+            raceUnstable -> false
+            storedV6Unhealthy -> false
+            else -> null
+        }
+        val familyLockReason = when {
+            !base.ipv6Enabled -> null
+            raceUnstable -> "unstable-race"
+            storedV6Unhealthy -> "stored-verdict"
+            noisy && measuredV6Healthy != true -> "noisy-link"
+            storm && measuredV6Healthy != true -> "dns-storm"
+            else -> null
+        }
+        val forceIpv4First = familyLockReason != null
+
         val queryStrategy = when {
             !base.ipv6Enabled -> "UseIPv4"
+            base.dnsQueryStrategy.equals("UseIPv6", true) && n.hasIpv6 && !forceIpv4First -> "UseIPv6"
             !base.adaptiveDualStackEnabled -> base.dnsQueryStrategy
+            forceIpv4First -> "UseIPv4"
             n.hasIpv4 && !n.hasIpv6 -> "UseIPv4"
             n.hasIpv6 && !n.hasIpv4 -> "UseIPv6"
             else -> "UseIP"
@@ -1235,26 +1524,32 @@ class MarbleIntelligence(private val context: Context) {
          * config writer from these settings, so a verdict that only this function knew about is why
          * 29 attributed `DoH deadline` events never changed a single emitted resolver: the
          * observation and the emission were two ends of an open loop.
+         *
+         * MARBLE_INTELLIGENCE_V141 — while a storm is armed the pool is raced regardless of the
+         * per-endpoint demotion state: a storm means the *serial* walk is the failure mode, and
+         * Xray's own documentation names `enableParallelQuery` as the remedy for exactly that
+         * symptom. Three tiny queries per lookup cost nothing against a tunnel that currently
+         * resolves nothing.
          */
         val resolverPool = dnsCandidatePool(base)
         val endpointEvidence = if (base.adaptiveDnsEnabled) resolverEvidence() else emptyList()
-        val resolverNowMs = System.currentTimeMillis()
         val dnsDemoted = if (base.adaptiveDnsEnabled) {
-            ResolverEvidencePolicy.demoted(resolverPool, endpointEvidence, resolverNowMs)
+            ResolverEvidencePolicy.demoted(resolverPool, endpointEvidence, nowMs)
         } else {
             emptyList()
         }
-        val dnsParallel = base.adaptiveDnsEnabled &&
-            ResolverEvidencePolicy.parallelQueryJustified(
-                resolverPool, endpointEvidence, resolverNowMs
+        val dnsParallel = base.adaptiveDnsEnabled && (
+            storm ||
+                ResolverEvidencePolicy.parallelQueryJustified(
+                    resolverPool, endpointEvidence, nowMs
+                )
             )
-        val ipRace = SmartIpRacePolicy.decide(n, db.get(profile.id, n.key()), base.copy(preferIpv6 = effectivePreferIpv6))
+
         // The underlay decides which records are even worth asking for; the plan then decides the
         // family order for the tunnel, the delay test and the probers in one place. A measured IPv6
         // pathology on this node demotes the automatic ordering, but never overrides what the user
         // explicitly asked for.
         val familyBase = base.copy(dnsQueryStrategy = queryStrategy)
-        val measuredV6Healthy = if (ipRace.reason == "unstable-race") false else null
         val familyPreference = AddressFamilyPolicy.preference(
             settings = familyBase,
             underlayHasIpv6 = n.hasIpv6,
@@ -1265,21 +1560,31 @@ class MarbleIntelligence(private val context: Context) {
         // Explicit user settings remain intact, and IranShield may still apply censorship-specific changes.
         val tuned = familyBase.copy(
             dnsQueryStrategy = AddressFamilyPolicy.dnsQueryStrategy(familyBase, familyPreference),
-            preferIpv6 = AddressFamilyPolicy.prioritizeIpv6(
-                preference = familyPreference,
-                underlayHasIpv6 = n.hasIpv6,
-                measuredV6Healthy = measuredV6Healthy
-            ),
+            preferIpv6 = if (forceIpv4First) {
+                false
+            } else {
+                AddressFamilyPolicy.prioritizeIpv6(
+                    preference = familyPreference,
+                    underlayHasIpv6 = n.hasIpv6,
+                    measuredV6Healthy = measuredV6Healthy
+                )
+            },
             dnsPrimaryDoH = dnsOrdered.first,
             dnsSecondaryDoH = dnsOrdered.second,
             // A zero delay is meaningful: it tells the hardener not to arm Xray's race at all, which
             // then resolves deterministically instead of leaving the choice to the engine's random pick.
-            happyEyeballsTryDelayMs = if (ipRace.tryDelayMs > 0) {
-                ipRace.tryDelayMs.coerceIn(AddressFamilyPolicy.MIN_TRY_DELAY_MS, AddressFamilyPolicy.MAX_TRY_DELAY_MS)
-            } else {
+            // Under a family lock the race is not merely early — it is disarmed, because a proven-dead
+            // family must not burn a concurrent dial slot on every destination.
+            happyEyeballsTryDelayMs = if (forceIpv4First || ipRace.tryDelayMs <= 0) {
                 0
+            } else {
+                ipRace.tryDelayMs.coerceIn(AddressFamilyPolicy.MIN_TRY_DELAY_MS, AddressFamilyPolicy.MAX_TRY_DELAY_MS)
             },
-            happyEyeballsMaxConcurrent = ipRace.maxConcurrentTry,
+            happyEyeballsMaxConcurrent = when {
+                measuredV6Healthy == false -> 1
+                forceIpv4First -> 1
+                else -> ipRace.maxConcurrentTry
+            },
             // MARBLE_MEASURED_FAMILY_V133 — publish the measured verdict inside the settings object
             // itself. AddressFamilyPolicy is consulted from the config writer, the delay-test config,
             // the Kotlin probers and Bug Finder; a verdict only this function knew about is why the
@@ -1298,9 +1603,17 @@ class MarbleIntelligence(private val context: Context) {
                 tuned
             }
 
+        // MARBLE_INTELLIGENCE_V141 — protocol fitness: multiplexing on top of a record-chunked
+        // transport under measured noise stacks two head-of-line blockers, which is how VLESS+xhttp
+        // turned jitter into teardowns on the broken log while the hysteria2 reference stayed up.
+        val muxGuarded = if (ProtocolFitness.prefersMuxOff(profile, link)) {
+            accelerated.copy(muxEnabled = false)
+        } else {
+            accelerated
+        }
+
         // Iran Mode is applied last so its countermeasures win over generic adaptive tuning.
-        val shielded = IranShield.apply(accelerated, profile, iranState, iranGeoIpReady)
-        val health = db.get(profile.id, n.key())
+        val shielded = IranShield.apply(muxGuarded, profile, iranState, iranGeoIpReady)
         val healed = DpiEvasionPolicy.heal(
             shielded,
             DpiEvasionPolicy.PathEvidence(
@@ -1363,6 +1676,7 @@ class MarbleIntelligence(private val context: Context) {
         }
 
         val h = record ?: return 50.0
+        val nowMs = System.currentTimeMillis()
 
         fun expScore(
             value: Double,
@@ -1407,7 +1721,7 @@ class MarbleIntelligence(private val context: Context) {
                                 131072.0
                     ) /
                         ln(129.0)
-                ).coerceIn(0.0, 1.0) *
+                    ).coerceIn(0.0, 1.0) *
                     100.0
             }
 
@@ -1472,9 +1786,9 @@ class MarbleIntelligence(private val context: Context) {
                 168.0
             } else {
                 (
-                    System.currentTimeMillis() -
+                    nowMs -
                         h.lastSuccessAt
-                ).coerceAtLeast(0L) /
+                    ).coerceAtLeast(0L) /
                     3_600_000.0
             }
 
@@ -1484,21 +1798,43 @@ class MarbleIntelligence(private val context: Context) {
                     exp(
                         -ageHours / 96.0
                     ).coerceIn(0.20, 1.0)
-            ) * 16.0
+                ) * 16.0
 
         // Failure streaks decay one step every six quiet hours, allowing recovered nodes back in.
-        val failureAgeHours = (System.currentTimeMillis() - h.lastSeenAt).coerceAtLeast(0L) / 3_600_000.0
+        val failureAgeHours = (nowMs - h.lastSeenAt).coerceAtLeast(0L) / 3_600_000.0
         val effectiveFailureStreak = (h.failureStreak - (failureAgeHours / 6.0).toInt()).coerceAtLeast(0)
         val failurePenalty =
             effectiveFailureStreak
                 .coerceAtMost(6) *
                 7.5
 
+        /*
+         * MARBLE_INTELLIGENCE_V141 — fresh-success stickiness.
+         *
+         * The broken log forced six restarts in seven minutes partly because every DNS-induced
+         * socket closure reshuffled the candidate list behind nodes with no evidence at all. A node
+         * that demonstrably carried traffic minutes ago is the cheapest safe bet on this network,
+         * so it gets a bounded bonus that decays with time and never outranks a large reliability
+         * gap: it is a tiebreaker with memory, not an override.
+         */
+        val freshSuccessBonus =
+            if (h.lastSuccessAt <= 0L) {
+                0.0
+            } else {
+                val minutesSinceSuccess = (nowMs - h.lastSuccessAt) / 60_000.0
+                when {
+                    minutesSinceSuccess <= 30.0 -> 6.0
+                    minutesSinceSuccess <= 120.0 -> 3.0
+                    else -> 0.0
+                }
+            }
+
         return (
-            confidenceAdjusted -
+            confidenceAdjusted +
+                freshSuccessBonus -
                 stalePenalty -
                 failurePenalty
-        ).coerceIn(0.0, 100.0)
+            ).coerceIn(0.0, 100.0)
     }
 
     /**
@@ -1541,11 +1877,19 @@ class MarbleIntelligence(private val context: Context) {
      * Health prediction plus the active environment bias. While Iran Mode is on, a node's transport
      * shape matters as much as its measured history: a fast node on a filtered transport is not a
      * usable node.
+     *
+     * MARBLE_INTELLIGENCE_V141 — the transport shape now matters on *every* noisy link, not only
+     * under censorship: [ProtocolFitness.bias] is the term that makes a hysteria2 exit outrank a
+     * VLESS+xhttp exit when jitter and loss are measured, which is precisely the difference between
+     * the green and the broken log.
      */
     fun rankingScore(
         profile: ProxyProfile,
         settings: AppSettings
-    ): Double = predictedScore(profile, settings) + IranShield.profileBias(profile, iranState)
+    ): Double =
+        predictedScore(profile, settings) +
+            IranShield.profileBias(profile, iranState) +
+            ProtocolFitness.bias(profile, networkLinkPrior(currentSnapshot().key()))
 
     /**
      * Ranking score for a whole list using a single history read. Callers that need to sort or
@@ -1558,12 +1902,16 @@ class MarbleIntelligence(private val context: Context) {
     ): Map<String, Double> {
         val out = HashMap<String, Double>(profiles.size * 2)
         val priors = if (health.size < profiles.size) db.latestAll() else emptyMap()
+        // One link prior for the whole pass: protocol fitness is a property of the link, and
+        // re-deriving it per profile would repeat the SQLite bulk read the bulk map just avoided.
+        val link = networkLinkPrior(currentSnapshot().key())
         profiles.forEach { profile ->
             if (!out.containsKey(profile.id)) {
                 val exact = health[profile.id]
                 out[profile.id] =
                     predictedScoreOf(exact ?: priors[profile.id], settings, if (exact == null) 0.35 else 1.0) +
-                        IranShield.profileBias(profile, iranState)
+                        IranShield.profileBias(profile, iranState) +
+                        ProtocolFitness.bias(profile, link)
             }
         }
         return out
@@ -1756,7 +2104,7 @@ class MarbleIntelligence(private val context: Context) {
 
         if (
             now - lastThermalPollAt <
-            1_500L
+                1_500L
         ) {
             return cachedThermalFactor
         }
@@ -1827,6 +2175,8 @@ class MarbleIntelligence(private val context: Context) {
     ): IntelligenceStatus {
         val n =
             currentSnapshot()
+        val storm = dnsStormActive()
+        val familyLocked = storedIpv6Unhealthy()
 
         return IntelligenceStatus(
             networkLabel = n.label,
@@ -1862,6 +2212,8 @@ class MarbleIntelligence(private val context: Context) {
                 },
             acceleratedRoutes =
                 if (settings.connectTuningEnabled) accelerationCount() else 0,
+            dnsStormActive = storm,
+            familyLock = if (familyLocked) "IPv4 (stored verdict)" else "",
             lastDecision =
                 lastDecision
         )
@@ -1916,7 +2268,7 @@ class MarbleIntelligence(private val context: Context) {
                 if (fullTun) {
                     if (
                         settings.splitTunnelMode ==
-                        SplitTunnelMode.ALL_APPS
+                            SplitTunnelMode.ALL_APPS
                     ) {
                         "DEVICE-WIDE"
                     } else {
@@ -2222,6 +2574,13 @@ class MarbleIntelligence(private val context: Context) {
         const val ACCELERATION_LIMIT = 160
         const val ACCELERATION_TTL_MS = 6L * 60L * 60L * 1000L
         const val PATH_MTU_TTL_MS = 7L * 24L * 60L * 60L * 1000L
+
+        /**
+         * MARBLE_INTELLIGENCE_V141 — how long a measured-unhealthy IPv6 verdict stays binding for
+         * its physical network. One day: long enough to survive a full session of reconnects, short
+         * enough that a carrier fixing its v6 path is re-proven the next day.
+         */
+        const val IPV6_VERDICT_TTL_MS = 24L * 60L * 60L * 1000L
 
         /**
          * MARBLE_RESOLVER_EVIDENCE_V134 — the same independent stock resolvers the config writer
