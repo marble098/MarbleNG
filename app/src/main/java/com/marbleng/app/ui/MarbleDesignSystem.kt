@@ -121,32 +121,36 @@ internal fun marbleMetricTone(band: MarbleMetricBand): Color = when (band) {
 
 /**
  * MARBLE_HOME_CLOUD_V140 — the Home surface language of the product.
+ * MARBLE_HOME_CLOUD_V141 — the cards became *opaque* boxes.
  *
  * The four Home presentations share one box system: a near-white, barely-tinted page with a
- * very subtle top-to-bottom gradient, and cards of *translucent white* with a thin white
- * hairline and a tiny shadow, so each box reads as lifted from the page instead of stamped
- * onto it. The one saturated element is the selection state: a faint sky fill with a 1.5 dp
- * electric-blue rim. Heavy glassmorphism (blur, deep translucency, stacked specular edges) is
- * deliberately rejected — on a page that also carries server lists and status copy, legibility
- * outranks decoration.
+ * very subtle top-to-bottom gradient, and cards of **solid, fully opaque white** (solid ink in
+ * dark mode) clipped to a rounded rectangle, so the fill inside every box is exactly the size of
+ * the box and carries one uniform tone edge to edge. The old 82%-translucent fill let the page
+ * gradient bleed through unevenly (the card read lighter at the top than at the bottom) and is
+ * the same translucent stack the theme layer already banned for causing rectangular compositing
+ * bands on real GPUs. Depth now comes from one hairline and a 2 dp shadow, never translucency.
+ * The one saturated element remains the selection state: a faint sky fill with a 1.5 dp
+ * electric-blue rim.
  *
  * Light values are the product spec:
  *  - page gradient  `#F7FAFD → #EEF6FC` (near-white at the top, a touch more blue downwards);
- *  - card           `White @ 82%`, `RoundedCornerShape(20.dp)`, `White @ 90%` 1 dp border,
+ *  - card           solid `White`, `RoundedCornerShape(20.dp)`, `#E4EDF6` 1 dp border,
  *                   `shadowElevation = 2.dp`;
  *  - selected card  `#E8F5FF`, `1.5 dp #4AA8E8` border, `shadowElevation = 3.dp`.
  *
  * Dark keeps the same geometry and the same single-accent grammar on AMOLED-friendly tones:
- * a black-to-midnight gradient, translucent ink cards with a faint white hairline, and the
- * same `#4AA8E8` selection rim on a deep-navy fill.
+ * a black-to-midnight gradient, solid ink cards with a faint hairline, and the same `#4AA8E8`
+ * selection rim on a deep-navy fill.
  */
 internal object HomeCloud {
     // Light surface set (the product spec).
     val LightBase = Color(0xFFF4F8FC)
     val LightBgTop = Color(0xFFF7FAFD)
     val LightBgBottom = Color(0xFFEEF6FC)
-    val LightCardFill = Color.White.copy(alpha = 0.82f)
-    val LightCardBorder = Color.White.copy(alpha = 0.9f)
+    // MARBLE_HOME_CLOUD_V141 — opaque card fill: the white inside a box is exactly the box.
+    val LightCardFill = Color.White
+    val LightCardBorder = Color(0xFFE4EDF6)
     val LightCardSelectedFill = Color(0xFFE8F5FF)
     val LightCardSelectedBorder = Color(0xFF4AA8E8)
     val LightInsetFill = Color(0xFFF1F6FB)
@@ -155,8 +159,9 @@ internal object HomeCloud {
     // Dark surface set — same geometry, AMOLED tones.
     val DarkBgTop = Color(0xFF000000)
     val DarkBgBottom = Color(0xFF060D18)
-    val DarkCardFill = Color(0xFF101A2C).copy(alpha = 0.82f)
-    val DarkCardBorder = Color.White.copy(alpha = 0.10f)
+    // MARBLE_HOME_CLOUD_V141 — opaque dark card fill, one uniform tone edge to edge.
+    val DarkCardFill = Color(0xFF101A2C)
+    val DarkCardBorder = Color(0xFF1E2B44)
     val DarkCardSelectedFill = Color(0xFF10253A)
     val DarkCardSelectedBorder = Color(0xFF4AA8E8)
     val DarkInsetFill = Color(0xFF0A111D)
