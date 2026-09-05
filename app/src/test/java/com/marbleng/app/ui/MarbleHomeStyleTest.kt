@@ -78,10 +78,8 @@ class MarbleHomeStyleTest {
 
     @Test
     fun unknownHomeStyleFallsBackToTheDefaultPresentation() {
-        // MARBLE_SIGNATURE_HOME_V112 — the Signature studio is the product default, so an
-        // unknown/legacy persisted value lands on it rather than on a classic style.
-        assertEquals(HomeStyle.PRO, parseHomeStyle(""))
-        assertEquals(HomeStyle.PRO, parseHomeStyle("nebula"))
+        assertEquals(HomeStyle.IOS_SLIDER, parseHomeStyle(""))
+        assertEquals(HomeStyle.IOS_SLIDER, parseHomeStyle("nebula"))
     }
 
     @Test
@@ -143,15 +141,13 @@ class MarbleHomeStyleTest {
         assertEquals(ProShortcut.LIBRARY, parseProShortcut("junk"))
     }
 
-    // MARBLE_HOME_STYLE_TRIM_V121 — Parametric and Bioluminescent are gone from the product, so a
-    // device that persisted either of them must land on the default presentation, not crash.
     @Test
     fun retiredHomeStylesFallBackToTheDefaultPresentation() {
-        assertEquals(3, HomeStyle.entries.size)
+        assertEquals(4, HomeStyle.entries.size)
         listOf("parametric", "bioluminescent", "PARAMETRIC", "BIOLUMINESCENT").forEach { legacy ->
             assertEquals(
                 "retired style $legacy must fall back",
-                HomeStyle.PRO,
+                HomeStyle.IOS_SLIDER,
                 parseHomeStyle(legacy)
             )
         }

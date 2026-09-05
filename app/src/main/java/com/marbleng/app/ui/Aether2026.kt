@@ -906,10 +906,9 @@ private fun compactInAppMessage(raw: String): String {
 @Composable
 private fun DeepSpaceBackdrop(
     modifier: Modifier = Modifier,
-    flavor: HomeFlavor = HomeFlavor.PRO
+    flavor: HomeFlavor = HomeFlavor.IOS_SLIDER
 ) {
-    // MARBLE_DEEP_SPACE_V117 — one shared flavour-driven gradient backdrop, so Home, Servers and
-    // Settings all carry the same integrated multi-colour identity without a second starfield.
+    // Clean iOS backdrop without starfield or cosmic blobs
     Box(modifier) {
         PrismBackdrop(Modifier.matchParentSize(), flavor)
     }
@@ -8270,9 +8269,10 @@ private fun SettingsStyleMiniRow(repo: AppRepository) {
             HomeStyle.entries.forEach { style ->
                 val selected = active == style
                 val tone = when (style) {
-                    HomeStyle.PRO -> Aether.Cyan
-                    HomeStyle.COSMIC_ORBIT -> Aether.Amber
-                    HomeStyle.COSMIC_IMMERSION -> Aether.Amethyst
+                    HomeStyle.IOS_SLIDER -> Aether.Emerald
+                    HomeStyle.IOS_FLOATING -> Aether.CyanBright
+                    HomeStyle.IOS_EMBOSSED -> Aether.AmethystBright
+                    HomeStyle.IOS_MODULAR -> Aether.Amber
                 }
                 val shape = RoundedCornerShape(11.dp)
                 Column(
@@ -8312,31 +8312,30 @@ private fun SettingsStyleMotif(style: HomeStyle, tone: Color, modifier: Modifier
         val w = size.width
         val h = size.height
         when (style) {
-            // Signature studio: a shutter bar over a quiet dot grid.
-            HomeStyle.PRO -> {
-                drawCircle(tone.copy(alpha = .45f), h * .30f, Offset(w * .50f, h * .42f))
-                drawLine(
-                    tone.copy(alpha = .80f),
-                    Offset(w * .18f, h * .82f),
-                    Offset(w * .82f, h * .82f),
-                    2.dp.toPx(),
-                    cap = StrokeCap.Round
-                )
+            // Theme 1: Slide track at bottom + top status
+            HomeStyle.IOS_SLIDER -> {
+                drawRoundRect(tone.copy(alpha = 0.4f), Offset(w * 0.15f, h * 0.15f), Size(w * 0.70f, h * 0.25f), CornerRadius(2.dp.toPx(), 2.dp.toPx()))
+                drawRoundRect(tone.copy(alpha = 0.25f), Offset(w * 0.15f, h * 0.45f), Size(w * 0.70f, h * 0.20f), CornerRadius(2.dp.toPx(), 2.dp.toPx()))
+                drawRoundRect(tone, Offset(w * 0.15f, h * 0.75f), Size(w * 0.70f, h * 0.20f), CornerRadius(4.dp.toPx(), 4.dp.toPx()))
             }
-            // Command deck: orbits with one body.
-            HomeStyle.COSMIC_ORBIT -> {
-                val c = Offset(w * .50f, h * .50f)
-                drawCircle(tone.copy(alpha = .35f), h * .42f, c, style = Stroke(1.dp.toPx()))
-                drawCircle(tone.copy(alpha = .55f), h * .22f, c, style = Stroke(1.dp.toPx()))
-                drawCircle(tone, h * .10f, Offset(c.x + h * .42f, c.y))
+            // Theme 2: Top status + center server box + right floating dot
+            HomeStyle.IOS_FLOATING -> {
+                drawRoundRect(tone.copy(alpha = 0.4f), Offset(w * 0.15f, h * 0.15f), Size(w * 0.70f, h * 0.25f), CornerRadius(2.dp.toPx(), 2.dp.toPx()))
+                drawRoundRect(tone.copy(alpha = 0.25f), Offset(w * 0.15f, h * 0.45f), Size(w * 0.55f, h * 0.45f), CornerRadius(2.dp.toPx(), 2.dp.toPx()))
+                drawCircle(tone, h * 0.15f, Offset(w * 0.82f, h * 0.75f))
             }
-            // Nebula: a ring, a core and starfield specks.
-            HomeStyle.COSMIC_IMMERSION -> {
-                val c = Offset(w * .50f, h * .52f)
-                drawCircle(tone.copy(alpha = .28f), h * .46f, c, style = Stroke(1.4.dp.toPx()))
-                drawCircle(tone.copy(alpha = .80f), h * .16f, c)
-                drawCircle(tone.copy(alpha = .50f), 1.dp.toPx(), Offset(w * .20f, h * .22f))
-                drawCircle(tone.copy(alpha = .50f), 1.dp.toPx(), Offset(w * .80f, h * .28f))
+            // Theme 3: Top status + center bold circle + bottom server box
+            HomeStyle.IOS_EMBOSSED -> {
+                drawRoundRect(tone.copy(alpha = 0.4f), Offset(w * 0.15f, h * 0.12f), Size(w * 0.70f, h * 0.20f), CornerRadius(2.dp.toPx(), 2.dp.toPx()))
+                drawCircle(tone, h * 0.22f, Offset(w * 0.50f, h * 0.52f))
+                drawRoundRect(tone.copy(alpha = 0.25f), Offset(w * 0.15f, h * 0.78f), Size(w * 0.70f, h * 0.18f), CornerRadius(2.dp.toPx(), 2.dp.toPx()))
+            }
+            // Theme 4: 2x2 modular tiles
+            HomeStyle.IOS_MODULAR -> {
+                drawRoundRect(tone.copy(alpha = 0.4f), Offset(w * 0.15f, h * 0.15f), Size(w * 0.32f, h * 0.32f), CornerRadius(2.dp.toPx(), 2.dp.toPx()))
+                drawRoundRect(tone.copy(alpha = 0.4f), Offset(w * 0.53f, h * 0.15f), Size(w * 0.32f, h * 0.32f), CornerRadius(2.dp.toPx(), 2.dp.toPx()))
+                drawRoundRect(tone.copy(alpha = 0.4f), Offset(w * 0.15f, h * 0.55f), Size(w * 0.32f, h * 0.32f), CornerRadius(2.dp.toPx(), 2.dp.toPx()))
+                drawRoundRect(tone, Offset(w * 0.53f, h * 0.55f), Size(w * 0.32f, h * 0.32f), CornerRadius(2.dp.toPx(), 2.dp.toPx()))
             }
         }
     }
@@ -8482,47 +8481,6 @@ private fun SettingsHub(
             ) {
                 SettingsThemeMiniRow(repo)
                 SettingsStyleMiniRow(repo)
-                HorizontalDivider(color = Aether.GlassBorderSoft.copy(alpha = .5f))
-                SettingsHubSwitch(
-                    title = "Reconnect last server",
-                    subtitle = "Resume the previous route on launch",
-                    checked = settings.rememberLast,
-                    onChecked = { enabled ->
-                        repo.updateSettings(settings.copy(rememberLast = enabled))
-                    }
-                )
-                SettingsHubSwitch(
-                    title = "Auto-refresh sources",
-                    subtitle = "Keep subscriptions up to date",
-                    checked = settings.subscriptionAutoRefresh,
-                    onChecked = { enabled ->
-                        repo.updateSettings(settings.copy(subscriptionAutoRefresh = enabled))
-                    }
-                )
-                SettingsHubSwitch(
-                    title = "Smart alerts",
-                    subtitle = "Notify only when something needs you",
-                    checked = settings.smartNotificationsEnabled,
-                    onChecked = { enabled ->
-                        repo.updateSettings(settings.copy(smartNotificationsEnabled = enabled))
-                    }
-                )
-                SettingsHubSwitch(
-                    title = "Marble Intelligence",
-                    subtitle = "Compatibility checks and verified tuning",
-                    checked = settings.intelligenceEnabled,
-                    onChecked = { enabled ->
-                        repo.updateSettings(settings.copy(intelligenceEnabled = enabled))
-                    }
-                )
-                SettingsHubSwitch(
-                    title = "Expert mode",
-                    subtitle = "Reveal the low-level tunnel controls",
-                    checked = settings.expertMode,
-                    onChecked = { enabled ->
-                        repo.updateSettings(settings.copy(expertMode = enabled))
-                    }
-                )
             }
         }
 
@@ -8737,6 +8695,221 @@ private fun SettingsThemePage(
     }
 }
 
+@Composable
+private fun ThemePreviewIllustration(
+    style: HomeStyle,
+    tone: Color,
+    selected: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val dangerColor = Aether.Danger
+    Canvas(modifier) {
+        val w = size.width
+        val h = size.height
+        val r = 8.dp.toPx()
+
+        // Mini phone frame
+        drawRoundRect(
+            color = Color(0xFF10141E),
+            size = Size(w, h),
+            cornerRadius = CornerRadius(r, r)
+        )
+        drawRoundRect(
+            color = if (selected) tone.copy(alpha = 0.85f) else Color.White.copy(alpha = 0.12f),
+            size = Size(w, h),
+            cornerRadius = CornerRadius(r, r),
+            style = Stroke(if (selected) 2.dp.toPx() else 1.dp.toPx())
+        )
+
+        val pad = 5.dp.toPx()
+        val contentW = w - pad * 2
+
+        // 1. Top Wide Status Bar
+        val statusH = h * 0.22f
+        drawRoundRect(
+            color = Color(0xFF1B2234),
+            topLeft = Offset(pad, pad),
+            size = Size(contentW, statusH),
+            cornerRadius = CornerRadius(4.dp.toPx(), 4.dp.toPx())
+        )
+        // Status dot
+        drawCircle(
+            color = tone,
+            radius = 2.dp.toPx(),
+            center = Offset(pad + 5.dp.toPx(), pad + 5.dp.toPx())
+        )
+        // Status bar mini lines
+        drawLine(
+            color = Color.White.copy(alpha = 0.7f),
+            start = Offset(pad + 11.dp.toPx(), pad + 5.dp.toPx()),
+            end = Offset(pad + 32.dp.toPx(), pad + 5.dp.toPx()),
+            strokeWidth = 1.5.dp.toPx(),
+            cap = StrokeCap.Round
+        )
+        drawLine(
+            color = Color.White.copy(alpha = 0.35f),
+            start = Offset(pad + 5.dp.toPx(), pad + 11.dp.toPx()),
+            end = Offset(pad + contentW - 5.dp.toPx(), pad + 11.dp.toPx()),
+            strokeWidth = 1.2.dp.toPx(),
+            cap = StrokeCap.Round
+        )
+
+        when (style) {
+            HomeStyle.IOS_SLIDER -> {
+                // Center: Sub & Server Box
+                val boxY = pad + statusH + 3.dp.toPx()
+                val boxH = h * 0.46f
+                drawRoundRect(
+                    color = Color(0xFF181F2E),
+                    topLeft = Offset(pad, boxY),
+                    size = Size(contentW, boxH),
+                    cornerRadius = CornerRadius(4.dp.toPx(), 4.dp.toPx())
+                )
+                // Centered Sub Pill
+                drawRoundRect(
+                    color = tone.copy(alpha = 0.35f),
+                    topLeft = Offset(w * 0.5f - 14.dp.toPx(), boxY + 3.dp.toPx()),
+                    size = Size(28.dp.toPx(), 5.dp.toPx()),
+                    cornerRadius = CornerRadius(2.5.dp.toPx(), 2.5.dp.toPx())
+                )
+                // 3 Server rows
+                for (i in 0..2) {
+                    val rowY = boxY + 10.dp.toPx() + i * 7.dp.toPx()
+                    drawRoundRect(
+                        color = Color.White.copy(alpha = if (i == 0) 0.16f else 0.07f),
+                        topLeft = Offset(pad + 3.dp.toPx(), rowY),
+                        size = Size(contentW - 6.dp.toPx(), 5.dp.toPx()),
+                        cornerRadius = CornerRadius(2.dp.toPx(), 2.dp.toPx())
+                    )
+                }
+
+                // Bottom: Slide to connect track
+                val slideY = h - pad - 11.dp.toPx()
+                drawRoundRect(
+                    color = Color(0xFF1B2234),
+                    topLeft = Offset(pad, slideY),
+                    size = Size(contentW, 11.dp.toPx()),
+                    cornerRadius = CornerRadius(5.5.dp.toPx(), 5.5.dp.toPx())
+                )
+                drawCircle(
+                    color = tone,
+                    radius = 4.5.dp.toPx(),
+                    center = Offset(pad + 5.5.dp.toPx(), slideY + 5.5.dp.toPx())
+                )
+                drawLine(
+                    color = Color.White.copy(alpha = 0.5f),
+                    start = Offset(pad + 14.dp.toPx(), slideY + 5.5.dp.toPx()),
+                    end = Offset(pad + contentW - 6.dp.toPx(), slideY + 5.5.dp.toPx()),
+                    strokeWidth = 1.2.dp.toPx(),
+                    cap = StrokeCap.Round
+                )
+            }
+
+            HomeStyle.IOS_FLOATING -> {
+                // Expanded Server Box in Center/Bottom
+                val boxY = pad + statusH + 3.dp.toPx()
+                val boxH = h - boxY - pad
+                drawRoundRect(
+                    color = Color(0xFF181F2E),
+                    topLeft = Offset(pad, boxY),
+                    size = Size(contentW, boxH),
+                    cornerRadius = CornerRadius(4.dp.toPx(), 4.dp.toPx())
+                )
+                // Centered Sub Pill
+                drawRoundRect(
+                    color = tone.copy(alpha = 0.35f),
+                    topLeft = Offset(w * 0.5f - 14.dp.toPx(), boxY + 3.dp.toPx()),
+                    size = Size(28.dp.toPx(), 5.dp.toPx()),
+                    cornerRadius = CornerRadius(2.5.dp.toPx(), 2.5.dp.toPx())
+                )
+                // Server rows
+                for (i in 0..3) {
+                    val rowY = boxY + 10.dp.toPx() + i * 7.dp.toPx()
+                    drawRoundRect(
+                        color = Color.White.copy(alpha = if (i == 0) 0.16f else 0.07f),
+                        topLeft = Offset(pad + 3.dp.toPx(), rowY),
+                        size = Size(contentW - 6.dp.toPx(), 5.dp.toPx()),
+                        cornerRadius = CornerRadius(2.dp.toPx(), 2.dp.toPx())
+                    )
+                }
+
+                // Right Floating Split Buttons
+                val fabX = w - pad - 6.dp.toPx()
+                val fab1Y = h - pad - 16.dp.toPx()
+                val fab2Y = h - pad - 6.dp.toPx()
+                drawCircle(color = dangerColor, radius = 4.dp.toPx(), center = Offset(fabX, fab1Y))
+                drawCircle(color = tone, radius = 4.dp.toPx(), center = Offset(fabX, fab2Y))
+            }
+
+            HomeStyle.IOS_EMBOSSED -> {
+                // Center Bold Embossed Button
+                val btnY = pad + statusH + 14.dp.toPx()
+                drawCircle(
+                    color = tone.copy(alpha = 0.25f),
+                    radius = 13.dp.toPx(),
+                    center = Offset(w * 0.5f, btnY)
+                )
+                drawCircle(
+                    color = tone,
+                    radius = 10.dp.toPx(),
+                    center = Offset(w * 0.5f, btnY)
+                )
+
+                // Bottom: Server Box
+                val boxY = btnY + 16.dp.toPx()
+                val boxH = h - boxY - pad
+                drawRoundRect(
+                    color = Color(0xFF181F2E),
+                    topLeft = Offset(pad, boxY),
+                    size = Size(contentW, boxH),
+                    cornerRadius = CornerRadius(4.dp.toPx(), 4.dp.toPx())
+                )
+                for (i in 0..1) {
+                    val rowY = boxY + 3.dp.toPx() + i * 7.dp.toPx()
+                    drawRoundRect(
+                        color = Color.White.copy(alpha = 0.08f),
+                        topLeft = Offset(pad + 3.dp.toPx(), rowY),
+                        size = Size(contentW - 6.dp.toPx(), 5.dp.toPx()),
+                        cornerRadius = CornerRadius(2.dp.toPx(), 2.dp.toPx())
+                    )
+                }
+            }
+
+            HomeStyle.IOS_MODULAR -> {
+                // Modular Grid: 4 tiles
+                val gridY = pad + statusH + 3.dp.toPx()
+                val gridH = (h - gridY - pad - 3.dp.toPx()) / 2f
+                val gridW = (contentW - 3.dp.toPx()) / 2f
+
+                drawRoundRect(
+                    color = Color(0xFF181F2E),
+                    topLeft = Offset(pad, gridY),
+                    size = Size(gridW, gridH),
+                    cornerRadius = CornerRadius(3.dp.toPx(), 3.dp.toPx())
+                )
+                drawRoundRect(
+                    color = Color(0xFF181F2E),
+                    topLeft = Offset(pad + gridW + 3.dp.toPx(), gridY),
+                    size = Size(gridW, gridH),
+                    cornerRadius = CornerRadius(3.dp.toPx(), 3.dp.toPx())
+                )
+                drawRoundRect(
+                    color = Color(0xFF181F2E),
+                    topLeft = Offset(pad, gridY + gridH + 3.dp.toPx()),
+                    size = Size(gridW, gridH),
+                    cornerRadius = CornerRadius(3.dp.toPx(), 3.dp.toPx())
+                )
+                drawRoundRect(
+                    color = tone.copy(alpha = 0.25f),
+                    topLeft = Offset(pad + gridW + 3.dp.toPx(), gridY + gridH + 3.dp.toPx()),
+                    size = Size(gridW, gridH),
+                    cornerRadius = CornerRadius(3.dp.toPx(), 3.dp.toPx())
+                )
+            }
+        }
+    }
+}
+
 /** Home style: one thumbnail per presentation, drawn from the style's own artwork. */
 @Composable
 private fun SettingsHomeStylePage(
@@ -8753,53 +8926,56 @@ private fun SettingsHomeStylePage(
         listState = listState
     ) {
         SettingsHubCard(title = t.homeStyleTitle, subtitle = t.homeStyleDetail, tone = Aether.Cyan) {
-            Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
                 HomeStyle.entries.chunked(2).forEach { row ->
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(7.dp)
+                        horizontalArrangement = Arrangement.spacedBy(9.dp)
                     ) {
                         row.forEach { style ->
                             val selected = active == style
                             val tone = when (style) {
-                                HomeStyle.PRO -> Aether.Cyan
-                                HomeStyle.COSMIC_ORBIT -> Aether.Amber
-                                HomeStyle.COSMIC_IMMERSION -> Aether.Amethyst
+                                HomeStyle.IOS_SLIDER -> Aether.Emerald
+                                HomeStyle.IOS_FLOATING -> Aether.CyanBright
+                                HomeStyle.IOS_EMBOSSED -> Aether.AmethystBright
+                                HomeStyle.IOS_MODULAR -> Aether.Amber
                             }
-                            val shape = RoundedCornerShape(14.dp)
+                            val shape = RoundedCornerShape(16.dp)
                             Column(
                                 modifier = Modifier
                                     .weight(1f)
                                     .clip(shape)
                                     .background(Aether.Glass.copy(alpha = .42f))
                                     .border(
-                                        1.dp,
-                                        if (selected) tone.copy(alpha = .58f) else Aether.GlassBorderSoft.copy(alpha = .5f),
+                                        if (selected) 2.dp else 1.dp,
+                                        if (selected) tone else Aether.GlassBorderSoft.copy(alpha = .5f),
                                         shape
                                     )
                                     .kineticClickable(role = Role.Button, boundedShape = shape) {
                                         repo.updateSettings(repo.settings.copy(homeStyle = style.id))
                                     }
                                     .padding(10.dp),
-                                verticalArrangement = Arrangement.spacedBy(7.dp)
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
                             ) {
-                                SettingsStyleMotif(
-                                    style,
-                                    tone,
-                                    Modifier
+                                ThemePreviewIllustration(
+                                    style = style,
+                                    tone = tone,
+                                    selected = selected,
+                                    modifier = Modifier
                                         .fillMaxWidth()
-                                        .height(38.dp)
+                                        .height(78.dp)
                                 )
-                                Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                     Text(
-                                        trx(homeStyleLabel(style)),
+                                        homeStyleLabel(style),
                                         color = if (selected) tone else Aether.Ink,
                                         style = settingsRowTitleStyle(),
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
                                     Text(
-                                        trx(homeStyleDetail(style)),
+                                        homeStyleDetail(style),
                                         color = Aether.InkFaint,
                                         style = settingsBodyStyle(),
                                         maxLines = 2,
@@ -8811,15 +8987,6 @@ private fun SettingsHomeStylePage(
                         if (row.size == 1) Spacer(Modifier.weight(1f))
                     }
                 }
-            }
-        }
-        if (active == HomeStyle.PRO) {
-            SettingsHubCard(title = t.proStudioTitle, subtitle = t.proStudioDetail, tone = Aether.Amethyst) {
-                Text(
-                    trx("Every layer of the Signature studio is customizable under General."),
-                    color = Aether.InkMuted,
-                    style = settingsBodyStyle()
-                )
             }
         }
         // MARBLE_CONNECT_BUTTON_V121 — three connect buttons, one product decision.
@@ -9748,16 +9915,18 @@ private fun SettingsSectionCard(
 
 @Composable
 private fun homeStyleLabel(style: HomeStyle): String = when (style) {
-    HomeStyle.PRO -> Tr.now.stylePro
-    HomeStyle.COSMIC_ORBIT -> Tr.now.styleCosmicOrbit
-    HomeStyle.COSMIC_IMMERSION -> Tr.now.styleCosmicImmersion
+    HomeStyle.IOS_SLIDER -> Tr.now.styleIosSlider
+    HomeStyle.IOS_FLOATING -> Tr.now.styleIosFloating
+    HomeStyle.IOS_EMBOSSED -> Tr.now.styleIosEmbossed
+    HomeStyle.IOS_MODULAR -> Tr.now.styleIosModular
 }
 
 @Composable
 private fun homeStyleDetail(style: HomeStyle): String = when (style) {
-    HomeStyle.PRO -> Tr.now.styleProDetail
-    HomeStyle.COSMIC_ORBIT -> Tr.now.styleCosmicOrbitDetail
-    HomeStyle.COSMIC_IMMERSION -> Tr.now.styleCosmicImmersionDetail
+    HomeStyle.IOS_SLIDER -> Tr.now.styleIosSliderDetail
+    HomeStyle.IOS_FLOATING -> Tr.now.styleIosFloatingDetail
+    HomeStyle.IOS_EMBOSSED -> Tr.now.styleIosEmbossedDetail
+    HomeStyle.IOS_MODULAR -> Tr.now.styleIosModularDetail
 }
 
 /**
@@ -11051,6 +11220,36 @@ private fun RoutingSettings(repo: AppRepository) {
 
     var confirmPreset by remember { mutableStateOf<RoutingPresets.Preset?>(null) }
 
+    // ------------------------------------------------------------------ 0. Master Switch
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(Aether.GlassStrong.copy(alpha = .45f))
+            .padding(horizontal = 12.dp, vertical = 9.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(
+                trx("Enable Custom Routing"),
+                color = Aether.Ink,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                trx("Control traffic routing, domain resolution and rule matching"),
+                color = Aether.InkMuted,
+                style = MaterialTheme.typography.labelSmall
+            )
+        }
+        Switch(
+            checked = s.customRoutingEnabled,
+            onCheckedChange = { repo.updateSettings(s.copy(customRoutingEnabled = it)) },
+            colors = marbleSwitchColors()
+        )
+    }
+
     // ------------------------------------------------------------------ 1. Routing mode
     Text(trx("Routing mode"), color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -11097,6 +11296,43 @@ private fun RoutingSettings(repo: AppRepository) {
                 (implicit.directIpTags + implicit.directSiteTags).joinToString(", "),
             color = Aether.InkMuted,
             style = MaterialTheme.typography.bodySmall
+        )
+    }
+
+    // ------------------------------------------------------------------ Strategy
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(
+            trx("Domain resolution strategy"),
+            color = Aether.Ink,
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold
+        )
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(7.dp),
+            verticalArrangement = Arrangement.spacedBy(7.dp)
+        ) {
+            listOf(
+                "IPIfNonMatch" to "IPIfNonMatch (v2rayNG default)",
+                "IPOnDemand" to "IPOnDemand",
+                "AsIs" to "AsIs (Fastest)"
+            ).forEach { (value, _) ->
+                CyberChoiceChip(
+                    text = value,
+                    selected = s.routeDomainStrategy == value,
+                    color = Aether.Cyan
+                ) { repo.updateSettings(s.copy(routeDomainStrategy = value)) }
+            }
+        }
+        Text(
+            trx(
+                when (s.routeDomainStrategy) {
+                    "IPOnDemand" -> "Resolve whenever an IP rule is met first"
+                    "AsIs" -> "Route on the address the app dialled"
+                    else -> "Resolve after domain rules miss — geoip rules work on domains"
+                }
+            ),
+            color = Aether.InkMuted,
+            style = MaterialTheme.typography.labelSmall
         )
     }
 
@@ -11945,7 +12181,7 @@ private fun RoutingExpertSection(repo: AppRepository, s: AppSettings) {
     var expanded by rememberSaveable { mutableStateOf(false) }
 
     CyberButton(
-        label = if (expanded) "Hide expert routing" else "Expert routing",
+        label = if (expanded) "Hide advanced rules" else "Advanced rules & tags",
         color = Aether.InkMuted,
         modifier = Modifier.fillMaxWidth(),
         icon = HomeIcon.FILTER
@@ -11954,7 +12190,7 @@ private fun RoutingExpertSection(repo: AppRepository, s: AppSettings) {
     AnimatedVisibility(visible = expanded, enter = expandVertically(), exit = shrinkVertically()) {
         Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
             Text(
-                trx("Domain strategy"),
+                trx("Domain matcher"),
                 color = Aether.InkFaint,
                 style = MaterialTheme.typography.labelSmall
             )
@@ -11963,28 +12199,17 @@ private fun RoutingExpertSection(repo: AppRepository, s: AppSettings) {
                 verticalArrangement = Arrangement.spacedBy(7.dp)
             ) {
                 listOf(
-                    "AsIs" to "Route on the address the app dialled",
-                    "IPIfNonMatch" to "Resolve after domain rules miss — geoip rules work on domains",
-                    "IPOnDemand" to "Resolve whenever an IP rule is met first"
-                ).forEach { (value, label) ->
+                    "hybrid" to "Hybrid (Trie + Regex)",
+                    "linear" to "Linear",
+                    "mph" to "Minimal Perfect Hash (MPH)"
+                ).forEach { (value, _) ->
                     CyberChoiceChip(
                         text = value,
-                        selected = s.routeDomainStrategy == value,
-                        color = Aether.Cyan
-                    ) { repo.updateSettings(s.copy(routeDomainStrategy = value)) }
+                        selected = s.routeDomainMatcher == value,
+                        color = Aether.Emerald
+                    ) { repo.updateSettings(s.copy(routeDomainMatcher = value)) }
                 }
             }
-            Text(
-                trx(
-                    when (s.routeDomainStrategy) {
-                        "IPOnDemand" -> "Resolve whenever an IP rule is met first"
-                        "AsIs" -> "Route on the address the app dialled"
-                        else -> "Resolve after domain rules miss — geoip rules work on domains"
-                    }
-                ),
-                color = Aether.InkMuted,
-                style = MaterialTheme.typography.labelSmall
-            )
 
             TinyField("Ad-block GeoSite tag", s.routeAdsTag, Modifier.fillMaxWidth()) {
                 repo.updateSettings(s.copy(routeAdsTag = it.trim()))
@@ -11997,7 +12222,7 @@ private fun RoutingExpertSection(repo: AppRepository, s: AppSettings) {
             }
 
             Text(
-                trx("Expert text lists — rules below your own"),
+                trx("Direct & block text lists"),
                 color = Aether.InkFaint,
                 style = MaterialTheme.typography.labelSmall
             )

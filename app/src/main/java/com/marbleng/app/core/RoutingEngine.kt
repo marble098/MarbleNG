@@ -351,6 +351,7 @@ object RoutingEngine {
     }
 
     fun needsGeoSite(settings: AppSettings): Boolean {
+        if (!settings.customRoutingEnabled) return false
         val implicit = implicitRules(settings)
         if (implicit.adsTag != null || implicit.directSiteTags.isNotEmpty()) return true
         if (emittableUserRules(settings).any { rule ->
@@ -371,6 +372,7 @@ object RoutingEngine {
     }
 
     fun needsDirectOutbound(settings: AppSettings): Boolean {
+        if (!settings.customRoutingEnabled) return settings.routeBypassPrivate
         val implicit = implicitRules(settings)
         if (settings.routeBypassPrivate || implicit.forceBypassPrivate) return true
         if (implicit.directIpTags.isNotEmpty() || implicit.directSiteTags.isNotEmpty()) return true
@@ -387,6 +389,12 @@ object RoutingEngine {
      * whole core. [seen] deduplicates identical tokens between the implicit and the user layer.
      */
     fun applyUserRules(rulesOut: JSONArray, settings: AppSettings, proxyTag: String) {
+        if (!settings.customRoutingEnabled) {
+            if (settings.routeBypassPrivate) {
+                addIpRule(rulesOut, PRIVATE_CIDRS, "direct")
+            }
+            return
+        }
         val implicit = implicitRules(settings)
         if (settings.routeBypassPrivate || implicit.forceBypassPrivate) {
             addIpRule(rulesOut, PRIVATE_CIDRS, "direct")
