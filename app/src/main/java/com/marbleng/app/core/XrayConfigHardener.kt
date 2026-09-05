@@ -1129,6 +1129,7 @@ object XrayConfigHardener {
         addDomainRule(rules, splitDomains(settings.routeBlockDomains), "block")
         addIpRule(rules, splitIps(settings.routeBlockIps), "block")
         addDomainRule(rules, splitDomains(settings.routeProxyDomains), firstTag)
+        // Ads geosite tag: normalizeGeoSiteTag(settings.routeAdsTag) — now RoutingEngine + RoutingDefaults.ADS_TAG
         RoutingEngine.applyUserRules(rules, settings, firstTag)
 
         // Freedom: block Iran's DNS injector ranges and null answers before anything else can
