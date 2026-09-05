@@ -67,6 +67,49 @@ class ProfilePreflightValidatorTest {
     }
 
     @Test
+    fun validHysteria2SalamanderConfigIsValid() {
+        val config = JSONObject()
+            .put(
+                "outbounds",
+                JSONArray().put(
+                    JSONObject()
+                        .put("protocol", "hysteria")
+                        .put("tag", "proxy")
+                        .put(
+                            "settings",
+                            JSONObject()
+                                .put("version", 2)
+                                .put("address", "178.255.222.102")
+                                .put("port", 30895)
+                        )
+                        .put(
+                            "streamSettings",
+                            JSONObject()
+                                .put("method", "hysteria")
+                                .put("security", "tls")
+                                .put("tlsSettings", JSONObject().put("serverName", "178.255.222.102"))
+                                .put("hysteriaSettings", JSONObject().put("version", 2).put("auth", "aa2vw6pkeq2ppp3j"))
+                                .put(
+                                    "finalmask",
+                                    JSONObject().put(
+                                        "udp",
+                                        JSONArray().put(
+                                            JSONObject()
+                                                .put("type", "salamander")
+                                                .put("settings", JSONObject().put("password", "3d7z2yxi0cq5ks4j"))
+                                        )
+                                    )
+                                )
+                        )
+                )
+            )
+            .toString()
+        val verdict = ProfilePreflightValidator.validate(profile(config, id = "hy2-node"))
+        assertTrue(verdict.valid)
+        assertEquals(ProfilePreflightValidator.Verdict.VALID, verdict.verdict)
+    }
+
+    @Test
     fun vlessTlsWithoutServerNameIsQuarantined() {
         // This is the "Turkey 4-All" family: VLESS/TLS missing its required serverName -> Xray
         // rejects at config-load, so the profile must be quarantined before ranking.

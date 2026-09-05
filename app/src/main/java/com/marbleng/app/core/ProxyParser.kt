@@ -361,14 +361,54 @@ object ProxyParser {
 
     private fun parseHy2(raw: String, sid: String, sname: String): ProxyProfile {
         val u = Uri.parse(raw); val host = u.host ?: error("host"); val port = u.port.takeIf { it > 0 } ?: 443
-        val tls = JSONObject().put("serverName", qa(u, "sni", "serverName", default = host))
-            .put("fingerprint", qa(u, "fp", "fingerprint", default = "chrome")).put("alpn", JSONArray().put("h3"))
-            .apply { if (qa(u, "allowInsecure", "insecure") in setOf("1", "true")) put("allowInsecure", true) }
+        val auth = dec(u.userInfo).ifBlank { qa(u, "auth", "password", "pass") }
+        val sni = qa(u, "sni", "serverName", "peer").ifBlank { host }
+        val alpnParam = qa(u, "alpn")
+        val alpnList = if (alpnParam.isNotBlank()) {
+            alpnParam.split(',').map { it.trim() }.filter { it.isNotEmpty() }
+        } else {
+            listOf("h3")
+        }
+        val alpnArray = JSONArray()
+        alpnList.forEach { alpnArray.put(it) }
+
+        val tls = JSONObject().put("serverName", sni)
+            .put("fingerprint", qa(u, "fp", "fingerprint", default = "chrome"))
+            .put("alpn", alpnArray)
+            .apply {
+                if (qa(u, "allowInsecure", "insecure", "allow_insecure", "skip-cert-verify") in setOf("1", "true", "yes")) {
+                    put("allowInsecure", true)
+                }
+            }
+
+        val hySettings = JSONObject().put("version", 2).put("auth", auth)
+        val up = qa(u, "up", "up_mbps", "upload_mbps", "upmbps")
+        if (up.isNotBlank()) hySettings.put("up", up)
+        val down = qa(u, "down", "down_mbps", "download_mbps", "downmbps")
+        if (down.isNotBlank()) hySettings.put("down", down)
+        val idleTimeout = qa(u, "udpIdleTimeout", "udp_idle_timeout").toIntOrNull() ?: 60
+        hySettings.put("udpIdleTimeout", idleTimeout)
+
         val st = JSONObject().put("method", "hysteria").put("security", "tls").put("tlsSettings", tls)
-            .put("hysteriaSettings", JSONObject().put("version", 2).put("auth", dec(u.userInfo)))
+            .put("hysteriaSettings", hySettings)
+
+        val obfsType = qa(u, "obfs", "obfs-type", "obfs_type")
+        val obfsPass = qa(u, "obfs-password", "obfs_password", "obfspassword", "obfs-param", "obfsParam", "obfsparam", "obfs_param")
+        if (obfsType.equals("salamander", ignoreCase = true) || obfsPass.isNotBlank() || (obfsType.isNotBlank() && !obfsType.equals("none", ignoreCase = true))) {
+            val obfsObj = JSONObject().put("password", obfsPass)
+            val packetSize = qa(u, "packet-size", "packet_size", "packetsize")
+            if (packetSize.isNotBlank()) obfsObj.put("packetSize", packetSize)
+            val finalmask = JSONObject().put("udp", JSONArray().put(
+                JSONObject().put("type", if (obfsType.isNotBlank() && !obfsType.equals("none", ignoreCase = true)) obfsType else "salamander")
+                    .put("settings", obfsObj)
+            ))
+            st.put("finalmask", finalmask)
+        }
+
         val out = JSONObject().put("tag", "proxy").put("protocol", "hysteria")
             .put("settings", JSONObject().put("version", 2).put("address", host).put("port", port)).put("streamSettings", st)
-        return prof(raw, u.fragment ?: "Hysteria2 $host", "hysteria2", host, port, "hysteria", "tls", base(out), sid, sname)
+        val profileName = u.fragment?.let { dec(it) }?.ifBlank { null } ?: "Hysteria2 $host"
+        return prof(raw, profileName, "hysteria2", host, port, "hysteria", "tls", base(out), sid, sname)
     }
 
     private fun parseBasic(raw: String, sid: String, sname: String): ProxyProfile {
