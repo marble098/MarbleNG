@@ -8968,14 +8968,14 @@ private fun SettingsHomeStylePage(
                                 )
                                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                     Text(
-                                        trx(homeStyleLabel(style)),
+                                        homeStyleLabel(style),
                                         color = if (selected) tone else Aether.Ink,
                                         style = settingsRowTitleStyle(),
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
                                     Text(
-                                        trx(homeStyleDetail(style)),
+                                        homeStyleDetail(style),
                                         color = Aether.InkFaint,
                                         style = settingsBodyStyle(),
                                         maxLines = 2,
