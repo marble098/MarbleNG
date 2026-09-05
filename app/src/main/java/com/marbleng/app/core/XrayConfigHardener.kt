@@ -593,7 +593,7 @@ object XrayConfigHardener {
             }
         }
 
-        val needsDirect = settings.routingMode != RoutingMode.PROXY_ALL ||
+        val needsDirect = RoutingEngine.needsDirectOutbound(settings) ||
             (isFreedomSelected && settings.freedomDirectDomestic) ||
             settings.routeDirectDomains.isNotBlank() ||
             settings.routeDirectIps.isNotBlank()
@@ -1128,15 +1128,9 @@ object XrayConfigHardener {
 
         addDomainRule(rules, splitDomains(settings.routeBlockDomains), "block")
         addIpRule(rules, splitIps(settings.routeBlockIps), "block")
-
-        if (settings.routeBlockAds) {
-            normalizeGeoSiteTag(settings.routeAdsTag)?.let { adsTag ->
-                addDomainRule(rules, listOf(adsTag), "block")
-            }
-        }
-
-        // Explicit proxy rules are evaluated before direct rules so users can create exceptions.
         addDomainRule(rules, splitDomains(settings.routeProxyDomains), firstTag)
+        // Ads geosite tag: normalizeGeoSiteTag(settings.routeAdsTag) — now RoutingEngine + RoutingDefaults.ADS_TAG
+        RoutingEngine.applyUserRules(rules, settings, firstTag)
 
         // Freedom: block Iran's DNS injector ranges and null answers before anything else can
         // dial them. Without this, half-resolved multi-CDN hosts (YouTube googlevideo shards,
@@ -1165,42 +1159,16 @@ object XrayConfigHardener {
             }
         }
 
-        if (needsDirect) {
-            val directDomains = linkedSetOf<String>()
-            val directIps = linkedSetOf<String>()
-
-            if ((settings.routeBypassPrivate && settings.routingMode != RoutingMode.PROXY_ALL) ||
-                (isFreedomMode && settings.freedomDirectDomestic)
-            ) {
-                directIps += PRIVATE_CIDRS
-            }
-
-            if (settings.routingMode == RoutingMode.GEO_DIRECT || settings.routingMode == RoutingMode.CUSTOM ||
-                (isFreedomMode && settings.freedomDirectDomestic)
-            ) {
-                val ipTagString = if (isFreedomMode && settings.freedomDirectDomestic && settings.routeGeoIpTags.isBlank()) "ir,private" else settings.routeGeoIpTags
-                val siteTagString = if (isFreedomMode && settings.freedomDirectDomestic && settings.routeGeoSiteTags.isBlank()) "ir" else settings.routeGeoSiteTags
-                splitTokens(ipTagString).forEach { tag ->
-                    if (tag.equals("private", true) || tag.equals("geoip:private", true)) {
-                        directIps += PRIVATE_CIDRS
-                    } else {
-                        normalizeGeoIpTag(tag)?.let(directIps::add)
-                    }
-                }
-                splitTokens(siteTagString).forEach { tag ->
-                    normalizeGeoSiteTag(tag)?.let(directDomains::add)
-                }
-            }
-
-            if (settings.routingMode == RoutingMode.CUSTOM || settings.routeDirectDomains.isNotBlank()) {
-                directDomains += splitDomains(settings.routeDirectDomains)
-            }
-            if (settings.routingMode == RoutingMode.CUSTOM || settings.routeDirectIps.isNotBlank()) {
-                directIps += splitIps(settings.routeDirectIps)
-            }
-
-            addDomainRule(rules, directDomains.toList(), "direct")
-            addIpRule(rules, directIps.toList(), "direct")
+        if (isFreedomMode && settings.freedomDirectDomestic) {
+            addIpRule(rules, PRIVATE_CIDRS, "direct")
+            addIpRule(rules, listOf("geoip:ir"), "direct")
+            addDomainRule(rules, listOf("geosite:ir"), "direct")
+        }
+        if (settings.routeDirectDomains.isNotBlank()) {
+            addDomainRule(rules, splitDomains(settings.routeDirectDomains), "direct")
+        }
+        if (settings.routeDirectIps.isNotBlank()) {
+            addIpRule(rules, splitIps(settings.routeDirectIps), "direct")
         }
 
         // Fail-closed fallback: anything not matched above stays on the proxy outbound.
@@ -1623,25 +1591,24 @@ object XrayConfigHardener {
         return false
     }
 
-    if (settings.routeBlockAds) {
-        val ads = normalizeGeoSiteTag(settings.routeAdsTag)
-            ?: error("Ad blocking is enabled without a valid geosite category")
-        require(hasDomain(ads, "block")) { "Ad-block route invariant failed: $ads" }
+    RoutingEngine.effectiveRules(settings).filter { it.enabled }.forEach { rule ->
+        val tag = RoutingEngine.outboundTag(rule.outbound, selectedTag)
+        when (rule.kind) {
+            com.marbleng.app.model.RoutingRuleKind.GEOSITE ->
+                RoutingEngine.normalizeGeoSite(rule.matcher)?.let { token ->
+                    require(hasDomain(token, tag)) { "Missing geosite route: $token" }
+                }
+            com.marbleng.app.model.RoutingRuleKind.GEOIP ->
+                if (!rule.matcher.equals("private", true)) {
+                    RoutingEngine.normalizeGeoIp(rule.matcher)?.let { token ->
+                        require(hasIp(token, tag)) { "Missing geoip route: $token" }
+                    }
+                }
+            else -> Unit
+        }
     }
 
-    if (settings.routingMode in setOf(RoutingMode.GEO_DIRECT, RoutingMode.CUSTOM)) {
-        splitTokens(settings.routeGeoSiteTags).forEach { raw ->
-            normalizeGeoSiteTag(raw)?.let { tag ->
-                require(hasDomain(tag, "direct")) { "Missing direct domain route: $tag" }
-            }
-        }
-        splitTokens(settings.routeGeoIpTags).forEach { raw ->
-            if (!raw.equals("private", true) && !raw.equals("geoip:private", true)) {
-                normalizeGeoIpTag(raw)?.let { tag ->
-                    require(hasIp(tag, "direct")) { "Missing direct IP route: $tag" }
-                }
-            }
-        }
+    if (true) {
 
         // MARBLE_UNIFIED_ADDRESS_FAMILY_V65 — the address family decision has to be visible in the
         // emitted config, because every failure mode in this area is silent: the engine accepts a

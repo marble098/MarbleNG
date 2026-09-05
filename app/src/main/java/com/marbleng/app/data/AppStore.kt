@@ -162,6 +162,14 @@ class AppStore(context: Context) {
             .putString("routeAdsTag", RoutingDefaults.ADS_TAG)
             .putString("routeDomainStrategy", RoutingDefaults.DOMAIN_STRATEGY)
             .putBoolean("iranDomesticDirect", true)
+            .putString("geoAssetSourceId", RoutingDefaults.SOURCE_CHOCOLATE4U)
+            .putString("routingRulesJson", com.marbleng.app.core.RoutingEngine.serializeRules(com.marbleng.app.core.RoutingEngine.DEFAULT_RULES))
+            .putBoolean("ipv6Enabled", false)
+            .putString("iranModePolicy", IranModePolicy.OFF.name)
+            .putBoolean("intelligenceEnabled", false)
+            .putBoolean("connectTuningEnabled", false)
+            .putBoolean("continuousOptimizerEnabled", false)
+            .putBoolean("raceConnectEnabled", false)
             .putInt("routingDefaultsSchema", RoutingDefaults.PREFS_SCHEMA_VERSION)
             .apply()
     }
@@ -214,7 +222,7 @@ class AppStore(context: Context) {
         appUpdateCheckEnabled = prefs.getBoolean("appUpdateCheckEnabled", true),
         subscriptionRefreshHours = prefs.getInt("subscriptionRefreshHours", 12),
         homeShowSummaryMetrics = prefs.getBoolean("homeShowSummaryMetrics", false),
-        homeShowIranMode = prefs.getBoolean("homeShowIranMode", true),
+        homeShowIranMode = prefs.getBoolean("homeShowIranMode", false),
         homeShowQuickActions = prefs.getBoolean("homeShowQuickActions", true),
         homeShowLiveQuality = prefs.getBoolean("homeShowLiveQuality", true),
         homeShowServerSelector = prefs.getBoolean("homeShowServerSelector", true),
@@ -235,6 +243,9 @@ class AppStore(context: Context) {
         notificationCooldownSec = prefs.getInt("notificationCooldownSec", 20).coerceIn(5, 300),
 
         routingMode = enumValue("routingMode", RoutingMode.GEO_DIRECT),
+        geoAssetSourceId = prefs.getString("geoAssetSourceId", RoutingDefaults.SOURCE_CHOCOLATE4U)
+            ?: RoutingDefaults.SOURCE_CHOCOLATE4U,
+        routingRulesJson = prefs.getString("routingRulesJson", "") ?: "",
         geoIpUrl = prefs.getString("geoIpUrl", RoutingDefaults.GEOIP_URL) ?: RoutingDefaults.GEOIP_URL,
         geoSiteUrl = prefs.getString("geoSiteUrl", RoutingDefaults.GEOSITE_URL) ?: RoutingDefaults.GEOSITE_URL,
         routeGeoIpTags = prefs.getString("routeGeoIpTags", RoutingDefaults.GEOIP_DIRECT_TAGS) ?: RoutingDefaults.GEOIP_DIRECT_TAGS,
@@ -257,7 +268,7 @@ class AppStore(context: Context) {
         dnsPrimaryDoH = prefs.getString("dnsPrimaryDoH", "https://1.1.1.1/dns-query") ?: "https://1.1.1.1/dns-query",
         dnsSecondaryDoH = prefs.getString("dnsSecondaryDoH", "https://8.8.8.8/dns-query") ?: "https://8.8.8.8/dns-query",
         dnsQueryStrategy = prefs.getString("dnsQueryStrategy", "UseIP") ?: "UseIP",
-        ipv6Enabled = prefs.getBoolean("ipv6Enabled", true),
+        ipv6Enabled = prefs.getBoolean("ipv6Enabled", false),
         preferIpv6 = prefs.getBoolean("preferIpv6", false),
         // MARBLE_REALTIME_ENGINE_V70
         adaptiveHappyEyeballsEnabled = prefs.getBoolean("adaptiveHappyEyeballsEnabled", true),
@@ -325,16 +336,16 @@ class AppStore(context: Context) {
         muxXudpConcurrency = prefs.getInt("muxXudpConcurrency", 16),
         muxUdp443 = prefs.getString("muxUdp443", "skip") ?: "skip",
 
-        iranModePolicy = enumValue("iranModePolicy", IranModePolicy.AUTO),
+        iranModePolicy = enumValue("iranModePolicy", IranModePolicy.OFF),
         iranModeCountermeasures = prefs.getBoolean("iranModeCountermeasures", true),
         iranDomesticDirect = prefs.getBoolean("iranDomesticDirect", true),
         iranDeepProbeEnabled = prefs.getBoolean("iranDeepProbeEnabled", true),
         iranModeNotify = false,
 
-        intelligenceEnabled = prefs.getBoolean("intelligenceEnabled", true),
+        intelligenceEnabled = prefs.getBoolean("intelligenceEnabled", false),
         configCompatibilityMode = prefs.getBoolean("configCompatibilityMode", true),
         verifiedPerformanceTuning = prefs.getBoolean("verifiedPerformanceTuning", true),
-        connectTuningEnabled = prefs.getBoolean("connectTuningEnabled", true),
+        connectTuningEnabled = prefs.getBoolean("connectTuningEnabled", false),
         connectTuningBudgetSec = prefs.getInt("connectTuningBudgetSec", 5).coerceIn(0, 20),
         connectTuningMethods = prefs.getInt("connectTuningMethods", 8).coerceIn(1, 8),
         liveTuningEnabled = prefs.getBoolean("liveTuningEnabled", true),
@@ -345,7 +356,7 @@ class AppStore(context: Context) {
         identityGuardEnabled = prefs.getBoolean("identityGuardEnabled", true),
         identityGuardStrictNoFailover = prefs.getBoolean("identityGuardStrictNoFailover", true),
         identityGuardSameRouteRetries = prefs.getInt("identityGuardSameRouteRetries", 3).coerceIn(0, 5),
-        continuousOptimizerEnabled = prefs.getBoolean("continuousOptimizerEnabled", true),
+        continuousOptimizerEnabled = prefs.getBoolean("continuousOptimizerEnabled", false),
         optimizerIntervalSec = prefs.getInt("optimizerIntervalSec", 120).coerceIn(60, 900),
         optimizerCandidateCount = prefs.getInt("optimizerCandidateCount", 4).coerceIn(2, 8),
         optimizerDeepScanEvery = prefs.getInt("optimizerDeepScanEvery", 8).coerceIn(3, 20),
@@ -353,7 +364,7 @@ class AppStore(context: Context) {
         optimizerConfirmations = prefs.getInt("optimizerConfirmations", 2).coerceIn(1, 3),
         optimizerAvoidHeavyTraffic = prefs.getBoolean("optimizerAvoidHeavyTraffic", true),
         healthHistoryEnabled = prefs.getBoolean("healthHistoryEnabled", true),
-        raceConnectEnabled = prefs.getBoolean("raceConnectEnabled", true),
+        raceConnectEnabled = prefs.getBoolean("raceConnectEnabled", false),
         raceWidth = prefs.getInt("raceWidth", 4).coerceIn(2, 4),
         smartFallbackEnabled = prefs.getBoolean("smartFallbackEnabled", true),
         fallbackCount = prefs.getInt("fallbackCount", 3),

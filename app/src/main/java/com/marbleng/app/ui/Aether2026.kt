@@ -156,6 +156,7 @@ import androidx.compose.foundation.pager.rememberPagerState
 import com.marbleng.app.AppRepository
 import com.marbleng.app.R
 import com.marbleng.app.core.AddressFamilyPolicy
+import com.marbleng.app.core.RoutingEngine
 import com.marbleng.app.core.BugSeverity
 import com.marbleng.app.core.IranModeState
 import com.marbleng.app.core.ManualConfigBuilder
@@ -9621,13 +9622,18 @@ private fun settingsSections(
                 HomeIcon.BENCHMARK,
                 Aether.Amethyst
             ) { ProbeSettings(repo) },
-            card("Intelligence","Adaptive routing",HomeIcon.SPARK,Aether.Cyan) { IntelligenceSettings(repo) }
+            card("Identity Guard","Keep one public exit",HomeIcon.SHIELD,Aether.Cyan) {
+                SettingSwitch(
+                    title = "Identity Guard",
+                    subtitle = "Pin the session to one exit IP",
+                    checked = repo.settings.identityGuardEnabled
+                ) { repo.updateSettings(repo.settings.copy(identityGuardEnabled = it)) }
+            }
         )
         SettingsWorkspaceTab.NETWORK -> buildList {
             if(routingFocused) {
                 add(card("Routing","Geo assets & rules",HomeIcon.ROUTING,Aether.Emerald) { RoutingSettings(repo) })
             }
-            add(card("Iran Mode","Filter detection",HomeIcon.SHIELD,Aether.Emerald) { IranModeSettings(repo) })
             add(card("DNS","TUN & DoH",HomeIcon.NETWORK,Aether.Cyan) { DnsSettings(repo) })
             if(!routingFocused) {
                 add(card("Routing","Geo assets & rules",HomeIcon.ROUTING,Aether.Emerald) { RoutingSettings(repo) })
@@ -10967,17 +10973,22 @@ private fun RoutingAssetCard(
     title: String,
     ready: Boolean,
     bytes: Long,
-    remote: Boolean,
+    updatedAt: Long,
     modifier: Modifier = Modifier
 ) {
-    // MARBLE_PRODUCT_SIMPLE_V117 — flat status tile: tone wash + hairline, no elevation.
-    val color = if (ready) Aether.Emerald else Aether.Amber
+    val age = if (updatedAt > 0L) System.currentTimeMillis() - updatedAt else Long.MAX_VALUE
+    val stale = !ready || age > com.marbleng.app.model.RoutingDefaults.STALE_ASSET_MS
+    val color = when {
+        !ready -> Aether.Danger
+        stale -> Aether.Amber
+        else -> Aether.Emerald
+    }
     val shape = RoundedCornerShape(14.dp)
     Column(
         modifier = modifier
             .clip(shape)
-            .background(color.copy(alpha = if (ready) .10f else .07f))
-            .border(1.dp, color.copy(alpha = if (ready) .38f else .24f), shape)
+            .background(color.copy(alpha = if (ready && !stale) .10f else .07f))
+            .border(1.dp, color.copy(alpha = .38f), shape)
             .padding(horizontal = 11.dp, vertical = 10.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -10985,11 +10996,20 @@ private fun RoutingAssetCard(
             Spacer(Modifier.width(7.dp))
             Text(title, color = Aether.Ink, style = MaterialTheme.typography.labelMedium)
             Spacer(Modifier.weight(1f))
-            Text(if (ready) "Ready" else "Missing", color = color, style = MaterialTheme.typography.labelSmall)
+            Text(
+                when {
+                    !ready -> "Missing"
+                    stale -> "Stale"
+                    else -> "Ready"
+                },
+                color = color,
+                style = MaterialTheme.typography.labelSmall
+            )
         }
         Spacer(Modifier.height(6.dp))
         Text(
-            if (ready) "${formatBytes(bytes)} • ${if (remote) "remote" else "bundled"}" else "Tap Prepare to install",
+            if (!ready) "Tap Update to download"
+            else "${formatBytes(bytes)} • ${relativeTime(updatedAt)}",
             color = Aether.InkFaint,
             style = MaterialTheme.typography.labelSmall,
             maxLines = 1,
@@ -11002,287 +11022,138 @@ private fun RoutingAssetCard(
 private fun RoutingSettings(repo: AppRepository) {
     val s = repo.settings
     val assets = repo.routingAssetStatus()
+    val rules = remember(s.routingRulesJson) { RoutingEngine.effectiveRules(s) }
+    var sourceMenu by remember { mutableStateOf(false) }
+    val currentSource = RoutingDefaults.sourceById(s.geoAssetSourceId)
 
-    fun hasTag(raw: String, name: String, prefix: String): Boolean =
-        raw.split(',', '\n', '\r', ';')
-            .map(String::trim)
-            .any {
-                it.equals(name, ignoreCase = true) ||
-                    it.equals("$prefix:$name", ignoreCase = true)
-            }
-
-    val iranGeoIp = hasTag(s.routeGeoIpTags, "ir", "geoip")
-    val iranGeoSite = hasTag(s.routeGeoSiteTags, "ir", "geosite")
-    val iranDirect =
-        s.routingMode in setOf(RoutingMode.GEO_DIRECT, RoutingMode.CUSTOM) &&
-            iranGeoIp && iranGeoSite
-
-    val geoIpTokens = s.routeGeoIpTags
-        .split(',', '\n', '\r', ';')
-        .map(String::trim)
-        .filter(String::isNotBlank)
-
-    val needsGeoIp =
-        s.routingMode in setOf(RoutingMode.GEO_DIRECT, RoutingMode.CUSTOM) &&
-            geoIpTokens.any {
-                !it.equals("private", true) && !it.equals("geoip:private", true)
-            }
-
-    val needsGeoSite =
-        (s.routingMode in setOf(RoutingMode.GEO_DIRECT, RoutingMode.CUSTOM) &&
-            s.routeGeoSiteTags.isNotBlank()) ||
-            (s.routeBlockAds && s.routeAdsTag.isNotBlank()) ||
-            listOf(s.routeDirectDomains, s.routeProxyDomains, s.routeBlockDomains)
-                .any { it.contains("geosite:", true) }
-
-    val missingGeoAssets = listOfNotNull(
-        "geoip.dat".takeIf { needsGeoIp && !assets.geoIpReady },
-        "geosite.dat".takeIf { needsGeoSite && !assets.geoSiteReady }
-    ).joinToString(" + ")
-
-    HoloGlass(
-        modifier = Modifier.fillMaxWidth(),
-        contentPadding = PaddingValues(14.dp)
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text(
-                    trx("Recommended Iran policy"),
-                    color = Aether.Ink,
-                    style = MaterialTheme.typography.titleMedium
-                )
-
-            }
-            HoloBadge(
-                if (iranDirect && s.routeBlockAds) "Active" else "Custom",
-                if (iranDirect && s.routeBlockAds) Aether.Emerald else Aether.Amber,
-                compact = true
-            )
-        }
-
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            HoloBadge(
-                if (iranDirect) "Iran direct" else "Iran proxied",
-                if (iranDirect) Aether.Emerald else Aether.InkFaint,
-                compact = true
-            )
-            HoloBadge(
-                if (s.routeBlockAds) "Ads blocked" else "Ads allowed",
-                if (s.routeBlockAds) Aether.Emerald else Aether.InkFaint,
-                compact = true
-            )
-            HoloBadge(
-                s.routeDomainStrategy,
-                Aether.Cyan,
-                compact = true
-            )
-        }
-
+    Text(trx("Geo data source"), color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
+    Box {
         CyberButton(
-            label = "Restore recommended policy",
+            label = currentSource.label,
             color = Aether.Emerald,
             modifier = Modifier.fillMaxWidth(),
-            enabled = !repo.busy
-        ) {
-            repo.applyIranRoutingPreset()
-        }
-    }
-
-    SettingSwitch(
-        title = "Bypass Iranian traffic",
-        subtitle = ".ir direct, rest proxied",
-        checked = iranDirect
-    ) { enabled ->
-        if (enabled) {
-            repo.applyIranRoutingPreset()
-        } else {
-            repo.updateSettings(
-                s.copy(
-                    routingMode = RoutingMode.PROXY_ALL,
-                    routeGeoIpTags = "",
-                    routeGeoSiteTags = "",
-                    routeBypassPrivate = false,
-                    iranDomesticDirect = false
-                )
-            )
-        }
-    }
-
-    SettingSwitch(
-        title = "Aggressive ad blocking",
-        subtitle = "Block ads before other rules",
-        checked = s.routeBlockAds
-    ) {
-        repo.updateSettings(
-            s.copy(
-                routeBlockAds = it,
-                routeAdsTag = if (s.routeAdsTag.isBlank()) RoutingDefaults.ADS_TAG else s.routeAdsTag
-            )
-        )
-    }
-
-    Text(trx("Routing mode"), color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
-    FlowRow(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(7.dp),
-        verticalArrangement = Arrangement.spacedBy(7.dp)
-    ) {
-        RoutingMode.entries.forEach { mode ->
-            CyberChoiceChip(
-                text = when (mode) {
-                    RoutingMode.PROXY_ALL -> "Proxy all"
-                    RoutingMode.BYPASS_PRIVATE -> "Private direct"
-                    RoutingMode.GEO_DIRECT -> "Geo direct"
-                    RoutingMode.CUSTOM -> "Custom"
-                },
-                selected = s.routingMode == mode,
-                color = Aether.Emerald
-            ) {
-                repo.updateSettings(
-                    s.copy(
-                        routingMode = mode,
-                        iranDomesticDirect = when (mode) {
-                            RoutingMode.PROXY_ALL -> false
-                            RoutingMode.GEO_DIRECT -> iranGeoIp && iranGeoSite
-                            else -> s.iranDomesticDirect
-                        }
-                    )
+            icon = HomeIcon.GLOBE
+        ) { sourceMenu = true }
+        DropdownMenu(expanded = sourceMenu, onDismissRequest = { sourceMenu = false }) {
+            RoutingDefaults.SOURCES.forEach { source ->
+                DropdownMenuItem(
+                    text = { Text(source.label) },
+                    onClick = {
+                        sourceMenu = false
+                        repo.applyGeoAssetSource(source.id)
+                    }
                 )
             }
         }
     }
 
-    Text(trx("Geo data"), color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
+    if (currentSource.id == "custom") {
+        TinyField("geoip.dat HTTPS URL", s.geoIpUrl, Modifier.fillMaxWidth()) {
+            repo.updateSettings(s.copy(geoIpUrl = it))
+        }
+        TinyField("geosite.dat HTTPS URL", s.geoSiteUrl, Modifier.fillMaxWidth()) {
+            repo.updateSettings(s.copy(geoSiteUrl = it))
+        }
+    }
+
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         RoutingAssetCard(
             title = "GeoIP",
             ready = assets.geoIpReady,
             bytes = assets.geoIpBytes,
-            remote = assets.geoIpRemote,
+            updatedAt = assets.geoIpUpdatedAt,
             modifier = Modifier.weight(1f)
         )
         RoutingAssetCard(
             title = "GeoSite",
             ready = assets.geoSiteReady,
             bytes = assets.geoSiteBytes,
-            remote = assets.geoSiteRemote,
+            updatedAt = assets.geoSiteUpdatedAt,
             modifier = Modifier.weight(1f)
         )
     }
 
-    if (missingGeoAssets.isNotBlank()) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(15.dp))
-                .background(Aether.Amber.copy(alpha = .08f))
-                .padding(11.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text("!", color = Aether.Amber, style = MaterialTheme.typography.titleMedium)
-            Spacer(Modifier.width(9.dp))
-            Text(
-                "$missingGeoAssets needed • tap Prepare.",
-                color = Aether.InkMuted,
-                style = MaterialTheme.typography.bodySmall
-            )
-        }
-    }
-
-    TinyField("geoip.dat source", s.geoIpUrl, Modifier.fillMaxWidth()) {
-        repo.updateSettings(s.copy(geoIpUrl = it))
-    }
-    TinyField("geosite.dat source", s.geoSiteUrl, Modifier.fillMaxWidth()) {
-        repo.updateSettings(repo.settings.copy(geoSiteUrl = it))
-    }
-
-
-
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        CyberButton(
-            label = "Prepare",
-            color = Aether.Emerald,
-            modifier = Modifier.weight(1f),
-            enabled = !repo.busy
-        ) { repo.prepareRoutingAssets(false) }
-        CyberButton(
-            label = "Update",
-            color = Aether.Cyan,
-            modifier = Modifier.weight(1f),
-            enabled = !repo.busy
-        ) { repo.prepareRoutingAssets(true) }
-    }
-
-    CyberButton(
-        label = "Verify with Xray",
-        color = Aether.Cyan,
-        modifier = Modifier.fillMaxWidth(),
-        enabled = repo.libraryProfiles.isNotEmpty() && !repo.busy
-    ) { repo.verifyRoutingPolicy() }
-
-    HorizontalDivider(color = Aether.GlassBorderSoft)
-    Text(trx("Geo direct rules"), color = Aether.Ink, style = MaterialTheme.typography.titleMedium)
-
-    TinyField("GeoIP direct tags", s.routeGeoIpTags, Modifier.fillMaxWidth()) {
-        repo.updateSettings(repo.settings.copy(routeGeoIpTags = it))
-    }
-    TinyField("GeoSite direct tags", s.routeGeoSiteTags, Modifier.fillMaxWidth()) {
-        repo.updateSettings(repo.settings.copy(routeGeoSiteTags = it))
+        CyberButton("Update", Aether.Cyan, Modifier.weight(1f), !repo.busy) {
+            repo.prepareRoutingAssets(true)
+        }
+        CyberButton("Verify", Aether.Emerald, Modifier.weight(1f), repo.libraryProfiles.isNotEmpty() && !repo.busy) {
+            repo.verifyRoutingPolicy()
+        }
     }
 
     SettingSwitch(
-        title = "Bypass private networks",
-        subtitle = "LAN stays direct",
+        title = "Bypass private LAN",
+        subtitle = "RFC1918 stays off the tunnel",
         checked = s.routeBypassPrivate
-    ) { repo.updateSettings(repo.settings.copy(routeBypassPrivate = it)) }
+    ) { repo.updateSettings(s.copy(routeBypassPrivate = it)) }
 
-    Text(trx("Domain strategy"), color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
-    FlowRow(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(7.dp),
-        verticalArrangement = Arrangement.spacedBy(7.dp)
-    ) {
-        listOf("IPIfNonMatch", "AsIs", "IPOnDemand").forEach { strategy ->
-            CyberChoiceChip(
-                text = strategy,
-                selected = s.routeDomainStrategy == strategy,
-                color = Aether.Cyan
-            ) {
-                repo.updateSettings(repo.settings.copy(routeDomainStrategy = strategy))
+    Text(trx("Rules (top = highest priority)"), color = Aether.Ink, style = MaterialTheme.typography.titleMedium)
+    Text(
+        trx("Default: block ads, Iranian IP direct, Iranian domain direct."),
+        color = Aether.InkMuted,
+        style = MaterialTheme.typography.bodySmall
+    )
+
+    rules.forEachIndexed { index, rule ->
+        val tone = when (rule.outbound) {
+            RoutingOutbound.BLOCK -> Aether.Danger
+            RoutingOutbound.DIRECT -> Aether.Emerald
+            RoutingOutbound.PROXY -> Aether.Cyan
+        }
+        val shape = RoundedCornerShape(14.dp)
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .clip(shape)
+                .background(Aether.GlassStrong.copy(alpha = .35f))
+                .border(1.dp, tone.copy(alpha = .28f), shape)
+                .padding(10.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Switch(
+                    checked = rule.enabled,
+                    onCheckedChange = { on ->
+                        repo.setRoutingRules(rules.toMutableList().also { it[index] = rule.copy(enabled = on) })
+                    },
+                    colors = marbleSwitchColors()
+                )
+                Column(Modifier.weight(1f)) {
+                    Text(rule.remark.ifBlank { rule.kind.name }, color = Aether.Ink, style = MaterialTheme.typography.labelLarge)
+                    Text("${rule.kind.name} • ${rule.matcher} → ${rule.outbound.name}", color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
+                }
+                Column {
+                    Text("↑", color = Aether.Cyan, modifier = Modifier.kineticClickable { if (index > 0) repo.setRoutingRules(RoutingEngine.move(rules, index, index - 1)) })
+                    Text("↓", color = Aether.Cyan, modifier = Modifier.kineticClickable { if (index < rules.lastIndex) repo.setRoutingRules(RoutingEngine.move(rules, index, index + 1)) })
+                }
+            }
+            TinyField("Matcher", rule.matcher, Modifier.fillMaxWidth()) { value ->
+                repo.setRoutingRules(rules.toMutableList().also { it[index] = rule.copy(matcher = value) })
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                RoutingOutbound.entries.forEach { outbound ->
+                    CyberChoiceChip(
+                        text = outbound.name,
+                        selected = rule.outbound == outbound,
+                        color = tone
+                    ) {
+                        repo.setRoutingRules(rules.toMutableList().also { it[index] = rule.copy(outbound = outbound) })
+                    }
+                }
+            }
+            CyberButton("Remove", Aether.Danger, Modifier.fillMaxWidth(), compact = true) {
+                repo.setRoutingRules(rules.filterNot { it.id == rule.id })
             }
         }
     }
 
-    if (s.routeBlockAds) {
-        TinyField("Ad geosite category", s.routeAdsTag, Modifier.fillMaxWidth()) {
-            repo.updateSettings(repo.settings.copy(routeAdsTag = it))
-        }
+    CyberButton("Add rule", Aether.Cyan, Modifier.fillMaxWidth()) {
+        repo.setRoutingRules(rules + RoutingEngine.newRule())
     }
-
-    HorizontalDivider(color = Aether.GlassBorderSoft)
-    Text(trx("Exceptions & advanced rules"), color = Aether.Ink, style = MaterialTheme.typography.titleMedium)
-
-    TinyField("Always proxy domains / geosite tags", s.routeProxyDomains, Modifier.fillMaxWidth()) {
-        repo.updateSettings(repo.settings.copy(routeProxyDomains = it))
+    CyberButton("Restore recommended Iran rules", Aether.Emerald, Modifier.fillMaxWidth(), !repo.busy) {
+        repo.applyIranRoutingPreset()
     }
-    TinyField("Block domains / geosite tags", s.routeBlockDomains, Modifier.fillMaxWidth()) {
-        repo.updateSettings(repo.settings.copy(routeBlockDomains = it))
-    }
-    TinyField("Block IP / CIDR / geoip tags", s.routeBlockIps, Modifier.fillMaxWidth()) {
-        repo.updateSettings(repo.settings.copy(routeBlockIps = it))
-    }
-
-    AnimatedVisibility(s.routingMode == RoutingMode.CUSTOM) {
-        Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
-            TinyField("Custom direct domains / geosite tags", s.routeDirectDomains, Modifier.fillMaxWidth()) {
-                repo.updateSettings(repo.settings.copy(routeDirectDomains = it))
-            }
-            TinyField("Custom direct IP / CIDR / geoip tags", s.routeDirectIps, Modifier.fillMaxWidth()) {
-                repo.updateSettings(repo.settings.copy(routeDirectIps = it))
-            }
-        }
-    }
-
 }
 
 @Composable
