@@ -167,10 +167,10 @@ check(
 # MARBLE_HOME_STYLE_TRIM_V121 — three presentations of one connection surface.
 # Parametric and Bioluminescent were removed from the product: they are not modelled, not
 # implemented, not translated and not reachable anywhere.
-home_styles = ("PRO", "COSMIC_ORBIT", "COSMIC_IMMERSION")
+home_styles = ("IOS_SLIDER", "IOS_FLOATING", "IOS_EMBOSSED", "IOS_MODULAR")
 retired_home_styles = ("BIOLUMINESCENT", "PARAMETRIC")
 check(
-    "all three Home styles are modelled and persisted",
+    "all four Home styles are modelled and persisted",
     "enum class HomeStyle" in files["models"]
     and all(style in files["models"] for style in home_styles)
     and "homeStyle" in files["store"]
@@ -189,11 +189,12 @@ check(
     all(
         name in files["homeStyles"]
         for name in (
-            "HomeStyleCosmicOrbit",
-            "HomeStyleCosmicImmersion",
+            "HomeThemeSlider",
+            "HomeThemeFloating",
+            "HomeThemeEmbossed",
+            "HomeThemeModular",
         )
     )
-    and "HomeStyleSignature(" in files["signature"]
     and "HomeStyleSurface(" in files["homeStyles"]
     and "HomeStyleSurface(" in files["ui"],
 )
@@ -201,10 +202,8 @@ check(
     "every Home style renders the same evidence through one shared model",
     "data class HomeEvidence" in files["homeStyles"]
     and "buildHomeEvidence(" in files["ui"]
-    and all(
-        files["homeStyles"].count(widget) >= 2
-        for widget in ("HomeIdentityBlock(", "HomeIpRow(", "HomeSessionStats(", "HomePowerControl(")
-    ),
+    and "IosStatusWideCard(" in files["homeStyles"]
+    and "IosServerListBox(" in files["homeStyles"],
 )
 check(
     "Home evidence covers node, source, IP+flag+3 actions, uptime and ping",
@@ -236,12 +235,12 @@ check(
     and "rememberUptimeLabel(" in files["homeStyles"],
 )
 
-# MARBLE_SIGNATURE_HOME_V112 — the professional Signature studio and its customization surface.
+# iOS Slider Home presentation is modelled and is the product default
 check(
-    "Signature Home style is modelled and is the product default",
-    "PRO(\"pro\")" in files["models"]
-    and "homeStyle: String = HomeStyle.PRO.id" in files["models"]
-    and "HomeStyleSignature(" in files["homeStyles"]
+    "iOS Slider Home style is modelled and is the product default",
+    'IOS_SLIDER("ios_slider")' in files["models"]
+    and "homeStyle: String = HomeStyle.IOS_SLIDER.id" in files["models"]
+    and "HomeThemeSlider(" in files["homeStyles"]
     and "HomeStyleSurface(" in files["ui"]
     and "HomeStyleSurface(" in files["homeStyles"],
 )
@@ -343,8 +342,6 @@ check(
 check(
     "every stat readout renders through the auto-fit value text",
     "HomeStatValueText(" in files["homeStyles"]
-    and "SignatureStatCell(" in files["homeStyles"]
-    and "MARBLE_HOME_PING_AUTOFIT_V112" in files["homeStyles"]
     and "softWrap = false" in files["homeStyles"],
 )
 

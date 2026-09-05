@@ -268,6 +268,7 @@ class AppStore(context: Context) {
         notificationCooldownSec = prefs.getInt("notificationCooldownSec", 20).coerceIn(5, 300),
 
         routingMode = enumValue("routingMode", RoutingMode.GEO_DIRECT),
+        customRoutingEnabled = prefs.getBoolean("customRoutingEnabled", true),
         geoAssetSourceId = prefs.getString("geoAssetSourceId", RoutingDefaults.SOURCE_CHOCOLATE4U)
             ?: RoutingDefaults.SOURCE_CHOCOLATE4U,
         routingRulesJson = prefs.getString("routingRulesJson", "") ?: "",
@@ -284,6 +285,7 @@ class AppStore(context: Context) {
         routeBlockAds = prefs.getBoolean("routeBlockAds", true),
         routeAdsTag = prefs.getString("routeAdsTag", RoutingDefaults.ADS_TAG) ?: RoutingDefaults.ADS_TAG,
         routeDomainStrategy = prefs.getString("routeDomainStrategy", RoutingDefaults.DOMAIN_STRATEGY) ?: RoutingDefaults.DOMAIN_STRATEGY,
+        routeDomainMatcher = prefs.getString("routeDomainMatcher", "hybrid") ?: "hybrid",
 
         splitTunnelMode = enumValue("splitTunnelMode", SplitTunnelMode.ALL_APPS),
         splitTunnelPackages = prefs.getString("splitTunnelPackages", "") ?: "",
@@ -413,9 +415,15 @@ class AppStore(context: Context) {
 
         theme = prefs.getString("theme", "light") ?: "light",
         fontFamily = parseAppFont(prefs.getString("fontFamily", AppFont.VAZIR.id) ?: AppFont.VAZIR.id).id,
-        // MARBLE_HOME_STYLE_V110 / MARBLE_BILINGUAL_V110 / MARBLE_SIGNATURE_HOME_V112
-        homeStyle = parseHomeStyle(prefs.getString("homeStyle", HomeStyle.PRO.id) ?: HomeStyle.PRO.id).id,
+        // iOS-styled Home presentations: IOS_SLIDER, IOS_FLOATING, IOS_EMBOSSED, IOS_MODULAR
+        homeStyle = parseHomeStyle(prefs.getString("homeStyle", HomeStyle.IOS_SLIDER.id) ?: HomeStyle.IOS_SLIDER.id).id,
         appLanguage = parseAppLanguage(prefs.getString("appLanguage", AppLanguage.SYSTEM.id) ?: AppLanguage.SYSTEM.id).id,
+
+        modularCardOrder = prefs.getString("modularCardOrder", "STATUS,SERVERS,CONNECT,STATS") ?: "STATUS,SERVERS,CONNECT,STATS",
+        modularShowStats = prefs.getBoolean("modularShowStats", true),
+        modularShowSocks = prefs.getBoolean("modularShowSocks", true),
+        modularShowShortcuts = prefs.getBoolean("modularShowShortcuts", true),
+        modularConnectStyle = prefs.getString("modularConnectStyle", "SLIDER") ?: "SLIDER",
 
         // MARBLE_SIGNATURE_HOME_V112 — the Signature studio customization surface.
         proFloatingButtonEnabled = prefs.getBoolean("proFloatingButtonEnabled", false),
@@ -487,6 +495,7 @@ class AppStore(context: Context) {
         .putInt("notificationCooldownSec", s.notificationCooldownSec.coerceIn(5, 300))
 
         .putString("routingMode", s.routingMode.name)
+        .putBoolean("customRoutingEnabled", s.customRoutingEnabled)
         .putString("geoIpUrl", s.geoIpUrl)
         .putString("geoSiteUrl", s.geoSiteUrl)
         .putString("routeGeoIpTags", s.routeGeoIpTags)
@@ -500,6 +509,7 @@ class AppStore(context: Context) {
         .putBoolean("routeBlockAds", s.routeBlockAds)
         .putString("routeAdsTag", s.routeAdsTag)
         .putString("routeDomainStrategy", s.routeDomainStrategy)
+        .putString("routeDomainMatcher", s.routeDomainMatcher)
 
         .putString("splitTunnelMode", s.splitTunnelMode.name)
         .putString("splitTunnelPackages", s.splitTunnelPackages)
@@ -625,6 +635,12 @@ class AppStore(context: Context) {
         .putString("fontFamily", parseAppFont(s.fontFamily).id)
         .putString("homeStyle", parseHomeStyle(s.homeStyle).id)
         .putString("appLanguage", parseAppLanguage(s.appLanguage).id)
+
+        .putString("modularCardOrder", s.modularCardOrder)
+        .putBoolean("modularShowStats", s.modularShowStats)
+        .putBoolean("modularShowSocks", s.modularShowSocks)
+        .putBoolean("modularShowShortcuts", s.modularShowShortcuts)
+        .putString("modularConnectStyle", s.modularConnectStyle)
 
         // MARBLE_SIGNATURE_HOME_V112
         .putBoolean("proFloatingButtonEnabled", s.proFloatingButtonEnabled)

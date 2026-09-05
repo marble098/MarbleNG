@@ -187,36 +187,32 @@ enum class WorkloadProfile { AUTO, INTERACTIVE, STREAMING, STABILITY, STEALTH }
 enum class NodeSortMode { DEFAULT, PING, SCORE, NAME, PROTOCOL, SOURCE, COUNTRY }
 
 /**
- * MARBLE_HOME_STYLE_V110 / MARBLE_SIGNATURE_HOME_V112 / MARBLE_HOME_STYLE_TRIM_V121
+ * iOS-styled fixed Home Presentations.
  *
- * The three user-selectable Home (connection) presentations. Every style renders exactly the same
- * runtime evidence — node, source, IP + flag + three actions, session uptime and the one-shot
- * connection ping — so switching a style is purely a presentation choice and never changes what
- * the user can see or do.
- *
- * MARBLE_HOME_STYLE_TRIM_V121 removed the Bioluminescent and Parametric presentations from the
- * whole product; any persisted value naming them falls back to the Signature studio.
+ * All 4 themes use iOS glass card styling, fixed screen height (no outer page scroll),
+ * and inner scrollable components where needed.
  */
 enum class HomeStyle(val id: String) {
-    /**
-     * MARBLE_SIGNATURE_HOME_V112 — the dedicated professional Signature studio.
-     *
-     * A fixed, fully customizable connection surface that is the product's default: a status
-     * banner, corner quick actions (+ / ping / shortcut / more), the optional floating connect
-     * button (app-wide, draggable, v2rayNG-style) and an accent-tinted animated aurora backdrop.
-     */
-    PRO("pro"),
+    /** Theme 1: Bottom Slide-to-connect slider, centered sub name with inner scrollable servers list, wide status card at top. */
+    IOS_SLIDER("ios_slider"),
 
-    /** Cosmic orbit dashboard: orbiting system card plus a network-speed graph. */
-    COSMIC_ORBIT("cosmic_orbit"),
+    /** Theme 2: Right floating action button that splits into disconnect and ping on connect, wide status card at top, expanded servers box. */
+    IOS_FLOATING("ios_floating"),
 
-    /** Cosmic orbit, full-screen immersion: orbit above, cosmic energy flower below. */
-    COSMIC_IMMERSION("cosmic_immersion")
+    /** Theme 3: Bold embossed center circular connect button, wide status card at top, sub & servers box at bottom. */
+    IOS_EMBOSSED("ios_embossed"),
+
+    /** Theme 4: Modular customizable dashboard allowing user to rearrange widgets and toggle components. */
+    IOS_MODULAR("ios_modular")
 }
 
-fun parseHomeStyle(raw: String): HomeStyle =
-    HomeStyle.entries.firstOrNull { it.id.equals(raw.trim(), ignoreCase = true) }
-        ?: HomeStyle.PRO
+fun parseHomeStyle(raw: String): HomeStyle = when (raw.trim().lowercase()) {
+    "ios_slider", "slider", "theme_1", "pro" -> HomeStyle.IOS_SLIDER
+    "ios_floating", "floating", "theme_2", "cosmic_orbit" -> HomeStyle.IOS_FLOATING
+    "ios_embossed", "embossed", "circle", "theme_3", "cosmic_immersion" -> HomeStyle.IOS_EMBOSSED
+    "ios_modular", "modular", "custom", "theme_4" -> HomeStyle.IOS_MODULAR
+    else -> HomeStyle.IOS_SLIDER
+}
 
 /**
  * MARBLE_BILINGUAL_V110
@@ -545,6 +541,7 @@ data class AppSettings(
     val notificationCooldownSec: Int = 20,
 
     val routingMode: RoutingMode = RoutingMode.GEO_DIRECT,
+    val customRoutingEnabled: Boolean = true,
     val geoAssetSourceId: String = RoutingDefaults.SOURCE_CHOCOLATE4U,
     val routingRulesJson: String = "",
     val geoIpUrl: String = RoutingDefaults.GEOIP_URL,
@@ -560,6 +557,7 @@ data class AppSettings(
     val routeBlockAds: Boolean = true,
     val routeAdsTag: String = RoutingDefaults.ADS_TAG,
     val routeDomainStrategy: String = RoutingDefaults.DOMAIN_STRATEGY,
+    val routeDomainMatcher: String = "hybrid",
 
     val splitTunnelMode: SplitTunnelMode = SplitTunnelMode.ALL_APPS,
     val splitTunnelPackages: String = "",
@@ -771,11 +769,16 @@ data class AppSettings(
     val fontFamily: String = AppFont.VAZIR.id,
 
     /**
-     * MARBLE_HOME_STYLE_V110 / MARBLE_SIGNATURE_HOME_V112 — which Home presentation the user
-     * picked. The Signature studio (PRO) is the product default: the main connection theme ships
-     * enabled out of the box and every one of its layers stays independently customizable below.
+     * iOS-styled Home presentations: IOS_SLIDER, IOS_FLOATING, IOS_EMBOSSED, IOS_MODULAR.
      */
-    val homeStyle: String = HomeStyle.PRO.id,
+    val homeStyle: String = HomeStyle.IOS_SLIDER.id,
+
+    // Theme 4: Modular customizable dashboard properties
+    val modularCardOrder: String = "STATUS,SERVERS,CONNECT,STATS",
+    val modularShowStats: Boolean = true,
+    val modularShowSocks: Boolean = true,
+    val modularShowShortcuts: Boolean = true,
+    val modularConnectStyle: String = "SLIDER",
 
     // MARBLE_SIGNATURE_HOME_V112 — the Signature studio customization surface. Every layer of
     // the professional Home is an independent user choice; nothing is hard-wired.

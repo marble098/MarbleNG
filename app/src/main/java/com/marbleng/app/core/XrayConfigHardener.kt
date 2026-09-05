@@ -1188,10 +1188,18 @@ object XrayConfigHardener {
         } else {
             settings.routeDomainStrategy.takeIf {
                 it in setOf("AsIs", "IPIfNonMatch", "IPOnDemand")
-            } ?: "AsIs"
+            } ?: "IPIfNonMatch"
         }
 
-        src.put("routing", JSONObject().put("domainStrategy", domainStrategy).put("rules", rules))
+        val domainMatcher = settings.routeDomainMatcher.takeIf {
+            it in setOf("hybrid", "linear", "mph")
+        } ?: "hybrid"
+
+        val routingObj = JSONObject()
+            .put("domainStrategy", domainStrategy)
+            .put("domainMatcher", domainMatcher)
+            .put("rules", rules)
+        src.put("routing", routingObj)
         // Runtime logs are for actionable failures. Xray prints compatibility/deprecation
         // advisories for transports such as HTTPUpgrade/WebSocket even when those transports are
         // still required by the remote server. Marble must not rewrite a client transport without
