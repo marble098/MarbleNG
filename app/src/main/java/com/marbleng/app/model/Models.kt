@@ -435,27 +435,8 @@ object RoutingDefaults {
 }
 
 /** How Iran Mode decides whether the anti-filtering engine should run. */
+/** How Iran Mode decides whether the anti-filtering engine should run. */
 enum class IranModePolicy { AUTO, ALWAYS_ON, OFF }
-
-/**
- * Presets for Marble Freedom anti-DPI fragmentation engine.
- *
- * The four operator presets are researched, per-carrier steel profiles (MCI/Hamrah-e-Aval,
- * MTN Irancell, Shatel, Rightel). They are auto-applied by Marble Freedom while
- * [AppSettings.freedomOperatorAuto] is on and Iran Mode has identified the operator.
- */
-enum class FreedomPreset {
-    SMART_ADAPTIVE,
-    MULTI_LAYER_CASCADE,
-    SNI_SHREDDER,
-    AGGRESSIVE_RECORD_SPLIT,
-    EXTREME_ANTI_DPI,
-    SHATEL,
-    HAMRAH_AVAL,
-    IRANCELL,
-    RIGHTEL,
-    CUSTOM
-}
 
 // MARBLE_SMART_DEFAULTS_V14
 // MARBLE_ULTIMATE_DEBUG_SETTING_V15
@@ -515,13 +496,6 @@ data class AppSettings(
     val homeShowServerSelector: Boolean = true,
     val homeShowRouteDetails: Boolean = true,
     val homeShowRouteRibbon: Boolean = true,
-    val homeShowFreedomSwitch: Boolean = true,
-
-    /**
-     * Permanent Home switch: when on, Connect uses the built-in Freedom fragment profile
-     * instead of a Library node. Not an anonymity proxy.
-     */
-    val serverlessModeEnabled: Boolean = false,
 
     /**
      * Optional public metadata lookup for the selected server endpoint shown on Home.
@@ -633,69 +607,6 @@ data class AppSettings(
     val fragmentInnerLength: String = "1",
     val fragmentInnerInterval: String = "4",
     val fragmentInnerMaxSplit: String = "517",
-
-    // Marble Freedom Anti-DPI Multi-Layer Fragmentation & Smart Multi-DNS
-    val freedomPreset: FreedomPreset = FreedomPreset.SMART_ADAPTIVE,
-    /**
-     * When on (default), Marble Freedom matches the detected Iranian operator (MCI/Hamrah-e-Aval,
-     * MTN Irancell, Shatel, Rightel) to its researched steel recipe automatically while the preset
-     * is SMART_ADAPTIVE. A user-pinned operator preset always wins.
-     */
-    val freedomOperatorAuto: Boolean = true,
-    // Default is the official XTLS 2-hop chain (outer → full-fragment). A middle hop is
-    // Custom-only; the previous 3-layer default stalled multi-CDN first flights.
-    val freedomLayerCount: Int = 2,
-    // Outer hop defaults follow GFW-knocker's packet-split (1-1 / 1-3 / 5-10). The old
-    // "tlshello" record-rewriting mode is no longer a default: it emits complete tiny TLS
-    // records that real servers and Iran's 2026 DPI reject/RST (Xray #4370, #5969; runtime
-    // verified on v26.7.28 against Fastly/Cloudflare/GitHub/AWS).
-    val freedomOuterPackets: String = "1-1",
-    val freedomOuterLength: String = "1-3",
-    val freedomOuterInterval: String = "5-10",
-    val freedomOuterMaxSplit: String = "",
-    val freedomMiddleEnabled: Boolean = false,
-    val freedomMiddlePackets: String = "1-3",
-    val freedomMiddleLength: String = "10-30",
-    val freedomMiddleInterval: String = "5-10",
-    val freedomMiddleMaxSplit: String = "768",
-    val freedomInnerEnabled: Boolean = true,
-    val freedomInnerPackets: String = "1-1",
-    val freedomInnerLength: String = "1",
-    val freedomInnerInterval: String = "4",
-    val freedomInnerMaxSplit: String = "517",
-
-    // Smart Multi-DNS for Marble Freedom
-    val freedomDnsAuto: Boolean = true,
-    val freedomDnsPrimaryIp: String = "1.1.1.1",
-    val freedomDnsSecondaryIp: String = "8.8.8.8",
-    val freedomDnsPrimaryDoH: String = "https://1.1.1.1/dns-query",
-    val freedomDnsSecondaryDoH: String = "https://8.8.8.8/dns-query",
-    val freedomDnsFallbackDoH: String = "https://9.9.9.9/dns-query",
-    // Domain-host resolvers must be pin-able in Xray dns.hosts (see XrayConfigHardener); a
-    // hostname DoH without a pin would bootstrap through the poisoned OS resolver or recurse
-    // inside the Freedom DNS module. doh.sb is intentionally absent: its addresses are not
-    // stable enough to pin, so it would silently fail inside the encrypted path.
-    val freedomDnsCleanResolvers: String = "https://1.1.1.1/dns-query,https://8.8.8.8/dns-query,https://9.9.9.9/dns-query,https://dns.adguard-dns.com/dns-query,https://dns.shecan.ir/dns-query",
-    val freedomDnsQueryStrategy: String = "UseIP",
-    // Official XTLS uses IPOnDemand so domain rules resolve before matching.
-    val freedomDomainStrategy: String = "IPOnDemand",
-    val freedomDnsHijack: Boolean = true,
-    val freedomDirectDomestic: Boolean = true,
-
-    // Streaming reliability for Marble Freedom. YouTube and some media surfaces prefer QUIC; on
-    // filtered links those UDP/443 handshakes can stall forever. Default to a fast TCP fallback so
-    // the TLS path uses the fragmented Freedom chain, while still letting experts re-enable padded
-    // QUIC from Settings when their network carries it.
-    val freedomForceTcpForStreaming: Boolean = true,
-
-    // UDP Noise & Padding Defense for Marble Freedom (dedicated outbound, official XTLS shape)
-    val freedomUdpNoiseEnabled: Boolean = true,
-    val freedomUdpNoisePacket4: String = "1250",
-    val freedomUdpNoiseDelay4: String = "10",
-    val freedomUdpNoisePacket6: String = "1230",
-    val freedomUdpNoiseDelay6: String = "10",
-    // Pairs of IPv4+IPv6 noise bursts; official ships ~13 each, 6 is a solid mobile default.
-    val freedomUdpNoiseCount: Int = 6,
 
     val muxEnabled: Boolean = false,
     val muxConcurrency: Int = 8,

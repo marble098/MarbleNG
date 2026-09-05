@@ -14,8 +14,7 @@ import java.net.URL
  *  - reset first-flight TLS records larger than a few hundred bytes
  *  - never permit a safe HTTP fallback (cleartext is disabled app-wide)
  *
- * Countermeasures: Chrome UA, GitHub→jsDelivr mirrors, bounded payload, no-cleartext redirects,
- * and (caller-driven) a temporary Freedom-fragment SOCKS bridge.
+ * Countermeasures: Chrome UA, GitHub→jsDelivr mirrors, bounded payload and no-cleartext redirects.
  */
 object DpiAwareFetcher {
     data class Payload(
@@ -82,7 +81,7 @@ object DpiAwareFetcher {
      * MARBLE_FETCH_RELIABILITY_V78 — smarter fallback order:
      *  1. Direct with browser UA first (covers most unfiltered networks)
      *  2. Mirror URLs for GitHub-blocked networks
-     *  3. SOCKS path (connected or Freedom bridge) for fully filtered environments
+     *  3. SOCKS path (while connected) for fully filtered environments
      *  4. Secondary UA with all mirrors for extreme cases
      */
     fun fetch(

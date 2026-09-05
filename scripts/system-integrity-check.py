@@ -45,7 +45,6 @@ files = {
     "backoffPolicy": read("app/src/main/java/com/marbleng/app/core/TurboBackoffPolicy.kt"),
     "dpiFetch": read("app/src/main/java/com/marbleng/app/core/DpiAwareFetcher.kt"),
     "dpiPolicy": read("app/src/main/java/com/marbleng/app/core/DpiEvasionPolicy.kt"),
-    "serverless": read("app/src/main/java/com/marbleng/app/core/ServerlessFreedomEngine.kt"),
     "udp": read("app/src/main/java/com/marbleng/app/core/SocksUdpProbe.kt"),
     "privacy": read("app/src/main/java/com/marbleng/app/net/PrivacyAuditor.kt"),
     "bug": read("app/src/main/java/com/marbleng/app/core/BugFinder.kt"),
@@ -122,17 +121,6 @@ check(
 check("DPI-aware subscription fetch is wired", "DpiAwareFetcher.fetch" in files["repo"])
 check("GitHub raw uses jsDelivr mirror", "cdn.jsdelivr.net/gh" in files["dpiFetch"])
 check(
-    "serverless Freedom fragment profile exists",
-    "marble-serverless-freedom" in files["serverless"]
-    and "full-fragment" in files["serverless"]
-    and '"protocol", "freedom"' in files["serverless"],
-)
-check(
-    "serverless profile is not a MitM listener",
-    "dokodemo" not in files["serverless"].lower(),
-)
-check("Home Freedom switch exists", "HomeServerlessSwitch" in files["ui"])
-check(
     "connection access is contextual and ordered",
     "missingConnectionPermissions" in files["main"]
     and "ConnectionPermissionDialog" in files["main"]
@@ -144,12 +132,6 @@ check(
     and "fontFamily" in files["store"]
     and "AppFont.entries" in files["ui"]
     and "fontId" in files["theme"],
-)
-check(
-    "Marble Freedom is a selectable servers source",
-    "freedomLibraryProfiles" in files["repo"]
-    and "SOURCE_ID" in files["repo"]
-    and "Freedom (" in files["ui"],
 )
 check(
     "bottom dock glass is scroll-conditional",
@@ -407,7 +389,6 @@ check(
     "Home layout options are not exposed in Settings",
     "homeShowLiveQuality" in files["models"]
     and "homeShowRouteRibbon" in files["models"]
-    and "homeShowFreedomSwitch" in files["models"]
     and "homeShowServerSelector" not in appearance_body
     and "homeShowLiveQuality" not in appearance_body
     and "homeShowRouteRibbon" not in appearance_body,

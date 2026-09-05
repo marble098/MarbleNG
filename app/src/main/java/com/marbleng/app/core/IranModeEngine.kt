@@ -25,7 +25,7 @@ class IranModeEngine {
     val tcpStressMonitor = TcpStressMonitor()
     val leakGuard = LeakGuard()
     val flapGuard = ProfileFlapGuard(iranAware = true)
-    /** MARBLE_SMART_RANK_V90: continuous per-network adaptive scorer (Marble Freedom Aegis). */
+    /** MARBLE_SMART_RANK_V90: continuous per-network adaptive scorer. */
     val adaptiveScorer = AdaptiveAegisScorer()
     private var routeOptimizer: ContinuousRouteOptimizer? = null
 

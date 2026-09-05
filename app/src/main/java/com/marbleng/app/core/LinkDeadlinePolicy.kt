@@ -130,7 +130,7 @@ object LinkDeadlinePolicy {
     const val MAX_DNS_TIMEOUT_MS = 10_000L
 
     /**
-     * Freedom profiles fragment the first write of every TCP stream into 1-byte packets with 4 ms
+     * A fragmenting chain splits the first write of every TCP stream into 1-byte packets with 4 ms
      * pacing (up to `maxSplit` 517), so a DoH TLS handshake alone can need seconds before the first
      * response byte. An UNMEASURED link therefore keeps the upstream XTLS schedule: the
      * fragmentation pacing, not the link, dominates and nothing better is known.
@@ -226,7 +226,7 @@ object LinkDeadlinePolicy {
      *
      * @param index 0 for the primary server, 1+ for each failover server. Each extra server keeps
      *   the legacy +250 ms so a rotating provider still gets progressively more room.
-     * @param fragmented true for the Freedom fragment chain.
+     * @param fragmented true when the selected outbound fragments first writes.
      *
      * MARBLE_FRAGMENT_DEADLINE_V135 — the fragment chain used to pay the upstream XTLS schedule
      * (8 s, 9 s, 10 s) on EVERY link because the pacing of its 1-byte first writes once dominated

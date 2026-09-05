@@ -363,7 +363,6 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Config copied" to "پیکربندی کپی شد",
     "Copy JSON" to "کپی JSON",
     "Xray JSON copied" to "JSON اکس‌ری کپی شد",
-    "Local Freedom engine" to "موتور آزادی محلی",
     "Back to servers" to "بازگشت به سرورها",
     "Chain name • optional" to "نام زنجیره • اختیاری",
     "Choose at least two servers below." to "دست‌کم دو سرور را در پایین انتخاب کنید.",
@@ -431,8 +430,6 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Tunnel, proxy, port" to "تونل، پروکسی، پورت",
     "Subscriptions" to "اشتراک‌ها",
     "Refresh & sources" to "به‌روزرسانی و منابع",
-    "Freedom Engine" to "موتور آزادی",
-    "Serverless DPI bypass" to "عبور از DPI بدون سرور",
     "Testing" to "تست",
     "Tunnel, ICMP and live route" to "تونل، ICMP و مسیر زنده",
     "Intelligence" to "هوشمندی",
@@ -722,8 +719,6 @@ private val FaLexicon: Map<String, String> = mapOf(
     "IRAN MODE • SCANNING" to "حالت ایران • در حال پویش",
     "IRAN MODE • ACTIVE" to "حالت ایران • فعال",
 
-    // freedom engine
-    "Marble Freedom" to "ماربل فریدم",
     "TCP FALLBACK" to "جایگزین TCP",
     "QUIC PADDING" to "لایه‌گذاری QUIC",
     "IR DIRECT" to "ایران مستقیم",
@@ -788,9 +783,6 @@ private val FaLexicon: Map<String, String> = mapOf(
     "IPv4 delay (ms)" to "تأخیر IPv4 (میلی‌ثانیه)",
     "IPv6 size (B)" to "اندازه IPv6 (بایت)",
     "IPv6 delay (ms)" to "تأخیر IPv6 (میلی‌ثانیه)",
-    "Restore Freedom defaults" to "بازگردانی پیش‌فرض‌های فریدم",
-    "Marble Freedom settings restored to defaults" to "تنظیمات ماربل فریدم به پیش‌فرض بازگشت",
-    "FREEDOM  •  fragment" to "فریدم  •  فرگمنت",
 
     // home quick settings / misc
     "Link-aware" to "آگاه از پیوند",
@@ -815,7 +807,6 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Only requested when you tap Connect" to "فقط هنگام زدن دکمه اتصال درخواست می‌شود",
     "Continue" to "ادامه",
     "Not now" to "حالا نه",
-    "Freedom" to "فریدم",
 
     // ------------------------------------------------------- MARBLE_SERVERS_V114 / SETTINGS HUB V114
     // The Servers screen: one frosted module per source, compact rows, a clipboard magic button.
@@ -838,8 +829,6 @@ private val FaLexicon: Map<String, String> = mapOf(
     "BLUEPRINT SERVERS" to "سرورهای نقشه‌ای",
     "ORBITAL MANIFEST" to "فهرست مداری",
     "Not measured" to "اندازه‌گیری نشده",
-    "Show Marble Freedom" to "نمایش فریدم ماربل",
-    "Hide Marble Freedom" to "پنهان‌کردن فریدم ماربل",
 
     // The settings hub: one page of titles, each opening its own page, plus the live quick rows.
     "All settings" to "همه تنظیمات",
@@ -859,7 +848,6 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Compatibility checks and verified tuning" to "بررسی سازگاری و تنظیم اثبات‌شده",
     "Expert mode" to "حالت تخصصی",
     "Reveal the low-level tunnel controls" to "نمایش کنترل‌های سطح پایین تونل",
-    "Routing, Freedom, tests and servers" to "مسیریابی، فریدم، تست‌ها و سرورها",
     "Theme, Home style, typeface and language" to "پوسته، سبک خانه، قلم و زبان",
     "Notifications, engine, general and information" to "اعلان‌ها، موتور، عمومی و اطلاعات",
     "Network & routing" to "شبکه و مسیریابی",
@@ -1009,10 +997,8 @@ private val FaPatterns: List<Pair<Regex, (MatchResult) -> String>> = listOf(
     Regex("""^(.+) • (\d+) shown$""") to { m -> "${m.groupValues[1]} • ${m.groupValues[2]} نمایان" },
     Regex("""^Refresh (.+)$""") to { m -> "به‌روزرسانی ${m.groupValues[1]}" },
     Regex("""^More actions for (.+)$""") to { m -> "عملیات بیشتر برای ${m.groupValues[1]}" },
-    // MARBLE_SERVERS_V114 — the source module reports its visible slice, the Freedom engine its own
     // count, and the latency readout speaks its measurement to TalkBack.
     Regex("""^(\d+) shown$""") to { m -> "${m.groupValues[1]} نمایان" },
-    Regex("""^Freedom \((\d+)\)$""") to { m -> "فریدم (${m.groupValues[1]})" },
     Regex("""^Latency (\d+) milliseconds, (.+)$""") to { m ->
         "تأخیر ${m.groupValues[1]} میلی‌ثانیه، ${m.groupValues[2]}"
     },

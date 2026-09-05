@@ -29,7 +29,7 @@ data class ServersFilter(
     val query: String = "",
     /** Wire scheme filter; blank means every protocol. */
     val protocol: String = "",
-    /** Source/group filter: "all", "manual", a Marble Freedom id or a subscription id. */
+    /** Source/group filter: "all", "manual" or a subscription id. */
     val sourceId: String = "all",
     /** Hide servers whose latest measurement failed. */
     val onlyReachable: Boolean = false,

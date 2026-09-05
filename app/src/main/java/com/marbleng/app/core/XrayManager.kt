@@ -903,9 +903,8 @@ class XrayManager(private val context: Context) {
      *
      * MARBLE_TUNING_MEASUREMENT_PLANE_V134 — the guard below used to reject `0` while
      * [reserveTemporaryPort] was perfectly able to honour it, so every caller that asked for "any
-     * port" got `false` instead of a measurement and read that as "this node is dead". The Freedom
-     * smart ranker passed 0 for every profile it ranked, which is why its probe leg never produced a
-     * single sample.
+     * port" got `false` instead of a measurement and read that as "this node is dead". The
+     * caller that passed 0 for every profile it ranked never produced a single sample.
      *
      * MARBLE_TUNING_MEASUREMENT_PLANE_V134 — [link] is the measured round-trip evidence for the
      * route this throwaway core is about to measure, and it is the same evidence the live tunnel

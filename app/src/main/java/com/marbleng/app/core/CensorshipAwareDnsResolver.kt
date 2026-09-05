@@ -261,14 +261,6 @@ object CensorshipAwareDnsResolver {
             resolvers += ResolverHealth(id, stage, endpoint)
         }
 
-        settings.freedomDnsCleanResolvers.split(',').map { it.trim() }.filter { it.isNotBlank() }
-            .forEach { endpoint ->
-                val existing = resolvers.any { it.endpoint == endpoint }
-                if (!existing) {
-                    resolvers += ResolverHealth("freedom-${resolvers.size}", DnsStage.FALLBACK_DOH, endpoint)
-                }
-            }
-
         sessionResolvers.addAll(resolvers)
         return resolvers.toList()
     }

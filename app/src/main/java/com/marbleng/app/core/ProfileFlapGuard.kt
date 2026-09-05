@@ -7,7 +7,7 @@ import java.util.concurrent.atomic.AtomicLong
  * Profile Flap Guard — prevents rapid switching between profiles under uncertainty.
  *
  * Problem addressed: Logs showed multiple rapid reconnect cycles between profiles
- * (e.g., Turkey 8 <-> Marble Freedom Aegis) while the bug finder reported
+ * (e.g., Turkey 8 <-> Netherlands 3) while the bug finder reported
  * "live-inconclusive-backoff". This happens because the ranking engine makes
  * decisions on incomplete evidence and triggers switches too quickly.
  *

@@ -87,14 +87,14 @@ class SurvivalFirstRankerTest {
         // Smart Rank under partial probe failure: a node that times out on the probe but has a
         // proven successful history must still out-rank an unknown node, so the tunnel is usable.
         val results = listOf(
-            timeoutProbe("aegis", "Marble Freedom Aegis"),
+            timeoutProbe("aegis", "Aegis 1"),
             healthyProbe("turkey-8", "Turkey 8")
         )
         val histories = mapOf(
             "aegis" to SurvivalFirstRanker.HealthHistory(successEwma = 88.0, latencyEwma = 300.0, consecutiveSuccesses = 9, totalSessions = 20)
         )
         val reordered = SurvivalFirstRanker.reorderResults(results, histories, settings, iranActive = true)
-        // Turkey 8 (healthy probe) is first; Aegis (uncertain but strong history) second.
+        // Turkey 8 (healthy probe) is first; Aegis 1 (uncertain but strong history) second.
         assertEquals("turkey-8", reordered.first().profileId)
         assertEquals("aegis", reordered[1].profileId)
     }

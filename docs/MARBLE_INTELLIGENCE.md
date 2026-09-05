@@ -108,3 +108,32 @@ route degrades repeatedly, forwarding is stopped, the existing Android VPN inter
 historically strong alternate node is started on the same captured TUN path. If recovery cannot establish a
 healthy route, the client remains fail-closed rather than silently falling back to the physical network.
 
+
+## v4.2 (MARBLE_INTELLIGENCE_V141) — log-driven rewrite
+
+The rewrite is specified by the Turkey-14 (v7.0.9) vs Netherlands-3 (v7.0.4) log pair and adds
+five subsystems to the engine:
+
+1. **DNS storm guard** (`DnsStormGuard`) — a rolling window over attributed DoH *deadline* events
+   fed from `recordResolverEvidence`. Healthy is ~1 attributed failure per 6 minutes (the green
+   reference); the broken log ran 6/min (worst 29/min) with `context deadline exceeded` storms
+   against 1.1.1.1/8.8.8.8/9.9.9.9 and `rejected proxy/socks` socket closures. While armed
+   (3 events / 5 min, standing down after 10 quiet minutes): the resolver pool is raced
+   (`measuredDnsParallel`), the family plan collapses to IPv4, and tunnel buffers are clamped so
+   DNS error buffers cannot grow into the observed PSS regression (104 MB vs 98 MB).
+2. **Evidence-locked IPv4** — "IPv6 preferred, IPv4 raced after 60 ms" is eliminated: an unstable
+   race, a stored per-network verdict (24 h TTL), a measured noisy link without positive v6
+   proof, or an active DNS storm locks the plan to IPv4-first with the race disarmed
+   (`tryDelayMs = 0`, deterministic `ForceIPv4`). Only strict user demands outrank the evidence.
+3. **Protocol fitness** (`ProtocolFitness`) — ranking and recovery bias toward QUIC-native
+   transports (hysteria2/hysteria/tuic — the green reference's shape) and away from VLESS+xhttp
+   under measured jitter/loss, plus mux-off for record-chunked transports on noisy links.
+4. **Memory guard** — `tunnelTuning` gains a dns-storm clamp next to the existing loss/thermal
+   caps.
+5. **Fresh-success stickiness** — a node that demonstrably carried traffic in the last 30 minutes
+   gets a bounded bonus (+6, decaying to +3 within 2 h) so a DNS-induced socket closure no longer
+   reshuffles recovery behind evidence-less nodes; this is the direct antidote to the six forced
+   restarts between 14:50 and 14:57 in the broken log.
+
+All v4 APIs, the SQLite health schema (v2 with `jitter_ewma` migration), the acceleration cache,
+path-MTU memory, resolver-evidence policy and the Wilson-bounded scoring are preserved.

@@ -59,25 +59,24 @@ object IranShield {
         val autoFragment = shouldAutoFragment(profile)
         val udpBlocked = CensorTechnique.UDP_BLOCKED in state.techniques
         val cellular = state.isp?.kind == IranIspKind.MOBILE
-        val serverless = profile != null && ServerlessFreedomEngine.isServerless(profile)
 
         var next = if (!base.iranModeCountermeasures) base else base.copy(
             // --- Anti-DPI transport shaping -------------------------------------------------
             // Clear HTTP-like transports already have their own framing. Do not mutate
             // XHTTP/VLESS-ENC first writes merely because Iran Mode is active. Explicit user
             // Fragment settings are still preserved via base.*.
-            fragmentEnabled = if (autoFragment || serverless) true else base.fragmentEnabled,
-            fragmentPackets = if (autoFragment || serverless) fragment.packets else base.fragmentPackets,
-            fragmentLength = if (autoFragment || serverless) fragment.length else base.fragmentLength,
-            fragmentInterval = if (autoFragment || serverless) fragment.interval else base.fragmentInterval,
-            fragmentMaxSplit = if (autoFragment || serverless) fragment.maxSplit else base.fragmentMaxSplit,
-            fragmentInnerEnabled = if (autoFragment || serverless) fragment.innerEnabled else base.fragmentInnerEnabled,
+            fragmentEnabled = if (autoFragment) true else base.fragmentEnabled,
+            fragmentPackets = if (autoFragment) fragment.packets else base.fragmentPackets,
+            fragmentLength = if (autoFragment) fragment.length else base.fragmentLength,
+            fragmentInterval = if (autoFragment) fragment.interval else base.fragmentInterval,
+            fragmentMaxSplit = if (autoFragment) fragment.maxSplit else base.fragmentMaxSplit,
+            fragmentInnerEnabled = if (autoFragment) fragment.innerEnabled else base.fragmentInnerEnabled,
             fragmentInnerPackets = if (fragment.innerEnabled) fragment.innerPackets else base.fragmentInnerPackets,
             fragmentInnerLength = if (fragment.innerEnabled) fragment.innerLength else base.fragmentInnerLength,
             fragmentInnerInterval = if (fragment.innerEnabled) fragment.innerInterval else base.fragmentInnerInterval,
             fragmentInnerMaxSplit = if (fragment.innerEnabled) fragment.innerMaxSplit else base.fragmentInnerMaxSplit,
             adaptiveFragmentEnabled =
-                if (autoFragment || serverless) true else base.adaptiveFragmentEnabled,
+                if (autoFragment) true else base.adaptiveFragmentEnabled,
 
             // --- Encrypted resolution ---------------------------------------------------------
             // Preserve Marble Intelligence's network-scoped measured order. Hard-coding Google
@@ -110,10 +109,7 @@ object IranShield {
             // QUIC/UDP is dropped nationally during clampdowns; failing it fast makes apps fall back
             // to TCP through the tunnel instead of stalling on retransmits.
             if (udpBlocked || tier >= 3) {
-                next = next.copy(
-                    muxUdp443 = "reject",
-                    freedomForceTcpForStreaming = true
-                )
+                next = next.copy(muxUdp443 = "reject")
             }
 
             if (base.workloadProfile == WorkloadProfile.AUTO && tier >= 2) {

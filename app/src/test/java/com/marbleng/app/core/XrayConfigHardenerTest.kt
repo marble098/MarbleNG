@@ -1,29 +1,107 @@
 package com.marbleng.app.core
 
 import com.marbleng.app.model.AppSettings
-import com.marbleng.app.model.FreedomPreset
+import com.marbleng.app.model.IranModePolicy
+import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Marble Freedom (serverless) emitted-config regressions.
+ * Emitted-config regressions for the hardener's generic handling of fragment chains.
  *
  * These tests mirror the two known-good upstream serverless configs: XTLS
  * Serverless-for-Iran/serverless_for_Iran.jsonc and GFW-knocker
  * ServerLess_TLSFrag_Xray_Config_New.json. Both give the directly-dialing fragment hop
- * an explicit domain strategy + Happy Eyeballs, and both pin DoH hostnames in dns.hosts.
+ * an explicit domain strategy + Happy Eyeballs. Marble no longer ships the Freedom engine,
+ * but a hand-imported fragment chain must still be hardened exactly the same way.
  */
 class XrayConfigHardenerTest {
 
-    private fun freedomSettings() = AppSettings(
+    /** A hand-imported 2-hop freedom fragment chain plus a dedicated UDP-noises outbound. */
+    private fun handImportedFreedomChain(): String = JSONObject()
+        .put(
+            "outbounds",
+            JSONArray()
+                .put(
+                    JSONObject()
+                        .put("tag", "proxy")
+                        .put("protocol", "freedom")
+                        .put(
+                            "settings",
+                            JSONObject()
+                                .put("domainStrategy", "AsIs")
+                                .put(
+                                    "fragment",
+                                    JSONObject()
+                                        .put("packets", "1-1")
+                                        .put("length", "1-3")
+                                        .put("interval", "5-10")
+                                )
+                        )
+                        .put(
+                            "streamSettings",
+                            JSONObject()
+                                .put("sockopt", JSONObject().put("dialerProxy", "full-fragment"))
+                        )
+                )
+                .put(
+                    JSONObject()
+                        .put("tag", "full-fragment")
+                        .put("protocol", "freedom")
+                        .put(
+                            "settings",
+                            JSONObject()
+                                .put("domainStrategy", "AsIs")
+                                .put(
+                                    "fragment",
+                                    JSONObject()
+                                        .put("packets", "1-1")
+                                        .put("length", "1")
+                                        .put("interval", "4")
+                                        .put("maxSplit", 517)
+                                )
+                        )
+                )
+                .put(
+                    JSONObject()
+                        .put("tag", "udp-noises")
+                        .put("protocol", "freedom")
+                        .put(
+                            "settings",
+                            JSONObject()
+                                .put(
+                                    "noises",
+                                    JSONArray().put(
+                                        JSONObject()
+                                            .put("type", "rand")
+                                            .put("packet", "10-20")
+                                            .put("interval", "1-3")
+                                    )
+                                )
+                        )
+                )
+        )
+        .toString()
+
+    /** The same chain with the dedicated noises outbound removed. */
+    private fun chainSourceWithoutNoises(): String {
+        val root = JSONObject(handImportedFreedomChain())
+        val outbounds = root.getJSONArray("outbounds")
+        val kept = org.json.JSONArray()
+        for (index in 0 until outbounds.length()) {
+            val outbound = outbounds.getJSONObject(index)
+            if (outbound.optJSONObject("settings")?.optJSONArray("noises") == null) kept.put(outbound)
+        }
+        root.put("outbounds", kept)
+        return root.toString()
+    }
+
+    private fun fragmentChainSettings() = AppSettings(
         fragmentEnabled = true,
-        fragmentInnerEnabled = true,
-        freedomPreset = FreedomPreset.MULTI_LAYER_CASCADE,
-        freedomDnsAuto = true
+        fragmentInnerEnabled = true
     )
 
     private fun outbound(root: JSONObject, tag: String): JSONObject {
@@ -35,7 +113,10 @@ class XrayConfigHardenerTest {
         throw AssertionError("outbound $tag missing")
     }
 
-    private fun harden(settings: AppSettings, source: String = ServerlessFreedomEngine.configJson(settings)): JSONObject =
+    private fun harden(
+        settings: AppSettings,
+        source: String = handImportedFreedomChain()
+    ): JSONObject =
         JSONObject(XrayConfigHardener.harden(source, 21080, settings))
 
     private fun udp443Rules(rules: org.json.JSONArray): List<JSONObject> =
@@ -50,7 +131,7 @@ class XrayConfigHardenerTest {
 
     @Test
     fun `innermost freedom hop resolves user destinations through xray dns`() {
-        val settings = freedomSettings()
+        val settings = fragmentChainSettings()
         val hardened = harden(settings)
 
         val inner = outbound(hardened, "full-fragment")
@@ -65,14 +146,13 @@ class XrayConfigHardenerTest {
         assertTrue("sockopt.domainStrategy must be written", innerSockopt?.has("domainStrategy") == true)
 
         // Only the hop that opens the real socket resolves; the dialer hops just bridge.
-        // Default Freedom is a 2-hop chain (no middle). Outer must not carry domainStrategy.
         val outerSockopt = outbound(hardened, "proxy")
             .optJSONObject("streamSettings")?.optJSONObject("sockopt")
         assertFalse(outerSockopt?.has("domainStrategy") ?: false)
         assertEquals("full-fragment", outerSockopt?.optString("dialerProxy"))
 
         // Dedicated UDP-noises outbound is kept and also resolves through Xray DNS.
-        val noise = outbound(hardened, ServerlessFreedomEngine.UDP_NOISES_TAG)
+        val noise = outbound(hardened, "udp-noises")
         assertTrue((noise.optJSONObject("settings")?.optJSONArray("noises")?.length() ?: 0) > 0)
         val noiseSettings = noise.optJSONObject("settings")
         assertTrue(noiseSettings?.has("domainStrategy") == true)
@@ -84,35 +164,9 @@ class XrayConfigHardenerTest {
         )
     }
 
-    /**
-     * Runtime regression (real Xray v26.7.28, through the PyPI xray-core engine): Xray's
-     * "tlshello" fragment mode rewrites the ClientHello into complete tiny TLS records
-     * (Xray-core issue #4370). Servers — Fastly (pypi.org), Cloudflare (registry.npmjs.org),
-     * GitHub, AWS (httpbin.org) — RST that shape on every attempt ("write: broken pipe"),
-     * while the GFW-knocker packet split (1-1 / 1-3 / 5-10) over the same 3-hop chain returns
-     * HTTP 200 on all of them. The default outer hop must therefore never be "tlshello".
-     */
-    @Test
-    fun `default freedom outer hop is packet split, not tlshello record rewriting`() {
-        val settings = AppSettings() // default preset = SMART_ADAPTIVE -> MULTI_LAYER_CASCADE
-        val hardened = harden(settings)
-
-        val outer = outbound(hardened, "proxy")
-        val fragment = outer.optJSONObject("settings")?.optJSONObject("fragment")
-        assertNotNull("outer fragment missing", fragment)
-        assertEquals("1-1", fragment!!.optString("packets"))
-
-        // Every recipe that can be a default (SMART_ADAPTIVE/MULTI_LAYER_CASCADE/TLSHELLO_SNI/
-        // CUSTOM fallbacks) must avoid the record-rewriting mode, not just the default settings.
-        val source = JSONObject(ServerlessFreedomEngine.configJson(settings))
-        val outerFragment = source.getJSONArray("outbounds").getJSONObject(0)
-            .getJSONObject("settings").getJSONObject("fragment")
-        assertFalse(outerFragment.optString("packets").equals("tlshello", ignoreCase = true))
-    }
-
     @Test
     fun `freedom hop honours ipv6 off end to end`() {
-        val settings = freedomSettings().copy(ipv6Enabled = false, dnsQueryStrategy = "UseIPv4")
+        val settings = fragmentChainSettings().copy(ipv6Enabled = false, dnsQueryStrategy = "UseIPv4")
         val hardened = harden(settings)
 
         val innerSettings = outbound(hardened, "full-fragment")
@@ -125,34 +179,6 @@ class XrayConfigHardenerTest {
     }
 
     @Test
-    fun `freedom dns keeps only bootstrappable doh servers and pins them`() {
-        val settings = freedomSettings().copy(
-            freedomDnsCleanResolvers =
-                "https://1.1.1.1/dns-query," +
-                    "https://doh.sb/dns-query," +
-                    "https://dns.shecan.ir/dns-query," +
-                    "https://dns.adguard-dns.com/dns-query"
-        )
-        val hardened = harden(settings)
-        val dns = hardened.getJSONObject("dns")
-        val servers = dns.getJSONArray("servers")
-        val addresses = (0 until servers.length()).map { servers.getJSONObject(it).optString("address") }
-
-        assertTrue(addresses.contains("https://1.1.1.1/dns-query"))
-        assertTrue(addresses.contains("https://dns.shecan.ir/dns-query"))
-        assertTrue(addresses.contains("https://dns.adguard-dns.com/dns-query"))
-        assertFalse("unpinned DoH host must be filtered out", addresses.any { it.contains("doh.sb") })
-
-        val hosts = dns.optJSONObject("hosts")
-        assertTrue(hosts?.has("dns.shecan.ir") == true)
-        assertTrue(hosts?.has("dns.adguard-dns.com") == true)
-
-        // The Freedom chain fragments the first TCP write into 1-byte/4 ms chunks; a DoH
-        // handshake cannot fit the stock 1350 ms budget, so cold lookups would always fail.
-        assertTrue("first DNS server gets a Freedom-sized budget", servers.getJSONObject(0).optLong("timeoutMs") >= 8_000L)
-    }
-
-    @Test
     fun `generic fragment mode keeps endpoint resolution on the node`() {
         val settings = AppSettings(
             fragmentEnabled = true,
@@ -162,78 +188,91 @@ class XrayConfigHardenerTest {
             fragmentInterval = "10-20",
             routingMode = com.marbleng.app.model.RoutingMode.PROXY_ALL
         )
-        val source = ServerlessFreedomEngine.configJson(freedomSettings())
-        // The generic path must still harden without a Freedom profile: the source chain is the
-        // same Freedom chain, so this asserts the shared graph stays valid under PROXY_ALL too.
-        val hardened = harden(settings, source)
+        // The generic path must still harden a hand-imported fragment chain under PROXY_ALL:
+        // this asserts the shared graph stays valid there too.
+        val hardened = harden(settings)
         assertEquals("freedom", outbound(hardened, "full-fragment").optString("protocol"))
     }
 
     @Test
-    fun `default freedom is 2-hop without middle and forces media tcp fallback`() {
-        val settings = AppSettings(
-            fragmentEnabled = true,
-            fragmentInnerEnabled = true,
-            freedomPreset = FreedomPreset.SMART_ADAPTIVE,
-            freedomUdpNoiseEnabled = true,
-            freedomDnsAuto = true
-        )
-        val hardened = harden(settings)
-        val tags = (0 until hardened.getJSONArray("outbounds").length()).map {
-            hardened.getJSONArray("outbounds").getJSONObject(it).optString("tag")
-        }
-        assertTrue("proxy" in tags)
-        assertTrue("full-fragment" in tags)
-        assertFalse("middle-fragment must not ship by default", "middle-fragment" in tags)
-        assertTrue(ServerlessFreedomEngine.UDP_NOISES_TAG in tags)
+    fun `iran mode blocks poison injector ranges and media udp is opt in`() {
+        val settings = fragmentChainSettings().copy(iranModePolicy = IranModePolicy.ALWAYS_ON)
+        // A chain without a dedicated noises outbound: with muxUdp443 at its default no
+        // QUIC/UDP443 rule is emitted at all, so media keeps trying QUIC through the tunnel.
+        val hardened = harden(settings, chainSourceWithoutNoises())
 
         val routing = hardened.getJSONObject("routing")
-        assertEquals("IPOnDemand", routing.optString("domainStrategy"))
+        assertEquals("IPIfNonMatch", routing.optString("domainStrategy"))
         val rules = routing.getJSONArray("rules")
         val ruleText = rules.toString()
         assertTrue("poison injector range blocked", ruleText.contains("10.10.34.0/24"))
-        val udp443 = udp443Rules(rules)
-        assertTrue("quic/udp443 must be rejected for YouTube TCP fallback", udp443.any { it.optString("outboundTag") == "block" })
-        assertFalse(
-            "default YouTube-safe path must not send QUIC to the noise outbound",
-            udp443.any { it.optString("outboundTag") == ServerlessFreedomEngine.UDP_NOISES_TAG }
-        )
 
-        val hosts = hardened.getJSONObject("dns").optJSONObject("hosts")
-        assertTrue(hosts?.has("domain:youtube.com") == true)
+        val udp443 = udp443Rules(rules)
+        assertTrue(udp443.isEmpty())
     }
 
     @Test
-    fun `freedom can still use dedicated udp noises when tcp fallback is off`() {
-        val settings = freedomSettings().copy(
-            freedomForceTcpForStreaming = false,
-            freedomUdpNoiseEnabled = true
+    fun `iran mode with udp blocked rejects media udp before the app stalls on retransmits`() {
+        val settings = fragmentChainSettings().copy(
+            iranModePolicy = IranModePolicy.ALWAYS_ON,
+            muxUdp443 = "reject"
         )
+        val hardened = harden(settings)
+        val rules = hardened.getJSONObject("routing").getJSONArray("rules")
+        val udp443 = udp443Rules(rules)
+        assertTrue("quic/udp443 must be rejected for TCP fallback", udp443.any { it.optString("outboundTag") == "block" })
+    }
+
+    @Test
+    fun `dedicated udp noises outbound receives quic when tcp fallback is off`() {
+        val settings = fragmentChainSettings().copy(muxUdp443 = "skip")
         val hardened = harden(settings)
         val rules = hardened.getJSONObject("routing").getJSONArray("rules")
         val udp443 = udp443Rules(rules)
 
         assertTrue(
-            "QUIC/UDP443 should route to the dedicated noises outbound when fallback is off",
-            udp443.any { it.optString("outboundTag") == ServerlessFreedomEngine.UDP_NOISES_TAG }
+            "QUIC/UDP443 should route to the dedicated noises outbound when it exists",
+            udp443.any { it.optString("outboundTag") == "udp-noises" }
         )
         assertFalse(
-            "fallback-off noise mode should not add a UDP443 block rule",
+            "noise mode should not add a UDP443 block rule",
             udp443.any { it.optString("outboundTag") == "block" }
         )
     }
 
     @Test
-    fun `smart adaptive never emits tlshello outer hop`() {
-        val recipe = DpiEvasionPolicy.freedomRecipe(AppSettings())
-        assertFalse(recipe.packets.equals("tlshello", ignoreCase = true))
-        assertFalse(recipe.middleEnabled)
-        assertTrue(recipe.innerEnabled)
+    fun `iran mode off keeps the poison ranges out of the rules`() {
+        val hardened = harden(fragmentChainSettings())
+        val rules = hardened.getJSONObject("routing").getJSONArray("rules")
+        assertFalse("poison injector range must not appear", rules.toString().contains("10.10.34.0/24"))
+    }
+
+    @Test
+    fun `no default recipe emits the tlshello record rewriter`() {
+        // Runtime regression (real Xray v26.7.28): the "tlshello" fragment mode rewrites the
+        // ClientHello into complete tiny TLS records (Xray-core #4370) and servers RST that
+        // shape. Every recipe the connection ladder can pick must use the packet split instead.
+        val states = listOf(
+            IranModeState(active = true),
+            IranModeState(active = true, techniques = setOf(CensorTechnique.SNI_FILTERING)),
+            IranModeState(
+                active = true,
+                techniques = setOf(CensorTechnique.SNI_FILTERING, CensorTechnique.TCP_RESET)
+            ),
+            IranModeState(active = true, techniques = setOf(CensorTechnique.NATIONAL_INTRANET))
+        )
+        states.forEach { state ->
+            val recipe = DpiEvasionPolicy.connectionRecipe(state)
+            assertFalse(
+                "connectionRecipe must never emit tlshello",
+                recipe.packets.equals("tlshello", ignoreCase = true)
+            )
+        }
     }
 
     /**
-     * Minimal serverless Freedom configs (NORMAL tier or a hand-imported freedom-only custom JSON)
-     * contain no proxy besides a freedom/direct outbound. The hardener must treat that as the exit
+     * Minimal serverless-style configs (a hand-imported freedom-only custom JSON) contain no
+     * proxy besides a freedom/direct outbound. The hardener must treat that as the exit
      * instead of rejecting it with "No proxy outbound".
      */
     /**
@@ -314,7 +353,7 @@ class XrayConfigHardenerTest {
     }
 
     @Test
-    fun `freedom only config without fragment is accepted as serverless normal`() {
+    fun `freedom only config without fragment is accepted as a hand imported exit`() {
         val source = JSONObject()
             .put(
                 "outbounds",
@@ -331,7 +370,7 @@ class XrayConfigHardenerTest {
                 )
             )
             .toString()
-        val hardened = harden(AppSettings(serverlessModeEnabled = true), source)
+        val hardened = harden(AppSettings(), source)
 
         assertEquals("freedom", outbound(hardened, "proxy").optString("protocol"))
         assertEquals("blackhole", outbound(hardened, "block").optString("protocol"))

@@ -31,8 +31,6 @@ TARGETS = [
     "app/src/main/java/com/marbleng/app/quicktile/MarbleQuickTileService.kt",
     "app/src/main/java/com/marbleng/app/core/BugFinder.kt",
     "app/src/main/java/com/marbleng/app/core/IranShield.kt",
-    "app/src/main/java/com/marbleng/app/core/MarbleFreedomSmartRanker.kt",
-    "app/src/main/java/com/marbleng/app/core/ServerlessFreedomEngine.kt",
 ]
 
 # Longest phrase first: "Library source" must not become "Servers source".

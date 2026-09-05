@@ -87,14 +87,6 @@ class AppStore(context: Context) {
             .putStringSet("libraryCollapsedSources", collapsed)
             .apply()
 
-    // MARBLE_LIBRARY_FREEDOM_TOGGLE_V113 — Marble Freedom is hidden from the Library by default.
-    fun libraryFreedomHidden(): Boolean = prefs.getBoolean("libraryFreedomHidden", true)
-
-    fun setLibraryFreedomHidden(hidden: Boolean) =
-        prefs.edit()
-            .putBoolean("libraryFreedomHidden", hidden)
-            .apply()
-
     /** Last top-level app destination. Kept outside AppSettings because it is navigation state. */
     fun lastAppTab(): String = prefs.getString("lastAppTab", "DECK")
         ?.trim()
@@ -253,8 +245,6 @@ class AppStore(context: Context) {
         homeShowServerSelector = prefs.getBoolean("homeShowServerSelector", true),
         homeShowRouteDetails = prefs.getBoolean("homeShowRouteDetails", true),
         homeShowRouteRibbon = prefs.getBoolean("homeShowRouteRibbon", true),
-        homeShowFreedomSwitch = prefs.getBoolean("homeShowFreedomSwitch", true),
-        serverlessModeEnabled = prefs.getBoolean("serverlessModeEnabled", false),
         serverIntelEnabled = prefs.getBoolean("serverIntelEnabled", true),
 
         smartNotificationsEnabled = prefs.getBoolean("smartNotificationsEnabled", true),
@@ -319,46 +309,9 @@ class AppStore(context: Context) {
         fragmentInnerInterval = prefs.getString("fragmentInnerInterval", "4") ?: "4",
         fragmentInnerMaxSplit = prefs.getString("fragmentInnerMaxSplit", "517") ?: "517",
 
-        freedomPreset = enumValue("freedomPreset", FreedomPreset.SMART_ADAPTIVE),
-        freedomOperatorAuto = prefs.getBoolean("freedomOperatorAuto", true),
-        freedomLayerCount = prefs.getInt("freedomLayerCount", 2).coerceIn(1, 3),
-        // GFW-knocker packet-split defaults (1-1 / 1-3 / 5-10); see Models.kt comment.
-        freedomOuterPackets = prefs.getString("freedomOuterPackets", "1-1") ?: "1-1",
-        freedomOuterLength = prefs.getString("freedomOuterLength", "1-3") ?: "1-3",
-        freedomOuterInterval = prefs.getString("freedomOuterInterval", "5-10") ?: "5-10",
-        freedomOuterMaxSplit = prefs.getString("freedomOuterMaxSplit", "") ?: "",
-        freedomMiddleEnabled = prefs.getBoolean("freedomMiddleEnabled", false),
-        freedomMiddlePackets = prefs.getString("freedomMiddlePackets", "1-3") ?: "1-3",
-        freedomMiddleLength = prefs.getString("freedomMiddleLength", "10-30") ?: "10-30",
-        freedomMiddleInterval = prefs.getString("freedomMiddleInterval", "5-10") ?: "5-10",
-        freedomMiddleMaxSplit = prefs.getString("freedomMiddleMaxSplit", "768") ?: "768",
-        freedomInnerEnabled = prefs.getBoolean("freedomInnerEnabled", true),
-        freedomInnerPackets = prefs.getString("freedomInnerPackets", "1-1") ?: "1-1",
-        freedomInnerLength = prefs.getString("freedomInnerLength", "1") ?: "1",
-        freedomInnerInterval = prefs.getString("freedomInnerInterval", "4") ?: "4",
-        freedomInnerMaxSplit = prefs.getString("freedomInnerMaxSplit", "517") ?: "517",
 
-        freedomDnsAuto = prefs.getBoolean("freedomDnsAuto", true),
-        freedomDnsPrimaryIp = prefs.getString("freedomDnsPrimaryIp", "1.1.1.1") ?: "1.1.1.1",
-        freedomDnsSecondaryIp = prefs.getString("freedomDnsSecondaryIp", "8.8.8.8") ?: "8.8.8.8",
-        freedomDnsPrimaryDoH = prefs.getString("freedomDnsPrimaryDoH", "https://1.1.1.1/dns-query") ?: "https://1.1.1.1/dns-query",
-        freedomDnsSecondaryDoH = prefs.getString("freedomDnsSecondaryDoH", "https://8.8.8.8/dns-query") ?: "https://8.8.8.8/dns-query",
-        freedomDnsFallbackDoH = prefs.getString("freedomDnsFallbackDoH", "https://9.9.9.9/dns-query") ?: "https://9.9.9.9/dns-query",
         // doh.sb is intentionally absent: its addresses are not stable enough to pin in Xray
-        // dns.hosts, and an unpinned hostname DoH cannot bootstrap inside the Freedom chain.
-        freedomDnsCleanResolvers = prefs.getString("freedomDnsCleanResolvers", "https://1.1.1.1/dns-query,https://8.8.8.8/dns-query,https://9.9.9.9/dns-query,https://dns.adguard-dns.com/dns-query,https://dns.shecan.ir/dns-query") ?: "https://1.1.1.1/dns-query,https://8.8.8.8/dns-query,https://9.9.9.9/dns-query,https://dns.adguard-dns.com/dns-query,https://dns.shecan.ir/dns-query",
-        freedomDnsQueryStrategy = prefs.getString("freedomDnsQueryStrategy", "UseIP") ?: "UseIP",
-        freedomDomainStrategy = prefs.getString("freedomDomainStrategy", "IPOnDemand") ?: "IPOnDemand",
-        freedomDnsHijack = prefs.getBoolean("freedomDnsHijack", true),
-        freedomDirectDomestic = prefs.getBoolean("freedomDirectDomestic", true),
-        freedomForceTcpForStreaming = prefs.getBoolean("freedomForceTcpForStreaming", true),
 
-        freedomUdpNoiseEnabled = prefs.getBoolean("freedomUdpNoiseEnabled", true),
-        freedomUdpNoisePacket4 = prefs.getString("freedomUdpNoisePacket4", "1250") ?: "1250",
-        freedomUdpNoiseDelay4 = prefs.getString("freedomUdpNoiseDelay4", "10") ?: "10",
-        freedomUdpNoisePacket6 = prefs.getString("freedomUdpNoisePacket6", "1230") ?: "1230",
-        freedomUdpNoiseDelay6 = prefs.getString("freedomUdpNoiseDelay6", "10") ?: "10",
-        freedomUdpNoiseCount = prefs.getInt("freedomUdpNoiseCount", 6).coerceIn(2, 16),
 
         muxEnabled = prefs.getBoolean("muxEnabled", false),
         muxConcurrency = prefs.getInt("muxConcurrency", 8),
@@ -480,8 +433,6 @@ class AppStore(context: Context) {
         .putBoolean("homeShowServerSelector", s.homeShowServerSelector)
         .putBoolean("homeShowRouteDetails", s.homeShowRouteDetails)
         .putBoolean("homeShowRouteRibbon", s.homeShowRouteRibbon)
-        .putBoolean("homeShowFreedomSwitch", s.homeShowFreedomSwitch)
-        .putBoolean("serverlessModeEnabled", s.serverlessModeEnabled)
         .putBoolean("serverIntelEnabled", s.serverIntelEnabled)
 
         .putBoolean("smartNotificationsEnabled", s.smartNotificationsEnabled)
@@ -540,43 +491,8 @@ class AppStore(context: Context) {
         .putString("fragmentInnerInterval", s.fragmentInnerInterval)
         .putString("fragmentInnerMaxSplit", s.fragmentInnerMaxSplit)
 
-        .putString("freedomPreset", s.freedomPreset.name)
-        .putBoolean("freedomOperatorAuto", s.freedomOperatorAuto)
-        .putInt("freedomLayerCount", s.freedomLayerCount.coerceIn(1, 3))
-        .putString("freedomOuterPackets", s.freedomOuterPackets)
-        .putString("freedomOuterLength", s.freedomOuterLength)
-        .putString("freedomOuterInterval", s.freedomOuterInterval)
-        .putString("freedomOuterMaxSplit", s.freedomOuterMaxSplit)
-        .putBoolean("freedomMiddleEnabled", s.freedomMiddleEnabled)
-        .putString("freedomMiddlePackets", s.freedomMiddlePackets)
-        .putString("freedomMiddleLength", s.freedomMiddleLength)
-        .putString("freedomMiddleInterval", s.freedomMiddleInterval)
-        .putString("freedomMiddleMaxSplit", s.freedomMiddleMaxSplit)
-        .putBoolean("freedomInnerEnabled", s.freedomInnerEnabled)
-        .putString("freedomInnerPackets", s.freedomInnerPackets)
-        .putString("freedomInnerLength", s.freedomInnerLength)
-        .putString("freedomInnerInterval", s.freedomInnerInterval)
-        .putString("freedomInnerMaxSplit", s.freedomInnerMaxSplit)
 
-        .putBoolean("freedomDnsAuto", s.freedomDnsAuto)
-        .putString("freedomDnsPrimaryIp", s.freedomDnsPrimaryIp)
-        .putString("freedomDnsSecondaryIp", s.freedomDnsSecondaryIp)
-        .putString("freedomDnsPrimaryDoH", s.freedomDnsPrimaryDoH)
-        .putString("freedomDnsSecondaryDoH", s.freedomDnsSecondaryDoH)
-        .putString("freedomDnsFallbackDoH", s.freedomDnsFallbackDoH)
-        .putString("freedomDnsCleanResolvers", s.freedomDnsCleanResolvers)
-        .putString("freedomDnsQueryStrategy", s.freedomDnsQueryStrategy)
-        .putString("freedomDomainStrategy", s.freedomDomainStrategy)
-        .putBoolean("freedomDnsHijack", s.freedomDnsHijack)
-        .putBoolean("freedomDirectDomestic", s.freedomDirectDomestic)
-        .putBoolean("freedomForceTcpForStreaming", s.freedomForceTcpForStreaming)
 
-        .putBoolean("freedomUdpNoiseEnabled", s.freedomUdpNoiseEnabled)
-        .putString("freedomUdpNoisePacket4", s.freedomUdpNoisePacket4)
-        .putString("freedomUdpNoiseDelay4", s.freedomUdpNoiseDelay4)
-        .putString("freedomUdpNoisePacket6", s.freedomUdpNoisePacket6)
-        .putString("freedomUdpNoiseDelay6", s.freedomUdpNoiseDelay6)
-        .putInt("freedomUdpNoiseCount", s.freedomUdpNoiseCount.coerceIn(2, 16))
 
         .putBoolean("muxEnabled", s.muxEnabled)
         .putInt("muxConcurrency", s.muxConcurrency)
