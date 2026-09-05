@@ -8702,6 +8702,7 @@ private fun ThemePreviewIllustration(
     selected: Boolean,
     modifier: Modifier = Modifier
 ) {
+    val dangerColor = Aether.Danger
     Canvas(modifier) {
         val w = size.width
         val h = size.height
@@ -8836,7 +8837,7 @@ private fun ThemePreviewIllustration(
                 val fabX = w - pad - 6.dp.toPx()
                 val fab1Y = h - pad - 16.dp.toPx()
                 val fab2Y = h - pad - 6.dp.toPx()
-                drawCircle(color = Aether.Danger, radius = 4.dp.toPx(), center = Offset(fabX, fab1Y))
+                drawCircle(color = dangerColor, radius = 4.dp.toPx(), center = Offset(fabX, fab1Y))
                 drawCircle(color = tone, radius = 4.dp.toPx(), center = Offset(fabX, fab2Y))
             }
 

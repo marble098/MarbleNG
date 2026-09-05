@@ -339,6 +339,95 @@ internal fun homePingActionHint(evidence: HomeEvidence): String {
     }
 }
 
+/**
+ * MARBLE_CONNECT_BUTTON_V121 — the Home tree provides the user's chosen silhouette here so every
+ * [HomePowerControl] call site resolves it identically.
+ */
+internal val LocalConnectButtonStyle = staticCompositionLocalOf { ConnectButtonStyle.ROUND }
+
+internal fun connectButtonGlyph(evidence: HomeEvidence): HomeGlyph = when {
+    evidence.connected -> HomeGlyph.CHECK
+    evidence.blocked -> HomeGlyph.RESET
+    else -> HomeGlyph.POWER
+}
+
+@Composable
+internal fun ConnectButtonCaption(
+    evidence: HomeEvidence,
+    tone: Color,
+    modifier: Modifier = Modifier
+) {
+    Text(
+        homeActionLabel(evidence),
+        color = tone,
+        style = MaterialTheme.typography.labelMedium,
+        fontWeight = FontWeight.Bold,
+        maxLines = 1,
+        softWrap = false,
+        overflow = TextOverflow.Ellipsis,
+        modifier = modifier
+    )
+}
+
+@Composable
+internal fun HomePowerControl(
+    evidence: HomeEvidence,
+    tone: Color,
+    onToggle: () -> Unit,
+    flavor: HomeFlavor = HomeFlavor.IOS_SLIDER,
+    modifier: Modifier = Modifier,
+    diameter: Dp = 168.dp,
+    haloBrush: Brush? = null,
+    style: ConnectButtonStyle? = null
+) {
+    val resolved = style ?: LocalConnectButtonStyle.current
+    when (resolved) {
+        ConnectButtonStyle.SLIDE -> {
+            IosSlideToConnect(
+                evidence = evidence,
+                tone = tone,
+                onToggle = onToggle,
+                modifier = modifier
+            )
+        }
+        else -> {
+            IosEmbossedConnectButton(
+                evidence = evidence,
+                tone = tone,
+                onToggle = onToggle,
+                modifier = modifier
+            )
+        }
+    }
+}
+
+@Composable
+internal fun HomePowerDock(
+    evidence: HomeEvidence,
+    tone: Color,
+    onToggle: () -> Unit,
+    flavor: HomeFlavor = HomeFlavor.IOS_SLIDER,
+    modifier: Modifier = Modifier
+) {
+    val shape = RoundedCornerShape(24.dp)
+    Box(
+        modifier = modifier
+            .clip(shape)
+            .background(Aether.VoidElevated.copy(alpha = .72f))
+            .border(1.dp, tone.copy(alpha = .20f), shape)
+            .padding(horizontal = 12.dp, vertical = 9.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        HomePowerControl(
+            evidence = evidence,
+            tone = tone,
+            onToggle = onToggle,
+            flavor = flavor,
+            diameter = 156.dp
+        )
+    }
+}
+
 internal fun homePingTappable(evidence: HomeEvidence): Boolean {
     val (_, state, _) = homeV137PingChannel(evidence)
     return state != ConnectionPingState.MEASURING
@@ -753,7 +842,7 @@ internal fun IosStatusWideCard(
                                 val targetProfile = repo.libraryProfiles.firstOrNull { it.id == addedId }
                                     ?: repo.libraryProfiles.lastOrNull()
                                 if (targetProfile != null) {
-                                    repo.selectProfile(targetProfile.id)
+                                    repo.selectProfile(targetProfile)
                                     actions.onConnectProfile(targetProfile)
                                 } else {
                                     repo.reconnectLastOrAuto { p -> actions.onConnectProfile(p) }
@@ -996,8 +1085,7 @@ internal fun IosServerListBox(
     }
     val visibleServers = ServersQuery.visible(
         profiles = repo.libraryProfiles,
-        sourceFilter = repo.librarySourceFilter,
-        query = ""
+        filter = ServersFilter(sourceId = if (activeSubId.isBlank()) "all" else activeSubId)
     )
 
     Column(
@@ -1098,7 +1186,7 @@ internal fun IosServerListBox(
                         isSelected = isSelected,
                         isConnected = isSelected && evidence.connected,
                         onClick = {
-                            repo.selectProfile(server.id)
+                            repo.selectProfile(server)
                             if (evidence.connected) {
                                 actions.onConnectProfile(server)
                             }
@@ -1174,7 +1262,7 @@ private fun IosServerItemRow(
 
             Column {
                 Text(
-                    text = server.displayName,
+                    text = server.name,
                     color = if (isSelected) Aether.Ink else Aether.Ink.copy(alpha = 0.85f),
                     style = MaterialTheme.typography.bodyMedium.copy(
                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
@@ -1202,21 +1290,20 @@ private fun IosServerItemRow(
             }
         }
 
-        // Ping badge if measured
-        if (server.lastPingMs > 0) {
-            val pingColor = marbleMetricTone(pingMetricBand(server.lastPingMs))
+        // Scheme badge
+        val badgeText = ServersQuery.badge(server)
+        if (badgeText.isNotBlank()) {
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(8.dp))
-                    .background(pingColor.copy(alpha = 0.12f))
+                    .background(Aether.GlassStrong.copy(alpha = 0.45f))
                     .padding(horizontal = 7.dp, vertical = 3.dp)
             ) {
                 Text(
-                    text = "${server.lastPingMs} ms",
-                    color = pingColor,
+                    text = badgeText,
+                    color = Aether.InkMuted,
                     style = MaterialTheme.typography.labelSmall.copy(
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = FontFamily.Monospace
+                        fontWeight = FontWeight.SemiBold
                     )
                 )
             }
@@ -1486,7 +1573,7 @@ internal fun HomeThemeFloating(
                             .clip(CircleShape)
                             .background(
                                 Brush.radialGradient(
-                                    colors = listOf(Aether.CyanBright, Aether.Electric)
+                                    colors = listOf(Aether.CyanBright, Aether.Cyan)
                                 )
                             )
                             .shadow(10.dp, CircleShape, spotColor = Aether.CyanBright)
