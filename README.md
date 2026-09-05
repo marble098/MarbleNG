@@ -69,6 +69,11 @@ dial, gate the IPv6 route capture on real underlay capability, size fragment-cha
 from the measured link, and pace every automatic recovery behind an exponential ladder with a
 rolling circuit breaker.
 
+`docs/CONNECTION_ROOT_CAUSE_V136.md` records the current end-to-end contract: Hysteria2 links
+carry Xray-native TLS/HTTP-3 and Salamander UDP masks, the shipped core dry-runs every new
+hardened runtime config before spawn, failed probes invalidate all stale latency evidence, and
+live ping is a fixed-size child of the connection control rather than a page-level row.
+
 ## Main navigation
 
 MarbleNG uses three primary tabs: **Home**, **Servers**, and **Settings**.

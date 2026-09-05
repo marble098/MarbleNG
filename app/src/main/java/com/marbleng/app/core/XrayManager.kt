@@ -255,10 +255,11 @@ class XrayManager(private val context: Context) {
             throw it
         }
         if (!temp.renameTo(target)) {
-            // Only reachable if the platform refuses the rename; a direct write still leaves a
-            // usable config, and the connection must not fail because of a filesystem quirk.
-            target.writeText(text)
+            // Never fall back to truncating the live document: a second write would reintroduce the
+            // partial-config window this helper is meant to remove. The caller keeps its previous
+            // complete config and reports the filesystem failure instead.
             runCatching { temp.delete() }
+            error("Cannot atomically commit ${target.name}")
         }
     }
 
@@ -656,6 +657,61 @@ class XrayManager(private val context: Context) {
     }
 
     /**
+     * Parse the exact hardened document with the exact shipped core before creating the live
+     * process. This is deliberately a separate process: loading the JSON in Kotlin only proves that
+     * it is syntactically valid, while Xray is the authority for protocol, transport, DNS and
+     * routing schemas (including version-specific Hysteria2 fields).
+     */
+    private fun validateRuntimeConfig(
+        generation: Long,
+        config: File,
+        configText: String
+    ): Boolean {
+        if (!startStillCurrent(generation)) return false
+        val validationKey = sha256(
+            "${bin.length()}:${bin.lastModified()}:\n$configText"
+        )
+        if (validationCached(validationKey)) return true
+
+        publishStartState(generation, "config-test")
+        val validationLog = File(context.cacheDir, "xray-config-test.log")
+        runCatching { validationLog.delete() }
+        val testProcess = createProcessBuilder("run", "-test", "-c", config.absolutePath)
+            .redirectOutput(ProcessBuilder.Redirect.appendTo(validationLog))
+            .start()
+        try {
+            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(12L)
+            while (testProcess.isAlive && System.nanoTime() < deadline) {
+                // A newer connect/stop must be able to cancel a dry-run too; otherwise an old
+                // validation process can hold the same local listener while the new generation
+                // starts.
+                if (!startStillCurrent(generation)) {
+                    stopProcess(testProcess)
+                    return false
+                }
+                testProcess.waitFor(100L, TimeUnit.MILLISECONDS)
+            }
+            if (testProcess.isAlive) {
+                stopProcess(testProcess)
+                error("Xray config validation timed out")
+            }
+            if (testProcess.exitValue() != 0) {
+                val hint = runCatching {
+                    validationLog.useLines { lines ->
+                        lines.filter { it.isNotBlank() }.toList().takeLast(8).joinToString(" | ")
+                    }.take(1_200)
+                }.getOrDefault("Xray config-test log unavailable")
+                error("Xray rejected the runtime config: $hint")
+            }
+            if (!startStillCurrent(generation)) return false
+            rememberValidation(validationKey)
+            return true
+        } finally {
+            if (testProcess.isAlive) stopProcess(testProcess)
+        }
+    }
+
+    /**
      * Verifies the selected routing policy with the exact Xray binary shipped in the APK.
      * XRAY_LOCATION_ASSET is inherited from createProcessBuilder(), so geoip/geosite tags are
      * resolved against MarbleNG's managed data files rather than just checking file existence.
@@ -768,7 +824,21 @@ class XrayManager(private val context: Context) {
             } else {
                 profile.configJson
             }
-            writeRuntimeConfig(config, XrayConfigHardener.harden(sourceConfig, port, settings, link))
+            val hardenedConfig = XrayConfigHardener.harden(sourceConfig, port, settings, link)
+            val committed = synchronized(lifecycleLock) {
+                if (lifecycleGeneration != ticket.generation) {
+                    false
+                } else {
+                    // Serialize the atomic rename with the generation ticket so a superseded
+                    // connection can never overwrite the next connection's runtime document.
+                    writeRuntimeConfig(config, hardenedConfig)
+                    true
+                }
+            }
+            if (!committed) return@runCatching false
+            if (!validateRuntimeConfig(ticket.generation, config, hardenedConfig)) {
+                return@runCatching false
+            }
 
             if (!startStillCurrent(ticket.generation)) return@runCatching false
 

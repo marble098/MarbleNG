@@ -359,15 +359,62 @@ object ProxyParser {
         return prof(raw, u.fragment ?: "SS $host", "ss", host!!, port, "native", "none", base(out), sid, sname)
     }
 
+    /**
+     * Hysteria2 share links are not sing-box or mihomo links. Xray's v26 config loader expects the
+     * native `hysteria` outbound plus `streamSettings.hysteriaSettings`; Salamander is an Xray UDP
+     * mask under `streamSettings.udpmasks`, not an `obfs` object on the outbound.
+     */
     private fun parseHy2(raw: String, sid: String, sname: String): ProxyProfile {
-        val u = Uri.parse(raw); val host = u.host ?: error("host"); val port = u.port.takeIf { it > 0 } ?: 443
-        val tls = JSONObject().put("serverName", qa(u, "sni", "serverName", default = host))
-            .put("fingerprint", qa(u, "fp", "fingerprint", default = "chrome")).put("alpn", JSONArray().put("h3"))
-            .apply { if (qa(u, "allowInsecure", "insecure") in setOf("1", "true")) put("allowInsecure", true) }
-        val st = JSONObject().put("method", "hysteria").put("security", "tls").put("tlsSettings", tls)
-            .put("hysteriaSettings", JSONObject().put("version", 2).put("auth", dec(u.userInfo)))
-        val out = JSONObject().put("tag", "proxy").put("protocol", "hysteria")
-            .put("settings", JSONObject().put("version", 2).put("address", host).put("port", port)).put("streamSettings", st)
+        val u = Uri.parse(raw)
+        val host = u.host ?: error("Hysteria2 host is missing")
+        val port = u.port.takeIf { it > 0 } ?: 443
+        val auth = dec(u.userInfo)
+        require(auth.isNotBlank()) { "Hysteria2 authentication is missing" }
+
+        val alpns = qa(u, "alpn", default = "h3")
+            .split(',', ';')
+            .map(String::trim)
+            .filter(String::isNotBlank)
+            .ifEmpty { listOf("h3") }
+        val tls = JSONObject()
+            .put("serverName", qa(u, "sni", "serverName", default = host))
+            .put("fingerprint", qa(u, "fp", "fingerprint", default = "chrome"))
+            .put("alpn", JSONArray(alpns))
+            .apply {
+                if (qa(u, "allowInsecure", "insecure") in setOf("1", "true")) {
+                    put("allowInsecure", true)
+                }
+            }
+
+        val hysteria = JSONObject()
+            .put("version", 2)
+            .put("auth", auth)
+        val st = JSONObject()
+            .put("method", "hysteria")
+            .put("security", "tls")
+            .put("tlsSettings", tls)
+            .put("hysteriaSettings", hysteria)
+
+        val obfs = qa(u, "obfs").trim().lowercase()
+        if (obfs.isNotBlank()) {
+            require(obfs == "salamander") { "Unsupported Xray Hysteria2 obfs: $obfs" }
+            val obfsPassword = qa(u, "obfs-password", "obfsPassword", "obfs_password")
+            require(obfsPassword.isNotBlank()) { "Hysteria2 Salamander password is missing" }
+            st.put(
+                "udpmasks",
+                JSONArray().put(
+                    JSONObject()
+                        .put("type", "salamander")
+                        .put("settings", JSONObject().put("password", obfsPassword))
+                )
+            )
+        }
+
+        val out = JSONObject()
+            .put("tag", "proxy")
+            .put("protocol", "hysteria")
+            .put("settings", JSONObject().put("version", 2).put("address", host).put("port", port))
+            .put("streamSettings", st)
         return prof(raw, u.fragment ?: "Hysteria2 $host", "hysteria2", host, port, "hysteria", "tls", base(out), sid, sname)
     }
 

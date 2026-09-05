@@ -62,7 +62,8 @@ data class MarbleStrings(
     val retestPing: String,
     val measuring: String,
     // MARBLE_PING_FIXED_GEOMETRY_V114 — the ping readout is a fixed-size instrument: the value
-    // slot only ever holds digit-shaped glyphs, and the words live in the reserved hint slot.
+    // slot holds a measured number, in-flight dots, a dash, or an explicit failure mark; long
+    // explanatory words live in the reserved hint slot.
     val pingMeasuringValue: String,
     val pingIdleValue: String,
     val notMeasured: String,

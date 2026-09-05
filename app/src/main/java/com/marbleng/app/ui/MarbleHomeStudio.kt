@@ -10,24 +10,20 @@ package com.marbleng.app.ui
 //
 //   1. [HomeSelectedRouteCard]  the only server on the page: the selected node and the group it
 //      was chosen from. Home never renders a list, so "group 1 of 10" is a fact, not a menu.
-//   2. [HomePowerStage]         the chosen connection control with the live ping meter beside it.
-//   3. [HomeLivePingMeter]      the instrument that opens with an animation while the route comes
-//      up. It only ever measures the one server the tunnel is attached to.
+//   2. [HomePowerStage]         the chosen connection control with inline ping evidence.
+//   3. [HomeLivePingEffect]      telemetry orchestration with no layout of its own.
 //   4. [HomeShortcutDeck]       add / paste / QR / always-visible ping, sitting above the banner.
 //   5. [ConnectButtonStream]    the floor bar with a light band travelling right → left.
 //   6. [ConnectButtonFloating]  the compact pill docked above the bottom of the page.
 
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -40,7 +36,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -50,11 +45,8 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -65,7 +57,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.marbleng.app.model.ConnectionPingState
 import kotlinx.coroutines.delay
-import kotlin.math.max
 
 // ---------------------------------------------------------------------------------------------
 // Live ping constants
@@ -80,12 +71,6 @@ import kotlin.math.max
  * genuinely up. Close the meter or drop the tunnel and the ladder stops immediately.
  */
 internal const val LIVE_PING_INTERVAL_MS = 3_000L
-
-/** Samples kept for the meter's sparkline. */
-internal const val LIVE_PING_HISTORY = 24
-
-/** Full-scale latency of the arc gauge, in milliseconds. */
-internal const val LIVE_PING_FULL_SCALE_MS = 400
 
 // ---------------------------------------------------------------------------------------------
 // 1. The selected route
@@ -208,352 +193,49 @@ internal fun HomeSelectedRouteCard(
 }
 
 // ---------------------------------------------------------------------------------------------
-// 2. Live ping meter
+// 2. Inline live ping evidence
 // ---------------------------------------------------------------------------------------------
 
 /**
- * MARBLE_HOME_LIVE_PING_V132 — the instrument that measures the attached route.
- *
- * A compact latency meter in the spirit of the dedicated ping utilities: an arc gauge for the
- * current sample, the number in the middle, a sparkline of the last probes underneath and the
- * name of the ONE server being measured. It never ranks, never compares and never touches
- * another node — it re-arms [HomeActions.onTestPing], which measures the live tunnel and nothing
- * else, so the value on screen is always the latency of the server the user is attached to.
- *
- * MARBLE_LIVE_PING_FIXED_SLOT_V135 — the meter owns a PERMANENT layout slot: it is composed in
- * every connection state and [visible] only animates its opacity and interactivity. The old
- * `AnimatedVisibility` reveal inserted the instrument into the layout the moment a connect fired,
- * which grew the hero and pushed every readout below it — the "everything jumps" defect users
- * reported after tapping Connect. A slot that never appears and never disappears can never move
- * anything. The meter is the visual companion of the connect control: same elevated glass, the
- * control's own state tone in its hairline and wash, revealed only once the control itself has
- * reached the CONNECTED state.
+ * MARBLE_HOME_PING_RESCUE_V112 — a cold-tunnel miss is retried by the same bounded probe loop,
+ * but unlike the retired rescue row this effect owns no visual slot. It re-arms the repository's
+ * one-shot verified HTTPS probe while Home is composed and the route is connected. This is
+ * telemetry orchestration only; it deliberately has no layout of its own. The result is rendered
+ * by the fixed bounds of the selected connection control.
  */
 @Composable
-internal fun HomeLivePingMeter(
+internal fun HomeLivePingEffect(
     evidence: HomeEvidence,
-    actions: HomeActions,
-    tone: Color,
-    modifier: Modifier = Modifier,
-    active: Boolean = true,
-    visible: Boolean = true
+    actions: HomeActions
 ) {
-    val t = Tr.now
-    val measuring = evidence.pingState == ConnectionPingState.MEASURING
-    val measured = evidence.pingState == ConnectionPingState.MEASURED
-    val samples = remember { mutableStateListOf<Int>() }
-
-    // One history point per completed measurement, never per recomposition.
-    LaunchedEffect(evidence.pingMs, evidence.pingState) {
-        if (evidence.pingState == ConnectionPingState.MEASURED && evidence.pingMs > 0) {
-            samples.add(evidence.pingMs)
-            while (samples.size > LIVE_PING_HISTORY) samples.removeAt(0)
+    LaunchedEffect(evidence.connected, evidence.pingState) {
+        if (!evidence.connected || evidence.pingState == ConnectionPingState.MEASURING) {
+            return@LaunchedEffect
         }
-    }
-
-    // The ladder only runs while the instrument is on screen and the tunnel is genuinely up.
-    // It re-arms the repository's one-shot probe instead of owning a background timer.
-    LaunchedEffect(active, evidence.connected, evidence.pingState) {
-        if (!active || !evidence.connected) return@LaunchedEffect
-        if (evidence.pingState == ConnectionPingState.MEASURING) return@LaunchedEffect
         delay(LIVE_PING_INTERVAL_MS)
         if (evidence.connected && evidence.pingState != ConnectionPingState.MEASURING) {
             actions.onTestPing()
         }
     }
-
-    val band = if (measured) pingMetricBand(evidence.pingMs) else MarbleMetricBand.UNKNOWN
-    val valueTone = if (measured) marbleMetricTone(band) else tone
-    val fill = if (measured) {
-        (1f - evidence.pingMs / LIVE_PING_FULL_SCALE_MS.toFloat()).coerceIn(.06f, 1f)
-    } else {
-        0f
-    }
-    val animatedFill by animateFloatAsState(
-        targetValue = fill,
-        animationSpec = MarbleMotionSpecs.HeroFloat,
-        label = "live-ping-fill"
-    )
-    val pulse = if (measuring) MarbleMotion.current.loop(1_200) else 0f
-
-    val shape = RoundedCornerShape(20.dp)
-    val valueLabel = when {
-        measured -> "${evidence.pingMs}"
-        measuring -> "•••"
-        else -> "—"
-    }
-    val caption = when {
-        !evidence.connected -> t.livePingWaiting
-        else -> evidence.nodeName.ifBlank { t.livePingHint }
-    }
-    // Resolved in composable scope: the semantics lambda below is not a composable context.
-    val spokenPing = homePingLabel(evidence)
-
-    // MARBLE_LIVE_PING_FIXED_SLOT_V135 — opacity is the ONLY reveal: the slot this column
-    // occupies is identical in every state, so nothing around the meter can ever move.
-    val presence by animateFloatAsState(
-        targetValue = if (visible) 1f else 0f,
-        animationSpec = if (visible) MarbleMotionSpecs.ResponseFloat else MarbleMotionSpecs.ExitFloat,
-        label = "live-ping-presence"
-    )
-
-    Column(
-        modifier = modifier
-            .width(150.dp)
-            .graphicsLayer { alpha = presence }
-            .clip(shape)
-            // Companion chrome of the connect control: the same elevated glass as the power
-            // dock, washed and hairlined with the control's own state tone.
-            .background(Aether.VoidElevated.copy(alpha = .88f))
-            .background(
-                Brush.verticalGradient(
-                    listOf(tone.copy(alpha = .12f), Color.Transparent)
-                )
-            )
-            .border(1.dp, tone.copy(alpha = .30f), shape)
-            .kineticClickable(
-                enabled = visible && homePingTappable(evidence),
-                role = Role.Button,
-                boundedShape = shape,
-                onClick = actions.onTestPing
-            )
-            .semantics { contentDescription = "${t.livePing}: $spokenPing" }
-            .padding(horizontal = 11.dp, vertical = 9.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(5.dp)
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(5.dp)
-        ) {
-            Box(
-                Modifier
-                    .size(6.dp)
-                    .clip(CircleShape)
-                    .background(valueTone.copy(alpha = if (measuring) .35f + .65f * pulse else 1f))
-            )
-            Text(
-                t.livePing.uppercase(),
-                color = Aether.InkFaint,
-                style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 1.6.sp),
-                fontWeight = FontWeight.Bold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f)
-            )
-        }
-
-        // Arc gauge + the number inside it: one glance, no reading required.
-        Box(contentAlignment = Alignment.Center) {
-            Canvas(Modifier.size(78.dp, 46.dp)) {
-                val w = size.width
-                val h = size.height
-                val stroke = 7.dp.toPx()
-                val box = Size(w, h * 2f)
-                drawArc(
-                    color = valueTone.copy(alpha = .16f),
-                    startAngle = 180f,
-                    sweepAngle = 180f,
-                    useCenter = false,
-                    topLeft = Offset(0f, 0f),
-                    size = box,
-                    style = Stroke(width = stroke, cap = StrokeCap.Round)
-                )
-                if (animatedFill > 0.01f) {
-                    drawArc(
-                        color = valueTone,
-                        startAngle = 180f,
-                        sweepAngle = 180f * animatedFill,
-                        useCenter = false,
-                        topLeft = Offset(0f, 0f),
-                        size = box,
-                        style = Stroke(width = stroke, cap = StrokeCap.Round)
-                    )
-                }
-            }
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Row(verticalAlignment = Alignment.Bottom) {
-                    Text(
-                        valueLabel,
-                        color = Aether.Ink,
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Black,
-                        maxLines = 1,
-                        softWrap = false
-                    )
-                    if (measured) {
-                        Text(
-                            " ms",
-                            color = Aether.InkMuted,
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1
-                        )
-                    }
-                }
-            }
-        }
-
-        // Sparkline: the shape of the last probes, so a spike reads as context, not as a failure.
-        if (samples.size >= 2) {
-            Canvas(
-                Modifier
-                    .fillMaxWidth()
-                    .height(20.dp)
-            ) {
-                val peak = max(1, samples.maxOrNull() ?: 0)
-                val floorValue = 0
-                val span = (peak - floorValue).coerceAtLeast(1)
-                val stepX = size.width / (samples.size - 1).coerceAtLeast(1)
-                val path = Path()
-                samples.forEachIndexed { index, value ->
-                    val x = index * stepX
-                    val y = size.height - (size.height * ((value - floorValue).toFloat() / span.toFloat()))
-                        .coerceIn(.08f, 1f)
-                    if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
-                }
-                drawPath(
-                    path,
-                    valueTone,
-                    style = Stroke(
-                        width = 2.dp.toPx(),
-                        cap = StrokeCap.Round,
-                        join = StrokeJoin.Round
-                    )
-                )
-            }
-        } else {
-            Spacer(Modifier.height(20.dp))
-        }
-
-        Text(
-            caption,
-            color = Aether.InkMuted,
-            style = MaterialTheme.typography.labelSmall,
-            textAlign = TextAlign.Center,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-    }
 }
 
 /**
- * MARBLE_HOME_LIVE_PING_V132 — the same instrument as a free-standing slab.
- *
- * The two classic presentations keep their own hero geometry, so they host the meter as its own
- * row directly beneath the connect control instead of inside it. The contract is identical: the
- * meter measures only the connected server.
- *
- * MARBLE_LIVE_PING_FIXED_SLOT_V135 — the slab is a PERMANENT row. It used to be an
- * `AnimatedVisibility` that entered the layout when a connect fired; entering the layout is
- * exactly what pushed the status headline, the identity block and every readout beneath it down
- * the page. The row is now always measured, the instrument is always composed, and only its
- * opacity reveals it — the moment the connect control itself reaches CONNECTED, never before.
- */
-@Composable
-internal fun HomeLivePingSlab(
-    evidence: HomeEvidence,
-    actions: HomeActions,
-    tone: Color,
-    modifier: Modifier = Modifier
-) {
-    Box(
-        modifier = modifier.fillMaxWidth(),
-        contentAlignment = Alignment.Center
-    ) {
-        HomeLivePingMeter(
-            evidence = evidence,
-            actions = actions,
-            tone = tone,
-            visible = evidence.connected
-        )
-    }
-}
-
-/**
- * MARBLE_HOME_LIVE_PING_V132 — the connection control with its live ping instrument.
- *
- * The meter sits in a reserved slot so the control never moves when it opens: the slot is always
- * measured, and only its contents animate. On wide layouts (landscape, tablets) the pair renders
- * side by side; on a portrait phone the meter opens above the control.
+ * The stage is intentionally only a bounds-preserving host for the control. Live ping is an
+ * inline child of each silhouette, never a sibling row or a reserved meter column. Keeping this
+ * wrapper for the Signature call sites makes that invariant explicit without changing their
+ * public composition contract.
  */
 @Composable
 internal fun HomePowerStage(
-    evidence: HomeEvidence,
-    tone: Color,
-    actions: HomeActions,
     modifier: Modifier = Modifier,
-    meterEnabled: Boolean = true,
-    sideBySide: Boolean? = null,
     control: @Composable () -> Unit
 ) {
-    // MARBLE_LIVE_PING_FIXED_SLOT_V135 — the instrument is revealed only once the connect control
-    // has reached CONNECTED (never during the CONNECTING ramp), and the reveal is an opacity fade
-    // inside a permanently measured slot. The control and everything around it keeps its exact
-    // geometry in every state.
-    val visible = evidence.connected && meterEnabled
-
-    BoxWithConstraints(modifier = modifier, contentAlignment = Alignment.Center) {
-        // `null` means "decide from the available width". Side by side only when BOTH 140 dp
-        // instrument slots fit beside the widest silhouette (the 340 dp slide track) — the two
-        // slots are weighted, so the control always keeps its exact centre and can never be
-        // pushed off screen. On a portrait phone the instrument stacks above the control.
-        val beside = sideBySide ?: (maxWidth >= 640.dp)
-
-        if (beside) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(
-                    modifier = Modifier.weight(1f),
-                    contentAlignment = Alignment.CenterEnd
-                ) {
-                    StageMeter(
-                        visible = visible,
-                        evidence = evidence,
-                        actions = actions,
-                        tone = tone
-                    )
-                }
-                control()
-                Spacer(Modifier.weight(1f))
-            }
-        } else {
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                StageMeter(
-                    visible = visible,
-                    evidence = evidence,
-                    actions = actions,
-                    tone = tone
-                )
-                control()
-            }
-        }
+    Box(
+        modifier = modifier,
+        contentAlignment = Alignment.Center
+    ) {
+        control()
     }
-}
-
-@Composable
-private fun StageMeter(
-    visible: Boolean,
-    evidence: HomeEvidence,
-    actions: HomeActions,
-    tone: Color
-) {
-    // MARBLE_LIVE_PING_FIXED_SLOT_V135 — no AnimatedVisibility here: inserting/removing the meter
-    // from composition is precisely what changed the stage height and moved the connect control.
-    // The meter is always composed; `visible` only fades it.
-    HomeLivePingMeter(
-        evidence = evidence,
-        actions = actions,
-        tone = tone,
-        visible = visible
-    )
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -784,6 +466,7 @@ internal fun ConnectButtonStream(
                     softWrap = false,
                     overflow = TextOverflow.Ellipsis
                 )
+                HomeInlinePingBadge(evidence = evidence, tone = animatedTone)
             }
             // End-of-track lamp: the floor bar states the line condition without words.
             Box(
@@ -885,6 +568,7 @@ internal fun ConnectButtonFloating(
                 softWrap = false,
                 overflow = TextOverflow.Ellipsis
             )
+            HomeInlinePingBadge(evidence = evidence, tone = animatedTone)
         }
     }
 }
