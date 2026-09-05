@@ -171,7 +171,7 @@ class GeoAssetIndexTest {
         val site = geositeFile(geoSite("google", listOf(domain(2, "google.com"))))
         val dir = tmp.newFolder()
         File(dir, "geosite.dat").writeBytes(site + byteArrayOf(0x7F, 0x2A, 0x11)) // junk tail
-        File(dir, "geoip.dat").writeBytes(byteArrayOf(0xFF, 0xFF.toByte(), 0x01))
+        File(dir, "geoip.dat").writeBytes(byteArrayOf(0xFF.toByte(), 0xFF.toByte(), 0x01))
 
         val snapshot = GeoAssetIndex.update(dir)
         // The well-formed entries still landed; the junk ended the scan where it started.
