@@ -36,6 +36,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
@@ -1915,7 +1916,7 @@ internal fun HomePowerControl(
  * MARBLE_CONNECT_BUTTON_V121 — the Home tree provides the user's chosen silhouette here so every
  * [HomePowerControl] call site resolves it identically.
  */
-internal val LocalConnectButtonStyle = compositionLocalOf { ConnectButtonStyle.ROUND }
+internal val LocalConnectButtonStyle = staticCompositionLocalOf { ConnectButtonStyle.ROUND }
 
 /**
  * MARBLE_CONNECT_PLACEMENT_V123 — the chrome behind the docked classic power bar. A slim ambient
