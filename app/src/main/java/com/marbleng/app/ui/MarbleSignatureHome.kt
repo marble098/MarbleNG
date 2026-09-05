@@ -284,7 +284,7 @@ internal fun HomeStyleSignature(
                             evidence = evidence,
                             tone = tone,
                             onToggle = actions.onToggleConnection,
-                            flavor = HomeFlavor.PRO,
+                            flavor = HomeFlavor.IOS_SLIDER,
                             modifier = if (zone == ConnectControlZone.HERO_FLOOR) {
                                 Modifier.padding(bottom = 22.dp)
                             } else {
@@ -309,7 +309,7 @@ internal fun HomeStyleSignature(
                         evidence = evidence,
                         tone = tone,
                         onToggle = actions.onToggleConnection,
-                        flavor = HomeFlavor.PRO,
+                        flavor = HomeFlavor.IOS_SLIDER,
                         modifier = Modifier.fillMaxWidth()
                     )
                 }
@@ -341,7 +341,7 @@ internal fun HomeStyleSignature(
                         evidence = evidence,
                         tone = tone,
                         onToggle = actions.onToggleConnection,
-                        flavor = HomeFlavor.PRO,
+                        flavor = HomeFlavor.IOS_SLIDER,
                         style = ConnectButtonStyle.FLOATING
                     )
                 }

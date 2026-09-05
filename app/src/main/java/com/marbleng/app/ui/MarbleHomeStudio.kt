@@ -949,7 +949,7 @@ internal fun HomeFloorDock(
             evidence = evidence,
             tone = tone,
             onToggle = onToggle,
-            flavor = HomeFlavor.PRO,
+            flavor = HomeFlavor.IOS_SLIDER,
             modifier = Modifier.fillMaxWidth()
         )
     }
