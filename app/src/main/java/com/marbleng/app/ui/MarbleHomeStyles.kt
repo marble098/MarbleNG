@@ -103,6 +103,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.marbleng.app.AppRepository
 import com.marbleng.app.ServerIntelInfo
+import com.marbleng.app.core.ServersFilter
 import com.marbleng.app.core.ServersQuery
 import com.marbleng.app.model.ConnectionPingState
 import com.marbleng.app.model.ConnectButtonStyle
@@ -370,6 +371,18 @@ internal fun ConnectButtonCaption(
     )
 }
 
+/**
+ * The connection control.
+ *
+ * Deliberately carries NO quality ring: link quality lives in its own readouts, and wrapping the
+ * primary action in a score made the button's own state ambiguous. Every Home presentation shares
+ * the exact same control, in the silhouette the user picked in Settings.
+ *
+ * MARBLE_CONNECT_BUTTON_V121 — the silhouette is resolved in order: an explicit per-call style,
+ * then the user's Settings choice, then the product default. The iOS themes keep their own
+ * [IosSlideToConnect] for the dedicated slider theme; every shared call site renders through this
+ * entry point so the Home evidence and action contract stays identical everywhere.
+ */
 @Composable
 internal fun HomePowerControl(
     evidence: HomeEvidence,
@@ -381,23 +394,695 @@ internal fun HomePowerControl(
     haloBrush: Brush? = null,
     style: ConnectButtonStyle? = null
 ) {
-    val resolved = style ?: LocalConnectButtonStyle.current
-    when (resolved) {
-        ConnectButtonStyle.SLIDE -> {
-            IosSlideToConnect(
-                evidence = evidence,
-                tone = tone,
-                onToggle = onToggle,
-                modifier = modifier
+    MarbleConnectionButton(
+        evidence = evidence,
+        tone = tone,
+        onToggle = onToggle,
+        flavor = flavor,
+        modifier = modifier,
+        diameter = diameter,
+        haloBrush = haloBrush,
+        style = style ?: LocalConnectButtonStyle.current
+    )
+}
+
+// ---------------------------------------------------------------------------------------------
+// MARBLE_CONNECT_BUTTON_V121 — the one connection button of the product, in every silhouette
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * MARBLE_CONNECT_BUTTON_V121 — the semantic colour of the primary action.
+ *
+ * The connect control is the one element of the product whose meaning must be readable in a
+ * quarter of a second, so its colour is a pure function of the runtime state and nothing else:
+ *
+ *  | state          | tone                               |
+ *  |----------------|------------------------------------|
+ *  | disconnected   | ice blue  — armed and ready        |
+ *  | connecting     | amethyst  — work in progress       |
+ *  | connected      | emerald   — protected              |
+ *  | disconnecting  | amber     — winding the tunnel down|
+ *  | fail-closed    | danger    — blocked, needs a reset |
+ *
+ * Every transition between them is animated ([MarbleMotionSpecs.Color]); the control itself never
+ * moves, floats, drifts or resizes.
+ */
+@Composable
+internal fun connectButtonTone(evidence: HomeEvidence): Color = when {
+    evidence.blocked -> Aether.Danger
+    evidence.disconnecting -> Aether.Amber
+    evidence.connecting -> Aether.Amethyst
+    evidence.connected -> Aether.Emerald
+    else -> Aether.Cyan
+}
+
+/**
+ * MARBLE_CONNECT_BUTTON_V121 — the one connection button of the product, in five silhouettes.
+ *
+ *  - [ConnectButtonStyle.ROUND]    the large round shutter (default), centred in the hero;
+ *  - [ConnectButtonStyle.SLIDE]    a slide-to-connect track dragged from left to right;
+ *  - [ConnectButtonStyle.CLASSIC]  the classic rectangular power switch, docked under the hero;
+ *  - [ConnectButtonStyle.STREAM]   the full-width floor bar with a travelling light band;
+ *  - [ConnectButtonStyle.FLOATING] the compact pill docked at the bottom-end corner.
+ *
+ * Rules shared by all five: the control never changes position or size, never floats and never
+ * breathes. Only its colour, its copy and — while a route is actually being secured — a single
+ * progress indicator animate, so the button is calm at rest and unmistakable while it works.
+ *
+ * The two docked silhouettes live in `MarbleHomeStudio.kt` and are dispatched here so every Home
+ * presentation reaches them through the same evidence and action contract.
+ */
+@Composable
+internal fun MarbleConnectionButton(
+    evidence: HomeEvidence,
+    tone: Color,
+    onToggle: () -> Unit,
+    @Suppress("UNUSED_PARAMETER") flavor: HomeFlavor,
+    modifier: Modifier = Modifier,
+    diameter: Dp = 168.dp,
+    haloBrush: Brush? = null,
+    style: ConnectButtonStyle = ConnectButtonStyle.ROUND
+) {
+    val stateTone = connectButtonTone(evidence)
+    val animatedTone by animateColorAsState(
+        targetValue = stateTone,
+        animationSpec = MarbleMotionSpecs.Color,
+        label = "marble-connection-tone"
+    )
+    // The one action the control is busy with cannot be re-triggered by an impatient tap.
+    val armed = !evidence.disconnecting
+
+    when (style) {
+        ConnectButtonStyle.ROUND -> ConnectButtonRound(
+            evidence = evidence,
+            accent = tone,
+            animatedTone = animatedTone,
+            armed = armed,
+            onToggle = onToggle,
+            modifier = modifier,
+            diameter = diameter,
+            haloBrush = haloBrush
+        )
+
+        ConnectButtonStyle.SLIDE -> ConnectButtonSlide(
+            evidence = evidence,
+            animatedTone = animatedTone,
+            armed = armed,
+            onToggle = onToggle,
+            modifier = modifier,
+            width = (diameter * 2.1f).coerceIn(240.dp, 340.dp)
+        )
+
+        ConnectButtonStyle.CLASSIC -> ConnectButtonClassic(
+            evidence = evidence,
+            animatedTone = animatedTone,
+            armed = armed,
+            onToggle = onToggle,
+            modifier = modifier,
+            width = (diameter * 1.55f).coerceIn(200.dp, 280.dp)
+        )
+
+        // MARBLE_CONNECT_BUTTON_STYLES_V132 — the two bottom-docked silhouettes. Both are
+        // full-bleed by nature, so they take the caller's modifier and never a derived width.
+        ConnectButtonStyle.STREAM -> ConnectButtonStream(
+            evidence = evidence,
+            animatedTone = animatedTone,
+            armed = armed,
+            onToggle = onToggle,
+            modifier = modifier
+        )
+
+        ConnectButtonStyle.FLOATING -> ConnectButtonFloating(
+            evidence = evidence,
+            animatedTone = animatedTone,
+            armed = armed,
+            onToggle = onToggle,
+            modifier = modifier
+        )
+    }
+}
+
+/**
+ * Style 1 — the round shutter. Big, centred, fixed. A hairline rim states the state colour, and a
+ * single indeterminate arc is drawn only while the route is actually being secured or closed.
+ *
+ * MARBLE_HOME_V137 — Style A (Classic). The tap answers the finger: the face compresses under
+ * pressure and springs back, an acknowledgement ring expands outward once, the securing arc
+ * rotates with a breathing pulse while busy, and the connected ring glows with a slow halo
+ * instead of sitting static. Disconnected stays calm — a resting instrument, not a screensaver.
+ */
+@Composable
+private fun ConnectButtonRound(
+    evidence: HomeEvidence,
+    accent: Color,
+    animatedTone: Color,
+    armed: Boolean,
+    onToggle: () -> Unit,
+    modifier: Modifier,
+    diameter: Dp,
+    haloBrush: Brush?
+) {
+    val motion = MarbleMotion.current
+    val busy = evidence.connecting || evidence.disconnecting
+    val sweep = if (busy) motion.loop(1_150) * 360f else 0f
+    // The securing arc breathes while it rotates: width and alpha pulse on a shared clock.
+    val busyPulse = if (busy) motion.breathe(1_150) else 0f
+    // The connected halo breathes slowly; disconnected holds still.
+    val haloPulse = if (evidence.connected) motion.breathe(2_800) else 0f
+    val label = homeActionLabel(evidence)
+    // One-shot acknowledgement ring: 0 = rest, 1 = fully expanded and faded.
+    val tapRipple = remember { Animatable(0f) }
+    val rippleScope = rememberCoroutineScope()
+    // The icon eases between its connected/disconnected sizes instead of jumping.
+    val iconFraction by animateFloatAsState(
+        targetValue = if (evidence.connected) .22f else .26f,
+        animationSpec = MarbleMotionSpecs.ResponseFloat,
+        label = "round-icon-size"
+    )
+
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Box(
+            modifier = Modifier
+                .size(diameter)
+                .shadow(
+                    elevation = 16.dp,
+                    shape = CircleShape,
+                    clip = false,
+                    ambientColor = animatedTone.copy(alpha = .24f),
+                    spotColor = animatedTone.copy(alpha = .34f)
+                )
+                .clip(CircleShape)
+                .background(
+                    haloBrush ?: Brush.radialGradient(
+                        listOf(
+                            animatedTone.copy(alpha = .22f),
+                            animatedTone.copy(alpha = .07f)
+                        )
+                    )
+                )
+                .background(
+                    Brush.radialGradient(
+                        listOf(Color.Transparent, accent.copy(alpha = .05f))
+                    )
+                )
+                .kineticClickable(
+                    enabled = armed,
+                    role = Role.Button,
+                    pressScale = .94f,
+                    boundedShape = CircleShape,
+                    onClick = {
+                        // The acknowledgement ring expands outward once per tap, on the shared
+                        // response spring, while the press scale (owned by kineticClickable)
+                        // compresses and releases the face.
+                        rippleScope.launch {
+                            tapRipple.snapTo(0f)
+                            tapRipple.animateTo(1f, MarbleMotionSpecs.ResponseFloat)
+                        }
+                        onToggle()
+                    }
+                )
+                .semantics { contentDescription = "$label connection button" },
+            contentAlignment = Alignment.Center
+        ) {
+            Canvas(Modifier.matchParentSize().padding(10.dp)) {
+                val r = size.minDimension / 2f
+                val c = Offset(size.width / 2f, size.height / 2f)
+                // Outer rim — the calm resting statement of the current state.
+                drawCircle(
+                    color = animatedTone.copy(alpha = .22f),
+                    radius = r * .94f,
+                    center = c,
+                    style = Stroke(width = 1.6.dp.toPx())
+                )
+                // Inner face.
+                drawCircle(
+                    color = animatedTone.copy(alpha = .10f),
+                    radius = r * .70f,
+                    center = c
+                )
+                when {
+                    busy -> {
+                        // Rotating securing arc with a breathing pulse: the width swells and the
+                        // alpha lifts on the shared clock, so progress reads as alive, not stuck.
+                        drawArc(
+                            color = animatedTone.copy(alpha = .85f + .15f * busyPulse),
+                            startAngle = -90f + sweep,
+                            sweepAngle = 104f,
+                            useCenter = false,
+                            topLeft = Offset(c.x - r * .80f, c.y - r * .80f),
+                            size = Size(r * 1.60f, r * 1.60f),
+                            style = Stroke(
+                                width = (4.2f + 1.6f * busyPulse).dp.toPx(),
+                                cap = StrokeCap.Round
+                            )
+                        )
+                        // Faint full track so the arc travels a visible orbit.
+                        drawCircle(
+                            color = animatedTone.copy(alpha = .18f),
+                            radius = r * .80f,
+                            center = c,
+                            style = Stroke(width = 2.dp.toPx())
+                        )
+                    }
+
+                    evidence.connected -> {
+                        // Breathing halo: the ring swells outward a touch and glows, on a slow
+                        // loop that never distracts.
+                        drawCircle(
+                            color = animatedTone.copy(alpha = .16f + .10f * haloPulse),
+                            radius = r * (.84f + .03f * haloPulse),
+                            center = c,
+                            style = Stroke(width = 2.dp.toPx())
+                        )
+                        drawCircle(
+                            color = animatedTone.copy(alpha = .74f + .14f * haloPulse),
+                            radius = r * (.80f + .012f * haloPulse),
+                            center = c,
+                            style = Stroke(width = 4.dp.toPx())
+                        )
+                    }
+
+                    else -> drawCircle(
+                        color = animatedTone.copy(alpha = .45f),
+                        radius = r * .80f,
+                        center = c,
+                        style = Stroke(width = 2.4.dp.toPx())
+                    )
+                }
+                // Tap acknowledgement: one ring expanding outward and fading, driven by the
+                // one-shot ripple progress. Invisible at rest (progress 0 or 1).
+                val ripple = tapRipple.value
+                if (ripple in 0.001f..0.999f) {
+                    drawCircle(
+                        color = animatedTone.copy(alpha = .55f * (1f - ripple)),
+                        radius = r * (.70f + .30f * ripple),
+                        center = c,
+                        style = Stroke(width = (3f * (1f - ripple) + 1f).dp.toPx())
+                    )
+                }
+            }
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                HomeGlyphIcon(
+                    connectButtonGlyph(evidence),
+                    animatedTone,
+                    Modifier.size(diameter * iconFraction)
+                )
+                if (evidence.connected) {
+                    Spacer(Modifier.height(4.dp))
+                    val pingLabel = when {
+                        evidence.pingState == ConnectionPingState.MEASURED && evidence.pingMs >= 20 -> "${evidence.pingMs} ms"
+                        evidence.pingState == ConnectionPingState.MEASURING -> "•••"
+                        evidence.pingState == ConnectionPingState.FAILED -> "✕"
+                        else -> "—"
+                    }
+                    val pingTone = when {
+                        evidence.pingState == ConnectionPingState.MEASURED && evidence.pingMs >= 20 -> marbleMetricTone(pingMetricBand(evidence.pingMs))
+                        evidence.pingState == ConnectionPingState.FAILED -> Aether.Danger
+                        else -> animatedTone
+                    }
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(3.dp),
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(animatedTone.copy(alpha = .14f))
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    ) {
+                        Box(
+                            Modifier
+                                .size(4.dp)
+                                .clip(CircleShape)
+                                .background(pingTone)
+                        )
+                        Text(
+                            pingLabel,
+                            color = pingTone,
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontWeight = FontWeight.Bold,
+                                fontFeatureSettings = "tnum",
+                                fontSize = 11.sp
+                            ),
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.height(10.dp))
+        ConnectButtonCaption(evidence, animatedTone)
+    }
+}
+
+
+/**
+ * Style 2 — slide to connect.
+ *
+ * A safety switch: the user drags the knob from left to right across the track to arm or close
+ * the tunnel. The knob is the only thing that ever moves, it follows the finger exactly, and it
+ * springs back when the gesture is released before the end of the track, so a pocket tap can
+ * never toggle the connection. The gesture is pinned to LTR because it is a physical, screen-space
+ * control: it reads left → right in Persian exactly as it does in English.
+ *
+ * MARBLE_HOME_V137 — Style B (Lumen swipe). Crossing the generous threshold answers with a
+ * haptic tick and lights the end chevrons; releasing past it flies the knob home through the
+ * end first (a visible completion beat) instead of vanishing mid-track; releasing short of it
+ * springs back with the response spring. The track fill deepens with progress so the drag reads
+ * as charging the action.
+ */
+@Composable
+private fun ConnectButtonSlide(
+    evidence: HomeEvidence,
+    animatedTone: Color,
+    armed: Boolean,
+    onToggle: () -> Unit,
+    modifier: Modifier,
+    width: Dp
+) {
+    val motion = MarbleMotion.current
+    val density = LocalDensity.current
+    val haptics = LocalHapticFeedback.current
+    val trackHeight = 66.dp
+    val knobSize = 54.dp
+    val padding = 6.dp
+    val travelDp = width - knobSize - padding * 2
+    val travelPx = with(density) { travelDp.toPx() }.coerceAtLeast(1f)
+    val shape = RoundedCornerShape(trackHeight / 2)
+    val busy = evidence.connecting || evidence.disconnecting
+    val label = homeActionLabel(evidence)
+    // Generous on purpose: the last fifth of the travel is all commitment.
+    val threshold = .78f
+
+    val scope = rememberCoroutineScope()
+    val knob = remember { Animatable(0f) }
+    val progress = (knob.value / travelPx).coerceIn(0f, 1f)
+    val shimmer = if (busy) motion.loop(1_400) else 0f
+    var dragging by remember { mutableStateOf(false) }
+    val thresholdReached = progress >= threshold
+    // One haptic tick at the exact moment the finger crosses the threshold — never while the
+    // knob animates on its own (completion beat, spring-back), only while dragged.
+    LaunchedEffect(thresholdReached, dragging) {
+        if (thresholdReached && dragging) {
+            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+        }
+    }
+
+    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+        Column(
+            modifier = modifier,
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Box(
+                modifier = Modifier
+                    .width(width)
+                    .height(trackHeight)
+                    .clip(shape)
+                    .background(Aether.VoidElevated.copy(alpha = .95f))
+                    .background(
+                        Brush.horizontalGradient(
+                            listOf(
+                                animatedTone.copy(alpha = .20f + .18f * progress),
+                                animatedTone.copy(alpha = .06f)
+                            )
+                        )
+                    )
+                    .border(1.4.dp, animatedTone.copy(alpha = .38f), shape)
+                    .semantics { contentDescription = "$label slider" },
+                contentAlignment = Alignment.CenterStart
+            ) {
+                if (busy) {
+                    Canvas(Modifier.matchParentSize()) {
+                        // One travelling highlight, drawn only while the tunnel is actually
+                        // opening or closing: the track states progress without ever moving.
+                        val x = size.width * shimmer
+                        drawRect(
+                            brush = Brush.horizontalGradient(
+                                listOf(Color.Transparent, animatedTone.copy(alpha = .22f), Color.Transparent),
+                                startX = x - size.width * .22f,
+                                endX = x + size.width * .22f
+                            )
+                        )
+                    }
+                }
+                Text(
+                    label,
+                    color = animatedTone.copy(alpha = .92f),
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    softWrap = false,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        // The threshold chevrons own the end of the track; the word stays clear.
+                        .padding(start = knobSize, end = 44.dp)
+                )
+                // Threshold chevrons: dim at rest, lit once the knob crosses the commitment
+                // point, so the eye knows exactly where the action arms.
+                Canvas(
+                    Modifier
+                        .align(Alignment.CenterEnd)
+                        .padding(end = 14.dp)
+                        .size(width = 22.dp, height = 18.dp)
+                ) {
+                    val chevronTone = animatedTone.copy(
+                        alpha = if (thresholdReached) .95f else .35f
+                    )
+                    val stroke = Stroke(
+                        width = 2.4.dp.toPx(),
+                        cap = StrokeCap.Round,
+                        join = StrokeJoin.Round
+                    )
+                    val midY = size.height / 2f
+                    val arm = size.height * .32f
+                    listOf(size.width * .30f, size.width * .62f).forEach { x ->
+                        drawPath(
+                            path = Path().apply {
+                                moveTo(x - arm * .55f, midY - arm)
+                                lineTo(x + arm * .55f, midY)
+                                lineTo(x - arm * .55f, midY + arm)
+                            },
+                            color = chevronTone,
+                            style = stroke
+                        )
+                    }
+                }
+                Box(
+                    modifier = Modifier
+                        .padding(horizontal = padding)
+                        .offset { IntOffset(knob.value.toInt(), 0) }
+                        .size(knobSize)
+                        .clip(CircleShape)
+                        .background(animatedTone.copy(alpha = .92f))
+                        .pointerInput(armed, travelPx) {
+                            if (!armed) return@pointerInput
+                            detectHorizontalDragGestures(
+                                onDragStart = { dragging = true },
+                                onDragEnd = {
+                                    dragging = false
+                                    // The switch only fires when the knob really crossed the
+                                    // threshold. Completion flies through the end first — one
+                                    // visible beat that the action armed — then springs home.
+                                    // A short drag springs straight back: nothing happened.
+                                    val completed = knob.value >= travelPx * threshold
+                                    scope.launch {
+                                        if (completed) {
+                                            knob.animateTo(
+                                                travelPx,
+                                                MarbleMotionSpecs.QuickReveal
+                                            )
+                                            haptics.performHapticFeedback(
+                                                HapticFeedbackType.TextHandleMove
+                                            )
+                                            onToggle()
+                                        }
+                                        knob.animateTo(0f, MarbleMotionSpecs.ResponseFloat)
+                                    }
+                                },
+                                onDragCancel = {
+                                    dragging = false
+                                    scope.launch {
+                                        knob.animateTo(0f, MarbleMotionSpecs.ResponseFloat)
+                                    }
+                                }
+                            ) { change, amount ->
+                                change.consume()
+                                scope.launch {
+                                    knob.snapTo((knob.value + amount).coerceIn(0f, travelPx))
+                                }
+                            }
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    HomeGlyphIcon(
+                        connectButtonGlyph(evidence),
+                        Aether.Void,
+                        Modifier.size(knobSize * .42f)
+                    )
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            Text(
+                Tr.now.slideToAct,
+                color = Aether.InkFaint,
+                style = MaterialTheme.typography.labelSmall,
+                maxLines = 1,
+                softWrap = false,
+                overflow = TextOverflow.Ellipsis
             )
         }
-        else -> {
-            IosEmbossedConnectButton(
-                evidence = evidence,
-                tone = tone,
-                onToggle = onToggle,
-                modifier = modifier
-            )
+    }
+}
+
+/**
+ * Style 3 — the classic power switch: a rectangle with the old desktop power glyph, a state lamp
+ * and the action word. Nothing about it moves; the lamp and the frame carry the state colour.
+ */
+@Composable
+private fun ConnectButtonClassic(
+    evidence: HomeEvidence,
+    animatedTone: Color,
+    armed: Boolean,
+    onToggle: () -> Unit,
+    modifier: Modifier,
+    width: Dp
+) {
+    val motion = MarbleMotion.current
+    val busy = evidence.connecting || evidence.disconnecting
+    val sweep = if (busy) motion.loop(1_150) * 360f else 0f
+    val shape = RoundedCornerShape(14.dp)
+    val label = homeActionLabel(evidence)
+
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Row(
+            modifier = Modifier
+                .width(width)
+                .height(84.dp)
+                .shadow(
+                    elevation = 10.dp,
+                    shape = shape,
+                    clip = false,
+                    ambientColor = animatedTone.copy(alpha = .20f),
+                    spotColor = animatedTone.copy(alpha = .28f)
+                )
+                .clip(shape)
+                .background(Aether.VoidElevated.copy(alpha = .96f))
+                .background(
+                    Brush.verticalGradient(
+                        listOf(animatedTone.copy(alpha = .16f), animatedTone.copy(alpha = .05f))
+                    )
+                )
+                .border(1.6.dp, animatedTone.copy(alpha = .45f), shape)
+                .kineticClickable(
+                    enabled = armed,
+                    role = Role.Button,
+                    pressScale = 1f,
+                    boundedShape = shape,
+                    onClick = onToggle
+                )
+                .semantics { contentDescription = "$label connection button" }
+                .padding(horizontal = 18.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) {
+                Canvas(Modifier.matchParentSize()) {
+                    val r = size.minDimension / 2f
+                    val c = Offset(size.width / 2f, size.height / 2f)
+                    drawCircle(
+                        color = animatedTone.copy(alpha = .18f),
+                        radius = r * .92f,
+                        center = c,
+                        style = Stroke(width = 1.4.dp.toPx())
+                    )
+                    if (busy) {
+                        drawArc(
+                            color = animatedTone,
+                            startAngle = -90f + sweep,
+                            sweepAngle = 108f,
+                            useCenter = false,
+                            topLeft = Offset(c.x - r * .92f, c.y - r * .92f),
+                            size = Size(r * 1.84f, r * 1.84f),
+                            style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round)
+                        )
+                    }
+                }
+                HomeGlyphIcon(
+                    connectButtonGlyph(evidence),
+                    animatedTone,
+                    Modifier.size(20.dp)
+                )
+            }
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                ConnectButtonCaption(evidence, animatedTone)
+                Text(
+                    homeStatusText(evidence),
+                    color = Aether.InkFaint,
+                    style = MaterialTheme.typography.labelSmall,
+                    maxLines = 1,
+                    softWrap = false,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            // State lamp / live ping: the classic switch shows live line state and ping.
+            if (evidence.connected) {
+                val pingLabel = when {
+                    evidence.pingState == ConnectionPingState.MEASURED && evidence.pingMs >= 20 -> "${evidence.pingMs} ms"
+                    evidence.pingState == ConnectionPingState.MEASURING -> "•••"
+                    evidence.pingState == ConnectionPingState.FAILED -> "✕"
+                    else -> "—"
+                }
+                val pingTone = when {
+                    evidence.pingState == ConnectionPingState.MEASURED && evidence.pingMs >= 20 -> marbleMetricTone(pingMetricBand(evidence.pingMs))
+                    evidence.pingState == ConnectionPingState.FAILED -> Aether.Danger
+                    else -> animatedTone
+                }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(animatedTone.copy(alpha = .14f))
+                        .padding(horizontal = 7.dp, vertical = 3.dp)
+                ) {
+                    Box(
+                        Modifier
+                            .size(5.dp)
+                            .clip(CircleShape)
+                            .background(pingTone)
+                    )
+                    Text(
+                        pingLabel,
+                        color = pingTone,
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontWeight = FontWeight.Bold,
+                            fontFeatureSettings = "tnum"
+                        ),
+                        maxLines = 1,
+                        softWrap = false
+                    )
+                }
+            } else {
+                Box(
+                    Modifier
+                        .size(12.dp)
+                        .clip(CircleShape)
+                        .background(animatedTone)
+                )
+            }
         }
     }
 }
