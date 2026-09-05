@@ -1,7 +1,6 @@
 package com.marbleng.app.core
 
 import com.marbleng.app.model.AppSettings
-import com.marbleng.app.model.ProxyProfile
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -52,13 +51,13 @@ class DpiEvasionPolicyTest {
     }
 
     /**
-     * SNI + TCP-reset DPI uses the chained serverless recipe. The outer hop is the packet
+     * SNI + TCP-reset DPI uses the chained fragment recipe. The outer hop is the packet
      * split (1-1/1-3/5-10), NOT Xray's "tlshello" record-rewriter: real servers (Fastly,
      * Cloudflare, GitHub, AWS — RST, verified on v26.7.28) and Iran's 2026 DPI reject that
      * shape (Xray #4370, #5969). The recipe still chains directly-dialing fragmentation.
      */
     @Test
-    fun sniPlusResetUsesChainedServerlessSplit() {
+    fun sniPlusResetUsesChainedFragmentSplit() {
         val recipe = DpiEvasionPolicy.connectionRecipe(
             IranModeState(
                 active = true,
@@ -122,23 +121,4 @@ class DpiEvasionPolicyTest {
         assertTrue(threw)
     }
 
-    @Test
-    fun serverlessPinsIdentityAndDisablesRotation() {
-        val profile = ProxyProfile(
-            id = ServerlessFreedomEngine.PROFILE_ID,
-            name = ServerlessFreedomEngine.DISPLAY_NAME,
-            scheme = "freedom",
-            raw = "freedom://fragment",
-            configJson = "{}",
-            subscriptionId = ServerlessFreedomEngine.SOURCE_ID
-        )
-        assertTrue(ServerlessFreedomEngine.isServerless(profile))
-        val pinned = ServerlessFreedomEngine.pinSession(AppSettings())
-        assertFalse(pinned.continuousOptimizerEnabled)
-        assertFalse(pinned.smartFallbackEnabled)
-        assertTrue(pinned.identityGuardEnabled)
-        assertTrue(pinned.identityGuardStrictNoFailover)
-        assertTrue(pinned.fragmentEnabled)
-        assertTrue(pinned.fragmentInnerEnabled)
-    }
 }

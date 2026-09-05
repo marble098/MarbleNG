@@ -45,7 +45,7 @@ object NetworkFingerprint {
 }
 
 /**
- * Continuous adaptive scoring engine for Marble Freedom Aegis (MARBLE_SMART_RANK_V90).
+ * Continuous adaptive scoring engine (MARBLE_SMART_RANK_V90).
  *
  * Replaces the one-shot 10-second test with a fixed score by a continuous evaluation loop:
  *

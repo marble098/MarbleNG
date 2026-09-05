@@ -173,7 +173,6 @@ import com.marbleng.app.core.ProtocolTally
 import com.marbleng.app.core.QrCode
 import com.marbleng.app.core.QrEcc
 import com.marbleng.app.core.ServerCountry
-import com.marbleng.app.core.ServerlessFreedomEngine
 import com.marbleng.app.core.ServersFilter
 import com.marbleng.app.core.ServersQuery
 import com.marbleng.app.model.*
@@ -892,7 +891,7 @@ private fun compactInAppMessage(raw: String): String {
     val lower = message.lowercase()
     return when {
         "vless without tls or other encryption is prohibited" in lower ->
-            "Unsupported VLESS • pick a server with TLS/REALITY, or turn Marble Freedom back on"
+            "Unsupported VLESS • pick a server with TLS/REALITY"
         "failed to build outbound config" in lower ->
             "Xray rejected this server configuration • check protocol/TLS settings"
         "context deadline exceeded" in lower && "dns-query" in lower ->
@@ -1323,38 +1322,6 @@ private fun SectionLabel(
         }
     }
 }
-
-@Composable
-private fun FreedomSectionHeader(
-    title: String,
-    subtitle: String,
-    tone: Color = Aether.Cyan
-) {
-    Column(
-        modifier=Modifier
-            .fillMaxWidth()
-            .padding(top=4.dp,bottom=1.dp),
-        verticalArrangement=Arrangement.spacedBy(4.dp)
-    ) {
-        // MARBLE_SETTINGS_QUIET_CHROME_V114 — no marker dot beside a settings heading either.
-        Text(
-            trx(title),
-            color=tone.copy(alpha=.92f),
-            style=MaterialTheme.typography.labelLarge,
-            fontWeight=FontWeight.Medium,
-            maxLines=2,
-            overflow=TextOverflow.Ellipsis
-        )
-        Text(
-            trx(subtitle),
-            color=Aether.InkMuted,
-            style=MaterialTheme.typography.bodySmall,
-            maxLines=2,
-            overflow=TextOverflow.Ellipsis
-        )
-    }
-}
-
 
 // MARBLE_HOME_VECTOR_ICONS_V36
 private enum class HomeIcon {
@@ -2211,110 +2178,6 @@ private fun MarbleServerAvatar(
 }
 
 @Composable
-private fun HomeServerSelector(
-    profile: ProxyProfile?,
-    activeName: String,
-    connected: Boolean,
-    onLibrary: () -> Unit,
-    serverless: Boolean = false,
-    livePingMs: Int = 0
-) {
-    val displayName = stripLeadingFlag(activeName).ifBlank { "Choose a route" }
-    val tone = if (connected) Aether.Emerald else Aether.Cyan
-    val shape = RoundedCornerShape(21.dp)
-
-    // MARBLE_CONNECTED_CARD_V78 — live ping readout + polished visual rhythm
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .prismElevated(
-                shape = shape,
-                tone = tone,
-                selected = connected,
-                tint = Brush.horizontalGradient(
-                    listOf(
-                        tone.copy(alpha = if (connected) .12f else .075f),
-                        Color.Transparent
-                    )
-                )
-            )
-            .kineticClickable(role = Role.Button, boundedShape = shape, onClick = onLibrary)
-            .padding(12.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-        MarbleServerAvatar(profile=profile,active=connected)
-        Column(Modifier.weight(1f)) {
-            Text(
-                displayName,
-                color=Aether.Ink,
-                style=MaterialTheme.typography.titleMedium,
-                fontWeight=FontWeight.Bold,
-                maxLines=1,
-                overflow=TextOverflow.Ellipsis
-            )
-            Text(
-                if (serverless) {
-                    "FREEDOM  •  fragment"
-                } else {
-                    profile?.let {
-                        listOfNotNull(
-                            it.scheme.uppercase(),
-                            it.host.takeIf(String::isNotBlank),
-                            it.port.takeIf { p -> p > 0 }?.toString()
-                        ).joinToString("  •  ")
-                    }.orEmpty()
-                },
-                color=Aether.InkMuted,
-                style=MaterialTheme.typography.bodySmall,
-                maxLines=1,
-                overflow=TextOverflow.Ellipsis
-            )
-        }
-        // Live ping badge when connected
-        if (connected && livePingMs > 0) {
-            val pingTone = when {
-                livePingMs < 100 -> Aether.Emerald
-                livePingMs < 250 -> Aether.Amber
-                else -> Aether.Danger
-            }
-            Surface(
-                shape = RoundedCornerShape(10.dp),
-                color = pingTone.copy(alpha = .13f),
-                tonalElevation = 0.dp
-            ) {
-                Text(
-                    "${livePingMs}ms",
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                    color = pingTone,
-                    style = MaterialTheme.typography.labelSmall.copy(
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold
-                    )
-                )
-            }
-        }
-            Box(
-                Modifier
-                    .size(36.dp)
-                    .clip(CircleShape)
-                    .background(tone.copy(alpha=.09f)),
-                contentAlignment=Alignment.Center
-            ) {
-                HomeVectorIcon(
-                    HomeIcon.DETAILS,
-                    tone,
-                    Modifier.size(18.dp)
-                )
-            }
-        }
-    }
-}
-
-@Composable
 private fun HomeRouteDetailsRow(
     connected: Boolean,
     onDetails: () -> Unit
@@ -2575,10 +2438,8 @@ private fun rememberDeckEvidence(repo: AppRepository): DeckEvidence {
     // string (which carries engine progress copy and is not a node name).
     val activeName = active?.name ?: "Choose a route"
     val endpoint = active?.host?.trim()?.removeSurrounding("[", "]").orEmpty()
-    val serverless = active?.let { ServerlessFreedomEngine.isServerless(it) }
-        ?: repo.settings.serverlessModeEnabled
     val serverInfo = repo.serverIntel?.takeIf {
-        serverless || (endpoint.isNotBlank() && it.endpoint.equals(endpoint, ignoreCase = true))
+        endpoint.isNotBlank() && it.endpoint.equals(endpoint, ignoreCase = true)
     }
     val evidence = buildHomeEvidence(
         repo = repo,
@@ -2606,12 +2467,10 @@ private fun CyberDeck(
     val active = deck.profile
     val connected = evidence.connected
     val endpoint = active?.host?.trim()?.removeSurrounding("[", "]").orEmpty()
-    val serverless = active?.let { ServerlessFreedomEngine.isServerless(it) }
-        ?: repo.settings.serverlessModeEnabled
 
     LaunchedEffect(Unit) { onContentScrollChanged(false) }
     LaunchedEffect(connected, active?.id, active?.subscriptionId, endpoint) {
-        if (connected && active != null && (serverless || endpoint.isNotBlank())) {
+        if (connected && active != null && endpoint.isNotBlank()) {
             repo.refreshServerIntel(active)
         }
     }
@@ -2784,28 +2643,6 @@ private fun HomeStatusAnchor(
             maxLines=1,
             overflow=TextOverflow.Ellipsis
         )
-    }
-}
-
-@Composable
-private fun HomeServerlessSwitch(
-    repo: AppRepository,
-    onConnect: (ProxyProfile) -> Unit
-) {
-    val enabled = repo.settings.serverlessModeEnabled
-    val connected = repo.state == "CONNECTED" || repo.state == "CONNECTING" || repo.state == "BLOCKED"
-    HomeQuickSettingRow(
-        icon = HomeIcon.SHIELD,
-        title = "Marble Freedom",
-        subtitle = "",
-        checked = enabled,
-        enabled = !repo.busy
-    ) { next ->
-        repo.setServerlessMode(next)
-        if (connected) {
-            val profile = repo.lastProfile()
-            if (profile != null) onConnect(profile)
-        }
     }
 }
 
@@ -3387,7 +3224,7 @@ private fun HoloActionPill(
 // the UI cannot drift from the engine behind it.
 // =============================================================================
 
-private enum class LibraryGroupKind { SUBSCRIPTION, MANUAL, FREEDOM, COUNTRY }
+private enum class LibraryGroupKind { SUBSCRIPTION, MANUAL, COUNTRY }
 
 private data class LibraryGroup(
     /** Subscription id for source groups, country code (or "") for country groups. */
@@ -3610,28 +3447,12 @@ private fun CyberLibrary(
             if (manualNodes.isNotEmpty()) {
                 add(LibraryGroup("manual", "Manual", LibraryGroupKind.MANUAL, profiles = manualNodes))
             }
-            if (!repo.libraryFreedomHidden) {
-                val nodes = visibleProfiles.filter {
-                    it.subscriptionId == ServerlessFreedomEngine.SOURCE_ID
-                }
-                if (nodes.isNotEmpty()) {
-                    add(
-                        LibraryGroup(
-                            ServerlessFreedomEngine.SOURCE_ID,
-                            "Marble Freedom",
-                            LibraryGroupKind.FREEDOM,
-                            profiles = nodes
-                        )
-                    )
-                }
-            }
         }
     }
 
     val activeGroupLabel = when (filter.sourceId) {
         "all" -> "All groups"
         "manual" -> "Manual"
-        ServerlessFreedomEngine.SOURCE_ID -> "Marble Freedom"
         else -> repo.subscriptions.firstOrNull { it.id == filter.sourceId }?.name ?: "All groups"
     }
 
@@ -3639,9 +3460,6 @@ private fun CyberLibrary(
         add("all" to "All groups")
         repo.subscriptions.forEach { add(it.id to it.name) }
         add("manual" to "Manual")
-        if (!repo.libraryFreedomHidden) {
-            add(ServerlessFreedomEngine.SOURCE_ID to "Marble Freedom")
-        }
     }
 
     val updateSettings: (AppSettings.() -> AppSettings) -> Unit = { change ->
@@ -4008,8 +3826,6 @@ private fun CyberLibrary(
                         }
                         ServersAdvancedAction.REFRESH_ALL -> repo.refreshLibrarySource("all")
                         ServersAdvancedAction.RANK_ALL -> repo.smartRank()
-                        ServersAdvancedAction.TOGGLE_FREEDOM ->
-                            repo.updateLibraryFreedomHidden(!repo.libraryFreedomHidden)
                         ServersAdvancedAction.ALL_FILTERS -> allFiltersOpen = true
                     }
                 },
@@ -4157,7 +3973,6 @@ private enum class ServersAdvancedAction {
     RESET,
     REFRESH_ALL,
     RANK_ALL,
-    TOGGLE_FREEDOM,
     ALL_FILTERS
 }
 
@@ -4809,16 +4624,6 @@ private fun ServersFilterRail(
                     enabled = !repo.busy,
                     onClick = { onAdvancedAction(ServersAdvancedAction.RANK_ALL) }
                 )
-                ServersMenuItem(
-                    label = if (repo.libraryFreedomHidden) {
-                        "Show Marble Freedom"
-                    } else {
-                        "Hide Marble Freedom"
-                    },
-                    icon = HomeIcon.SHIELD,
-                    tone = Aether.Amethyst,
-                    onClick = { onAdvancedAction(ServersAdvancedAction.TOGGLE_FREEDOM) }
-                )
                 HorizontalDivider(color = Aether.GlassBorderSoft)
                 ServersMenuItem(
                     label = "All filters…",
@@ -5055,7 +4860,6 @@ private fun ServersGroupHeader(
     onMenu: (ServersGroupAction) -> Unit
 ) {
     val accent = when (group.kind) {
-        LibraryGroupKind.FREEDOM -> Aether.Amethyst
         else -> Aether.Cyan
     }
     val local = subscription?.url?.isBlank() == true
@@ -5117,10 +4921,8 @@ private fun ServersGroupHeader(
                     )
                 }
                 Text(
-                    when (group.kind) {
-                        LibraryGroupKind.FREEDOM -> "Freedom ($total)"
-                        else -> if (total == 1) "1 server" else "$total servers"
-                    } + if (shown != total) " • $shown shown" else "",
+                    (if (total == 1) "1 server" else "$total servers") +
+                        if (shown != total) " • $shown shown" else "",
                     color = Aether.InkFaint,
                     style = MaterialTheme.typography.labelSmall,
                     maxLines = 1,
@@ -5166,7 +4968,7 @@ private fun ServersGroupHeader(
         }
 
         AnimatedVisibility(
-            visible = !collapsed && (subscription != null || group.kind == LibraryGroupKind.FREEDOM),
+            visible = !collapsed && subscription != null,
             enter = fadeIn(MarbleMotionSpecs.ResponseFloat) + expandVertically(MarbleMotionSpecs.Layout),
             exit = fadeOut(MarbleMotionSpecs.ExitFloat) + shrinkVertically(MarbleMotionSpecs.Layout)
         ) {
@@ -5200,13 +5002,6 @@ private fun ServersGroupHeader(
                     }
                     Text(
                         "${trx("Expires")}: ${subscriptionExpiryText(subscription)}",
-                        color = Aether.InkFaint,
-                        style = MaterialTheme.typography.labelSmall,
-                        maxLines = 1
-                    )
-                } else if (group.kind == LibraryGroupKind.FREEDOM) {
-                    Text(
-                        trx("Local engine • no subscription"),
                         color = Aether.InkFaint,
                         style = MaterialTheme.typography.labelSmall,
                         maxLines = 1
@@ -5489,7 +5284,6 @@ private fun ServersNodeCard(
     val name = stripLeadingFlag(profile.name)
     val flag = leadingFlagGlyph(profile.name) ?: country.flag
     val clipboard = LocalClipboardManager.current
-    val builtInFreedom = ServerlessFreedomEngine.isServerless(profile)
 
     val swipeState = rememberSwipeToDismissBoxState()
     LaunchedEffect(swipeState.settledValue) {
@@ -5505,7 +5299,7 @@ private fun ServersNodeCard(
 
     SwipeToDismissBox(
         state = swipeState,
-        enableDismissFromStartToEnd = !repo.busy && !builtInFreedom,
+        enableDismissFromStartToEnd = !repo.busy,
         enableDismissFromEndToStart = false,
         backgroundContent = {
             val tone = Aether.Amethyst
@@ -5662,7 +5456,6 @@ private fun ServersNodeCard(
             ServersNodeMenu(
                 profile = profile,
                 repo = repo,
-                builtInFreedom = builtInFreedom,
                 onEdit = onEdit,
                 onMove = onMove,
                 onQr = onQr,
@@ -5768,7 +5561,6 @@ private fun ServersPingCapsule(
 private fun ServersNodeMenu(
     profile: ProxyProfile,
     repo: AppRepository,
-    builtInFreedom: Boolean,
     onEdit: () -> Unit,
     onMove: () -> Unit,
     onQr: () -> Unit,
@@ -5782,7 +5574,7 @@ private fun ServersNodeMenu(
     var jsonText by remember(profile.id, profile.configJson) {
         mutableStateOf(profile.configJson)
     }
-    val canEditJson = !builtInFreedom && !profile.scheme.equals("ssh", true)
+    val canEditJson = !profile.scheme.equals("ssh", true)
 
     if (jsonOpen) {
         AlertDialog(
@@ -5875,7 +5667,6 @@ private fun ServersNodeMenu(
                 label = "Edit",
                 icon = HomeIcon.PENCIL,
                 tone = Aether.Ink,
-                enabled = !builtInFreedom,
                 onClick = {
                     open = false
                     onEdit()
@@ -5916,7 +5707,7 @@ private fun ServersNodeMenu(
                 label = "Move to group",
                 icon = HomeIcon.FOLDER,
                 tone = Aether.Ink,
-                enabled = !builtInFreedom && !repo.busy,
+                enabled = !repo.busy,
                 onClick = {
                     open = false
                     onMove()
@@ -5953,31 +5744,27 @@ private fun ServersNodeMenu(
                     }
                 )
             }
-            if (!builtInFreedom) {
-                ServersMenuItem(
-                    label = "Duplicate to Manual",
-                    icon = HomeIcon.LIBRARY,
-                    tone = Aether.InkMuted,
-                    enabled = !repo.busy,
-                    onClick = {
-                        open = false
-                        repo.duplicateProfile(profile.id, profile.subscriptionId)
-                    }
-                )
-            }
-            if (!builtInFreedom) {
-                HorizontalDivider(color = Aether.GlassBorderSoft)
-                ServersMenuItem(
-                    label = "Delete",
-                    icon = HomeIcon.TRASH,
-                    tone = Aether.Danger,
-                    enabled = !repo.busy,
-                    onClick = {
-                        open = false
-                        onDelete()
-                    }
-                )
-            }
+            ServersMenuItem(
+                label = "Duplicate to Manual",
+                icon = HomeIcon.LIBRARY,
+                tone = Aether.InkMuted,
+                enabled = !repo.busy,
+                onClick = {
+                    open = false
+                    repo.duplicateProfile(profile.id, profile.subscriptionId)
+                }
+            )
+            HorizontalDivider(color = Aether.GlassBorderSoft)
+            ServersMenuItem(
+                label = "Delete",
+                icon = HomeIcon.TRASH,
+                tone = Aether.Danger,
+                enabled = !repo.busy,
+                onClick = {
+                    open = false
+                    onDelete()
+                }
+            )
         }
     }
 }
@@ -7590,18 +7377,6 @@ private fun LibraryFilterSheet(
                             onClick={ onSourceFilter("all") }
                         )
                     }
-                    item("source-freedom") {
-                        val freedomCount = repo.libraryProfiles.count {
-                            it.subscriptionId == ServerlessFreedomEngine.SOURCE_ID
-                        }
-                        SourceOrbitChip(
-                            title="Freedom",
-                            detail="$freedomCount local servers",
-                            selected=sourceFilter == ServerlessFreedomEngine.SOURCE_ID,
-                            color=Aether.Cyan,
-                            onClick={ onSourceFilter(ServerlessFreedomEngine.SOURCE_ID) }
-                        )
-                    }
                     // MARBLE_MANUAL_BUCKET_V122 — the local bucket is permanent.
                     item("source-manual") {
                         SourceOrbitChip(
@@ -7796,7 +7571,6 @@ private fun LibrarySortChoice(
 
 private enum class SettingsWorkspaceTab(val label: String, val icon: HomeIcon) {
     GENERAL("General", HomeIcon.SPARK),
-    FREEDOM("Freedom", HomeIcon.SHIELD),
     TESTS("Tests", HomeIcon.PING),
     NETWORK("Network", HomeIcon.NETWORK),
     ENGINE("Engine", HomeIcon.TUNNEL),
@@ -7809,7 +7583,6 @@ private fun rememberedSettingsTab(name: String): SettingsWorkspaceTab =
 @Composable
 private fun settingsTabTone(tab: SettingsWorkspaceTab): Color = when (tab) {
     SettingsWorkspaceTab.GENERAL -> Aether.Cyan
-    SettingsWorkspaceTab.FREEDOM -> Aether.Cyan
     SettingsWorkspaceTab.TESTS -> Aether.Amethyst
     SettingsWorkspaceTab.NETWORK -> Aether.Emerald
     SettingsWorkspaceTab.ENGINE -> Aether.Amber
@@ -8394,28 +8167,6 @@ private fun SettingsRoutingPreview(tone: Color) {
     }
 }
 
-/** Fragment shapes: what Marble Freedom actually does to a TLS hello. */
-@Composable
-private fun SettingsFreedomPreview(tone: Color) {
-    Canvas(Modifier.size(width = 34.dp, height = 20.dp)) {
-        val y = size.height / 2f
-        var x = 0f
-        var index = 0
-        while (x < size.width - 2.dp.toPx()) {
-            val width = (4 + (index % 3) * 3).dp.toPx()
-            drawLine(
-                tone.copy(alpha = .45f + .18f * (index % 3)),
-                Offset(x, y),
-                Offset(x + width, y),
-                3.dp.toPx(),
-                cap = StrokeCap.Round
-            )
-            x += width + 3.dp.toPx()
-            index += 1
-        }
-    }
-}
-
 /** A measurement ladder: what the Tests workspace runs. */
 @Composable
 private fun SettingsTestPreview(tone: Color) {
@@ -8488,7 +8239,7 @@ private fun SettingsHub(
         item(key = "hub-connection") {
             SettingsHubCard(
                 title = t.categoryConnection,
-                subtitle = "Routing, Freedom, tests and servers",
+                subtitle = "Routing, tests and servers",
                 tone = Aether.Emerald
             ) {
                 SettingsHubRow(
@@ -8508,13 +8259,6 @@ private fun SettingsHub(
                     tone = Aether.Emerald,
                     onClick = { onNavigate(SettingsPages.workspace(SettingsWorkspaceTab.NETWORK)) }
                 ) { SettingsRoutingPreview(Aether.Emerald) }
-                SettingsHubRow(
-                    title = "Marble Freedom",
-                    // Same wording the Freedom page uses for the active preset.
-                    subtitle = settings.freedomPreset.name.replace("_", " "),
-                    tone = Aether.Amethyst,
-                    onClick = { onNavigate(SettingsPages.workspace(SettingsWorkspaceTab.FREEDOM)) }
-                ) { SettingsFreedomPreview(Aether.Amethyst) }
                 SettingsHubRow(
                     title = "Tests & ranking",
                     subtitle = "Ping, speed and smart ranking",
@@ -9710,7 +9454,6 @@ private fun SettingsTabPage(
 /** The page title of a dedicated Settings page, matching its hub row wording. */
 private fun settingsTabPageTitle(tab: SettingsWorkspaceTab): String = when (tab) {
     SettingsWorkspaceTab.GENERAL -> "General"
-    SettingsWorkspaceTab.FREEDOM -> "Marble Freedom"
     SettingsWorkspaceTab.TESTS -> "Tests & ranking"
     SettingsWorkspaceTab.NETWORK -> "Network & routing"
     SettingsWorkspaceTab.ENGINE -> "Engine & tunnel"
@@ -9720,7 +9463,6 @@ private fun settingsTabPageTitle(tab: SettingsWorkspaceTab): String = when (tab)
 /** The quiet one-line description under the title of a dedicated Settings page. */
 private fun settingsTabPageSubtitle(tab: SettingsWorkspaceTab): String = when (tab) {
     SettingsWorkspaceTab.GENERAL -> "Home layout, sources and app updates"
-    SettingsWorkspaceTab.FREEDOM -> "Serverless DPI bypass engine"
     SettingsWorkspaceTab.TESTS -> "Probes, ranking and live route intelligence"
     SettingsWorkspaceTab.NETWORK -> "DNS, split tunnel and geo rules"
     SettingsWorkspaceTab.ENGINE -> "Xray, transport and adaptive buffers"
@@ -9772,9 +9514,6 @@ private fun settingsSections(
             ) { SignatureStudioSettings(repo) },
             card("Connection","Tunnel, proxy, port",HomeIcon.TUNNEL,Aether.Cyan) { ConnectionSettings(repo) },
             card("Subscriptions","Refresh & sources",HomeIcon.LIBRARY,Aether.Amethyst) { SubscriptionSettings(repo) }
-        )
-        SettingsWorkspaceTab.FREEDOM -> listOf(
-            card("Freedom Engine","Serverless DPI bypass",HomeIcon.SHIELD,Aether.Cyan) { FreedomSettings(repo) }
         )
         // MARBLE_SETTINGS_EXPERT_ALWAYS_V118 — Advanced Settings is no longer gated. Expert mode was a
         // switch that hid the low-level tunnel controls; the product owner removed the gating so every
@@ -13118,675 +12857,4 @@ private fun IranModeSettings(repo: AppRepository) {
         modifier = Modifier.fillMaxWidth(),
         enabled = !state.scanning
     ) { repo.scanIranMode(force = true, deep = true) }
-}
-
-// =================================================================================================
-// MARBLE FREEDOM SETTINGS
-// =================================================================================================
-
-@Composable
-private fun FreedomSettings(repo: AppRepository) {
-    val s = repo.settings
-    val enabled = s.serverlessModeEnabled
-    val recipe = com.marbleng.app.core.DpiEvasionPolicy.freedomRecipe(s)
-    val layerCount = 1 + (if (recipe.middleEnabled) 1 else 0) + (if (recipe.innerEnabled) 1 else 0)
-
-    // ── Status hero ──────────────────────────────────────────────────────────
-    HoloGlass(
-        modifier = Modifier.fillMaxWidth(),
-        borderColor = if (enabled) Aether.Cyan.copy(alpha = 0.55f) else Color.Transparent,
-        contentPadding = PaddingValues(14.dp)
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Box(
-                Modifier
-                    .size(42.dp)
-                    .clip(RoundedCornerShape(14.dp))
-                    .background((if (enabled) Aether.Emerald else Aether.InkMuted).copy(alpha = .11f)),
-                contentAlignment = Alignment.Center
-            ) {
-                HomeVectorIcon(
-                    HomeIcon.SHIELD,
-                    if (enabled) Aether.Emerald else Aether.InkMuted,
-                    Modifier.size(22.dp)
-                )
-            }
-            Column(Modifier.weight(1f)) {
-                Text(
-                    trx("Marble Freedom"),
-                    color = Aether.Ink,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    if (enabled) {
-                        if (s.freedomForceTcpForStreaming) {
-                            "$layerCount-hop chain • TCP fallback on"
-                        } else {
-                            "$layerCount-hop chain • QUIC padding on"
-                        }
-                    } else {
-                        "Ready to switch on"
-                    },
-                    color = Aether.InkMuted,
-                    style = MaterialTheme.typography.bodySmall,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-            Switch(
-                checked = enabled,
-                onCheckedChange = { repo.setServerlessMode(it) },
-                colors = marbleSwitchColors()
-            )
-        }
-
-        if (enabled) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(7.dp)
-            ) {
-                HoloBadge("$layerCount-HOP", Aether.Cyan, compact = true)
-                HoloBadge(
-                    s.freedomPreset.name.replace("_", " "),
-                    Aether.Amethyst,
-                    compact = true
-                )
-                if (s.freedomForceTcpForStreaming) {
-                    HoloBadge("TCP FALLBACK", Aether.Emerald, compact = true)
-                } else if (s.freedomUdpNoiseEnabled) {
-                    HoloBadge("QUIC PADDING", Aether.Emerald, compact = true)
-                }
-                if (s.freedomDnsHijack) {
-                    HoloBadge("DNS HIJACK", Aether.Emerald, compact = true)
-                }
-                if (s.freedomDirectDomestic) {
-                    HoloBadge("IR DIRECT", Aether.Cyan, compact = true)
-                }
-            }
-        }
-    }
-
-    SettingSwitch(
-        title = "YouTube / media TCP fallback",
-        subtitle = "Block QUIC so video uses the chain",
-        checked = s.freedomForceTcpForStreaming
-    ) { repo.updateSettings(s.copy(freedomForceTcpForStreaming = it)) }
-
-    // ── Evasion presets (2-column grid, not a free-flow jumble) ───────────────
-    FreedomSectionHeader(
-        title = "Evasion preset",
-        subtitle = "Start balanced; escalate on harsh filters.",
-        tone = Aether.Cyan
-    )
-    val presets = listOf(
-        Triple(FreedomPreset.SMART_ADAPTIVE, "Smart Auto", "Best everyday default"),
-        Triple(FreedomPreset.MULTI_LAYER_CASCADE, "Stable 2-hop", "Social and video"),
-        Triple(FreedomPreset.SNI_SHREDDER, "SNI split", "Light split"),
-        Triple(FreedomPreset.AGGRESSIVE_RECORD_SPLIT, "Slow-first", "Strict reset filters"),
-        Triple(FreedomPreset.EXTREME_ANTI_DPI, "Extreme", "Strongest 2-hop"),
-        Triple(FreedomPreset.CUSTOM, "Custom", "Manual tuning")
-    )
-    presets.chunked(2).forEach { row ->
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            row.forEach { (preset, title, detail) ->
-                val selected = s.freedomPreset == preset
-                PrismSelectionTile(
-                    label = title,
-                    selected = selected,
-                    tone = Aether.Cyan,
-                    modifier = Modifier.weight(1f),
-                    detail = detail,
-                    minHeight = 50.dp,
-                    alignment = Alignment.CenterStart
-                ) {
-                    repo.updateSettings(freedomPresetSettings(s, preset))
-                }
-            }
-            if (row.size == 1) Spacer(Modifier.weight(1f))
-        }
-    }
-
-    // ── Per-operator steel profiles (MARBLE_OPERATOR_FREEDOM_V91) ─────────────
-    FreedomSectionHeader(
-        title = "Operator profile",
-        subtitle = "Per-carrier chains; Auto picks by ASN.",
-        tone = Aether.Amethyst
-    )
-    SettingSwitch(
-        title = "Auto-apply detected operator",
-        subtitle = "Match MCI / Irancell / Rightel / Shatel",
-        checked = s.freedomOperatorAuto
-    ) { repo.updateSettings(s.copy(freedomOperatorAuto = it)) }
-    val operatorPresets = listOf(
-        Triple(FreedomPreset.SHATEL, "Shatel", "Fixed-line chain"),
-        Triple(FreedomPreset.HAMRAH_AVAL, "MCI • همراه اول", "Strictest DPI"),
-        Triple(FreedomPreset.IRANCELL, "Irancell", "Throttle-heavy"),
-        Triple(FreedomPreset.RIGHTEL, "Rightel", "Mobile chain")
-    )
-    operatorPresets.chunked(2).forEach { row ->
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            row.forEach { (preset, title, detail) ->
-                val selected = s.freedomPreset == preset
-                PrismSelectionTile(
-                    label = title,
-                    selected = selected,
-                    tone = Aether.Amethyst,
-                    modifier = Modifier.weight(1f),
-                    detail = detail,
-                    minHeight = 50.dp,
-                    alignment = Alignment.CenterStart
-                ) {
-                    repo.updateSettings(freedomPresetSettings(s, preset))
-                }
-            }
-        }
-    }
-
-    HorizontalDivider(color = Aether.GlassBorderSoft)
-
-    // ── Fragment layers ──────────────────────────────────────────────────────
-    FreedomSectionHeader(
-        title = "Fragment chain",
-        subtitle = "Two hops stay fast; add the middle only if needed.",
-        tone = Aether.Amethyst
-    )
-
-    FreedomLayerCard(
-        title = "Outer hop",
-        subtitle = "First-write split • hides SNI",
-        tone = Aether.Cyan,
-        enabled = true,
-        onEnabled = null,
-        packets = s.freedomOuterPackets,
-        length = s.freedomOuterLength,
-        interval = s.freedomOuterInterval,
-        maxSplit = s.freedomOuterMaxSplit,
-        onPackets = { repo.updateSettings(s.copy(freedomOuterPackets = it, freedomPreset = FreedomPreset.CUSTOM)) },
-        onLength = { repo.updateSettings(s.copy(freedomOuterLength = it, freedomPreset = FreedomPreset.CUSTOM)) },
-        onInterval = { repo.updateSettings(s.copy(freedomOuterInterval = it, freedomPreset = FreedomPreset.CUSTOM)) },
-        onMaxSplit = { repo.updateSettings(s.copy(freedomOuterMaxSplit = it, freedomPreset = FreedomPreset.CUSTOM)) }
-    )
-
-    FreedomLayerCard(
-        title = "Middle hop",
-        subtitle = "Optional • off by default",
-        tone = Aether.Amethyst,
-        enabled = s.freedomMiddleEnabled,
-        onEnabled = {
-            repo.updateSettings(
-                s.copy(
-                    freedomMiddleEnabled = it,
-                    freedomLayerCount = if (it) 3 else 2,
-                    freedomPreset = FreedomPreset.CUSTOM
-                )
-            )
-        },
-        packets = s.freedomMiddlePackets,
-        length = s.freedomMiddleLength,
-        interval = s.freedomMiddleInterval,
-        maxSplit = s.freedomMiddleMaxSplit,
-        onPackets = { repo.updateSettings(s.copy(freedomMiddlePackets = it, freedomPreset = FreedomPreset.CUSTOM)) },
-        onLength = { repo.updateSettings(s.copy(freedomMiddleLength = it, freedomPreset = FreedomPreset.CUSTOM)) },
-        onInterval = { repo.updateSettings(s.copy(freedomMiddleInterval = it, freedomPreset = FreedomPreset.CUSTOM)) },
-        onMaxSplit = { repo.updateSettings(s.copy(freedomMiddleMaxSplit = it, freedomPreset = FreedomPreset.CUSTOM)) }
-    )
-
-    FreedomLayerCard(
-        title = "Inner hop",
-        subtitle = "Byte-level split on dial",
-        tone = Aether.Emerald,
-        enabled = s.freedomInnerEnabled,
-        onEnabled = {
-            repo.updateSettings(s.copy(freedomInnerEnabled = it, freedomPreset = FreedomPreset.CUSTOM))
-        },
-        packets = s.freedomInnerPackets,
-        length = s.freedomInnerLength,
-        interval = s.freedomInnerInterval,
-        maxSplit = s.freedomInnerMaxSplit,
-        onPackets = { repo.updateSettings(s.copy(freedomInnerPackets = it, freedomPreset = FreedomPreset.CUSTOM)) },
-        onLength = { repo.updateSettings(s.copy(freedomInnerLength = it, freedomPreset = FreedomPreset.CUSTOM)) },
-        onInterval = { repo.updateSettings(s.copy(freedomInnerInterval = it, freedomPreset = FreedomPreset.CUSTOM)) },
-        onMaxSplit = { repo.updateSettings(s.copy(freedomInnerMaxSplit = it, freedomPreset = FreedomPreset.CUSTOM)) }
-    )
-
-    HorizontalDivider(color = Aether.GlassBorderSoft)
-
-    // ── DNS ──────────────────────────────────────────────────────────────────
-    FreedomSectionHeader(
-        title = "Encrypted DNS",
-        subtitle = "Pinned DoH; classic DNS stays in the tunnel.",
-        tone = Aether.Emerald
-    )
-
-    SettingSwitch(
-        title = "Smart multi-resolver cascade",
-        subtitle = "Race DoH endpoints",
-        checked = s.freedomDnsAuto
-    ) { repo.updateSettings(s.copy(freedomDnsAuto = it)) }
-
-    SettingSwitch(
-        title = "Hijack classic DNS (port 53)",
-        subtitle = "Port 53 → encrypted DNS",
-        checked = s.freedomDnsHijack
-    ) { repo.updateSettings(s.copy(freedomDnsHijack = it)) }
-
-    SettingSwitch(
-        title = "Domestic (.ir) & private direct",
-        subtitle = ".ir and LAN off the chain",
-        checked = s.freedomDirectDomestic
-    ) { repo.updateSettings(s.copy(freedomDirectDomestic = it)) }
-
-    Text(
-        trx("DoH endpoints"),
-        color = Aether.InkFaint,
-        style = MaterialTheme.typography.labelSmall,
-        fontWeight = FontWeight.Bold
-    )
-    TinyField("Primary DoH", s.freedomDnsPrimaryDoH, Modifier.fillMaxWidth()) {
-        repo.updateSettings(s.copy(freedomDnsPrimaryDoH = it))
-    }
-    TinyField("Secondary DoH", s.freedomDnsSecondaryDoH, Modifier.fillMaxWidth()) {
-        repo.updateSettings(s.copy(freedomDnsSecondaryDoH = it))
-    }
-    TinyField("Fallback DoH", s.freedomDnsFallbackDoH, Modifier.fillMaxWidth()) {
-        repo.updateSettings(s.copy(freedomDnsFallbackDoH = it))
-    }
-    TinyField("Clean DoH pool (comma-separated)", s.freedomDnsCleanResolvers, Modifier.fillMaxWidth()) {
-        repo.updateSettings(s.copy(freedomDnsCleanResolvers = it))
-    }
-
-    Text(
-        trx("Bootstrap IPs"),
-        color = Aether.InkFaint,
-        style = MaterialTheme.typography.labelSmall,
-        fontWeight = FontWeight.Bold
-    )
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        TinyField("Primary IP", s.freedomDnsPrimaryIp, Modifier.weight(1f)) {
-            repo.updateSettings(s.copy(freedomDnsPrimaryIp = it))
-        }
-        TinyField("Secondary IP", s.freedomDnsSecondaryIp, Modifier.weight(1f)) {
-            repo.updateSettings(s.copy(freedomDnsSecondaryIp = it))
-        }
-    }
-
-    Text(
-        trx("Record strategy"),
-        color = Aether.InkFaint,
-        style = MaterialTheme.typography.labelSmall,
-        fontWeight = FontWeight.Bold
-    )
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        listOf(
-            "UseIP" to "A + AAAA",
-            "UseIPv4" to "IPv4",
-            "UseIPv6" to "IPv6"
-        ).forEach { (strategy, label) ->
-            PrismSelectionTile(
-                label = label,
-                selected = s.freedomDnsQueryStrategy == strategy,
-                tone = Aether.Cyan,
-                modifier = Modifier.weight(1f),
-                minHeight = 38.dp
-            ) {
-                repo.updateSettings(s.copy(freedomDnsQueryStrategy = strategy))
-            }
-        }
-    }
-
-    Text(
-        trx("Domain routing"),
-        color = Aether.InkFaint,
-        style = MaterialTheme.typography.labelSmall,
-        fontWeight = FontWeight.Bold
-    )
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        listOf("IPOnDemand", "IPIfNonMatch", "AsIs").forEach { strategy ->
-            PrismSelectionTile(
-                label = strategy,
-                selected = s.freedomDomainStrategy == strategy,
-                tone = Aether.Emerald,
-                modifier = Modifier.weight(1f),
-                minHeight = 38.dp
-            ) {
-                repo.updateSettings(s.copy(freedomDomainStrategy = strategy))
-            }
-        }
-    }
-
-    HorizontalDivider(color = Aether.GlassBorderSoft)
-
-    // ── UDP noise ────────────────────────────────────────────────────────────
-    FreedomSectionHeader(
-        title = "QUIC / UDP policy",
-        subtitle = if (s.freedomForceTcpForStreaming) {
-            "TCP fallback is on; QUIC padding waits."
-        } else {
-            "Pad UDP/443 only where UDP is allowed."
-        },
-        tone = Aether.Amber
-    )
-
-    SettingSwitch(
-        title = "Dedicated QUIC padding",
-        subtitle = "Pads UDP/443; off while TCP fallback is on",
-        checked = s.freedomUdpNoiseEnabled
-    ) { repo.updateSettings(s.copy(freedomUdpNoiseEnabled = it)) }
-
-    AnimatedVisibility(s.freedomUdpNoiseEnabled && !s.freedomForceTcpForStreaming) {
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            NumberSetting("Noise burst pairs", s.freedomUdpNoiseCount, 2..16) {
-                repo.updateSettings(s.copy(freedomUdpNoiseCount = it))
-            }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                TinyField("IPv4 size (B)", s.freedomUdpNoisePacket4, Modifier.weight(1f)) {
-                    repo.updateSettings(s.copy(freedomUdpNoisePacket4 = it))
-                }
-                TinyField("IPv4 delay (ms)", s.freedomUdpNoiseDelay4, Modifier.weight(1f)) {
-                    repo.updateSettings(s.copy(freedomUdpNoiseDelay4 = it))
-                }
-            }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                TinyField("IPv6 size (B)", s.freedomUdpNoisePacket6, Modifier.weight(1f)) {
-                    repo.updateSettings(s.copy(freedomUdpNoisePacket6 = it))
-                }
-                TinyField("IPv6 delay (ms)", s.freedomUdpNoiseDelay6, Modifier.weight(1f)) {
-                    repo.updateSettings(s.copy(freedomUdpNoiseDelay6 = it))
-                }
-            }
-        }
-    }
-
-    HorizontalDivider(color = Aether.GlassBorderSoft)
-
-    // ── Reset ────────────────────────────────────────────────────────────────
-    CyberButton(
-        label = "Restore Freedom defaults",
-        color = Aether.Amethyst,
-        modifier = Modifier.fillMaxWidth(),
-        enabled = !repo.busy,
-        variant = PrismButtonVariant.Secondary
-    ) {
-        repo.updateSettings(freedomPresetSettings(s, FreedomPreset.SMART_ADAPTIVE).copy(
-            freedomDnsAuto = true,
-            freedomDnsPrimaryIp = "1.1.1.1",
-            freedomDnsSecondaryIp = "8.8.8.8",
-            freedomDnsPrimaryDoH = "https://1.1.1.1/dns-query",
-            freedomDnsSecondaryDoH = "https://8.8.8.8/dns-query",
-            freedomDnsFallbackDoH = "https://9.9.9.9/dns-query",
-            freedomDnsCleanResolvers = "https://1.1.1.1/dns-query,https://8.8.8.8/dns-query,https://9.9.9.9/dns-query,https://dns.adguard-dns.com/dns-query,https://dns.shecan.ir/dns-query",
-            freedomDnsQueryStrategy = "UseIP",
-            freedomDomainStrategy = "IPOnDemand",
-            freedomDnsHijack = true,
-            freedomDirectDomestic = true,
-            freedomForceTcpForStreaming = true,
-            freedomUdpNoiseEnabled = true,
-            freedomUdpNoisePacket4 = "1250",
-            freedomUdpNoiseDelay4 = "10",
-            freedomUdpNoisePacket6 = "1230",
-            freedomUdpNoiseDelay6 = "10",
-            freedomUdpNoiseCount = 6
-        ))
-        repo.setRuntimeMessage("Marble Freedom settings restored to defaults")
-    }
-}
-
-/** Apply a Freedom preset's fragment recipe onto AppSettings without touching DNS/noise. */
-private fun freedomPresetSettings(s: AppSettings, preset: FreedomPreset): AppSettings = when (preset) {
-    FreedomPreset.SMART_ADAPTIVE,
-    FreedomPreset.MULTI_LAYER_CASCADE -> s.copy(
-        freedomPreset = preset,
-        freedomLayerCount = 2,
-        freedomOuterPackets = "1-1",
-        freedomOuterLength = "1-3",
-        freedomOuterInterval = "5-10",
-        freedomOuterMaxSplit = "",
-        freedomMiddleEnabled = false,
-        freedomInnerEnabled = true,
-        freedomInnerPackets = "1-1",
-        freedomInnerLength = "1",
-        freedomInnerInterval = "4",
-        freedomInnerMaxSplit = "517",
-        freedomUdpNoiseEnabled = true,
-        freedomUdpNoiseCount = 6
-    )
-    FreedomPreset.SNI_SHREDDER -> s.copy(
-        freedomPreset = preset,
-        freedomLayerCount = 2,
-        freedomOuterPackets = "1-1",
-        freedomOuterLength = "1-3",
-        freedomOuterInterval = "5-10",
-        freedomOuterMaxSplit = "4",
-        freedomMiddleEnabled = false,
-        freedomInnerEnabled = true,
-        freedomInnerPackets = "1-1",
-        freedomInnerLength = "1",
-        freedomInnerInterval = "4",
-        freedomInnerMaxSplit = "517",
-        freedomUdpNoiseEnabled = true,
-        freedomUdpNoiseCount = 4
-    )
-    FreedomPreset.AGGRESSIVE_RECORD_SPLIT -> s.copy(
-        freedomPreset = preset,
-        freedomLayerCount = 2,
-        // Official XTLS skip-fragment pair
-        freedomOuterPackets = "1-1",
-        freedomOuterLength = "130",
-        freedomOuterInterval = "560",
-        freedomOuterMaxSplit = "4",
-        freedomMiddleEnabled = false,
-        freedomInnerEnabled = true,
-        freedomInnerPackets = "2-4",
-        freedomInnerLength = "1",
-        freedomInnerInterval = "4",
-        freedomInnerMaxSplit = "130",
-        freedomUdpNoiseEnabled = true,
-        freedomUdpNoiseCount = 8
-    )
-    FreedomPreset.EXTREME_ANTI_DPI -> s.copy(
-        freedomPreset = preset,
-        freedomLayerCount = 2,
-        freedomOuterPackets = "1-1",
-        freedomOuterLength = "1-3",
-        freedomOuterInterval = "5-10",
-        freedomOuterMaxSplit = "4",
-        freedomMiddleEnabled = false,
-        freedomInnerEnabled = true,
-        freedomInnerPackets = "1-1",
-        freedomInnerLength = "1",
-        freedomInnerInterval = "4",
-        freedomInnerMaxSplit = "517",
-        freedomUdpNoiseEnabled = true,
-        freedomUdpNoiseCount = 10
-    )
-    // MARBLE_OPERATOR_FREEDOM_V91: per-operator steel chains. These wire the same parameters the
-    // DpiEvasionPolicy recipes use, so the Freedom settings sheet and the engine never disagree.
-    FreedomPreset.SHATEL -> s.copy(
-        freedomPreset = preset,
-        freedomLayerCount = 3,
-        freedomOuterPackets = "1-1",
-        freedomOuterLength = "1-3",
-        freedomOuterInterval = "5-10",
-        freedomOuterMaxSplit = "4",
-        freedomMiddleEnabled = true,
-        freedomMiddlePackets = "2-4",
-        freedomMiddleLength = "1",
-        freedomMiddleInterval = "4",
-        freedomMiddleMaxSplit = "130",
-        freedomInnerEnabled = true,
-        freedomInnerPackets = "1-1",
-        freedomInnerLength = "1",
-        freedomInnerInterval = "4",
-        freedomInnerMaxSplit = "517",
-        freedomUdpNoiseEnabled = true,
-        freedomUdpNoiseCount = 12
-    )
-    FreedomPreset.HAMRAH_AVAL -> s.copy(
-        freedomPreset = preset,
-        freedomLayerCount = 3,
-        freedomOuterPackets = "1-1",
-        freedomOuterLength = "1-3",
-        freedomOuterInterval = "5-10",
-        freedomOuterMaxSplit = "4",
-        freedomMiddleEnabled = true,
-        freedomMiddlePackets = "1-1",
-        freedomMiddleLength = "130",
-        freedomMiddleInterval = "560",
-        freedomMiddleMaxSplit = "4",
-        freedomInnerEnabled = true,
-        freedomInnerPackets = "1-1",
-        freedomInnerLength = "1",
-        freedomInnerInterval = "4",
-        freedomInnerMaxSplit = "517",
-        freedomUdpNoiseEnabled = true,
-        freedomUdpNoiseCount = 16
-    )
-    FreedomPreset.IRANCELL -> s.copy(
-        freedomPreset = preset,
-        freedomLayerCount = 3,
-        freedomOuterPackets = "1-1",
-        freedomOuterLength = "130",
-        freedomOuterInterval = "560",
-        freedomOuterMaxSplit = "4",
-        freedomMiddleEnabled = true,
-        freedomMiddlePackets = "2-4",
-        freedomMiddleLength = "1",
-        freedomMiddleInterval = "4",
-        freedomMiddleMaxSplit = "130",
-        freedomInnerEnabled = true,
-        freedomInnerPackets = "1-1",
-        freedomInnerLength = "1",
-        freedomInnerInterval = "4",
-        freedomInnerMaxSplit = "517",
-        freedomUdpNoiseEnabled = true,
-        freedomUdpNoiseCount = 14
-    )
-    FreedomPreset.RIGHTEL -> s.copy(
-        freedomPreset = preset,
-        freedomLayerCount = 3,
-        freedomOuterPackets = "1-1",
-        freedomOuterLength = "1-3",
-        freedomOuterInterval = "5-10",
-        freedomOuterMaxSplit = "4",
-        freedomMiddleEnabled = true,
-        freedomMiddlePackets = "1-3",
-        freedomMiddleLength = "10-30",
-        freedomMiddleInterval = "5-10",
-        freedomMiddleMaxSplit = "768",
-        freedomInnerEnabled = true,
-        freedomInnerPackets = "1-1",
-        freedomInnerLength = "1",
-        freedomInnerInterval = "4",
-        freedomInnerMaxSplit = "517",
-        freedomUdpNoiseEnabled = true,
-        freedomUdpNoiseCount = 10
-    )
-    FreedomPreset.CUSTOM -> s.copy(freedomPreset = preset)
-}
-
-@Composable
-private fun FreedomLayerCard(
-    title: String,
-    subtitle: String,
-    tone: Color,
-    enabled: Boolean,
-    onEnabled: ((Boolean) -> Unit)?,
-    packets: String,
-    length: String,
-    interval: String,
-    maxSplit: String,
-    onPackets: (String) -> Unit,
-    onLength: (String) -> Unit,
-    onInterval: (String) -> Unit,
-    onMaxSplit: (String) -> Unit
-) {
-    PrismWell(
-        modifier = Modifier.fillMaxWidth(),
-        tone = if (enabled) tone else Aether.InkMuted,
-        selected = enabled,
-        radius = 16.dp,
-        contentPadding = PaddingValues(12.dp)
-    ) {
-        Column(
-            modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Box(
-                    Modifier
-                        .size(8.dp)
-                        .clip(CircleShape)
-                        .background(if (enabled) tone else Aether.InkFaint)
-                )
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        title,
-                        color = Aether.Ink,
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        subtitle,
-                        color = Aether.InkFaint,
-                        style = MaterialTheme.typography.labelSmall,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-                if (onEnabled != null) {
-                    Switch(
-                        checked = enabled,
-                        onCheckedChange = onEnabled,
-                        colors = marbleSwitchColors()
-                    )
-                }
-            }
-
-            AnimatedVisibility(enabled) {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(7.dp)
-                    ) {
-                        TinyField("Packets", packets, Modifier.weight(1f), onPackets)
-                        TinyField("Length", length, Modifier.weight(1f), onLength)
-                        TinyField("Interval", interval, Modifier.weight(1f), onInterval)
-                    }
-                    TinyField("maxSplit (optional)", maxSplit, Modifier.fillMaxWidth(), onMaxSplit)
-                }
-            }
-        }
-    }
 }

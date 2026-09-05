@@ -86,11 +86,6 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     private val store = AppStore(context)
     private val io = Executors.newFixedThreadPool(3)
 
-    // Connect decisions touch synchronized SQLite health history. Keep that work off MainActivity
-    // and independent from subscription/import tasks so a refresh can never swallow a Connect tap.
-    private val connectDecisionWorker = Executors.newSingleThreadExecutor()
-    private val connectDecisionInFlight = AtomicBoolean(false)
-
     // IntelligenceStatus includes a SQLite count + thermal inspection. Coalesce it on a worker so
     // a DB writer can never make the Android input thread wait on the HealthDb monitor.
     private val statusWorker = Executors.newSingleThreadExecutor()
@@ -125,7 +120,6 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     private fun normalizeLibrarySourceFilter(id: String): String = when {
         id == "all" -> "all"
         id == "manual" -> "manual"
-        id == ServerlessFreedomEngine.SOURCE_ID -> ServerlessFreedomEngine.SOURCE_ID
         subscriptions.any { it.id == id } -> id
         else -> "all"
     }
@@ -214,17 +208,6 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         store.setLibraryCollapsedSources(next)
     }
 
-    // MARBLE_LIBRARY_FREEDOM_TOGGLE_V113 — Marble Freedom stays hidden from the Library until the
-    // user reveals it from the smart floating button.
-    var libraryFreedomHidden by mutableStateOf(store.libraryFreedomHidden())
-        private set
-
-    fun updateLibraryFreedomHidden(hidden: Boolean) {
-        if (libraryFreedomHidden == hidden) return
-        libraryFreedomHidden = hidden
-        store.setLibraryFreedomHidden(hidden)
-    }
-
     fun ensureLibrarySourceSelectionValid() {
         val normalized = normalizeLibrarySourceFilter(librarySourceFilter)
         if (normalized != librarySourceFilter) {
@@ -242,7 +225,7 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
      */
     private fun resolveLibraryTarget(id: String): LibraryTarget? = when {
         id == "manual" -> LibraryTarget("manual", "Manual")
-        id == "all" || id == ServerlessFreedomEngine.SOURCE_ID || id.isBlank() -> null
+        id == "all" || id.isBlank() -> null
         else -> subscriptions.firstOrNull { it.id == id }?.let { LibraryTarget(it.id, it.name) }
     }
 
@@ -252,20 +235,9 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
      */
     fun intakeTargetOrManual(id: String): String = resolveLibraryTarget(id)?.id ?: "manual"
 
-    /**
-     * Library is also the chooser for the offline Marble Freedom engine. Freedom rows are
-     * generated locally, never persisted as subscription data, and remain selectable after a
-     * cold start even when the network is unavailable.
-     */
-    private fun freedomLibraryProfiles(): List<ProxyProfile> =
-        ServerlessFreedomEngine.profiles(settings, iranMode)
-
     val libraryProfiles: List<ProxyProfile>
-        get() = (profiles.toList() + freedomLibraryProfiles())
-            .distinctBy { it.id }
+        get() = profiles.toList().distinctBy { it.id }
 
-    // Ranking/auto-connect keeps its historical contract: generated Freedom rows are selected
-    // through their own adaptive engine, never mixed into subscription benchmark waves.
     private fun enabledProfilesSnapshot(): List<ProxyProfile> =
         profiles.toList().distinctBy { it.id }
 
@@ -273,16 +245,13 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
      * Resolve the exact Library source selected by the user.
      *
      * Fail closed: a stale/unknown source id returns an empty set — never the whole Library.
-     * "all" expands to every enabled subscription profile; Marble Freedom has its own local scope.
+     * "all" expands to every enabled subscription profile.
      */
     private fun libraryScopeSnapshot(sourceId: String): List<ProxyProfile> {
         val available = enabledProfilesSnapshot()
         return when (sourceId) {
-            // "All" remains the subscription test scope. Freedom has a dedicated source chip
-            // and a separate adaptive check, so it cannot poison a TCP/TUN wave with host="".
             "all" -> available
             "manual" -> available.filter { it.subscriptionId == "manual" }
-            ServerlessFreedomEngine.SOURCE_ID -> freedomLibraryProfiles()
             else -> {
                 if (subscriptions.none { it.id == sourceId }) emptyList()
                 else available.filter { it.subscriptionId == sourceId }
@@ -293,7 +262,6 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     private fun libraryScopeLabel(sourceId: String): String = when (sourceId) {
         "all" -> "All sources"
         "manual" -> "Manual"
-        ServerlessFreedomEngine.SOURCE_ID -> "Marble Freedom"
         else -> subscriptions.firstOrNull { it.id == sourceId }?.name ?: "Missing source"
     }
 
@@ -542,20 +510,6 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         val target = targetProfile
             ?: profile(activeProfileId, activeProfileSourceId)
             ?: lastProfile()
-        if (target != null && ServerlessFreedomEngine.isServerless(target)) {
-            postToMain {
-                serverIntel = ServerIntelInfo(
-                    endpoint = "freedom",
-                    ip = "this device",
-                    ipType = "Freedom",
-                    organization = "Marble Freedom",
-                    isp = "No remote proxy"
-                )
-                serverIntelLoading = false
-                serverIntelError = ""
-            }
-            return
-        }
         val endpoint = target?.host
             ?.trim()
             ?.removeSurrounding("[", "]")
@@ -1007,23 +961,11 @@ fun resetTelemetry() {
      * independent rows; engine callers may intentionally resolve by canonical config id only.
      */
     fun profile(id: String, sourceId: String? = null): ProxyProfile? {
-        if (ServerlessFreedomEngine.matches(id, sourceId)) {
-            val shielded = IranShield.apply(settings, null, iranMode, geoIpReady())
-            val allFreedom = ServerlessFreedomEngine.profiles(shielded, iranMode)
-            return allFreedom.firstOrNull { it.id == id } ?: allFreedom.first()
-        }
         return if (!sourceId.isNullOrBlank()) {
             profiles.firstOrNull { it.id == id && it.subscriptionId == sourceId }
         } else {
             profiles.firstOrNull { it.id == id }
         }
-    }
-
-    fun serverlessProfile(): ProxyProfile {
-        val shielded = IranShield.apply(settings, null, iranMode, geoIpReady())
-        val allFreedom = ServerlessFreedomEngine.profiles(shielded, iranMode)
-        // Prefer the actively connected one so the UI shows the correct tier
-        return allFreedom.firstOrNull { it.id == activeProfileId } ?: allFreedom.first()
     }
 
     /** True only for the exact Library row currently carrying traffic. */
@@ -1109,12 +1051,7 @@ fun resetTelemetry() {
                 iranMode
             )
         }
-        val guarded = IdentityGuard.apply(tuned)
-        return if (ServerlessFreedomEngine.isServerless(profile)) {
-            ServerlessFreedomEngine.pinSession(guarded)
-        } else {
-            guarded
-        }
+        return IdentityGuard.apply(tuned)
     }
 
     /**
@@ -1351,20 +1288,8 @@ private fun postToMain(block: () -> Unit) {
             ).roundToInt().coerceIn(0, 100)
     }
 
-    fun recoveryCandidates(failedIds: Set<String>): List<ProxyProfile> {
-        if (settings.serverlessModeEnabled ||
-            ServerlessFreedomEngine.matches(activeProfileId, activeProfileSourceId)
-        ) {
-            return emptyList()
-        }
-        return intelligence.recoveryCandidates(enabledProfilesSnapshot(), failedIds, settings)
-    }
-
-    fun setServerlessMode(enabled: Boolean) {
-        if (settings.serverlessModeEnabled == enabled) return
-        updateSettings(settings.copy(serverlessModeEnabled = enabled))
-        message = if (enabled) "Marble Freedom" else "Servers"
-    }
+    fun recoveryCandidates(failedIds: Set<String>): List<ProxyProfile> =
+        intelligence.recoveryCandidates(enabledProfilesSnapshot(), failedIds, settings)
 
     fun refreshIntelligenceStatus() {
         if (!statusRefreshInFlight.compareAndSet(false, true)) return
@@ -1738,7 +1663,7 @@ private fun postToMain(block: () -> Unit) {
     fun measureSelectedPing() {
         if (!selectedPingInFlight.compareAndSet(false, true)) return
         val target = lastProfile()
-        if (target == null || ServerlessFreedomEngine.isServerless(target)) {
+        if (target == null) {
             postToMain {
                 selectedPingInFlight.set(false)
                 selectedPingMs = 0
@@ -2509,11 +2434,7 @@ private fun postToMain(block: () -> Unit) {
         }
         val target = resolveLibraryTarget(targetSourceId)
         if (target == null) {
-            message = when (targetSourceId) {
-                ServerlessFreedomEngine.SOURCE_ID ->
-                    "Marble Freedom is generated locally • servers cannot be moved into it"
-                else -> "Select one server source before moving a server"
-            }
+            message = "Select one server source before moving a server"
             return false
         }
         val moving = profiles[index]
@@ -2636,19 +2557,17 @@ private fun postToMain(block: () -> Unit) {
 
     /** Reassigns a profile to another subscription bucket (or "manual") so nodes can move between library sources. */
     fun lastProfile(): ProxyProfile? {
-        if (settings.serverlessModeEnabled) return serverlessProfile()
         val id = store.lastProfileId()
-        if (id.isNotBlank() && !ServerlessFreedomEngine.matches(id, store.lastProfileSourceId())) {
+        if (id.isNotBlank()) {
             val sourceId = store.lastProfileSourceId()
             val exact = profile(id, sourceId)
             val candidate = (exact ?: profile(id))
             if (candidate != null) return candidate
         }
 
-        // When Marble Freedom is switched off or store has no active profile, check connection
-        // history in reverse to seamlessly restore the most recent enabled library node.
+        // No stored profile: check connection history in reverse to seamlessly restore the most
+        // recent enabled library node.
         val fromHistory = history.asReversed().asSequence()
-            .filterNot { ServerlessFreedomEngine.matches(it.profileId, "") }
             .mapNotNull { rec -> profile(rec.profileId) }
             .firstOrNull()
         if (fromHistory != null) return fromHistory
@@ -2821,81 +2740,26 @@ private fun postToMain(block: () -> Unit) {
 
     fun startVpn(p: ProxyProfile) {
         privacy = null
-        if (!ServerlessFreedomEngine.isServerless(p) && settings.serverlessModeEnabled) {
-            updateSettings(settings.copy(serverlessModeEnabled = false))
-        }
         runCatching { scanIranMode() }
-        
-        if (ServerlessFreedomEngine.isServerless(p)) {
-            setRuntimeState("CONNECTING", "Smart Aegis Check...")
-            connectDecisionWorker.execute {
-                val best = MarbleFreedomSmartRanker.bestProfile(
-                    settings, iranMode, xray, intelligence, rankCrossCheckSources()
-                ) { progress ->
-                    setRuntimeState("CONNECTING", progress)
-                }
-                // MARBLE_SMART_RANK_V90: surface the stale-subscriptions prompt through the Snackbar
-                // channel too (bestProfile can only report through onProgress, which becomes the
-                // connecting-status text).
-                if (MarbleFreedomSmartRanker.lastRankingDecision?.decisionReason ==
-                    "stale-subscriptions-majority-excluded"
-                ) {
-                    message = MarbleFreedomSmartRanker.STALE_SUBSCRIPTIONS_MESSAGE
-                }
-                val intent = Intent(context, MarbleVpnService::class.java)
-                    .setAction(MarbleVpnService.ACTION_START)
-                    .putExtra(MarbleVpnService.EXTRA_PROFILE, best.id)
-                    .putExtra(MarbleVpnService.EXTRA_PROFILE_SOURCE, best.subscriptionId)
-                    .putExtra(MarbleVpnService.EXTRA_MODE, MarbleVpnService.MODE_TUN)
-                launchConnectionService(intent, best.name)
-            }
-        } else {
-            setRuntimeState("CONNECTING", p.name)
-            val intent = Intent(context, MarbleVpnService::class.java)
-                .setAction(MarbleVpnService.ACTION_START)
-                .putExtra(MarbleVpnService.EXTRA_PROFILE, p.id)
-                .putExtra(MarbleVpnService.EXTRA_PROFILE_SOURCE, p.subscriptionId)
-                .putExtra(MarbleVpnService.EXTRA_MODE, MarbleVpnService.MODE_TUN)
-            launchConnectionService(intent, p.name)
-        }
+        setRuntimeState("CONNECTING", p.name)
+        val intent = Intent(context, MarbleVpnService::class.java)
+            .setAction(MarbleVpnService.ACTION_START)
+            .putExtra(MarbleVpnService.EXTRA_PROFILE, p.id)
+            .putExtra(MarbleVpnService.EXTRA_PROFILE_SOURCE, p.subscriptionId)
+            .putExtra(MarbleVpnService.EXTRA_MODE, MarbleVpnService.MODE_TUN)
+        launchConnectionService(intent, p.name)
     }
 
     fun startLocalProxy(p: ProxyProfile) {
         privacy = null
-        if (!ServerlessFreedomEngine.isServerless(p) && settings.serverlessModeEnabled) {
-            updateSettings(settings.copy(serverlessModeEnabled = false))
-        }
         runCatching { scanIranMode() }
-        
-        if (ServerlessFreedomEngine.isServerless(p)) {
-            setRuntimeState("CONNECTING", "Smart Aegis Check...")
-            connectDecisionWorker.execute {
-                val best = MarbleFreedomSmartRanker.bestProfile(
-                    settings, iranMode, xray, intelligence, rankCrossCheckSources()
-                ) { progress ->
-                    setRuntimeState("CONNECTING", progress)
-                }
-                if (MarbleFreedomSmartRanker.lastRankingDecision?.decisionReason ==
-                    "stale-subscriptions-majority-excluded"
-                ) {
-                    message = MarbleFreedomSmartRanker.STALE_SUBSCRIPTIONS_MESSAGE
-                }
-                val intent = Intent(context, MarbleVpnService::class.java)
-                    .setAction(MarbleVpnService.ACTION_START)
-                    .putExtra(MarbleVpnService.EXTRA_PROFILE, best.id)
-                    .putExtra(MarbleVpnService.EXTRA_PROFILE_SOURCE, best.subscriptionId)
-                    .putExtra(MarbleVpnService.EXTRA_MODE, MarbleVpnService.MODE_PROXY)
-                launchConnectionService(intent, best.name)
-            }
-        } else {
-            setRuntimeState("CONNECTING", p.name)
-            val intent = Intent(context, MarbleVpnService::class.java)
-                .setAction(MarbleVpnService.ACTION_START)
-                .putExtra(MarbleVpnService.EXTRA_PROFILE, p.id)
-                .putExtra(MarbleVpnService.EXTRA_PROFILE_SOURCE, p.subscriptionId)
-                .putExtra(MarbleVpnService.EXTRA_MODE, MarbleVpnService.MODE_PROXY)
-            launchConnectionService(intent, p.name)
-        }
+        setRuntimeState("CONNECTING", p.name)
+        val intent = Intent(context, MarbleVpnService::class.java)
+            .setAction(MarbleVpnService.ACTION_START)
+            .putExtra(MarbleVpnService.EXTRA_PROFILE, p.id)
+            .putExtra(MarbleVpnService.EXTRA_PROFILE_SOURCE, p.subscriptionId)
+            .putExtra(MarbleVpnService.EXTRA_MODE, MarbleVpnService.MODE_PROXY)
+        launchConnectionService(intent, p.name)
     }
 
     private fun launchConnectionService(intent: Intent, profileName: String) {
@@ -3054,19 +2918,6 @@ private fun postToMain(block: () -> Unit) {
      * Unknown source ids fail closed to zero candidates instead of falling back to all profiles.
      */
     fun smartRankSource(sourceId: String) {
-        if (sourceId == ServerlessFreedomEngine.SOURCE_ID) {
-            task("Marble Freedom • adaptive check") {
-                val best = MarbleFreedomSmartRanker.bestProfile(
-                    settings,
-                    iranMode,
-                    xray,
-                    intelligence,
-                    rankCrossCheckSources()
-                ) { progress -> message = progress }
-                message = "Marble Freedom ready • ${best.name}"
-            }
-            return
-        }
         // MARBLE_SMART_RANK_V90: debounce + single-flight. A Rank tap storm can never re-run the
         // full preflight + benchmark pool more than once per cooldown.
         val gate = rankGate.tryAcquire()
@@ -3321,19 +3172,6 @@ private fun postToMain(block: () -> Unit) {
     }
 
     fun fullTest(p: ProxyProfile) {
-        if (ServerlessFreedomEngine.isServerless(p)) {
-            task("Marble Freedom • adaptive check") {
-                val best = MarbleFreedomSmartRanker.bestProfile(
-                    settings,
-                    iranMode,
-                    xray,
-                    intelligence,
-                    rankCrossCheckSources()
-                ) { progress -> message = progress }
-                message = "Marble Freedom ready • ${best.name}"
-            }
-            return
-        }
         task("Full test ${p.name}") {
             val result = BenchmarkEngine(xray, intelligence).run(
                 listOf(p),
@@ -3374,10 +3212,6 @@ private fun postToMain(block: () -> Unit) {
      * test proves a *config*, so it is measured per server, exactly as ranking does.
      */
     fun testSource(sourceId: String) {
-        if (sourceId == ServerlessFreedomEngine.SOURCE_ID) {
-            message = "Marble Freedom is local • use Rank for its adaptive check"
-            return
-        }
         val scoped = libraryScopeSnapshot(sourceId).distinctBy { it.id }
         val scope = libraryScopeLabel(sourceId)
         if (scoped.isEmpty()) {
@@ -3802,8 +3636,7 @@ private fun postToMain(block: () -> Unit) {
     /**
      * DPI-aware HTTPS fetch. GitHub/raw SNI blocks, UA fingerprinting and first-flight RSTs are
      * handled by [DpiAwareFetcher] (browser UA, jsDelivr mirrors, no-cleartext redirects).
-     * While connected, management stays inside the live SOCKS route. While Iran Mode is active
-     * and disconnected, a temporary Freedom-fragment SOCKS bridge is the last resort.
+     * While connected, management stays inside the live SOCKS route.
      * Subscription redirect left HTTPS is enforced by DpiAwareFetcher.fetchDirect.
      */
     private fun httpSubscription(url: String): SubscriptionPayload {
@@ -3817,20 +3650,16 @@ private fun postToMain(block: () -> Unit) {
             }
         }
         val throughSocks: ((String, String) -> DpiAwareFetcher.Payload)? =
-            if (connected || iranMode.active) {
+            if (connected) {
                 { candidate, agent ->
-                    if (connected) {
-                        DpiAwareFetcher.Payload(
-                            text = SocksHttpClient.getTextUrl(
-                                activeProxyPort(),
-                                candidate,
-                                maxBytes = MAX_SUBSCRIPTION_BYTES,
-                                userAgent = agent
-                            )
+                    DpiAwareFetcher.Payload(
+                        text = SocksHttpClient.getTextUrl(
+                            activeProxyPort(),
+                            candidate,
+                            maxBytes = MAX_SUBSCRIPTION_BYTES,
+                            userAgent = agent
                         )
-                    } else {
-                        fetchViaFreedomBridge(candidate, agent)
-                    }
+                    )
                 }
             } else {
                 null
@@ -3843,25 +3672,6 @@ private fun postToMain(block: () -> Unit) {
             throughSocks = throughSocks
         )
         return SubscriptionPayload(payload.text, payload.userInfo)
-    }
-
-    private fun fetchViaFreedomBridge(url: String, userAgent: String): DpiAwareFetcher.Payload {
-        var payload: DpiAwareFetcher.Payload? = null
-        val recipe = DpiEvasionPolicy.serverlessRecipe(iranMode)
-        val bridgeSettings = DpiEvasionPolicy.applyRecipe(settings, recipe)
-        val profile = ServerlessFreedomEngine.profile(bridgeSettings)
-        val started = xray.temporary(profile, 21_080, bridgeSettings) { port ->
-            payload = DpiAwareFetcher.Payload(
-                text = SocksHttpClient.getTextUrl(
-                    port,
-                    url,
-                    maxBytes = MAX_SUBSCRIPTION_BYTES,
-                    userAgent = userAgent
-                )
-            )
-        }
-        require(started && payload != null) { "Freedom fragment bridge failed" }
-        return payload!!
     }
 
     private fun http(url: String): String = httpSubscription(url).text

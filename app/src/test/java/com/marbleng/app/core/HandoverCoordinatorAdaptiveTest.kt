@@ -8,7 +8,7 @@ import org.junit.Test
 /**
  * Regression tests for soft session migration (MARBLE_SMART_RANK_V90).
  *
- * The Marble Freedom Aegis adaptive scorer decides WHEN and TO WHOM a live session should migrate;
+ * The adaptive scorer decides WHEN and TO WHOM a live session should migrate;
  * the make-before-break coordinator decides HOW — always a soft migration (start challenger, move
  * new flows, drain the old route), never a raw reconnect. Catastrophic degradation bypasses the
  * anti-flap dwell/cooldown via forceBegin.

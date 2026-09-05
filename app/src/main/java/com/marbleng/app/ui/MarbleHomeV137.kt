@@ -77,7 +77,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.marbleng.app.AppRepository
-import com.marbleng.app.core.ServerlessFreedomEngine
 import com.marbleng.app.core.ServersQuery
 import com.marbleng.app.core.ServersFilter
 import com.marbleng.app.model.ConnectionPingState
@@ -555,7 +554,6 @@ private fun HomeGroupSwitcherV137(
     val currentName = when (repo.librarySourceFilter) {
         "all" -> t.homeAllGroups
         "manual" -> "Manual"
-        ServerlessFreedomEngine.SOURCE_ID -> "Marble Freedom"
         else -> repo.subscriptions.firstOrNull { it.id == repo.librarySourceFilter }?.name
             ?: t.homeAllGroups
     }
@@ -650,21 +648,6 @@ private fun HomeGroupSwitcherV137(
                         repo.selectLibrarySource("manual")
                     }
                 )
-                if (!repo.libraryFreedomHidden) {
-                    val freedomCount = repo.libraryProfiles.count {
-                        it.subscriptionId == ServerlessFreedomEngine.SOURCE_ID
-                    }
-                    HomeGroupMenuEntryV137(
-                        name = "Marble Freedom",
-                        count = freedomCount,
-                        selected = repo.librarySourceFilter == ServerlessFreedomEngine.SOURCE_ID,
-                        tone = tone,
-                        onClick = {
-                            menuOpen = false
-                            repo.selectLibrarySource(ServerlessFreedomEngine.SOURCE_ID)
-                        }
-                    )
-                }
             }
         }
     }

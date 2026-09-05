@@ -69,7 +69,7 @@ class LinkDeadlinePolicyTest {
     }
 
     @Test
-    fun `the freedom fragment chain keeps the upstream xtls schedule when unmeasured`() {
+    fun `a fragmenting chain keeps the upstream xtls schedule when unmeasured`() {
         assertEquals(
             LinkDeadlinePolicy.FRAGMENTED_DNS_BASE_MS,
             LinkDeadlinePolicy.dnsServerTimeoutMs(LinkEvidence.UNKNOWN, 0, fragmented = true)

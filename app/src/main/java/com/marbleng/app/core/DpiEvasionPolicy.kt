@@ -1,7 +1,6 @@
 package com.marbleng.app.core
 
 import com.marbleng.app.model.AppSettings
-import com.marbleng.app.model.FreedomPreset
 import kotlin.math.max
 import kotlin.math.min
 
@@ -131,7 +130,7 @@ object DpiEvasionPolicy {
     )
 
     /**
-     * Default Freedom chain — the official XTLS 2-hop pair that actually completes TLS to
+     * Default connection chain — the official XTLS 2-hop pair that actually completes TLS to
      * multi-CDN fronts (YouTube / X / Reddit / Fastly / Cloudflare):
      *   outer 1-1 / 1-3 / 5-10  →  full-fragment 1-1 / 1 / 4 / maxSplit 517
      * No middle hop: the previous 3-layer cascade added an untested slicer that pushed the first
@@ -281,100 +280,32 @@ object DpiEvasionPolicy {
         description = "Rightel steel • split outer → record-split middle → full-fragment 517"
     )
 
-    private val OPERATOR_PRESETS = mapOf(
-        FreedomPreset.HAMRAH_AVAL to HAMRAH_STEEL,
-        FreedomPreset.IRANCELL to IRANCELL_STEEL,
-        FreedomPreset.SHATEL to SHATEL_STEEL,
-        FreedomPreset.RIGHTEL to RIGHTEL_STEEL
+    private val OPERATOR_STEEL = mapOf(
+        197207L to HAMRAH_STEEL,   // MCI / Hamrah-e-Aval
+        44244L to IRANCELL_STEEL,  // Irancell
+        57218L to RIGHTEL_STEEL,   // Rightel
+        31549L to SHATEL_STEEL     // Shatel
     )
 
-    /** True for the four per-operator steel presets. */
-    fun isOperatorPreset(preset: FreedomPreset): Boolean = preset in OPERATOR_PRESETS
-
-    /** Human label used by the Freedom settings UI (Persian operator names kept alongside). */
-    fun operatorPresetLabel(preset: FreedomPreset): String = when (preset) {
-        FreedomPreset.SHATEL -> "Shatel"
-        FreedomPreset.HAMRAH_AVAL -> "MCI • همراه اول"
-        FreedomPreset.IRANCELL -> "Irancell"
-        FreedomPreset.RIGHTEL -> "Rightel"
-        else -> preset.name
-    }
-
     /**
-     * Map a detected Iranian operator to its steel preset.
+     * Map a detected Iranian operator to its steel recipe.
      *
      * Matching uses the curated ASN table first (MCI 197207, Irancell 44244, Rightel 57218,
      * Shatel 31549) and falls back to operator-name fingerprints so regional ASNs of the same
      * operator still get the right profile.
      */
-    fun operatorPresetFor(isp: IranIsp?): FreedomPreset? {
+    fun operatorRecipeFor(isp: IranIsp?): FragmentRecipe? {
         if (isp == null) return null
-        val asn = isp.asn
-        if (asn in setOf(197207)) return FreedomPreset.HAMRAH_AVAL
-        if (asn in setOf(44244)) return FreedomPreset.IRANCELL
-        if (asn in setOf(57218)) return FreedomPreset.RIGHTEL
-        if (asn in setOf(31549)) return FreedomPreset.SHATEL
+        OPERATOR_STEEL[isp.asn.toLong()]?.let { return it }
 
         val name = "${isp.name} ${isp.shortName} ${isp.persianName}".lowercase()
         return when {
             "hamrah" in name || "mci" in name || "mobile communication company" in name ||
-                "hamrah-e aval" in name -> FreedomPreset.HAMRAH_AVAL
-            "irancell" in name || "iran cell" in name || "mtn" in name ->
-                FreedomPreset.IRANCELL
-            "rightel" in name -> FreedomPreset.RIGHTEL
-            "shatel" in name || "aria shatel" in name -> FreedomPreset.SHATEL
+                "hamrah-e aval" in name -> HAMRAH_STEEL
+            "irancell" in name || "iran cell" in name || "mtn" in name -> IRANCELL_STEEL
+            "rightel" in name -> RIGHTEL_STEEL
+            "shatel" in name || "aria shatel" in name -> SHATEL_STEEL
             else -> null
-        }
-    }
-
-    fun freedomRecipe(settings: AppSettings, state: IranModeState = IranModeState()): FragmentRecipe {
-        return when (settings.freedomPreset) {
-            com.marbleng.app.model.FreedomPreset.MULTI_LAYER_CASCADE -> MULTI_LAYER_CASCADE
-            com.marbleng.app.model.FreedomPreset.SNI_SHREDDER -> TLSHELLO_SNI
-            com.marbleng.app.model.FreedomPreset.AGGRESSIVE_RECORD_SPLIT -> AGGRESSIVE_CASCADE
-            com.marbleng.app.model.FreedomPreset.EXTREME_ANTI_DPI -> EXTREME_ANTI_DPI
-            // Explicit user-pinned operator steel profile always wins over auto-detection.
-            com.marbleng.app.model.FreedomPreset.SHATEL -> SHATEL_STEEL
-            com.marbleng.app.model.FreedomPreset.HAMRAH_AVAL -> HAMRAH_STEEL
-            com.marbleng.app.model.FreedomPreset.IRANCELL -> IRANCELL_STEEL
-            com.marbleng.app.model.FreedomPreset.RIGHTEL -> RIGHTEL_STEEL
-            com.marbleng.app.model.FreedomPreset.CUSTOM -> FragmentRecipe(
-                packets = settings.freedomOuterPackets.ifBlank { "1-1" },
-                length = settings.freedomOuterLength.ifBlank { "1-3" },
-                interval = settings.freedomOuterInterval.ifBlank { "5-10" },
-                maxSplit = settings.freedomOuterMaxSplit,
-                middlePackets = if (settings.freedomMiddleEnabled) settings.freedomMiddlePackets.ifBlank { "1-3" } else "",
-                middleLength = if (settings.freedomMiddleEnabled) settings.freedomMiddleLength.ifBlank { "10-30" } else "",
-                middleInterval = if (settings.freedomMiddleEnabled) settings.freedomMiddleInterval.ifBlank { "5-10" } else "",
-                middleMaxSplit = if (settings.freedomMiddleEnabled) settings.freedomMiddleMaxSplit.ifBlank { "768" } else "",
-                innerPackets = if (settings.freedomInnerEnabled) settings.freedomInnerPackets.ifBlank { "1-1" } else "",
-                innerLength = if (settings.freedomInnerEnabled) settings.freedomInnerLength.ifBlank { "1" } else "",
-                innerInterval = if (settings.freedomInnerEnabled) settings.freedomInnerInterval.ifBlank { "4" } else "",
-                innerMaxSplit = if (settings.freedomInnerEnabled) settings.freedomInnerMaxSplit.ifBlank { "517" } else "",
-                rank = 6,
-                description = "Custom user-configured multi-layer fragment"
-            )
-            com.marbleng.app.model.FreedomPreset.SMART_ADAPTIVE -> {
-                // MARBLE_OPERATOR_FREEDOM_V91: match the detected Iranian operator to its steel
-                // profile before the generic severity ladder. This is what makes Smart Auto feel
-                // tuned per carrier without any user action.
-                val operatorPreset = if (settings.freedomOperatorAuto) {
-                    operatorPresetFor(state.isp)
-                } else {
-                    null
-                }
-                val operatorRecipe = operatorPreset?.let { OPERATOR_PRESETS[it] }
-                if (operatorRecipe != null) return operatorRecipe
-
-                val tier = IranShield.tier(state)
-                when {
-                    // Extreme operators: official skip-fragment delay pair (no middle hop).
-                    tier >= 3 -> AGGRESSIVE_CASCADE
-                    // Heavy SNI/RST: still the battle-tested 2-hop GFW-knocker pair.
-                    tier >= 2 -> MULTI_LAYER_CASCADE
-                    else -> MULTI_LAYER_CASCADE
-                }
-            }
         }
     }
 
@@ -382,6 +313,10 @@ object DpiEvasionPolicy {
         val tier = IranShield.tier(state)
         val sni = CensorTechnique.SNI_FILTERING in state.techniques
         val reset = CensorTechnique.TCP_RESET in state.techniques
+        // MARBLE_OPERATOR_STEEL_V91 — match the detected Iranian operator to its steel profile
+        // before the generic severity ladder. This is what makes the countermeasures feel tuned
+        // per carrier without any user action.
+        operatorRecipeFor(state.isp)?.let { return it }
         return when {
             !state.active -> TLSHELLO
             CensorTechnique.NATIONAL_INTRANET in state.techniques ||
@@ -390,11 +325,6 @@ object DpiEvasionPolicy {
             sni || tier >= 2 -> RECORD_SPLIT
             else -> TLSHELLO
         }
-    }
-
-    fun serverlessRecipe(state: IranModeState): FragmentRecipe {
-        val base = connectionRecipe(state)
-        return if (base.innerEnabled) base else TLSHELLO_SNI
     }
 
     fun mtuCeiling(state: IranModeState, cellular: Boolean): Int {

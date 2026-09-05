@@ -28,7 +28,6 @@ import com.marbleng.app.core.PathMtuPolicy
 import com.marbleng.app.core.RecoveryBackoffPolicy
 import com.marbleng.app.core.ResolverEvidencePolicy
 import com.marbleng.app.core.RuntimeDiagnostics
-import com.marbleng.app.core.ServerlessFreedomEngine
 import com.marbleng.app.core.SocksHttpClient
 import com.marbleng.app.core.SmartNotificationKind
 import com.marbleng.app.core.SmartNotifier
@@ -2473,23 +2472,6 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         if (observed.isBlank()) return true
         if (!isRouteCurrent(session, generation)) return false
 
-        // Marble Freedom has no remote exit to pin: the observed egress is the user's own address,
-        // which legitimately changes (CGNAT rebinding, WiFi↔mobile handover, IPv6 prefix rotation)
-        // and has no relation to proxy identity. Pinning it would tear the route down mid-session,
-        // and recoveryCandidates is intentionally empty for serverless, leaving the user stuck in
-        // a fail-closed tunnel. Identity verification is informational only on this profile.
-        if (ServerlessFreedomEngine.matches(activeProfileId, activeProfileSourceId)) {
-            val repo = (application as MarbleApplication).repo
-            repo.updateSentinel(
-                repo.sentinel.copy(
-                    exitIp = observed,
-                    updatedAt = System.currentTimeMillis()
-                )
-            )
-            diag.event("IDENTITY", "freedom-exit-informational", "session" to session, "ip" to observed)
-            return true
-        }
-
         val isV6 = observed.contains(':')
         val pinned = if (isV6) pinnedExitV6 else pinnedExitV4
         val settings = activeSettings ?: (application as MarbleApplication).repo.settings
@@ -3344,8 +3326,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                     !isPrivateEndpointHost(host)
                 ) {
                     return@runCatching (
-                        "Unsupported VLESS • pick a server with TLS/REALITY, " +
-                            "or turn Marble Freedom back on"
+                        "Unsupported VLESS • pick a server with TLS/REALITY"
                     )
                 }
             }
@@ -3404,7 +3385,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         val lower = compact.lowercase()
         return when {
             "vless without tls or other encryption is prohibited" in lower ->
-                "Unsupported VLESS • pick a server with TLS/REALITY, or turn Marble Freedom back on"
+                "Unsupported VLESS • pick a server with TLS/REALITY"
             "failed to build outbound config" in lower ->
                 "Xray rejected this server configuration • check protocol/TLS settings"
             "failed to load config files" in lower ->

@@ -1,6 +1,7 @@
 package com.marbleng.app.core
 
 import com.marbleng.app.model.AppSettings
+import com.marbleng.app.model.IranModePolicy
 import com.marbleng.app.model.RoutingMode
 import org.json.JSONArray
 import org.json.JSONObject
@@ -189,7 +190,7 @@ object XrayConfigHardener {
             byTag[tag] = outbound
             if (protocol !in infra && selectedTag.isBlank()) selectedTag = tag
         }
-        // Match the serverless Freedom path: a config may legitimately contain only freedom/direct
+        // A hand-imported serverless-style config may legitimately contain only freedom/direct
         // outbounds (NORMAL tier). Treat the first one as the exit when no non-infra proxy exists.
         if (selectedTag.isBlank()) {
             selectedTag = byTag.entries.firstOrNull { (_, outbound) ->
@@ -374,10 +375,10 @@ object XrayConfigHardener {
             byTag[tag] = clone
             if (isSelectableProxy(clone) && firstTag.isBlank()) firstTag = tag
         }
-        // Serverless Freedom can intentionally emit a plain freedom/direct outbound (NORMAL tier
-        // or a hand-imported Freedom-only JSON). Xray accepts that as a valid exit; the generic
+        // A hand-imported serverless-style config can intentionally emit a plain freedom/direct
+        // outbound as its only exit. Xray accepts that as a valid exit; the generic
         // "freedom is infrastructure" rule must only apply when a real proxy outbound also exists.
-        // Otherwise the whole config is rejected as "No proxy outbound" and Marble Freedom fails.
+        // Otherwise the whole config is rejected as "No proxy outbound".
         if (firstTag.isBlank()) {
             firstTag = byTag.values.firstOrNull { outbound ->
                 val protocol = outbound.optString("protocol").lowercase()
@@ -406,11 +407,10 @@ object XrayConfigHardener {
                 ?.optString("dialerProxy")?.takeIf { it.isNotBlank() }?.let { add(it, viaDialer = true) }
         }
         add(firstTag)
-        // Freedom ships a dedicated udp-noises outbound that is not on the dialer chain.
-        // Keep it whenever present so the routing rules below can send QUIC/UDP-443 there.
+        // An imported config may ship a dedicated udp-noises outbound that is not on the dialer
+        // chain. Keep it whenever present so the routing rules below can send QUIC/UDP-443 there.
         byTag.keys.filter { tag ->
-            tag == ServerlessFreedomEngine.UDP_NOISES_TAG ||
-                (byTag[tag]?.let { hasNoises(it) && !hasFragment(it) } == true)
+            byTag[tag]?.let { hasNoises(it) && !hasFragment(it) } == true
         }.forEach { add(it) }
 
         // Mux is opt-in. The official Xray docs describe it as connection reuse / latency
@@ -430,67 +430,26 @@ object XrayConfigHardener {
             }
         }
 
-                // Overlay live fragment recipes onto Freedom hops that already shred TLS (serverless).
-        // Named Freedom presets bake the correct hop values in ServerlessFreedomEngine.configJson
-        // (including SMART_ADAPTIVE escalation from Iran Mode). Re-overlaying from settings would
-        // undo that recipe with stale freedomOuter* fields, so only CUSTOM (or non-Freedom
-        // fragment hops) is rewritten here.
-        val isFreedomSelected = byTag[firstTag]?.optString("protocol")?.lowercase() == "freedom"
-        val freedomCustom = isFreedomSelected &&
-            settings.freedomPreset == com.marbleng.app.model.FreedomPreset.CUSTOM
+        // Overlay the live fragment recipe onto imported hops that already shred TLS.
         keep.forEach { tag ->
             val outbound = byTag[tag] ?: return@forEach
             if (!hasFragment(outbound)) return@forEach
-            // Trust the emitted Freedom chain for every non-CUSTOM preset.
-            if (isFreedomSelected && !freedomCustom) return@forEach
             if (tag == "middle-fragment" || tag == "freedom-middle") {
-                val middlePackets = if (freedomCustom) settings.freedomMiddlePackets.ifBlank { "1-3" }
-                    else settings.fragmentInnerPackets
-                val middleLength = if (freedomCustom) settings.freedomMiddleLength.ifBlank { "10-30" }
-                    else settings.fragmentInnerLength
-                val middleInterval = if (freedomCustom) settings.freedomMiddleInterval.ifBlank { "5-10" }
-                    else settings.fragmentInnerInterval
-                val middleMaxSplit = if (freedomCustom) settings.freedomMiddleMaxSplit.ifBlank { "768" }
-                    else settings.fragmentInnerMaxSplit
                 overlayFragment(
                     outbound,
-                    packets = middlePackets,
-                    length = middleLength,
-                    interval = middleInterval,
-                    maxSplit = middleMaxSplit
+                    packets = settings.fragmentInnerPackets,
+                    length = settings.fragmentInnerLength,
+                    interval = settings.fragmentInnerInterval,
+                    maxSplit = settings.fragmentInnerMaxSplit
                 )
             } else {
-                val inner = tag != firstTag && (settings.fragmentInnerEnabled || isFreedomSelected)
-                val packets = when {
-                    freedomCustom && inner -> settings.freedomInnerPackets.ifBlank { settings.fragmentInnerPackets }
-                    freedomCustom -> settings.freedomOuterPackets.ifBlank { settings.fragmentPackets }
-                    inner -> settings.fragmentInnerPackets
-                    else -> settings.fragmentPackets
-                }
-                val length = when {
-                    freedomCustom && inner -> settings.freedomInnerLength.ifBlank { settings.fragmentInnerLength }
-                    freedomCustom -> settings.freedomOuterLength.ifBlank { settings.fragmentLength }
-                    inner -> settings.fragmentInnerLength
-                    else -> settings.fragmentLength
-                }
-                val interval = when {
-                    freedomCustom && inner -> settings.freedomInnerInterval.ifBlank { settings.fragmentInnerInterval }
-                    freedomCustom -> settings.freedomOuterInterval.ifBlank { settings.fragmentInterval }
-                    inner -> settings.fragmentInnerInterval
-                    else -> settings.fragmentInterval
-                }
-                val maxSplit = when {
-                    freedomCustom && inner -> settings.freedomInnerMaxSplit.ifBlank { settings.fragmentInnerMaxSplit }
-                    freedomCustom -> settings.freedomOuterMaxSplit.ifBlank { settings.fragmentMaxSplit }
-                    inner -> settings.fragmentInnerMaxSplit
-                    else -> settings.fragmentMaxSplit
-                }
+                val inner = tag != firstTag && settings.fragmentInnerEnabled
                 overlayFragment(
                     outbound,
-                    packets = packets,
-                    length = length,
-                    interval = interval,
-                    maxSplit = maxSplit
+                    packets = if (inner) settings.fragmentInnerPackets else settings.fragmentPackets,
+                    length = if (inner) settings.fragmentInnerLength else settings.fragmentLength,
+                    interval = if (inner) settings.fragmentInnerInterval else settings.fragmentInterval,
+                    maxSplit = if (inner) settings.fragmentInnerMaxSplit else settings.fragmentMaxSplit
                 )
             }
         }
@@ -594,7 +553,6 @@ object XrayConfigHardener {
         }
 
         val needsDirect = RoutingEngine.needsDirectOutbound(settings) ||
-            (isFreedomSelected && settings.freedomDirectDomestic) ||
             settings.routeDirectDomains.isNotBlank() ||
             settings.routeDirectIps.isNotBlank()
 
@@ -681,16 +639,13 @@ object XrayConfigHardener {
 
         /*
          * Freedom/direct fragment hops that dial the Internet directly must resolve the USER's
-         * destination hostname, not a proxy endpoint. The official XTLS Xray-examples
-         * serverless_for_Iran.jsonc and the GFW-knocker serverless config both give that hop an
-         * explicit domain strategy (ForceIP + Happy Eyeballs / UseIP) and resolve it through
-         * Xray's encrypted DNS module.
-         * Without it Xray hands the domain to the OS resolver, which on Iranian networks is
-         * poisoned (10.10.34.0/24 answers) or silently drops — so every domain-ATYP connection
-         * through Marble Freedom fails, including the app's own SOCKS probes while connected.
+         * destination hostname, not a proxy endpoint. Without an explicit domain strategy Xray
+         * hands the domain to the OS resolver, which on filtered networks is poisoned or silently
+         * drops — so every domain-ATYP connection through such a hop fails, including the app's
+         * own SOCKS probes while connected.
          * Only the innermost hop gets the plan: it is the one that opens the real socket, and the
          * resolution happens at its Dial()/PacketWriter before any dialerProxy redirect.
-         * The dedicated udp-noises outbound also dials real sockets for QUIC/UDP-443 and needs
+         * A dedicated udp-noises outbound also dials real sockets for QUIC/UDP-443 and needs
          * the same resolution plan.
          */
         keep.forEach { tag ->
@@ -737,7 +692,7 @@ object XrayConfigHardener {
         if (fragmentOutbound != null) out.put(fragmentOutbound)
 
         if (needsDirect) {
-            // Direct routes must honour the same family plan as the tunnel: a Freedom outbound left
+            // Direct routes must honour the same family plan as the tunnel: a freedom outbound left
             // on AsIs hands the hostname to the OS resolver and dials whichever answer arrives first,
             // which is how "IPv6 enabled" could still never use IPv6 — and how an IPv4-only user could
             // still leak AAAA lookups.
@@ -757,11 +712,7 @@ object XrayConfigHardener {
         // Traditional Android DNS packets are intercepted before they can emerge as plaintext
         // port-53 traffic from the proxy exit. A/AAAA are imported into Xray's built-in DNS module;
         // other record types receive an empty NOERROR response so they cannot bypass encrypted DNS.
-        // Freedom always needs dns-out when freedomDnsHijack is on — otherwise the port-53 rule
-        // below would point at a missing outbound and classic DNS would leak to the poisoned ISP.
-        val freedomNeedsDnsOut = (byTag[firstTag]?.optString("protocol")?.lowercase() == "freedom" ||
-            settings.serverlessModeEnabled) && settings.freedomDnsHijack
-        if (settings.dnsHijackEnabled || freedomNeedsDnsOut) {
+        if (settings.dnsHijackEnabled) {
             out.put(
                 JSONObject()
                     .put("tag", "dns-out")
@@ -801,57 +752,15 @@ object XrayConfigHardener {
         // an IPv6-preferred node is starved of AAAA records.
         val queryStrategy = dnsPlan.dnsQueryStrategy
 
-        val isFreedomProfile = byTag[firstTag]?.optString("protocol")?.lowercase() == "freedom"
-        val freedomDnsList = if (isFreedomProfile && settings.freedomDnsAuto) {
-            val configured = listOf(
-                settings.freedomDnsPrimaryDoH,
-                settings.freedomDnsSecondaryDoH,
-                settings.freedomDnsFallbackDoH
-            ).map { it.trim() }.filter { it.startsWith("https://") }
-            val clean = settings.freedomDnsCleanResolvers
-                .split(',', '\n', '\r', ';')
-                .map { it.trim() }
-                .filter { it.startsWith("https://") }
-            (configured + clean).distinctBy { it.lowercase() }
-        } else {
-            emptyList()
-        }
+        // Iran Mode: the poison-block rules below and the anti-injector hardening are armed
+        // whenever the mode is on with countermeasures enabled.
+        val iranActive = settings.iranModePolicy != IranModePolicy.OFF &&
+            settings.iranModeCountermeasures
 
-        // Domain-host DoH servers cannot bootstrap their own hostname inside the Freedom chain:
-        // with no dns.hosts pin Xray resolves them through the OS resolver (poisoned on Iranian
-        // networks) or recurses back into this same DNS module. Keep only IP literals and the
-        // pinned hosts above; everything else is dropped instead of shipping a broken
-        // finalQuery fallback that silently poisons every lookup.
-        val freedomDnsReady = freedomDnsList.filter { url ->
-            val host = dohHost(url)
-            host.isNotBlank() && (isIpLiteralHost(host) || FREEDOM_DOH_HOST_PINS.keys.any {
-                it.equals(host, ignoreCase = true)
-            }) && resolverFamilyAllowed(host)
-        }
-        val freedomDnsHosts = if (isFreedomProfile && freedomDnsReady.isNotEmpty()) {
-            val used = FREEDOM_DOH_HOST_PINS.filter { (host, _) ->
-                freedomDnsReady.any { dohHost(it).equals(host, ignoreCase = true) }
-            }
-            if (used.isEmpty()) null else JSONObject().also { root ->
-                used.forEach { (host, ips) -> root.put(host, JSONArray(ips)) }
-            }
-        } else {
-            null
-        }
-
-        val configuredBootstrapIps = if (
-            isFreedomProfile && settings.freedomDnsPrimaryIp.isNotBlank()
-        ) {
-            listOf(settings.freedomDnsPrimaryIp, settings.freedomDnsSecondaryIp)
-                .map { it.trim() }
-                .filter { it.isNotBlank() }
-                .distinct()
-        } else {
-            listOf(settings.dnsPrimaryIp, settings.dnsSecondaryIp)
-                .map { it.trim() }
-                .filter { it.isNotBlank() }
-                .distinct()
-        }
+        val configuredBootstrapIps = listOf(settings.dnsPrimaryIp, settings.dnsSecondaryIp)
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .distinct()
         // MARBLE_ENDPOINT_BOOTSTRAP_V132 — user intent first, then independent literals in both
         // families so a single filtered address can never orphan the node hostname. IPv6
         // literals only join when the underlay can actually carry IPv6; handing a v4-only
@@ -888,20 +797,11 @@ object XrayConfigHardener {
             .map { it.trim() }
             .filter { it.startsWith("https://") }
             .distinct()
-        val configuredRemoteDoh = if (isFreedomProfile) {
-            // Even with the clean-resolver list switched off, a Freedom chain must never get an
-            // unpinned hostname DoH: it would bootstrap through the poisoned OS resolver or
-            // recurse into this module. Filter the generic pair to IP literals as well.
-            if (freedomDnsReady.isNotEmpty()) freedomDnsReady
-            else genericDoh.filter { url -> isIpLiteralHost(dohHost(url)) }
-                .ifEmpty { listOf(stockCloudflareDoh, stockGoogleDoh) }
-        } else {
-            genericDoh.ifEmpty {
-                listOf(
-                    stockCloudflareDoh,
-                    stockGoogleDoh
-                )
-            }
+        val configuredRemoteDoh = genericDoh.ifEmpty {
+            listOf(
+                stockCloudflareDoh,
+                stockGoogleDoh
+            )
         }
 
         // Runtime evidence has now shown transient deadlines from both stock Cloudflare and Google
@@ -928,12 +828,7 @@ object XrayConfigHardener {
             return if (healthy.isEmpty()) pool else healthy + failing
         }
 
-        // MARBLE_IPV6_DNS_PURGE_V135 — the Freedom chain dials its resolvers DIRECTLY on the
-        // underlay (there is no tunnel yet to carry them), so its list obeys the same family gate
-        // as the bootstrap literals above.
-        val remoteDoh = if (isFreedomProfile && freedomDnsReady.isNotEmpty()) {
-            freedomDnsReady.take(6)
-        } else if (settings.adaptiveDnsEnabled) {
+        val remoteDoh = if (settings.adaptiveDnsEnabled) {
             demoteLast(
                 (configuredRemoteDoh + listOf(stockCloudflareDoh, stockGoogleDoh, stockQuad9Doh))
                     .distinctBy { it.lowercase() }
@@ -977,15 +872,12 @@ object XrayConfigHardener {
         // at the previous 850/1050 ms budgets during concurrent Android DNS fan-out. Keep serial,
         // encrypted provider failover, but give TLS/HTTP response bursts enough room before rotating.
         //
-        // The Freedom chain fragments the FIRST write of every TCP stream into 1-byte packets with
-        // 4 ms pacing (up to maxSplit 517), so a DoH TLS handshake alone can need a couple of
-        // seconds before the first response byte. The stock 1.35 s budget makes Cloudflare/Google/
-        // Quad9 look dead even when they are reachable. The official XTLS Xray-examples
-        // serverless_for_Iran.jsonc gives its single DoH server 10 s (timeoutMs 10000) for
-        // exactly this reason.
-        // The fragment chain slows the first write of every connection, so the inflated budgets
-        // apply to any Freedom profile regardless of which resolver list is active.
-        // Freedom first-write fragmentation can take 1–2 s alone; official XTLS uses 10 s.
+        // A fragmenting chain fragments the FIRST write of every TCP stream into 1-byte packets
+        // with 4 ms pacing (up to maxSplit 517), so a DoH TLS handshake alone can need a couple
+        // of seconds before the first response byte. The stock 1.35 s budget makes
+        // Cloudflare/Google/Quad9 look dead even when they are reachable. The official XTLS
+        // Xray-examples serverless_for_Iran.jsonc gives its single DoH server 10 s (timeoutMs
+        // 10000) for exactly this reason, and first-write fragmentation can take 1–2 s alone.
         // 8 s primary + 1 s per fallback is enough for cold multi-CDN lookups (YouTube/X/Reddit)
         // without waiting the full 10 s on a genuinely dead resolver.
         // MARBLE_LINK_DEADLINE_V133 — these budgets used to be four hardcoded constants. They are
@@ -997,14 +889,13 @@ object XrayConfigHardener {
         //
         // The budget is now `3 × tail-RTT + jitter/loss headroom`, clamped to the old constants as a
         // floor (so an unmeasured link behaves exactly as before) and to the 10 s ceiling the
-        // official XTLS reference configuration uses. The Freedom fragment chain keeps its own
+        // official XTLS reference configuration uses. A fragmenting selected outbound keeps the
         // upstream schedule because there the 1-byte first-write pacing, not the link, dominates.
-        val freedomDnsTimed = isFreedomProfile
         fun dnsTimeoutMs(index: Int): Long =
             LinkDeadlinePolicy.dnsServerTimeoutMs(
                 evidence = link,
                 index = index,
-                fragmented = freedomDnsTimed
+                fragmented = selectedFragmented
             )
 
         remoteDoh.firstOrNull()?.let { address ->
@@ -1041,11 +932,11 @@ object XrayConfigHardener {
         // costs three tiny queries per lookup, so it is armed by attributed failure evidence for this
         // physical network and disarmed as soon as that evidence decays or a proven answer arrives.
         //
-        // The Freedom fragment chain keeps serial failover: there the first write of every stream is
-        // fragmented into 1-byte packets with 4 ms pacing, so racing six resolvers multiplies the
-        // pacing cost instead of the odds of getting an answer.
+        // A fragmenting selected outbound keeps serial failover: there the first write of every
+        // stream is fragmented into 1-byte packets with 4 ms pacing, so racing six resolvers
+        // multiplies the pacing cost instead of the odds of getting an answer.
         val dnsParallelQuery = settings.adaptiveDnsEnabled &&
-            !isFreedomProfile &&
+            !selectedFragmented &&
             settings.measuredDnsParallel
 
         val dnsConfig = JSONObject()
@@ -1055,31 +946,9 @@ object XrayConfigHardener {
             // Xray optimistic cache: if both encrypted upstreams briefly time out, return a
             // previously validated answer immediately while the cache refreshes in background.
             // No plaintext/system-DNS fallback is introduced.
-            // Freedom keeps answers longer (official XTLS uses 21600 s) so multi-CDN hosts
-            // (googlevideo, twimg, redditmedia) survive brief DoH stalls without re-fragmenting.
             .put("serveStale", true)
-            .put("serveExpiredTTL", if (isFreedomProfile) 21_600 else 1_800)
+            .put("serveExpiredTTL", 1_800)
             .put("enableParallelQuery", dnsParallelQuery)
-        // Pin the domain-host Freedom DoH endpoints to stable IPs. (Upstream instead remaps the
-        // hostname to another domain in dns.hosts, e.g. cloudflare-dns.com →
-        // challenges.cloudflare.com; a plain IP list is the other form HostAddress parses and
-        // needs no fakedns or system hosts.) Either way the resolver bootstrap loop is broken
-        // and the TLS SNI still carries the real DoH hostname.
-        //
-        // Freedom also inherits GFW-knocker's youtube.com → google.com ProxiedDomain remap so
-        // the first media lookup rides a host the DPI is less likely to poison, while TLS SNI
-        // still carries the real destination after sniffing.
-        val hostsObject = freedomDnsHosts ?: if (isFreedomProfile) JSONObject() else null
-        if (isFreedomProfile && hostsObject != null) {
-            FREEDOM_DOMAIN_REMAPS.forEach { (from, to) ->
-                if (!hostsObject.has(from)) hostsObject.put(from, to)
-            }
-            // cloudflare-dns.com → challenges.cloudflare.com (official XTLS ProxiedDomain)
-            if (!hostsObject.has("cloudflare-dns.com")) {
-                hostsObject.put("cloudflare-dns.com", "challenges.cloudflare.com")
-            }
-        }
-        hostsObject?.let { if (it.length() > 0) dnsConfig.put("hosts", it) }
         dnsConfig
             .put("useSystemHosts", false)
             .put("disableFallbackIfMatch", bootstrapDomains.isNotEmpty())
@@ -1090,8 +959,7 @@ object XrayConfigHardener {
 
         // DNS interception has highest priority: any app attempting classic UDP/TCP :53 is handed
         // to dns-out, which hijacks A/AAAA into the encrypted built-in DNS path above.
-        val isFreedomMode = isFreedomProfile || settings.serverlessModeEnabled
-        val dnsHijackActive = settings.dnsHijackEnabled || (isFreedomMode && settings.freedomDnsHijack)
+        val dnsHijackActive = settings.dnsHijackEnabled
         if (dnsHijackActive) {
             rules.put(
                 JSONObject()
@@ -1132,38 +1000,30 @@ object XrayConfigHardener {
         // Ads geosite tag: normalizeGeoSiteTag(settings.routeAdsTag) — now RoutingEngine + RoutingDefaults.ADS_TAG
         RoutingEngine.applyUserRules(rules, settings, firstTag)
 
-        // Freedom: block Iran's DNS injector ranges and null answers before anything else can
-        // dial them. Without this, half-resolved multi-CDN hosts (YouTube googlevideo shards,
+        // Iran Mode: block the state DNS injector ranges and null answers before anything else
+        // can dial them. Without this, half-resolved multi-CDN hosts (YouTube googlevideo shards,
         // X twimg, Reddit media) stick on 10.10.34.x block pages and the page loads half-broken.
-        if (isFreedomMode) {
-            addIpRule(rules, FREEDOM_POISON_BLOCK_IPS, "block")
+        if (iranActive) {
+            addIpRule(rules, IRAN_POISON_BLOCK_IPS, "block")
         }
 
         // YouTube and several media stacks prefer QUIC. On Iranian links UDP/443 often blackholes
-        // even when TCP/443 works with fragmentation, so Marble defaults Freedom to a fast TCP
-        // fallback: reject the QUIC path before the app spends a long time retransmitting. Experts
-        // can turn this off and use the official dedicated udp-noises outbound on networks where
-        // UDP/443 is actually carried. The existing muxUdp443=reject policy now also has a real
-        // routing effect instead of being only a mux hint.
-        val rejectUdp443 = settings.muxUdp443 == "reject" ||
-            (isFreedomMode && settings.freedomForceTcpForStreaming)
+        // even when TCP/443 works, so a fast TCP fallback matters: reject the QUIC path before
+        // the app spends a long time retransmitting. The existing muxUdp443=reject policy also
+        // has a real routing effect instead of being only a mux hint. An imported config that
+        // ships a dedicated udp-noises outbound can instead send QUIC there.
+        val rejectUdp443 = settings.muxUdp443 == "reject"
         if (rejectUdp443) {
             addQuicUdp443Rule(rules, "block")
-        } else if (isFreedomMode) {
+        } else {
             val noiseTag = keep.firstOrNull { tag ->
-                tag == ServerlessFreedomEngine.UDP_NOISES_TAG ||
-                    (byTag[tag]?.let { hasNoises(it) && !hasFragment(it) } == true)
+                byTag[tag]?.let { hasNoises(it) && !hasFragment(it) } == true
             }
-            if (noiseTag != null && settings.freedomUdpNoiseEnabled) {
+            if (noiseTag != null) {
                 addQuicUdp443Rule(rules, noiseTag)
             }
         }
 
-        if (isFreedomMode && settings.freedomDirectDomestic) {
-            addIpRule(rules, PRIVATE_CIDRS, "direct")
-            addIpRule(rules, listOf("geoip:ir"), "direct")
-            addDomainRule(rules, listOf("geosite:ir"), "direct")
-        }
         if (settings.routeDirectDomains.isNotBlank()) {
             addDomainRule(rules, splitDomains(settings.routeDirectDomains), "direct")
         }
@@ -1179,17 +1039,9 @@ object XrayConfigHardener {
                 .put("outboundTag", firstTag)
         )
 
-        // Freedom prefers IPOnDemand (official XTLS) so domain rules resolve before matching and
-        // multi-CDN hosts never race a poisoned underlay answer against the encrypted path.
-        val domainStrategy = if (isFreedomMode) {
-            settings.freedomDomainStrategy.takeIf {
-                it in setOf("AsIs", "IPIfNonMatch", "IPOnDemand")
-            } ?: "IPOnDemand"
-        } else {
-            settings.routeDomainStrategy.takeIf {
-                it in setOf("AsIs", "IPIfNonMatch", "IPOnDemand")
-            } ?: "IPIfNonMatch"
-        }
+        val domainStrategy = settings.routeDomainStrategy.takeIf {
+            it in setOf("AsIs", "IPIfNonMatch", "IPOnDemand")
+        } ?: "IPIfNonMatch"
 
         val domainMatcher = settings.routeDomainMatcher.takeIf {
             it in setOf("hybrid", "linear", "mph")
@@ -1338,40 +1190,10 @@ object XrayConfigHardener {
             method !in setOf("hysteria", "mkcp")
 
     /**
-     * DoH hostnames Marble Freedom may use without a bootstrap loop.
-     *
-     * A `https://host/dns-query` server resolves its own hostname before it can answer anything.
-     * Inside the Freedom chain that resolution would either fall back to the OS resolver
-     * (poisoned on Iranian networks) or recurse back into this very DNS module. The official
-     * XTLS/Xray-examples serverless_for_Iran.jsonc and the GFW-knocker serverless config break
-     * that loop with domain→domain `dns.hosts` mappings; the pins below use the IP-list form of
-     * the same HostAddress mechanism, which is exactly what v26.7.28 parses into
-     * Config_HostMapping.Ip.
-     */
-    private val FREEDOM_DOH_HOST_PINS = mapOf(
-        "dns.shecan.ir" to listOf("178.22.122.100", "185.51.200.2"),
-        "dns.adguard-dns.com" to listOf("94.140.14.14", "94.140.15.15")
-    )
-
-    /**
-     * Domain→domain ProxiedDomain remaps for Freedom. GFW-knocker maps youtube.com → google.com
-     * so the first media lookup rides a host the DPI is less likely to poison; the sniffed TLS
-     * SNI still carries the real destination on the wire.
-     */
-    private val FREEDOM_DOMAIN_REMAPS = mapOf(
-        "domain:youtube.com" to "google.com",
-        "domain:googlevideo.com" to "google.com",
-        "domain:ytimg.com" to "google.com",
-        "domain:ggpht.com" to "google.com",
-        "domain:gvt1.com" to "google.com",
-        "domain:gvt2.com" to "google.com"
-    )
-
-    /**
      * Iranian DNS-injector / null-answer ranges that must never be dialled. Matches the official
      * XTLS serverless_for_Iran.jsonc block list plus the well-known 10.10.34.34–36 injectors.
      */
-    private val FREEDOM_POISON_BLOCK_IPS = listOf(
+    private val IRAN_POISON_BLOCK_IPS = listOf(
         "10.10.34.0/24",
         "2001:4188:2:600::/64",
         "0.0.0.0",

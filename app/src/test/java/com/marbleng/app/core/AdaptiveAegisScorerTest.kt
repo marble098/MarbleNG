@@ -6,7 +6,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Regression tests for the Marble Freedom Aegis adaptive scorer (MARBLE_SMART_RANK_V90).
+ * Regression tests for the adaptive scorer (MARBLE_SMART_RANK_V90).
  *
  * These lock in the continuous adaptive-selection contract: per-network learned score tables,
  * 90-second dwell hysteresis after every successful selection, a catastrophic override (>40% loss

@@ -1311,11 +1311,7 @@ class MarbleIntelligence(private val context: Context) {
             ),
             iranState
         )
-        return if (ServerlessFreedomEngine.isServerless(profile)) {
-            ServerlessFreedomEngine.pinSession(healed)
-        } else {
-            healed
-        }
+        return healed
     }
 
     fun hasHistory(
