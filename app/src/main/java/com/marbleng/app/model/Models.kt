@@ -375,6 +375,40 @@ object RoutingDefaults {
     const val ADS_TAG = "category-ads-all"
     const val DOMAIN_STRATEGY = "IPIfNonMatch"
     const val PREFS_SCHEMA_VERSION = 1
+    const val SOURCE_CHOCOLATE4U = "chocolate4u-iran"
+    const val STALE_ASSET_MS = 7L * 24L * 60L * 60L * 1000L
+
+    val SOURCES: List<GeoAssetSource> = listOf(
+        GeoAssetSource(
+            id = SOURCE_CHOCOLATE4U,
+            label = "Chocolate4U Iran",
+            geoIpUrl = GEOIP_URL,
+            geoSiteUrl = GEOSITE_URL,
+            geoIpMirror = GEOIP_MIRROR,
+            geoSiteMirror = GEOSITE_MIRROR
+        ),
+        GeoAssetSource(
+            id = "loyalsoldier",
+            label = "Loyalsoldier",
+            geoIpUrl = "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat",
+            geoSiteUrl = "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat"
+        ),
+        GeoAssetSource(
+            id = "v2fly",
+            label = "v2fly",
+            geoIpUrl = "https://github.com/v2fly/geoip/releases/latest/download/geoip.dat",
+            geoSiteUrl = "https://github.com/v2fly/domain-list-community/releases/latest/download/dlc.dat"
+        ),
+        GeoAssetSource(
+            id = "custom",
+            label = "Custom HTTPS URLs",
+            geoIpUrl = "",
+            geoSiteUrl = ""
+        )
+    )
+
+    fun sourceById(id: String): GeoAssetSource =
+        SOURCES.firstOrNull { it.id == id } ?: SOURCES.first()
 }
 
 /** How Iran Mode decides whether the anti-filtering engine should run. */
