@@ -19,6 +19,7 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
@@ -803,7 +804,7 @@ private fun ConnectButtonSlide(
                     .width(width)
                     .height(trackHeight)
                     .clip(shape)
-                    .background(Aether.VoidElevated.copy(alpha = .95f))
+                    .background(homeCloudCardFill())
                     .background(
                         Brush.horizontalGradient(
                             listOf(
@@ -976,7 +977,7 @@ private fun ConnectButtonClassic(
                     spotColor = animatedTone.copy(alpha = .28f)
                 )
                 .clip(shape)
-                .background(Aether.VoidElevated.copy(alpha = .96f))
+                .background(homeCloudCardFill())
                 .background(
                     Brush.verticalGradient(
                         listOf(animatedTone.copy(alpha = .16f), animatedTone.copy(alpha = .05f))
@@ -1099,7 +1100,7 @@ internal fun HomePowerDock(
     Box(
         modifier = modifier
             .clip(shape)
-            .background(Aether.VoidElevated.copy(alpha = .72f))
+            .background(homeCloudCardFill())
             .border(1.dp, tone.copy(alpha = .20f), shape)
             .padding(horizontal = 12.dp, vertical = 9.dp),
         contentAlignment = Alignment.Center
@@ -1323,7 +1324,8 @@ internal fun HomeIpRow(
         modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp))
-            .background(Aether.GlassStrong.copy(alpha = 0.45f))
+            .background(homeCloudInsetFill())
+            .border(1.dp, homeCloudInsetBorder(), RoundedCornerShape(14.dp))
             .clickable(onClick = actions.onIpDetails)
             .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -1363,27 +1365,27 @@ internal fun HomeSessionStats(
     val ping = homePingLabel(evidence)
     val pingTone = homePingTone(evidence, Aether.Cyan)
 
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .background(Aether.VoidElevated.copy(alpha = 0.88f))
-            .border(1.dp, Aether.GlassBorderSoft.copy(alpha = 0.4f), RoundedCornerShape(16.dp))
-            .padding(horizontal = 14.dp, vertical = 10.dp),
-        horizontalArrangement = Arrangement.SpaceAround,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(Tr.now.uptime, color = Aether.InkMuted, style = MaterialTheme.typography.labelSmall)
-            HomeStatValueText(uptime, tone, sizeScale = 1.1f)
-        }
-        Box(Modifier.width(1.dp).height(24.dp).background(Aether.GlassBorderSoft.copy(alpha = 0.4f)))
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.clickable(onClick = actions.onTestPing)
+    // MARBLE_HOME_CLOUD_V140 — the stats strip is the same cloud card as every other Home box.
+    HomeCloudCard(modifier = modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.SpaceAround,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(Tr.now.connectionPing, color = Aether.InkMuted, style = MaterialTheme.typography.labelSmall)
-            HomeStatValueText(ping, pingTone, sizeScale = 1.1f)
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(Tr.now.uptime, color = Aether.InkMuted, style = MaterialTheme.typography.labelSmall)
+                HomeStatValueText(uptime, tone, sizeScale = 1.1f)
+            }
+            Box(Modifier.width(1.dp).height(24.dp).background(homeCloudDivider()))
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.clickable(onClick = actions.onTestPing)
+            ) {
+                Text(Tr.now.connectionPing, color = Aether.InkMuted, style = MaterialTheme.typography.labelSmall)
+                HomeStatValueText(ping, pingTone, sizeScale = 1.1f)
+            }
         }
     }
 }
@@ -1410,7 +1412,6 @@ internal fun IosStatusWideCard(
     repo: AppRepository,
     modifier: Modifier = Modifier
 ) {
-    val cardShape = RoundedCornerShape(22.dp)
     val clipboard = LocalClipboardManager.current
     val t = Tr.now
 
@@ -1435,16 +1436,15 @@ internal fun IosStatusWideCard(
         label = "status-color"
     )
 
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .clip(cardShape)
-            .background(Aether.VoidElevated.copy(alpha = 0.92f))
-            .border(1.dp, Aether.GlassBorderSoft.copy(alpha = 0.55f), cardShape)
-            .shadow(8.dp, cardShape, spotColor = Color.Black.copy(alpha = 0.25f))
-            .padding(14.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
+    // MARBLE_HOME_CLOUD_V140 — the wide status card is the canonical cloud card: translucent
+    // white, one thin hairline, a 2 dp shadow, and inner chips as quiet insets. No glass stack.
+    HomeCloudCard(modifier = modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp)) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
         // Top Row: Status Indicator + Uptime + Actions (+, Ping, Info)
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -1551,7 +1551,7 @@ internal fun IosStatusWideCard(
             }
         }
 
-        HorizontalDivider(color = Aether.GlassBorderSoft.copy(alpha = 0.35f))
+        HorizontalDivider(color = homeCloudDivider())
 
         // Middle Row: Connected Server Name + Protocol Badge + Inline Ping Result
         Row(
@@ -1606,8 +1606,8 @@ internal fun IosStatusWideCard(
             Row(
                 modifier = Modifier
                     .clip(RoundedCornerShape(10.dp))
-                    .background(pingT.copy(alpha = 0.12f))
-                    .border(1.dp, pingT.copy(alpha = 0.3f), RoundedCornerShape(10.dp))
+                    .background(pingT.copy(alpha = 0.14f))
+                    .border(1.dp, pingT.copy(alpha = 0.35f), RoundedCornerShape(10.dp))
                     .clickable(enabled = homePingTappable(evidence)) { actions.onTestPing() }
                     .padding(horizontal = 9.dp, vertical = 5.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -1633,7 +1633,8 @@ internal fun IosStatusWideCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(12.dp))
-                    .background(Aether.GlassStrong.copy(alpha = 0.50f))
+                    .background(homeCloudInsetFill())
+                    .border(1.dp, homeCloudInsetBorder(), RoundedCornerShape(12.dp))
                     .clickable { actions.onIpDetails() }
                     .padding(horizontal = 10.dp, vertical = 6.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -1642,7 +1643,7 @@ internal fun IosStatusWideCard(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         "IP",
-                        color = Aether.CyanBright,
+                        color = HomeCloud.Accent,
                         style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold)
                     )
                     Spacer(Modifier.width(8.dp))
@@ -1663,11 +1664,11 @@ internal fun IosStatusWideCard(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         text = t.ipDetails,
-                        color = Aether.Cyan,
+                        color = HomeCloud.Accent,
                         style = MaterialTheme.typography.labelSmall
                     )
                     Spacer(Modifier.width(3.dp))
-                    HomeGlyphIcon(HomeGlyph.INFO, Aether.Cyan, Modifier.size(11.dp))
+                    HomeGlyphIcon(HomeGlyph.INFO, HomeCloud.Accent, Modifier.size(11.dp))
                 }
             }
         }
@@ -1679,7 +1680,7 @@ internal fun IosStatusWideCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(12.dp))
-                    .background(Aether.GlassStrong.copy(alpha = 0.50f))
+                    .background(homeCloudInsetFill())
                     .border(1.dp, Aether.Emerald.copy(alpha = 0.25f), RoundedCornerShape(12.dp))
                     .padding(horizontal = 10.dp, vertical = 6.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -1720,6 +1721,7 @@ internal fun IosStatusWideCard(
             }
         }
     }
+        }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1737,7 +1739,6 @@ internal fun IosServerListBox(
     actions: HomeActions,
     modifier: Modifier = Modifier
 ) {
-    val cardShape = RoundedCornerShape(22.dp)
     val activeSubId = repo.librarySourceFilter
     val allSubs = repo.subscriptions
     val activeSubName = when {
@@ -1750,15 +1751,14 @@ internal fun IosServerListBox(
         filter = ServersFilter(sourceId = if (activeSubId.isBlank()) "all" else activeSubId)
     )
 
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .clip(cardShape)
-            .background(Aether.VoidElevated.copy(alpha = 0.90f))
-            .border(1.dp, Aether.GlassBorderSoft.copy(alpha = 0.55f), cardShape)
-            .shadow(6.dp, cardShape, spotColor = Color.Black.copy(alpha = 0.20f))
-            .padding(12.dp)
-    ) {
+    // MARBLE_HOME_CLOUD_V140 — the server list is a cloud card; the group header and rows are
+    // quiet insets inside it, and only the selected server earns the sky fill + accent rim.
+    HomeCloudCard(modifier = modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp)) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp)
+        ) {
         // Unique Centered Sub / Group Header
         var groupDropdownOpen by remember { mutableStateOf(false) }
         Box(
@@ -1770,20 +1770,20 @@ internal fun IosServerListBox(
             Row(
                 modifier = Modifier
                     .clip(RoundedCornerShape(16.dp))
-                    .background(Aether.GlassStrong.copy(alpha = 0.65f))
-                    .border(1.dp, Aether.CyanBright.copy(alpha = 0.35f), RoundedCornerShape(16.dp))
+                    .background(homeCloudInsetFill())
+                    .border(1.dp, homeCloudInsetBorder(), RoundedCornerShape(16.dp))
                     .clickable { groupDropdownOpen = true }
                     .padding(horizontal = 14.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
                     text = "✦  $activeSubName (${visibleServers.size})  ✦",
-                    color = Aether.CyanBright,
+                    color = HomeCloud.Accent,
                     style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
                     textAlign = TextAlign.Center
                 )
                 Spacer(Modifier.width(6.dp))
-                HomeGlyphIcon(HomeGlyph.MORE, Aether.CyanBright, Modifier.size(10.dp))
+                HomeGlyphIcon(HomeGlyph.MORE, HomeCloud.Accent, Modifier.size(10.dp))
             }
 
             DropdownMenu(
@@ -1817,7 +1817,7 @@ internal fun IosServerListBox(
             }
         }
 
-        HorizontalDivider(color = Aether.GlassBorderSoft.copy(alpha = 0.30f), modifier = Modifier.padding(bottom = 6.dp))
+        HorizontalDivider(color = homeCloudDivider(), modifier = Modifier.padding(bottom = 6.dp))
 
         // Inner Scrollable Server List (No whole-page scroll!)
         if (visibleServers.isEmpty()) {
@@ -1857,6 +1857,7 @@ internal fun IosServerListBox(
                 }
             }
         }
+        }
     }
 }
 
@@ -1867,30 +1868,42 @@ private fun IosServerItemRow(
     isConnected: Boolean,
     onClick: () -> Unit
 ) {
+    // MARBLE_HOME_CLOUD_V140 — the selected server row is the one saturated element on the page:
+    // sky fill #E8F5FF with a 1.5 dp #4AA8E8 rim and a 3 dp shadow (deep-navy variant in dark
+    // mode). Resting rows stay quiet: a near-invisible inset chip with no border at all.
     val rowShape = RoundedCornerShape(14.dp)
+    val restingRowBg = homeCloudInsetFill()
+    val selectedRowBg = homeCloudSelectedFill()
     val itemBg by animateColorAsState(
         targetValue = when {
-            isConnected -> Aether.Emerald.copy(alpha = 0.16f)
-            isSelected -> Aether.Cyan.copy(alpha = 0.12f)
-            else -> Aether.GlassStrong.copy(alpha = 0.35f)
+            isSelected -> selectedRowBg
+            else -> restingRowBg
         },
         label = "item-bg"
     )
     val itemBorder by animateColorAsState(
         targetValue = when {
-            isConnected -> Aether.Emerald.copy(alpha = 0.45f)
-            isSelected -> Aether.CyanBright.copy(alpha = 0.38f)
+            isSelected -> homeCloudSelectedBorder()
             else -> Color.Transparent
         },
         label = "item-border"
+    )
+    val itemBorderWidth by animateDpAsState(
+        targetValue = if (isSelected) HomeCloud.SelectedHairline else HomeCloud.Hairline,
+        label = "item-border-width"
     )
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .shadow(
+                elevation = if (isSelected) HomeCloud.SelectedElevation else 0.dp,
+                shape = rowShape,
+                spotColor = HomeCloud.Accent.copy(alpha = 0.30f)
+            )
             .clip(rowShape)
             .background(itemBg)
-            .border(1.dp, itemBorder, rowShape)
+            .border(itemBorderWidth, itemBorder, rowShape)
             .clickable(onClick = onClick)
             .padding(horizontal = 11.dp, vertical = 9.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -1907,11 +1920,11 @@ private fun IosServerItemRow(
                     .clip(CircleShape)
                     .border(
                         1.5.dp,
-                        if (isSelected) (if (isConnected) Aether.Emerald else Aether.CyanBright) else Aether.InkFaint,
+                        if (isSelected) (if (isConnected) Aether.Emerald else HomeCloud.Accent) else Aether.InkFaint,
                         CircleShape
                     )
                     .background(
-                        if (isSelected) (if (isConnected) Aether.Emerald else Aether.CyanBright) else Color.Transparent
+                        if (isSelected) (if (isConnected) Aether.Emerald else HomeCloud.Accent) else Color.Transparent
                     ),
                 contentAlignment = Alignment.Center
             ) {
@@ -1935,7 +1948,7 @@ private fun IosServerItemRow(
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(
                         text = server.scheme.uppercase(),
-                        color = if (isConnected) Aether.Emerald else Aether.CyanBright,
+                        color = if (isConnected) Aether.Emerald else HomeCloud.Accent,
                         style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold)
                     )
                     if (server.host.isNotBlank()) {
@@ -1958,7 +1971,8 @@ private fun IosServerItemRow(
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(8.dp))
-                    .background(Aether.GlassStrong.copy(alpha = 0.45f))
+                    .background(homeCloudInsetFill())
+                    .border(1.dp, homeCloudInsetBorder(), RoundedCornerShape(8.dp))
                     .padding(horizontal = 7.dp, vertical = 3.dp)
             ) {
                 Text(
@@ -2014,14 +2028,16 @@ internal fun IosSlideToConnect(
         else -> Tr.now.slideToConnect
     }
 
+    // MARBLE_HOME_CLOUD_V140 — the slider track is a cloud control: translucent white, a thin
+    // state-tinted hairline and a small shadow. The drag fill keeps its state colour.
     Box(
         modifier = modifier
             .fillMaxWidth()
             .height(60.dp)
+            .shadow(3.dp, trackShape, spotColor = tone.copy(alpha = 0.18f))
             .clip(trackShape)
-            .background(Aether.VoidElevated.copy(alpha = 0.94f))
+            .background(homeCloudCardFill())
             .border(1.5.dp, tone.copy(alpha = 0.40f), trackShape)
-            .shadow(8.dp, trackShape, spotColor = tone.copy(alpha = 0.3f))
             .onSizeChanged { trackWidthPx = it.width.toFloat() },
         contentAlignment = Alignment.CenterStart
     ) {
@@ -2186,7 +2202,7 @@ internal fun HomeThemeFloating(
                                 .size(54.dp)
                                 .clip(CircleShape)
                                 .background(Aether.Danger)
-                                .shadow(8.dp, CircleShape, spotColor = Aether.Danger)
+                                .shadow(6.dp, CircleShape, spotColor = Aether.Danger)
                                 .clickable { actions.onToggleConnection() },
                             contentAlignment = Alignment.Center
                         ) {
@@ -2206,7 +2222,7 @@ internal fun HomeThemeFloating(
                                 .size(54.dp)
                                 .clip(CircleShape)
                                 .background(Aether.Emerald)
-                                .shadow(8.dp, CircleShape, spotColor = Aether.Emerald)
+                                .shadow(6.dp, CircleShape, spotColor = Aether.Emerald)
                                 .clickable(enabled = homePingTappable(evidence)) { actions.onTestPing() },
                             contentAlignment = Alignment.Center
                         ) {
@@ -2238,7 +2254,7 @@ internal fun HomeThemeFloating(
                                     colors = listOf(Aether.CyanBright, Aether.Cyan)
                                 )
                             )
-                            .shadow(10.dp, CircleShape, spotColor = Aether.CyanBright)
+                            .shadow(7.dp, CircleShape, spotColor = Aether.CyanBright)
                             .clickable { actions.onToggleConnection() },
                         contentAlignment = Alignment.Center
                     ) {
@@ -2311,7 +2327,7 @@ internal fun HomeThemeEmbossed(
                                 end = Offset(82f, 82f)
                             )
                         )
-                        .shadow(12.dp, CircleShape, spotColor = tone)
+                        .shadow(8.dp, CircleShape, spotColor = tone)
                         .clickable { actions.onToggleConnection() },
                     contentAlignment = Alignment.Center
                 ) {
@@ -2366,16 +2382,17 @@ internal fun HomeThemeModular(
             Row(
                 modifier = Modifier
                     .clip(RoundedCornerShape(12.dp))
-                    .background(Aether.Cyan.copy(alpha = 0.12f))
+                    .background(homeCloudInsetFill())
+                    .border(1.dp, homeCloudInsetBorder(), RoundedCornerShape(12.dp))
                     .clickable { customizeOpen = true }
                     .padding(horizontal = 10.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                HomeGlyphIcon(HomeGlyph.MORE, Aether.CyanBright, Modifier.size(12.dp))
+                HomeGlyphIcon(HomeGlyph.MORE, HomeCloud.Accent, Modifier.size(12.dp))
                 Spacer(Modifier.width(4.dp))
                 Text(
                     text = Tr.now.customizeLayout,
-                    color = Aether.CyanBright,
+                    color = HomeCloud.Accent,
                     style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold)
                 )
             }
@@ -2450,7 +2467,8 @@ private fun ModularCustomizerDialog(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(10.dp))
-                            .background(Aether.GlassStrong.copy(alpha = 0.5f))
+                            .background(homeCloudInsetFill())
+                            .border(1.dp, homeCloudInsetBorder(), RoundedCornerShape(10.dp))
                             .padding(horizontal = 10.dp, vertical = 6.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically

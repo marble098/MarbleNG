@@ -16,6 +16,7 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import android.os.Build
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.border
 import androidx.compose.foundation.background
@@ -43,6 +44,7 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.runtime.remember
@@ -118,6 +120,135 @@ internal fun marbleMetricTone(band: MarbleMetricBand): Color = when (band) {
 }
 
 /**
+ * MARBLE_HOME_CLOUD_V140 — the Home surface language of the product.
+ *
+ * The four Home presentations share one box system: a near-white, barely-tinted page with a
+ * very subtle top-to-bottom gradient, and cards of *translucent white* with a thin white
+ * hairline and a tiny shadow, so each box reads as lifted from the page instead of stamped
+ * onto it. The one saturated element is the selection state: a faint sky fill with a 1.5 dp
+ * electric-blue rim. Heavy glassmorphism (blur, deep translucency, stacked specular edges) is
+ * deliberately rejected — on a page that also carries server lists and status copy, legibility
+ * outranks decoration.
+ *
+ * Light values are the product spec:
+ *  - page gradient  `#F7FAFD → #EEF6FC` (near-white at the top, a touch more blue downwards);
+ *  - card           `White @ 82%`, `RoundedCornerShape(20.dp)`, `White @ 90%` 1 dp border,
+ *                   `shadowElevation = 2.dp`;
+ *  - selected card  `#E8F5FF`, `1.5 dp #4AA8E8` border, `shadowElevation = 3.dp`.
+ *
+ * Dark keeps the same geometry and the same single-accent grammar on AMOLED-friendly tones:
+ * a black-to-midnight gradient, translucent ink cards with a faint white hairline, and the
+ * same `#4AA8E8` selection rim on a deep-navy fill.
+ */
+internal object HomeCloud {
+    // Light surface set (the product spec).
+    val LightBase = Color(0xFFF4F8FC)
+    val LightBgTop = Color(0xFFF7FAFD)
+    val LightBgBottom = Color(0xFFEEF6FC)
+    val LightCardFill = Color.White.copy(alpha = 0.82f)
+    val LightCardBorder = Color.White.copy(alpha = 0.9f)
+    val LightCardSelectedFill = Color(0xFFE8F5FF)
+    val LightCardSelectedBorder = Color(0xFF4AA8E8)
+    val LightInsetFill = Color(0xFFF1F6FB)
+    val LightInsetBorder = Color(0xFFE2ECF5)
+
+    // Dark surface set — same geometry, AMOLED tones.
+    val DarkBgTop = Color(0xFF000000)
+    val DarkBgBottom = Color(0xFF060D18)
+    val DarkCardFill = Color(0xFF101A2C).copy(alpha = 0.82f)
+    val DarkCardBorder = Color.White.copy(alpha = 0.10f)
+    val DarkCardSelectedFill = Color(0xFF10253A)
+    val DarkCardSelectedBorder = Color(0xFF4AA8E8)
+    val DarkInsetFill = Color(0xFF0A111D)
+    val DarkInsetBorder = Color(0xFF1D2A41)
+
+    /** The single selection/brand accent of the Home surface system. */
+    val Accent = Color(0xFF4AA8E8)
+
+    val CardShape = RoundedCornerShape(20.dp)
+    val CardRadius = 20.dp
+    val InsetShape = RoundedCornerShape(12.dp)
+    val CardElevation = 2.dp
+    val SelectedElevation = 3.dp
+    val Hairline = 1.dp
+    val SelectedHairline = 1.5.dp
+}
+
+/** True when the active Aether palette is a dark surface system (Dark or a dark dynamic set). */
+@Composable
+internal fun homeCloudDark(): Boolean = Aether.Void.luminance() < 0.5f
+
+/** The Home page gradient: near-white at the top, a touch more blue towards the bottom. */
+@Composable
+internal fun homeCloudBackgroundBrush(): Brush = if (homeCloudDark()) {
+    Brush.verticalGradient(colors = listOf(HomeCloud.DarkBgTop, HomeCloud.DarkBgBottom))
+} else {
+    Brush.verticalGradient(colors = listOf(HomeCloud.LightBgTop, HomeCloud.LightBgBottom))
+}
+
+/** Fill of a resting Home card: translucent white (light) / translucent ink (dark). */
+@Composable
+internal fun homeCloudCardFill(): Color =
+    if (homeCloudDark()) HomeCloud.DarkCardFill else HomeCloud.LightCardFill
+
+/** Hairline of a resting Home card: the thin white edge that makes the box feel lifted. */
+@Composable
+internal fun homeCloudCardBorder(): Color =
+    if (homeCloudDark()) HomeCloud.DarkCardBorder else HomeCloud.LightCardBorder
+
+/** Fill of the one selected/active card. */
+@Composable
+internal fun homeCloudSelectedFill(): Color =
+    if (homeCloudDark()) HomeCloud.DarkCardSelectedFill else HomeCloud.LightCardSelectedFill
+
+/** Selection rim: the only saturated stroke on the Home surface. */
+@Composable
+internal fun homeCloudSelectedBorder(): Color =
+    if (homeCloudDark()) HomeCloud.DarkCardSelectedBorder else HomeCloud.LightCardSelectedBorder
+
+/** Inset fill for chips/pills/rows that sit *inside* a Home card. */
+@Composable
+internal fun homeCloudInsetFill(): Color =
+    if (homeCloudDark()) HomeCloud.DarkInsetFill else HomeCloud.LightInsetFill
+
+/** Inset hairline. */
+@Composable
+internal fun homeCloudInsetBorder(): Color =
+    if (homeCloudDark()) HomeCloud.DarkInsetBorder else HomeCloud.LightInsetBorder
+
+/** Divider color that matches the inset hairline. */
+@Composable
+internal fun homeCloudDivider(): Color = homeCloudInsetBorder()
+
+/**
+ * The one Home card container: translucent fill + thin hairline + tiny shadow, exactly the
+ * MARBLE_HOME_CLOUD_V140 contract. [selected] switches to the sky fill, the 1.5 dp accent rim
+ * and the slightly deeper shadow. No blur, no stacked shadows, no specular edges.
+ */
+@Composable
+internal fun HomeCloudCard(
+    modifier: Modifier = Modifier,
+    selected: Boolean = false,
+    shape: Shape = HomeCloud.CardShape,
+    elevation: Dp = if (selected) HomeCloud.SelectedElevation else HomeCloud.CardElevation,
+    fill: Color = if (selected) homeCloudSelectedFill() else homeCloudCardFill(),
+    border: BorderStroke = BorderStroke(
+        width = if (selected) HomeCloud.SelectedHairline else HomeCloud.Hairline,
+        color = if (selected) homeCloudSelectedBorder() else homeCloudCardBorder()
+    ),
+    content: @Composable () -> Unit
+) {
+    Surface(
+        modifier = modifier,
+        shape = shape,
+        color = fill,
+        border = border,
+        shadowElevation = elevation,
+        content = content
+    )
+}
+
+/**
  * Clean iOS Glass Backdrop.
  * Calm, refined, and non-distracting solid/frosted surface.
  */
@@ -126,21 +257,15 @@ internal fun PrismBackdrop(
     modifier: Modifier = Modifier,
     flavor: HomeFlavor = HomeFlavor.IOS_SLIDER
 ) {
-    val base = Aether.Void
-    val highlight = Aether.GlassBorderSoft.copy(alpha = 0.08f)
-
-    Canvas(modifier) {
-        drawRect(base)
-        // Subtle top ambient iOS glow
-        drawRect(
-            brush = Brush.verticalGradient(
-                colors = listOf(
-                    highlight,
-                    Color.Transparent
-                ),
-                startY = 0f,
-                endY = size.height * 0.30f
-            )
+    // MARBLE_HOME_CLOUD_V140 — the page under every tab is the Home cloud gradient: almost
+    // white at the top, a touch more blue towards the bottom (near-black → midnight in dark
+    // mode). Flat single-tone backdrops made the translucent cards above it read as one flat
+    // blue field; the barely-there gradient keeps the depth cue without adding noise.
+    Box(modifier) {
+        Box(
+            Modifier
+                .matchParentSize()
+                .background(homeCloudBackgroundBrush())
         )
     }
 }
