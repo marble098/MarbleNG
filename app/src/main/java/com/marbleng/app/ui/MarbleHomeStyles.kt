@@ -702,30 +702,6 @@ internal fun HomeSessionStats(
     }
 }
 
-@Composable
-internal fun HomePowerControl(
-    evidence: HomeEvidence,
-    actions: HomeActions,
-    tone: Color,
-    modifier: Modifier = Modifier
-) {
-    Box(
-        modifier = modifier
-            .size(72.dp)
-            .clip(CircleShape)
-            .background(tone.copy(alpha = 0.18f))
-            .border(2.dp, tone, CircleShape)
-            .clickable(onClick = actions.onToggleConnection),
-        contentAlignment = Alignment.Center
-    ) {
-        HomeGlyphIcon(
-            glyph = if (evidence.connected) HomeGlyph.POWER else HomeGlyph.POWER,
-            color = tone,
-            modifier = Modifier.size(34.dp)
-        )
-    }
-}
-
 // ---------------------------------------------------------------------------------------------
 // COMPONENT 1: WIDE STATUS BAR (Shared across all 4 iOS themes)
 // ---------------------------------------------------------------------------------------------
