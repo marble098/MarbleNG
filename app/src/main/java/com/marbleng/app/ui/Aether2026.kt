@@ -2591,8 +2591,8 @@ private fun rememberDeckEvidence(repo: AppRepository): DeckEvidence {
     return DeckEvidence(active, evidence)
 }
 
-@Suppress("UNUSED_PARAMETER")
 @Composable
+@Suppress("UNUSED_PARAMETER")
 private fun CyberDeck(
     repo: AppRepository,
     deck: DeckEvidence,
