@@ -59,6 +59,8 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Resolve after domain rules miss — geoip rules work on domains" to "تطبیق بر اساس IP در صورت عدم تطابق دامنه (پیش‌فرض v2rayNG)",
     "Resolve whenever an IP rule is met first" to "تفکیک IP بر اساس نیاز برای قوانین IP",
     "Route on the address the app dialled" to "بدون تفکیک IP — سریع‌ترین حالت بدون تاخیر DNS",
+    "Direct HTTPS to Google — path-only, same for every server" to
+        "HTTPS مستقیم به گوگل — فقط مسیر، برای همه سرورها یکسان",
     "Hybrid (Trie + Regex)" to "ترکیبی (Trie + Regex)",
     "Linear" to "خطی",
     "Minimal Perfect Hash (MPH)" to "جدول هش کامل (MPH)",
@@ -127,6 +129,10 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Prepare" to "آماده‌سازی",
     "Update" to "به‌روزرسانی",
     // MARBLE_ROUTING_UI_V136 — the rebuilt Routing workspace.
+    // MARBLE_ROUTING_CHIP_LABELS_V144 — human chip labels replace the raw Xray tokens.
+    "Domain first (default)" to "اول دامنه (پیش‌فرض)",
+    "IP on demand" to "IP هنگام نیاز",
+    "As-is (fastest)" to "بدون تغییر (سریع‌ترین)",
     "Routing mode" to "حالت مسیریابی",
     "Proxy all" to "همه از پروکسی",
     "Custom" to "سفارشی",
@@ -468,6 +474,8 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Notifications" to "اعلان‌ها",
     "Alerts" to "هشدارها",
     "Bug Finder" to "اشکال‌یاب",
+    "Scan the runtime, then copy or save the report" to "اجرای اسکن، سپس کپی یا ذخیره گزارش",
+    "Notifications and live stats" to "اعلان‌ها و آمار زنده",
     "Diagnostics" to "عیب‌یابی",
     "Expert controls" to "کنترل‌های حرفه‌ای",
     "Show every option here." to "نمایش همه گزینه‌ها در اینجا.",
@@ -1011,7 +1019,8 @@ private val FaPatterns: List<Pair<Regex, (MatchResult) -> String>> = listOf(
     Regex("""^(\d+) groups • (\d+) servers$""") to { m ->
         "${m.groupValues[1]} گروه • ${m.groupValues[2]} سرور"
     },
-    Regex("""^(\d+) servers hidden$""") to { m -> "${m.groupValues[1]} سرور پنهان" },
+    // MARBLE_SERVERS_NO_HIDDEN_LINE_V144 — the "N servers hidden" pattern is gone with the
+    // folded placeholder row; no Persian rendering for it may be reintroduced.
     Regex("""^(\d+) servers • (.+)$""") to { m ->
         "${m.groupValues[1]} سرور • ${m.groupValues[2]}"
     },

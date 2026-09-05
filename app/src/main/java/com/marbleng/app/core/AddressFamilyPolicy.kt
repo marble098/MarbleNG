@@ -5,6 +5,9 @@ import java.net.Inet4Address
 import java.net.Inet6Address
 import java.net.InetAddress
 import java.net.NetworkInterface
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 
 /**
  * MARBLE_ADDRESS_FAMILY_POLICY_V65
@@ -85,6 +88,16 @@ object AddressFamilyPolicy {
 
     /** Strategies that resolve both families, i.e. the only ones a race can order. */
     private val raceableStrategies = setOf("ForceIP", "ForceIPv4v6", "ForceIPv6v4")
+
+    /** Shared daemon pool behind [resolveWithBudget]: bounded, never keeps the process alive. */
+    private const val RESOLVE_POOL_SIZE = 4
+    private const val RESOLVE_MIN_BUDGET_MS = 250
+    private const val RESOLVE_MAX_BUDGET_MS = 30_000
+    private val resolvePool by lazy {
+        Executors.newFixedThreadPool(RESOLVE_POOL_SIZE) { runnable ->
+            Thread(runnable, "marble-resolve").apply { isDaemon = true }
+        }
+    }
 
     /**
      * Every `sockopt.domainStrategy` value the engine accepts for endpoint resolution. Anything
@@ -356,21 +369,98 @@ object AddressFamilyPolicy {
     }
 
     /**
+     * True when [host] is a numeric address that the JDK parses locally. Hostnames can never
+     * contain ':', so any colon means an IPv6 literal; a dotted quad is validated octet by
+     * octet so a malformed "999.1.1.1" still falls through to the real resolver instead of
+     * being mistaken for an address.
+     */
+    fun isLiteralIp(host: String): Boolean {
+        val clean = host.trim().removePrefix("[").removeSuffix("]")
+        if (clean.isEmpty()) return false
+        if (clean.contains(':')) return true
+        val parts = clean.split('.')
+        return parts.size == 4 && parts.all { octet ->
+            octet.isNotEmpty() && octet.length <= 3 && octet.all { it.isDigit() } &&
+                (octet.toIntOrNull() in 0..255)
+        }
+    }
+
+    /**
      * Resolve a node hostname into the addresses a prober should try, in the order the tunnel itself
      * will use. Literal addresses never touch a resolver, so a ping can never be blamed on DNS, and
      * `getAllByName` order (which is what `Socket.connect(host, port)` uses) is deliberately not
      * trusted: on Android it returns whatever the system resolver happened to answer first.
+     *
+     * @param timeoutMs when positive, the resolver call itself is bounded: domain resolution for
+     *   a dead network used to block the calling probe thread for the whole OS resolver timeout
+     *   (ten seconds or more), which made every "budget" the callers believed they enforced a
+     *   fiction. Zero keeps the legacy unbounded call for the few paths that resolve off any
+     *   stopwatch (tunnel bring-up, diagnostics).
      */
     fun resolveCandidates(
         host: String,
         plan: IpFamilyPlan,
+        timeoutMs: Int = 0,
         resolver: (String) -> Array<InetAddress> = InetAddress::getAllByName
     ): List<InetAddress> {
         val clean = host.trim().removePrefix("[").removeSuffix("]")
         if (clean.isBlank()) return emptyList()
-        return runCatching {
-            orderAddresses(resolver(clean).toList(), plan)
-        }.getOrElse { emptyList() }
+        if (timeoutMs <= 0) {
+            return runCatching {
+                orderAddresses(resolver(clean).toList(), plan)
+            }.getOrElse { emptyList() }
+        }
+        return orderAddresses(resolveWithBudget(clean, timeoutMs, resolver), plan)
+    }
+
+    /**
+     * MARBLE_RESOLVE_BUDGET_V144 — the one bounded hostname resolution in the product.
+     *
+     * Critique of what this replaces: every JVM prober (`tcpOnce`, `icmp`, `dnsPing`) called
+     * `InetAddress.getAllByName` inline on its own worker thread with NO timeout. `getAllByName`
+     * is a blocking syscall with no timeout parameter, so on a broken link or a censored DNS
+     * path a single domain-hosted node stalled its probe worker for the full system-resolver
+     * timeout while the UI budget next to it (`benchTimeoutSec`, the gate slices in `smartPing`)
+     * claimed milliseconds. One stalled worker is a slow row; thirty-two of them during
+     * Ping-all is a frozen batch and a dead progress bar.
+     *
+     * The fix, in one place so no future prober can regress it:
+     * - numeric literals bypass the pool entirely (parsed locally, zero syscalls, never queued
+     *   behind a stalled lookup);
+     * - domain names resolve on a small shared daemon pool and the caller waits at most
+     *   [timeoutMs]: on expiry the wait is abandoned (empty list — the probe reports
+     *   unreachable instead of hanging) and the stray lookup is cancelled.
+     *
+     * The pool is deliberately fixed-size and daemon: a dead network can pin at most
+     * [RESOLVE_POOL_SIZE] lookups, never one thread per probe, and nothing here can keep the
+     * process alive.
+     */
+    fun resolveWithBudget(
+        host: String,
+        timeoutMs: Int,
+        resolver: (String) -> Array<InetAddress> = InetAddress::getAllByName
+    ): List<InetAddress> {
+        val clean = host.trim().removePrefix("[").removeSuffix("]")
+        if (clean.isBlank()) return emptyList()
+        if (isLiteralIp(clean)) {
+            return runCatching { resolver(clean).toList() }.getOrElse { emptyList() }
+        }
+        val budgetMs = timeoutMs.coerceIn(RESOLVE_MIN_BUDGET_MS, RESOLVE_MAX_BUDGET_MS).toLong()
+        val future = resolvePool.submit<List<InetAddress>> {
+            runCatching { resolver(clean).toList() }.getOrElse { emptyList() }
+        }
+        return try {
+            future.get(budgetMs, TimeUnit.MILLISECONDS)
+        } catch (_: TimeoutException) {
+            future.cancel(true)
+            emptyList()
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
+            future.cancel(true)
+            emptyList()
+        } catch (_: Exception) {
+            emptyList()
+        }
     }
 
     /** Convenience for the JVM probers: the first usable address under the plan. */

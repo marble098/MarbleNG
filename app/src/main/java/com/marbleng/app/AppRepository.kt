@@ -16,6 +16,7 @@ import java.net.URL
 import java.security.MessageDigest
 import java.util.Locale
 import org.json.JSONObject
+import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
@@ -85,6 +86,18 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
 
     private val store = AppStore(context)
     private val io = Executors.newFixedThreadPool(3)
+
+    /*
+     * MARBLE_SHARED_PROBE_POOL_V144 — the Home ping used to build a fresh 9-thread pool on every
+     * tap and tear it down right after: thread-creation churn, nine fresh stacks and a GC wave
+     * per ping, all added to the exact latency the user is trying to read. Nine racing probes
+     * still run, but on one shared cached pool of daemon threads: bursts reuse warm threads,
+     * idle threads reap themselves after a minute, `invokeAll` still cancels stragglers past
+     * the batch budget, and nothing here is ever shut down (a shared pool has no owner per tap).
+     */
+    private val probePool: ExecutorService = Executors.newCachedThreadPool { runnable ->
+        Thread(runnable, "marble-probe").apply { isDaemon = true }
+    }
 
     // IntelligenceStatus includes a SQLite count + thermal inspection. Coalesce it on a worker so
     // a DB writer can never make the Android input thread wait on the HealthDb monitor.
@@ -1485,7 +1498,9 @@ private fun postToMain(block: () -> Unit) {
                 .coerceIn(500, 30_000)
             val batchBudgetMs = LinkDeadlinePolicy.probeBatchBudgetMs(probeTimeoutMs.toLong())
 
-            val pool = Executors.newFixedThreadPool(literalTargets.size + domainTargets.size + 2)
+            // MARBLE_SHARED_PROBE_POOL_V144 — the nine racers run on the shared pool (see the
+            // field): no per-tap thread churn, and `invokeAll` still bounds + cancels the race.
+            // The pool itself is never shut down here — it outlives every single tap.
             try {
                 val tasks = literalTargets.map { (ip, tlsHost, path) ->
                     java.util.concurrent.Callable {
@@ -1547,15 +1562,13 @@ private fun postToMain(block: () -> Unit) {
                         }.getOrNull()?.let { record("tunnel-handshake", it, verified = false) }
                     }
                 )
-                pool.invokeAll(
+                probePool.invokeAll(
                     tasks,
                     batchBudgetMs,
                     java.util.concurrent.TimeUnit.MILLISECONDS
                 )
             } catch (_: InterruptedException) {
                 Thread.currentThread().interrupt()
-            } finally {
-                pool.shutdownNow()
             }
 
             val verifiedSamples = results.filter { it.verified && it.ms >= 20.0 }
@@ -3222,14 +3235,28 @@ private fun postToMain(block: () -> Unit) {
         // provider-diverse direct HTTPS check that is identical for every config on that
         // endpoint, so it shares one measurement between identical endpoints exactly like the
         // other address-level methods. Only the real per-config tunnel test stays per server.
+        //
+        // MARBLE_HTTP_SHARED_PATH_V144 — critique that extends the same honesty one step
+        // further: the HTTP method never touches a server at all. It is a direct HTTPS GET to a
+        // fixed Google/Cloudflare 204 over the UNDERLAY, so its value is a property of the
+        // phone's current network, identical for every row in the batch. The old code measured
+        // it once PER SERVER (N sequential TLS handshakes for N copies of the same number) and
+        // then ranked servers by the resulting noise. It is now measured exactly once per run
+        // and fanned out to every member — same information, ~N× faster, and the per-server
+        // numbers can no longer pretend to differ.
         val dedupe = method == ProbeMethod.TCP || method == ProbeMethod.ICMP ||
             method == ProbeMethod.DNS || method == ProbeMethod.HYBRID
+        val sharedUnderlay = method == ProbeMethod.HTTP
 
         task("$methodLabel • $scope") {
-            val groups = if (dedupe) {
-                scoped.groupBy(::quickPingEndpointKey)
-            } else {
-                scoped.associateBy { it.id }.mapValues { (_, profile) -> listOf(profile) }
+            val groups = when {
+                dedupe -> scoped.groupBy(::quickPingEndpointKey)
+                sharedUnderlay -> if (scoped.isNotEmpty()) {
+                    mapOf("underlay-path" to scoped)
+                } else {
+                    emptyMap()
+                }
+                else -> scoped.associateBy { it.id }.mapValues { (_, profile) -> listOf(profile) }
             }
             val representatives = groups.values.mapNotNull { it.firstOrNull() }
             val quickSettings = settings.copy(
@@ -3249,7 +3276,9 @@ private fun postToMain(block: () -> Unit) {
             )
 
             fun membersFor(representative: ProxyProfile): List<ProxyProfile> =
-                if (dedupe) {
+                if (sharedUnderlay) {
+                    groups["underlay-path"].orEmpty()
+                } else if (dedupe) {
                     groups[quickPingEndpointKey(representative)].orEmpty()
                 } else {
                     listOf(representative)
