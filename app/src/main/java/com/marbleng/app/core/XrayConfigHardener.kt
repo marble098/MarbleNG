@@ -891,6 +891,16 @@ object XrayConfigHardener {
         // floor (so an unmeasured link behaves exactly as before) and to the 10 s ceiling the
         // official XTLS reference configuration uses. A fragmenting selected outbound keeps the
         // upstream schedule because there the 1-byte first-write pacing, not the link, dominates.
+        // MARBLE_INTELLIGENCE_V141 — a fragmenting selected outbound (the app's own fragment
+        // feature or a hand-imported fragment chain) keeps the upstream XTLS schedule because
+        // there the 1-byte first-write pacing, not the link, dominates the DoH budget.
+        val selectedFragmented = settings.fragmentEnabled &&
+            byTag[firstTag]
+                ?.optJSONObject("settings")
+                ?.optJSONObject("fragment")
+                ?.optString("packets")
+                ?.trim()
+                ?.let { it != "0" && it.toIntOrNull() != 0 } == true
         fun dnsTimeoutMs(index: Int): Long =
             LinkDeadlinePolicy.dnsServerTimeoutMs(
                 evidence = link,

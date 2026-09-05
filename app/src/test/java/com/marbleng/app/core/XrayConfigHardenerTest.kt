@@ -86,6 +86,19 @@ class XrayConfigHardenerTest {
         )
         .toString()
 
+    /** The same chain with the dedicated noises outbound removed. */
+    private fun chainSourceWithoutNoises(): String {
+        val root = JSONObject(handImportedFreedomChain())
+        val outbounds = root.getJSONArray("outbounds")
+        val kept = org.json.JSONArray()
+        for (index in 0 until outbounds.length()) {
+            val outbound = outbounds.getJSONObject(index)
+            if (outbound.optJSONObject("settings")?.optJSONArray("noises") == null) kept.put(outbound)
+        }
+        root.put("outbounds", kept)
+        return root.toString()
+    }
+
     private fun fragmentChainSettings() = AppSettings(
         fragmentEnabled = true,
         fragmentInnerEnabled = true
@@ -184,7 +197,9 @@ class XrayConfigHardenerTest {
     @Test
     fun `iran mode blocks poison injector ranges and media udp is opt in`() {
         val settings = fragmentChainSettings().copy(iranModePolicy = IranModePolicy.ALWAYS_ON)
-        val hardened = harden(settings)
+        // A chain without a dedicated noises outbound: with muxUdp443 at its default no
+        // QUIC/UDP443 rule is emitted at all, so media keeps trying QUIC through the tunnel.
+        val hardened = harden(settings, chainSourceWithoutNoises())
 
         val routing = hardened.getJSONObject("routing")
         assertEquals("IPIfNonMatch", routing.optString("domainStrategy"))
@@ -192,8 +207,6 @@ class XrayConfigHardenerTest {
         val ruleText = rules.toString()
         assertTrue("poison injector range blocked", ruleText.contains("10.10.34.0/24"))
 
-        // With muxUdp443 at its default, no QUIC/UDP443 rule is emitted at all: media keeps
-        // trying QUIC and only a dedicated noises outbound (absent here) would receive it.
         val udp443 = udp443Rules(rules)
         assertTrue(udp443.isEmpty())
     }
@@ -235,10 +248,26 @@ class XrayConfigHardenerTest {
     }
 
     @Test
-    fun `smart adaptive never emits tlshello outer hop`() {
-        val recipe = DpiEvasionPolicy.connectionRecipe(IranModeState(active = true))
-        assertFalse(recipe.packets.equals("tlshello", ignoreCase = true))
-        assertTrue(recipe.innerEnabled)
+    fun `no default recipe emits the tlshello record rewriter`() {
+        // Runtime regression (real Xray v26.7.28): the "tlshello" fragment mode rewrites the
+        // ClientHello into complete tiny TLS records (Xray-core #4370) and servers RST that
+        // shape. Every recipe the connection ladder can pick must use the packet split instead.
+        val states = listOf(
+            IranModeState(active = true),
+            IranModeState(active = true, techniques = setOf(CensorTechnique.SNI_FILTERING)),
+            IranModeState(
+                active = true,
+                techniques = setOf(CensorTechnique.SNI_FILTERING, CensorTechnique.TCP_RESET)
+            ),
+            IranModeState(active = true, techniques = setOf(CensorTechnique.NATIONAL_INTRANET))
+        )
+        states.forEach { state ->
+            val recipe = DpiEvasionPolicy.connectionRecipe(state)
+            assertFalse(
+                "connectionRecipe must never emit tlshello",
+                recipe.packets.equals("tlshello", ignoreCase = true)
+            )
+        }
     }
 
     /**

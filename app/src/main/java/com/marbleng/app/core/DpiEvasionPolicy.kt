@@ -315,8 +315,9 @@ object DpiEvasionPolicy {
         val reset = CensorTechnique.TCP_RESET in state.techniques
         // MARBLE_OPERATOR_STEEL_V91 — match the detected Iranian operator to its steel profile
         // before the generic severity ladder. This is what makes the countermeasures feel tuned
-        // per carrier without any user action.
-        operatorRecipeFor(state.isp)?.let { return it }
+        // per carrier without any user action. Only while the mode is actually active: an idle
+        // detection must never shape a connection.
+        if (state.active) operatorRecipeFor(state.isp)?.let { return it }
         return when {
             !state.active -> TLSHELLO
             CensorTechnique.NATIONAL_INTRANET in state.techniques ||
