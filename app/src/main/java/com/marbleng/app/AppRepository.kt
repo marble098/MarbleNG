@@ -3403,6 +3403,26 @@ private fun postToMain(block: () -> Unit) {
         updateSettings(settings.copy(routingRulesJson = RoutingEngine.serializeRules(rules)))
     }
 
+    /**
+     * MARBLE_ROUTING_PRESETS_V136 — replace the rule list with a curated preset. The mode, the
+     * geo source and the expert text lists are untouched, so this is always reversible.
+     */
+    fun applyRoutingPreset(preset: RoutingPresets.Preset) {
+        setRoutingRules(RoutingPresets.materialize(preset))
+        message = when {
+            state != "DISCONNECTED" ->
+                "${preset.title} preset saved • reconnect to apply it to the active tunnel"
+            else -> "${preset.title} preset applied • ${preset.rules.size} rules"
+        }
+    }
+
+    /** One-off offline route diagnosis for the Routing page simulator. */
+    fun simulateRoute(host: String): RoutingEngine.RouteSimulation? {
+        val clean = host.trim()
+        if (clean.isEmpty()) return null
+        return RoutingEngine.simulate(settings, clean)
+    }
+
     fun applyIranRoutingPreset(prepareAssets: Boolean = true) {
         updateSettings(
             settings.copy(
@@ -3410,7 +3430,9 @@ private fun postToMain(block: () -> Unit) {
                 geoAssetSourceId = RoutingDefaults.SOURCE_CHOCOLATE4U,
                 geoIpUrl = RoutingDefaults.GEOIP_URL,
                 geoSiteUrl = RoutingDefaults.GEOSITE_URL,
-                routingRulesJson = RoutingEngine.serializeRules(RoutingEngine.DEFAULT_RULES),
+                routingRulesJson = RoutingEngine.serializeRules(
+                    RoutingPresets.materialize(RoutingPresets.Preset.RECOMMENDED)
+                ),
                 routeGeoIpTags = RoutingDefaults.GEOIP_DIRECT_TAGS,
                 routeGeoSiteTags = RoutingDefaults.GEOSITE_DIRECT_TAGS,
                 routeBypassPrivate = true,

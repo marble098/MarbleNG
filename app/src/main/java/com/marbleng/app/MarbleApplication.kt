@@ -21,6 +21,12 @@ class MarbleApplication : Application() {
         xray = XrayManager(this)
         repo = AppRepository(this, xray)
 
+        // MARBLE_GEO_ASSET_INDEX_V136 — index the managed geo databases off the main thread so
+        // the routing editor opens with live suggestions, validation and the route simulator.
+        java.util.concurrent.Executors.newSingleThreadExecutor().execute {
+            runCatching { xray.refreshGeoAssetIndex() }
+        }
+
         RuntimeDiagnostics.setDebugEnabled(this, repo.settings.debugModeEnabled)
         diagnostics.event(
             "APP",

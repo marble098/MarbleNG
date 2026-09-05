@@ -277,17 +277,23 @@ class DnsDeadlineConfigTest {
     }
 
     @Test
-    fun `an explicit user demand for ipv6 survives the measurement`() {
+    fun `a strict ipv6 demand survives the measurement`() {
+        // MARBLE_SMART_FAMILY_V136 — Prefer IPv6 ships ON and is an ordering, so a measured-broken
+        // family demotes the default plan automatically. The demand a measurement cannot override
+        // is the strict v6 configuration (UseIPv6): the user asked for v6 only and must see it
+        // fail as v6-only, not as a silent IPv4 success.
         val plan = AddressFamilyPolicy.plan(
             settings = AppSettings(
                 ipv6Enabled = true,
                 preferIpv6 = true,
+                dnsQueryStrategy = "UseIPv6",
                 measuredIpv6Unhealthy = true
             ),
             underlayHasIpv6 = true
         )
-        assertEquals(IpFamilyPreference.IPV6_FIRST, plan.preference)
+        assertEquals(IpFamilyPreference.IPV6_ONLY, plan.preference)
         assertTrue(plan.prioritizeIpv6)
+        assertEquals("UseIPv6", plan.dnsQueryStrategy)
     }
 
     @Test

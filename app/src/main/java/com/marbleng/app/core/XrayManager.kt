@@ -297,6 +297,10 @@ class XrayManager(private val context: Context) {
      * Ensures geoip.dat and geosite.dat exist. If a user URL is configured, the file is downloaded
      * once for that exact URL and then reused on every start. Changing the URL triggers one new
      * download. force=true explicitly refreshes the selected source.
+     *
+     * MARBLE_GEO_ASSET_INDEX_V136 — every committed change re-indexes the two databases so the
+     * rule editor's suggestions, validation and the route simulator always describe the files the
+     * engine will actually load.
      */
     fun prepareRoutingAssets(
         settings: AppSettings = AppSettings(),
@@ -307,10 +311,16 @@ class XrayManager(private val context: Context) {
             assetsDir.mkdirs()
             ensureAsset("geoip.dat", settings.geoIpUrl.trim(), force)
             ensureAsset("geosite.dat", settings.geoSiteUrl.trim(), force)
+            refreshGeoAssetIndex()
             return routingAssetStatus()
         } finally {
             assetLock.unlock()
         }
+    }
+
+    /** Best-effort re-index of the managed geo databases; never throws. */
+    fun refreshGeoAssetIndex() {
+        runCatching { GeoAssetIndex.update(assetsDir) }
     }
 
     fun deleteRoutingAssets() {
@@ -624,30 +634,12 @@ class XrayManager(private val context: Context) {
     /**
      * "private" geoip tags/bypass never need geoip.dat: XrayConfigHardener expands them to literal
      * RFC1918/link-local/loopback CIDRs. Only non-private geoip tags (country codes, etc.) require
-     * a real downloaded database.
+     * a real downloaded database. MARBLE_ROUTING_ENGINE_V136 — the decision itself now lives in
+     * RoutingEngine, the same source the config writer and the UI consult.
      */
-    private fun requiresGeoIp(settings: AppSettings): Boolean {
-        if (settings.routingMode in setOf(RoutingMode.GEO_DIRECT, RoutingMode.CUSTOM)) {
-            val nonPrivateTags = settings.routeGeoIpTags.split(',', '\n', '\r', ';')
-                .map { it.trim() }
-                .filter { it.isNotBlank() && !it.equals("private", ignoreCase = true) && !it.equals("geoip:private", ignoreCase = true) }
-            if (nonPrivateTags.isNotEmpty()) return true
-        }
-        return listOf(settings.routeDirectIps, settings.routeBlockIps).any { raw ->
-            raw.split(',', '\n', '\r', ';').any {
-                val tag = it.trim()
-                tag.startsWith("geoip:", ignoreCase = true) && !tag.equals("geoip:private", ignoreCase = true)
-            }
-        }
-    }
+    private fun requiresGeoIp(settings: AppSettings): Boolean = RoutingEngine.needsGeoIp(settings)
 
-    private fun requiresGeoSite(settings: AppSettings): Boolean {
-        if (settings.routeBlockAds && settings.routeAdsTag.isNotBlank()) return true
-        if (settings.routingMode in setOf(RoutingMode.GEO_DIRECT, RoutingMode.CUSTOM) && settings.routeGeoSiteTags.isNotBlank()) return true
-        return listOf(settings.routeDirectDomains, settings.routeProxyDomains, settings.routeBlockDomains).any { raw ->
-            raw.split(',', '\n', '\r', ';').any { it.trim().startsWith("geosite:", ignoreCase = true) }
-        }
-    }
+    private fun requiresGeoSite(settings: AppSettings): Boolean = RoutingEngine.needsGeoSite(settings)
 
     private fun createProcessBuilder(vararg args: String): ProcessBuilder {
         val command = ArrayList<String>()

@@ -390,9 +390,11 @@ class BugFinder(private val context: Context, private val xray: XrayManager) {
 
         val assets = xray.routingAssetStatus()
         checks += when {
-            settings.routeBlockAds && !assets.geoSiteReady ->
+            // MARBLE_ROUTING_ENGINE_V136 — one shared definition of "this policy needs geo data",
+            // identical to what the config writer and the asset preloader consult.
+            RoutingEngine.needsGeoSite(settings) && !assets.geoSiteReady ->
                 BugCheck("GeoSite asset", BugSeverity.FAIL, "Ad/routing policy needs geosite.dat but it is missing", "Prepare routing assets")
-            settings.routingMode.name.contains("GEO") && !assets.geoIpReady ->
+            RoutingEngine.needsGeoIp(settings) && !assets.geoIpReady ->
                 BugCheck("GeoIP asset", BugSeverity.FAIL, "Geo routing selected but geoip.dat is missing", "Prepare routing assets")
             else -> BugCheck("Routing assets", BugSeverity.PASS, "geoip=${assets.geoIpReady} (${assets.geoIpBytes}) • geosite=${assets.geoSiteReady} (${assets.geoSiteBytes})")
         }
