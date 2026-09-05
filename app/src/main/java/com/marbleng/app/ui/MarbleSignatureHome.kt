@@ -177,12 +177,9 @@ internal fun HomeStyleSignature(
     // above the bottom navigation, one thumb reach away on every scroll position.
     val zone = connectControlZone(LocalConnectButtonStyle.current)
     val docked = zone.isPageDocked()
-    // Vertical space the docked control owns at the floor of the page.
-    // MARBLE_LIVE_PING_FIXED_SLOT_V135 — the docked stage now ALWAYS carries the live ping
-    // instrument slot above the control (it only fades, it never enters or leaves the layout), so
-    // the reserve covers the meter + spacing + control once, for every connection state, instead
-    // of being sized for the control alone and letting the grown dock cover scrolling content.
-    val floorReserve = if (docked) 220.dp else 0.dp
+    // Reserve only the physical docked control and its bottom breathing room. Live ping is painted
+    // inside that control's fixed bounds, so it never gets a page-level row or a second reserve.
+    val floorReserve = if (docked) 112.dp else 0.dp
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val heroHeight = (maxHeight * .32f).coerceIn(200.dp, 310.dp)
@@ -264,12 +261,9 @@ internal fun HomeStyleSignature(
                         )
                     }
                     if (zone != ConnectControlZone.POWER_DOCK) {
-                        // MARBLE_HOME_LIVE_PING_V132 — the live ping instrument opens beside the
-                        // control, in a reserved slot, so the control itself never moves.
+                        // Live ping is rendered inside the selected control; this stage adds no
+                        // sibling meter and therefore contributes no connection-state layout shift.
                         HomePowerStage(
-                            evidence = evidence,
-                            tone = tone,
-                            actions = actions,
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             HomePowerControl(
@@ -361,10 +355,6 @@ internal fun HomeStyleSignature(
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 HomePowerStage(
-                    evidence = evidence,
-                    tone = tone,
-                    actions = actions,
-                    sideBySide = false,
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     if (zone == ConnectControlZone.PAGE_FLOOR) {
@@ -851,7 +841,8 @@ private fun SignatureCornerButton(
  * drag to place it anywhere on the screen. The dragged spot persists as normalized viewport
  * fractions (written on drag end only), so it survives restarts on any screen size. The ring
  * shows live state — breathing when protected, sweeping continuously while securing — and a
- * compact ping readout sits under the glyph once a measurement exists.
+ * fixed-width ping badge sits under the glyph, including an explicit failure mark when no verified
+ * response arrives.
  */
 @Composable
 internal fun SignatureFloatingConnectOverlay(
@@ -1017,7 +1008,10 @@ internal fun SignatureFloatingConnectOverlay(
                     }
                 }
             }
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
                 HomeGlyphIcon(
                     when {
                         evidence.connected -> HomeGlyph.CHECK
@@ -1027,19 +1021,7 @@ internal fun SignatureFloatingConnectOverlay(
                     animatedTone,
                     Modifier.size(20.dp)
                 )
-                if (evidence.connected && evidence.pingState == ConnectionPingState.MEASURED) {
-                    // MARBLE_SYSTEM_FONT_V113 — the live latency follows the Settings typeface.
-                    Text(
-                        "${evidence.pingMs}",
-                        color = animatedTone,
-                        style = MaterialTheme.typography.labelSmall.copy(
-                            fontWeight = FontWeight.Bold
-                        ),
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        softWrap = false
-                    )
-                }
+                HomeInlinePingBadge(evidence = evidence, tone = animatedTone)
             }
         }
     }

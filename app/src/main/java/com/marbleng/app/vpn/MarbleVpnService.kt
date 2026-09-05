@@ -1219,7 +1219,12 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
 
                 if (tick % 5 == 0 && (activeSettings ?: repo.settings).notificationLiveStats) {
                     val name = repo.profile(activeProfileId)?.name ?: "Active route"
-                    val ping = repo.livePingMs.takeIf { it > 0 }?.let { "${it} ms" } ?: "— ms"
+                    val ping = repo.livePingMs.takeIf { it > 0 }?.let { "${it} ms" }
+                        ?: if (repo.liveRouteProbeFailed) {
+                            "FAILED"
+                        } else {
+                            "—"
+                        }
                     notifyNow(
                         "Protected • $name",
                         true,
@@ -2211,12 +2216,19 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
 
         if (rttSamples.isEmpty() || !isRouteCurrent(session, generation)) {
             if (isRouteCurrent(session, generation)) {
+                // A failed live probe invalidates the entire displayed latency window. Keeping the
+                // previous median here made an old, real RTT look like a current response and hid
+                // outages behind a reassuring number.
+                synchronized(routeOutcomeWindow) { routeOutcomeWindow.clear() }
+                jitterControlState = jitterControlState.copy(highStreak = 0, lowStreak = 0, active = false)
+                jitterControlActive = false
+                repo.invalidateLiveQuality(
+                    "Verified HTTPS RTT unavailable • no response measured"
+                )
                 repo.updateRouteProbeStatus(
                     "Tunnel traffic is active • verified HTTPS RTT is currently unavailable"
                 )
             }
-            // Keep the last verified rolling metrics across an advisory miss. A host pivot,
-            // disconnect, generation reset, or real recovery still resets them explicitly.
             val trafficRecentlyMoved =
                 activeMode == MODE_TUN &&
                     hevActive &&

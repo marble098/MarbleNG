@@ -10,7 +10,8 @@ package com.marbleng.app.ui
 // Design contract shared by every style — enforced by scripts/system-integrity-check.py:
 //   1. all four render the SAME runtime evidence: node name, source name, IP + country flag with
 //      its three actions (copy / refresh / details), session uptime, and the one-shot ping;
-//   2. no style draws a quality indicator around the connect control;
+//   2. live quality is rendered only inside the selected control's fixed bounds; no style adds a
+//      quality row, ring or slab that can move the page;
 //   3. the artwork is Canvas-drawn vector work — no bitmaps, no downloads, no per-card infinite
 //      transitions (ambient motion comes from Marble's single shared frame clock).
 //
@@ -295,13 +296,13 @@ internal fun rememberUptimeLabel(connectedSinceMs: Long): String {
 }
 
 /**
- * MARBLE_PING_FIXED_GEOMETRY_V114 — the ping *value* is only ever digit-shaped.
+ * MARBLE_PING_FIXED_GEOMETRY_V114 — the ping value keeps one fixed glyph budget.
  *
  * The readout is an instrument with a fixed box: a word like "measuring…" or "بدون پاسخ" is
  * longer than "123 ms", so rendering it in the value slot resized the box on every state change.
  * Words now live in the reserved hint slot below ([homePingActionHint]) and the value slot keeps
- * one constant glyph budget — the measured number, three dots while the probe is in flight, or an
- * em dash when the route has never been measured.
+ * one constant budget — the measured number, three dots while the probe is in flight, an em dash
+ * before the first probe, or a failure mark when the verified request gets no response.
  */
 @Composable
 internal fun homePingLabel(evidence: HomeEvidence): String {
@@ -309,9 +310,10 @@ internal fun homePingLabel(evidence: HomeEvidence): String {
     return when (evidence.pingState) {
         ConnectionPingState.MEASURING -> t.pingMeasuringValue
         ConnectionPingState.MEASURED -> "${evidence.pingMs} ms"
-        // MARBLE_PING_GUARANTEE_V114 — the repository ladder cannot answer "no response" while a
-        // tunnel carries traffic, so a failure only ever means "nothing measured on this route yet".
-        ConnectionPingState.FAILED -> t.pingIdleValue
+        // A failed probe is explicit evidence, not an idle placeholder. The dash remains reserved
+        // for a route that has not been measured yet; a route that produced no response gets a
+        // visible failure mark everywhere the ping is rendered.
+        ConnectionPingState.FAILED -> "×"
         ConnectionPingState.IDLE -> t.pingIdleValue
     }
 }
@@ -2028,6 +2030,46 @@ internal fun ConnectButtonCaption(
 }
 
 /**
+ * The only latency surface attached to a connection control. It is deliberately a fixed-size
+ * badge inside the control's existing bounds: no Column, slab or sibling row is allowed to host
+ * live ping because that would change page geometry when the state changes.
+ */
+@Composable
+internal fun HomeInlinePingBadge(
+    evidence: HomeEvidence,
+    tone: Color,
+    modifier: Modifier = Modifier
+) {
+    val value = homePingLabel(evidence)
+    val pingName = Tr.now.livePing
+    val pingTone = homePingTone(evidence, tone)
+    val shape = RoundedCornerShape(8.dp)
+    Box(
+        modifier = modifier
+            .height(18.dp)
+            .width(56.dp)
+            .clip(shape)
+            .background(pingTone.copy(alpha = .12f))
+            .border(1.dp, pingTone.copy(alpha = .38f), shape)
+            .semantics {
+                contentDescription = "$pingName: $value"
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            value,
+            color = pingTone,
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Clip,
+            modifier = Modifier.padding(horizontal = 5.dp)
+        )
+    }
+}
+
+/**
  * Style 1 — the round shutter. Big, centred, fixed. A hairline rim states the state colour, and a
  * single indeterminate arc is drawn only while the route is actually being secured or closed.
  */
@@ -2127,11 +2169,22 @@ private fun ConnectButtonRound(
                     )
                 }
             }
-            HomeGlyphIcon(
-                connectButtonGlyph(evidence),
-                animatedTone,
-                Modifier.size(diameter * .26f)
-            )
+            Box(Modifier.matchParentSize()) {
+                HomeGlyphIcon(
+                    connectButtonGlyph(evidence),
+                    animatedTone,
+                    Modifier
+                        .align(Alignment.Center)
+                        .size(diameter * .26f)
+                )
+                HomeInlinePingBadge(
+                    evidence = evidence,
+                    tone = animatedTone,
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 14.dp)
+                )
+            }
         }
         Spacer(Modifier.height(10.dp))
         ConnectButtonCaption(evidence, animatedTone)
@@ -2231,7 +2284,14 @@ private fun ConnectButtonSlide(
                     textAlign = TextAlign.Center,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(start = knobSize, end = 12.dp)
+                        .padding(start = knobSize, end = 54.dp, bottom = 9.dp)
+                )
+                HomeInlinePingBadge(
+                    evidence = evidence,
+                    tone = animatedTone,
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(end = 10.dp, bottom = 5.dp)
                 )
                 Box(
                     modifier = Modifier
@@ -2382,6 +2442,7 @@ private fun ConnectButtonClassic(
                     softWrap = false,
                     overflow = TextOverflow.Ellipsis
                 )
+                HomeInlinePingBadge(evidence = evidence, tone = animatedTone)
             }
             // State lamp: the classic switch always shows whether the line is live.
             Box(
@@ -2528,9 +2589,6 @@ internal fun HomeStyleCosmicOrbit(
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
-                    // MARBLE_HOME_LIVE_PING_V132 — the live instrument opens directly under the
-                    // control, in its own reserved row, so the hero geometry never changes.
-                    HomeLivePingSlab(evidence, actions, tone, Modifier.fillMaxWidth())
                     HomeStatusHeadline(evidence, tone, align = TextAlign.Start)
                     HomeIdentityBlock(evidence, tone, HomeFlavor.ORBIT, Modifier.fillMaxWidth())
                 }
@@ -2849,10 +2907,6 @@ internal fun HomeStyleCosmicImmersion(
                 overflow = TextOverflow.Ellipsis
             )
 
-            // MARBLE_HOME_LIVE_PING_V132 — the live instrument, nebula skin, one row under
-            // the state word so both presentations answer a connect with the same reveal.
-            HomeLivePingSlab(evidence, actions, tone, Modifier.fillMaxWidth())
-
             HomeIdentityBlock(evidence, tone, HomeFlavor.NEBULA, Modifier.fillMaxWidth())
 
             HomeIpRow(evidence, tone, actions, HomeFlavor.NEBULA, Modifier.fillMaxWidth())
@@ -3038,6 +3092,10 @@ internal fun HomeStyleSurface(
     pro: HomeProContext? = null,
     onScrollChanged: (Boolean) -> Unit = {}
 ) {
+    // Telemetry is shared once by every presentation; its visual output lives inside the selected
+    // fixed-size connection silhouette rather than in a page-level row.
+    HomeLivePingEffect(evidence, actions)
+
     when (style) {
         HomeStyle.PRO -> HomeStyleSignature(
             evidence = evidence,

@@ -485,6 +485,10 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     var liveJitterSamples by mutableStateOf(0); private set
     var liveRouteProbeStatus by mutableStateOf(""); private set
 
+    /** True only when the current live probe explicitly reported no verified response. */
+    val liveRouteProbeFailed: Boolean
+        get() = liveRouteProbeStatus.contains("unavailable", ignoreCase = true)
+
     init {
         migrateLocalSourceOwnershipIfNeeded()
         RuntimeDiagnostics.setDebugEnabled(context, settings.debugModeEnabled)
@@ -928,6 +932,27 @@ fun invalidateLiveJitter() {
         postToMain {
             liveJitterMs = 0
             liveJitterSamples = 0
+        }
+    }
+
+    /**
+     * Drop every live latency/quality value when the current probe has no verified response.
+     *
+     * A missed sample is not permission to keep showing the previous RTT: that turns a stale
+     * observation into a false claim about the current route. The next successful rolling sample
+     * rebuilds the window from zero, while the explicit status explains why the readout is empty.
+     */
+    fun invalidateLiveQuality(reason: String = "Verified HTTPS RTT unavailable") {
+        postToMain {
+            livePingMs = 0
+            liveJitterMs = 0
+            liveRouteScore = -1
+            liveRouteSamples = 0
+            liveRouteAttempts = 0
+            liveRouteSuccessPercent = 0
+            liveTailLatencyMs = 0
+            liveJitterSamples = 0
+            liveRouteProbeStatus = reason.trim().take(180)
         }
     }
 
@@ -1489,9 +1514,9 @@ private fun postToMain(block: () -> Unit) {
             return
         }
 
-        // Guarantee 1 — seed the readout with a real measurement the tunnel already owns, so the
-        // value never sits in MEASURING while the race is still running. Stored benchmarks are
-        // bounded by the shared positive/ceiling clamp before they can reach the UI.
+        // Deadline seed only — a live/benchmark observation can size this probe while it runs, but
+        // it is never copied into the Home readout. The current verified race must produce the
+        // displayed value.
         val storedLatencyMs = benchmarks
             .firstOrNull { it.profileId == activeProfileId }
             ?.takeIf { it.success > 0 && it.latencyMs > 0.0 }
@@ -1500,10 +1525,9 @@ private fun postToMain(block: () -> Unit) {
             ?: 0
         val seedMs = listOf(livePingMs, storedLatencyMs).firstOrNull { it > 0 } ?: 0
 
-        // MARBLE_PING_FLOOR_V117 — the seed (live monitor RTT / stored benchmark) is useful as a
-        // last-resort tail, but it is never a finished measurement. Showing it as MEASURED let the
-        // Home surface flash an unrepresentative 15 ms before the real probe race had run. The
-        // readout now stays in MEASURING until the median of the verified race is published.
+        // MARBLE_PING_FLOOR_V117 / MARBLE_HONEST_PING_V136 — the seed sizes deadlines only. The
+        // readout stays in MEASURING until the median of the current verified race is published;
+        // it can become FAILED, never an old tail value, when that race gets no response.
         postToMain {
             connectionPingMs = 0
             connectionPingState = ConnectionPingState.MEASURING
@@ -1598,10 +1622,10 @@ private fun postToMain(block: () -> Unit) {
                             ?.let { record("get:cloudflare", it.elapsedMs, verified = true) }
                     },
                     java.util.concurrent.Callable {
-                        // Guarantee 3 — the cheapest honest measurement of the connected tunnel:
-                        // one SOCKS CONNECT handshake to a literal IP. It answers even when every
-                        // HTTPS origin above is blocked, so the readout is never empty. It is
-                        // recorded as unverified, so it can never outrank a real HTTPS RTT.
+                        // Diagnostic-only reachability rung: one SOCKS CONNECT handshake to a literal
+                        // IP. It can explain whether Xray accepted a route when HTTPS origins are
+                        // blocked, but it is unverified Internet evidence and can never become the
+                        // displayed Home RTT.
                         runCatching {
                             SocksHttpClient.connectLatency(
                                 port = port,
@@ -1624,21 +1648,19 @@ private fun postToMain(block: () -> Unit) {
             }
 
             val verifiedSamples = results.filter { it.verified }
-            // MARBLE_HONEST_PING_V119 — one freaky fast sample never wins the race. The winner
-            // is the median of the verified probes (every sample already bounded positive/ceiling),
-            // so a single outlier cannot pull the Home readout away from the honest centre of the
-            // verified distribution; the unverified SOCKS ladder only counts when nothing verified
-            // answered.
-            val racePool = (verifiedSamples.ifEmpty { results })
+            // MARBLE_HONEST_PING_V136 — one freaky fast sample never wins the race. The winner
+            // is the median of verified HTTPS responses only. A SOCKS handshake proves that Xray
+            // accepted a CONNECT, but it is not an Internet response and must never become the
+            // displayed Home ping. Likewise, a previous live/benchmark RTT is useful for sizing
+            // deadlines above but is not a result for this probe, so a zero-response run is FAILED.
+            val racePool = verifiedSamples
                 .map { it.ms }
                 .filter { it.isFinite() && it > 0.0 }
                 .sorted()
             val winnerMs = racePool.getOrNull(racePool.size / 2)
-            // Diagnostics still identify which probe class produced the winning opinion.
-            val winner = verifiedSamples.minByOrNull { it.ms } ?: results.minByOrNull { it.ms }
-            // Ladder tail: the live tunnel monitor, then the stored benchmark of the live server.
-            val tailMs = listOf(livePingMs, storedLatencyMs).firstOrNull { it > 0 } ?: 0
-            val measured = (winnerMs ?: tailMs).toInt().coerceIn(0, 10_000)
+            // Diagnostics still identify which verified probe class produced the winning opinion.
+            val winner = verifiedSamples.minByOrNull { it.ms }
+            val measured = winnerMs?.toInt()?.coerceIn(1, 10_000) ?: 0
 
             diagnostics.event(
                 "APP",
@@ -1650,7 +1672,7 @@ private fun postToMain(block: () -> Unit) {
                 "batchBudgetMs" to batchBudgetMs,
                 "verified" to verifiedSamples.size,
                 "seed" to seedMs,
-                "mode" to (winner?.mode ?: if (tailMs > 0) "tunnel-monitor" else "none"),
+                "mode" to (winner?.mode ?: "none"),
                 "modes" to results.joinToString(",") { "${it.mode}=${it.ms.roundToInt()}" }
             )
 

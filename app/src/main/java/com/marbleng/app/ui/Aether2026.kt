@@ -170,7 +170,6 @@ import com.marbleng.app.core.ServersFilter
 import com.marbleng.app.core.ServersQuery
 import com.marbleng.app.model.*
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import android.net.Uri
@@ -2392,14 +2391,17 @@ private fun HomeMetricBento(repo: AppRepository) {
     val jitterMs = if (isConnected) repo.liveJitterMs else 0
     val jitterSamples = if (isConnected) repo.liveJitterSamples else 0
     val routeScore = if (isConnected) repo.liveRouteScore else -1
+    val liveFailed = isConnected && repo.liveRouteProbeFailed
     val liveStatus = when {
         isConnected && pingMs > 0 -> "LIVE"
+        liveFailed -> "FAILED"
         isConnected -> "MEASURING"
         else -> "WAITING"
     }
     val liveStatusColor = when (liveStatus) {
         "LIVE" -> Aether.Emerald
         "MEASURING" -> Aether.Amber
+        "FAILED" -> Aether.Danger
         else -> Aether.InkMuted
     }
 
@@ -2431,7 +2433,11 @@ private fun HomeMetricBento(repo: AppRepository) {
         ) {
             MarbleMetricCard(
                 title = "Ping",
-                value = if (pingMs > 0) pingMs.toString() else "—",
+                value = when {
+                    pingMs > 0 -> pingMs.toString()
+                    liveFailed -> "×"
+                    else -> "—"
+                },
                 unit = if (pingMs > 0) "ms" else "",
                 tone = pingTone,
                 // MARBLE_LIVE_QUALITY_BENTO_V91: pass the remembered snapshot list itself — a fresh
@@ -2604,25 +2610,8 @@ private fun CyberDeck(
         }
     }
 
-    // One automatic measurement per session; every later measurement is user-initiated.
-    // MARBLE_HOME_PING_RESCUE_V112 — a first probe fired 1.8s after connect can land while the
-    // tunnel's TLS state is still cold (the same warm-up the live route monitor sees). That miss
-    // no longer freezes as "no response": exactly one bounded re-check follows, still inside the
-    // user's session and still never a repeating timer.
-    LaunchedEffect(repo.connectedSinceMs) {
-        if (repo.connectedSinceMs > 0L) {
-            delay(1_800)
-            if (repo.connectionPingState == ConnectionPingState.IDLE) repo.measureConnectionPing()
-            delay(2_200)
-            if (
-                repo.connectedSinceMs > 0L &&
-                repo.connectionPingState == ConnectionPingState.FAILED
-            ) {
-                repo.measureConnectionPing()
-            }
-        }
-    }
-
+    // MARBLE_HOME_PING_RESCUE_V112 — the Home surface owns one bounded verified-probe loop;
+    // its failure mark stays inside the selected control instead of adding a rescue row.
     // The Signature studio configuration: every layer is an independent Settings choice.
     val pro = rememberSignatureProContext(repo, deck)
 
@@ -3213,7 +3202,7 @@ private fun ConnectionCore(
             MiniMetric(
                 "Ping",
                 if (pingMs > 0) pingMs.toString() else "—",
-                "ms",
+                if (pingMs > 0) "ms" else "",
                 Modifier.weight(1f)
             )
             MiniMetric(
