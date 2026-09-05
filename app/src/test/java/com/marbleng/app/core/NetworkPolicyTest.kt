@@ -172,32 +172,39 @@ class NetworkPolicyTest {
             underlayHasIpv6 = true,
             measuredV6Healthy = false
         )
-        // The automatic v6-first order is dropped, but the race stays armed so a dead family is
-        // discovered in parallel instead of being dialled serially and timed out.
+        // The v6-first order is dropped automatically (the switches ship ON — a preference is an
+        // ordering, never a demand), but the race stays armed so a dead family is discovered in
+        // parallel instead of being dialled serially and timed out.
         assertEquals(IpFamilyPreference.DUAL, demoted.preference)
         assertFalse(demoted.prioritizeIpv6)
         assertEquals("ForceIP", demoted.endpointStrategy)
         assertTrue(demoted.raceEnabled)
 
-        val explicit = AddressFamilyPolicy.plan(
-            settings = AppSettings(ipv6Enabled = true, preferIpv6 = true),
+        // MARBLE_SMART_FAMILY_V136 — with both switches shipped ON, the shipped default IS the
+        // automatic preference, so a broken measurement demotes it exactly like it demoted the
+        // opt-in path before. The only demand a measurement cannot override is the strict v6
+        // configuration (dns.queryStrategy UseIPv6 / a node pinning itself to v6): that plan
+        // answers "v6 only" on purpose and the user must see it as unreachable, not as a silent
+        // IPv4 success.
+        val strict = AddressFamilyPolicy.plan(
+            settings = AppSettings(ipv6Enabled = true, preferIpv6 = true, dnsQueryStrategy = "UseIPv6"),
             underlayHasIpv6 = true,
             measuredV6Healthy = false
         )
-        // An explicit request is never overridden by a guess: the race is kept, and the head start is
-        // all a bad measurement can cost.
-        assertEquals(IpFamilyPreference.IPV6_FIRST, explicit.preference)
-        assertTrue(explicit.prioritizeIpv6)
-        assertEquals("ForceIP", explicit.endpointStrategy)
-        assertTrue(explicit.raceEnabled)
+        assertEquals(IpFamilyPreference.IPV6_ONLY, strict.preference)
+        assertTrue(strict.prioritizeIpv6)
+        assertEquals("ForceIPv6", strict.endpointStrategy)
+        assertFalse(strict.raceEnabled)
 
-        val explicitNoRace = AddressFamilyPolicy.plan(
+        val preferWithoutRace = AddressFamilyPolicy.plan(
             settings = AppSettings(ipv6Enabled = true, preferIpv6 = true, adaptiveDualStackEnabled = false),
             underlayHasIpv6 = true,
             measuredV6Healthy = false
         )
-        assertFalse(explicitNoRace.raceEnabled)
-        assertEquals("ForceIPv6v4", explicitNoRace.endpointStrategy)
+        // Race disarmed + measured-broken v6: the demotion must also pick the deterministic
+        // order, and v4 opens the connection.
+        assertFalse(preferWithoutRace.raceEnabled)
+        assertEquals("ForceIPv4", preferWithoutRace.endpointStrategy)
     }
 
     @Test

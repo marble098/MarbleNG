@@ -129,9 +129,12 @@ is gone:
   * v6 **off** in settings → `IPV4_ONLY` + `::/0` blackhole (unchanged, explicit);
   * v6 on but **underlay has no global v6** → `DUAL`, v6 *not* prioritised, race still armed
     (happy-eyeballs finds a family in parallel instead of serial timeouts);
-  * v6 on + underlay capable + measured v6 healthy → `IPV6_FIRST` with RFC 8305 racing;
-  * explicit `preferIpv6` beats a bad measurement; measured pathology demotes the automatic
-    preference to `DUAL`, never to guesswork;
+  * v6 on + underlay capable + measured v6 healthy → `IPV6_FIRST` with RFC 8305 racing
+    (`preferIpv6` off chooses the conservative v4-first `DUAL` ordering);
+  * **a measured-broken IPv6 path demotes the plan to `DUAL` (v4-first) automatically** — a
+    preference is an ordering, never a demand that ignores evidence; the only thing a
+    measurement cannot override is the strict v6 configuration (`UseIPv6` / a node pinning
+    itself to v6), which fails as v6-only on purpose;
   * fragment/chained/UDP paths get the deterministic `ForceIPv6v4` order (no race possible).
 * The same plan gates DNS resolver families (v6 literals never ship to a v4-only network) and
   the freedom/bootstrap lists, per V135.

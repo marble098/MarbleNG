@@ -184,11 +184,17 @@ object AddressFamilyPolicy {
         // [measuredV6Healthy] argument or inside the settings object. Both are honoured, because the
         // callers that only have settings (the Xray config writer and Bug Finder) previously
         // re-derived "IPv6 first" from the underlay alone and discarded the measurement the
-        // intelligence layer had already made. An explicit user demand for IPv6 still wins: a
-        // measurement demotes the automatic ordering, it never overrides what the user asked for.
+        // intelligence layer had already made.
+        //
+        // MARBLE_SMART_FAMILY_V136 — the app decides. Both family switches ship ON, so a
+        // measured-broken IPv6 path is demoted to a v4-first dual plan AUTOMATICALLY; the strict
+        // v6 demands handled above are the only thing a measurement cannot override. The Prefer
+        // IPv6 switch then decides who opens a connection while both families are usable:
+        // ON = v6 first with the v4 fallback armed by the race, OFF = v4 first with v6 as the
+        // race fallback. A preference is an ordering, never a demand that ignores evidence.
         val measuredUnhealthy = measuredV6Healthy == false || settings.measuredIpv6Unhealthy
-        if (measuredUnhealthy && !settings.preferIpv6) return IpFamilyPreference.DUAL
-        return IpFamilyPreference.IPV6_FIRST
+        if (measuredUnhealthy) return IpFamilyPreference.DUAL
+        return if (settings.preferIpv6) IpFamilyPreference.IPV6_FIRST else IpFamilyPreference.DUAL
     }
 
     fun prioritizeIpv6(
