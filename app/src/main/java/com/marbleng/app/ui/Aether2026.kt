@@ -327,7 +327,9 @@ fun Aether2026App(
         onCopyIp = deckCopyIp,
         onRefreshIp = { repo.refreshServerIntel(deck.profile, force = true) },
         onIpDetails = { ipDetailsOpen = true },
-        onTestPing = { repo.measureConnectionPing() },
+        // MARBLE_HOME_V137 — one ping entry: the live tunnel ladder while connected, the
+        // selected server's endpoint otherwise. Same method, same readout, every state.
+        onTestPing = { repo.measureHomePing() },
         onLibrary = { goToTab(SpatialTab.LIBRARY.ordinal) },
         onConnectProfile = { profile -> onConnect(profile) },
         onAddRoute = { goToTab(SpatialTab.LIBRARY.ordinal) },
@@ -2652,7 +2654,8 @@ private fun CyberDeck(
                 pro = pro,
                 // MARBLE_DOCK_SCROLL_ONLY_V123 — the Home page reports its own scrolling so the
                 // dock turns to glass exactly when content moves under it.
-                onScrollChanged = onContentScrollChanged
+                onScrollChanged = onContentScrollChanged,
+                repo = repo
             )
         }
 
@@ -8900,21 +8903,25 @@ private fun SettingsHomeStylePage(
     }
 }
 
-/** MARBLE_CONNECT_BUTTON_V121 — the name of each connection control. */
+/**
+ * MARBLE_CONNECT_BUTTON_V121 — the name of each connection control.
+ * MARBLE_HOME_V137 — the three hero styles read as Classic / Swipe / Floating; the stream bar
+ * and the classic power switch stay as full alternatives. Same VPN logic behind all five.
+ */
 private fun connectButtonStyleLabel(style: ConnectButtonStyle): String = when (style) {
-    ConnectButtonStyle.ROUND -> "Round shutter"
-    ConnectButtonStyle.SLIDE -> "Slide to connect"
+    ConnectButtonStyle.ROUND -> "Classic"
+    ConnectButtonStyle.SLIDE -> "Swipe to connect"
     ConnectButtonStyle.CLASSIC -> "Classic switch"
     ConnectButtonStyle.STREAM -> "Stream bar"
-    ConnectButtonStyle.FLOATING -> "Floating pill"
+    ConnectButtonStyle.FLOATING -> "Floating button"
 }
 
 private fun connectButtonStyleDetail(style: ConnectButtonStyle): String = when (style) {
-    ConnectButtonStyle.ROUND -> "Large round shutter, centred in the hero (default)"
-    ConnectButtonStyle.SLIDE -> "Wide slide track, docked at the hero floor"
+    ConnectButtonStyle.ROUND -> "Large round power button, centred in the hero (default)"
+    ConnectButtonStyle.SLIDE -> "Bottom drag track with threshold, haptics and spring-back"
     ConnectButtonStyle.CLASSIC -> "Classic power bar, docked under the instrument"
     ConnectButtonStyle.STREAM -> "Full-width bar at the page floor with a light band moving right to left"
-    ConnectButtonStyle.FLOATING -> "Compact pill docked above the bottom of the page"
+    ConnectButtonStyle.FLOATING -> "Circular v2rayNG-style button pinned to the bottom corner"
 }
 
 /**
@@ -9039,35 +9046,17 @@ private fun SettingsConnectButtonMotif(
             }
 
             ConnectButtonStyle.FLOATING -> {
-                // A pill floating over the page floor: the dock line sits well below it.
-                val pillHeight = h * .44f
-                val pillTop = h * .34f
-                drawRoundRect(
-                    color = tone.copy(alpha = .22f),
-                    topLeft = Offset(w * .16f, pillTop),
-                    size = Size(w * .68f, pillHeight),
-                    cornerRadius = CornerRadius(pillHeight / 2f, pillHeight / 2f)
-                )
-                drawRoundRect(
-                    color = tone.copy(alpha = .70f),
-                    topLeft = Offset(w * .16f, pillTop),
-                    size = Size(w * .68f, pillHeight),
-                    cornerRadius = CornerRadius(pillHeight / 2f, pillHeight / 2f),
-                    style = Stroke(1.3.dp.toPx())
-                )
-                drawCircle(tone, pillHeight * .26f, Offset(w * .31f, pillTop + pillHeight / 2f))
+                // MARBLE_HOME_V137 — a circular shutter pinned to the bottom-end corner: the
+                // circle sits right, the dock line sits below it.
+                val r = h * .36f
+                val c = Offset(w * .74f, h * .44f)
+                drawCircle(tone.copy(alpha = .22f), r, c)
+                drawCircle(tone.copy(alpha = .70f), r, c, style = Stroke(1.3.dp.toPx()))
                 drawLine(
-                    tone.copy(alpha = .45f),
-                    Offset(w * .44f, pillTop + pillHeight * .34f),
-                    Offset(w * .68f, pillTop + pillHeight * .34f),
-                    1.4.dp.toPx(),
-                    cap = StrokeCap.Round
-                )
-                drawLine(
-                    tone.copy(alpha = .28f),
-                    Offset(w * .44f, pillTop + pillHeight * .68f),
-                    Offset(w * .58f, pillTop + pillHeight * .68f),
-                    1.4.dp.toPx(),
+                    tone,
+                    Offset(c.x, c.y - r * .44f),
+                    Offset(c.x, c.y + r * .22f),
+                    1.8.dp.toPx(),
                     cap = StrokeCap.Round
                 )
                 drawLine(

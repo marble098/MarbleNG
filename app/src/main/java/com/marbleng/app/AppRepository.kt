@@ -471,7 +471,21 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     /** One-shot connection ping. It is measured on demand, never on a repeating timer. */
     var connectionPingMs by mutableStateOf(0); private set
     var connectionPingState by mutableStateOf(ConnectionPingState.IDLE); private set
+    // MARBLE_HOME_V137 — the *why* behind a FAILED tunnel ping, so the Home live-ping panel can
+    // tell a socket timeout ("timeout") from an unreachable endpoint ("unreachable") instead of
+    // collapsing every failure into one word. Empty while IDLE/MEASURING/MEASURED.
+    var connectionPingFailure by mutableStateOf(""); private set
     private val connectionPingInFlight = AtomicBoolean(false)
+
+    // MARBLE_HOME_V137 — the selected-server endpoint ping for the DISCONNECTED / CONNECTING
+    // states. The tunnel ladder above needs a live SOCKS port, so it cannot answer while no
+    // traffic flows; this measures the *endpoint* of the server the connect button would act on
+    // (same Settings → Testing method, same family policy, tunnelPort = 0) and is the value the
+    // Home live-ping panel shows before CONNECTED. Measured on demand, never on a timer.
+    var selectedPingMs by mutableStateOf(0); private set
+    var selectedPingState by mutableStateOf(ConnectionPingState.IDLE); private set
+    var selectedPingFailure by mutableStateOf(""); private set
+    private val selectedPingInFlight = AtomicBoolean(false)
 
     var livePingMs by mutableStateOf(0); private set
     var liveJitterMs by mutableStateOf(0); private set
@@ -1041,6 +1055,7 @@ fun resetTelemetry() {
                 connectedSinceMs = 0L
                 connectionPingMs = 0
                 connectionPingState = ConnectionPingState.IDLE
+                connectionPingFailure = ""
                 livePingMs = 0
                 liveJitterMs = 0
                 liveDownBps = 0L
@@ -1436,10 +1451,11 @@ private fun postToMain(block: () -> Unit) {
         val method = settings.probeMethod
         if (method == ProbeMethod.TCP || method == ProbeMethod.ICMP ||
             method == ProbeMethod.HTTP || method == ProbeMethod.DNS) {
-            postToMain {
-                connectionPingMs = 0
-                connectionPingState = ConnectionPingState.MEASURING
-            }
+                postToMain {
+                    connectionPingMs = 0
+                    connectionPingState = ConnectionPingState.MEASURING
+                    connectionPingFailure = ""
+                }
             val target = profile(activeProfileId, activeProfileSourceId)
             io.execute {
                 // MARBLE_PROBE_TOOLKIT_V130 — dispatch to the right RouteProbe method
@@ -1474,14 +1490,17 @@ private fun postToMain(block: () -> Unit) {
                         state != "CONNECTED" || connectedSinceMs != sessionAtStart -> {
                             connectionPingMs = 0
                             connectionPingState = ConnectionPingState.IDLE
+                            connectionPingFailure = ""
                         }
                         measured >= 20 -> {
                             connectionPingMs = measured
                             connectionPingState = ConnectionPingState.MEASURED
+                            connectionPingFailure = ""
                         }
                         else -> {
                             connectionPingMs = 0
                             connectionPingState = ConnectionPingState.FAILED
+                            connectionPingFailure = classifyPingFailure(probeResult?.failureReason)
                         }
                     }
                 }
@@ -1507,6 +1526,7 @@ private fun postToMain(block: () -> Unit) {
         postToMain {
             connectionPingMs = 0
             connectionPingState = ConnectionPingState.MEASURING
+            connectionPingFailure = ""
         }
 
         io.execute {
@@ -1658,15 +1678,131 @@ private fun postToMain(block: () -> Unit) {
                     state != "CONNECTED" || connectedSinceMs != sessionAtStart -> {
                         connectionPingMs = 0
                         connectionPingState = ConnectionPingState.IDLE
+                        connectionPingFailure = ""
                     }
                     measured >= 20 -> {
                         connectionPingMs = measured
                         connectionPingState = ConnectionPingState.MEASURED
+                        connectionPingFailure = ""
                     }
                     else -> {
-                        // When no valid probe answered, mark as FAILED
+                        // When no valid probe answered, mark as FAILED. An empty race means
+                        // every probe timed out against its own socket budget.
                         connectionPingMs = 0
                         connectionPingState = ConnectionPingState.FAILED
+                        connectionPingFailure = if (results.isEmpty()) "timeout" else "unreachable"
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * MARBLE_HOME_V137 — collapse a raw probe failure reason into the three words the Home
+     * live-ping panel may show: `timeout` (the socket budget expired), `unreachable` (the
+     * endpoint answered with nothing usable / refused), or `error` (misconfigured target,
+     * missing tunnel, anything else). Pure, so the exact mapping is unit-testable.
+     */
+    fun classifyPingFailure(reason: String?): String {
+        val clean = reason.orEmpty().trim().lowercase()
+        if (clean.isEmpty()) return "unreachable"
+        return when {
+            "timeout" in clean || "deadline" in clean || "timed-out" in clean -> "timeout"
+            "refus" in clean || "unreach" in clean || "no-route" in clean ||
+                "gate-failed" in clean || "all-failed" in clean ||
+                "all-methods-failed" in clean || "no-responses" in clean -> "unreachable"
+            else -> "error"
+        }
+    }
+
+    /**
+     * MARBLE_HOME_V137 — the one ping entry Home calls. Connected measures the live tunnel
+     * ladder; anything else measures the selected server's endpoint directly, using the same
+     * Settings → Testing method on both paths so one tap can never report two latencies.
+     */
+    fun measureHomePing() {
+        if (state == "CONNECTED") {
+            measureConnectionPing()
+        } else {
+            measureSelectedPing()
+        }
+    }
+
+    /**
+     * MARBLE_HOME_V137 — endpoint ping of the server the connect button would act on, for the
+     * DISCONNECTED / CONNECTING states where the tunnel ladder has no port to race through.
+     * Dispatches to [RouteProbe.measureUnified] with tunnelPort = 0 (Smart falls back to the
+     * TCP/DNS gate, Tunnel falls back to TCP), so the method, the family plan and the 20 ms
+     * honest floor are identical to the connected path. Async, single-flight, measured-only.
+     */
+    fun measureSelectedPing() {
+        if (!selectedPingInFlight.compareAndSet(false, true)) return
+        val target = lastProfile()
+        if (target == null || ServerlessFreedomEngine.isServerless(target)) {
+            postToMain {
+                selectedPingInFlight.set(false)
+                selectedPingMs = 0
+                selectedPingState = if (target == null) ConnectionPingState.IDLE else ConnectionPingState.FAILED
+                selectedPingFailure = if (target == null) "" else "error"
+            }
+            if (target == null) message = "Select a server first • then ping it"
+            return
+        }
+        // A successful ping belongs to this exact server; a selection change or a connect
+        // while the probe is in flight invalidates it.
+        val targetId = target.id
+        val targetSource = target.subscriptionId
+        postToMain {
+            selectedPingMs = 0
+            selectedPingState = ConnectionPingState.MEASURING
+            selectedPingFailure = ""
+        }
+        io.execute {
+            val timeoutMs = (settings.benchTimeoutSec * 1000).coerceIn(500, 8_000)
+            val samples = settings.benchSamples.coerceIn(1, 4)
+            val probeResult = runCatching {
+                RouteProbe.measureUnified(
+                    profile = target,
+                    method = settings.probeMethod,
+                    tunnelPort = 0,
+                    samples = samples,
+                    timeoutMs = timeoutMs,
+                    settings = settings
+                )
+            }.getOrNull()
+            val measured = probeResult
+                ?.takeIf { it.successPercent > 0 && it.latencyMs >= 20.0 && it.latencyMs < RouteProbe.UNREACHABLE }
+                ?.latencyMs
+                ?.let { LinkQualityEstimator.sanitaryRtt(it.roundToInt()) }
+                ?: 0
+            diagnostics.event(
+                "APP",
+                "home-selected-ping",
+                "measured" to measured,
+                "mode" to settings.probeMethod.name.lowercase(),
+                "profile" to targetId.take(12)
+            )
+            postToMain {
+                selectedPingInFlight.set(false)
+                val stillSelected = selectedProfileId == targetId &&
+                    (selectedProfileSourceId.isBlank() || selectedProfileSourceId == targetSource)
+                when {
+                    state == "CONNECTED" || !stillSelected -> {
+                        // The tunnel took over (tunnel ping owns the readout now) or the user
+                        // moved on to another server: this result belongs to nobody.
+                        selectedPingMs = 0
+                        selectedPingState = ConnectionPingState.IDLE
+                        selectedPingFailure = ""
+                    }
+                    measured >= 20 -> {
+                        selectedPingMs = measured
+                        selectedPingState = ConnectionPingState.MEASURED
+                        selectedPingFailure = ""
+                    }
+                    else -> {
+                        selectedPingMs = 0
+                        selectedPingState = ConnectionPingState.FAILED
+                        selectedPingFailure = classifyPingFailure(probeResult?.failureReason)
                     }
                 }
             }
@@ -2291,6 +2427,9 @@ private fun postToMain(block: () -> Unit) {
         if (selectedProfileId in doomedIds || selectedProfileSourceId == id) {
             selectedProfileId = ""
             selectedProfileSourceId = ""
+            selectedPingMs = 0
+            selectedPingState = ConnectionPingState.IDLE
+            selectedPingFailure = ""
             store.clearLastProfile()
         }
         benchmarks = benchmarks.filterNot { it.profileId in doomedIds }
@@ -2338,6 +2477,9 @@ private fun postToMain(block: () -> Unit) {
                 // MARBLE_SELECT_IS_NOT_CONNECT_V121 — a deleted server cannot stay selected.
                 selectedProfileId = ""
                 selectedProfileSourceId = ""
+                selectedPingMs = 0
+                selectedPingState = ConnectionPingState.IDLE
+                selectedPingFailure = ""
             }
         }
 
@@ -2521,9 +2663,18 @@ private fun postToMain(block: () -> Unit) {
      */
     fun selectProfile(p: ProxyProfile) {
         diagnostics.event("APP", "select-server", "profile" to p.id.take(12), "name" to p.name.take(80))
+        val changed = selectedProfileId != p.id || selectedProfileSourceId != p.subscriptionId
         postToMain {
             selectedProfileId = p.id
             selectedProfileSourceId = p.subscriptionId
+            // MARBLE_HOME_V137 — a selection change invalidates the endpoint ping: the old
+            // number described a different server. The tunnel ping is session-bound and only
+            // clears on disconnect, so it is untouched here.
+            if (changed) {
+                selectedPingMs = 0
+                selectedPingState = ConnectionPingState.IDLE
+                selectedPingFailure = ""
+            }
         }
         io.execute { runCatching { store.setLastProfileRef(p.id, p.subscriptionId) } }
     }
@@ -2623,6 +2774,12 @@ private fun postToMain(block: () -> Unit) {
                 connectedSinceMs = System.currentTimeMillis()
                 connectionPingMs = 0
                 connectionPingState = ConnectionPingState.IDLE
+                connectionPingFailure = ""
+                // A new session starts unmeasured on both channels: the endpoint probe belongs
+                // to the pre-connect state, the tunnel probe to this session.
+                selectedPingMs = 0
+                selectedPingState = ConnectionPingState.IDLE
+                selectedPingFailure = ""
             }
 
             history += ConnectionRecord(

@@ -2,6 +2,7 @@ package com.marbleng.app.ui
 
 // MARBLE_CONNECT_PLACEMENT_V123
 // MARBLE_CONNECT_BUTTON_STYLES_V132
+// MARBLE_HOME_V137
 //
 // One file, no Compose: where a connection control sits inside a Home presentation is a pure
 // mapping from the user's choice, so it stays unit-testable without a UI runtime.
@@ -20,8 +21,10 @@ import com.marbleng.app.model.ConnectButtonStyle
  *    its own slim capsule, clear of the orbiting artwork;
  *  - [PAGE_FLOOR]  the travelling-band bar → docked at the floor of the PAGE, so the band stays
  *    visible without scrolling;
- *  - [PAGE_PILL]   the compact pill → docked above the bottom edge of the page, centred, where
- *    a thumb already rests.
+ *  - [PAGE_PILL]   the floating circular shutter → pinned to the bottom-end corner of the page
+ *    (v2rayNG-style, clear of the nav dock and the system gesture bar), where a thumb already
+ *    rests. It is a round 76 dp instrument, never a centred bar, so it floats above the content
+ *    instead of consuming a hero row.
  */
 internal enum class ConnectControlZone {
     HERO_CENTER, HERO_FLOOR, POWER_DOCK, PAGE_FLOOR, PAGE_PILL

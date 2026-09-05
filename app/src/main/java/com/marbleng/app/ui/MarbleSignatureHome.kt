@@ -138,15 +138,20 @@ internal fun signatureStatusTone(evidence: HomeEvidence, accent: ProAccent): Col
 
 /**
  * The professional, fully-customizable Home. One column of studio modules over an animated
- * accent aurora: status banner, corner action cluster, the power instrument and the shared
- * evidence blocks in their Signature skin.
+ * accent aurora.
  *
- * MARBLE_SIGNATURE_STUDIO_TRIM_V121 — the in-Home server rail and style switcher were removed:
- * routes belong to the Servers page and the presentation to Settings, so Home stays one calm
- * connection surface instead of a third place to change either.
+ * MARBLE_HOME_V137 — Home is rebuilt around the VPN connect experience with a fixed hierarchy:
+ * shortcuts → status banner → synced server deck → main connection control → live ping. The
+ * V132 selected-route card, shortcut deck, slim banner and the large lower SERVER / SOURCE / IP
+ * / UPTIME / PING cards are gone from this presentation: their facts moved upward into the
+ * banner and the live-ping panel, so nothing renders twice and the page breathes. The style
+ * switcher ban from the V121 trim stands (presentation is still Settings' job); the server-rail
+ * ban is superseded by the *synced* deck, which renders the Servers group through the same
+ * selection state instead of a second rail with second behaviour.
  */
 @Composable
 internal fun HomeStyleSignature(
+    repo: com.marbleng.app.AppRepository,
     evidence: HomeEvidence,
     actions: HomeActions,
     pro: HomeProContext,
@@ -171,21 +176,22 @@ internal fun HomeStyleSignature(
         onScrollChanged(signatureScroll.isScrollInProgress)
     }
 
-    // MARBLE_HOME_REDESIGN_V132 / MARBLE_CONNECT_BUTTON_STYLES_V132 — two of the five
-    // connection silhouettes are docked at the floor of the page instead of living in the hero.
-    // When one of those is chosen the hero becomes a pure state plate and the control is pinned
-    // above the bottom navigation, one thumb reach away on every scroll position.
-    val zone = connectControlZone(LocalConnectButtonStyle.current)
+    // Two of the five connection silhouettes are docked at the floor of the page instead of
+    // living in the hero: the stream bar centred above the navigation, the floating shutter
+    // pinned to the bottom-end corner. The control is one thumb reach away on every scroll
+    // position; the scrolling column reserves exactly the space the dock owns.
+    val buttonStyle = LocalConnectButtonStyle.current
+    val zone = connectControlZone(buttonStyle)
     val docked = zone.isPageDocked()
-    // Vertical space the docked control owns at the floor of the page.
-    // MARBLE_LIVE_PING_FIXED_SLOT_V135 — the docked stage now ALWAYS carries the live ping
-    // instrument slot above the control (it only fades, it never enters or leaves the layout), so
-    // the reserve covers the meter + spacing + control once, for every connection state, instead
-    // of being sized for the control alone and letting the grown dock cover scrolling content.
-    val floorReserve = if (docked) 220.dp else 0.dp
+    val floatingDocked = docked && buttonStyle == ConnectButtonStyle.FLOATING
+    val floorReserve = when {
+        floatingDocked -> 118.dp
+        docked -> 148.dp
+        else -> 0.dp
+    }
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
-        val heroHeight = (maxHeight * .32f).coerceIn(200.dp, 310.dp)
+        val heroHeight = (maxHeight * .30f).coerceIn(190.dp, 290.dp)
 
         // The studio backdrop owns the whole viewport.
         Canvas(Modifier.matchParentSize()) {
@@ -202,24 +208,40 @@ internal fun HomeStyleSignature(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // 1 — MARBLE_HOME_SELECTED_ROUTE_V132: the ONE route this page is about. Home never
-            // renders a list of servers; it shows the selected node and the group it came from,
-            // and the only way to change it is the Servers tab.
-            HomeSelectedRouteCard(
+            // 1 — shortcuts: QR scanner, copy-paste import, ping the current server.
+            HomeShortcutRowV137(
                 evidence = evidence,
+                actions = actions,
                 tone = tone,
-                accent = accent,
-                onLibrary = actions.onLibrary,
                 modifier = Modifier.fillMaxWidth()
             )
 
-            // 2 — the instrument. Either the hero with the connect control inside it, or, when
-            // the chosen silhouette is docked, a quiet state plate over the same artwork.
+            // 2 — the connection banner: READY / CONNECTING / CONNECTED / DISCONNECTING with
+            // the server, IP, ping, uptime and protocol consolidated into one card.
+            HomeStatusBannerV137(
+                evidence = evidence,
+                tone = tone,
+                onToggle = actions.onToggleConnection,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            // 3 — the selected-server selector, synced with the Servers group: the same group,
+            // the same filter, the same selection state. Switching the group here updates the
+            // Servers page and back.
+            HomeServerDeckV137(
+                repo = repo,
+                actions = actions,
+                tone = tone,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            // 4 — the main connection control. Either the hero with the control inside it, or,
+            // when the chosen silhouette is docked, a quiet state plate over the same artwork.
             if (docked) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(heroHeight * .72f),
+                        .height(heroHeight * .60f),
                     contentAlignment = Alignment.Center
                 ) {
                     Canvas(Modifier.matchParentSize()) {
@@ -237,12 +259,6 @@ internal fun HomeStyleSignature(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        // MARBLE_LIVE_PING_FIXED_SLOT_V135 — the hero has a MINIMUM height and the
-                        // live ping instrument inside the stage occupies a PERMANENT slot: the hero
-                        // therefore measures the same height in every connection state. The old
-                        // reveal grew the hero when the meter appeared, which pushed the status
-                        // word, the deck and every block below it down the page; the meter now
-                        // fades inside a slot that always exists, so the geometry is fixed.
                         .heightIn(
                             min = heroHeight +
                                 if (zone == ConnectControlZone.HERO_FLOOR) 30.dp else 0.dp
@@ -264,37 +280,28 @@ internal fun HomeStyleSignature(
                         )
                     }
                     if (zone != ConnectControlZone.POWER_DOCK) {
-                        // MARBLE_HOME_LIVE_PING_V132 — the live ping instrument opens beside the
-                        // control, in a reserved slot, so the control itself never moves.
-                        HomePowerStage(
+                        HomePowerControl(
                             evidence = evidence,
                             tone = tone,
-                            actions = actions,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            HomePowerControl(
-                                evidence = evidence,
-                                tone = tone,
-                                onToggle = actions.onToggleConnection,
-                                flavor = HomeFlavor.PRO,
-                                modifier = if (zone == ConnectControlZone.HERO_FLOOR) {
-                                    Modifier.padding(bottom = 22.dp)
-                                } else {
-                                    Modifier
-                                },
-                                // The strip is diameter * 2.1 wide: shrink it so the track (with
-                                // its drag travel) always fits inside the padded hero on narrow
-                                // screens.
-                                diameter = if (zone == ConnectControlZone.HERO_FLOOR) 148.dp else 168.dp,
-                                haloBrush = Brush.radialGradient(
-                                    listOf(
-                                        accent.copy(alpha = .30f + .12f * breathe),
-                                        accent.copy(alpha = .10f),
-                                        Color.Transparent
-                                    )
+                            onToggle = actions.onToggleConnection,
+                            flavor = HomeFlavor.PRO,
+                            modifier = if (zone == ConnectControlZone.HERO_FLOOR) {
+                                Modifier.padding(bottom = 22.dp)
+                            } else {
+                                Modifier
+                            },
+                            // The strip is diameter * 2.1 wide: shrink it so the track (with
+                            // its drag travel) always fits inside the padded hero on narrow
+                            // screens.
+                            diameter = if (zone == ConnectControlZone.HERO_FLOOR) 148.dp else 168.dp,
+                            haloBrush = Brush.radialGradient(
+                                listOf(
+                                    accent.copy(alpha = .30f + .12f * breathe),
+                                    accent.copy(alpha = .10f),
+                                    Color.Transparent
                                 )
                             )
-                        }
+                        )
                     }
                 }
                 if (zone == ConnectControlZone.POWER_DOCK) {
@@ -308,81 +315,51 @@ internal fun HomeStyleSignature(
                 }
             }
 
-            // 3 — the state word.
-            Text(
-                homeStatusText(evidence).uppercase(),
-                color = Aether.Ink,
-                style = MaterialTheme.typography.headlineSmall.copy(letterSpacing = 1.8.sp),
-                fontWeight = FontWeight.Bold,
-                textAlign = TextAlign.Center,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-
-            // 4 — MARBLE_HOME_SHORTCUT_DECK_V132: add / paste / QR / ping. The deck sits ABOVE
-            // the status banner, and ping is a permanent member of it — it never disappears just
-            // because a measurement has not landed yet.
-            HomeShortcutDeck(
+            // 5 — live ping of ONLY the connecting/connected server, expanding in with a fade
+            // the moment the route comes up. Hidden while disconnected: nothing to measure.
+            HomeLivePingPanelV137(
                 evidence = evidence,
-                actions = actions,
-                accent = accent,
+                tone = tone,
                 modifier = Modifier.fillMaxWidth()
             )
-
-            // 5 — the status banner, moved below the deck so the actions a user reaches for are
-            // never pushed off the first screen by a strip that only reports state.
-            if (pro.showBanner) {
-                SignatureStatusBanner(
-                    evidence = evidence,
-                    accent = accent,
-                    tone = tone,
-                    onToggle = actions.onToggleConnection,
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-
-            // 6 — the shared evidence blocks, unchanged and identical in every presentation.
-            HomeIdentityBlock(evidence, tone, HomeFlavor.PRO, Modifier.fillMaxWidth())
-            HomeIpRow(evidence, tone, actions, HomeFlavor.PRO, Modifier.fillMaxWidth())
-            HomeSessionStats(evidence, tone, actions, HomeFlavor.PRO, Modifier.fillMaxWidth())
 
             Spacer(Modifier.height(2.dp))
         }
 
-        // The docked control: pinned above the bottom navigation, never scrolling away.
+        // The docked control: pinned above the bottom navigation, never scrolling away. The
+        // stream bar stays centred in its capsule; the floating shutter pins to the bottom-end
+        // corner with safe-area clearance, clear of the nav dock and the gesture bar.
         if (docked) {
-            Column(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .padding(horizontal = 18.dp)
-                    .padding(bottom = bottomClearance),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                HomePowerStage(
-                    evidence = evidence,
-                    tone = tone,
-                    actions = actions,
-                    sideBySide = false,
-                    modifier = Modifier.fillMaxWidth()
+            if (floatingDocked) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(end = 18.dp)
+                        .padding(bottom = bottomClearance)
                 ) {
-                    if (zone == ConnectControlZone.PAGE_FLOOR) {
-                        HomeFloorDock(
-                            evidence = evidence,
-                            tone = tone,
-                            onToggle = actions.onToggleConnection,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    } else {
-                        HomePowerControl(
-                            evidence = evidence,
-                            tone = tone,
-                            onToggle = actions.onToggleConnection,
-                            flavor = HomeFlavor.PRO,
-                            style = ConnectButtonStyle.FLOATING
-                        )
-                    }
+                    HomePowerControl(
+                        evidence = evidence,
+                        tone = tone,
+                        onToggle = actions.onToggleConnection,
+                        flavor = HomeFlavor.PRO,
+                        style = ConnectButtonStyle.FLOATING
+                    )
+                }
+            } else {
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .padding(horizontal = 18.dp)
+                        .padding(bottom = bottomClearance),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    HomeFloorDock(
+                        evidence = evidence,
+                        tone = tone,
+                        onToggle = actions.onToggleConnection,
+                        modifier = Modifier.fillMaxWidth()
+                    )
                 }
             }
         }
