@@ -330,7 +330,7 @@ object RoutingEngine {
 
     fun needsGeoIp(settings: AppSettings): Boolean {
         if (implicitRules(settings).directIpTags.isNotEmpty()) return true
-        if (emittableUserRules(settings).any { rule ->
+        if (settings.customRoutingEnabled && emittableUserRules(settings).any { rule ->
                 when (rule.kind) {
                     RoutingRuleKind.GEOIP ->
                         !rule.matcher.trim().removePrefix("geoip:").equals("private", true)
@@ -351,10 +351,9 @@ object RoutingEngine {
     }
 
     fun needsGeoSite(settings: AppSettings): Boolean {
-        if (!settings.customRoutingEnabled) return false
         val implicit = implicitRules(settings)
         if (implicit.adsTag != null || implicit.directSiteTags.isNotEmpty()) return true
-        if (emittableUserRules(settings).any { rule ->
+        if (settings.customRoutingEnabled && emittableUserRules(settings).any { rule ->
                 when (rule.kind) {
                     RoutingRuleKind.GEOSITE -> true
                     RoutingRuleKind.DOMAIN -> splitDomains(rule.matcher).any {
@@ -372,11 +371,10 @@ object RoutingEngine {
     }
 
     fun needsDirectOutbound(settings: AppSettings): Boolean {
-        if (!settings.customRoutingEnabled) return settings.routeBypassPrivate
         val implicit = implicitRules(settings)
         if (settings.routeBypassPrivate || implicit.forceBypassPrivate) return true
         if (implicit.directIpTags.isNotEmpty() || implicit.directSiteTags.isNotEmpty()) return true
-        return emittableUserRules(settings).any { it.outbound == RoutingOutbound.DIRECT }
+        return settings.customRoutingEnabled && emittableUserRules(settings).any { it.outbound == RoutingOutbound.DIRECT }
     }
 
     // ---------------------------------------------------------------------------------------
@@ -389,12 +387,6 @@ object RoutingEngine {
      * whole core. [seen] deduplicates identical tokens between the implicit and the user layer.
      */
     fun applyUserRules(rulesOut: JSONArray, settings: AppSettings, proxyTag: String) {
-        if (!settings.customRoutingEnabled) {
-            if (settings.routeBypassPrivate) {
-                addIpRule(rulesOut, PRIVATE_CIDRS, "direct")
-            }
-            return
-        }
         val implicit = implicitRules(settings)
         if (settings.routeBypassPrivate || implicit.forceBypassPrivate) {
             addIpRule(rulesOut, PRIVATE_CIDRS, "direct")
@@ -421,6 +413,10 @@ object RoutingEngine {
                 if (mark("geosite", token)) addDomainRule(rulesOut, listOf(token), "direct")
             }
         }
+
+        // MARBLE_ROUTING_SEPARATE_V143 — user-authored custom rules are opt-in. The built-in
+        // mode/ads/bypass rules above always stay active; only the custom layer is gated.
+        if (!settings.customRoutingEnabled) return
 
         for (rule in emittableUserRules(settings)) {
             val tag = outboundTag(rule.outbound, proxyTag)

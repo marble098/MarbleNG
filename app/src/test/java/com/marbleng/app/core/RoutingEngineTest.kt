@@ -79,6 +79,7 @@ class RoutingEngineTest {
     @Test
     fun `geo direct mode emits implicit ads and geo rules plus user rules in order`() {
         val settings = AppSettings(
+            customRoutingEnabled = true,
             routingMode = RoutingMode.GEO_DIRECT,
             routingRulesJson = RoutingEngine.serializeRules(
                 listOf(
@@ -110,6 +111,7 @@ class RoutingEngineTest {
     @Test
     fun `proxy all mode applies no implicit geo rules`() {
         val settings = AppSettings(
+            customRoutingEnabled = true,
             routingMode = RoutingMode.PROXY_ALL,
             routingRulesJson = "[]"
         )
@@ -127,6 +129,7 @@ class RoutingEngineTest {
     @Test
     fun `custom mode is strictly user rules`() {
         val settings = AppSettings(
+            customRoutingEnabled = true,
             routingMode = RoutingMode.CUSTOM,
             routeBlockAds = false,
             routeBypassPrivate = false,
@@ -155,6 +158,7 @@ class RoutingEngineTest {
     @Test
     fun `invalid rules are skipped at emission instead of killing the core`() {
         val settings = AppSettings(
+            customRoutingEnabled = true,
             routingMode = RoutingMode.CUSTOM,
             routeBlockAds = false,
             routeBypassPrivate = false,
@@ -251,6 +255,7 @@ class RoutingEngineTest {
     @Test
     fun `simulator names the winning rule and the fail-closed fallback`() {
         val settings = AppSettings(
+            customRoutingEnabled = true,
             routingMode = RoutingMode.CUSTOM,
             routeBlockAds = false,
             routeBypassPrivate = false,
@@ -288,6 +293,7 @@ class RoutingEngineTest {
     @Test
     fun `simulator never resolves domains - literals still match ip rules`() {
         val settings = AppSettings(
+            customRoutingEnabled = true,
             routingMode = RoutingMode.CUSTOM,
             routeBlockAds = false,
             routeBypassPrivate = false,
@@ -329,9 +335,9 @@ class RoutingEngineTest {
     fun `presets materialize and the iran baseline survives the engine`() {
         val recommended = RoutingPresets.materialize(RoutingPresets.Preset.RECOMMENDED)
         assertEquals(RoutingEngine.DEFAULT_RULES.size, recommended.size)
-        assertTrue(RoutingEngine.needsGeoSite(AppSettings(routingRulesJson = RoutingEngine.serializeRules(recommended))))
-        assertTrue(RoutingEngine.needsGeoIp(AppSettings(routingRulesJson = RoutingEngine.serializeRules(recommended))))
-        assertTrue(RoutingEngine.needsDirectOutbound(AppSettings(routingRulesJson = RoutingEngine.serializeRules(recommended))))
+        assertTrue(RoutingEngine.needsGeoSite(AppSettings(customRoutingEnabled = true, routingRulesJson = RoutingEngine.serializeRules(recommended))))
+        assertTrue(RoutingEngine.needsGeoIp(AppSettings(customRoutingEnabled = true, routingRulesJson = RoutingEngine.serializeRules(recommended))))
+        assertTrue(RoutingEngine.needsDirectOutbound(AppSettings(customRoutingEnabled = true, routingRulesJson = RoutingEngine.serializeRules(recommended))))
         // Every preset's rules pass validation without a loaded index.
         RoutingPresets.Preset.entries.forEach { preset ->
             RoutingPresets.materialize(preset).forEach { rule ->
@@ -346,6 +352,7 @@ class RoutingEngineTest {
     @Test
     fun `harden emits ordered user rules`() {
         val settings = AppSettings(
+            customRoutingEnabled = true,
             ipv6Enabled = false,
             routingRulesJson = RoutingEngine.serializeRules(RoutingEngine.DEFAULT_RULES)
         )

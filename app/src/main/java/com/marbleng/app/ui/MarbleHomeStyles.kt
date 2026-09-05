@@ -331,6 +331,17 @@ internal fun homePingTone(evidence: HomeEvidence, fallback: Color): Color {
     }
 }
 
+/** The three words a failed Home ping may show, resolved against the active language. */
+@Composable
+internal fun pingFailureLabel(failure: String): String {
+    val t = Tr.now
+    return when (failure.trim().lowercase()) {
+        "timeout" -> t.pingTimeout
+        "unreachable" -> t.pingUnreachable
+        else -> t.pingFailedShort
+    }
+}
+
 @Composable
 internal fun homePingActionHint(evidence: HomeEvidence): String {
     val t = Tr.now
