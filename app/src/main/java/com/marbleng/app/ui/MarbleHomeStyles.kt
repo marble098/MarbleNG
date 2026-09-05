@@ -1404,6 +1404,13 @@ internal fun HomeSessionStats(
  * 4. Information icon (popup IP details dialog + animated opening IP badge + user IP when disconnected)
  * 5. Quick Add button (+ icon): auto-paste from clipboard and auto-connect
  * 6. SOCKS proxy display with one-tap copy button
+ *
+ * MARBLE_HOME_STABLE_GEOMETRY_V141 — every strip in this card is a permanent, fixed-height slot.
+ * The SOCKS strip used to be composed only while connected, so the instant the tunnel came up
+ * the card grew a whole row and shoved the server deck and the connect control down the page —
+ * the exact "connecting pushes everything below" defect. The strip now always exists: it says
+ * "waiting for connection" before the tunnel is up and the live address afterwards, and only its
+ * colour changes. No AnimatedVisibility, no height animation, no layout change — ever.
  */
 @Composable
 internal fun IosStatusWideCard(
@@ -1425,19 +1432,13 @@ internal fun IosStatusWideCard(
     }
 
     val stateColor by animateColorAsState(
-        targetValue = when {
-            evidence.connected -> Aether.Emerald
-            evidence.connecting -> Aether.CyanBright
-            evidence.disconnecting -> Aether.Amber
-            evidence.blocked -> Aether.Danger
-            else -> Aether.SlateBright
-        },
-        animationSpec = tween(300),
+        targetValue = homeStateTone(evidence),
+        animationSpec = MarbleMotionSpecs.Color,
         label = "status-color"
     )
 
-    // MARBLE_HOME_CLOUD_V140 — the wide status card is the canonical cloud card: translucent
-    // white, one thin hairline, a 2 dp shadow, and inner chips as quiet insets. No glass stack.
+    // MARBLE_HOME_CLOUD_V141 — the canonical cloud card: one opaque white box, exactly the size
+    // of the card, one hairline, one shallow shadow. Nothing translucent, nothing nested.
     HomeCloudCard(modifier = modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp)) {
         Column(
             modifier = Modifier
@@ -1445,193 +1446,189 @@ internal fun IosStatusWideCard(
                 .padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-        // Top Row: Status Indicator + Uptime + Actions (+, Ping, Info)
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // Left: Glowing Dot + Status Label
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier
-                        .size(10.dp)
-                        .clip(CircleShape)
-                        .background(stateColor)
-                        .shadow(4.dp, CircleShape, spotColor = stateColor)
-                )
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    text = when {
-                        evidence.connected -> t.statusProtected
-                        evidence.connecting -> t.securingRoute
-                        evidence.disconnecting -> t.closingRoute
-                        evidence.blocked -> t.connectionStopped
-                        else -> t.readyToConnect
-                    }.uppercase(),
-                    color = stateColor,
-                    style = MaterialTheme.typography.labelSmall.copy(
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 1.1.sp
-                    )
-                )
-                if (evidence.connected) {
+            // ── Slot 1 (fixed height): status line + quick actions ─────────────────────
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 32.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Left: Glowing Dot + Status Label (+ inline uptime, single line)
+                Row(
+                    modifier = Modifier.weight(1f),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    StatusDot(stateColor = stateColor, busy = evidence.connecting)
                     Spacer(Modifier.width(8.dp))
                     Text(
-                        text = "•  ${rememberUptimeLabel(evidence.connectedSinceMs)}",
-                        color = Aether.InkMuted,
-                        style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace)
-                    )
-                }
-            }
-
-            // Right: Action Buttons (Quick Add, Ping, Info)
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // 1. Quick Add & Auto-Connect Button (+)
-                Box(
-                    modifier = Modifier
-                        .size(32.dp)
-                        .clip(CircleShape)
-                        .background(Aether.Cyan.copy(alpha = 0.14f))
-                        .clickable {
-                            val pasted = clipboard.getText()?.text.orEmpty()
-                            if (pasted.isNotBlank()) {
-                                val target = if (repo.subscriptions.isNotEmpty()) repo.subscriptions.first().id else "manual"
-                                val addedId = repo.importClipboard(pasted, target)
-                                val targetProfile = repo.libraryProfiles.firstOrNull { it.id == addedId }
-                                    ?: repo.libraryProfiles.lastOrNull()
-                                if (targetProfile != null) {
-                                    repo.selectProfile(targetProfile)
-                                    actions.onConnectProfile(targetProfile)
-                                } else {
-                                    repo.reconnectLastOrAuto { p -> actions.onConnectProfile(p) }
-                                }
-                            } else {
-                                repo.setRuntimeMessage(t.clipboardNothingFound)
-                            }
-                        },
-                    contentAlignment = Alignment.Center
-                ) {
-                    HomeGlyphIcon(HomeGlyph.PLUS, Aether.CyanBright, Modifier.size(14.dp))
-                }
-
-                // 2. Ping Check Button (One-shot)
-                Box(
-                    modifier = Modifier
-                        .size(32.dp)
-                        .clip(CircleShape)
-                        .background(Aether.Emerald.copy(alpha = 0.14f))
-                        .clickable(enabled = homePingTappable(evidence)) {
-                            actions.onTestPing()
-                        },
-                    contentAlignment = Alignment.Center
-                ) {
-                    HomeGlyphIcon(HomeGlyph.PULSE, Aether.Emerald, Modifier.size(14.dp))
-                }
-
-                // 3. Information Button (ℹ)
-                Box(
-                    modifier = Modifier
-                        .size(32.dp)
-                        .clip(CircleShape)
-                        .background(Aether.Amethyst.copy(alpha = 0.14f))
-                        .clickable {
-                            if (repo.serverIntel == null) {
-                                repo.refreshServerIntel(evidence.profile, force = true)
-                            }
-                            actions.onIpDetails()
-                        },
-                    contentAlignment = Alignment.Center
-                ) {
-                    HomeGlyphIcon(HomeGlyph.INFO, Aether.AmethystBright, Modifier.size(14.dp))
-                }
-            }
-        }
-
-        HorizontalDivider(color = homeCloudDivider())
-
-        // Middle Row: Connected Server Name + Protocol Badge + Inline Ping Result
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Row(
-                modifier = Modifier.weight(1f),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = if (evidence.flag.isNotBlank()) evidence.flag else "🌐",
-                    fontSize = 18.sp
-                )
-                Spacer(Modifier.width(8.dp))
-                Column {
-                    Text(
-                        text = evidence.nodeName.ifBlank { t.chooseRoute },
-                        color = Aether.Ink,
-                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                        text = when {
+                            evidence.connected -> t.statusProtected
+                            evidence.connecting -> t.securingRoute
+                            evidence.disconnecting -> t.closingRoute
+                            evidence.blocked -> t.connectionStopped
+                            else -> t.readyToConnect
+                        }.uppercase(),
+                        color = stateColor,
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 1.1.sp
+                        ),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        val proto = evidence.profile?.scheme?.uppercase() ?: "PROXY"
+                    if (evidence.connected) {
+                        Spacer(Modifier.width(6.dp))
                         Text(
-                            text = proto,
-                            color = Aether.CyanBright,
-                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold)
+                            text = "• ${rememberUptimeLabel(evidence.connectedSinceMs)}",
+                            color = Aether.InkMuted,
+                            style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                            maxLines = 1
                         )
-                        if (evidence.sourceName.isNotBlank()) {
-                            Text("•", color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
-                            Text(
-                                text = evidence.sourceName,
-                                color = Aether.InkMuted,
-                                style = MaterialTheme.typography.labelSmall,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
+                    }
+                }
+
+                // Right: Action Buttons (Quick Add, Ping, Info) — flat, tinted, consistent.
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IosQuickAction(
+                        glyph = HomeGlyph.PLUS,
+                        tone = Aether.CyanBright,
+                        description = t.quickAddConnect
+                    ) {
+                        val pasted = clipboard.getText()?.text.orEmpty()
+                        if (pasted.isNotBlank()) {
+                            val target = if (repo.subscriptions.isNotEmpty()) repo.subscriptions.first().id else "manual"
+                            val addedId = repo.importClipboard(pasted, target)
+                            val targetProfile = repo.libraryProfiles.firstOrNull { it.id == addedId }
+                                ?: repo.libraryProfiles.lastOrNull()
+                            if (targetProfile != null) {
+                                repo.selectProfile(targetProfile)
+                                actions.onConnectProfile(targetProfile)
+                            } else {
+                                repo.reconnectLastOrAuto { p -> actions.onConnectProfile(p) }
+                            }
+                        } else {
+                            repo.setRuntimeMessage(t.clipboardNothingFound)
                         }
+                    }
+
+                    IosQuickAction(
+                        glyph = HomeGlyph.PULSE,
+                        tone = Aether.Emerald,
+                        enabled = homePingTappable(evidence),
+                        description = t.testPing
+                    ) { actions.onTestPing() }
+
+                    IosQuickAction(
+                        glyph = HomeGlyph.INFO,
+                        tone = Aether.AmethystBright,
+                        description = t.ipDetails
+                    ) {
+                        if (repo.serverIntel == null) {
+                            repo.refreshServerIntel(evidence.profile, force = true)
+                        }
+                        actions.onIpDetails()
                     }
                 }
             }
 
-            // Inline Ping Result (Does not shift card layout!)
-            val pingVal = homePingLabel(evidence)
-            val pingT = homePingTone(evidence, Aether.Cyan)
-            Row(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(pingT.copy(alpha = 0.14f))
-                    .border(1.dp, pingT.copy(alpha = 0.35f), RoundedCornerShape(10.dp))
-                    .clickable(enabled = homePingTappable(evidence)) { actions.onTestPing() }
-                    .padding(horizontal = 9.dp, vertical = 5.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = pingVal,
-                    color = pingT,
-                    style = MaterialTheme.typography.labelSmall.copy(
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = FontFamily.Monospace
-                    )
-                )
-            }
-        }
+            HorizontalDivider(color = homeCloudDivider())
 
-        // Animated IP expansion badge (Smooth slide/expand on connection + shows IP when disconnected)
-        AnimatedVisibility(
-            visible = true,
-            enter = expandVertically() + fadeIn(),
-            exit = shrinkVertically() + fadeOut()
-        ) {
+            // ── Slot 2 (fixed height): route identity + ping readout ───────────────────
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .heightIn(min = 40.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    modifier = Modifier.weight(1f),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Flag inside a flat tile so emoji flags of different drawing heights can
+                    // never wobble the baseline of the row.
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(homeCloudInsetFill())
+                            .border(1.dp, homeCloudInsetBorder(), RoundedCornerShape(12.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = if (evidence.flag.isNotBlank()) evidence.flag else "🌐",
+                            fontSize = 18.sp
+                        )
+                    }
+                    Spacer(Modifier.width(10.dp))
+                    Column {
+                        Text(
+                            text = evidence.nodeName.ifBlank { t.chooseRoute },
+                            color = Aether.Ink,
+                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            val proto = evidence.profile?.scheme?.uppercase() ?: "PROXY"
+                            Text(
+                                text = proto,
+                                color = Aether.CyanBright,
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold)
+                            )
+                            if (evidence.sourceName.isNotBlank()) {
+                                Text("•", color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
+                                Text(
+                                    text = evidence.sourceName,
+                                    color = Aether.InkMuted,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Inline Ping Result — reserved width, so digits appearing never re-flow the row.
+                val pingVal = homePingLabel(evidence)
+                val pingT = homePingTone(evidence, Aether.Cyan)
+                Row(
+                    modifier = Modifier
+                        .widthIn(min = 58.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(pingT.copy(alpha = 0.14f))
+                        .border(1.dp, pingT.copy(alpha = 0.35f), RoundedCornerShape(10.dp))
+                        .clickable(enabled = homePingTappable(evidence)) { actions.onTestPing() }
+                        .padding(horizontal = 9.dp, vertical = 5.dp),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = pingVal,
+                        color = pingT,
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace
+                        ),
+                        maxLines = 1,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
+
+            // ── Slot 3 (fixed height): IP identity strip ───────────────────────────────
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 34.dp)
                     .clip(RoundedCornerShape(12.dp))
                     .background(homeCloudInsetFill())
                     .border(1.dp, homeCloudInsetBorder(), RoundedCornerShape(12.dp))
@@ -1640,7 +1637,10 @@ internal fun IosStatusWideCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
                     Text(
                         "IP",
                         color = HomeCloud.Accent,
@@ -1650,7 +1650,9 @@ internal fun IosStatusWideCard(
                     Text(
                         text = if (evidence.ip.isNotBlank()) evidence.ip else "127.0.0.1",
                         color = Aether.Ink,
-                        style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace)
+                        style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                     if (evidence.countryCode.isNotBlank()) {
                         Spacer(Modifier.width(6.dp))
@@ -1671,57 +1673,180 @@ internal fun IosStatusWideCard(
                     HomeGlyphIcon(HomeGlyph.INFO, HomeCloud.Accent, Modifier.size(11.dp))
                 }
             }
+
+            // ── Slot 4 (fixed height): SOCKS strip — standby before, live after ────────
+            IosSocksStrip(evidence = evidence, repo = repo)
+        }
+    }
+}
+
+/** The semantic state colour of the Home instrument — one function, four themes, no drift. */
+@Composable
+internal fun homeStateTone(evidence: HomeEvidence): Color = when {
+    evidence.connected -> Aether.Emerald
+    evidence.connecting -> Aether.CyanBright
+    evidence.disconnecting -> Aether.Amber
+    evidence.blocked -> Aether.Danger
+    else -> Aether.SlateBright
+}
+
+/** Flat status pip with a soft halo; breathes only while a handshake is actually running. */
+@Composable
+private fun StatusDot(stateColor: Color, busy: Boolean) {
+    val motion = MarbleMotion.current
+    Canvas(modifier = Modifier.size(18.dp)) {
+        // The shared clock is read in the draw phase: ambient motion costs zero recompositions.
+        val breathe = motion.breathe(900)
+        val haloAlpha = if (busy) 0.22f + 0.20f * breathe else 0.16f
+        drawCircle(color = stateColor.copy(alpha = haloAlpha), radius = size.minDimension * 0.5f)
+        drawCircle(
+            color = stateColor.copy(alpha = if (busy) 0.75f + 0.25f * breathe else 1f),
+            radius = size.minDimension * 0.28f
+        )
+    }
+}
+
+/** One flat quick-action button of the status card: tinted disc + glyph, no shadow. */
+@Composable
+private fun IosQuickAction(
+    glyph: HomeGlyph,
+    tone: Color,
+    description: String,
+    enabled: Boolean = true,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .size(32.dp)
+            .clip(RoundedCornerShape(11.dp))
+            .background(tone.copy(alpha = if (enabled) 0.14f else 0.06f))
+            .clickable(enabled = enabled, onClick = onClick)
+            .semantics { contentDescription = description },
+        contentAlignment = Alignment.Center
+    ) {
+        HomeGlyphIcon(
+            glyph,
+            if (enabled) tone else tone.copy(alpha = 0.45f),
+            Modifier.size(14.dp)
+        )
+    }
+}
+
+/**
+ * MARBLE_HOME_STABLE_GEOMETRY_V141 — the SOCKS strip is a permanent instrument slot.
+ *
+ * Before the tunnel exists it reports the port that *will* be bound ("waiting for connection"),
+ * and once connected the same geometry carries the live address plus a copy chip. The pip
+ * breathes while a handshake is in flight. Height is identical in every state, so connecting
+ * can never push anything on the page.
+ */
+@Composable
+private fun IosSocksStrip(
+    evidence: HomeEvidence,
+    repo: AppRepository
+) {
+    val clipboard = LocalClipboardManager.current
+    val t = Tr.now
+    val motion = MarbleMotion.current
+    val connected = evidence.connected
+    val connecting = evidence.connecting
+    val socksAddress = "127.0.0.1:${repo.settings.socksPort}"
+    val tone by animateColorAsState(
+        targetValue = when {
+            connected -> Aether.Emerald
+            connecting -> Aether.CyanBright
+            else -> Aether.SlateBright
+        },
+        animationSpec = MarbleMotionSpecs.Color,
+        label = "socks-strip-tone"
+    )
+    val stripBorder by animateColorAsState(
+        targetValue = when {
+            connected -> Aether.Emerald.copy(alpha = 0.25f)
+            else -> homeCloudInsetBorder()
+        },
+        animationSpec = MarbleMotionSpecs.Color,
+        label = "socks-strip-border"
+    )
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 34.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(homeCloudInsetFill())
+            .border(1.dp, stripBorder, RoundedCornerShape(12.dp))
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.weight(1f)
+        ) {
+            Canvas(modifier = Modifier.size(10.dp)) {
+                val breathe = motion.breathe(900)
+                drawCircle(
+                    color = tone.copy(alpha = if (connecting) 0.45f + 0.55f * breathe else 1f),
+                    radius = size.minDimension * 0.5f
+                )
+            }
+            Spacer(Modifier.width(8.dp))
+            Text(
+                "SOCKS5",
+                color = tone,
+                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold)
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                text = socksAddress,
+                color = Aether.Ink,
+                style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                maxLines = 1
+            )
         }
 
-        // SOCKS proxy display pill (Visible when connected with one-tap copy)
-        if (evidence.connected) {
-            val socksAddress = "127.0.0.1:${repo.settings.socksPort}"
+        // The trailing chip occupies the same height in both states; only its content swaps.
+        if (connected) {
             Row(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(homeCloudInsetFill())
-                    .border(1.dp, Aether.Emerald.copy(alpha = 0.25f), RoundedCornerShape(12.dp))
-                    .padding(horizontal = 10.dp, vertical = 6.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                    .heightIn(min = 24.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Aether.Emerald.copy(alpha = 0.15f))
+                    .clickable {
+                        clipboard.setText(AnnotatedString(socksAddress))
+                        repo.setRuntimeMessage(t.socksCopied)
+                    }
+                    .padding(horizontal = 8.dp, vertical = 3.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        "SOCKS5",
-                        color = Aether.Emerald,
-                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold)
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        text = socksAddress,
-                        color = Aether.Ink,
-                        style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace)
-                    )
-                }
-                Row(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(Aether.Emerald.copy(alpha = 0.15f))
-                        .clickable {
-                            clipboard.setText(AnnotatedString(socksAddress))
-                            repo.setRuntimeMessage("SOCKS proxy copied: $socksAddress")
-                        }
-                        .padding(horizontal = 8.dp, vertical = 3.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    HomeGlyphIcon(HomeGlyph.COPY, Aether.Emerald, Modifier.size(11.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text(
-                        text = "Copy",
-                        color = Aether.Emerald,
-                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold)
-                    )
-                }
+                HomeGlyphIcon(HomeGlyph.COPY, Aether.Emerald, Modifier.size(11.dp))
+                Spacer(Modifier.width(4.dp))
+                Text(
+                    text = t.copyAction,
+                    color = Aether.Emerald,
+                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold)
+                )
+            }
+        } else {
+            Row(
+                modifier = Modifier
+                    .heightIn(min = 24.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Aether.SlateBright.copy(alpha = 0.10f))
+                    .padding(horizontal = 8.dp, vertical = 3.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = t.socksStandby,
+                    color = Aether.InkMuted,
+                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
         }
     }
-        }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1731,59 +1856,75 @@ internal fun IosStatusWideCard(
 /**
  * Scrollable Box showing the user's selected sub/group name uniquely centered at the top,
  * and the servers inside that sub scrollable below the sub name.
+ *
+ * MARBLE_HOME_FLOATING_CLEARANCE_V141 — [bottomOverlayClearance] reserves room for controls
+ * that float above the list (the Theme 2 split button), so the last server row is never hidden
+ * underneath them.
  */
 @Composable
 internal fun IosServerListBox(
     repo: AppRepository,
     evidence: HomeEvidence,
     actions: HomeActions,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    bottomOverlayClearance: Dp = 0.dp
 ) {
+    val t = Tr.now
     val activeSubId = repo.librarySourceFilter
     val allSubs = repo.subscriptions
     val activeSubName = when {
-        activeSubId.isBlank() -> "All Servers"
-        activeSubId == "manual" -> "Manual"
-        else -> allSubs.firstOrNull { it.id == activeSubId }?.name ?: "Servers"
+        activeSubId.isBlank() -> t.homeAllServers
+        activeSubId == "manual" -> t.homeManualGroup
+        else -> allSubs.firstOrNull { it.id == activeSubId }?.name ?: t.homeAllServers
     }
     val visibleServers = ServersQuery.visible(
         profiles = repo.libraryProfiles,
         filter = ServersFilter(sourceId = if (activeSubId.isBlank()) "all" else activeSubId)
     )
 
-    // MARBLE_HOME_CLOUD_V140 — the server list is a cloud card; the group header and rows are
-    // quiet insets inside it, and only the selected server earns the sky fill + accent rim.
+    // MARBLE_HOME_CLOUD_V140/V141 — the server list is a cloud card: one opaque box, quiet
+    // inset rows inside it, and only the selected server earns the sky fill + accent rim.
     HomeCloudCard(modifier = modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp)) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(12.dp)
         ) {
-        // Unique Centered Sub / Group Header
-        var groupDropdownOpen by remember { mutableStateOf(false) }
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(bottom = 8.dp),
-            contentAlignment = Alignment.Center
-        ) {
+            // Group selector: name + live count chip + chevron, one flat pill.
+            var groupDropdownOpen by remember { mutableStateOf(false) }
             Row(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(16.dp))
+                    .fillMaxWidth()
+                    .padding(bottom = 8.dp)
+                    .clip(RoundedCornerShape(14.dp))
                     .background(homeCloudInsetFill())
-                    .border(1.dp, homeCloudInsetBorder(), RoundedCornerShape(16.dp))
+                    .border(1.dp, homeCloudInsetBorder(), RoundedCornerShape(14.dp))
                     .clickable { groupDropdownOpen = true }
-                    .padding(horizontal = 14.dp, vertical = 6.dp),
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "✦  $activeSubName (${visibleServers.size})  ✦",
-                    color = HomeCloud.Accent,
+                    text = activeSubName,
+                    color = Aether.Ink,
                     style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-                    textAlign = TextAlign.Center
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
-                Spacer(Modifier.width(6.dp))
-                HomeGlyphIcon(HomeGlyph.MORE, HomeCloud.Accent, Modifier.size(10.dp))
+                Spacer(Modifier.width(7.dp))
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(9.dp))
+                        .background(HomeCloud.Accent.copy(alpha = 0.12f))
+                        .padding(horizontal = 7.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = "${visibleServers.size}",
+                        color = HomeCloud.Accent,
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold)
+                    )
+                }
+                Spacer(Modifier.weight(1f))
+                GroupChevron(HomeCloud.Accent, Modifier.size(12.dp))
             }
 
             DropdownMenu(
@@ -1791,14 +1932,14 @@ internal fun IosServerListBox(
                 onDismissRequest = { groupDropdownOpen = false }
             ) {
                 DropdownMenuItem(
-                    text = { Text("All Servers (${repo.libraryProfiles.size})") },
+                    text = { Text("${t.homeAllServers} (${repo.libraryProfiles.size})") },
                     onClick = {
                         repo.selectLibrarySource("")
                         groupDropdownOpen = false
                     }
                 )
                 DropdownMenuItem(
-                    text = { Text("Manual (${repo.libraryProfiles.count { it.subscriptionId == "manual" }})") },
+                    text = { Text("${t.homeManualGroup} (${repo.libraryProfiles.count { it.subscriptionId == "manual" }})") },
                     onClick = {
                         repo.selectLibrarySource("manual")
                         groupDropdownOpen = false
@@ -1815,52 +1956,109 @@ internal fun IosServerListBox(
                     )
                 }
             }
-        }
 
-        HorizontalDivider(color = homeCloudDivider(), modifier = Modifier.padding(bottom = 6.dp))
+            HorizontalDivider(color = homeCloudDivider(), modifier = Modifier.padding(bottom = 6.dp))
 
-        // Inner Scrollable Server List (No whole-page scroll!)
-        if (visibleServers.isEmpty()) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f, fill = false)
-                    .padding(vertical = 24.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = Tr.now.homeNoServers,
-                    color = Aether.InkMuted,
-                    style = MaterialTheme.typography.bodySmall
-                )
-            }
-        } else {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f, fill = false),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                items(visibleServers, key = { it.id }) { server ->
-                    val isSelected = (server.id == repo.activeProfileId)
-                    IosServerItemRow(
-                        server = server,
-                        isSelected = isSelected,
-                        isConnected = isSelected && evidence.connected,
-                        onClick = {
-                            repo.selectProfile(server)
-                            if (evidence.connected) {
-                                actions.onConnectProfile(server)
-                            }
-                        }
+            // Inner Scrollable Server List (No whole-page scroll!)
+            if (visibleServers.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f, fill = false)
+                        .padding(vertical = 24.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = t.homeNoServers,
+                        color = Aether.InkMuted,
+                        style = MaterialTheme.typography.bodySmall
                     )
                 }
+            } else {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f, fill = false),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    contentPadding = PaddingValues(bottom = bottomOverlayClearance)
+                ) {
+                    items(visibleServers, key = { it.id }) { server ->
+                        val isSelected = (server.id == repo.activeProfileId)
+                        // animateItem keeps reorders/gliding smooth without touching row heights.
+                        Box(Modifier.animateItem()) {
+                            IosServerItemRow(
+                                server = server,
+                                isSelected = isSelected,
+                                isConnected = isSelected && evidence.connected,
+                                onClick = {
+                                    repo.selectProfile(server)
+                                    if (evidence.connected) {
+                                        actions.onConnectProfile(server)
+                                    }
+                                }
+                            )
+                        }
+                    }
+                }
             }
-        }
         }
     }
 }
 
+/** Tiny vector chevron-down for the group selector (font-independent, like every glyph here). */
+@Composable
+private fun GroupChevron(color: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier) {
+        val stroke = (size.minDimension * 0.14f).coerceIn(1.2f, 2.6f)
+        drawLine(
+            color,
+            Offset(size.width * 0.22f, size.height * 0.38f),
+            Offset(size.width * 0.5f, size.height * 0.66f),
+            stroke,
+            StrokeCap.Round
+        )
+        drawLine(
+            color,
+            Offset(size.width * 0.5f, size.height * 0.66f),
+            Offset(size.width * 0.78f, size.height * 0.38f),
+            stroke,
+            StrokeCap.Round
+        )
+    }
+}
+
+/** The wire-scheme colour family of a server row — one flat hue per protocol. */
+@Composable
+private fun protocolTone(scheme: String): Color = when (scheme.trim().lowercase()) {
+    "vmess" -> Aether.Cyan
+    "vless" -> Aether.Amethyst
+    "trojan" -> Aether.Amber
+    "shadowsocks", "ss" -> Aether.Emerald
+    "ssh" -> Aether.SlateBright
+    "socks", "http", "https" -> Aether.CyanBright
+    else -> Aether.Cyan
+}
+
+/** The 1–2 letter monogram of a wire scheme, drawn in the protocol colour tile. */
+private fun protocolMonogram(scheme: String): String = when (scheme.trim().lowercase()) {
+    "vmess" -> "VM"
+    "vless" -> "VL"
+    "trojan" -> "TJ"
+    "shadowsocks", "ss" -> "SS"
+    "ssh" -> "SH"
+    "socks" -> "SO"
+    "http", "https" -> "HT"
+    else -> scheme.trim().take(2).uppercase().ifBlank { "PR" }
+}
+
+/**
+ * MARBLE_HOME_SERVER_ROW_V141 — one clean, flat server row.
+ *
+ * A protocol monogram tile (colour-coded per wire scheme) leads, name + scheme/host caption
+ * follow, and the trailing state is one of three quiet marks: nothing (resting), a check
+ * (selected) or a live pill (carrying traffic). Resting rows are near-invisible insets; the
+ * selected row is the one saturated element with the sky fill and accent rim.
+ */
 @Composable
 private fun IosServerItemRow(
     server: ProxyProfile,
@@ -1868,30 +2066,22 @@ private fun IosServerItemRow(
     isConnected: Boolean,
     onClick: () -> Unit
 ) {
-    // MARBLE_HOME_CLOUD_V140 — the selected server row is the one saturated element on the page:
-    // sky fill #E8F5FF with a 1.5 dp #4AA8E8 rim and a 3 dp shadow (deep-navy variant in dark
-    // mode). Resting rows stay quiet: a near-invisible inset chip with no border at all.
+    val motion = MarbleMotion.current
+    val t = Tr.now
     val rowShape = RoundedCornerShape(14.dp)
-    val restingRowBg = homeCloudInsetFill()
-    val selectedRowBg = homeCloudSelectedFill()
     val itemBg by animateColorAsState(
-        targetValue = when {
-            isSelected -> selectedRowBg
-            else -> restingRowBg
-        },
-        label = "item-bg"
+        targetValue = if (isSelected) homeCloudSelectedFill() else homeCloudInsetFill(),
+        animationSpec = MarbleMotionSpecs.Color,
+        label = "srv-row-bg"
     )
     val itemBorder by animateColorAsState(
-        targetValue = when {
-            isSelected -> homeCloudSelectedBorder()
-            else -> Color.Transparent
-        },
-        label = "item-border"
+        targetValue = if (isSelected) homeCloudSelectedBorder() else homeCloudInsetBorder(),
+        animationSpec = MarbleMotionSpecs.Color,
+        label = "srv-row-border"
     )
-    val itemBorderWidth by animateDpAsState(
-        targetValue = if (isSelected) HomeCloud.SelectedHairline else HomeCloud.Hairline,
-        label = "item-border-width"
-    )
+    val tone = protocolTone(server.scheme)
+    // Captured in composition: the draw lambda below must not read @Composable palette getters.
+    val liveTone = Aether.Emerald
 
     Row(
         modifier = Modifier
@@ -1903,85 +2093,97 @@ private fun IosServerItemRow(
             )
             .clip(rowShape)
             .background(itemBg)
-            .border(itemBorderWidth, itemBorder, rowShape)
+            .border(1.dp, itemBorder, rowShape)
             .clickable(onClick = onClick)
-            .padding(horizontal = 11.dp, vertical = 9.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
+            .padding(horizontal = 10.dp, vertical = 9.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(
-            modifier = Modifier.weight(1f),
-            verticalAlignment = Alignment.CenterVertically
+        // Protocol monogram tile — flat tint fill + monogram, one hue per wire scheme.
+        Box(
+            modifier = Modifier
+                .size(38.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(tone.copy(alpha = if (isSelected) 0.16f else 0.10f)),
+            contentAlignment = Alignment.Center
         ) {
-            // Radio / Checkmark indicator
-            Box(
-                modifier = Modifier
-                    .size(18.dp)
-                    .clip(CircleShape)
-                    .border(
-                        1.5.dp,
-                        if (isSelected) (if (isConnected) Aether.Emerald else HomeCloud.Accent) else Aether.InkFaint,
-                        CircleShape
-                    )
-                    .background(
-                        if (isSelected) (if (isConnected) Aether.Emerald else HomeCloud.Accent) else Color.Transparent
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                if (isSelected) {
-                    HomeGlyphIcon(HomeGlyph.CHECK, Color.White, Modifier.size(10.dp))
-                }
-            }
-
-            Spacer(Modifier.width(10.dp))
-
-            Column {
-                Text(
-                    text = server.name,
-                    color = if (isSelected) Aether.Ink else Aether.Ink.copy(alpha = 0.85f),
-                    style = MaterialTheme.typography.bodyMedium.copy(
-                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                    ),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+            Text(
+                text = protocolMonogram(server.scheme),
+                color = tone,
+                style = MaterialTheme.typography.labelMedium.copy(
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace,
+                    letterSpacing = 0.5.sp
                 )
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            )
+        }
+
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = server.name,
+                color = if (isSelected) Aether.Ink else Aether.Ink.copy(alpha = 0.88f),
+                style = MaterialTheme.typography.bodyMedium.copy(
+                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                ),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(5.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = server.scheme.uppercase(),
+                    color = tone,
+                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold)
+                )
+                if (server.host.isNotBlank()) {
+                    Text("•", color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
                     Text(
-                        text = server.scheme.uppercase(),
-                        color = if (isConnected) Aether.Emerald else HomeCloud.Accent,
-                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold)
+                        text = server.host,
+                        color = Aether.InkMuted,
+                        style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
-                    if (server.host.isNotBlank()) {
-                        Text("•", color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
-                        Text(
-                            text = server.host,
-                            color = Aether.InkMuted,
-                            style = MaterialTheme.typography.labelSmall,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
                 }
             }
         }
 
-        // Scheme badge
-        val badgeText = ServersQuery.badge(server)
-        if (badgeText.isNotBlank()) {
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(homeCloudInsetFill())
-                    .border(1.dp, homeCloudInsetBorder(), RoundedCornerShape(8.dp))
-                    .padding(horizontal = 7.dp, vertical = 3.dp)
-            ) {
-                Text(
-                    text = badgeText,
-                    color = Aether.InkMuted,
-                    style = MaterialTheme.typography.labelSmall.copy(
-                        fontWeight = FontWeight.SemiBold
+        // Trailing state — one quiet mark, never a layout of its own.
+        when {
+            isConnected -> {
+                Row(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(9.dp))
+                        .background(Aether.Emerald.copy(alpha = 0.14f))
+                        .padding(horizontal = 7.dp, vertical = 3.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Canvas(modifier = Modifier.size(6.dp)) {
+                        drawCircle(
+                            color = liveTone.copy(alpha = 0.55f + 0.45f * motion.breathe(1400)),
+                            radius = size.minDimension * 0.5f
+                        )
+                    }
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        text = t.homeConnectedBadge,
+                        color = Aether.Emerald,
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold)
                     )
-                )
+                }
+            }
+            isSelected -> {
+                Box(
+                    modifier = Modifier
+                        .size(22.dp)
+                        .clip(CircleShape)
+                        .background(HomeCloud.Accent),
+                    contentAlignment = Alignment.Center
+                ) {
+                    HomeGlyphIcon(HomeGlyph.CHECK, Color.White, Modifier.size(11.dp))
+                }
             }
         }
     }
@@ -1992,8 +2194,13 @@ private fun IosServerItemRow(
 // ---------------------------------------------------------------------------------------------
 
 /**
- * An iOS slide-to-action button at the bottom of the screen.
- * Dragging thumb across the bar triggers connect / disconnect.
+ * MARBLE_HOME_CONNECT_CONTROLS_V141 — the Theme 1 connect control, redrawn flat and alive.
+ *
+ * A pill track of solid card white with a state-tinted hairline; while armed, a soft light band
+ * sweeps the track so the control visibly invites the drag; while a handshake runs, the band
+ * accelerates into an indeterminate sweep; the drag fill and the flat thumb follow the finger.
+ * The drag gesture (including its RTL mirroring and the 65% release threshold) is unchanged —
+ * only the surface was redesigned.
  */
 @Composable
 internal fun IosSlideToConnect(
@@ -2003,14 +2210,18 @@ internal fun IosSlideToConnect(
 ) {
     val haptic = LocalHapticFeedback.current
     val isRtl = LocalLayoutDirection.current == LayoutDirection.Rtl
+    val motion = MarbleMotion.current
     val trackShape = RoundedCornerShape(30.dp)
+    val t = Tr.now
 
+    val busy = evidence.connecting || evidence.disconnecting
     val tone by animateColorAsState(
         targetValue = when {
             evidence.connected -> Aether.Danger
-            evidence.connecting -> Aether.CyanBright
+            busy -> Aether.CyanBright
             else -> Aether.Emerald
         },
+        animationSpec = MarbleMotionSpecs.Color,
         label = "slide-tone"
     )
 
@@ -2023,17 +2234,16 @@ internal fun IosSlideToConnect(
     val coroutineScope = rememberCoroutineScope()
 
     val labelText = when {
-        evidence.connected -> Tr.now.slideToDisconnect
-        evidence.connecting -> Tr.now.disconnecting
-        else -> Tr.now.slideToConnect
+        evidence.connected -> t.slideToDisconnect
+        evidence.connecting -> t.securingRoute
+        evidence.disconnecting -> t.closingRoute
+        else -> t.slideToConnect
     }
 
-    // MARBLE_HOME_CLOUD_V140 — the slider track is a cloud control: translucent white, a thin
-    // state-tinted hairline and a small shadow. The drag fill keeps its state colour.
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(60.dp)
+            .height(62.dp)
             .shadow(3.dp, trackShape, spotColor = tone.copy(alpha = 0.18f))
             .clip(trackShape)
             .background(homeCloudCardFill())
@@ -2042,14 +2252,39 @@ internal fun IosSlideToConnect(
         contentAlignment = Alignment.CenterStart
     ) {
         val maxDragPx = max(1f, trackWidthPx - thumbSizePx - 8f)
-
-        // Shimmering / animated background track fill
         val progress = (dragOffset.value / maxDragPx).coerceIn(0f, 1f)
+
+        // Ambient sheen: a single light band on the shared motion clock — slow when armed,
+        // fast while the tunnel negotiates, invisible once the user owns the gesture. The clock
+        // is read inside the draw lambda, so the sweep costs zero recompositions.
+        Canvas(modifier = Modifier.matchParentSize()) {
+            val sheenPhase = motion.loop(if (busy) 1100 else 3000)
+            val sheenAlpha = (if (busy) 0.30f else 0.20f) * (1f - progress)
+            if (sheenAlpha > 0.01f) {
+                val band = size.width * 0.34f
+                val x = sheenPhase * (size.width + band) - band
+                drawRect(
+                    topLeft = Offset(x, 0f),
+                    size = Size(band, size.height),
+                    brush = Brush.horizontalGradient(
+                        colors = listOf(
+                            Color.White.copy(alpha = 0f),
+                            Color.White.copy(alpha = sheenAlpha),
+                            Color.White.copy(alpha = 0f)
+                        ),
+                        startX = x,
+                        endX = x + band
+                    )
+                )
+            }
+        }
+
+        // Drag fill — flat state tint that grows with the thumb.
         Box(
             modifier = Modifier
                 .fillMaxHeight()
-                .fillMaxWidth(fraction = progress.coerceAtLeast(0.05f))
-                .background(tone.copy(alpha = 0.20f))
+                .fillMaxWidth(fraction = progress.coerceAtLeast(0.04f))
+                .background(tone.copy(alpha = 0.16f))
         )
 
         // Centered Label
@@ -2061,24 +2296,26 @@ internal fun IosSlideToConnect(
                 text = labelText,
                 color = Aether.Ink.copy(alpha = 0.85f),
                 style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                textAlign = TextAlign.Center
+                textAlign = TextAlign.Center,
+                maxLines = 1
             )
         }
 
-        // Sliding Thumb Knob
+        // Sliding Thumb Knob — flat disc, glyph, micro-lift while dragged.
         Box(
             modifier = Modifier
-                .padding(start = 4.dp, end = 4.dp)
+                .padding(start = 5.dp, end = 5.dp)
                 .offset { IntOffset(dragOffset.value.roundToInt(), 0) }
                 .size(thumbSizeDp)
-                .clip(CircleShape)
-                .background(
-                    Brush.radialGradient(
-                        colors = listOf(tone, tone.copy(alpha = 0.85f))
-                    )
-                )
+                .graphicsLayer {
+                    val lift = 1f + 0.06f * (dragOffset.value / max(1f, maxDragPx))
+                    scaleX = lift
+                    scaleY = lift
+                }
                 .shadow(6.dp, CircleShape, spotColor = tone)
-                .pointerInput(evidence.connected, evidence.connecting, maxDragPx) {
+                .clip(CircleShape)
+                .background(tone)
+                .pointerInput(evidence.connected, busy, maxDragPx) {
                     detectHorizontalDragGestures(
                         onDragEnd = {
                             if (dragOffset.value >= maxDragPx * 0.65f) {
@@ -2140,7 +2377,7 @@ internal fun HomeThemeSlider(
             modifier = Modifier.weight(1f)
         )
 
-        // Bottom: Slide to Connect Slider
+        // Bottom: Slide to connect Slider
         IosSlideToConnect(evidence, actions)
     }
 }
@@ -2148,6 +2385,104 @@ internal fun HomeThemeSlider(
 // ---------------------------------------------------------------------------------------------
 // THEME 2: iOS FLOATING SPLIT-BUTTON THEME (Fixed Screen)
 // ---------------------------------------------------------------------------------------------
+
+/**
+ * MARBLE_HOME_CONNECT_CONTROLS_V141 — the Theme 2 floating control, redrawn flat.
+ *
+ * Armed: a solid ice-blue disc with a breathing halo ring. Busy: the halo becomes a spinning
+ * arc that orbits the disc. Connected: the whole control morphs into the split pair — a flat
+ * danger pause and a flat emerald ping. Every ambient phase runs on Marble's one shared frame
+ * clock, and press feedback is the product-standard kinetic scale.
+ */
+@Composable
+private fun FloatingConnectFab(
+    evidence: HomeEvidence,
+    onToggle: () -> Unit
+) {
+    val motion = MarbleMotion.current
+    val busy = evidence.connecting || evidence.disconnecting
+    val tone by animateColorAsState(
+        targetValue = if (busy) Aether.CyanBright else Aether.Cyan,
+        animationSpec = MarbleMotionSpecs.Color,
+        label = "fab-tone"
+    )
+
+    Box(
+        modifier = Modifier.size(88.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        // Orbit ring: spinning arc while busy, breathing halo while armed. Both phases are read
+        // in the draw layer, so the orbit never recomposes the FAB.
+        Canvas(modifier = Modifier.size(88.dp)) {
+            val spin = motion.loop(1150)
+            val breathe = motion.breathe(2400)
+            val stroke = 3.dp.toPx()
+            val inset = stroke / 2f
+            val ring = Size(size.width - inset * 2f, size.height - inset * 2f)
+            if (busy) {
+                rotate(degrees = spin * 360f) {
+                    drawArc(
+                        color = tone,
+                        startAngle = -90f,
+                        sweepAngle = 300f,
+                        useCenter = false,
+                        topLeft = Offset(inset, inset),
+                        size = ring,
+                        style = Stroke(stroke, cap = StrokeCap.Round)
+                    )
+                }
+            } else {
+                drawCircle(
+                    color = tone.copy(alpha = 0.16f + 0.22f * breathe),
+                    radius = (size.minDimension - stroke) / 2f,
+                    style = Stroke(stroke)
+                )
+            }
+        }
+
+        // Core button — flat solid disc.
+        Box(
+            modifier = Modifier
+                .size(68.dp)
+                .graphicsLayer {
+                    val breathe = motion.breathe(2400)
+                    val scale = if (busy) 1f + 0.04f * breathe else 1f
+                    scaleX = scale
+                    scaleY = scale
+                }
+                .shadow(4.dp, CircleShape, spotColor = tone)
+                .clip(CircleShape)
+                .background(tone)
+                .kineticClickable(boundedShape = CircleShape) { onToggle() },
+            contentAlignment = Alignment.Center
+        ) {
+            HomeGlyphIcon(HomeGlyph.POWER, Color.White, Modifier.size(32.dp))
+        }
+    }
+}
+
+/** One flat circular secondary action of the Theme 2 split pair. */
+@Composable
+private fun FloatingSplitAction(
+    tone: Color,
+    description: String,
+    enabled: Boolean = true,
+    onClick: () -> Unit,
+    content: @Composable () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .size(54.dp)
+            .shadow(3.dp, CircleShape, spotColor = tone)
+            .clip(CircleShape)
+            .background(tone)
+            .kineticClickable(enabled = enabled, boundedShape = CircleShape, onClick = onClick)
+            .semantics { contentDescription = description },
+        contentAlignment = Alignment.Center
+    ) {
+        content()
+    }
+}
 
 @Composable
 internal fun HomeThemeFloating(
@@ -2172,7 +2507,10 @@ internal fun HomeThemeFloating(
                 repo = repo,
                 evidence = evidence,
                 actions = actions,
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.weight(1f),
+                // The split FAB floats above the last rows; reserve the room so no server is
+                // ever hidden underneath it (MARBLE_HOME_FLOATING_CLEARANCE_V141).
+                bottomOverlayClearance = 104.dp
             )
         }
 
@@ -2191,75 +2529,48 @@ internal fun HomeThemeFloating(
                 label = "floating-split-anim"
             ) { isConnected ->
                 if (isConnected) {
-                    // Split into TWO buttons: Disconnect (pause / دو خط) and Ping
+                    // Split into TWO buttons: Disconnect (pause) and Ping
                     Column(
                         verticalArrangement = Arrangement.spacedBy(10.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        // 1. Disconnect button (Pause / دو خط)
-                        Box(
-                            modifier = Modifier
-                                .size(54.dp)
-                                .clip(CircleShape)
-                                .background(Aether.Danger)
-                                .shadow(6.dp, CircleShape, spotColor = Aether.Danger)
-                                .clickable { actions.onToggleConnection() },
-                            contentAlignment = Alignment.Center
+                        FloatingSplitAction(
+                            tone = Aether.Danger,
+                            description = Tr.now.disconnect,
+                            onClick = { actions.onToggleConnection() }
                         ) {
-                            // Two vertical lines (pause / دو خط)
                             Row(
                                 horizontalArrangement = Arrangement.spacedBy(5.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Box(Modifier.width(4.dp).height(18.dp).clip(RoundedCornerShape(2.dp)).background(Color.White))
-                                Box(Modifier.width(4.dp).height(18.dp).clip(RoundedCornerShape(2.dp)).background(Color.White))
+                                Box(
+                                    Modifier
+                                        .width(4.dp)
+                                        .height(18.dp)
+                                        .clip(RoundedCornerShape(2.dp))
+                                        .background(Color.White)
+                                )
+                                Box(
+                                    Modifier
+                                        .width(4.dp)
+                                        .height(18.dp)
+                                        .clip(RoundedCornerShape(2.dp))
+                                        .background(Color.White)
+                                )
                             }
                         }
 
-                        // 2. Ping button
-                        Box(
-                            modifier = Modifier
-                                .size(54.dp)
-                                .clip(CircleShape)
-                                .background(Aether.Emerald)
-                                .shadow(6.dp, CircleShape, spotColor = Aether.Emerald)
-                                .clickable(enabled = homePingTappable(evidence)) { actions.onTestPing() },
-                            contentAlignment = Alignment.Center
+                        FloatingSplitAction(
+                            tone = Aether.Emerald,
+                            description = Tr.now.testPing,
+                            enabled = homePingTappable(evidence),
+                            onClick = { actions.onTestPing() }
                         ) {
                             HomeGlyphIcon(HomeGlyph.PULSE, Color.White, Modifier.size(24.dp))
                         }
                     }
                 } else {
-                    // Single Floating Connect Button
-                    val pulse = rememberInfiniteTransition(label = "pulse")
-                    val pulseScale by pulse.animateFloat(
-                        initialValue = 1f,
-                        targetValue = 1.08f,
-                        animationSpec = infiniteRepeatable(tween(1200, easing = FastOutSlowInEasing), RepeatMode.Reverse),
-                        label = "pulse-scale"
-                    )
-
-                    Box(
-                        modifier = Modifier
-                            .size(68.dp)
-                            .graphicsLayer {
-                                if (evidence.connecting) {
-                                    scaleX = pulseScale
-                                    scaleY = pulseScale
-                                }
-                            }
-                            .clip(CircleShape)
-                            .background(
-                                Brush.radialGradient(
-                                    colors = listOf(Aether.CyanBright, Aether.Cyan)
-                                )
-                            )
-                            .shadow(7.dp, CircleShape, spotColor = Aether.CyanBright)
-                            .clickable { actions.onToggleConnection() },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        HomeGlyphIcon(HomeGlyph.POWER, Color.White, Modifier.size(34.dp))
-                    }
+                    FloatingConnectFab(evidence = evidence, onToggle = { actions.onToggleConnection() })
                 }
             }
         }
@@ -2267,8 +2578,103 @@ internal fun HomeThemeFloating(
 }
 
 // ---------------------------------------------------------------------------------------------
-// THEME 3: iOS CENTER EMBOSSED BUTTON THEME (Fixed Screen)
+// THEME 3: iOS CENTER ORBITAL THEME (Fixed Screen)
 // ---------------------------------------------------------------------------------------------
+
+/**
+ * MARBLE_HOME_CONNECT_CONTROLS_V141 — the Theme 3 control: an orbital power core.
+ *
+ * A 118 dp dial: four slowly rotating dashes invite the drag-free tap while armed, a single
+ * fast arc orbits while the tunnel negotiates, and the ring solidifies with a gentle breath
+ * once protected. The flat core disc carries the power glyph and the kinetic press. Distinct
+ * silhouette from both the slider (Theme 1) and the floating FAB (Theme 2) by design.
+ */
+@Composable
+internal fun OrbitalConnectControl(
+    evidence: HomeEvidence,
+    actions: HomeActions,
+    modifier: Modifier = Modifier
+) {
+    val motion = MarbleMotion.current
+    val connected = evidence.connected
+    val busy = evidence.connecting || evidence.disconnecting
+    val tone by animateColorAsState(
+        targetValue = when {
+            connected -> Aether.Emerald
+            busy -> Aether.CyanBright
+            else -> Aether.Cyan
+        },
+        animationSpec = MarbleMotionSpecs.Color,
+        label = "orbit-tone"
+    )
+
+    Box(modifier = modifier.size(118.dp), contentAlignment = Alignment.Center) {
+        // The whole dial is one draw-phase canvas on the shared clock: dashes rotate while
+        // armed, an arc orbits while busy, the ring breathes while protected — and none of it
+        // ever recomposes the control.
+        Canvas(modifier = Modifier.size(118.dp)) {
+            val spin = motion.loop(1200)
+            val slowSpin = motion.loop(9000)
+            val breathe = motion.breathe(2600)
+            val stroke = 3.dp.toPx()
+            val inset = stroke / 2f + 2.dp.toPx()
+            val ring = Size(size.width - inset * 2f, size.height - inset * 2f)
+            // Flat halo wash under everything — one alpha, no gradient stack.
+            drawCircle(
+                color = tone.copy(alpha = 0.08f + 0.06f * breathe),
+                radius = size.minDimension * 0.44f
+            )
+            when {
+                busy -> rotate(degrees = spin * 360f) {
+                    drawArc(
+                        color = tone,
+                        startAngle = -80f,
+                        sweepAngle = 300f,
+                        useCenter = false,
+                        topLeft = Offset(inset, inset),
+                        size = ring,
+                        style = Stroke(stroke, cap = StrokeCap.Round)
+                    )
+                }
+                connected -> drawArc(
+                    color = tone.copy(alpha = 0.70f + 0.30f * breathe),
+                    startAngle = 0f,
+                    sweepAngle = 360f,
+                    useCenter = false,
+                    topLeft = Offset(inset, inset),
+                    size = ring,
+                    style = Stroke(stroke, cap = StrokeCap.Round)
+                )
+                else -> rotate(degrees = slowSpin * 360f) {
+                    repeat(4) { index ->
+                        drawArc(
+                            color = tone.copy(alpha = 0.55f),
+                            startAngle = index * 90f,
+                            sweepAngle = 54f,
+                            useCenter = false,
+                            topLeft = Offset(inset, inset),
+                            size = ring,
+                            style = Stroke(stroke, cap = StrokeCap.Round)
+                        )
+                    }
+                }
+            }
+        }
+
+        // Core disc — flat solid tone, kinetic press.
+        Box(
+            modifier = Modifier
+                .size(86.dp)
+                .shadow(5.dp, CircleShape, spotColor = tone)
+                .clip(CircleShape)
+                .background(tone)
+                .kineticClickable(boundedShape = CircleShape) { actions.onToggleConnection() },
+            contentAlignment = Alignment.Center
+        ) {
+            HomeGlyphIcon(HomeGlyph.POWER, Color.White, Modifier.size(40.dp))
+        }
+    }
+}
 
 @Composable
 internal fun HomeThemeEmbossed(
@@ -2288,53 +2694,18 @@ internal fun HomeThemeEmbossed(
         // Top: Status Bar
         IosStatusWideCard(evidence, actions, repo)
 
-        // Center: Bold Embossed Circular Button
+        // Center: Orbital power core + caption (fixed height, never resizes with status text)
         Box(
-            modifier = Modifier
-                .padding(vertical = 4.dp),
+            modifier = Modifier.padding(vertical = 2.dp),
             contentAlignment = Alignment.Center
         ) {
-            val tone by animateColorAsState(
-                targetValue = when {
-                    evidence.connected -> Aether.Emerald
-                    evidence.connecting -> Aether.CyanBright
-                    else -> Aether.Cyan
-                },
-                label = "embossed-tone"
-            )
-
-            // Outer glowing ring
-            Box(
-                modifier = Modifier
-                    .size(100.dp)
-                    .clip(CircleShape)
-                    .background(tone.copy(alpha = 0.15f))
-                    .border(2.dp, tone.copy(alpha = 0.35f), CircleShape),
-                contentAlignment = Alignment.Center
-            ) {
-                // Inner 3D Embossed Button
-                Box(
-                    modifier = Modifier
-                        .size(82.dp)
-                        .clip(CircleShape)
-                        .background(
-                            Brush.linearGradient(
-                                colors = listOf(
-                                    tone,
-                                    tone.copy(alpha = 0.75f)
-                                ),
-                                start = Offset(0f, 0f),
-                                end = Offset(82f, 82f)
-                            )
-                        )
-                        .shadow(8.dp, CircleShape, spotColor = tone)
-                        .clickable { actions.onToggleConnection() },
-                    contentAlignment = Alignment.Center
-                ) {
-                    HomeGlyphIcon(HomeGlyph.POWER, Color.White, Modifier.size(40.dp))
-                }
-            }
+            OrbitalConnectControl(evidence = evidence, actions = actions)
         }
+        ConnectButtonCaption(
+            evidence = evidence,
+            tone = homeStateTone(evidence),
+            modifier = Modifier.padding(bottom = 2.dp)
+        )
 
         // Bottom: Server List Box
         IosServerListBox(
@@ -2375,15 +2746,15 @@ internal fun HomeThemeModular(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "Modular Studio",
+                text = Tr.now.modularStudioTitle,
                 color = Aether.Ink,
                 style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
             )
             Row(
                 modifier = Modifier
                     .clip(RoundedCornerShape(12.dp))
-                    .background(homeCloudInsetFill())
-                    .border(1.dp, homeCloudInsetBorder(), RoundedCornerShape(12.dp))
+                    .background(HomeCloud.Accent.copy(alpha = 0.12f))
+                    .border(1.dp, HomeCloud.Accent.copy(alpha = 0.30f), RoundedCornerShape(12.dp))
                     .clickable { customizeOpen = true }
                     .padding(horizontal = 10.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -2412,17 +2783,10 @@ internal fun HomeThemeModular(
                     when (settings.modularConnectStyle) {
                         "SLIDER" -> IosSlideToConnect(evidence, actions)
                         "EMBOSSED" -> {
+                            // The orbital dial takes the module with a fixed height, so flipping
+                            // the connect style never re-flows the modular column.
                             Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(68.dp)
-                                        .clip(CircleShape)
-                                        .background(if (evidence.connected) Aether.Emerald else Aether.Cyan)
-                                        .clickable { actions.onToggleConnection() },
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    HomeGlyphIcon(HomeGlyph.POWER, Color.White, Modifier.size(32.dp))
-                                }
+                                OrbitalConnectControl(evidence = evidence, actions = actions)
                             }
                         }
                         else -> IosSlideToConnect(evidence, actions)

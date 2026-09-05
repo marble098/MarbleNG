@@ -205,7 +205,15 @@ data class MarbleStrings(
     val homeOpenServers: String,
     val homeConnectedBadge: String,
     val homeSelectedBadge: String,
-    val homeProtocol: String
+    val homeProtocol: String,
+    // MARBLE_HOME_CLOUD_V141 — the Home server box speaks the active language everywhere:
+    // group menu entries, the copy affordance and the SOCKS standby line are product strings,
+    // not leftovers of the English draft.
+    val homeAllServers: String,
+    val homeManualGroup: String,
+    val copyAction: String,
+    val socksStandby: String,
+    val modularStudioTitle: String
 )
 
 private val EnglishStrings = MarbleStrings(
@@ -367,7 +375,12 @@ private val EnglishStrings = MarbleStrings(
     homeOpenServers = "Open Servers",
     homeConnectedBadge = "Connected",
     homeSelectedBadge = "Selected",
-    homeProtocol = "Protocol"
+    homeProtocol = "Protocol",
+    homeAllServers = "All servers",
+    homeManualGroup = "Manual",
+    copyAction = "Copy",
+    socksStandby = "Waiting for connection",
+    modularStudioTitle = "Modular Studio"
 )
 
 private val PersianStrings = MarbleStrings(
@@ -531,7 +544,12 @@ private val PersianStrings = MarbleStrings(
     homeOpenServers = "باز کردن سرورها",
     homeConnectedBadge = "متصل",
     homeSelectedBadge = "انتخاب‌شده",
-    homeProtocol = "پروتکل"
+    homeProtocol = "پروتکل",
+    homeAllServers = "همه سرورها",
+    homeManualGroup = "دستی",
+    copyAction = "کپی",
+    socksStandby = "در انتظار اتصال",
+    modularStudioTitle = "استودیوی ماژولار"
 )
 
 internal val LocalMarbleStrings = staticCompositionLocalOf { EnglishStrings }

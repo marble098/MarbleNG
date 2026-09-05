@@ -7769,7 +7769,22 @@ private fun SettingsSubPage(
     }
 }
 
-/** A hub card: one quiet glass surface holding a titled group of rows. */
+/**
+ * MARBLE_SETTINGS_ROW_TONE_V141 — the section tone every row inside a Settings card inherits.
+ *
+ * Settings rows used to be naked text on the card, so a page of switches read as one gray
+ * field with no hierarchy and no colour identity. Sections already carry a tone (the card
+ * title and its icon chip); this composition local hands that tone to every row inside the
+ * card without touching any of the dozens of call sites: each row draws a tone rail, and a
+ * checked row lights its hairline with the same hue.
+ */
+private val LocalSettingsSectionTone = compositionLocalOf { HomeCloud.Accent }
+
+/** The tone a Settings row should wear: its section's tone, falling back to the brand accent. */
+@Composable
+private fun settingsSectionTone(): Color = LocalSettingsSectionTone.current
+
+/** A hub card: one quiet opaque surface holding a titled group of rows. */
 @Composable
 private fun SettingsHubCard(
     title: String,
@@ -7783,8 +7798,11 @@ private fun SettingsHubCard(
         modifier = modifier
             .fillMaxWidth()
             .clip(shape)
-            .background(Aether.VoidElevated.copy(alpha = .92f))
-            .border(1.dp, tone.copy(alpha = .16f), shape)
+            // MARBLE_SETTINGS_OPAQUE_SURFACES_V141 — opaque fill: a 92% surface let the page
+            // gradient bleed through unevenly, the same translucent-stack defect the theme
+            // layer already banned for causing compositing bands.
+            .background(Aether.VoidElevated)
+            .border(1.dp, tone.copy(alpha = .18f), shape)
             .padding(start = 13.dp, end = 13.dp, top = 11.dp, bottom = 12.dp),
         verticalArrangement = Arrangement.spacedBy(9.dp)
     ) {
@@ -7808,14 +7826,18 @@ private fun SettingsHubCard(
                 )
             }
         }
-        content()
+        CompositionLocalProvider(LocalSettingsSectionTone provides tone) {
+            Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                content()
+            }
+        }
     }
 }
 
 /**
- * One navigable title on the hub: a light label, a one-line explanation, a small preview of the
- * thing it controls, and a chevron. The preview is the point — most settings should be recognizable
- * without opening them.
+ * One navigable title on the hub: a tone rail, a light label, a one-line explanation, a small
+ * preview of the thing it controls, and a chevron. The preview is the point — most settings
+ * should be recognizable without opening them.
  */
 @Composable
 private fun SettingsHubRow(
@@ -7830,11 +7852,16 @@ private fun SettingsHubRow(
         modifier = Modifier
             .fillMaxWidth()
             .clip(shape)
-            .background(Aether.Glass.copy(alpha = .45f))
+            // MARBLE_SETTINGS_ROW_TONE_V141 — opaque inset fill + the section's tone rail, so
+            // every hub row reads as its group's colour instead of floating gray text.
+            .background(homeCloudInsetFill())
+            .border(1.dp, homeCloudInsetBorder(), shape)
             .kineticClickable(role = Role.Button, boundedShape = shape, onClick = onClick)
             .padding(horizontal = 11.dp, vertical = 9.dp),
-        verticalAlignment = Alignment.CenterVertically
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
+        SettingsToneRail(tone = tone)
         Column(
             modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(2.dp)
@@ -7854,7 +7881,6 @@ private fun SettingsHubRow(
                 overflow = TextOverflow.Ellipsis
             )
         }
-        Spacer(Modifier.width(9.dp))
         Box(
             modifier = Modifier
                 .width(58.dp)
@@ -7863,7 +7889,6 @@ private fun SettingsHubRow(
         ) {
             preview()
         }
-        Spacer(Modifier.width(7.dp))
         HomeVectorIcon(HomeIcon.CHEVRON, tone.copy(alpha = .70f), Modifier.size(13.dp))
     }
 }
@@ -7876,14 +7901,24 @@ private fun SettingsHubSwitch(
     checked: Boolean,
     onChecked: (Boolean) -> Unit
 ) {
+    val tone = settingsSectionTone()
+    val shape = RoundedCornerShape(14.dp)
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .kineticClickable(role = Role.Checkbox, onClick = { onChecked(!checked) })
-            .padding(horizontal = 11.dp, vertical = 5.dp),
-        verticalAlignment = Alignment.CenterVertically
+            .clip(shape)
+            .background(homeCloudInsetFill())
+            .border(
+                1.dp,
+                if (checked) tone.copy(alpha = .34f) else homeCloudInsetBorder(),
+                shape
+            )
+            .kineticClickable(role = Role.Checkbox, boundedShape = shape, onClick = { onChecked(!checked) })
+            .padding(horizontal = 11.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
+        SettingsToneRail(tone = tone, lit = checked)
         Column(
             modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(1.dp)
@@ -7903,7 +7938,6 @@ private fun SettingsHubSwitch(
                 overflow = TextOverflow.Ellipsis
             )
         }
-        Spacer(Modifier.width(10.dp))
         Switch(
             checked = checked,
             onCheckedChange = onChecked,
@@ -7915,6 +7949,30 @@ private fun SettingsHubSwitch(
             )
         )
     }
+}
+
+/**
+ * MARBLE_SETTINGS_ROW_TONE_V141 — the colour rail of a Settings row: a 3 dp rounded bar in the
+ * section's tone that dims while the row is off and lights while it is on. It is what gives
+ * every row a colour identity without inventing an icon per row.
+ */
+@Composable
+private fun SettingsToneRail(
+    tone: Color,
+    lit: Boolean = true
+) {
+    val railAlpha by animateFloatAsState(
+        targetValue = if (lit) 1f else .38f,
+        animationSpec = MarbleMotionSpecs.ResponseFloat,
+        label = "settings-rail-alpha"
+    )
+    Box(
+        modifier = Modifier
+            .width(3.dp)
+            .height(26.dp)
+            .clip(RoundedCornerShape(2.dp))
+            .background(tone.copy(alpha = railAlpha))
+    )
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -9223,14 +9281,23 @@ private fun SettingsInformationPage(
 
 @Composable
 private fun InformationRow(label: String, value: String, tone: Color) {
+    // MARBLE_SETTINGS_ROW_TONE_V141 — same boxed row language as the rest of Settings.
+    val shape = RoundedCornerShape(13.dp)
     Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(homeCloudInsetFill())
+            .border(1.dp, homeCloudInsetBorder(), shape)
+            .padding(horizontal = 10.dp, vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
+        SettingsToneRail(tone = tone, lit = false)
         Text(
             trx(label),
-            color = Aether.InkMuted,
-            style = settingsBodyStyle(),
+            color = Aether.Ink,
+            style = settingsRowTitleStyle(),
             modifier = Modifier.weight(1f),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
@@ -9240,7 +9307,7 @@ private fun InformationRow(label: String, value: String, tone: Color) {
             value,
             color = tone,
             style = MaterialTheme.typography.labelMedium.copy(fontFamily = FontFamily.Monospace),
-            fontWeight = FontWeight.Medium,
+            fontWeight = FontWeight.Bold,
             maxLines = 1
         )
     }
@@ -9258,11 +9325,15 @@ private fun InformationLinkRow(
         modifier = Modifier
             .fillMaxWidth()
             .clip(shape)
-            .background(Aether.Glass.copy(alpha = .42f))
+            // MARBLE_SETTINGS_OPAQUE_SURFACES_V141 — opaque inset fill, never translucent glass.
+            .background(homeCloudInsetFill())
+            .border(1.dp, homeCloudInsetBorder(), shape)
             .kineticClickable(role = Role.Button, boundedShape = shape, onClick = onClick)
             .padding(horizontal = 11.dp, vertical = 9.dp),
-        verticalAlignment = Alignment.CenterVertically
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
+        SettingsToneRail(tone = tone)
         Column(
             modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(2.dp)
@@ -9282,7 +9353,6 @@ private fun InformationLinkRow(
                 overflow = TextOverflow.Ellipsis
             )
         }
-        Spacer(Modifier.width(8.dp))
         HomeVectorIcon(HomeIcon.GLOBE, tone, Modifier.size(16.dp))
     }
 }
@@ -9597,11 +9667,13 @@ private fun SettingsSectionCard(
 ) {
     // MARBLE_PRODUCT_SIMPLE_V117 — a calmer, more spacious card: a small tinted icon chip,
     // a compact title row, and air instead of a divider between header and options.
+    // MARBLE_SETTINGS_ROW_TONE_V141 — the section's colour is provided to every row inside,
+    // so the rows, their rails and their checked hairlines share the card's identity.
     PrismPanel(
         modifier=Modifier.fillMaxWidth(),
         accent=color,
         contentPadding=PaddingValues(16.dp),
-        verticalSpacing=MarbleSpacing.SM
+        verticalSpacing=MarbleSpacing.S
     ) {
         Row(
             modifier=Modifier.fillMaxWidth(),
@@ -9647,7 +9719,11 @@ private fun SettingsSectionCard(
 
         Spacer(Modifier.height(2.dp))
 
-        content()
+        CompositionLocalProvider(LocalSettingsSectionTone provides color) {
+            Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                content()
+            }
+        }
     }
 }
 
@@ -12537,18 +12613,27 @@ private fun SettingSwitch(
     debounceMs: Long = 300L,
     onChecked: (Boolean) -> Unit
 ) {
-    // MARBLE_PRODUCT_SIMPLE_V117 — a Marble-style plain row: no box, no dot, no border. Just
-    // label + optional one-line summary on the left, a compact switch on the right, and
-    // breathing room provided by the card's spacing.
+    // MARBLE_SETTINGS_ROW_TONE_V141 — a switch row is a real, coloured object now: an opaque
+    // inset surface, the section's tone rail on the leading edge, and a hairline that lights
+    // with the same tone the moment the row is on. The naked-text row the product shipped
+    // before had no hierarchy — a page of switches read as one gray field.
+    val tone = settingsSectionTone()
+    val shape = RoundedCornerShape(13.dp)
     var lastClickTime by remember { mutableLongStateOf(0L) }
 
     Row(
         modifier=Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
+            .clip(shape)
+            .background(homeCloudInsetFill())
+            .border(
+                1.dp,
+                if (checked) tone.copy(alpha = .34f) else homeCloudInsetBorder(),
+                shape
+            )
             .kineticClickable(
                 role = Role.Switch,
-                boundedShape = RoundedCornerShape(12.dp),
+                boundedShape = shape,
                 showIndication = false
             ) {
                 val now = System.currentTimeMillis()
@@ -12561,10 +12646,11 @@ private fun SettingSwitch(
                 contentDescription = "$title, switch ${if (checked) "on" else "off"}"
                 stateDescription = if (checked) "Enabled" else "Disabled"
             }
-            .padding(horizontal = 4.dp, vertical = 5.dp),
+            .padding(horizontal = 10.dp, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
+        SettingsToneRail(tone = tone, lit = checked)
         Column(
             Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(1.dp)
@@ -12604,19 +12690,31 @@ private fun NumberSetting(
     suffix: String = "",
     onValue: (Int) -> Unit
 ) {
+    // MARBLE_SETTINGS_ROW_TONE_V141 — the numeric stepper wears the same row language as the
+    // switches: opaque inset surface, tone rail, tone-lit value.
+    val tone = settingsSectionTone()
+    val shape = RoundedCornerShape(13.dp)
     // Stale or corrupted stored values must never render or step outside the legal range.
     val shown = value.coerceIn(range)
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 4.dp, vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically
+            .clip(shape)
+            .background(homeCloudInsetFill())
+            .border(1.dp, homeCloudInsetBorder(), shape)
+            .padding(horizontal = 10.dp, vertical = 5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
+        SettingsToneRail(tone = tone)
         Text(
             trx(title),
             color = Aether.Ink,
             style = MaterialTheme.typography.bodyMedium,
-            modifier = Modifier.weight(1f)
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier.weight(1f),
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis
         )
 
         PrismIconButton(
@@ -12630,7 +12728,7 @@ private fun NumberSetting(
 
         Text(
             "$shown${trx(suffix)}",
-            color = Aether.Cyan,
+            color = tone,
             style = MaterialTheme.typography.labelMedium.copy(
                 fontFamily = FontFamily.Monospace,
                 fontWeight = FontWeight.Bold
@@ -12641,12 +12739,12 @@ private fun NumberSetting(
 
         PrismIconButton(
             onClick = { onValue((shown + 1).coerceAtMost(range.last)) },
-            tone = Aether.Cyan,
+            tone = tone,
             selected = true,
             size = 30.dp,
             descriptiveLabel = "Increase $title"
         ) {
-            Text("+", color = Aether.Cyan, style = MaterialTheme.typography.bodyMedium)
+            Text("+", color = tone, style = MaterialTheme.typography.bodyMedium)
         }
     }
 }
