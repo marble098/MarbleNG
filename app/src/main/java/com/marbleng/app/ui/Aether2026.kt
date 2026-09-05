@@ -288,8 +288,8 @@ fun Aether2026App(
         if (!repo.busy && repo.message.isNotBlank()) repo.clearMessage()
     }
 
-    // MARBLE_SIGNATURE_HOME_V112 — one shared deck truth: the Home page, the app-wide Signature
-    // status banner and the floating connect button all read this exact evidence + action set.
+    // MARBLE_HOME_DECK_V143 — one shared deck truth: every Home presentation (and the Servers
+    // page wiring) reads this exact evidence + action set.
     val deck = rememberDeckEvidence(repo)
     val deckCopyIp = rememberCopyIpAction(repo, deck.evidence.ip)
 
@@ -309,6 +309,7 @@ fun Aether2026App(
         if (bitmap != null) repo.importQrBitmap(bitmap, libraryIntakeTarget(repo))
     }
     var deckQrSourceOpen by remember { mutableStateOf(false) }
+    var addRouteOpen by remember { mutableStateOf(false) }
 
     val deckActions = HomeActions(
         onToggleConnection = {
@@ -331,7 +332,9 @@ fun Aether2026App(
         onTestPing = { repo.measureHomePing() },
         onLibrary = { goToTab(SpatialTab.LIBRARY.ordinal) },
         onConnectProfile = { profile -> onConnect(profile) },
-        onAddRoute = { goToTab(SpatialTab.LIBRARY.ordinal) },
+        // MARBLE_HOME_ADD_MENU_V143 — `+` never imports from the clipboard by itself. It opens
+        // an explicit choice: paste from clipboard, scan a QR code, or browse the Servers page.
+        onAddRoute = { addRouteOpen = true },
         onRank = { repo.smartRank() },
         onPrivacy = {
             repo.audit()
@@ -475,26 +478,6 @@ fun Aether2026App(
                 }
             )
 
-            // MARBLE_SIGNATURE_HOME_V112 — the Signature status banner riding on top of every
-            // page (the Home-only scope renders inside the Signature Home itself). A slim strip
-            // with the live state, the selected server and the compact ping/uptime readout.
-            if (
-                repo.settings.proStatusBannerEnabled &&
-                parseProBannerScope(repo.settings.proBannerScope) == ProBannerScope.ALL
-            ) {
-                SignatureStatusBanner(
-                    evidence = deck.evidence,
-                    accent = signatureAccentColor(parseProAccent(repo.settings.proAccent)),
-                    tone = signatureStatusTone(deck.evidence, parseProAccent(repo.settings.proAccent)),
-                    onToggle = deckActions.onToggleConnection,
-                    modifier = Modifier
-                        .align(Alignment.TopCenter)
-                        .statusBarsPadding()
-                        .padding(horizontal = 14.dp)
-                        .widthIn(max = 560.dp)
-                )
-            }
-
             // MARBLE_HOME_REDESIGN_V132 — the QR entry of the Home shortcut deck. One entry,
             // two ways in: a live camera scan or a saved image.
             if (deckQrSourceOpen) {
@@ -542,18 +525,26 @@ fun Aether2026App(
                 )
             }
 
-            // MARBLE_SIGNATURE_HOME_V112 — the floating connect shutter: app-wide, draggable,
-            // v2rayNG-style. Tap toggles the connection; the dragged spot persists.
-            if (repo.settings.proFloatingButtonEnabled) {
-                SignatureFloatingConnectOverlay(
-                    evidence = deck.evidence,
-                    accent = signatureAccentColor(parseProAccent(repo.settings.proAccent)),
-                    startNx = repo.proFabPosition.first,
-                    startNy = repo.proFabPosition.second,
-                    onToggle = deckActions.onToggleConnection,
-                    onPositionSettled = { nx, ny -> repo.rememberProFabPosition(nx, ny) }
+            // MARBLE_HOME_ADD_MENU_V143 — the `+` shortcut is an explicit menu, never a hidden
+            // clipboard import + auto-connect. Adding a route is a deliberate act.
+            if (addRouteOpen) {
+                AddRouteMenuDialog(
+                    onDismiss = { addRouteOpen = false },
+                    onPaste = {
+                        addRouteOpen = false
+                        deckActions.onPasteImport()
+                    },
+                    onScan = {
+                        addRouteOpen = false
+                        deckQrSourceOpen = true
+                    },
+                    onLibrary = {
+                        addRouteOpen = false
+                        goToTab(SpatialTab.LIBRARY.ordinal)
+                    }
                 )
             }
+
         }
     }
 
@@ -669,6 +660,119 @@ fun Aether2026App(
                 }
             }
         )
+    }
+}
+
+/** MARBLE_HOME_ADD_MENU_V143 — the `+` action's explicit source chooser. */
+@Composable
+private fun AddRouteMenuDialog(
+    onDismiss: () -> Unit,
+    onPaste: () -> Unit,
+    onScan: () -> Unit,
+    onLibrary: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Aether.VoidElevated,
+        shape = ServersCardShape,
+        title = {
+            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(
+                    trx("Add a route"),
+                    color = Aether.Ink,
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    trx("Where should Marble import it from?"),
+                    color = Aether.InkMuted,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                AddRouteMenuOption(
+                    icon = HomeIcon.CLIPBOARD,
+                    title = trx("Paste from clipboard"),
+                    detail = trx("Add a copied config or subscription"),
+                    tone = Aether.Cyan,
+                    onClick = onPaste
+                )
+                AddRouteMenuOption(
+                    icon = HomeIcon.QR,
+                    title = trx("Scan a QR code"),
+                    detail = trx("Camera or a saved screenshot"),
+                    tone = Aether.Emerald,
+                    onClick = onScan
+                )
+                AddRouteMenuOption(
+                    icon = HomeIcon.LIBRARY,
+                    title = trx("Browse Servers"),
+                    detail = trx("Add manually or choose a subscription"),
+                    tone = Aether.Amethyst,
+                    onClick = onLibrary
+                )
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            MarbleDialogAction(
+                label = trx("Cancel"),
+                tone = Aether.InkMuted,
+                onClick = onDismiss
+            )
+        }
+    )
+}
+
+@Composable
+private fun AddRouteMenuOption(
+    icon: HomeIcon,
+    title: String,
+    detail: String,
+    tone: Color,
+    onClick: () -> Unit
+) {
+    val shape = RoundedCornerShape(14.dp)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(Aether.Glass.copy(alpha = .40f))
+            .border(1.dp, tone.copy(alpha = .26f), shape)
+            .kineticClickable(role = Role.Button, boundedShape = shape, onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(11.dp)
+    ) {
+        Box(
+            Modifier
+                .size(36.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(tone.copy(alpha = .12f)),
+            contentAlignment = Alignment.Center
+        ) {
+            HomeVectorIcon(icon, tone, Modifier.size(19.dp))
+        }
+        Column(Modifier.weight(1f)) {
+            Text(
+                title,
+                color = Aether.Ink,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                detail,
+                color = Aether.InkMuted,
+                style = MaterialTheme.typography.labelSmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        HomeVectorIcon(HomeIcon.CHEVRON, tone, Modifier.size(16.dp))
     }
 }
 
@@ -970,11 +1074,9 @@ private fun FloatingSpatialDock(
             glassFraction
         )
 
-        val highlightAlpha by animateFloatAsState(
-            targetValue = if (glass) 1f else 0f,
-            animationSpec = MarbleMotionSpecs.DockFloat,
-            label = "dock-highlight"
-        )
+        // MARBLE_DOCK_NO_WHITE_FLASH_V143 — the top sheen is completely gone. Even when the
+        // bar enters its glass state while scrolling, the AMOLED/light palettes no longer paint
+        // an ice-blue highlight edge across the dock, so no tap or scroll can ever flash white.
 
         // Depth is the only thing that changes size-wise while scrolling, and a shadow does not
         // move the surface itself, so the bar keeps its exact footprint on the screen.
@@ -1003,20 +1105,6 @@ private fun FloatingSpatialDock(
                 )
                 .clip(barShape)
                 .background(dockSurface)
-                .then(
-                    if (highlightAlpha > 0.01f) {
-                        Modifier.background(
-                            Brush.verticalGradient(
-                                listOf(
-                                    Aether.BarGlassHighlight.copy(
-                                        alpha = Aether.BarGlassHighlight.alpha * highlightAlpha
-                                    ),
-                                    Color.Transparent
-                                )
-                            )
-                        )
-                    } else Modifier
-                )
                 .border(
                     1.dp,
                     Aether.BarGlassBorder.copy(alpha = Aether.BarGlassBorder.alpha * borderAlpha),
@@ -2414,9 +2502,8 @@ private fun HomeQuickSettingRow(
 // =================================================================================================
 
 /**
- * MARBLE_SIGNATURE_HOME_V112 — the Home deck facts (selected profile + shared evidence) resolved
- * once per composition and shared by the Home page itself, the app-wide Signature status banner
- * and the floating connect button, so every surface can never disagree about the truth.
+ * The Home deck facts (selected profile + shared evidence) resolved once per composition and
+ * shared by every Home presentation, so no surface can ever disagree about the truth.
  */
 private class DeckEvidence(
     val profile: ProxyProfile?,
@@ -2459,10 +2546,9 @@ private fun CyberDeck(
     actions: HomeActions,
     onContentScrollChanged: (Boolean) -> Unit
 ) {
-    // MARBLE_HOME_STYLE_V110 / MARBLE_SIGNATURE_HOME_V112 — Home is one evidence model rendered
-    // by one of five presentations. The style is a pure presentation choice made in Settings (or
-    // in the Signature switcher); the runtime facts (node, source, IP + flag + 3 actions, session
-    // uptime, one-shot ping) are identical in all of them.
+    // MARBLE_HOME_STYLE_V110 — Home is one evidence model rendered by one of the four themes.
+    // The style is a pure presentation choice made in Settings; the runtime facts (node, source,
+    // IP + flag + 3 actions, session uptime, one-shot ping) are identical in all of them.
     val evidence = deck.evidence
     val active = deck.profile
     val connected = evidence.connected
@@ -2475,27 +2561,8 @@ private fun CyberDeck(
         }
     }
 
-    // One automatic measurement per session; every later measurement is user-initiated.
-    // MARBLE_HOME_PING_RESCUE_V112 — a first probe fired 1.8s after connect can land while the
-    // tunnel's TLS state is still cold (the same warm-up the live route monitor sees). That miss
-    // no longer freezes as "no response": exactly one bounded re-check follows, still inside the
-    // user's session and still never a repeating timer.
-    LaunchedEffect(repo.connectedSinceMs) {
-        if (repo.connectedSinceMs > 0L) {
-            delay(1_800)
-            if (repo.connectionPingState == ConnectionPingState.IDLE) repo.measureConnectionPing()
-            delay(2_200)
-            if (
-                repo.connectedSinceMs > 0L &&
-                repo.connectionPingState == ConnectionPingState.FAILED
-            ) {
-                repo.measureConnectionPing()
-            }
-        }
-    }
-
-    // The Signature studio configuration: every layer is an independent Settings choice.
-    val pro = rememberSignatureProContext(repo, deck)
+    // MARBLE_PING_USER_TAPPED_ONLY_V143 — Home never measures ping in the background. The value
+    // is refreshed only when the user taps the ping shortcut; nothing here re-arms a probe.
 
     // MARBLE_CONNECT_BUTTON_V121 — the chosen connection-button silhouette reaches every Home
     // presentation through one composition local, so each style renders the same button without
@@ -2509,7 +2576,6 @@ private fun CyberDeck(
                 evidence = evidence,
                 actions = actions,
                 bottomClearance = dockClearance(),
-                pro = pro,
                 // MARBLE_DOCK_SCROLL_ONLY_V123 — the Home page reports its own scrolling so the
                 // dock turns to glass exactly when content moves under it.
                 onScrollChanged = onContentScrollChanged,
@@ -2533,25 +2599,6 @@ private fun CyberDeck(
         }
     }
 }
-
-/**
- * MARBLE_SIGNATURE_HOME_V112 — resolves the Signature studio snapshot from the current settings.
- *
- * MARBLE_SIGNATURE_STUDIO_TRIM_V121 — the snapshot no longer carries a server rail or a style
- * switcher: routes are chosen on the Servers page and the presentation in Settings, so Home is a
- * single connection surface and this context is only the studio's own chrome.
- */
-@Composable
-@Suppress("UNUSED_PARAMETER")
-private fun rememberSignatureProContext(
-    repo: AppRepository,
-    deck: DeckEvidence
-): HomeProContext = HomeProContext(
-    showBanner = repo.settings.proStatusBannerEnabled,
-    showCornerActions = repo.settings.proCornerActionsEnabled,
-    shortcut = parseProShortcut(repo.settings.proShortcut),
-    accent = parseProAccent(repo.settings.proAccent)
-)
 
 @Composable
 @Suppress("UNUSED_PARAMETER")
@@ -7660,6 +7707,7 @@ private object SettingsPages {
     const val TYPEFACE = "typeface"
     const val LANGUAGE = "language"
     const val INFORMATION = "information"
+    const val ROUTING = "routing"
     private const val WORKSPACE = "workspace"
 
     fun workspace(tab: SettingsWorkspaceTab, focus: String? = null): String =
@@ -8475,25 +8523,6 @@ private fun SettingsThemePage(
                 }
             }
         }
-        SettingsHubCard(title = t.proAccentColor, tone = Aether.Emerald) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(5.dp)
-            ) {
-                ProAccent.entries.forEach { accent ->
-                    CyberSegment(
-                        label = accent.label,
-                        detail = "",
-                        selected = parseProAccent(repo.settings.proAccent) == accent,
-                        selectionTone = signatureAccentColor(accent),
-                        color = signatureAccentColor(accent),
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        repo.updateSettings(repo.settings.copy(proAccent = accent.id))
-                    }
-                }
-            }
-        }
     }
 }
 
@@ -8791,106 +8820,7 @@ private fun SettingsHomeStylePage(
                 }
             }
         }
-        // MARBLE_CONNECT_BUTTON_V121 — three connect buttons, one product decision.
-        //
-        // The old six-way picker mixed a meta choice ("Auto") with five decorations of the same
-        // circle, so five of the six looked identical on a phone. What is left are three genuinely
-        // different controls: the large round shutter (the product default), a slide-to-connect
-        // safety switch and the classic rectangular power switch.
-        // MARBLE_CONNECT_PLACEMENT_V123 — each silhouette renders in every Home presentation at
-        // the position its own metaphor deserves: the shutter centred in the hero, the slide
-        // track docked at the hero floor and the classic power bar docked beneath the instrument.
-        SettingsHubCard(
-            title = trx("Connect button"),
-            subtitle = trx("One control for every Home style"),
-            tone = Aether.Cyan
-        ) {
-            val chosen = parseConnectButtonStyle(repo.settings.connectButtonStyle)
-            Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                ConnectButtonStyle.entries.forEach { style ->
-                    val selected = chosen == style
-                    val shape = RoundedCornerShape(14.dp)
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(shape)
-                            .background(Aether.Glass.copy(alpha = .42f))
-                            .border(
-                                1.dp,
-                                if (selected) Aether.Cyan.copy(alpha = .58f)
-                                else Aether.GlassBorderSoft.copy(alpha = .5f),
-                                shape
-                            )
-                            .kineticClickable(role = Role.Button, boundedShape = shape) {
-                                repo.updateSettings(
-                                    repo.settings.copy(connectButtonStyle = style.id)
-                                )
-                            }
-                            .padding(horizontal = 12.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        SettingsConnectButtonMotif(
-                            style = style,
-                            tone = if (selected) Aether.Cyan else Aether.InkMuted,
-                            modifier = Modifier
-                                .width(54.dp)
-                                .height(34.dp)
-                        )
-                        Column(
-                            modifier = Modifier.weight(1f),
-                            verticalArrangement = Arrangement.spacedBy(1.dp)
-                        ) {
-                            Text(
-                                trx(connectButtonStyleLabel(style)),
-                                color = if (selected) Aether.Cyan else Aether.Ink,
-                                style = settingsRowTitleStyle(),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Text(
-                                trx(connectButtonStyleDetail(style)),
-                                color = Aether.InkFaint,
-                                style = settingsBodyStyle(),
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                        Box(
-                            Modifier
-                                .size(9.dp)
-                                .clip(CircleShape)
-                                .background(
-                                    if (selected) Aether.Cyan
-                                    else Aether.InkFaint.copy(alpha = .30f)
-                                )
-                        )
-                    }
-                }
-            }
-        }
     }
-}
-
-/**
- * MARBLE_CONNECT_BUTTON_V121 — the name of each connection control.
- * MARBLE_HOME_V137 — the three hero styles read as Classic / Swipe / Floating; the stream bar
- * and the classic power switch stay as full alternatives. Same VPN logic behind all five.
- */
-private fun connectButtonStyleLabel(style: ConnectButtonStyle): String = when (style) {
-    ConnectButtonStyle.ROUND -> "Classic"
-    ConnectButtonStyle.SLIDE -> "Swipe to connect"
-    ConnectButtonStyle.CLASSIC -> "Classic switch"
-    ConnectButtonStyle.STREAM -> "Stream bar"
-    ConnectButtonStyle.FLOATING -> "Floating button"
-}
-
-private fun connectButtonStyleDetail(style: ConnectButtonStyle): String = when (style) {
-    ConnectButtonStyle.ROUND -> "Large round power button, centred in the hero (default)"
-    ConnectButtonStyle.SLIDE -> "Bottom drag track with threshold, haptics and spring-back"
-    ConnectButtonStyle.CLASSIC -> "Classic power bar, docked under the instrument"
-    ConnectButtonStyle.STREAM -> "Full-width bar at the page floor with a light band moving right to left"
-    ConnectButtonStyle.FLOATING -> "Circular v2rayNG-style button pinned to the bottom corner"
 }
 
 /**
@@ -9386,6 +9316,7 @@ private fun SpatialSettings(
     val typefaceListState = rememberLazyListState()
     val languageListState = rememberLazyListState()
     val informationListState = rememberLazyListState()
+    val routingListState = rememberLazyListState()
     // One scroll state per workspace tab; only the active tab's is shown at a time.
     val workspaceListStates = remember {
         SettingsWorkspaceTab.entries.associateWith { LazyListState() }
@@ -9398,10 +9329,10 @@ private fun SpatialSettings(
         repo.rememberSettingsPage(page)
     }
 
-    // A deep link from Home ("Routing") still lands directly on the right workspace.
+    // A deep link from Home ("Routing") lands directly on the dedicated Routing page.
     LaunchedEffect(focusSection) {
         if (focusSection == "Routing") {
-            page = SettingsPages.workspace(SettingsWorkspaceTab.NETWORK, "Routing")
+            page = SettingsPages.ROUTING
         }
     }
 
@@ -9437,7 +9368,8 @@ private fun SpatialSettings(
                 tab = SettingsPages.workspaceTab(target),
                 focusSection = SettingsPages.workspaceFocus(target),
                 listState = workspaceListState(SettingsPages.workspaceTab(target)),
-                onBack = { page = SettingsPages.HUB }
+                onBack = { page = SettingsPages.HUB },
+                onNavigate = { page = it }
             )
 
             target == SettingsPages.THEME -> SettingsThemePage(
@@ -9466,6 +9398,13 @@ private fun SpatialSettings(
                     onBack = { page = SettingsPages.HUB }
                 )
 
+            target == SettingsPages.ROUTING ->
+                SettingsRoutingPage(
+                    repo = repo,
+                    listState = routingListState,
+                    onBack = { page = SettingsPages.HUB }
+                )
+
             else -> SettingsInformationPage(
                 repo = repo,
                 listState = informationListState,
@@ -9486,10 +9425,11 @@ private fun SettingsTabPage(
     repo: AppRepository,
     tab: SettingsWorkspaceTab,
     onBack: () -> Unit,
+    onNavigate: (String) -> Unit = {},
     focusSection: String? = null,
     listState: LazyListState = rememberLazyListState()
 ) {
-    val sections = settingsSections(tab, repo, repo.settings.expertMode, focusSection)
+    val sections = settingsSections(tab, repo, repo.settings.expertMode, focusSection, onNavigate)
     SettingsSubPage(
         title = settingsTabPageTitle(tab),
         subtitle = settingsTabPageSubtitle(tab),
@@ -9562,7 +9502,8 @@ private fun settingsSections(
     tab: SettingsWorkspaceTab,
     repo: AppRepository,
     expertMode: Boolean,
-    focusSection: String?
+    focusSection: String?,
+    onNavigate: (String) -> Unit = {}
 ): List<SettingsSectionSpec> {
     fun card(
         title: String,
@@ -9572,16 +9513,8 @@ private fun settingsSections(
         content: @Composable () -> Unit
     ): SettingsSectionSpec = SettingsSectionSpec(title, subtitle, icon, color, content)
 
-    val routingFocused = focusSection == "Routing"
-
     return when (tab) {
         SettingsWorkspaceTab.GENERAL -> listOf(
-            card(
-                "Signature studio",
-                "Home layers that live nowhere else",
-                HomeIcon.MODE,
-                Aether.Cyan
-            ) { SignatureStudioSettings(repo) },
             card("Connection","Tunnel, proxy, port",HomeIcon.TUNNEL,Aether.Cyan) { ConnectionSettings(repo) },
             card("Subscriptions","Refresh & sources",HomeIcon.LIBRARY,Aether.Amethyst) { SubscriptionSettings(repo) }
         )
@@ -9605,17 +9538,16 @@ private fun settingsSections(
                 ) { repo.updateSettings(repo.settings.copy(identityGuardEnabled = it)) }
             }
         )
-        SettingsWorkspaceTab.NETWORK -> buildList {
-            if(routingFocused) {
-                add(card("Routing","Geo assets & rules",HomeIcon.ROUTING,Aether.Emerald) { RoutingSettings(repo) })
-            }
-            add(card("DNS","TUN & DoH",HomeIcon.NETWORK,Aether.Cyan) { DnsSettings(repo) })
-            if(!routingFocused) {
-                add(card("Routing","Geo assets & rules",HomeIcon.ROUTING,Aether.Emerald) { RoutingSettings(repo) })
-            }
+        SettingsWorkspaceTab.NETWORK -> listOf(
+            // Routing now lives on its own dedicated page (MARBLE_ROUTING_SEPARATE_V143).
+            // This card is only the entry point; the full rules workspace is one tap away.
+            card("Routing","Open the dedicated routing workspace",HomeIcon.ROUTING,Aether.Emerald) {
+                RoutingEntryCard(repo) { onNavigate(SettingsPages.ROUTING) }
+            },
+            card("DNS","TUN & DoH",HomeIcon.NETWORK,Aether.Cyan) { DnsSettings(repo) },
             // Per-app proxy moved into Network & Routing — no standalone section, no hub card.
-            add(card("Per-app proxy","Tunnel or bypass per app",HomeIcon.PRIVACY,Aether.Emerald) { SplitTunnelSettings(repo) })
-        }
+            card("Per-app proxy","Tunnel or bypass per app",HomeIcon.PRIVACY,Aether.Emerald) { SplitTunnelSettings(repo) }
+        )
         SettingsWorkspaceTab.ENGINE -> listOf(
             card("Fragment & Mux","DPI resilience",HomeIcon.SPARK,Aether.Amber) { FragmentMuxSettings(repo) }
         )
@@ -9744,109 +9676,6 @@ private fun homeStyleDetail(style: HomeStyle): String = when (style) {
     HomeStyle.IOS_MODULAR -> Tr.now.styleIosModularDetail
 }
 
-/**
- * MARBLE_NO_DUPLICATES_V116 — the Signature studio layers that live nowhere else in Settings.
- * Theme, Home style, Typeface and Language all have their own hub pages, so the old combined
- * Appearance block that repeated every one of them is gone. What remains here is the studio
- * configuration only its own page can own: the floating button, the status banner and the corner
- * action cluster.
- *
- * MARBLE_SIGNATURE_STUDIO_TRIM_V121 — the server rail and the style switcher were removed from
- * Home, so their switches are gone from here too.
- */
-@Composable
-private fun SignatureStudioSettings(repo: AppRepository) {
-    val t = Tr.now
-
-    // MARBLE_SIGNATURE_HOME_V112 — the studio customization surface. Every layer of the
-    // professional Home is an independent user choice, mirrored live on the Home screen.
-    SectionLabel(t.proStudioTitle)
-    Text(
-        t.proStudioDetail,
-        color = Aether.InkMuted,
-        style = MaterialTheme.typography.bodySmall
-    )
-    SettingSwitch(
-        title = t.proFloatingButton,
-        subtitle = t.proFloatingButtonDetail,
-        checked = repo.settings.proFloatingButtonEnabled,
-        onChecked = { enabled ->
-            repo.updateSettings(repo.settings.copy(proFloatingButtonEnabled = enabled))
-        }
-    )
-    SettingSwitch(
-        title = t.proStatusBanner,
-        subtitle = t.proStatusBannerDetail,
-        checked = repo.settings.proStatusBannerEnabled,
-        onChecked = { enabled ->
-            repo.updateSettings(repo.settings.copy(proStatusBannerEnabled = enabled))
-        }
-    )
-    if (repo.settings.proStatusBannerEnabled) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            ProBannerScope.entries.forEach { scope ->
-                CyberSegment(
-                    label = if (scope == ProBannerScope.HOME) "Home only" else "All pages",
-                    detail = "",
-                    selected = parseProBannerScope(repo.settings.proBannerScope) == scope,
-                    color = Aether.Cyan,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    repo.updateSettings(repo.settings.copy(proBannerScope = scope.id))
-                }
-            }
-        }
-    }
-    SettingSwitch(
-        title = t.proCornerActions,
-        subtitle = t.proCornerActionsDetail,
-        checked = repo.settings.proCornerActionsEnabled,
-        onChecked = { enabled ->
-            repo.updateSettings(repo.settings.copy(proCornerActionsEnabled = enabled))
-        }
-    )
-    if (repo.settings.proCornerActionsEnabled) {
-        Text(
-            t.proShortcut,
-            color = Aether.InkFaint,
-            style = MaterialTheme.typography.labelSmall,
-            fontWeight = FontWeight.Bold
-        )
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(5.dp)
-        ) {
-            ProShortcut.entries.forEach { shortcut ->
-                CyberSegment(
-                    label = when (shortcut) {
-                        ProShortcut.LIBRARY -> t.proShortcutLibrary
-                        ProShortcut.RANK -> t.proShortcutRank
-                        ProShortcut.PRIVACY -> t.proShortcutPrivacy
-                        ProShortcut.ROUTING -> t.proShortcutRouting
-                        ProShortcut.TESTS -> t.proShortcutTests
-                    },
-                    detail = "",
-                    selected = parseProShortcut(repo.settings.proShortcut) == shortcut,
-                    color = Aether.Emerald,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    repo.updateSettings(repo.settings.copy(proShortcut = shortcut.id))
-                }
-            }
-        }
-    }
-    // Theme, Home style, Typeface and Language live on the hub's dedicated pages; repeating them
-    // here was exactly the duplicate settings the product owner rejected.
-    Text(
-        trx("Theme, Home style, Typeface and Language live under Appearance on the Settings hub."),
-        color = Aether.InkFaint,
-        style = MaterialTheme.typography.bodySmall
-    )
-}
-
 @Composable
 private fun ConnectionSettings(repo: AppRepository) {
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -9908,11 +9737,34 @@ private fun IntelligenceSettings(repo: AppRepository) {
 
     Text(status.lastDecision, color = Aether.InkMuted, style = MaterialTheme.typography.bodySmall)
 
-    SettingSwitch(
-        title = "Marble Intelligence Engine",
-        subtitle = "Adaptive per-network policies",
-        checked = s.intelligenceEnabled
-    ) { repo.updateSettings(s.copy(intelligenceEnabled = it)) }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(13.dp))
+            .background(homeCloudInsetFill())
+            .border(1.dp, Aether.Emerald.copy(alpha = .20f), RoundedCornerShape(13.dp))
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(
+                "Marble Intelligence Engine",
+                color = Aether.Ink,
+                style = settingsRowTitleStyle(),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                "Always active • adaptive MTU, Mux, fragment and route policies",
+                color = Aether.InkMuted,
+                style = MaterialTheme.typography.labelSmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        HoloBadge("ON", Aether.Emerald, compact = true)
+    }
 
     SettingSwitch(
         title = "Maximum config compatibility",
@@ -10998,6 +10850,81 @@ private fun RoutingAssetCard(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
+    }
+}
+
+/** Network workspace entry point into the dedicated Routing page. */
+@Composable
+private fun RoutingEntryCard(
+    repo: AppRepository,
+    onOpen: () -> Unit
+) {
+    val s = repo.settings
+    val shape = RoundedCornerShape(14.dp)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(homeCloudInsetFill())
+            .border(1.dp, homeCloudInsetBorder(), shape)
+            .kineticClickable(role = Role.Button, boundedShape = shape, onClick = onOpen)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Box(
+            Modifier
+                .size(34.dp)
+                .clip(RoundedCornerShape(11.dp))
+                .background(Aether.Emerald.copy(alpha = .12f)),
+            contentAlignment = Alignment.Center
+        ) {
+            HomeVectorIcon(HomeIcon.ROUTING, Aether.Emerald, Modifier.size(18.dp))
+        }
+        Column(Modifier.weight(1f)) {
+            Text(
+                trx("Open routing workspace"),
+                color = Aether.Ink,
+                style = settingsRowTitleStyle(),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                if (s.customRoutingEnabled) {
+                    trx("Custom routing is ON")
+                } else {
+                    trx("Custom routing is off • tap to enable")
+                },
+                color = if (s.customRoutingEnabled) Aether.Emerald else Aether.InkMuted,
+                style = MaterialTheme.typography.labelSmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        HomeVectorIcon(HomeIcon.MORE, Aether.Emerald, Modifier.size(16.dp))
+    }
+}
+
+/** The dedicated routing page: the whole routing workspace lives here, not squeezed into Network. */
+@Composable
+private fun SettingsRoutingPage(
+    repo: AppRepository,
+    onBack: () -> Unit,
+    listState: LazyListState = rememberLazyListState()
+) {
+    SettingsSubPage(
+        title = trx("Routing"),
+        subtitle = trx("Geo assets, rules, presets and the rule simulator"),
+        onBack = onBack,
+        listState = listState
+    ) {
+        SettingsHubCard(
+            title = trx("Routing"),
+            subtitle = trx("Configure exactly which traffic leaves through the tunnel"),
+            tone = Aether.Emerald
+        ) {
+            RoutingSettings(repo)
+        }
     }
 }
 

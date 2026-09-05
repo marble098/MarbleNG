@@ -69,6 +69,33 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Show SOCKS pill" to "نمایش پروکسی SOCKS",
     "Show quick shortcuts" to "نمایش میان‌برها",
     "Widgets Order" to "ترتیب ابزارک‌ها",
+    "Add a route" to "افزودن مسیر",
+    "Where should Marble import it from?" to "ماربل از کجا وارد کند؟",
+    "Paste from clipboard" to "چسباندن از کلیپ‌بورد",
+    "Scan a QR code" to "اسکن کد QR",
+    "Browse Servers" to "مرور سرورها",
+    "Add a copied config or subscription" to "افزودن کانفیگ یا اشتراک",
+    "Camera or a saved screenshot" to "دوربین یا تصویر ذخیره‌شده",
+    "Add manually or choose a subscription" to "افزودن دستی یا انتخاب اشتراک",
+    "Card size" to "اندازه کارت‌ها",
+    "Custom height" to "ارتفاع دلخواه",
+    "Compact" to "جمع‌وجور",
+    "Comfortable" to "مناسب",
+    "Spacious" to "باز",
+    "Small" to "کوچک",
+    "Medium" to "متوسط",
+    "Large" to "بزرگ",
+    "Round" to "گرد",
+    "Reorder the widget, pick the connect shape and resize the cards." to
+        "ترتیب ابزارک‌ها را تغییر دهید، شکل دکمه اتصال را انتخاب کنید و اندازه کارت‌ها را تنظیم کنید.",
+    "Open routing workspace" to "بازکردن فضای مسیریابی",
+    "Custom routing is ON" to "مسیریابی سفارشی روشن است",
+    "Custom routing is off • tap to enable" to "مسیریابی سفارشی خاموش است • برای فعال‌سازی بزنید",
+    "Geo assets, rules, presets and the rule simulator" to
+        "فایل‌های جغرافیایی، قوانین، قالب‌های آماده و شبیه‌ساز قانون",
+    "Configure exactly which traffic leaves through the tunnel" to
+        "مشخص کنید دقیقاً کدام ترافیک از تونل عبور کند",
+    "Connect button" to "دکمه اتصال",
 
     // ------------------------------------------------------------------ navigation & common verbs
     "Home" to "خانه",
@@ -190,12 +217,8 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Amber" to "کهربایی",
     "Ice" to "یخی",
     "Manual" to "دستی",
-    "Signature" to "سیگنچر",
-    "Pro studio" to "استودیو حرفه‌ای",
     "System font" to "فونت سیستم",
     "Add server" to "افزودن سرور",
-    "Shortcut" to "میان‌بر",
-    "Status banner" to "بنر وضعیت",
     "General" to "عمومی",
     "Tests" to "تست‌ها",
     "Engine" to "موتور",
@@ -869,8 +892,6 @@ private val FaLexicon: Map<String, String> = mapOf(
         "فارسی همیشه با وزیرمتن نوشته می‌شود، هر قلم لاتینی که انتخاب کنید.",
     "The Persian choice is written in Persian and always rendered with Vazirmatn." to
         "گزینه فارسی به خط فارسی نوشته می‌شود و همیشه با وزیرمتن نمایش داده می‌شود.",
-    "Every layer of the Signature studio is customizable under General." to
-        "هر لایه از استودیوی سیگنچر در بخش عمومی قابل شخصی‌سازی است.",
 
     // The Information page: real versions and links that open the browser directly.
     "Versions" to "نسخه‌ها",

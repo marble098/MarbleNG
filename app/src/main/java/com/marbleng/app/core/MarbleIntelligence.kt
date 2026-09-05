@@ -1668,10 +1668,9 @@ class MarbleIntelligence(private val context: Context) {
         settings: AppSettings,
         evidenceScale: Double = 1.0
     ): Double {
-        if (
-            !settings.intelligenceEnabled ||
-            !settings.healthHistoryEnabled
-        ) {
+        // Marble Intelligence is permanently active. Health history remains a user-selectable
+        // data source: when it is off the predictor simply has no records to work from.
+        if (!settings.healthHistoryEnabled) {
             return 50.0
         }
 
@@ -1921,7 +1920,7 @@ class MarbleIntelligence(private val context: Context) {
         profiles: List<ProxyProfile>,
         settings: AppSettings
     ): List<ProxyProfile> {
-        if (!settings.intelligenceEnabled || profiles.isEmpty()) {
+        if (profiles.isEmpty()) {
             return profiles
         }
 

@@ -1017,7 +1017,9 @@ fun resetTelemetry() {
     fun updateSettings(v: AppSettings) {
         val debugChanged = settings.debugModeEnabled != v.debugModeEnabled
         val updateChecksWereEnabled = settings.appUpdateCheckEnabled
-        settings = v
+        // MARBLE_INTELLIGENCE_ALWAYS_ON_V143 — Marble Intelligence is a permanent product
+        // contract. No caller, screen or stored preference may switch it off.
+        settings = v.copy(intelligenceEnabled = true)
         if (!v.appUpdateCheckEnabled) {
             postToMain { availableUpdate = null }
         } else if (!updateChecksWereEnabled) {
@@ -2781,7 +2783,7 @@ private fun postToMain(block: () -> Unit) {
             message = "Marble Turbo needs an active connection"
             return
         }
-        if (!settings.intelligenceEnabled || !settings.connectTuningEnabled) {
+        if (!settings.connectTuningEnabled) {
             message = "Marble Turbo is switched off in Settings → Engine"
             return
         }
