@@ -164,18 +164,6 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         store.setLastSettingsPage(normalized)
     }
 
-    // MARBLE_SIGNATURE_HOME_V112 — the floating connect button's dragged spot, stored as
-    // normalized viewport fractions so it survives restarts on any screen size.
-    var proFabPosition by mutableStateOf(store.proFabPosition())
-        private set
-
-    fun rememberProFabPosition(nx: Float, ny: Float) {
-        val clamped = nx.coerceIn(0.05f, 0.95f) to ny.coerceIn(0.12f, 0.80f)
-        if (proFabPosition == clamped) return
-        proFabPosition = clamped
-        store.setProFabPosition(clamped.first, clamped.second)
-    }
-
     /** Public diagnostics hook for UI-level tripwires (e.g. the Settings viewport fallback). */
     fun diagnosticsEvent(component: String, event: String, vararg fields: Pair<String, Any?>) {
         diagnostics.event(component, event, *fields)
@@ -1017,7 +1005,9 @@ fun resetTelemetry() {
     fun updateSettings(v: AppSettings) {
         val debugChanged = settings.debugModeEnabled != v.debugModeEnabled
         val updateChecksWereEnabled = settings.appUpdateCheckEnabled
-        settings = v
+        // MARBLE_INTELLIGENCE_ALWAYS_ON_V143 — Marble Intelligence is a permanent product
+        // contract. No caller, screen or stored preference may switch it off.
+        settings = v.copy(intelligenceEnabled = true)
         if (!v.appUpdateCheckEnabled) {
             postToMain { availableUpdate = null }
         } else if (!updateChecksWereEnabled) {
@@ -2781,7 +2771,7 @@ private fun postToMain(block: () -> Unit) {
             message = "Marble Turbo needs an active connection"
             return
         }
-        if (!settings.intelligenceEnabled || !settings.connectTuningEnabled) {
+        if (!settings.connectTuningEnabled) {
             message = "Marble Turbo is switched off in Settings → Engine"
             return
         }

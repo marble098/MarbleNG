@@ -5,17 +5,11 @@ import com.marbleng.app.model.AppLanguage
 import com.marbleng.app.model.ConnectButtonStyle
 import com.marbleng.app.model.DarkOutlineStyle
 import com.marbleng.app.model.HomeStyle
-import com.marbleng.app.model.ProAccent
-import com.marbleng.app.model.ProBannerScope
-import com.marbleng.app.model.ProShortcut
 import com.marbleng.app.model.parseConnectButtonStyle
 import com.marbleng.app.model.parseAppFont
 import com.marbleng.app.model.parseAppLanguage
 import com.marbleng.app.model.parseDarkOutlineStyle
 import com.marbleng.app.model.parseHomeStyle
-import com.marbleng.app.model.parseProAccent
-import com.marbleng.app.model.parseProBannerScope
-import com.marbleng.app.model.parseProShortcut
 import java.util.Locale
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -124,24 +118,6 @@ class MarbleHomeStyleTest {
     }
 
     @Test
-    fun everySignatureCustomizationRoundTrips() {
-        ProAccent.entries.forEach { accent ->
-            assertEquals(accent, parseProAccent(accent.id))
-        }
-        assertEquals(ProAccent.ELECTRIC, parseProAccent("junk"))
-
-        ProBannerScope.entries.forEach { scope ->
-            assertEquals(scope, parseProBannerScope(scope.id))
-        }
-        assertEquals(ProBannerScope.HOME, parseProBannerScope("junk"))
-
-        ProShortcut.entries.forEach { shortcut ->
-            assertEquals(shortcut, parseProShortcut(shortcut.id))
-        }
-        assertEquals(ProShortcut.LIBRARY, parseProShortcut("junk"))
-    }
-
-    @Test
     fun retiredHomeStylesFallBackToTheDefaultPresentation() {
         assertEquals(4, HomeStyle.entries.size)
         listOf("parametric", "bioluminescent", "PARAMETRIC", "BIOLUMINESCENT").forEach { legacy ->
@@ -178,11 +154,5 @@ class MarbleHomeStyleTest {
             assertEquals(style, parseDarkOutlineStyle(style.id))
         }
         assertEquals(DarkOutlineStyle.SUBTLE, parseDarkOutlineStyle("junk"))
-    }
-
-    @Test
-    fun signatureAccentResolvesToDistinctColors() {
-        val colors = ProAccent.entries.map(::signatureAccentColor)
-        assertEquals("every accent must be unique", colors.size, colors.distinct().size)
     }
 }

@@ -53,8 +53,6 @@ files = {
     "homeStyles": read("app/src/main/java/com/marbleng/app/ui/MarbleHomeStyles.kt"),
     "strings": read("app/src/main/java/com/marbleng/app/ui/MarbleStrings.kt"),
     "marbleApp": read("app/src/main/java/com/marbleng/app/ui/MarbleApp.kt"),
-    "signature": read("app/src/main/java/com/marbleng/app/ui/MarbleSignatureHome.kt"),
-    "homeV137": read("app/src/main/java/com/marbleng/app/ui/MarbleHomeV137.kt"),
     "homeStudio": read("app/src/main/java/com/marbleng/app/ui/MarbleHomeStudio.kt"),
     "connectPlacement": read("app/src/main/java/com/marbleng/app/ui/MarbleConnectPlacement.kt"),
     "tile": read("app/src/main/java/com/marbleng/app/quicktile/MarbleQuickTileService.kt"),
@@ -163,7 +161,7 @@ check(
     all(
         style not in blob
         for style in retired_home_styles
-        for blob in (files["models"], files["homeStyles"], files["signature"], files["ui"])
+        for blob in (files["models"], files["homeStyles"], files["ui"])
     ),
 )
 check(
@@ -226,52 +224,41 @@ check(
     and "HomeStyleSurface(" in files["ui"]
     and "HomeStyleSurface(" in files["homeStyles"],
 )
+# MARBLE_SIGNATURE_STUDIO_REMOVED_V143 — the Signature studio product surface is gone from every
+# layer: no UI file, no model type, no persisted setting, no composer wiring, no translation.
 check(
-    "Signature studio settings persist and reach the surface",
-    "proFloatingButtonEnabled" in files["store"]
-    and "proStatusBannerEnabled" in files["store"]
-    and "proCornerActionsEnabled" in files["store"]
-    and "proAccent" in files["store"]
-    and "proShortcut" in files["store"]
-    and "rememberSignatureProContext(" in files["ui"],
+    "Signature studio surface and settings are fully removed",
+    "SignatureFloatingConnectOverlay(" not in files["ui"]
+    and "SignatureStatusBanner(" not in files["ui"]
+    and "SignatureCornerCluster(" not in files["ui"]
+    and "HomeProContext" not in files["homeStyles"]
+    and "rememberSignatureProContext(" not in files["ui"]
+    and "ProAccent" not in files["models"]
+    and "ProBannerScope" not in files["models"]
+    and "ProShortcut" not in files["models"]
+    and "proFloatingButtonEnabled" not in files["store"]
+    and "proStatusBannerEnabled" not in files["store"]
+    and "proCornerActionsEnabled" not in files["store"]
+    and "proBannerScope" not in files["store"]
+    and "proAccent" not in files["store"]
+    and "proShortcut" not in files["store"],
 )
-# MARBLE_SIGNATURE_STUDIO_TRIM_V121 — Home carries no style switcher or server-card setting:
-# the presentation is chosen in Settings, never on the Home page itself.
-# MARBLE_HOME_V137 — the trim's server-rail ban is superseded by the synced server deck: Home
-# renders the Servers group through the same selection state (not a second rail with second
-# state), so group switching updates both pages at once.
-check(
-    "Signature floating button, banner and corner cluster exist",
-    "SignatureFloatingConnectOverlay(" in files["ui"]
-    and "SignatureStatusBanner(" in files["ui"]
-    and "SignatureCornerCluster(" in files["signature"]
-    and "SignatureFloatingConnectOverlay(" in files["signature"],
-)
+# Home carries no legacy Signature swppers or server-card settings; the presentation is chosen
+# in Settings and server selection stays shared between Home and the Servers page.
 check(
     "Home carries no style switcher or server-card setting",
-    "SignatureStyleSwitcher" not in files["signature"]
+    "SignatureStyleSwitcher" not in files["ui"]
     and "ProServerCardStyle" not in files["models"]
     and "proServerRailEnabled" not in files["store"]
     and "proStyleSwitcherEnabled" not in files["store"],
 )
 check(
-    "Home server deck is synced with the Servers group, not a second rail",
-    "HomeServerDeckV137(" in files["homeV137"]
-    and "HomeServerDeckV137(" in files["signature"]
-    and "librarySourceFilter" in files["homeV137"]
-    and "ServersQuery.visible(" in files["homeV137"]
-    and "selectProfile(" in files["homeV137"]
-    and "SignatureServerRail" not in files["signature"]
-    and "SignatureServerRail" not in files["homeV137"],
-)
-check(
-    "Home V137 hierarchy is shortcuts, banner, deck, control, live ping",
-    "HomeShortcutRowV137(" in files["homeV137"]
-    and "HomeStatusBannerV137(" in files["homeV137"]
-    and "HomeLivePingPanelV137(" in files["homeV137"]
-    and "HomeShortcutRowV137(" in files["signature"]
-    and "HomeStatusBannerV137(" in files["signature"]
-    and "HomeLivePingPanelV137(" in files["signature"],
+    "Home server list is synced with the Servers group, not a second rail",
+    "IosServerListBox(" in files["homeStyles"]
+    and "ServersQuery.visible(" in files["homeStyles"]
+    and "librarySourceFilter" in files["homeStyles"]
+    and "selectProfile(" in files["homeStyles"]
+    and "SignatureServerRail" not in files["homeStyles"],
 )
 check(
     "selected-server endpoint ping is one-shot with failure kinds",
@@ -287,10 +274,10 @@ check(
     and "bottom-end" in files["connectPlacement"],
 )
 check(
-    "floating button position persists as normalized fractions",
-    "proFabPosition" in files["repo"]
-    and "setProFabPosition" in files["store"]
-    and "rememberProFabPosition" in files["ui"],
+    "dragged Signature floating-button position state is gone",
+    "rememberProFabPosition" not in files["repo"]
+    and "setProFabPosition" not in files["store"]
+    and "proFabPosition" not in files["repo"],
 )
 check(
     "Home evidence is shared by deck, banner and floating button",
@@ -306,18 +293,19 @@ check(
     and "SocksHttpClient.get(" in files["repo"]
     and "home-connection-ping" in files["repo"],
 )
+# MARBLE_PING_USER_TAPPED_ONLY_V143 — ping is a one-shot user action. The bounded ladder still
+# lives in the repository; the UI never arms a background probe.
 check(
     "cold-tunnel ping miss gets exactly one bounded re-check",
-    "MARBLE_HOME_PING_RESCUE_V112" in files["ui"]
-    and "MARBLE_HOME_PING_RESCUE_V112" in files["repo"],
+    "MARBLE_HOME_PING_RESCUE_V112" in files["repo"]
+    and "MARBLE_PING_USER_TAPPED_ONLY_V143" in files["ui"],
 )
 
 # MARBLE_SEAMLESS_LOOPS_V112 — loop restarts must be invisible.
 check(
     "loop effects fade through a zero-at-both-ends envelope",
     "loopFade(" in files["homeStyles"]
-    and "MARBLE_SEAMLESS_LOOPS_V112" in files["homeStyles"]
-    and "MARBLE_SEAMLESS_LOOPS_V112" in files["signature"],
+    and "MARBLE_SEAMLESS_LOOPS_V112" in files["homeStyles"],
 )
 
 # MARBLE_HOME_PING_AUTOFIT_V112 — the ping can never overflow its readout.
@@ -646,7 +634,7 @@ check(
 )
 check(
     "Per-app proxy lives inside Network & Routing",
-    'add(card("Per-app proxy"' in files["ui"]
+    'card("Per-app proxy"' in files["ui"]
     and "SplitTunnelSettings(repo)" in files["ui"]
     and "SplitTunnelModeSelector(" in files["ui"],
 )
@@ -666,9 +654,14 @@ check(
     and "settingsSections(" in files["ui"]
     and "ExpertGateRow(" in files["ui"],
 )
+# MARBLE_ROUTING_SEPARATE_V143 — Routing is its own dedicated Settings page and the Home->Routing
+# deep link jumps straight to it without mutating Expert mode.
 check(
     "Routing focus keeps Expert mode untouched",
-    'SettingsPages.workspace(SettingsWorkspaceTab.NETWORK, "Routing")' in files["ui"]
+    'focusSection == "Routing"' in files["ui"]
+    and "page = SettingsPages.ROUTING" in files["ui"]
+    and "RoutingEntryCard(" in files["ui"]
+    and "SettingsRoutingPage(" in files["ui"]
     and "copy(expertMode=true)" not in files["ui"],
 )
 check("Library long names use overflow marquee", "basicMarquee(" in files["ui"])

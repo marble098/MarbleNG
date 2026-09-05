@@ -206,6 +206,19 @@ enum class HomeStyle(val id: String) {
     IOS_MODULAR("ios_modular")
 }
 
+/** How tall and airy modular Home cards render in the modular theme. */
+enum class ModularCardSize(val id: String) {
+    COMPACT("compact"),
+    COMFORTABLE("comfortable"),
+    SPACIOUS("spacious")
+}
+
+fun parseModularCardSize(raw: String): ModularCardSize = when (raw.trim().lowercase()) {
+    "compact" -> ModularCardSize.COMPACT
+    "spacious" -> ModularCardSize.SPACIOUS
+    else -> ModularCardSize.COMFORTABLE
+}
+
 fun parseHomeStyle(raw: String): HomeStyle = when (raw.trim().lowercase()) {
     "ios_slider", "slider", "theme_1", "pro" -> HomeStyle.IOS_SLIDER
     "ios_floating", "floating", "theme_2", "cosmic_orbit" -> HomeStyle.IOS_FLOATING
@@ -248,49 +261,6 @@ fun parseAppFont(raw: String): AppFont =
         ?: AppFont.VAZIR
 
 /**
- * MARBLE_SIGNATURE_HOME_V112 — the user-chosen accent that drives the whole Signature studio
- * (banner, power rings and aurora backdrop).
- */
-enum class ProAccent(val id: String, val label: String) {
-    ELECTRIC("electric", "Electric"),
-    EMERALD("emerald", "Emerald"),
-    AMETHYST("amethyst", "Amethyst"),
-    AMBER("amber", "Amber"),
-    CYAN("cyan", "Ice")
-}
-
-fun parseProAccent(raw: String): ProAccent =
-    ProAccent.entries.firstOrNull { it.id.equals(raw.trim(), ignoreCase = true) }
-        ?: ProAccent.ELECTRIC
-
-/**
- * MARBLE_SIGNATURE_HOME_V112 — where the Signature status banner is rendered.
- */
-enum class ProBannerScope(val id: String) {
-    HOME("home"),
-    ALL("all")
-}
-
-fun parseProBannerScope(raw: String): ProBannerScope =
-    ProBannerScope.entries.firstOrNull { it.id.equals(raw.trim(), ignoreCase = true) }
-        ?: ProBannerScope.HOME
-
-/**
- * MARBLE_SIGNATURE_HOME_V112 — which quick action the Signature corner shortcut button runs.
- */
-enum class ProShortcut(val id: String) {
-    LIBRARY("library"),
-    RANK("rank"),
-    PRIVACY("privacy"),
-    ROUTING("routing"),
-    TESTS("tests")
-}
-
-fun parseProShortcut(raw: String): ProShortcut =
-    ProShortcut.entries.firstOrNull { it.id.equals(raw.trim(), ignoreCase = true) }
-        ?: ProShortcut.LIBRARY
-
-/**
  * MARBLE_CONNECT_BUTTON_V121 — the connection-button silhouettes, selectable from Settings.
  *
  * Every model renders correctly inside every Home presentation: the model controls the button's
@@ -322,7 +292,11 @@ enum class ConnectButtonStyle(val id: String) {
 
 fun parseConnectButtonStyle(raw: String): ConnectButtonStyle =
     ConnectButtonStyle.entries.firstOrNull { it.id.equals(raw.trim(), ignoreCase = true) }
-        ?: ConnectButtonStyle.ROUND
+        ?: when (raw.trim().uppercase()) {
+            "SLIDER" -> ConnectButtonStyle.SLIDE
+            "EMBOSSED" -> ConnectButtonStyle.ROUND
+            else -> ConnectButtonStyle.ROUND
+        }
 
 /**
  * MARBLE_NIGHT_OUTLINES_V112 — dark-theme frame outline personality. The user can strengthen
@@ -515,7 +489,9 @@ data class AppSettings(
     val notificationCooldownSec: Int = 20,
 
     val routingMode: RoutingMode = RoutingMode.GEO_DIRECT,
-    val customRoutingEnabled: Boolean = true,
+    // MARBLE_ROUTING_SEPARATE_V143 — custom Routing is opt-in and off by default. The default
+    // mode continues to apply while the dedicated Routing page stays disabled.
+    val customRoutingEnabled: Boolean = false,
     val geoAssetSourceId: String = RoutingDefaults.SOURCE_CHOCOLATE4U,
     val routingRulesJson: String = "",
     val geoIpUrl: String = RoutingDefaults.GEOIP_URL,
@@ -621,8 +597,9 @@ data class AppSettings(
     val iranDeepProbeEnabled: Boolean = true,
     val iranModeNotify: Boolean = false,
 
-    // Marble Intelligence Engine
-    val intelligenceEnabled: Boolean = false,
+    // Marble Intelligence Engine — permanently active. There is deliberately no user-visible
+    // off switch; the engine is part of the product contract and can never be disabled.
+    val intelligenceEnabled: Boolean = true,
     val configCompatibilityMode: Boolean = true,
     val verifiedPerformanceTuning: Boolean = true,
 
@@ -687,24 +664,13 @@ data class AppSettings(
     // Theme 4: Modular customizable dashboard properties
     val modularCardOrder: String = "STATUS,SERVERS,CONNECT,STATS",
     val modularShowStats: Boolean = true,
-    val modularShowSocks: Boolean = true,
+    val modularShowSocks: Boolean = false,
     val modularShowShortcuts: Boolean = true,
     val modularConnectStyle: String = "SLIDER",
-
-    // MARBLE_SIGNATURE_HOME_V112 — the Signature studio customization surface. Every layer of
-    // the professional Home is an independent user choice; nothing is hard-wired.
-    /** The app-wide draggable floating connect button (v2rayNG-style shutter). Off for a clean first run. */
-    val proFloatingButtonEnabled: Boolean = false,
-    /** Slim status banner (connection state + selected server) rendered like a persistent strip. Off for a clean first run. */
-    val proStatusBannerEnabled: Boolean = false,
-    /** Whether the banner lives on Home only or rides on top of every page. */
-    val proBannerScope: String = ProBannerScope.HOME.id,
-    /** Corner action cluster: add server, grab ping, one configurable shortcut, more (⋮). Off for a clean first run. */
-    val proCornerActionsEnabled: Boolean = false,
-    /** Accent driving the Signature studio surfaces and animations. */
-    val proAccent: String = ProAccent.ELECTRIC.id,
-    /** Which quick action the corner shortcut button runs. */
-    val proShortcut: String = ProShortcut.LIBRARY.id,
+    /** Modular Home card sizing, changed from the Theme 4 customizer. */
+    val modularCardSize: String = ModularCardSize.COMPACT.id,
+    /** Fine-grained server-card height (dp) when the user drags the custom resize slider. */
+    val modularCardHeightDp: Int = 180,
 
     /**
      * MARBLE_CONNECT_BUTTON_V121 — the connection-button silhouette shown on every Home style:

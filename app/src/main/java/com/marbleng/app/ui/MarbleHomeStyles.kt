@@ -38,6 +38,8 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -49,6 +51,8 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -59,6 +63,7 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -98,6 +103,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
@@ -109,8 +116,9 @@ import com.marbleng.app.core.ServersQuery
 import com.marbleng.app.model.ConnectionPingState
 import com.marbleng.app.model.ConnectButtonStyle
 import com.marbleng.app.model.HomeStyle
-import com.marbleng.app.model.ProAccent
-import com.marbleng.app.model.ProShortcut
+import com.marbleng.app.model.ModularCardSize
+import com.marbleng.app.model.parseModularCardSize
+import com.marbleng.app.model.parseConnectButtonStyle
 import com.marbleng.app.model.ProxyProfile
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -208,13 +216,6 @@ internal data class HomeActions(
     val onQrImport: () -> Unit = {}
 )
 
-internal data class HomeProContext(
-    val showBanner: Boolean,
-    val showCornerActions: Boolean,
-    val shortcut: ProShortcut,
-    val accent: ProAccent
-)
-
 /** The per-style skin every shared evidence widget renders through. */
 internal enum class HomeFlavor { IOS_SLIDER, IOS_FLOATING, IOS_EMBOSSED, IOS_MODULAR }
 
@@ -262,7 +263,7 @@ internal fun homeStatusText(evidence: HomeEvidence): String {
         evidence.connecting -> t.securingRoute
         evidence.disconnecting -> t.closingRoute
         evidence.blocked -> t.connectionStopped
-        else -> t.readyToConnect
+        else -> t.socksStandby
     }
 }
 
@@ -327,6 +328,17 @@ internal fun homePingTone(evidence: HomeEvidence, fallback: Color): Color {
         ConnectionPingState.FAILED -> Aether.Danger
         ConnectionPingState.MEASURING -> Aether.Cyan
         ConnectionPingState.IDLE -> fallback
+    }
+}
+
+/** The three words a failed Home ping may show, resolved against the active language. */
+@Composable
+internal fun pingFailureLabel(failure: String): String {
+    val t = Tr.now
+    return when (failure.trim().lowercase()) {
+        "timeout" -> t.pingTimeout
+        "unreachable" -> t.pingUnreachable
+        else -> t.pingFailedShort
     }
 }
 
@@ -1416,21 +1428,12 @@ internal fun HomeSessionStats(
 internal fun IosStatusWideCard(
     evidence: HomeEvidence,
     actions: HomeActions,
-    repo: AppRepository,
     modifier: Modifier = Modifier
 ) {
-    val clipboard = LocalClipboardManager.current
     val t = Tr.now
 
-    // Auto-ping ONCE when connection is established
-    var prevConnected by remember { mutableStateOf(false) }
-    LaunchedEffect(evidence.connected) {
-        if (evidence.connected && !prevConnected) {
-            actions.onTestPing()
-        }
-        prevConnected = evidence.connected
-    }
-
+    // MARBLE_PING_USER_TAPPED_ONLY_V143 — the banner never measures automatically. Ping is
+    // only ever taken when the user taps the ping shortcut at the top of the Home page.
     val stateColor by animateColorAsState(
         targetValue = homeStateTone(evidence),
         animationSpec = MarbleMotionSpecs.Color,
@@ -1446,92 +1449,40 @@ internal fun IosStatusWideCard(
                 .padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            // ── Slot 1 (fixed height): status line + quick actions ─────────────────────
+            // ── Slot 1 (fixed height): status line. The top action cluster lives outside the
+            // banner as a separate transparent cluster (MARBLE_HOME_BANNER_V143).
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(min = 32.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Left: Glowing Dot + Status Label (+ inline uptime, single line)
-                Row(
-                    modifier = Modifier.weight(1f),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    StatusDot(stateColor = stateColor, busy = evidence.connecting)
-                    Spacer(Modifier.width(8.dp))
+                StatusDot(stateColor = stateColor, busy = evidence.connecting)
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = when {
+                        evidence.connected -> t.statusProtected
+                        evidence.connecting -> t.securingRoute
+                        evidence.disconnecting -> t.closingRoute
+                        evidence.blocked -> t.connectionStopped
+                        else -> t.socksStandby
+                    }.uppercase(),
+                    color = stateColor,
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.1.sp
+                    ),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                if (evidence.connected) {
+                    Spacer(Modifier.width(6.dp))
                     Text(
-                        text = when {
-                            evidence.connected -> t.statusProtected
-                            evidence.connecting -> t.securingRoute
-                            evidence.disconnecting -> t.closingRoute
-                            evidence.blocked -> t.connectionStopped
-                            else -> t.readyToConnect
-                        }.uppercase(),
-                        color = stateColor,
-                        style = MaterialTheme.typography.labelSmall.copy(
-                            fontWeight = FontWeight.Bold,
-                            letterSpacing = 1.1.sp
-                        ),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        text = "• ${rememberUptimeLabel(evidence.connectedSinceMs)}",
+                        color = Aether.InkMuted,
+                        style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                        maxLines = 1
                     )
-                    if (evidence.connected) {
-                        Spacer(Modifier.width(6.dp))
-                        Text(
-                            text = "• ${rememberUptimeLabel(evidence.connectedSinceMs)}",
-                            color = Aether.InkMuted,
-                            style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
-                            maxLines = 1
-                        )
-                    }
-                }
-
-                // Right: Action Buttons (Quick Add, Ping, Info) — flat, tinted, consistent.
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    IosQuickAction(
-                        glyph = HomeGlyph.PLUS,
-                        tone = Aether.CyanBright,
-                        description = t.quickAddConnect
-                    ) {
-                        val pasted = clipboard.getText()?.text.orEmpty()
-                        if (pasted.isNotBlank()) {
-                            val target = if (repo.subscriptions.isNotEmpty()) repo.subscriptions.first().id else "manual"
-                            val addedId = repo.importClipboard(pasted, target)
-                            val targetProfile = repo.libraryProfiles.firstOrNull { it.id == addedId }
-                                ?: repo.libraryProfiles.lastOrNull()
-                            if (targetProfile != null) {
-                                repo.selectProfile(targetProfile)
-                                actions.onConnectProfile(targetProfile)
-                            } else {
-                                repo.reconnectLastOrAuto { p -> actions.onConnectProfile(p) }
-                            }
-                        } else {
-                            repo.setRuntimeMessage(t.clipboardNothingFound)
-                        }
-                    }
-
-                    IosQuickAction(
-                        glyph = HomeGlyph.PULSE,
-                        tone = Aether.Emerald,
-                        enabled = homePingTappable(evidence),
-                        description = t.testPing
-                    ) { actions.onTestPing() }
-
-                    IosQuickAction(
-                        glyph = HomeGlyph.INFO,
-                        tone = Aether.AmethystBright,
-                        description = t.ipDetails
-                    ) {
-                        if (repo.serverIntel == null) {
-                            repo.refreshServerIntel(evidence.profile, force = true)
-                        }
-                        actions.onIpDetails()
-                    }
                 }
             }
 
@@ -1674,9 +1625,78 @@ internal fun IosStatusWideCard(
                 }
             }
 
-            // ── Slot 4 (fixed height): SOCKS strip — standby before, live after ────────
-            IosSocksStrip(evidence = evidence, repo = repo)
         }
+    }
+}
+
+/**
+ * MARBLE_HOME_BANNER_V143 — the three top actions (add, ping, IP details) live OUTSIDE the
+ * status banner: a transparent, right-aligned cluster above it. There is no background pill,
+ * no card frame, and every icon is a true circle so a tap reads as an icon, not a button.
+ */
+@Composable
+internal fun HomeTopActionBar(
+    evidence: HomeEvidence,
+    actions: HomeActions,
+    repo: AppRepository,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.End,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        HomeBareAction(
+            glyph = HomeGlyph.PLUS,
+            tone = Aether.CyanBright,
+            description = Tr.now.proAddRoute,
+            onClick = actions.onAddRoute
+        )
+        HomeBareAction(
+            glyph = HomeGlyph.PULSE,
+            tone = Aether.Emerald,
+            description = Tr.now.testPing,
+            enabled = homePingTappable(evidence),
+            onClick = actions.onTestPing
+        )
+        HomeBareAction(
+            glyph = HomeGlyph.INFO,
+            tone = Aether.AmethystBright,
+            description = Tr.now.ipDetails,
+            onClick = {
+                if (repo.serverIntel == null) {
+                    repo.refreshServerIntel(evidence.profile, force = true)
+                }
+                actions.onIpDetails()
+            }
+        )
+    }
+}
+
+/** A transparent circular top action: no background surface, rounded icon, kinetic press only. */
+@Composable
+private fun HomeBareAction(
+    glyph: HomeGlyph,
+    tone: Color,
+    description: String,
+    enabled: Boolean = true,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .size(36.dp)
+            .clip(CircleShape)
+            .kineticClickable(
+                enabled = enabled,
+                role = Role.Button,
+                pressScale = .92f,
+                boundedShape = CircleShape,
+                onClick = onClick
+            )
+            .semantics { contentDescription = description },
+        contentAlignment = Alignment.Center
+    ) {
+        HomeGlyphIcon(glyph, if (enabled) tone else tone.copy(alpha = .40f), Modifier.size(18.dp))
     }
 }
 
@@ -1706,149 +1726,6 @@ private fun StatusDot(stateColor: Color, busy: Boolean) {
     }
 }
 
-/** One flat quick-action button of the status card: tinted disc + glyph, no shadow. */
-@Composable
-private fun IosQuickAction(
-    glyph: HomeGlyph,
-    tone: Color,
-    description: String,
-    enabled: Boolean = true,
-    onClick: () -> Unit
-) {
-    Box(
-        modifier = Modifier
-            .size(32.dp)
-            .clip(RoundedCornerShape(11.dp))
-            .background(tone.copy(alpha = if (enabled) 0.14f else 0.06f))
-            .clickable(enabled = enabled, onClick = onClick)
-            .semantics { contentDescription = description },
-        contentAlignment = Alignment.Center
-    ) {
-        HomeGlyphIcon(
-            glyph,
-            if (enabled) tone else tone.copy(alpha = 0.45f),
-            Modifier.size(14.dp)
-        )
-    }
-}
-
-/**
- * MARBLE_HOME_STABLE_GEOMETRY_V141 — the SOCKS strip is a permanent instrument slot.
- *
- * Before the tunnel exists it reports the port that *will* be bound ("waiting for connection"),
- * and once connected the same geometry carries the live address plus a copy chip. The pip
- * breathes while a handshake is in flight. Height is identical in every state, so connecting
- * can never push anything on the page.
- */
-@Composable
-private fun IosSocksStrip(
-    evidence: HomeEvidence,
-    repo: AppRepository
-) {
-    val clipboard = LocalClipboardManager.current
-    val t = Tr.now
-    val motion = MarbleMotion.current
-    val connected = evidence.connected
-    val connecting = evidence.connecting
-    val socksAddress = "127.0.0.1:${repo.settings.socksPort}"
-    val tone by animateColorAsState(
-        targetValue = when {
-            connected -> Aether.Emerald
-            connecting -> Aether.CyanBright
-            else -> Aether.SlateBright
-        },
-        animationSpec = MarbleMotionSpecs.Color,
-        label = "socks-strip-tone"
-    )
-    val stripBorder by animateColorAsState(
-        targetValue = when {
-            connected -> Aether.Emerald.copy(alpha = 0.25f)
-            else -> homeCloudInsetBorder()
-        },
-        animationSpec = MarbleMotionSpecs.Color,
-        label = "socks-strip-border"
-    )
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .heightIn(min = 34.dp)
-            .clip(RoundedCornerShape(12.dp))
-            .background(homeCloudInsetFill())
-            .border(1.dp, stripBorder, RoundedCornerShape(12.dp))
-            .padding(horizontal = 10.dp, vertical = 6.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.weight(1f)
-        ) {
-            Canvas(modifier = Modifier.size(10.dp)) {
-                val breathe = motion.breathe(900)
-                drawCircle(
-                    color = tone.copy(alpha = if (connecting) 0.45f + 0.55f * breathe else 1f),
-                    radius = size.minDimension * 0.5f
-                )
-            }
-            Spacer(Modifier.width(8.dp))
-            Text(
-                "SOCKS5",
-                color = tone,
-                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold)
-            )
-            Spacer(Modifier.width(8.dp))
-            Text(
-                text = socksAddress,
-                color = Aether.Ink,
-                style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
-                maxLines = 1
-            )
-        }
-
-        // The trailing chip occupies the same height in both states; only its content swaps.
-        if (connected) {
-            Row(
-                modifier = Modifier
-                    .heightIn(min = 24.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(Aether.Emerald.copy(alpha = 0.15f))
-                    .clickable {
-                        clipboard.setText(AnnotatedString(socksAddress))
-                        repo.setRuntimeMessage(t.socksCopied)
-                    }
-                    .padding(horizontal = 8.dp, vertical = 3.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                HomeGlyphIcon(HomeGlyph.COPY, Aether.Emerald, Modifier.size(11.dp))
-                Spacer(Modifier.width(4.dp))
-                Text(
-                    text = t.copyAction,
-                    color = Aether.Emerald,
-                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold)
-                )
-            }
-        } else {
-            Row(
-                modifier = Modifier
-                    .heightIn(min = 24.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(Aether.SlateBright.copy(alpha = 0.10f))
-                    .padding(horizontal = 8.dp, vertical = 3.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = t.socksStandby,
-                    color = Aether.InkMuted,
-                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-        }
-    }
-}
-
 // ---------------------------------------------------------------------------------------------
 // COMPONENT 2: SUB & SERVER LIST BOX (Inner scrollable, centered sub name)
 // ---------------------------------------------------------------------------------------------
@@ -1867,7 +1744,8 @@ internal fun IosServerListBox(
     evidence: HomeEvidence,
     actions: HomeActions,
     modifier: Modifier = Modifier,
-    bottomOverlayClearance: Dp = 0.dp
+    bottomOverlayClearance: Dp = 0.dp,
+    maxListHeight: Dp = 244.dp
 ) {
     val t = Tr.now
     val activeSubId = repo.librarySourceFilter
@@ -1884,7 +1762,12 @@ internal fun IosServerListBox(
 
     // MARBLE_HOME_CLOUD_V140/V141 — the server list is a cloud card: one opaque box, quiet
     // inset rows inside it, and only the selected server earns the sky fill + accent rim.
-    HomeCloudCard(modifier = modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp)) {
+    HomeCloudCard(
+        modifier = modifier
+            .fillMaxWidth()
+            .heightIn(max = maxListHeight),
+        shape = RoundedCornerShape(22.dp)
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1927,28 +1810,37 @@ internal fun IosServerListBox(
                 GroupChevron(HomeCloud.Accent, Modifier.size(12.dp))
             }
 
-            DropdownMenu(
+            HomeGroupMenu(
                 expanded = groupDropdownOpen,
-                onDismissRequest = { groupDropdownOpen = false }
+                onDismiss = { groupDropdownOpen = false },
+                tone = HomeCloud.Accent
             ) {
-                DropdownMenuItem(
-                    text = { Text("${t.homeAllServers} (${repo.libraryProfiles.size})") },
+                HomeGroupMenuItem(
+                    name = t.homeAllServers,
+                    count = repo.libraryProfiles.size,
+                    selected = activeSubId.isBlank(),
+                    tone = HomeCloud.Accent,
                     onClick = {
                         repo.selectLibrarySource("")
                         groupDropdownOpen = false
                     }
                 )
-                DropdownMenuItem(
-                    text = { Text("${t.homeManualGroup} (${repo.libraryProfiles.count { it.subscriptionId == "manual" }})") },
+                HomeGroupMenuItem(
+                    name = t.homeManualGroup,
+                    count = repo.libraryProfiles.count { it.subscriptionId == "manual" },
+                    selected = activeSubId == "manual",
+                    tone = HomeCloud.Accent,
                     onClick = {
                         repo.selectLibrarySource("manual")
                         groupDropdownOpen = false
                     }
                 )
                 allSubs.forEach { sub ->
-                    val count = repo.libraryProfiles.count { it.subscriptionId == sub.id }
-                    DropdownMenuItem(
-                        text = { Text("${sub.name} ($count)") },
+                    HomeGroupMenuItem(
+                        name = sub.name,
+                        count = repo.libraryProfiles.count { it.subscriptionId == sub.id },
+                        selected = activeSubId == sub.id,
+                        tone = HomeCloud.Accent,
                         onClick = {
                             repo.selectLibrarySource(sub.id)
                             groupDropdownOpen = false
@@ -1964,7 +1856,7 @@ internal fun IosServerListBox(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .weight(1f, fill = false)
+                        .heightIn(min = 48.dp)
                         .padding(vertical = 24.dp),
                     contentAlignment = Alignment.Center
                 ) {
@@ -1978,7 +1870,8 @@ internal fun IosServerListBox(
                 LazyColumn(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .weight(1f, fill = false),
+                        .wrapContentHeight()
+                        .heightIn(max = maxListHeight),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                     contentPadding = PaddingValues(bottom = bottomOverlayClearance)
                 ) {
@@ -2001,6 +1894,87 @@ internal fun IosServerListBox(
                     }
                 }
             }
+        }
+    }
+}
+
+/**
+ * MARBLE_HOME_GROUP_MENU_V143 — the subscription/group chooser is not a bare Android dropdown
+ * any more. It is a rounded, elevated product panel with a hairline, generous row height, a
+ * live count chip and an explicit selected check.
+ */
+@Composable
+internal fun HomeGroupMenu(
+    expanded: Boolean,
+    onDismiss: () -> Unit,
+    tone: Color,
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    DropdownMenu(
+        expanded = expanded,
+        onDismissRequest = onDismiss,
+        modifier = modifier.widthIn(min = 240.dp, max = 320.dp),
+        shape = RoundedCornerShape(18.dp),
+        containerColor = Aether.VoidElevated,
+        tonalElevation = 0.dp,
+        shadowElevation = 18.dp,
+        border = BorderStroke(1.dp, tone.copy(alpha = 0.24f))
+    ) {
+        Column(
+            modifier = Modifier.padding(6.dp),
+            verticalArrangement = Arrangement.spacedBy(3.dp)
+        ) {
+            content()
+        }
+    }
+}
+
+@Composable
+internal fun HomeGroupMenuItem(
+    name: String,
+    count: Int,
+    selected: Boolean,
+    tone: Color,
+    onClick: () -> Unit
+) {
+    val shape = RoundedCornerShape(12.dp)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(if (selected) tone.copy(alpha = 0.10f) else Color.Transparent)
+            .border(1.dp, if (selected) tone.copy(alpha = 0.40f) else Color.Transparent, shape)
+            .kineticClickable(role = Role.Button, boundedShape = shape, onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(9.dp)
+    ) {
+        Text(
+            name,
+            color = if (selected) tone else Aether.Ink,
+            style = MaterialTheme.typography.bodyMedium.copy(
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal
+            ),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f)
+        )
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(8.dp))
+                .background((if (selected) tone else Aether.InkMuted).copy(alpha = 0.12f))
+                .padding(horizontal = 7.dp, vertical = 2.dp)
+        ) {
+            Text(
+                count.toString(),
+                color = if (selected) tone else Aether.InkMuted,
+                style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
+                maxLines = 1
+            )
+        }
+        if (selected) {
+            HomeGlyphIcon(HomeGlyph.CHECK, tone, Modifier.size(15.dp))
         }
     }
 }
@@ -2366,15 +2340,16 @@ internal fun HomeThemeSlider(
             .padding(bottom = bottomClearance),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        // Top: Wide Status Bar
-        IosStatusWideCard(evidence, actions, repo)
+        // Top actions (outside the banner) + Wide Status Bar
+        HomeTopActionBar(evidence, actions, repo)
+        IosStatusWideCard(evidence, actions)
 
         // Center: Sub & Server List Box (Scrollable inner list)
         IosServerListBox(
             repo = repo,
             evidence = evidence,
             actions = actions,
-            modifier = Modifier.weight(1f)
+            modifier = Modifier.weight(1f, fill = false)
         )
 
         // Bottom: Slide to connect Slider
@@ -2497,17 +2472,18 @@ internal fun HomeThemeFloating(
             .padding(horizontal = 16.dp, vertical = 6.dp)
             .padding(bottom = bottomClearance)
     ) {
-        // Main fixed column: Status Bar + Expanded Server List Box
+        // Main fixed column: top actions + Status Bar + Expanded Server List Box
         Column(
             modifier = Modifier.fillMaxSize(),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            IosStatusWideCard(evidence, actions, repo)
+            HomeTopActionBar(evidence, actions, repo)
+            IosStatusWideCard(evidence, actions)
             IosServerListBox(
                 repo = repo,
                 evidence = evidence,
                 actions = actions,
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.weight(1f, fill = false),
                 // The split FAB floats above the last rows; reserve the room so no server is
                 // ever hidden underneath it (MARBLE_HOME_FLOATING_CLEARANCE_V141).
                 bottomOverlayClearance = 104.dp
@@ -2691,8 +2667,9 @@ internal fun HomeThemeEmbossed(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        // Top: Status Bar
-        IosStatusWideCard(evidence, actions, repo)
+        // Top actions (outside the banner) + Status Bar
+        HomeTopActionBar(evidence, actions, repo)
+        IosStatusWideCard(evidence, actions)
 
         // Center: Orbital power core + caption (fixed height, never resizes with status text)
         Box(
@@ -2712,7 +2689,7 @@ internal fun HomeThemeEmbossed(
             repo = repo,
             evidence = evidence,
             actions = actions,
-            modifier = Modifier.weight(1f)
+            modifier = Modifier.weight(1f, fill = false)
         )
     }
 }
@@ -2731,6 +2708,12 @@ internal fun HomeThemeModular(
     var customizeOpen by remember { mutableStateOf(false) }
     val settings = repo.settings
     val cardOrder = settings.modularCardOrder.split(",").map(String::trim).filter(String::isNotBlank)
+    val serverListMaxHeight = settings.modularCardHeightDp.coerceIn(160, 360).dp
+    val modularConnect = parseConnectButtonStyle(settings.modularConnectStyle)
+    // The tallest silhouette is the round shutter (diameter + caption). Reserving that footprint
+    // makes the connect slot size-independent: swapping the chosen shape in the customizer can
+    // never push the cards below it up or down.
+    val connectModuleHeight = 216.dp
 
     Column(
         modifier = Modifier
@@ -2739,7 +2722,8 @@ internal fun HomeThemeModular(
             .padding(bottom = bottomClearance),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        // Top Bar with Customize Layout Button
+        // Top actions (outside the banner) + Top Bar with Customize Layout Button
+        HomeTopActionBar(evidence, actions, repo)
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -2772,24 +2756,30 @@ internal fun HomeThemeModular(
         // Render modular cards in configured order
         cardOrder.forEach { cardType ->
             when (cardType) {
-                "STATUS" -> IosStatusWideCard(evidence, actions, repo)
+                "STATUS" -> IosStatusWideCard(evidence, actions)
                 "SERVERS" -> IosServerListBox(
                     repo = repo,
                     evidence = evidence,
                     actions = actions,
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f, fill = false),
+                    maxListHeight = serverListMaxHeight
                 )
                 "CONNECT" -> {
-                    when (settings.modularConnectStyle) {
-                        "SLIDER" -> IosSlideToConnect(evidence, actions)
-                        "EMBOSSED" -> {
-                            // The orbital dial takes the module with a fixed height, so flipping
-                            // the connect style never re-flows the modular column.
-                            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                                OrbitalConnectControl(evidence = evidence, actions = actions)
-                            }
-                        }
-                        else -> IosSlideToConnect(evidence, actions)
+                    // The connect silhouette is chosen inside the Theme 4 customizer. The module
+                    // reserves one fixed footprint so flipping the shape never re-flows the page.
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = connectModuleHeight, max = connectModuleHeight),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        MarbleConnectionButton(
+                            evidence = evidence,
+                            tone = homeStateTone(evidence),
+                            onToggle = actions.onToggleConnection,
+                            flavor = HomeFlavor.IOS_MODULAR,
+                            style = modularConnect
+                        )
                     }
                 }
                 "STATS" -> {
@@ -2810,6 +2800,9 @@ internal fun HomeThemeModular(
     }
 }
 
+private const val MODULAR_CARD_HEIGHT_MIN = 160
+private const val MODULAR_CARD_HEIGHT_MAX = 360
+
 @Composable
 private fun ModularCustomizerDialog(
     repo: AppRepository,
@@ -2819,49 +2812,219 @@ private fun ModularCustomizerDialog(
     var order by remember { mutableStateOf(s.modularCardOrder.split(",").filter(String::isNotBlank)) }
     var showStats by remember { mutableStateOf(s.modularShowStats) }
     var connectStyle by remember { mutableStateOf(s.modularConnectStyle) }
+    var cardSize by remember { mutableStateOf(s.modularCardSize) }
+    var cardHeight by remember {
+        mutableIntStateOf(s.modularCardHeightDp.coerceIn(MODULAR_CARD_HEIGHT_MIN, MODULAR_CARD_HEIGHT_MAX))
+    }
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(Tr.now.customizeLayout) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text(trx("Widgets Order"), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
-                order.forEachIndexed { index, item ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(homeCloudInsetFill())
-                            .border(1.dp, homeCloudInsetBorder(), RoundedCornerShape(10.dp))
-                            .padding(horizontal = 10.dp, vertical = 6.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(item, style = MaterialTheme.typography.bodySmall, color = Aether.Ink)
-                        Row {
-                            if (index > 0) {
-                                TextButton(onClick = {
-                                    val next = order.toMutableList()
-                                    val temp = next[index]
-                                    next[index] = next[index - 1]
-                                    next[index - 1] = temp
-                                    order = next
-                                }) { Text("↑") }
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .fillMaxHeight(0.92f),
+            shape = RoundedCornerShape(24.dp),
+            color = Aether.VoidElevated,
+            tonalElevation = 0.dp,
+            shadowElevation = 18.dp,
+            border = androidx.compose.foundation.BorderStroke(1.dp, HomeCloud.Accent.copy(alpha = 0.22f))
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text(
+                    Tr.now.customizeLayout,
+                    color = Aether.Ink,
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    trx("Reorder the widget, pick the connect shape and resize the cards."),
+                    color = Aether.InkMuted,
+                    style = MaterialTheme.typography.bodySmall
+                )
+
+                Text(trx("Connect button"), color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    ConnectButtonStyle.entries.forEach { style ->
+                        val selected = parseConnectButtonStyle(connectStyle) == style
+                        val shape = RoundedCornerShape(13.dp)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(shape)
+                                .background(if (selected) HomeCloud.Accent.copy(alpha = 0.12f) else homeCloudInsetFill())
+                                .border(1.dp, if (selected) HomeCloud.Accent.copy(alpha = 0.45f) else homeCloudInsetBorder(), shape)
+                                .kineticClickable(role = Role.Button, boundedShape = shape) {
+                                    connectStyle = style.id
+                                }
+                                .padding(horizontal = 11.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(9.dp)
+                        ) {
+                            Box(
+                                Modifier
+                                    .size(26.dp)
+                                    .clip(CircleShape)
+                                    .background(if (selected) HomeCloud.Accent.copy(alpha = 0.18f) else homeCloudInsetFill()),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                HomeGlyphIcon(
+                                    when (style) {
+                                        ConnectButtonStyle.ROUND -> HomeGlyph.POWER
+                                        ConnectButtonStyle.SLIDE -> HomeGlyph.PULSE
+                                        ConnectButtonStyle.CLASSIC -> HomeGlyph.CHECK
+                                        ConnectButtonStyle.STREAM -> HomeGlyph.BOLT
+                                        ConnectButtonStyle.FLOATING -> HomeGlyph.MORE
+                                    },
+                                    if (selected) HomeCloud.Accent else Aether.InkMuted,
+                                    Modifier.size(14.dp)
+                                )
                             }
-                            if (index < order.size - 1) {
-                                TextButton(onClick = {
-                                    val next = order.toMutableList()
-                                    val temp = next[index]
-                                    next[index] = next[index + 1]
-                                    next[index + 1] = temp
-                                    order = next
-                                }) { Text("↓") }
+                            Text(
+                                trx(connectStyleName(style)),
+                                color = if (selected) HomeCloud.Accent else Aether.Ink,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f)
+                            )
+                            if (selected) {
+                                HomeGlyphIcon(HomeGlyph.CHECK, HomeCloud.Accent, Modifier.size(15.dp))
                             }
                         }
                     }
                 }
 
-                HorizontalDivider()
+                HorizontalDivider(color = homeCloudDivider())
+
+                Text(trx("Card size"), color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(7.dp)
+                ) {
+                    ModularCardSize.entries.forEach { size ->
+                        val selected = parseModularCardSize(cardSize) == size
+                        val shape = RoundedCornerShape(12.dp)
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(shape)
+                                .background(if (selected) HomeCloud.Accent.copy(alpha = 0.12f) else homeCloudInsetFill())
+                                .border(1.dp, if (selected) HomeCloud.Accent.copy(alpha = 0.45f) else homeCloudInsetBorder(), shape)
+                                .kineticClickable(role = Role.Button, boundedShape = shape) {
+                                    cardSize = size.id
+                                    cardHeight = modularCardHeightFor(size)
+                                }
+                                .padding(vertical = 8.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            Text(
+                                trx(cardSizeName(size)),
+                                color = if (selected) HomeCloud.Accent else Aether.Ink,
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1
+                            )
+                            Text(
+                                trx(cardSizeHint(size)),
+                                color = Aether.InkMuted,
+                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                maxLines = 1
+                            )
+                        }
+                    }
+                }
+
+                HorizontalDivider(color = homeCloudDivider())
+
+                Text(
+                    trx("Custom height"),
+                    color = Aether.InkFaint,
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Slider(
+                        value = cardHeight.toFloat(),
+                        onValueChange = {
+                            cardHeight = it.toInt().coerceIn(MODULAR_CARD_HEIGHT_MIN, MODULAR_CARD_HEIGHT_MAX)
+                        },
+                        valueRange = MODULAR_CARD_HEIGHT_MIN.toFloat()..MODULAR_CARD_HEIGHT_MAX.toFloat(),
+                        modifier = Modifier.weight(1f)
+                    )
+                    Text(
+                        "$cardHeight dp",
+                        color = HomeCloud.Accent,
+                        style = MaterialTheme.typography.labelMedium.copy(
+                            fontWeight = FontWeight.Bold,
+                            fontFeatureSettings = "tnum"
+                        ),
+                        maxLines = 1,
+                        softWrap = false
+                    )
+                }
+
+                HorizontalDivider(color = homeCloudDivider())
+
+                Text(trx("Widgets Order"), color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                order.forEachIndexed { index, item ->
+                    val shape = RoundedCornerShape(12.dp)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(shape)
+                            .background(homeCloudInsetFill())
+                            .border(1.dp, homeCloudInsetBorder(), shape)
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            HomeGlyphIcon(HomeGlyph.LIBRARY, HomeCloud.Accent, Modifier.size(14.dp))
+                            Text(
+                                trx(modularCardName(item)),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Aether.Ink,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        Row {
+                            if (index > 0) {
+                                TextButton(
+                                    onClick = {
+                                        val next = order.toMutableList()
+                                        val temp = next[index]
+                                        next[index] = next[index - 1]
+                                        next[index - 1] = temp
+                                        order = next
+                                    }
+                                ) { Text(trx("Move up")) }
+                            }
+                            if (index < order.size - 1) {
+                                TextButton(
+                                    onClick = {
+                                        val next = order.toMutableList()
+                                        val temp = next[index]
+                                        next[index] = next[index + 1]
+                                        next[index + 1] = temp
+                                        order = next
+                                    }
+                                ) { Text(trx("Move down")) }
+                            }
+                        }
+                    }
+                }
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -2871,24 +3034,69 @@ private fun ModularCustomizerDialog(
                     Text(trx("Show traffic stats"), style = MaterialTheme.typography.bodySmall)
                     Switch(checked = showStats, onCheckedChange = { showStats = it })
                 }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    TextButton(onClick = onDismiss) { Text(trx("Cancel")) }
+                    Spacer(Modifier.width(6.dp))
+                    TextButton(
+                        onClick = {
+                            repo.updateSettings(
+                                s.copy(
+                                    modularCardOrder = order.joinToString(","),
+                                    modularShowStats = showStats,
+                                    modularConnectStyle = connectStyle,
+                                    modularCardSize = cardSize,
+                                    modularCardHeightDp = cardHeight.coerceIn(
+                                        MODULAR_CARD_HEIGHT_MIN,
+                                        MODULAR_CARD_HEIGHT_MAX
+                                    )
+                                )
+                            )
+                            onDismiss()
+                        }
+                    ) { Text(trx("Save")) }
+                }
             }
-        },
-        confirmButton = {
-            TextButton(onClick = {
-                repo.updateSettings(
-                    s.copy(
-                        modularCardOrder = order.joinToString(","),
-                        modularShowStats = showStats,
-                        modularConnectStyle = connectStyle
-                    )
-                )
-                onDismiss()
-            }) { Text("Save") }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
         }
-    )
+    }
+}
+
+private fun connectStyleName(style: ConnectButtonStyle): String = when (style) {
+    ConnectButtonStyle.ROUND -> "Round"
+    ConnectButtonStyle.SLIDE -> "Slide to connect"
+    ConnectButtonStyle.CLASSIC -> "Classic switch"
+    ConnectButtonStyle.STREAM -> "Stream bar"
+    ConnectButtonStyle.FLOATING -> "Floating button"
+}
+
+private fun modularCardName(item: String): String = when (item) {
+    "STATUS" -> "Status"
+    "SERVERS" -> "Servers"
+    "CONNECT" -> "Connect"
+    "STATS" -> "Stats"
+    else -> item
+}
+
+private fun cardSizeName(size: ModularCardSize): String = when (size) {
+    ModularCardSize.COMPACT -> "Compact"
+    ModularCardSize.COMFORTABLE -> "Comfortable"
+    ModularCardSize.SPACIOUS -> "Spacious"
+}
+
+private fun cardSizeHint(size: ModularCardSize): String = when (size) {
+    ModularCardSize.COMPACT -> "Small"
+    ModularCardSize.COMFORTABLE -> "Medium"
+    ModularCardSize.SPACIOUS -> "Large"
+}
+
+private fun modularCardHeightFor(size: ModularCardSize): Int = when (size) {
+    ModularCardSize.COMPACT -> 180
+    ModularCardSize.COMFORTABLE -> 240
+    ModularCardSize.SPACIOUS -> 320
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -2902,7 +3110,6 @@ internal fun HomeStyleSurface(
     evidence: HomeEvidence,
     actions: HomeActions,
     bottomClearance: Dp,
-    pro: HomeProContext? = null,
     onScrollChanged: (Boolean) -> Unit = {},
     repo: AppRepository
 ) {

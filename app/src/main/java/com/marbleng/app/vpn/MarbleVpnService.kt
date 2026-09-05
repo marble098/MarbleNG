@@ -1527,7 +1527,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         requested: AppSettings,
         recovering: Boolean
     ): AppSettings {
-        if (!requested.intelligenceEnabled || !requested.connectTuningEnabled) return requested
+        if (!requested.connectTuningEnabled) return requested
         if (!isCurrent(session)) return requested
 
         // A fresh connect is not a manual/urgent tuning request. The old forced flag bypassed
@@ -1553,7 +1553,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         val app = application as MarbleApplication
         val repo = app.repo
         val settings = activeSettings ?: repo.settings
-        if (!settings.intelligenceEnabled || !settings.connectTuningEnabled) return
+        if (!settings.connectTuningEnabled) return
 
         val forced = tuningRequested.getAndSet(false)
         if (!forced && !settings.liveTuningEnabled) return
@@ -1805,7 +1805,6 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                     if (decision.requestFamilyTune) {
                         val liveSettings = activeSettings ?: app.repo.settings
                         if (
-                            liveSettings.intelligenceEnabled &&
                             liveSettings.connectTuningEnabled
                         ) {
                             tuningRequested.set(true)

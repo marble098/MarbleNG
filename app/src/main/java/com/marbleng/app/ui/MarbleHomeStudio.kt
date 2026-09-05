@@ -251,17 +251,8 @@ internal fun HomeLivePingMeter(
         }
     }
 
-    // The ladder only runs while the instrument is on screen and the tunnel is genuinely up.
-    // It re-arms the repository's one-shot probe instead of owning a background timer.
-    LaunchedEffect(active, evidence.connected, evidence.pingState) {
-        if (!active || !evidence.connected) return@LaunchedEffect
-        if (evidence.pingState == ConnectionPingState.MEASURING) return@LaunchedEffect
-        delay(LIVE_PING_INTERVAL_MS)
-        if (evidence.connected && evidence.pingState != ConnectionPingState.MEASURING) {
-            actions.onTestPing()
-        }
-    }
-
+    // MARBLE_PING_USER_TAPPED_ONLY_V143 — the live meter is a readout, not a scheduler. It never
+    // re-arms the one-shot probe; the only way a value changes is the user tapping the ping action.
     val band = if (measured) pingMetricBand(evidence.pingMs) else MarbleMetricBand.UNKNOWN
     val valueTone = if (measured) marbleMetricTone(band) else tone
     val fill = if (measured) {

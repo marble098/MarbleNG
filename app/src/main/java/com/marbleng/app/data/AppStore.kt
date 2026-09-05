@@ -169,7 +169,7 @@ class AppStore(context: Context) {
                     )
                 )
                 .putString("iranModePolicy", IranModePolicy.OFF.name)
-                .putBoolean("intelligenceEnabled", false)
+                .putBoolean("intelligenceEnabled", true)
                 .putBoolean("connectTuningEnabled", false)
                 .putBoolean("continuousOptimizerEnabled", false)
                 .putBoolean("raceConnectEnabled", false)
@@ -258,7 +258,7 @@ class AppStore(context: Context) {
         notificationCooldownSec = prefs.getInt("notificationCooldownSec", 20).coerceIn(5, 300),
 
         routingMode = enumValue("routingMode", RoutingMode.GEO_DIRECT),
-        customRoutingEnabled = prefs.getBoolean("customRoutingEnabled", true),
+        customRoutingEnabled = prefs.getBoolean("customRoutingEnabled", false),
         geoAssetSourceId = prefs.getString("geoAssetSourceId", RoutingDefaults.SOURCE_CHOCOLATE4U)
             ?: RoutingDefaults.SOURCE_CHOCOLATE4U,
         routingRulesJson = prefs.getString("routingRulesJson", "") ?: "",
@@ -324,7 +324,7 @@ class AppStore(context: Context) {
         iranDeepProbeEnabled = prefs.getBoolean("iranDeepProbeEnabled", true),
         iranModeNotify = false,
 
-        intelligenceEnabled = prefs.getBoolean("intelligenceEnabled", false),
+        intelligenceEnabled = true,
         configCompatibilityMode = prefs.getBoolean("configCompatibilityMode", true),
         verifiedPerformanceTuning = prefs.getBoolean("verifiedPerformanceTuning", true),
         connectTuningEnabled = prefs.getBoolean("connectTuningEnabled", false),
@@ -374,17 +374,13 @@ class AppStore(context: Context) {
 
         modularCardOrder = prefs.getString("modularCardOrder", "STATUS,SERVERS,CONNECT,STATS") ?: "STATUS,SERVERS,CONNECT,STATS",
         modularShowStats = prefs.getBoolean("modularShowStats", true),
-        modularShowSocks = prefs.getBoolean("modularShowSocks", true),
+        modularShowSocks = prefs.getBoolean("modularShowSocks", false),
         modularShowShortcuts = prefs.getBoolean("modularShowShortcuts", true),
         modularConnectStyle = prefs.getString("modularConnectStyle", "SLIDER") ?: "SLIDER",
-
-        // MARBLE_SIGNATURE_HOME_V112 — the Signature studio customization surface.
-        proFloatingButtonEnabled = prefs.getBoolean("proFloatingButtonEnabled", false),
-        proStatusBannerEnabled = prefs.getBoolean("proStatusBannerEnabled", false),
-        proBannerScope = parseProBannerScope(prefs.getString("proBannerScope", ProBannerScope.HOME.id) ?: ProBannerScope.HOME.id).id,
-        proCornerActionsEnabled = prefs.getBoolean("proCornerActionsEnabled", false),
-        proAccent = parseProAccent(prefs.getString("proAccent", ProAccent.ELECTRIC.id) ?: ProAccent.ELECTRIC.id).id,
-        proShortcut = parseProShortcut(prefs.getString("proShortcut", ProShortcut.LIBRARY.id) ?: ProShortcut.LIBRARY.id).id,
+        modularCardSize = parseModularCardSize(
+            prefs.getString("modularCardSize", ModularCardSize.COMPACT.id) ?: ModularCardSize.COMPACT.id
+        ).id,
+        modularCardHeightDp = prefs.getInt("modularCardHeightDp", 180).coerceIn(160, 360),
 
         // MARBLE_CONNECT_BUTTON_V121
         connectButtonStyle = parseConnectButtonStyle(prefs.getString("connectButtonStyle", ConnectButtonStyle.ROUND.id) ?: ConnectButtonStyle.ROUND.id).id,
@@ -557,14 +553,8 @@ class AppStore(context: Context) {
         .putBoolean("modularShowSocks", s.modularShowSocks)
         .putBoolean("modularShowShortcuts", s.modularShowShortcuts)
         .putString("modularConnectStyle", s.modularConnectStyle)
-
-        // MARBLE_SIGNATURE_HOME_V112
-        .putBoolean("proFloatingButtonEnabled", s.proFloatingButtonEnabled)
-        .putBoolean("proStatusBannerEnabled", s.proStatusBannerEnabled)
-        .putString("proBannerScope", parseProBannerScope(s.proBannerScope).id)
-        .putBoolean("proCornerActionsEnabled", s.proCornerActionsEnabled)
-        .putString("proAccent", parseProAccent(s.proAccent).id)
-        .putString("proShortcut", parseProShortcut(s.proShortcut).id)
+        .putString("modularCardSize", parseModularCardSize(s.modularCardSize).id)
+        .putInt("modularCardHeightDp", s.modularCardHeightDp.coerceIn(160, 360))
 
         // MARBLE_CONNECT_BUTTON_V121
         .putString("connectButtonStyle", parseConnectButtonStyle(s.connectButtonStyle).id)
@@ -575,22 +565,6 @@ class AppStore(context: Context) {
         .putBoolean("debugModeEnabled", s.debugModeEnabled)
         .putBoolean("expertMode", s.expertMode)
         .apply()
-
-    // MARBLE_SIGNATURE_HOME_V112 — the floating connect button keeps its dragged position as
-    // normalized fractions of the viewport, so the spot survives restarts on any screen size.
-    // Written on drag end only, never per frame.
-    fun proFabPosition(): Pair<Float, Float> {
-        val x = prefs.getFloat("proFabX", 0.86f)
-        val y = prefs.getFloat("proFabY", 0.42f)
-        return x.coerceIn(0.05f, 0.95f) to y.coerceIn(0.12f, 0.80f)
-    }
-
-    fun setProFabPosition(nx: Float, ny: Float) {
-        prefs.edit()
-            .putFloat("proFabX", nx.coerceIn(0.05f, 0.95f))
-            .putFloat("proFabY", ny.coerceIn(0.12f, 0.80f))
-            .apply()
-    }
 
     private inline fun <reified T : Enum<T>> enumValue(key: String, fallback: T): T =
         runCatching { enumValueOf<T>(prefs.getString(key, fallback.name) ?: fallback.name) }.getOrDefault(fallback)
