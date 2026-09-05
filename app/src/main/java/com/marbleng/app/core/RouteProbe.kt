@@ -603,46 +603,70 @@ object RouteProbe {
             return ProbeResult("SMART", UNREACHABLE, 0, failureReason = "gate-failed:tcp+dns")
         }
 
-        // Phase 2: real HTTPS measurement — through the live tunnel when one is supplied,
-        // otherwise directly as the best available user-experience signal. Several independent
-        // 204 origins are raced so one censored CDN can never fail the node on its own.
+        // When no tunnel is running, the real TCP SYN-ACK to host:port is the honest measurement
+        // of endpoint latency (avoiding direct underlay HTTP leaks).
+        if (tunnelPort <= 0) {
+            if (tcpOk) {
+                val measuredMs = maxOf(tcpResult.latencyMs, 20.0)
+                return tcpResult.copy(
+                    method = "SMART",
+                    latencyMs = measuredMs,
+                    successPercent = 100,
+                    tcpHandshakeMs = measuredMs
+                )
+            }
+            if (dnsOk) {
+                val measuredMs = maxOf(dnsMs, 20.0)
+                return ProbeResult(
+                    method = "SMART",
+                    latencyMs = measuredMs,
+                    successPercent = 40,
+                    samples = 1,
+                    failureReason = "tcp-blocked-dns-ok"
+                )
+            }
+            return ProbeResult("SMART", UNREACHABLE, 0, failureReason = "all-methods-failed")
+        }
+
+        // Phase 2: real HTTPS measurement — through the live tunnel when one is supplied.
+        // Several independent 204 origins are raced so one censored CDN can never fail the node on its own.
         val realTimeoutMs = (budgetMs * 0.65).toInt().coerceIn(800, 4_000)
         val httpResult = httpPingBatch(
-            socksPort = tunnelPort.coerceAtLeast(0),
+            socksPort = tunnelPort,
             timeoutMs = realTimeoutMs,
             samples = 2
         )
 
-        if (httpResult.latencyMs < UNREACHABLE) {
+        if (httpResult.latencyMs in 20.0..UNREACHABLE) {
             // Both signals agree: full confidence. The TCP handshake time is kept only when it
             // is a real measurement, never the UNREACHABLE sentinel.
             return httpResult.copy(
                 method = "SMART",
-                tcpHandshakeMs = tcpResult.latencyMs.takeIf { it < UNREACHABLE }
+                tcpHandshakeMs = tcpResult.latencyMs.takeIf { it in 20.0..UNREACHABLE }
                     ?.coerceAtMost(httpResult.latencyMs) ?: 0.0
             )
         }
 
-        // HTTPS failed but the endpoint gate passed — the address listens (or at least resolves)
-        // while the direct HTTPS origins are filtered. The node is reachable with reduced
-        // confidence, never failed: a filtered google.com must not × a working server.
+        // HTTPS through tunnel failed but the endpoint gate passed — fallback with reduced confidence
         if (tcpOk) {
+            val measuredMs = maxOf(tcpResult.latencyMs, 20.0)
             return ProbeResult(
                 method = "SMART",
-                latencyMs = tcpResult.latencyMs,
+                latencyMs = measuredMs,
                 successPercent = 60,
                 samples = tcpResult.samples,
                 jitterMs = tcpResult.jitterMs,
-                minMs = tcpResult.latencyMs,
-                maxMs = tcpResult.latencyMs,
-                tcpHandshakeMs = tcpResult.latencyMs,
+                minMs = measuredMs,
+                maxMs = measuredMs,
+                tcpHandshakeMs = measuredMs,
                 failureReason = "http-filtered-tcp-ok"
             )
         }
         if (dnsOk) {
+            val measuredMs = maxOf(dnsMs, 20.0)
             return ProbeResult(
                 method = "SMART",
-                latencyMs = dnsMs,
+                latencyMs = measuredMs,
                 successPercent = 40,
                 samples = 1,
                 failureReason = "tcp-blocked-dns-ok"

@@ -5449,7 +5449,7 @@ private fun ServersNodeCard(
     onDelete: () -> Unit,
     onDetails: () -> Unit
 ) {
-    val measured = result?.takeIf { it.success > 0 }
+    val measured = result?.takeIf { it.success > 0 && it.latencyMs >= 20 }
     val latency = measured?.latencyMs?.toInt() ?: 0
     val testing = probeState == ProbeState.TESTING
     val securing = !active && repo.state == "CONNECTING" && repo.stateDetail == profile.name

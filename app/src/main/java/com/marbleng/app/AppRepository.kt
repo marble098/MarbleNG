@@ -1458,7 +1458,7 @@ private fun postToMain(block: () -> Unit) {
                     }.getOrNull()
                 }
                 val measured = probeResult
-                    ?.takeIf { it.successPercent > 0 && it.latencyMs < RouteProbe.UNREACHABLE }
+                    ?.takeIf { it.successPercent > 0 && it.latencyMs >= 20.0 && it.latencyMs < RouteProbe.UNREACHABLE }
                     ?.latencyMs
                     ?.let { LinkQualityEstimator.sanitaryRtt(it.roundToInt()) }
                     ?: 0
@@ -1475,7 +1475,7 @@ private fun postToMain(block: () -> Unit) {
                             connectionPingMs = 0
                             connectionPingState = ConnectionPingState.IDLE
                         }
-                        measured > 0 -> {
+                        measured >= 20 -> {
                             connectionPingMs = measured
                             connectionPingState = ConnectionPingState.MEASURED
                         }
@@ -1532,7 +1532,7 @@ private fun postToMain(block: () -> Unit) {
 
             fun record(mode: String, ms: Double, verified: Boolean) {
                 val sane = LinkQualityEstimator.sanitaryRtt(ms)
-                if (sane <= 0.0) return
+                if (sane < 20.0) return
                 results += ProbeSample(mode, sane, verified)
             }
 
@@ -1577,7 +1577,7 @@ private fun postToMain(block: () -> Unit) {
                             )
                         }.getOrNull()
                             ?.samplesMs
-                            ?.filter { it.isFinite() && it > 0.0 }
+                            ?.filter { it.isFinite() && it >= 20.0 }
                             ?.minOrNull()
                             ?.let { record("real-delay:$host", it, verified = true) }
                     }
@@ -1594,7 +1594,7 @@ private fun postToMain(block: () -> Unit) {
                                 2_048
                             )
                         }.getOrNull()
-                            ?.takeIf { it.status in 200..399 && it.elapsedMs > 0.0 }
+                            ?.takeIf { it.status in 200..399 && it.elapsedMs >= 20.0 }
                             ?.let { record("get:cloudflare", it.elapsedMs, verified = true) }
                     },
                     java.util.concurrent.Callable {
@@ -1623,22 +1623,19 @@ private fun postToMain(block: () -> Unit) {
                 pool.shutdownNow()
             }
 
-            val verifiedSamples = results.filter { it.verified }
+            val verifiedSamples = results.filter { it.verified && it.ms >= 20.0 }
             // MARBLE_HONEST_PING_V119 — one freaky fast sample never wins the race. The winner
             // is the median of the verified probes (every sample already bounded positive/ceiling),
             // so a single outlier cannot pull the Home readout away from the honest centre of the
             // verified distribution; the unverified SOCKS ladder only counts when nothing verified
             // answered.
-            val racePool = (verifiedSamples.ifEmpty { results })
-                .map { it.ms }
-                .filter { it.isFinite() && it > 0.0 }
-                .sorted()
+            val racePool = verifiedSamples.map { it.ms }.sorted()
             val winnerMs = racePool.getOrNull(racePool.size / 2)
             // Diagnostics still identify which probe class produced the winning opinion.
-            val winner = verifiedSamples.minByOrNull { it.ms } ?: results.minByOrNull { it.ms }
+            val winner = verifiedSamples.minByOrNull { it.ms }
             // Ladder tail: the live tunnel monitor, then the stored benchmark of the live server.
-            val tailMs = listOf(livePingMs, storedLatencyMs).firstOrNull { it > 0 } ?: 0
-            val measured = (winnerMs ?: tailMs).toInt().coerceIn(0, 10_000)
+            val tailMs = listOf(livePingMs, storedLatencyMs).firstOrNull { it >= 20 } ?: 0
+            val measured = (winnerMs?.toInt() ?: tailMs).coerceIn(0, 10_000)
 
             diagnostics.event(
                 "APP",
@@ -1662,13 +1659,12 @@ private fun postToMain(block: () -> Unit) {
                         connectionPingMs = 0
                         connectionPingState = ConnectionPingState.IDLE
                     }
-                    measured > 0 -> {
+                    measured >= 20 -> {
                         connectionPingMs = measured
                         connectionPingState = ConnectionPingState.MEASURED
                     }
                     else -> {
-                        // Unreachable while a tunnel carries traffic: every rung of the ladder is a
-                        // real measurement of the connected route. Kept for exhaustiveness only.
+                        // When no valid probe answered, mark as FAILED
                         connectionPingMs = 0
                         connectionPingState = ConnectionPingState.FAILED
                     }

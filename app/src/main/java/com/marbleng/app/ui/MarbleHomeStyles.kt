@@ -308,10 +308,8 @@ internal fun homePingLabel(evidence: HomeEvidence): String {
     val t = Tr.now
     return when (evidence.pingState) {
         ConnectionPingState.MEASURING -> t.pingMeasuringValue
-        ConnectionPingState.MEASURED -> "${evidence.pingMs} ms"
-        // MARBLE_PING_GUARANTEE_V114 — the repository ladder cannot answer "no response" while a
-        // tunnel carries traffic, so a failure only ever means "nothing measured on this route yet".
-        ConnectionPingState.FAILED -> t.pingIdleValue
+        ConnectionPingState.MEASURED -> if (evidence.pingMs >= 20) "${evidence.pingMs} ms" else "✕"
+        ConnectionPingState.FAILED -> "✕"
         ConnectionPingState.IDLE -> t.pingIdleValue
     }
 }
@@ -319,7 +317,7 @@ internal fun homePingLabel(evidence: HomeEvidence): String {
 @Composable
 internal fun homePingTone(evidence: HomeEvidence, fallback: Color): Color =
     when (evidence.pingState) {
-        ConnectionPingState.MEASURED -> marbleMetricTone(pingMetricBand(evidence.pingMs))
+        ConnectionPingState.MEASURED -> if (evidence.pingMs >= 20) marbleMetricTone(pingMetricBand(evidence.pingMs)) else Aether.Danger
         ConnectionPingState.FAILED -> Aether.Danger
         else -> fallback
     }
@@ -2127,11 +2125,56 @@ private fun ConnectButtonRound(
                     )
                 }
             }
-            HomeGlyphIcon(
-                connectButtonGlyph(evidence),
-                animatedTone,
-                Modifier.size(diameter * .26f)
-            )
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                HomeGlyphIcon(
+                    connectButtonGlyph(evidence),
+                    animatedTone,
+                    Modifier.size(if (evidence.connected) diameter * .22f else diameter * .26f)
+                )
+                if (evidence.connected) {
+                    Spacer(Modifier.height(4.dp))
+                    val pingLabel = when {
+                        evidence.pingState == ConnectionPingState.MEASURED && evidence.pingMs >= 20 -> "${evidence.pingMs} ms"
+                        evidence.pingState == ConnectionPingState.MEASURING -> "•••"
+                        evidence.pingState == ConnectionPingState.FAILED -> "✕"
+                        else -> "—"
+                    }
+                    val pingTone = when {
+                        evidence.pingState == ConnectionPingState.MEASURED && evidence.pingMs >= 20 -> marbleMetricTone(pingMetricBand(evidence.pingMs))
+                        evidence.pingState == ConnectionPingState.FAILED -> Aether.Danger
+                        else -> animatedTone
+                    }
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(3.dp),
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(animatedTone.copy(alpha = .14f))
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    ) {
+                        Box(
+                            Modifier
+                                .size(4.dp)
+                                .clip(CircleShape)
+                                .background(pingTone)
+                        )
+                        Text(
+                            pingLabel,
+                            color = pingTone,
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontWeight = FontWeight.Bold,
+                                fontFeatureSettings = "tnum",
+                                fontSize = 11.sp
+                            ),
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                    }
+                }
+            }
         }
         Spacer(Modifier.height(10.dp))
         ConnectButtonCaption(evidence, animatedTone)
@@ -2383,13 +2426,52 @@ private fun ConnectButtonClassic(
                     overflow = TextOverflow.Ellipsis
                 )
             }
-            // State lamp: the classic switch always shows whether the line is live.
-            Box(
-                Modifier
-                    .size(12.dp)
-                    .clip(CircleShape)
-                    .background(animatedTone)
-            )
+            // State lamp / live ping: the classic switch shows live line state and ping.
+            if (evidence.connected) {
+                val pingLabel = when {
+                    evidence.pingState == ConnectionPingState.MEASURED && evidence.pingMs >= 20 -> "${evidence.pingMs} ms"
+                    evidence.pingState == ConnectionPingState.MEASURING -> "•••"
+                    evidence.pingState == ConnectionPingState.FAILED -> "✕"
+                    else -> "—"
+                }
+                val pingTone = when {
+                    evidence.pingState == ConnectionPingState.MEASURED && evidence.pingMs >= 20 -> marbleMetricTone(pingMetricBand(evidence.pingMs))
+                    evidence.pingState == ConnectionPingState.FAILED -> Aether.Danger
+                    else -> animatedTone
+                }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(animatedTone.copy(alpha = .14f))
+                        .padding(horizontal = 7.dp, vertical = 3.dp)
+                ) {
+                    Box(
+                        Modifier
+                            .size(5.dp)
+                            .clip(CircleShape)
+                            .background(pingTone)
+                    )
+                    Text(
+                        pingLabel,
+                        color = pingTone,
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontWeight = FontWeight.Bold,
+                            fontFeatureSettings = "tnum"
+                        ),
+                        maxLines = 1,
+                        softWrap = false
+                    )
+                }
+            } else {
+                Box(
+                    Modifier
+                        .size(12.dp)
+                        .clip(CircleShape)
+                        .background(animatedTone)
+                )
+            }
         }
     }
 }

@@ -43,7 +43,7 @@ object ProfilePreflightValidator {
 
     /** Minimal Xray outbound protocols that actually dial a server and must have an address+port. */
     private val DIALING_PROTOCOLS = setOf(
-        "vless", "vmess", "trojan", "shadowsocks", "ss", "socks", "http", "tuic", "hysteria2", "hy2", "wireguard"
+        "vless", "vmess", "trojan", "shadowsocks", "ss", "socks", "http", "tuic", "hysteria", "hysteria2", "hy2", "wireguard"
     )
 
     /** TLS/REALITY security schemes that require a serverName to be present to validate. */
@@ -197,8 +197,10 @@ object ProfilePreflightValidator {
             "tuic" -> {
                 settingsObject.optString("server", "").takeIf { it.isNotBlank() }
             }
-            "hysteria2", "hy2" -> {
-                settingsObject.optString("server", "").takeIf { it.isNotBlank() }
+            "hysteria", "hysteria2", "hy2" -> {
+                settingsObject.optString("address", "")
+                    .ifBlank { settingsObject.optString("server", "") }
+                    .takeIf { it.isNotBlank() }
             }
             else -> null
         }
@@ -222,7 +224,10 @@ object ProfilePreflightValidator {
             }
             "wireguard" -> outbound.optInt("port", 0).takeIf { it in 1..65535 }
             "tuic" -> settingsObject.optInt("port", 0).takeIf { it in 1..65535 }
-            "hysteria2", "hy2" -> settingsObject.optInt("port", 0).takeIf { it in 1..65535 }
+            "hysteria", "hysteria2", "hy2" -> {
+                settingsObject.optInt("port", 0).takeIf { it in 1..65535 }
+                    ?: settingsObject.optInt("server_port", 0).takeIf { it in 1..65535 }
+            }
             else -> null
         }
     }

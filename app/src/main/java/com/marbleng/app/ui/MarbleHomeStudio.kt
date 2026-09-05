@@ -472,11 +472,10 @@ internal fun HomeLivePingSlab(
 }
 
 /**
- * MARBLE_HOME_LIVE_PING_V132 — the connection control with its live ping instrument.
+ * MARBLE_HOME_LIVE_PING_V132 — the connection control with integrated zero-space live ping.
  *
- * The meter sits in a reserved slot so the control never moves when it opens: the slot is always
- * measured, and only its contents animate. On wide layouts (landscape, tablets) the pair renders
- * side by side; on a portrait phone the meter opens above the control.
+ * The live ping HUD is embedded directly into the connection control's own animation geometry
+ * and rings, requiring zero extra layout space in portrait and maintaining stable geometry.
  */
 @Composable
 internal fun HomePowerStage(
@@ -488,53 +487,11 @@ internal fun HomePowerStage(
     sideBySide: Boolean? = null,
     control: @Composable () -> Unit
 ) {
-    // MARBLE_LIVE_PING_FIXED_SLOT_V135 — the instrument is revealed only once the connect control
-    // has reached CONNECTED (never during the CONNECTING ramp), and the reveal is an opacity fade
-    // inside a permanently measured slot. The control and everything around it keeps its exact
-    // geometry in every state.
-    val visible = evidence.connected && meterEnabled
-
-    BoxWithConstraints(modifier = modifier, contentAlignment = Alignment.Center) {
-        // `null` means "decide from the available width". Side by side only when BOTH 140 dp
-        // instrument slots fit beside the widest silhouette (the 340 dp slide track) — the two
-        // slots are weighted, so the control always keeps its exact centre and can never be
-        // pushed off screen. On a portrait phone the instrument stacks above the control.
-        val beside = sideBySide ?: (maxWidth >= 640.dp)
-
-        if (beside) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(
-                    modifier = Modifier.weight(1f),
-                    contentAlignment = Alignment.CenterEnd
-                ) {
-                    StageMeter(
-                        visible = visible,
-                        evidence = evidence,
-                        actions = actions,
-                        tone = tone
-                    )
-                }
-                control()
-                Spacer(Modifier.weight(1f))
-            }
-        } else {
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                StageMeter(
-                    visible = visible,
-                    evidence = evidence,
-                    actions = actions,
-                    tone = tone
-                )
-                control()
-            }
-        }
+    Box(
+        modifier = modifier,
+        contentAlignment = Alignment.Center
+    ) {
+        control()
     }
 }
 
@@ -785,13 +742,52 @@ internal fun ConnectButtonStream(
                     overflow = TextOverflow.Ellipsis
                 )
             }
-            // End-of-track lamp: the floor bar states the line condition without words.
-            Box(
-                Modifier
-                    .size(11.dp)
-                    .clip(CircleShape)
-                    .background(animatedTone)
-            )
+            // End-of-track lamp / live ping badge: states line condition and live ping.
+            if (evidence.connected) {
+                val pingLabel = when {
+                    evidence.pingState == ConnectionPingState.MEASURED && evidence.pingMs >= 20 -> "${evidence.pingMs} ms"
+                    evidence.pingState == ConnectionPingState.MEASURING -> "•••"
+                    evidence.pingState == ConnectionPingState.FAILED -> "✕"
+                    else -> "—"
+                }
+                val pingTone = when {
+                    evidence.pingState == ConnectionPingState.MEASURED && evidence.pingMs >= 20 -> marbleMetricTone(pingMetricBand(evidence.pingMs))
+                    evidence.pingState == ConnectionPingState.FAILED -> Aether.Danger
+                    else -> animatedTone
+                }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(animatedTone.copy(alpha = .14f))
+                        .padding(horizontal = 7.dp, vertical = 3.dp)
+                ) {
+                    Box(
+                        Modifier
+                            .size(5.dp)
+                            .clip(CircleShape)
+                            .background(pingTone)
+                    )
+                    Text(
+                        pingLabel,
+                        color = pingTone,
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontWeight = FontWeight.Bold,
+                            fontFeatureSettings = "tnum"
+                        ),
+                        maxLines = 1,
+                        softWrap = false
+                    )
+                }
+            } else {
+                Box(
+                    Modifier
+                        .size(11.dp)
+                        .clip(CircleShape)
+                        .background(animatedTone)
+                )
+            }
             }
         }
     }
@@ -885,6 +881,45 @@ internal fun ConnectButtonFloating(
                 softWrap = false,
                 overflow = TextOverflow.Ellipsis
             )
+        }
+        if (evidence.connected) {
+            val pingLabel = when {
+                evidence.pingState == ConnectionPingState.MEASURED && evidence.pingMs >= 20 -> "${evidence.pingMs} ms"
+                evidence.pingState == ConnectionPingState.MEASURING -> "•••"
+                evidence.pingState == ConnectionPingState.FAILED -> "✕"
+                else -> "—"
+            }
+            val pingTone = when {
+                evidence.pingState == ConnectionPingState.MEASURED && evidence.pingMs >= 20 -> marbleMetricTone(pingMetricBand(evidence.pingMs))
+                evidence.pingState == ConnectionPingState.FAILED -> Aether.Danger
+                else -> animatedTone
+            }
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(3.dp),
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(animatedTone.copy(alpha = .14f))
+                    .padding(horizontal = 6.dp, vertical = 2.dp)
+            ) {
+                Box(
+                    Modifier
+                        .size(4.dp)
+                        .clip(CircleShape)
+                        .background(pingTone)
+                )
+                Text(
+                    pingLabel,
+                    color = pingTone,
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontWeight = FontWeight.Bold,
+                        fontFeatureSettings = "tnum",
+                        fontSize = 11.sp
+                    ),
+                    maxLines = 1,
+                    softWrap = false
+                )
+            }
         }
     }
 }

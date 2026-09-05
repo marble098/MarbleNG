@@ -685,8 +685,10 @@ internal fun SignatureStatusBanner(
         }
         // Compact right readout: measured ping while connected, otherwise the session uptime.
         val readout = when {
-            evidence.connected && evidence.pingState == ConnectionPingState.MEASURED ->
+            evidence.connected && evidence.pingState == ConnectionPingState.MEASURED && evidence.pingMs >= 20 ->
                 "${evidence.pingMs} ms"
+            evidence.connected && evidence.pingState == ConnectionPingState.FAILED ->
+                "✕"
             evidence.pingState == ConnectionPingState.MEASURING -> t.measuring
             evidence.connected -> rememberUptimeLabel(evidence.connectedSinceMs)
             else -> "—"
@@ -1027,7 +1029,7 @@ internal fun SignatureFloatingConnectOverlay(
                     animatedTone,
                     Modifier.size(20.dp)
                 )
-                if (evidence.connected && evidence.pingState == ConnectionPingState.MEASURED) {
+                if (evidence.connected && evidence.pingState == ConnectionPingState.MEASURED && evidence.pingMs >= 20) {
                     // MARBLE_SYSTEM_FONT_V113 — the live latency follows the Settings typeface.
                     Text(
                         "${evidence.pingMs}",
