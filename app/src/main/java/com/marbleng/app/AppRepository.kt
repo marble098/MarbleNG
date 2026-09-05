@@ -3385,12 +3385,32 @@ private fun postToMain(block: () -> Unit) {
     fun routingAssetStatus(): RoutingAssetStatus = xray.routingAssetStatus()
 
     /** Apply MarbleNG's recommended Iran routing baseline without erasing explicit block/proxy lists. */
+    fun applyGeoAssetSource(sourceId: String) {
+        val source = RoutingDefaults.sourceById(sourceId)
+        val next = if (source.id == "custom") {
+            settings.copy(geoAssetSourceId = source.id)
+        } else {
+            settings.copy(
+                geoAssetSourceId = source.id,
+                geoIpUrl = source.geoIpUrl,
+                geoSiteUrl = source.geoSiteUrl
+            )
+        }
+        updateSettings(next)
+    }
+
+    fun setRoutingRules(rules: List<com.marbleng.app.model.RoutingRule>) {
+        updateSettings(settings.copy(routingRulesJson = RoutingEngine.serializeRules(rules)))
+    }
+
     fun applyIranRoutingPreset(prepareAssets: Boolean = true) {
         updateSettings(
             settings.copy(
                 routingMode = RoutingMode.GEO_DIRECT,
+                geoAssetSourceId = RoutingDefaults.SOURCE_CHOCOLATE4U,
                 geoIpUrl = RoutingDefaults.GEOIP_URL,
                 geoSiteUrl = RoutingDefaults.GEOSITE_URL,
+                routingRulesJson = RoutingEngine.serializeRules(RoutingEngine.DEFAULT_RULES),
                 routeGeoIpTags = RoutingDefaults.GEOIP_DIRECT_TAGS,
                 routeGeoSiteTags = RoutingDefaults.GEOSITE_DIRECT_TAGS,
                 routeBypassPrivate = true,

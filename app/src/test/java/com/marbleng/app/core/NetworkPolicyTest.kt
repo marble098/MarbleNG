@@ -114,7 +114,7 @@ class NetworkPolicyTest {
         // The default profile used to write ForceIP with no happyEyeballs block, which Xray reads as
         // "resolve both families and pick one at random" - the reported "IPv6 never activates".
         val plan = AddressFamilyPolicy.plan(
-            settings = AppSettings(),
+            settings = AppSettings(ipv6Enabled = true),
             underlayHasIpv6 = true
         )
         assertEquals(IpFamilyPreference.IPV6_FIRST, plan.preference)
@@ -132,17 +132,17 @@ class NetworkPolicyTest {
         // Fragment and chained hops set dialerProxy, and UDP transports never reach Xray's TCP race.
         listOf(
             AddressFamilyPolicy.plan(
-                settings = AppSettings(),
+                settings = AppSettings(ipv6Enabled = true),
                 underlayHasIpv6 = true,
                 dialerProxy = "fragment-direct"
             ),
             AddressFamilyPolicy.plan(
-                settings = AppSettings(),
+                settings = AppSettings(ipv6Enabled = true),
                 underlayHasIpv6 = true,
                 tcpTransport = false
             ),
             AddressFamilyPolicy.plan(
-                settings = AppSettings(adaptiveDualStackEnabled = false),
+                settings = AppSettings(ipv6Enabled = true, adaptiveDualStackEnabled = false),
                 underlayHasIpv6 = true
             )
         ).forEach { plan ->
@@ -155,7 +155,7 @@ class NetworkPolicyTest {
     @Test
     fun strictIpv6ModeRemovesTheIpv4Fallback() {
         val plan = AddressFamilyPolicy.plan(
-            settings = AppSettings(preferIpv6 = true, dnsQueryStrategy = "UseIPv6"),
+            settings = AppSettings(ipv6Enabled = true, preferIpv6 = true, dnsQueryStrategy = "UseIPv6"),
             underlayHasIpv6 = true,
             tcpTransport = true
         )
@@ -168,7 +168,7 @@ class NetworkPolicyTest {
     @Test
     fun aMeasuredIpv6PathologyDemotesTheAutomaticPreference() {
         val demoted = AddressFamilyPolicy.plan(
-            settings = AppSettings(),
+            settings = AppSettings(ipv6Enabled = true),
             underlayHasIpv6 = true,
             measuredV6Healthy = false
         )
@@ -180,7 +180,7 @@ class NetworkPolicyTest {
         assertTrue(demoted.raceEnabled)
 
         val explicit = AddressFamilyPolicy.plan(
-            settings = AppSettings(preferIpv6 = true),
+            settings = AppSettings(ipv6Enabled = true, preferIpv6 = true),
             underlayHasIpv6 = true,
             measuredV6Healthy = false
         )
@@ -192,7 +192,7 @@ class NetworkPolicyTest {
         assertTrue(explicit.raceEnabled)
 
         val explicitNoRace = AddressFamilyPolicy.plan(
-            settings = AppSettings(preferIpv6 = true, adaptiveDualStackEnabled = false),
+            settings = AppSettings(ipv6Enabled = true, preferIpv6 = true, adaptiveDualStackEnabled = false),
             underlayHasIpv6 = true,
             measuredV6Healthy = false
         )

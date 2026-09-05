@@ -18,9 +18,11 @@ data class RoutingAssetStatus(
     val geoIpReady: Boolean,
     val geoIpBytes: Long,
     val geoIpRemote: Boolean,
+    val geoIpUpdatedAt: Long,
     val geoSiteReady: Boolean,
     val geoSiteBytes: Long,
-    val geoSiteRemote: Boolean
+    val geoSiteRemote: Boolean,
+    val geoSiteUpdatedAt: Long
 )
 
 class XrayManager(private val context: Context) {
@@ -335,9 +337,11 @@ class XrayManager(private val context: Context) {
             geoIpReady = ip.isFile && ip.length() > 1024L,
             geoIpBytes = ip.takeIf { it.isFile }?.length() ?: 0L,
             geoIpRemote = ipSource.startsWith("http://") || ipSource.startsWith("https://"),
+            geoIpUpdatedAt = ip.takeIf { it.isFile }?.lastModified() ?: 0L,
             geoSiteReady = site.isFile && site.length() > 1024L,
             geoSiteBytes = site.takeIf { it.isFile }?.length() ?: 0L,
-            geoSiteRemote = siteSource.startsWith("http://") || siteSource.startsWith("https://")
+            geoSiteRemote = siteSource.startsWith("http://") || siteSource.startsWith("https://"),
+            geoSiteUpdatedAt = site.takeIf { it.isFile }?.lastModified() ?: 0L
         )
     }
 
@@ -953,7 +957,8 @@ class XrayManager(private val context: Context) {
                     routeDirectIps = "",
                     routeBlockIps = "",
                     routeBypassPrivate = false,
-                    routeBlockAds = false
+                    routeBlockAds = false,
+                    routingRulesJson = "[]"
                 )
 
                 val sourceConfig = if (sshBridge != null) {

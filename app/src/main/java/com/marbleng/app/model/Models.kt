@@ -111,6 +111,49 @@ data class ConnectionRecord(val profileId: String, val name: String, val at: Lon
 enum class BenchMode { RELIABLE, BALANCED, FAST, TURBO, CUSTOM }
 enum class ConnectionMode { FULL_TUN, LOCAL_PROXY }
 enum class RoutingMode { PROXY_ALL, BYPASS_PRIVATE, GEO_DIRECT, CUSTOM }
+
+enum class RoutingRuleKind { GEOSITE, GEOIP, DOMAIN, IP, PORT }
+enum class RoutingOutbound { PROXY, DIRECT, BLOCK }
+
+data class RoutingRule(
+    val id: String,
+    val enabled: Boolean = true,
+    val kind: RoutingRuleKind,
+    val matcher: String,
+    val outbound: RoutingOutbound,
+    val remark: String = ""
+) {
+    fun toJson() = JSONObject().apply {
+        put("id", id)
+        put("enabled", enabled)
+        put("kind", kind.name)
+        put("matcher", matcher)
+        put("outbound", outbound.name)
+        put("remark", remark)
+    }
+
+    companion object {
+        fun fromJson(o: JSONObject) = RoutingRule(
+            id = o.optString("id").ifBlank { java.util.UUID.randomUUID().toString().take(12) },
+            enabled = o.optBoolean("enabled", true),
+            kind = runCatching { RoutingRuleKind.valueOf(o.optString("kind", "DOMAIN")) }
+                .getOrDefault(RoutingRuleKind.DOMAIN),
+            matcher = o.optString("matcher"),
+            outbound = runCatching { RoutingOutbound.valueOf(o.optString("outbound", "PROXY")) }
+                .getOrDefault(RoutingOutbound.PROXY),
+            remark = o.optString("remark")
+        )
+    }
+}
+
+data class GeoAssetSource(
+    val id: String,
+    val label: String,
+    val geoIpUrl: String,
+    val geoSiteUrl: String,
+    val geoIpMirror: String = "",
+    val geoSiteMirror: String = ""
+)
 enum class SplitTunnelMode { ALL_APPS, ONLY_SELECTED, BYPASS_SELECTED }
 enum class WorkloadProfile { AUTO, INTERACTIVE, STREAMING, STABILITY, STEALTH }
 /**
@@ -409,7 +452,7 @@ data class AppSettings(
 
     // Home composition. Hiding a card does not disable its underlying engine.
     val homeShowSummaryMetrics: Boolean = false,
-    val homeShowIranMode: Boolean = true,
+    val homeShowIranMode: Boolean = false,
     val homeShowQuickActions: Boolean = true,
     val homeShowLiveQuality: Boolean = true,
     val homeShowServerSelector: Boolean = true,
@@ -441,6 +484,8 @@ data class AppSettings(
     val notificationCooldownSec: Int = 20,
 
     val routingMode: RoutingMode = RoutingMode.GEO_DIRECT,
+    val geoAssetSourceId: String = RoutingDefaults.SOURCE_CHOCOLATE4U,
+    val routingRulesJson: String = "",
     val geoIpUrl: String = RoutingDefaults.GEOIP_URL,
     val geoSiteUrl: String = RoutingDefaults.GEOSITE_URL,
     val routeGeoIpTags: String = RoutingDefaults.GEOIP_DIRECT_TAGS,
@@ -466,7 +511,7 @@ data class AppSettings(
 
     // Android TUN still captures IPv6 when disabled here. The Xray layer blocks ::/0 so turning
     // IPv6 off can never become an operating-system bypass around the protected route.
-    val ipv6Enabled: Boolean = true,
+    val ipv6Enabled: Boolean = false,
     val preferIpv6: Boolean = false,
 
     /**
@@ -597,21 +642,21 @@ data class AppSettings(
 
     // Iran Mode. Detection is automatic; countermeasures and domestic-direct routing can be
     // switched off independently for users who want detection reporting only.
-    val iranModePolicy: IranModePolicy = IranModePolicy.AUTO,
+    val iranModePolicy: IranModePolicy = IranModePolicy.OFF,
     val iranModeCountermeasures: Boolean = true,
     val iranDomesticDirect: Boolean = true,
     val iranDeepProbeEnabled: Boolean = true,
     val iranModeNotify: Boolean = false,
 
     // Marble Intelligence Engine
-    val intelligenceEnabled: Boolean = true,
+    val intelligenceEnabled: Boolean = false,
     val configCompatibilityMode: Boolean = true,
     val verifiedPerformanceTuning: Boolean = true,
 
     // Marble Turbo. On connect, the engine executes real transport methods against the selected
     // node (fragmentation shapes, Mux reuse, endpoint address family), measures ping and speed for
     // each, and keeps the winner. The exit node never changes, so this stays Identity-Guard safe.
-    val connectTuningEnabled: Boolean = true,
+    val connectTuningEnabled: Boolean = false,
     val connectTuningBudgetSec: Int = 5,
     val connectTuningMethods: Int = 8,
     /** Background passes re-measure the live route and hot-apply a materially faster method. */
@@ -628,7 +673,7 @@ data class AppSettings(
     val identityGuardSameRouteRetries: Int = 3,
 
     // Continuous Marble Autopilot. Cheap active-route monitoring plus real Xray challenger probes.
-    val continuousOptimizerEnabled: Boolean = true,
+    val continuousOptimizerEnabled: Boolean = false,
     val optimizerIntervalSec: Int = 120,
     val optimizerCandidateCount: Int = 4,
     val optimizerDeepScanEvery: Int = 8,
