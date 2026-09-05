@@ -268,7 +268,10 @@ internal fun HomeStatusBannerV137(
                 onClick = onToggle
             )
             .semantics { contentDescription = "$statusWord: ${evidence.nodeName.ifBlank { t.chooseRoute }}" }
-            .padding(horizontal = 16.dp, vertical = 14.dp),
+            .padding(horizontal = 16.dp, vertical = 14.dp)
+            // Reserve the connected-state fact row up front. Without a stable frame the live
+            // ping/IP text briefly remeasures this card and pushes every card below it downward.
+            .heightIn(min = 142.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Row(
