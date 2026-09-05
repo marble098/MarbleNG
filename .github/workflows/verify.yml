@@ -397,8 +397,20 @@ jobs:
       - name: Unit tests and Kotlin compilation
         shell: bash
         run: |
-          set -euo pipefail
+          set -uo pipefail
           gradle --no-daemon \
             :app:testDebugUnitTest \
             :app:compileDebugKotlin \
-            :app:compileReleaseKotlin
+            :app:compileReleaseKotlin 2>&1 | tee "$RUNNER_TEMP/gradle.log"
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            # Surface the failing lines as check annotations so they are readable via the
+            # API even when the log blob host is unreachable.
+            grep -E "^e: " "$RUNNER_TEMP/gradle.log" | head -30 | while IFS= read -r line; do
+              echo "::error title=Kotlin::${line:0:500}"
+            done
+            grep -E "FAILED|Execution failed for task" "$RUNNER_TEMP/gradle.log" | head -10 | while IFS= read -r line; do
+              echo "::error title=Build::${line:0:500}"
+            done
+          fi
+          exit $status
