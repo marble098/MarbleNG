@@ -872,6 +872,9 @@ class BenchmarkEngine(
         includeThroughput: Boolean,
         v2rayStyleDelay: Boolean = false
     ): Measurement {
+        // MARBLE_IRAN_AWARE_PING_L1 — the sawtooth confidence produced by this measurement is
+        // recorded with the same measurement, never inferred later from a different one.
+        var sawConfidence = 0.0
         val requested = if (v2rayStyleDelay) 2 else PingBudget.samples(s.benchSamples)
         /*
          * MARBLE_TUNING_MEASUREMENT_PLANE_V134 — the throwaway core a node is judged by is hardened
@@ -906,20 +909,19 @@ class BenchmarkEngine(
             // managed runtime pieces; a config could therefore fail Rank yet work immediately when
             // tapped. v2rayStyleDelay still controls the lightweight HTTP measurement semantics.
             xray.temporary(p, port, s, delayTest = false, link = linkEvidence) { livePort ->
-                // Official Xray HTTPing defaults to gstatic 204. Cloudflare is an independent
-                // fallback for routes where that origin is unavailable. A timeout is a failed
-                // sample, never a synthetic 5000/9999 ms latency value.
-                val targets = if (v2rayStyleDelay) {
-                    REAL_DELAY_TARGETS
-                } else {
-                    // Every node in the same network/time epoch sees the same origin order.
-                    // Profile-id rotation biased Rank when one origin was slower or censored.
-                    RankTargetScheduler.ordered(
-                        targets = TUNNEL_PROBE_TARGETS,
-                        networkKey = intelligence?.currentSnapshot()?.key().orEmpty()
-                    )
-                }
+                // MARBLE_IRAN_AWARE_PING_L0_TARGETS — no fixed gstatic/cloudflare reference set
+                // anymore. Both styles now probe the rotating pool (CDN diversity + literal ends)
+                // in the same 10-minute epoch order, so Rank, Home and the tuner all describe the
+                // same measurement plane and no single SNI can poison the fleet verdict.
+                val targets = RankTargetScheduler.ordered(
+                    targets = rankTargets(),
+                    networkKey = intelligence?.currentSnapshot()?.key().orEmpty()
+                )
                 val batch = targets.firstNotNullOfOrNull { target ->
+                    // Anti-probing stagger: a burst of identical handshakes from one core is the
+                    // pattern adaptive DPI learns. One 50–400 ms random delay per target keeps the
+                    // burst asymmetric while bounded by the batch wall clock.
+                    ProbeTargetPool.staggerProbe()
                     runCatching {
                         SocksHttpClient.tunnelRttBatch(
                             port = livePort,
@@ -939,15 +941,22 @@ class BenchmarkEngine(
                 }
 
                 if (includeThroughput && s.probeSpeedTest && times.isNotEmpty()) {
+                    // MARBLE_IRAN_AWARE_PING_L1 — the throughput stage samples the transfer SHAPE,
+                    // not only the average. A rate that collapses toward zero (sawtooth) is the
+                    // deliberate-throttling fingerprint; an average-only readout cannot see it.
                     var bytes = s.benchBytes.coerceIn(64 * 1024, 4 * 1024 * 1024)
-                    var transfer = SocksHttpClient.get(
+                    var transfer = SocksHttpClient.sampledGet(
                         livePort,
-                        "speed.cloudflare.com",
+                        ProtocolFingerprintAwareVerifier.THROUGHPUT_TARGET,
                         "/__down?bytes=$bytes",
                         s.benchTimeoutSec * 1000 + 4_000,
                         bytes + 16_384
                     )
                     speed = max(speed, transfer.bytesPerSecond)
+                    sawConfidence = SawtoothDetector.evaluate(transfer.samples).confidence
+                    if (transfer.injectedResetSuspected && failureReason.isBlank()) {
+                        failureReason = "reset-after-volume"
+                    }
                     if (
                         s.adaptiveThroughputEnabled &&
                         transfer.status > 0 &&
@@ -956,14 +965,21 @@ class BenchmarkEngine(
                     ) {
                         bytes = max(1024 * 1024, bytes * 4)
                             .coerceAtMost(s.adaptiveThroughputMaxBytes)
-                        transfer = SocksHttpClient.get(
+                        val second = SocksHttpClient.sampledGet(
                             livePort,
-                            "speed.cloudflare.com",
+                            ProtocolFingerprintAwareVerifier.THROUGHPUT_TARGET,
                             "/__down?bytes=$bytes",
                             s.benchTimeoutSec * 1000 + 7_000,
                             bytes + 16_384
                         )
+                        transfer = second
                         speed = max(speed, transfer.bytesPerSecond)
+                        sawConfidence = max(sawConfidence, SawtoothDetector.evaluate(transfer.samples).confidence)
+                    }
+                    if (sawConfidence >= ProtocolFingerprintAwareVerifier.SAWTOOTH_HIGH_CONFIDENCE &&
+                        failureReason.isBlank()
+                    ) {
+                        failureReason = "sawtooth-%.2f".format(sawConfidence)
                     }
                 }
                 if (times.isNotEmpty() && s.udpProbeEnabled) {
@@ -992,6 +1008,25 @@ class BenchmarkEngine(
         }
         val success = if (v2rayStyleDelay) { if (times.isNotEmpty()) 100 else 0 }
             else link?.successPercent ?: (times.size * 100 / requested)
+        // MARBLE_IRAN_AWARE_PING_L1 — persist the per-transport verdict (VLESS+Reality and
+        // Hysteria2 are recorded separately, never averaged together) plus the throttle shape.
+        runCatching {
+            intelligence?.recordTransportVerdict(
+                p,
+                ProtocolFingerprintAwareVerifier.TransportVerdict(
+                    transportType = ProtocolFingerprintAwareVerifier.transportTypeOf(p),
+                    successPercent = success,
+                    latencyMs = latency,
+                    jitterMs = (link?.ewmaJitterMs ?: 0.0).toDouble(),
+                    throughputBps = speed,
+                    sawtoothConfidence = sawConfidence,
+                    injectedResetSuspected = failureReason.contains("reset"),
+                    silentTimeoutSuspected = success <= 0 && failureReason.contains("timeout"),
+                    baselineDeltaRatio = 0.0,
+                    probeTargetUsed = "rank-pool"
+                )
+            )
+        }
         return Measurement(
             success, latency, speed, udpSuccess,
             (link?.ewmaJitterMs ?: -1).takeIf { it >= 0 }?.toDouble() ?: 0.0,
@@ -1062,32 +1097,23 @@ class BenchmarkEngine(
 
     private fun tcpLatency(p: ProxyProfile, timeoutMs: Int, settings: AppSettings = AppSettings()): Double {
         if (p.host.isBlank() || p.port <= 0) return DEAD_LATENCY
-        // Dial in the order the tunnel itself will use. `Socket.connect(host, port)` takes the first
-        // answer the OS resolver happened to return, which on Android is usually the A record, so a
-        // dual-stack node was measured (and therefore ranked) over IPv4 even when Marble would run it
-        // over IPv6.
-        val candidates = AddressFamilyPolicy.resolveCandidates(
-            p.host,
-            AddressFamilyPolicy.plan(settings = settings)
+        // MARBLE_IRAN_AWARE_PING_L0 — the old SYN-only precheck accepted ports that a stateful
+        // filter opens and then kills at the first ClientHello, so injected endpoints entered
+        // ranking as "alive". The precheck is now the same Layer-0 signal the measurement uses:
+        // TCP + TLS ServerHello/Alert with the time-to-RST rule, one relaxed single sample so
+        // the precheck stays cheap while being an honest reachability verdict.
+        val signal = MultiVectorReachability.probe(
+            host = p.host,
+            port = p.port,
+            timeoutMs = timeoutMs.coerceIn(300, 12_000),
+            settings = settings
         )
-        if (candidates.isEmpty()) return DEAD_LATENCY
-        val start = System.nanoTime()
-        candidates.forEachIndexed { index, address ->
-            val spentMs = ((System.nanoTime() - start) / 1_000_000L).toInt()
-            val remainingMs = timeoutMs - spentMs
-            val attemptMs = when {
-                candidates.size == 1 -> timeoutMs
-                index == candidates.lastIndex -> max(remainingMs, 250)
-                // A family that is black-holed must cost a little, not the whole precheck budget.
-                else -> min(max(remainingMs, 250), 1_200)
-            }
-            if (attemptMs <= 0) return DEAD_LATENCY
-            val connected = runCatching {
-                Socket().use { it.connect(InetSocketAddress(address, p.port), attemptMs) }
-            }.isSuccess
-            if (connected) return ((System.nanoTime() - start) / 1e6)
+        val verifiedMs = signal.timeToFirstByteMs
+        return if (signal.verified && verifiedMs != null && verifiedMs.isFinite()) {
+            verifiedMs.coerceAtLeast(20.0)
+        } else {
+            DEAD_LATENCY
         }
-        return DEAD_LATENCY
     }
 
     private fun isUdpNative(p: ProxyProfile): Boolean =
@@ -1128,22 +1154,19 @@ class BenchmarkEngine(
         const val BATCH_TUNNEL_GRACE_MS = 45_000L
         const val BATCH_WAVE_GRACE_MS = 10_000L
         const val BATCH_ABSOLUTE_CAP_MS = 15 * 60_000L
-        // Spread nodes across independent verified endpoints. Domain targets travel as SOCKS
-        // ATYP=domain (no Android resolver); literal targets remain available when proxy DNS fails.
-        val TUNNEL_PROBE_TARGETS = listOf(
-            "connectivitycheck.gstatic.com" to "/generate_204",
-            "cp.cloudflare.com" to "/generate_204",
-            "1.1.1.1" to "/cdn-cgi/trace",
-            "1.0.0.1" to "/cdn-cgi/trace"
-        )
+        /**
+         * MARBLE_IRAN_AWARE_PING_L0_TARGETS — the fixed Google/Cloudflare reference set is gone.
+         * Rank targets come from [ProbeTargetPool] in the deterministic 10-minute rotation (shared
+         * with Home pings, so every measurement describes the same target order), including the
+         * literal-IP ends so a measurement survives proxy-side DNS failures.
+         */
+        fun rankTargets(): List<Pair<String, String>> {
+            val pool = ProbeTargetPool.ordered(ProbeTargetPool.CDN_TARGETS)
+            val literals = ProbeTargetPool.ordered(ProbeTargetPool.LITERAL_TARGETS)
+            return pool.map { it.host to it.path } + literals.take(3).map { it.host to it.path }
+        }
+
         val TUNNEL_TARGET_CURSOR = AtomicInteger(0)
-        // Keep v2rayNG-style Google targets, then add an independent Cloudflare 204.
-        // A provider-specific reset must not classify an otherwise usable node as dead.
-        val REAL_DELAY_TARGETS = listOf(
-            "www.gstatic.com" to "/generate_204",
-            "www.google.com" to "/generate_204",
-            "cp.cloudflare.com" to "/generate_204"
-        )
         const val DEAD_LATENCY = 99_999.0
     }
 }

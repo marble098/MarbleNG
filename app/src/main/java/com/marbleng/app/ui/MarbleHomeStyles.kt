@@ -160,7 +160,11 @@ internal data class HomeEvidence(
     val selectedPingState: ConnectionPingState,
     val selectedPingFailure: String,
     val downBps: Long,
-    val upBps: Long
+    val upBps: Long,
+    // MARBLE_IRAN_AWARE_PING_UI — Layer 0/2 signals: the capsule's ⚠️ and the sparkline's
+    // injection segments consume them.
+    val injectedResetSuspected: Boolean = false,
+    val stabilityClass: String = ""
 )
 
 internal fun buildHomeEvidence(
@@ -196,7 +200,9 @@ internal fun buildHomeEvidence(
         selectedPingState = repo.selectedPingState,
         selectedPingFailure = repo.selectedPingFailure,
         downBps = if (connected) repo.liveDownBps else 0L,
-        upBps = if (connected) repo.liveUpBps else 0L
+        upBps = if (connected) repo.liveUpBps else 0L,
+        injectedResetSuspected = repo.homePingInjectedReset,
+        stabilityClass = repo.homePingStabilityClass
     )
 }
 
@@ -316,14 +322,26 @@ internal fun homeV137PingChannel(evidence: HomeEvidence): Triple<Int, Connection
         Triple(evidence.selectedPingMs, evidence.selectedPingState, evidence.selectedPingFailure)
     }
 
+/**
+ * MARBLE_IRAN_AWARE_PING_UI — the latency capsule carries the verdict glyph as well as the
+ * number: ✅ verified, ⚠️ injection or instability observed, 🚫 failed. The glyph is the
+ * one-glance cross-validation summary; the number alone is not a status.
+ */
 @Composable
 internal fun homePingLabel(evidence: HomeEvidence): String {
     val t = Tr.now
     val (ms, state, _) = homeV137PingChannel(evidence)
+    val glyph = when {
+        state == ConnectionPingState.FAILED -> "🚫"
+        evidence.injectedResetSuspected ||
+            evidence.stabilityClass == "UNSTABLE_UNDER_OBSERVATION" -> "⚠️"
+        state == ConnectionPingState.MEASURED -> "✅"
+        else -> ""
+    }
     return when (state) {
         ConnectionPingState.MEASURING -> t.pingMeasuringValue
-        ConnectionPingState.MEASURED -> if (ms >= 1) "$ms ms" else "✕"
-        ConnectionPingState.FAILED -> "✕"
+        ConnectionPingState.MEASURED -> if (ms >= 1) "$glyph $ms ms" else "$glyph ✕"
+        ConnectionPingState.FAILED -> "🚫 ${t.pingFailedShort}"
         ConnectionPingState.IDLE -> t.pingIdleValue
     }
 }

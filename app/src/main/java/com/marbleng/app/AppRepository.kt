@@ -446,6 +446,15 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     var connectionPingFailure by mutableStateOf(""); private set
     private val connectionPingInFlight = AtomicBoolean(false)
 
+    // MARBLE_IRAN_AWARE_PING — Layer 0/2/3 signals surfaced to the Home readout: the latency
+    // capsule turns its status glyph into ✅/⚠️/🚫, the sparkline segments injected samples, and
+    // the national-event banner is driven by [nationalEventCause].
+    var homePingInjectedReset by mutableStateOf(false); private set
+    var homePingStabilityClass by mutableStateOf(""); private set
+    var nationalEventCause by mutableStateOf(""); private set
+    var nationalEventConfidence by mutableStateOf(0f); private set
+    var homePingDetail by mutableStateOf(""); private set
+
     // MARBLE_HOME_V137 — the selected-server endpoint ping for the DISCONNECTED / CONNECTING
     // states. The tunnel ladder above needs a live SOCKS port, so it cannot answer while no
     // traffic flows; this measures the *endpoint* of the server the connect button would act on
@@ -1516,21 +1525,15 @@ private fun postToMain(block: () -> Unit) {
         }
 
         io.execute {
-            // Literal-IP + TLS-hostname pairs: the SOCKS CONNECT destination stays a literal IP
-            // (DNS-free), while certificate verification uses the provider's real hostname —
-            // the same trick the live route monitor uses, because some anycast edges reject the
-            // bare IP as the TLS name.
-            val literalTargets = listOf(
-                Triple("1.1.1.1", "cloudflare-dns.com", "/cdn-cgi/trace"),
-                Triple("8.8.8.8", "dns.google", "/dns-query"),
-                Triple("9.9.9.9", "dns.quad9.net", "/dns-query"),
-                Triple("1.0.0.1", "cloudflare-dns.com", "/cdn-cgi/trace")
-            )
-            val domainTargets = listOf(
-                "www.gstatic.com" to "/generate_204",
-                "cp.cloudflare.com" to "/generate_204",
-                "connectivitycheck.gstatic.com" to "/generate_204"
-            )
+            // MARBLE_IRAN_AWARE_PING_L0_TARGETS — the fixed gstatic/cloudflare ladder is replaced
+            // by the rotating [ProbeTargetPool]: CDN diversity (jsdelivr/github/quad9/adguard too)
+            // plus literal proxy ends, in the same 10-minute epoch order Rank uses. One filtered
+            // SNI can no longer decide the Home readout, and no host is ever the reference RTT.
+            val rotated = ProbeTargetPool.ordered(ProbeTargetPool.CDN_TARGETS)
+            val literalTargets = ProbeTargetPool.ordered(ProbeTargetPool.LITERAL_TARGETS)
+                .take(4)
+                .map { Triple(it.host, it.tlsHost, it.path) }
+            val domainTargets = rotated.take(4).map { it.host to it.path }
 
             data class ProbeSample(val mode: String, val ms: Double, val verified: Boolean)
 
@@ -1562,6 +1565,7 @@ private fun postToMain(block: () -> Unit) {
             try {
                 val tasks = literalTargets.map { (ip, tlsHost, path) ->
                     java.util.concurrent.Callable {
+                        ProbeTargetPool.staggerProbe()
                         runCatching {
                             SocksHttpClient.httpsFirstByteLatency(
                                 port = port,
@@ -1575,6 +1579,7 @@ private fun postToMain(block: () -> Unit) {
                     }
                 } + domainTargets.map { (host, path) ->
                     java.util.concurrent.Callable {
+                        ProbeTargetPool.staggerProbe()
                         runCatching {
                             SocksHttpClient.tunnelRttBatch(
                                 port = port,
@@ -1591,19 +1596,20 @@ private fun postToMain(block: () -> Unit) {
                     }
                 } + listOf(
                     java.util.concurrent.Callable {
+                        ProbeTargetPool.staggerProbe()
                         // Independent full-request opinion: any 2xx/3xx proves the tunnel
                         // end-to-end and carries an honest elapsed time.
                         runCatching {
                             SocksHttpClient.get(
                                 port,
-                                "cp.cloudflare.com",
-                                "/generate_204",
+                                rotated.first().host,
+                                rotated.first().path,
                                 probeTimeoutMs,
                                 2_048
                             )
                         }.getOrNull()
                             ?.takeIf { it.status in 200..399 && it.elapsedMs >= 20.0 }
-                            ?.let { record("get:cloudflare", it.elapsedMs, verified = true) }
+                            ?.let { record("get:${rotated.first().kind}", it.elapsedMs, verified = true) }
                     },
                     java.util.concurrent.Callable {
                         // Guarantee 3 — the cheapest honest measurement of the connected tunnel:
@@ -1657,6 +1663,21 @@ private fun postToMain(block: () -> Unit) {
                 "modes" to results.joinToString(",") { "${it.mode}=${it.ms.roundToInt()}" }
             )
 
+            // MARBLE_IRAN_AWARE_PING — fold this measurement into the Layer 2 series and run the
+            // Layer 3 attribution tick on the worker, then publish signals to the UI.
+            val stability = runCatching {
+                intelligence.recordLiveObservation(
+                    activeProfileId,
+                    measured.toDouble(),
+                    0.0,
+                    if (measured >= 20) 100.0 else 0.0,
+                    transportType = profile(activeProfileId, activeProfileSourceId)
+                        ?.let { ProtocolFingerprintAwareVerifier.transportTypeOf(it) } ?: ""
+                )
+                intelligence.consistencyReport(activeProfileId)
+            }.getOrNull()
+            val attribution = runCatching { intelligence.attributionTick() }.getOrNull()
+
             postToMain {
                 connectionPingInFlight.set(false)
                 // A disconnect or reconnect while the probe was in flight invalidates the result.
@@ -1679,6 +1700,21 @@ private fun postToMain(block: () -> Unit) {
                         connectionPingFailure = if (results.isEmpty()) "timeout" else "unreachable"
                     }
                 }
+                homePingInjectedReset = results.isEmpty() &&
+                    connectionPingFailure == "unreachable"
+                homePingStabilityClass = stability?.stabilityClass?.name ?: ""
+                nationalEventCause = if (attribution?.rankingFreeze == true) {
+                    CausalAttribution.shortKey(attribution.cause)
+                } else {
+                    ""
+                }
+                nationalEventConfidence = (attribution?.confidence ?: 0.0).toFloat()
+                homePingDetail = listOf(
+                    "responders=${results.size}",
+                    "mode=${winner?.mode ?: "none"}",
+                    if (homePingStabilityClass == "UNSTABLE_UNDER_OBSERVATION") "unstable" else null,
+                    if (nationalEventCause.isNotEmpty()) nationalEventCause else null
+                ).filterNotNull().joinToString(" • ")
             }
         }
     }
@@ -1773,24 +1809,45 @@ private fun postToMain(block: () -> Unit) {
                 selectedPingInFlight.set(false)
                 val stillSelected = selectedProfileId == targetId &&
                     (selectedProfileSourceId.isBlank() || selectedProfileSourceId == targetSource)
-                when {
-                    state == "CONNECTED" || !stillSelected -> {
-                        // The tunnel took over (tunnel ping owns the readout now) or the user
-                        // moved on to another server: this result belongs to nobody.
-                        selectedPingMs = 0
-                        selectedPingState = ConnectionPingState.IDLE
-                        selectedPingFailure = ""
+                // MARBLE_IRAN_AWARE_PING_L0/L2 — persist the Layer-0 signal (injected reset /
+                // silent timeout travel with the ProbeResult) and append the Layer-2 sample.
+                val stability = runCatching {
+                    intelligence.recordLiveObservation(
+                        targetId,
+                        measured.toDouble(),
+                        probeResult?.jitterMs ?: 0.0,
+                        probeResult?.successPercent?.toDouble() ?: 0.0,
+                        transportType = ProtocolFingerprintAwareVerifier.transportTypeOf(target)
+                    )
+                    intelligence.consistencyReport(targetId)
+                }.getOrNull()
+                postToMain {
+                    when {
+                        state == "CONNECTED" || !stillSelected -> {
+                            // The tunnel took over (tunnel ping owns the readout now) or the user
+                            // moved on to another server: this result belongs to nobody.
+                            selectedPingMs = 0
+                            selectedPingState = ConnectionPingState.IDLE
+                            selectedPingFailure = ""
+                        }
+                        measured >= 20 -> {
+                            selectedPingMs = measured
+                            selectedPingState = ConnectionPingState.MEASURED
+                            selectedPingFailure = ""
+                        }
+                        else -> {
+                            selectedPingMs = 0
+                            selectedPingState = ConnectionPingState.FAILED
+                            selectedPingFailure = classifyPingFailure(probeResult?.failureReason)
+                        }
                     }
-                    measured >= 20 -> {
-                        selectedPingMs = measured
-                        selectedPingState = ConnectionPingState.MEASURED
-                        selectedPingFailure = ""
-                    }
-                    else -> {
-                        selectedPingMs = 0
-                        selectedPingState = ConnectionPingState.FAILED
-                        selectedPingFailure = classifyPingFailure(probeResult?.failureReason)
-                    }
+                    homePingInjectedReset = probeResult?.injectedResetSuspected == true || measured < 20
+                    homePingStabilityClass = stability?.stabilityClass?.name ?: ""
+                    homePingDetail = listOf(
+                        "mode=${probeResult?.method ?: "none"}",
+                        probeResult?.failureReason?.takeIf { it.isNotBlank() },
+                        if (homePingStabilityClass == "UNSTABLE_UNDER_OBSERVATION") "unstable" else null
+                    ).filterNotNull().joinToString(" • ")
                 }
             }
         }

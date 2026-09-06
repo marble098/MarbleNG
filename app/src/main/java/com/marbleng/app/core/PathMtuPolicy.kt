@@ -56,7 +56,15 @@ object PathMtuPolicy {
         val commitMtu: Int?,
         /** True when a re-measurement of the transport is justified by this observation. */
         val requestTune: Boolean,
-        val reason: String
+        val reason: String,
+        /**
+         * MARBLE_IRAN_AWARE_PING_L2/3 — the MTU drop arrived together with throttling evidence
+         * (sawtooth/jitter). A *natural* PMTU limit is a stable property of the path; a drop that
+         * appears exactly when the transfer shape collapses is the fingerprint of an in-path
+         * filter shrinking packets. This observation must be reported to Layer 3 as an input to
+         * [CausalAttribution], never silently folded into the learned MTU.
+         */
+        val throttlingSynchronized: Boolean = false
     )
 
     /** Consecutive identical observations required before a value is trusted. */
@@ -85,7 +93,9 @@ object PathMtuPolicy {
         state: State,
         observedMtu: Int,
         activeMtu: Int,
-        nowMs: Long
+        nowMs: Long,
+        sawtoothConfidence: Double = 0.0,
+        throttleActive: Boolean = false
     ): Decision {
         if (observedMtu !in MIN_MTU..MAX_MTU) {
             return Decision(state, null, false, "out-of-range")
@@ -114,14 +124,17 @@ object PathMtuPolicy {
         // Only a corroborated, material drop below the running MTU justifies spending link capacity
         // on a transport re-measurement.
         val drop = if (activeMtu in MIN_MTU..MAX_MTU) activeMtu - observedMtu else 0
+        val throttlingSynchronized = drop >= MATERIAL_DROP_BYTES &&
+            (throttleActive || sawtoothConfidence >= ProtocolFingerprintAwareVerifier.SAWTOOTH_HIGH_CONFIDENCE)
         val requestTune = drop >= MATERIAL_DROP_BYTES && commitMtu != null
         val reason = when {
+            throttlingSynchronized -> "throttle-synchronized-drop-$drop"
             requestTune -> "material-drop-$drop"
             commitMtu != null -> "committed-$observedMtu"
             alreadyCommitted -> "unchanged"
             else -> "commit-rate-limited"
         }
-        return Decision(committed, commitMtu, requestTune, reason)
+        return Decision(committed, commitMtu, requestTune, reason, throttlingSynchronized)
     }
 
     /**

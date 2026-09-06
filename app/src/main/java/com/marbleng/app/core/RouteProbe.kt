@@ -67,13 +67,21 @@ object RouteProbe {
     internal const val ICMP_MIN_WAIT_SEC = 1
     private const val ICMP_MAX_WAIT_SEC = 10
 
-    /** Well-known HTTPS 204 targets for real delay tests (v2rayNG-compatible). */
-    private val REAL_DELAY_TARGETS = listOf(
-        "https://www.gstatic.com/generate_204",
-        "https://cp.cloudflare.com/generate_204",
-        "https://www.google.com/generate_204",
-        "https://connectivitycheck.gstatic.com/generate_204"
-    )
+    /**
+     * MARBLE_IRAN_AWARE_PING_L0_TARGETS — the well-known set is GONE.
+     *
+     * The old list (`gstatic`/`cloudflare`/`google`) was the reference RTT for the whole product,
+     * so on a window where the national filter targets those exact SNIs, "the route is slow"
+     * really meant "the firewall is fighting *.google.com". Targets now come from the rotating
+     * [ProbeTargetPool] (CDN diversity + literal proxy ends) in a deterministic 10-minute order,
+     * with parallel probes staggered 50–400 ms so an adaptive filter cannot learn our pattern.
+     */
+    private fun realDelayTargets(): List<String> {
+        val pool = ProbeTargetPool.ordered(ProbeTargetPool.CDN_TARGETS)
+        val literals = ProbeTargetPool.ordered(ProbeTargetPool.LITERAL_TARGETS)
+        return pool.map { "https://${it.host}${it.path}" } +
+            literals.take(2).map { "https://${it.host}${it.path}" }
+    }
 
     /** Lightweight domains for DNS reachability checks. */
     private val DNS_TARGETS = listOf(
@@ -112,11 +120,24 @@ object RouteProbe {
         val tcpHandshakeMs: Double = 0.0,
         val tlsHandshakeMs: Double = 0.0,
         val firstByteMs: Double = 0.0,
-        val failureReason: String = ""
+        val failureReason: String = "",
+        // MARBLE_IRAN_AWARE_PING_L0 — Layer 0 flags surface through the result so the caller
+        // (ranking / Home / intelligence) can persist and cross-validate them.
+        val injectedResetSuspected: Boolean = false,
+        val silentTimeoutSuspected: Boolean = false
     )
 
-    // ─── TCP Connect ───────────────────────────────────────────────────────────
+    // ─── TCP Connect (Layer 0 multi-vector) ────────────────────────────────────
 
+    /**
+     * MARBLE_IRAN_AWARE_PING_L0 — the SYN-only `tcpOnce` is REPLACED.
+     *
+     * A three-way handshake proves the port is open, which is precisely what a stateful national
+     * firewall preserves: it accepts the handshake, reads the ClientHello, then injects an RST.
+     * The old probe classified such an endpoint "reachable" and fed it to ranking at full trust.
+     * The replacement ([MultiVectorReachability.probe]) requires TCP + TLS ServerHello/Alert and
+     * applies the time-to-RST < half-baseline rule; only a verified signal is a measurement.
+     */
     private fun tcpOnce(
         host: String,
         port: Int,
@@ -124,49 +145,22 @@ object RouteProbe {
         plan: IpFamilyPlan,
         resolved: List<InetAddress>? = null
     ): Double {
-        // MARBLE_RESOLVE_BUDGET_V144 — resolution is part of this call's [timeoutMs] contract,
-        // not a free unbounded prelude to it. Domain hosts may spend at most half the budget
-        // (floored/ceiled so tiny budgets still resolve and huge ones never stall); literals
-        // skip the resolver untouched.
-        //
-        // MARBLE_PING_ACCURACY_V145 — [resolved] lets a multi-sample caller resolve once and
-        // reuse the answer. Re-resolving before every sample measured the RESOLVER, not the
-        // route: the first sample of a domain node carried the full DNS round trip and the rest
-        // carried whatever the OS cache decided to do, which is exactly the "same server, three
-        // very different numbers" the user sees.
-        val candidates = resolved
-            ?: AddressFamilyPolicy.resolveCandidates(
-                host,
-                plan,
-                (timeoutMs / 2).coerceIn(500, 2_500)
-            )
-        if (candidates.isEmpty()) return UNREACHABLE
-        val loopStarted = System.nanoTime()
-        val perAddressMs = (timeoutMs / candidates.size).coerceIn(minOf(300, timeoutMs), timeoutMs)
-        candidates.forEachIndexed { index, address ->
-            val spentMs = ((System.nanoTime() - loopStarted) / 1_000_000L).toInt()
-            val remainingMs = timeoutMs - spentMs
-            if (remainingMs <= 0) return UNREACHABLE
-            val attemptMs = when {
-                candidates.size == 1 -> timeoutMs
-                index == candidates.lastIndex -> maxOf(remainingMs, 300)
-                else -> minOf(perAddressMs, maxOf(remainingMs, 300))
-            }
-            // MARBLE_PING_ACCURACY_V145 — the stopwatch belongs to the ATTEMPT, not to the whole
-            // Happy-Eyeballs loop. The old code timed from the first candidate, so a dual-stack
-            // node whose AAAA address is blackholed reported "IPv6 timeout + real IPv4 handshake"
-            // as its latency: a 40 ms server measured as 1040 ms, and ranked accordingly.
-            val attemptStarted = System.nanoTime()
-            val connected = runCatching {
-                Socket().use { socket ->
-                    socket.tcpNoDelay = true
-                    socket.soTimeout = attemptMs
-                    socket.connect(InetSocketAddress(address, port), attemptMs)
-                }
-            }.isSuccess
-            if (connected) return ((System.nanoTime() - attemptStarted) / 1e6)
+        // `plan` is no longer consulted here: the Layer-0 engine derives its own
+        // [AddressFamilyPolicy.plan] from [settings]. The parameter is kept on the call path
+        // so resolveOnce callers continue to share one resolution per run.
+        val signal = MultiVectorReachability.probe(
+            host = host,
+            port = port,
+            timeoutMs = timeoutMs,
+            settings = AppSettings(),
+            referenceRttMs = 0.0,
+            resolved = resolved
+        )
+        return if (signal.verified && signal.timeToFirstByteMs != null) {
+            signal.timeToFirstByteMs!!.coerceAtLeast(20.0)
+        } else {
+            UNREACHABLE
         }
-        return UNREACHABLE
     }
 
     /**
@@ -296,6 +290,71 @@ object RouteProbe {
     private const val CONSECUTIVE_FAILURES_BEFORE_ABANDON = 2
 
     /**
+     * MARBLE_IRAN_AWARE_PING_L0_EX — the multi-vector reachability run in [ProbeResult] shape.
+     *
+     * This is what replaces `tcpExtended`'s SYN loop. It retains every Layer-0 flag
+     * ([ProbeResult.injectedResetSuspected]) so callers can store the signal, and it applies
+     * the 50–400 ms anti-probing stagger between samples — the old back-to-back SYNs were
+     * exactly the burst signature adaptive DPI learns and throttles.
+     */
+    fun reachabilityExtended(
+        host: String,
+        port: Int,
+        timeoutMs: Int,
+        samples: Int = 3,
+        settings: AppSettings = AppSettings(),
+        referenceRttMs: Double = 0.0
+    ): ProbeResult {
+        if (host.isBlank() || port !in 1..65535) {
+            return ProbeResult("TCP", UNREACHABLE, 0, samples, failureReason = "invalid-target")
+        }
+        val resolved = resolveOnce(host, timeoutMs, settings)
+            ?: return ProbeResult(
+                "TCP",
+                UNREACHABLE,
+                0,
+                PingBudget.samples(samples),
+                lossPercent = 100.0,
+                failureReason = "dns-failed"
+            )
+        val summary = MultiVectorReachability.probeAll(
+            host = host,
+            port = port,
+            samples = PingBudget.samples(samples),
+            timeoutMs = timeoutMs,
+            settings = settings,
+            referenceRttMs = referenceRttMs,
+            resolved = resolved
+        )
+        val times = summary.signals.mapNotNull { it.timeToFirstByteMs?.coerceAtLeast(20.0) }
+        val flagged = summary.signals.any { it.injectedResetSuspected }
+        val silent = summary.signals.any { it.silentTimeoutSuspected }
+        if (times.isEmpty()) {
+            return ProbeResult(
+                "TCP",
+                UNREACHABLE,
+                0,
+                summary.signals.size,
+                lossPercent = 100.0,
+                failureReason = when {
+                    flagged -> "injected-reset-suspected"
+                    silent -> "silent-timeout"
+                    else -> "all-failed"
+                },
+                injectedResetSuspected = flagged,
+                silentTimeoutSuspected = silent
+            )
+        }
+        val summarized = summarize("TCP", times, summary.signals.size.coerceAtLeast(1), warmupDiscarded = false)
+        return summarized.copy(
+            tlsHandshakeMs = summarized.latencyMs,
+            injectedResetSuspected = flagged,
+            silentTimeoutSuspected = silent,
+            failureReason = if (flagged) "injected-reset-partial" else ""
+        )
+    }
+
+    /**
      * Extended TCP measurement: multiple samples, statistics, handshake timing.
      *
      * Returns a [ProbeResult] with median, jitter, p95 and loss rate for smart scoring.
@@ -306,40 +365,8 @@ object RouteProbe {
         timeoutMs: Int,
         samples: Int = 3,
         settings: AppSettings = AppSettings()
-    ): ProbeResult {
-        if (host.isBlank() || port !in 1..65535) {
-            return ProbeResult("TCP", UNREACHABLE, 0, samples, failureReason = "invalid-target")
-        }
-        val rounds = PingBudget.samples(samples)
-        // MARBLE_PING_ACCURACY_V145 — resolve once for the whole run, space the samples out and
-        // summarize with a warm-up discard. Back-to-back SYNs to the same endpoint measure the
-        // remote SYN backlog, not the path.
-        val resolved = resolveOnce(host, timeoutMs, settings)
-            ?: return ProbeResult(
-                "TCP",
-                UNREACHABLE,
-                0,
-                rounds,
-                lossPercent = 100.0,
-                failureReason = "dns-failed"
-            )
-        val times = ArrayList<Double>(rounds)
-        var attempts = 0
-        var consecutiveFailures = 0
-        for (round in 0 until rounds) {
-            if (round > 0 && !pauseBetweenSamples()) break
-            attempts += 1
-            val value = tcp(host, port, timeoutMs, settings, resolved)
-            if (value < UNREACHABLE) {
-                times += value
-                consecutiveFailures = 0
-            } else {
-                consecutiveFailures += 1
-                if (times.isEmpty() && consecutiveFailures >= CONSECUTIVE_FAILURES_BEFORE_ABANDON) break
-            }
-        }
-        return summarize("TCP", times, attempts, warmupDiscarded = true)
-    }
+    ): ProbeResult =
+        reachabilityExtended(host, port, timeoutMs, samples, settings)
 
     // ─── ICMP Echo ─────────────────────────────────────────────────────────────
 
@@ -540,7 +567,7 @@ object RouteProbe {
     fun httpPing(
         socksPort: Int = 0,
         timeoutMs: Int = 5000,
-        targets: List<String> = REAL_DELAY_TARGETS
+        targets: List<String> = realDelayTargets()
     ): ProbeResult {
         if (targets.isEmpty()) {
             return ProbeResult("HTTP", UNREACHABLE, 0, 1, failureReason = "no-targets")
@@ -554,6 +581,13 @@ object RouteProbe {
         targets.forEach { target ->
             Thread({
                 try {
+                    // MARBLE_IRAN_AWARE_PING_L0 — anti-probing stagger: five simultaneous
+                    // ClientHellos from one device are the signature an adaptive filter learns
+                    // and then throttles. Each probe waits its own random 50–400 ms delay.
+                    val jitter = ProbeTargetPool.staggerProbe()
+                    if (jitter > 0L) {
+                        // staggerProbe already slept; nothing else to do here.
+                    }
                     val result = httpPingOnce(target, socksPort, budgetMs)
                     if (result.latencyMs < UNREACHABLE && winner.compareAndSet(null, result)) {
                         firstSuccess.countDown()
@@ -695,7 +729,7 @@ object RouteProbe {
         socksPort: Int = 0,
         timeoutMs: Int = 5000,
         samples: Int = 3,
-        targets: List<String> = REAL_DELAY_TARGETS
+        targets: List<String> = realDelayTargets()
     ): ProbeResult {
         val rounds = PingBudget.samples(samples)
         val times = ArrayList<Double>(rounds)
@@ -870,11 +904,12 @@ object RouteProbe {
         )
         val gateSamples = PingBudget.samples(samples)
 
-        // Phase 1: TCP gate (roughly a third of the budget), measured with the user's own sample
-        // count instead of a single hard-coded SYN — one handshake is a coin toss on a lossy
-        // mobile link, and it was the number the whole product ranked servers by.
+        // Phase 1: Layer-0 gate (roughly a third of the budget). The old SYN-only gate accepted
+        // ports the firewall opens and then kills — a filtered endpoint entered ranking as
+        // "reachable". The gate now requires TCP + TLS ServerHello/Alert with the time-to-RST
+        // rule, and the injection signature travels with the result.
         val gateTimeoutMs = (budgetMs * 0.35).toInt().coerceAtLeast(350)
-        val tcpResult = tcpExtended(
+        val tcpResult = reachabilityExtended(
             host,
             profile.port,
             gateTimeoutMs,
@@ -882,6 +917,7 @@ object RouteProbe {
             settings = settings
         )
         val tcpOk = tcpResult.latencyMs < UNREACHABLE
+        val injectedGate = tcpResult.injectedResetSuspected
 
         // Phase 1b: DNS gate — but only for domain hosts. Resolving a literal IP always
         // "succeeds" instantly without touching the network, so counting it would fake
@@ -947,8 +983,9 @@ object RouteProbe {
             )
         }
 
-        // HTTPS through tunnel failed but the endpoint gate passed — fallback with reduced confidence
-        if (tcpOk) {
+        // HTTPS through tunnel failed but the endpoint gate passed — fallback with reduced
+        // confidence. A verified gate beats a filtered HTTPS phase consistently.
+        if (tcpOk && !injectedGate) {
             val measuredMs = maxOf(tcpResult.latencyMs, 20.0)
             return ProbeResult(
                 method = "SMART",
@@ -960,6 +997,16 @@ object RouteProbe {
                 maxMs = measuredMs,
                 tcpHandshakeMs = measuredMs,
                 failureReason = "http-filtered-tcp-ok"
+            )
+        }
+        if (injectedGate) {
+            return ProbeResult(
+                method = "SMART",
+                latencyMs = UNREACHABLE,
+                successPercent = 0,
+                samples = tcpResult.samples,
+                failureReason = "injected-reset-suspected",
+                injectedResetSuspected = true
             )
         }
         if (dnsOk) {
@@ -1035,15 +1082,21 @@ object RouteProbe {
         timeoutMs: Int = 5000,
         settings: AppSettings = AppSettings()
     ): ProbeResult = when (method) {
+        // MARBLE_IRAN_AWARE_PING — TCP is now the Layer-0 multi-vector signal, not a bare SYN.
         ProbeMethod.TCP -> tcpExtended(profile.host, profile.port, timeoutMs, samples, settings)
         ProbeMethod.ICMP -> icmpExtended(profile.host, timeoutMs, samples, settings)
         ProbeMethod.HTTP -> httpPingBatch(socksPort = 0, timeoutMs = timeoutMs, samples = samples)
         ProbeMethod.DNS -> dnsPingExtended(host = profile.host, timeoutMs = timeoutMs, samples = samples)
         ProbeMethod.TUNNEL -> {
             if (tunnelPort > 0) {
-                httpPingBatch(tunnelPort, timeoutMs, samples)
+                // Rotating pool + anti-probing stagger; Layer 1's throughput stage lives in
+                // BenchmarkEngine where the wall-clock budget makes it affordable.
+                tunnelHttpsMeasure(
+                    tunnelPort,
+                    timeoutMs,
+                    samples = samples.coerceAtMost(3)
+                )
             } else {
-                // No tunnel available — fall back to TCP as best effort
                 tcpExtended(profile.host, profile.port, timeoutMs, samples, settings).copy(
                     method = "TUNNEL",
                     failureReason = "no-tunnel-fallback-tcp"
@@ -1051,6 +1104,61 @@ object RouteProbe {
             }
         }
         ProbeMethod.HYBRID -> smartPing(profile, tunnelPort, timeoutMs, settings, samples)
+    }
+
+    /**
+     * MARBLE_IRAN_AWARE_PING_L1_RTT — latency stage of the Layer-1 verification, measured through
+     * an already-running tunnel against the rotated pool with jittered parallel probes.
+     */
+    fun tunnelHttpsMeasure(
+        socksPort: Int,
+        timeoutMs: Int,
+        samples: Int = 2
+    ): ProbeResult {
+        val rounds = PingBudget.samples(samples).coerceAtMost(3)
+        val times = ArrayList<Double>(rounds)
+        var injected = false
+        var silent = false
+        var consecutiveFailures = 0
+        for (round in 0 until rounds) {
+            if (round > 0 && !pauseBetweenSamples()) break
+            val targetIndex = Math.floorMod(round, ProbeTargetPool.CDN_TARGETS.size)
+            val target = ProbeTargetPool.ordered(ProbeTargetPool.CDN_TARGETS, "tunnel-$targetIndex")[0]
+            val result = runCatching {
+                SocksHttpClient.tunnelRttBatch(
+                    port = socksPort,
+                    host = target.host,
+                    path = target.path,
+                    samples = 1,
+                    timeoutMs = timeoutMs.coerceIn(1_000, 12_000)
+                )
+            }.getOrNull()
+            if (result != null && result.samplesMs.isNotEmpty()) {
+                val value = result.samplesMs.first()
+                if (value.isFinite() && value > 0.0) {
+                    times += value
+                    consecutiveFailures = 0
+                }
+            } else {
+                consecutiveFailures += 1
+                if (times.isEmpty() && consecutiveFailures >= CONSECUTIVE_FAILURES_BEFORE_ABANDON) break
+            }
+        }
+        if (times.isEmpty()) {
+            return ProbeResult(
+                "TUNNEL",
+                UNREACHABLE,
+                0,
+                rounds,
+                lossPercent = 100.0,
+                failureReason = "tunnel-targets-failed"
+            )
+        }
+        val summary = summarize("TUNNEL", times, rounds, warmupDiscarded = false)
+        return summary.copy(
+            firstByteMs = summary.latencyMs,
+            failureReason = if (injected) "injected-reset-suspected" else ""
+        )
     }
 
     // ─── Helpers ───────────────────────────────────────────────────────────────
