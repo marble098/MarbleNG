@@ -115,11 +115,13 @@ import com.marbleng.app.AppRepository
 import com.marbleng.app.ServerIntelInfo
 import com.marbleng.app.core.ServersFilter
 import com.marbleng.app.core.ServersQuery
+import com.marbleng.app.model.BenchmarkResult
 import com.marbleng.app.model.ConnectionPingState
 import com.marbleng.app.model.ConnectButtonStyle
 import com.marbleng.app.model.HomeStyle
 import com.marbleng.app.model.ModularCardSize
 import com.marbleng.app.model.ModularLayout
+import com.marbleng.app.model.ProbeState
 import com.marbleng.app.model.parseConnectButtonStyle
 import com.marbleng.app.model.ProxyProfile
 import kotlinx.coroutines.delay
@@ -2017,9 +2019,27 @@ internal fun IosServerListBox(
         activeSubId == "manual" -> t.homeManualGroup
         else -> allSubs.firstOrNull { it.id == activeSubId }?.name ?: t.homeAllServers
     }
-    val visibleServers = ServersQuery.visible(
-        profiles = repo.libraryProfiles,
-        filter = ServersFilter(sourceId = if (activeSubId.isBlank()) "all" else activeSubId)
+    // MARBLE_HOME_MIRRORS_SERVERS_V150 — the Home server section is not its own state. It is
+    // the exact Servers-page list: the same filter (protocol / reachable / max-ping, scoped to
+    // the group chip), the same sort mode the user chose (nodeSortMode + reverse), the same
+    // measured latency per server, and the same selected/active predicate. A user who sorted
+    // Servers by ping and picked the winner sees that winner, that order and those pings here.
+    val settings = repo.settings
+    val benchmarks = repo.benchmarks.associateBy { it.profileId }
+    val visibleServers = ServersQuery.sort(
+        profiles = ServersQuery.visible(
+            profiles = repo.libraryProfiles,
+            filter = ServersFilter(
+                protocol = settings.serversProtocolFilter,
+                sourceId = if (activeSubId.isBlank()) "all" else activeSubId,
+                onlyReachable = settings.serversOnlyReachable,
+                maxPingMs = settings.serversMaxPingMs
+            ),
+            benchmarks = benchmarks
+        ),
+        mode = settings.nodeSortMode,
+        reverse = settings.nodeSortReverse,
+        benchmarks = benchmarks
     )
 
     // MARBLE_HOME_CLOUD_V140/V141 — the server list is a cloud card: one opaque box, quiet
@@ -2147,13 +2167,20 @@ internal fun IosServerListBox(
                     contentPadding = PaddingValues(bottom = bottomOverlayClearance)
                 ) {
                     items(visibleServers, key = { it.id }) { server ->
-                        val isSelected = (server.id == repo.activeProfileId)
+                        // MARBLE_HOME_MIRRORS_SERVERS_V150 — same predicates as the Servers page:
+                        // selected is the stored selection (any state), active is the row actually
+                        // carrying traffic — so the Home list and Servers list agree about which
+                        // server is chosen and which is live, and a tap selects exactly as Servers does.
+                        val isSelected = repo.isSelectedProfile(server)
+                        val isConnected = repo.isActiveProfile(server)
                         // animateItem keeps reorders/gliding smooth without touching row heights.
                         Box(Modifier.animateItem()) {
                             IosServerItemRow(
                                 server = server,
+                                result = benchmarks[server.id],
                                 isSelected = isSelected,
-                                isConnected = isSelected && evidence.connected,
+                                isConnected = isConnected,
+                                testing = repo.probeStateOf(server.id) == ProbeState.TESTING,
                                 onClick = {
                                     repo.selectProfile(server)
                                     if (evidence.connected) {
@@ -2303,12 +2330,19 @@ private fun protocolMonogram(scheme: String): String = when (scheme.trim().lower
  * follow, and the trailing state is one of three quiet marks: nothing (resting), a check
  * (selected) or a live pill (carrying traffic). Resting rows are near-invisible insets; the
  * selected row is the one saturated element with the sky fill and accent rim.
+ *
+ * MARBLE_HOME_MIRRORS_SERVERS_V150 — the row also carries the server's measured latency, the
+ * exact same value the Servers page shows for that server, so sorting by ping in Servers and
+ * reading the Home list cannot disagree. A probe that is running shows a small spinner; one that
+ * ran and failed shows ✕; one that was never attempted shows —.
  */
 @Composable
 private fun IosServerItemRow(
     server: ProxyProfile,
+    result: BenchmarkResult?,
     isSelected: Boolean,
     isConnected: Boolean,
+    testing: Boolean,
     onClick: () -> Unit
 ) {
     val motion = MarbleMotion.current
@@ -2327,6 +2361,12 @@ private fun IosServerItemRow(
     val tone = protocolTone(server.scheme)
     // Captured in composition: the draw lambda below must not read @Composable palette getters.
     val liveTone = Aether.Emerald
+    // MARBLE_HOME_MIRRORS_SERVERS_V150 — same "measured" gate as the Servers page
+    // (ServersPingCapsule): a latency only counts once a real measurement succeeded and is not a
+    // synthetic sub-20 ms handshake. A failed probe is an attempted (red ✕) fact, never "—".
+    val measured = result?.takeIf { it.success > 0 && it.latencyMs >= 20 }
+    val latency = measured?.latencyMs?.toInt() ?: 0
+    val attempted = result != null && measured == null
 
     Row(
         modifier = Modifier
@@ -2395,40 +2435,133 @@ private fun IosServerItemRow(
             }
         }
 
-        // Trailing state — one quiet mark, never a layout of its own.
-        when {
-            isConnected -> {
-                Row(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(9.dp))
-                        .background(Aether.Emerald.copy(alpha = 0.14f))
-                        .padding(horizontal = 7.dp, vertical = 3.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Canvas(modifier = Modifier.size(6.dp)) {
-                        drawCircle(
-                            color = liveTone.copy(alpha = 0.55f + 0.45f * motion.breathe(1400)),
-                            radius = size.minDimension * 0.5f
+        // Trailing state — measured latency plus one quiet mark, never a layout of its own.
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // MARBLE_HOME_MIRRORS_SERVERS_V150 — the same latency capsule the Servers page shows.
+            HomeServerLatencySlab(
+                latencyMs = latency,
+                measured = measured != null,
+                testing = testing,
+                attempted = attempted
+            )
+            when {
+                isConnected -> {
+                    Row(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(9.dp))
+                            .background(Aether.Emerald.copy(alpha = 0.14f))
+                            .padding(horizontal = 7.dp, vertical = 3.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Canvas(modifier = Modifier.size(6.dp)) {
+                            drawCircle(
+                                color = liveTone.copy(alpha = 0.55f + 0.45f * motion.breathe(1400)),
+                                radius = size.minDimension * 0.5f
+                            )
+                        }
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            text = t.homeConnectedBadge,
+                            color = Aether.Emerald,
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold)
                         )
                     }
-                    Spacer(Modifier.width(4.dp))
-                    Text(
-                        text = t.homeConnectedBadge,
-                        color = Aether.Emerald,
-                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold)
-                    )
+                }
+                isSelected -> {
+                    Box(
+                        modifier = Modifier
+                            .size(22.dp)
+                            .clip(CircleShape)
+                            .background(HomeCloud.Accent),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        HomeGlyphIcon(HomeGlyph.CHECK, Color.White, Modifier.size(11.dp))
+                    }
                 }
             }
-            isSelected -> {
-                Box(
-                    modifier = Modifier
-                        .size(22.dp)
-                        .clip(CircleShape)
-                        .background(HomeCloud.Accent),
-                    contentAlignment = Alignment.Center
-                ) {
-                    HomeGlyphIcon(HomeGlyph.CHECK, Color.White, Modifier.size(11.dp))
-                }
+        }
+    }
+}
+
+/**
+ * MARBLE_HOME_MIRRORS_SERVERS_V150 — a compact latency slab for one Home server row. It is the
+ * Home expression of the Servers page's latency capsule (same measured gate, same tone ramp),
+ * just at the row's own scale so the list never outshouts the status banner.
+ */
+@Composable
+private fun HomeServerLatencySlab(
+    latencyMs: Int,
+    measured: Boolean,
+    testing: Boolean,
+    attempted: Boolean
+) {
+    // Same tone ramp as the Servers page's latency capsule: green <100 ms, amber ≤250 ms, red
+    // above that. A probe that ran and failed reads as a red ✕, never as an unknown —.
+    val tone = when {
+        testing -> Aether.Cyan
+        measured -> when {
+            latencyMs < 100 -> Aether.Emerald
+            latencyMs <= 250 -> Aether.Amber
+            else -> Aether.Danger
+        }
+        attempted -> Aether.Danger
+        else -> Aether.InkFaint
+    }
+    val quality = when {
+        latencyMs <= 0 -> "Waiting"
+        latencyMs < 100 -> "Fast"
+        latencyMs <= 250 -> "Fair"
+        else -> "Slow"
+    }
+    val spoken = when {
+        testing -> trx("Testing server")
+        measured -> trx("Latency") + " $latencyMs ms, $quality"
+        attempted -> trx("No response")
+        else -> trx("Not measured")
+    }
+    Box(
+        modifier = Modifier
+            .height(26.dp)
+            .clip(RoundedCornerShape(9.dp))
+            .background(tone.copy(alpha = 0.12f))
+            .semantics { contentDescription = spoken },
+        contentAlignment = Alignment.Center
+    ) {
+        when {
+            testing -> CircularProgressIndicator(
+                modifier = Modifier.size(11.dp),
+                color = tone,
+                strokeWidth = 1.6.dp
+            )
+            !measured -> Text(
+                if (attempted) "✕" else "—",
+                color = tone,
+                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                maxLines = 1
+            )
+            else -> Row(
+                modifier = Modifier.padding(horizontal = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(3.dp)
+            ) {
+                Text(
+                    "$latencyMs",
+                    color = tone,
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontWeight = FontWeight.Bold,
+                        fontFeatureSettings = "tnum"
+                    ),
+                    maxLines = 1
+                )
+                Text(
+                    trx("ms"),
+                    color = tone.copy(alpha = 0.72f),
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                    maxLines = 1
+                )
             }
         }
     }
