@@ -77,7 +77,10 @@ data class BenchmarkResult(
     val resilienceScore: Double = 0.0,
     val usedFragment: Boolean = false,
     val usedMux: Boolean = false,
-    /** Evidence tier shown in Library. TCP/ICMP are endpoint reachability; TUNNEL proves Xray. */
+    /**
+     * Evidence tier shown in Library. SMART is the endpoint-gate/Smart verdict; TUNNEL proves the
+     * full Xray route. Address-level methods are internal primitives and never published here.
+     */
     val probeKind: String = "TUNNEL",
     /** Robust EWMA IPDV; misses break adjacency. MARBLE_REALTIME_ENGINE_V70 */
     val jitterMs: Double = 0.0,
@@ -325,26 +328,40 @@ enum class ConnectionPingState { IDLE, MEASURING, MEASURED, FAILED }
 enum class ProbeState { IDLE, QUEUED, TESTING }
 
 /**
- * MARBLE_UNIFIED_PING_V121 / MARBLE_PROBE_TOOLKIT_V130 — the single ping engine of the whole product.
+ * MARBLE_UNIFIED_PING_V121 / MARBLE_PROBE_TOOLKIT_V130 / MARBLE_PING_TRUTH_V147 — the single ping
+ * engine of the whole product.
  *
  * One user choice in Settings → Tests → Ping drives every measurement the user can trigger: the
  * Home ping button, the per-source ping in the Servers three-dot menu and the page-wide ping.
  * There is no second, hidden ping path any more.
  *
- *  - [HYBRID] "Smart ping" — the product default: a fast TCP/DNS reachability gate followed by
- *    the real verified HTTPS measurement. Returns quickly when the gate fails, accurately when
- *    it succeeds. Inspired by PattNG's multi-phase probing and Lumen's confidence scoring.
- *  - [TUNNEL] the real tunnel measurement only — HTTPS through the SOCKS proxy, proving the full
- *    route including TLS. Slowest, most accurate. Used by v2rayNG's "real delay" test.
- *  - [TCP] a plain TCP SYN handshake against the endpoint. Fastest, proves reachability only.
- *    Uses Happy-Eyeballs address racing (Exclave-style).
- *  - [ICMP] a classic ICMP echo against the endpoint. Bypasses the proxy entirely.
- *  - [HTTP] a direct HTTPS GET to a well-known 204 endpoint (no tunnel). Proves the underlay
- *    network path including DNS, TCP and TLS. Useful for testing raw network quality.
- *  - [DNS] DNS resolution time for a well-known domain. Fastest indirect check, proves only
- *    that the local DNS path works (Incy-style).
+ * ## Why the list is exactly two methods
+ *
+ * The old page offered six methods. Four of them were not measurements of a *proxy server*:
+ *
+ *  - ICMP bypasses the tunnel and is usually dropped by carriers; it cannot prove a config.
+ *  - HTTP hit a fixed Google/Cloudflare 204 over the *underlay*, not the proxy; every row got the
+ *    same number, so it could only re-rank the phone's current network.
+ *  - DNS measured the local resolver and nothing else; for literal-IP nodes it was not even a
+ *    network round trip (it returned an already-resolved address instantly).
+ *  - TCP was the fast layer-0 gate used *inside* Smart. Exposing it as a separate top-level answer
+ *    made an endpoint handshake look like a proxy verdict, and let a bad user selection silently
+ *    replace route ranking with address reachability.
+ *
+ * The primitives still exist inside [com.marbleng.app.core.RouteProbe] where Smart uses them, but
+ * they are no longer product choices. A proxy app has exactly two honest questions to answer, and
+ * the settings page now exposes only those two.
+ *
+ *  - [HYBRID] "Smart" — the product default and the fastest answer: the verified Layer-0 gate
+ *    (TCP + TLS ServerHello/Alert, Happy-Eyeballs family racing, 50–400 ms anti-probing stagger,
+ *    median over the configured samples with the warm-up sample discarded). It never invents a
+ *    100 % verdict from a partial handshake. When the app is connected it is upgraded by the live
+ *    in-tunnel ladder, so the number shown there is still a real HTTPS round trip.
+ *  - [TUNNEL] "Real test" — one real Xray core per config, HTTPS through the SOCKS inbound,
+ *    proving the protocol, the account, the route and the TLS handshake end to end. Slowest,
+ *    most accurate, and the only method allowed to mark a config "failed tunnel".
  */
-enum class ProbeMethod { TUNNEL, TCP, ICMP, HYBRID, HTTP, DNS }
+enum class ProbeMethod { HYBRID, TUNNEL }
 
 /**
  * MARBLE_PING_CONTROL_V145 — the user-owned measurement budget of the whole ping engine.

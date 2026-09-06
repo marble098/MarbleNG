@@ -53,11 +53,12 @@ class BenchmarkEngine(
         val batchNetworkKey = intelligence?.currentSnapshot()?.key()
         // TUNNEL means "test everything for real". The v2rayNG-style path also keeps every card
         // and goes straight to Xray, because an underlay TCP failure cannot prove a proxy failure.
-        // MARBLE_SMART_PING_V122 — HYBRID carries its own TCP+DNS gate inside RouteProbe.smartPing,
-        // so the raw-SYN precheck must not run for it either: it rejected healthy-but-filtered
-        // nodes with zero evidence before the real measurement ever started.
-        val precheck = usePrecheck && s.probeMethod != ProbeMethod.TUNNEL &&
-            s.probeMethod != ProbeMethod.HYBRID && !v2rayStyleDelay
+        // MARBLE_SMART_PING_V122 / MARBLE_PING_TRUTH_V147 — HYBRID carries its own verified
+        // TCP+TLS gate inside RouteProbe.smartPing, so the raw-SYN precheck must never run: it
+        // rejected healthy-but-filtered nodes with zero evidence before the real measurement
+        // started. With TCP/ICMP/HTTP/DNS gone from the product method set, no method needs the
+        // legacy separate precheck at all.
+        val precheck = false
         val candidates = selectCandidates(profiles, s, precheck).distinctBy { it.id }
         if (candidates.isEmpty()) return emptyList()
         onCandidates(candidates)
@@ -67,9 +68,9 @@ class BenchmarkEngine(
         // Probing waits on sockets far more than on the CPU, and direct probes spawn no process at
         // all, so the old (cpu / 2) cap left most of the batch idle behind four workers.
         val nominalWorkers = when {
-            // MARBLE_PING_CONTROL_V145 — a direct probe batch runs exactly as wide as the user
-            // asked. The old `coerceIn(4, 32)` made the Settings value advisory: it could not be
-            // lowered to 1 or 2 (which is what a congested mobile link needs before its numbers
+            // MARBLE_PING_CONTROL_V145 — a direct (Smart) probe batch runs exactly as wide as the
+            // user asked. The old `coerceIn(4, 32)` made the Settings value advisory: it could not
+            // be lowered to 1 or 2 (which is what a congested mobile link needs before its numbers
             // mean anything) and it could not be raised past 32 on a fast connection.
             directProbe(s) -> PingBudget.concurrency(s.tcpWorkers)
             // MarbleNG launches one native Xray child per candidate, unlike v2rayNG's in-process
@@ -92,8 +93,9 @@ class BenchmarkEngine(
                 val measured = testCandidate(p, benchmarkPort(idx), s, v2rayStyleDelay)
                 val result = rank(listOf(measured), s).firstOrNull() ?: measured
                 results += result
-                // TCP/ICMP proves endpoint reachability, not that the Xray route/account works.
-                // Never poison persistent tunnel intelligence with underlay-only measurements.
+                // SMART proves endpoint reachability (and its own TCP+TLS gate), not that the
+                // Xray route/account works. Never poison persistent tunnel intelligence with
+                // underlay-only measurements; only the native TUNNEL path records it.
                 if (
                     !directProbe(s) &&
                     (batchNetworkKey == null || intelligence?.currentSnapshot()?.key() == batchNetworkKey)
@@ -679,31 +681,28 @@ class BenchmarkEngine(
     /**
      * True when the selected method never needs a temporary Xray process.
      *
-     * MARBLE_SMART_PING_V122 — HYBRID is a light method: RouteProbe.smartPing runs its own
-     * TCP+DNS gate plus a direct/tunnelled HTTPS measurement with no Xray spawn, so a Smart
-     * ping sweep stays fast and can never mass-fail under parallel-tunnel load. The existing
-     * `!directProbe` guard in [run] automatically keeps this underlay evidence out of the
-     * persistent tunnel intelligence, exactly like TCP/ICMP/HTTP/DNS.
+     * MARBLE_SMART_PING_V122 / MARBLE_PING_TRUTH_V147 — HYBRID is now the only non-native
+     * product method: RouteProbe.smartPing runs the verified Layer-0 gate (TCP + TLS
+     * ServerHello/Alert, family racing, anti-probing stagger, configured samples with the
+     * warm-up discarded) and never invents a perfect score from a partial handshake. The
+     * `!directProbe` guard in [run] therefore still keeps this endpoint gate evidence out of
+     * the persistent tunnel intelligence, exactly as it always did for address-level probes.
+     *
+     * TCP / ICMP / HTTP / DNS are internal primitives used by that gate; they are deliberately
+     * no longer exposed as product methods because they cannot prove a proxy config.
      */
     private fun directProbe(s: AppSettings): Boolean =
-        s.probeMethod == ProbeMethod.TCP || s.probeMethod == ProbeMethod.ICMP ||
-            s.probeMethod == ProbeMethod.HTTP || s.probeMethod == ProbeMethod.DNS ||
-            s.probeMethod == ProbeMethod.HYBRID
+        s.probeMethod == ProbeMethod.HYBRID
 
     private fun directResult(p: ProxyProfile, s: AppSettings): BenchmarkResult {
         // MARBLE_PING_CONTROL_V145 — the probe budget is the user's budget, for every method.
-        // TCP used to be additionally clamped by `tcpPrecheckTimeoutMs` (1 s by default), so a
-        // deliberate "10 s per server" choice still measured TCP with a one-second deadline and
-        // reported every slow-but-alive endpoint as dead.
+        // Even Smart no longer has an extra 1 s `tcpPrecheckTimeoutMs` clamp: a deliberate
+        // "10 s per server" choice is honoured by the gate as well.
         val directTimeoutMs = (s.benchTimeoutSec * 1000).coerceIn(
             PingBudget.TIMEOUT_MIN_SEC * 1_000,
             PingBudget.TIMEOUT_MAX_SEC * 1_000
         )
-        // MARBLE_PROBE_TOOLKIT_V130 — dispatch to the right RouteProbe method
         return when (s.probeMethod) {
-            // MARBLE_SMART_PING_V122 — Smart reuses the unified smart ping (fast TCP+DNS gate
-            // plus a real HTTPS measurement), mapped onto the benchmark shape. Any passing
-            // signal keeps success > 0, so filtered-but-alive servers never show as failed.
             ProbeMethod.HYBRID -> {
                 val result = RouteProbe.smartPing(
                     profile = p,
@@ -726,60 +725,7 @@ class BenchmarkEngine(
                     failureReason = result.failureReason.take(180)
                 )
             }
-            ProbeMethod.HTTP -> {
-                val result = RouteProbe.httpPingBatch(
-                    socksPort = 0,
-                    timeoutMs = directTimeoutMs,
-                    samples = PingBudget.samples(s.benchSamples)
-                )
-                BenchmarkResult(
-                    profileId = p.id,
-                    name = p.name,
-                    success = result.successPercent,
-                    latencyMs = result.latencyMs,
-                    bytesPerSecond = 0.0,
-                    score = 0.0,
-                    probeKind = "HTTP",
-                    jitterMs = result.jitterMs,
-                    p95LatencyMs = result.p95Ms,
-                    lossPercent = result.lossPercent
-                )
-            }
-            ProbeMethod.DNS -> {
-                val result = RouteProbe.dnsPingExtended(
-                    host = p.host,
-                    timeoutMs = directTimeoutMs,
-                    samples = PingBudget.samples(s.benchSamples)
-                )
-                BenchmarkResult(
-                    profileId = p.id,
-                    name = p.name,
-                    success = result.successPercent,
-                    latencyMs = result.latencyMs,
-                    bytesPerSecond = 0.0,
-                    score = 0.0,
-                    probeKind = "DNS",
-                    jitterMs = result.jitterMs
-                )
-            }
-            else -> {
-                val sample = RouteProbe.measure(
-                    profile = p,
-                    icmpMode = s.probeMethod == ProbeMethod.ICMP,
-                    samples = PingBudget.samples(s.benchSamples),
-                    timeoutMs = directTimeoutMs,
-                    settings = s
-                )
-                BenchmarkResult(
-                    profileId = p.id,
-                    name = p.name,
-                    success = sample.successPercent,
-                    latencyMs = sample.latencyMs,
-                    bytesPerSecond = 0.0,
-                    score = 0.0,
-                    probeKind = if (s.probeMethod == ProbeMethod.ICMP) "ICMP" else "TCP"
-                )
-            }
+            ProbeMethod.TUNNEL -> error("TUNNEL is a native path and must never reach directResult")
         }
     }
 

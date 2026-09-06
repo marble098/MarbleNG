@@ -673,6 +673,26 @@ check(
     "legacy global chain settings are removed",
     "chainEnabled" not in files["models"] + files["store"] + files["ui"],
 )
+# MARBLE_PING_TRUTH_V147 — the product ping method set is exactly two answers that can describe a
+# proxy server. ICMP/HTTP/DNS measured the underlay or resolver, TCP was merely Smart's internal
+# Layer-0 gate; exposing them as peer methods let an address verdict replace a proxy verdict.
+# They must never regress into the model or the settings page.
+check(
+    "product ping methods are exactly Smart and Real tunnel",
+    "enum class ProbeMethod { HYBRID, TUNNEL }" in files["models"]
+    and "ProbeMethod.TCP" not in files["models"]
+    and "ProbeMethod.ICMP" not in files["models"]
+    and "ProbeMethod.HTTP" not in files["models"]
+    and "ProbeMethod.DNS" not in files["models"],
+)
+check(
+    "settings page never offers removed address-level ping methods",
+    "ProbeMethod.TCP ->" not in files["ui"]
+    and "ProbeMethod.ICMP ->" not in files["ui"]
+    and "ProbeMethod.HTTP ->" not in files["ui"]
+    and "ProbeMethod.DNS ->" not in files["ui"]
+    and "ProbeMethod.entries.forEach" in files["ui"],
+)
 check("DNS settings keep their Compose boundary", "@Composable\nprivate fun DnsSettings(" in files["ui"])
 check(
     "Manual Library supports unbounded saved chains",

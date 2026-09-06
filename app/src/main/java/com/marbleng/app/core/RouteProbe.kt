@@ -345,7 +345,11 @@ object RouteProbe {
                 silentTimeoutSuspected = silent
             )
         }
-        val summarized = summarize("TCP", times, summary.signals.size.coerceAtLeast(1), warmupDiscarded = false)
+        // MARBLE_PING_TRUTH_V147 — the warm-up sample is discarded here too. The same cold
+        // ARP/NDP/conntrack cost that [summarize] removes from `measure` is present in the gate:
+        // keeping it made Smart report a lower latency the first time a node was touched and a
+        // higher one on every later run depending only on probe history, not on the path.
+        val summarized = summarize("TCP", times, summary.signals.size.coerceAtLeast(1), warmupDiscarded = true)
         return summarized.copy(
             tlsHandshakeMs = summarized.latencyMs,
             injectedResetSuspected = flagged,
@@ -752,10 +756,16 @@ object RouteProbe {
         if (times.isEmpty()) {
             return ProbeResult("HTTP", UNREACHABLE, 0, rounds, lossPercent = 100.0, failureReason = "all-failed")
         }
-        val sorted = times.sorted()
+        // MARBLE_PING_TRUTH_V147 — the Settings page promises "the warm-up sample is discarded",
+        // but the batch kept it in the median. The first HTTPS request of a run carries the same
+        // cold resolver/ARP/TLS-session state as a TCP gate, so a 3-sample "median" was really a
+        // mean of [warmup + 2 real deltas]. Success and loss rates still count every attempt;
+        // only the latency distribution drops the first measured value.
+        val considered = if (times.size >= 3) times.drop(1) else times
+        val sorted = considered.sorted()
         val median = sorted[sorted.size / 2]
-        val jitter = if (times.size >= 2) {
-            times.zipWithNext { a, b -> abs(a - b) }.average()
+        val jitter = if (considered.size >= 2) {
+            considered.zipWithNext { a, b -> abs(a - b) }.average()
         } else 0.0
         val p95Index = ((sorted.size - 1) * 0.95).toInt().coerceIn(0, sorted.lastIndex)
         return ProbeResult(
@@ -936,16 +946,23 @@ object RouteProbe {
             return ProbeResult("SMART", UNREACHABLE, 0, failureReason = "gate-failed:tcp+dns")
         }
 
-        // When no tunnel is running, the real TCP SYN-ACK to host:port is the honest measurement
-        // of endpoint latency (avoiding direct underlay HTTP leaks).
+        // When no tunnel is running, the verified TCP+TLS gate to host:port is the honest
+        // measurement of endpoint latency (avoiding direct underlay HTTP leaks).
+        //
+        // MARBLE_PING_TRUTH_V147 — the old copy painted every passing gate as 100 % reachable.
+        // A gate that answers 2 of 3 samples (or was partially injected) must carry that loss in
+        // its own successPercent, not be promoted to a perfect result before ranking sees it. The
+        // magic 60/40 fallback scores are gone for the same reason: the measured success rate is
+        // the only honest confidence next to a measured latency.
         if (tunnelPort <= 0) {
             if (tcpOk) {
                 val measuredMs = maxOf(tcpResult.latencyMs, 20.0)
                 return tcpResult.copy(
                     method = "SMART",
                     latencyMs = measuredMs,
-                    successPercent = 100,
-                    tcpHandshakeMs = measuredMs
+                    successPercent = tcpResult.successPercent,
+                    tcpHandshakeMs = measuredMs,
+                    failureReason = if (tcpResult.successPercent < 100) "partial-tcp-gate" else ""
                 )
             }
             if (dnsOk) {
@@ -953,7 +970,7 @@ object RouteProbe {
                 return ProbeResult(
                     method = "SMART",
                     latencyMs = measuredMs,
-                    successPercent = 40,
+                    successPercent = 20,
                     samples = 1,
                     failureReason = "tcp-blocked-dns-ok"
                 )
@@ -967,30 +984,39 @@ object RouteProbe {
         // asked for, so it owns the FULL per-sample budget instead of a 65% slice: a route that
         // answers in 7 s under a 10 s budget must be reported as 7 s, not as timed-out at 6.5 s.
         // The fast gate above is what keeps dead nodes cheap, not a budget carve-out here.
+        // MARBLE_PING_TRUTH_V147 — no hidden 3-sample ceiling. When a live tunnel is supplied the
+        // HTTPS phase is the measurement the user asked for; if they configured 8 samples they get
+        // 8 spaced HTTPS round trips, exactly as the Settings page states. The gate remains the
+        // thing that makes dead nodes cheap; it is no longer allowed to shrink the honest tail.
         val httpResult = httpPingBatch(
             socksPort = tunnelPort,
             timeoutMs = budgetMs,
-            samples = gateSamples.coerceAtMost(3)
+            samples = PingBudget.samples(samples)
         )
 
-        if (httpResult.latencyMs in 20.0..UNREACHABLE) {
+        // MARBLE_PING_TRUTH_V147 — the old guard used `20.0..UNREACHABLE`, which includes the
+        // all-failed sentinel and therefore treated an empty HTTPS batch as a successful
+        // "both signals agree" verdict. That made the TCP fallback below unreachable: a healthy
+        // endpoint whose tunnel HTTPS phase was blocked was published as failed.
+        if (httpResult.successPercent > 0 && httpResult.latencyMs >= 20.0 && httpResult.latencyMs < UNREACHABLE) {
             // Both signals agree: full confidence. The TCP handshake time is kept only when it
             // is a real measurement, never the UNREACHABLE sentinel.
             return httpResult.copy(
                 method = "SMART",
-                tcpHandshakeMs = tcpResult.latencyMs.takeIf { it in 20.0..UNREACHABLE }
+                tcpHandshakeMs = tcpResult.latencyMs.takeIf { it >= 20.0 && it < UNREACHABLE }
                     ?.coerceAtMost(httpResult.latencyMs) ?: 0.0
             )
         }
 
-        // HTTPS through tunnel failed but the endpoint gate passed — fallback with reduced
-        // confidence. A verified gate beats a filtered HTTPS phase consistently.
+        // HTTPS through tunnel failed but the endpoint gate passed — fallback with the gate's own
+        // measured confidence. A verified gate beats a filtered HTTPS phase, but it must never be
+        // promoted to a magic 60 %; a 2/3 gate stays 66 %, a 1/3 gate stays 33 %.
         if (tcpOk && !injectedGate) {
             val measuredMs = maxOf(tcpResult.latencyMs, 20.0)
             return ProbeResult(
                 method = "SMART",
                 latencyMs = measuredMs,
-                successPercent = 60,
+                successPercent = tcpResult.successPercent,
                 samples = tcpResult.samples,
                 jitterMs = tcpResult.jitterMs,
                 minMs = measuredMs,
@@ -1014,7 +1040,7 @@ object RouteProbe {
             return ProbeResult(
                 method = "SMART",
                 latencyMs = measuredMs,
-                successPercent = 40,
+                successPercent = 20,
                 samples = 1,
                 failureReason = "tcp-blocked-dns-ok"
             )
@@ -1082,20 +1108,14 @@ object RouteProbe {
         timeoutMs: Int = 5000,
         settings: AppSettings = AppSettings()
     ): ProbeResult = when (method) {
-        // MARBLE_IRAN_AWARE_PING — TCP is now the Layer-0 multi-vector signal, not a bare SYN.
-        ProbeMethod.TCP -> tcpExtended(profile.host, profile.port, timeoutMs, samples, settings)
-        ProbeMethod.ICMP -> icmpExtended(profile.host, timeoutMs, samples, settings)
-        ProbeMethod.HTTP -> httpPingBatch(socksPort = 0, timeoutMs = timeoutMs, samples = samples)
-        ProbeMethod.DNS -> dnsPingExtended(host = profile.host, timeoutMs = timeoutMs, samples = samples)
+        // MARBLE_PING_TRUTH_V147 — TCP/ICMP/HTTP/DNS are no longer product methods. They remain
+        // internal primitives used by [smartPing], but they can never be chosen as a verdict.
         ProbeMethod.TUNNEL -> {
             if (tunnelPort > 0) {
                 // Rotating pool + anti-probing stagger; Layer 1's throughput stage lives in
                 // BenchmarkEngine where the wall-clock budget makes it affordable.
-                tunnelHttpsMeasure(
-                    tunnelPort,
-                    timeoutMs,
-                    samples = samples.coerceAtMost(3)
-                )
+                // MARBLE_PING_TRUTH_V147 — no hidden 3-sample ceiling here either.
+                tunnelHttpsMeasure(tunnelPort, timeoutMs, samples = samples)
             } else {
                 tcpExtended(profile.host, profile.port, timeoutMs, samples, settings).copy(
                     method = "TUNNEL",
@@ -1115,7 +1135,10 @@ object RouteProbe {
         timeoutMs: Int,
         samples: Int = 2
     ): ProbeResult {
-        val rounds = PingBudget.samples(samples).coerceAtMost(3)
+        // MARBLE_PING_TRUTH_V147 — configured samples are the budget. The old 3-sample ceiling
+        // made "samples per server" a suggestion for the real-tunnel path, and warm-up was kept
+        // in the median as well; both are now the same as every other measurement.
+        val rounds = PingBudget.samples(samples)
         val times = ArrayList<Double>(rounds)
         var injected = false
         var silent = false
@@ -1154,7 +1177,7 @@ object RouteProbe {
                 failureReason = "tunnel-targets-failed"
             )
         }
-        val summary = summarize("TUNNEL", times, rounds, warmupDiscarded = false)
+        val summary = summarize("TUNNEL", times, rounds, warmupDiscarded = true)
         return summary.copy(
             firstByteMs = summary.latencyMs,
             failureReason = if (injected) "injected-reset-suspected" else ""

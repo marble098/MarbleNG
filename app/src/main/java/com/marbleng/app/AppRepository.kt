@@ -1437,71 +1437,12 @@ private fun postToMain(block: () -> Unit) {
         val port = activeProxyPort()
         val sessionAtStart = connectedSinceMs
 
-        // MARBLE_ONE_PING_V121 / MARBLE_PROBE_TOOLKIT_V130 — the Home ping obeys Settings → Testing
-        // like every other measurement in the product. Smart ping (the default) and Tunnel ping
-        // race the verified in-tunnel ladder below; the address-level methods (TCP, ICMP, HTTP, DNS)
-        // measure the server endpoint or network path directly.
-        val method = settings.probeMethod
-        if (method == ProbeMethod.TCP || method == ProbeMethod.ICMP ||
-            method == ProbeMethod.HTTP || method == ProbeMethod.DNS) {
-                postToMain {
-                    connectionPingMs = 0
-                    connectionPingState = ConnectionPingState.MEASURING
-                    connectionPingFailure = ""
-                }
-            val target = profile(activeProfileId, activeProfileSourceId)
-            io.execute {
-                // MARBLE_PROBE_TOOLKIT_V130 — dispatch to the right RouteProbe method
-                // MARBLE_PING_CONTROL_V145 — the Home ping spends exactly the budget the user
-                // configured (Settings › Tests › Ping), never a narrower hidden one.
-                val timeoutMs = settings.pingTimeoutMs()
-                val samples = settings.pingSampleCount()
-                val probeResult = target?.let { live ->
-                    runCatching {
-                        RouteProbe.measureUnified(
-                            profile = live,
-                            method = method,
-                            tunnelPort = if (state == "CONNECTED") activeProxyPort() else 0,
-                            samples = samples,
-                            timeoutMs = timeoutMs,
-                            settings = settings
-                        )
-                    }.getOrNull()
-                }
-                val measured = probeResult
-                    ?.takeIf { it.successPercent > 0 && it.latencyMs >= 20.0 && it.latencyMs < RouteProbe.UNREACHABLE }
-                    ?.latencyMs
-                    ?.let { LinkQualityEstimator.sanitaryRtt(it.roundToInt()) }
-                    ?: 0
-                diagnostics.event(
-                    "APP",
-                    "home-connection-ping",
-                    "measured" to measured,
-                    "mode" to method.name.lowercase()
-                )
-                postToMain {
-                    connectionPingInFlight.set(false)
-                    when {
-                        state != "CONNECTED" || connectedSinceMs != sessionAtStart -> {
-                            connectionPingMs = 0
-                            connectionPingState = ConnectionPingState.IDLE
-                            connectionPingFailure = ""
-                        }
-                        measured >= 20 -> {
-                            connectionPingMs = measured
-                            connectionPingState = ConnectionPingState.MEASURED
-                            connectionPingFailure = ""
-                        }
-                        else -> {
-                            connectionPingMs = 0
-                            connectionPingState = ConnectionPingState.FAILED
-                            connectionPingFailure = classifyPingFailure(probeResult?.failureReason)
-                        }
-                    }
-                }
-            }
-            return
-        }
+        // MARBLE_PING_TRUTH_V147 — a *connected* tunnel ping is necessarily a tunnel question, so
+        // it no longer obeys an address-level method. ICMP/HTTP/DNS/TCP are gone from the product
+        // method set and would be the wrong answer here even if they existed: the user is asking
+        // "is the live route good?", and the only honest answer is the verified in-tunnel ladder
+        // below. The selected-method concept still applies to disconnected servers (see
+        // [measureSelectedPing]) and to server ranking, never to the live tunnel readout.
 
         // Guarantee 1 — seed the readout with a real measurement the tunnel already owns, so the
         // value never sits in MEASURING while the race is still running. Stored benchmarks are
@@ -1751,11 +1692,13 @@ private fun postToMain(block: () -> Unit) {
     }
 
     /**
-     * MARBLE_HOME_V137 — endpoint ping of the server the connect button would act on, for the
-     * DISCONNECTED / CONNECTING states where the tunnel ladder has no port to race through.
-     * Dispatches to [RouteProbe.measureUnified] with tunnelPort = 0 (Smart falls back to the
-     * TCP/DNS gate, Tunnel falls back to TCP), so the method, the family plan and the 20 ms
-     * honest floor are identical to the connected path. Async, single-flight, measured-only.
+     * MARBLE_HOME_V137 / MARBLE_PING_TRUTH_V147 — endpoint ping of the server the connect button
+     * would act on, for the DISCONNECTED / CONNECTING states where the tunnel ladder has no port
+     * to race through. Dispatches to [RouteProbe.measureUnified] with tunnelPort = 0: Smart runs
+     * the verified TCP+TLS gate and Real test honestly falls back to that same gate (there is no
+     * way to prove a config without spawning a tunnel, which this one-shot button does not do),
+     * so the method, the family plan and the 20 ms honest floor are identical to the connected
+     * path. Async, single-flight, measured-only.
      */
     fun measureSelectedPing() {
         if (!selectedPingInFlight.compareAndSet(false, true)) return
@@ -2602,11 +2545,12 @@ private fun postToMain(block: () -> Unit) {
 
     /**
      * Count nodes in one subscription whose most recent stored benchmark explicitly failed
-     * the requested evidence type. TCP and TUNNEL stay separate.
+     * the requested evidence type. SMART (endpoint-gate verdict) and TUNNEL (real config verdict)
+     * stay separate.
      */
     fun failedSubscriptionNodeCount(id: String, probeKind: String): Int {
         val kind = probeKind.trim().uppercase()
-        if (kind !in setOf("TCP", "TUNNEL")) return 0
+        if (kind !in setOf("SMART", "TUNNEL")) return 0
         val failedIds = benchmarks.asSequence()
             .filter { it.success <= 0 && it.probeKind.equals(kind, ignoreCase = true) }
             .mapTo(mutableSetOf()) { it.profileId }
@@ -2633,7 +2577,7 @@ private fun postToMain(block: () -> Unit) {
             return 0
         }
         val kind = probeKind.trim().uppercase()
-        if (kind !in setOf("TCP", "TUNNEL")) {
+        if (kind !in setOf("SMART", "TUNNEL")) {
             message = "Unsupported failed-server evidence type"
             return 0
         }
@@ -3362,18 +3306,19 @@ private fun postToMain(block: () -> Unit) {
         "${profile.host.trim().lowercase()}:${profile.port}"
 
     /**
-     * MARBLE_ONE_PING_V121 — the one ping of the product, confined to the selected source.
+     * MARBLE_ONE_PING_V121 / MARBLE_PING_TRUTH_V147 — the one ping of the product, confined to
+     * the selected source.
      *
-     * There is no longer a "quick TCP ping" that silently overrode the user's choice: this runs
-     * exactly the method configured in Settings → Testing (Smart ping by default), which is the
-     * same method the Home ping button and every other measurement in the app use. Two entry
+     * There is no longer a hidden "quick TCP ping" that silently overrode the user's choice: this
+     * runs exactly the method configured in Settings → Testing (Smart ping by default), which is
+     * the same method the Home ping button and every other measurement in the app use. Two entry
      * points can no longer report two different latencies for the same server.
      *
-     * Endpoint de-duplication still applies to the address-level methods (TCP / ICMP / DNS) and
-     * to Smart ping, where reachability really is a host:port property and aggregator
-     * subscriptions repeat the same endpoint dozens of times: one representative is probed and
-     * the verified result is fanned out to every config sharing that endpoint. The real tunnel
-     * test proves a *config*, so it is measured per server, exactly as ranking does.
+     * Endpoint de-duplication still applies to Smart ping, where reachability really is a
+     * host:port property and aggregator subscriptions repeat the same endpoint dozens of times:
+     * one representative is probed and the verified result is fanned out to every config sharing
+     * that endpoint. The real tunnel test proves a *config*, so it is measured per server,
+     * exactly as ranking does.
      */
     fun testSource(sourceId: String) {
         pingProfiles(
@@ -3408,37 +3353,19 @@ private fun postToMain(block: () -> Unit) {
         val methodLabel = when (method) {
             ProbeMethod.HYBRID -> "Smart ping"
             ProbeMethod.TUNNEL -> "Real test"
-            ProbeMethod.TCP -> "TCP ping"
-            ProbeMethod.ICMP -> "ICMP ping"
-            ProbeMethod.HTTP -> "HTTP ping"
-            ProbeMethod.DNS -> "DNS ping"
         }
-        // MARBLE_SMART_PING_V122 — Smart's gate is an endpoint (host:port) property plus a
-        // provider-diverse direct HTTPS check that is identical for every config on that
-        // endpoint, so it shares one measurement between identical endpoints exactly like the
-        // other address-level methods. Only the real per-config tunnel test stays per server.
-        //
-        // MARBLE_HTTP_SHARED_PATH_V144 — critique that extends the same honesty one step
-        // further: the HTTP method never touches a server at all. It is a direct HTTPS GET to a
-        // fixed Google/Cloudflare 204 over the UNDERLAY, so its value is a property of the
-        // phone's current network, identical for every row in the batch. The old code measured
-        // it once PER SERVER (N sequential TLS handshakes for N copies of the same number) and
-        // then ranked servers by the resulting noise. It is now measured exactly once per run
-        // and fanned out to every member — same information, ~N× faster, and the per-server
-        // numbers can no longer pretend to differ.
-        val dedupe = method == ProbeMethod.TCP || method == ProbeMethod.ICMP ||
-            method == ProbeMethod.DNS || method == ProbeMethod.HYBRID
-        val sharedUnderlay = method == ProbeMethod.HTTP
+        // MARBLE_SMART_PING_V122 / MARBLE_PING_TRUTH_V147 — Smart's verdict is an endpoint
+        // (host:port) property: a subscription repeating the same endpoint N times genuinely has
+        // one thing to measure, so it shares one verified result among those members exactly like
+        // before. Real test proves a *config* (protocol + account + route), so it stays per
+        // server. HTTP/ICMP/DNS/TCP no longer appear here because none of them is a proxy verdict.
+        val dedupe = method == ProbeMethod.HYBRID
 
         task("$methodLabel • $scope") {
-            val groups = when {
-                dedupe -> scoped.groupBy(::quickPingEndpointKey)
-                sharedUnderlay -> if (scoped.isNotEmpty()) {
-                    mapOf("underlay-path" to scoped)
-                } else {
-                    emptyMap()
-                }
-                else -> scoped.associateBy { it.id }.mapValues { (_, profile) -> listOf(profile) }
+            val groups = if (dedupe) {
+                scoped.groupBy(::quickPingEndpointKey)
+            } else {
+                scoped.associateBy { it.id }.mapValues { (_, profile) -> listOf(profile) }
             }
             val representatives = groups.values.mapNotNull { it.firstOrNull() }
             // MARBLE_PING_CONTROL_V145 — a sweep runs the user's budget, full stop.
@@ -3463,9 +3390,7 @@ private fun postToMain(block: () -> Unit) {
             )
 
             fun membersFor(representative: ProxyProfile): List<ProxyProfile> =
-                if (sharedUnderlay) {
-                    groups["underlay-path"].orEmpty()
-                } else if (dedupe) {
+                if (dedupe) {
                     groups[quickPingEndpointKey(representative)].orEmpty()
                 } else {
                     listOf(representative)
