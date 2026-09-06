@@ -224,6 +224,12 @@ class AppStore(context: Context) {
         tcpPrecheckTimeoutMs = prefs.getInt("tcpPrecheckTimeoutMs", 1000),
         tcpWorkers = prefs.getInt("tcpWorkers", 20),
 
+        // MARBLE_PING_CONTROL_V145 — the user-owned ping budget, clamped on the way in so a
+        // hand-edited or migrated preference can never hand the engine an illegal budget.
+        pingTimeoutSec = PingBudget.timeoutSec(prefs.getInt("pingTimeoutSec", 5)),
+        pingSamples = PingBudget.samples(prefs.getInt("pingSamples", 3)),
+        pingConcurrency = PingBudget.concurrency(prefs.getInt("pingConcurrency", 8)),
+
         nodeSortMode = enumValue("nodeSortMode", NodeSortMode.DEFAULT),
         nodeSortReverse = prefs.getBoolean("nodeSortReverse", false),
 
@@ -372,10 +378,19 @@ class AppStore(context: Context) {
         homeStyle = parseHomeStyle(prefs.getString("homeStyle", HomeStyle.IOS_SLIDER.id) ?: HomeStyle.IOS_SLIDER.id).id,
         appLanguage = parseAppLanguage(prefs.getString("appLanguage", AppLanguage.SYSTEM.id) ?: AppLanguage.SYSTEM.id).id,
 
-        modularCardOrder = prefs.getString("modularCardOrder", "STATUS,SERVERS,CONNECT,STATS") ?: "STATUS,SERVERS,CONNECT,STATS",
+        // MARBLE_MODULAR_LAYOUT_V145 — a persisted order is repaired on read, so a legacy or
+        // truncated value can never hide a Home module (CONNECT included).
+        modularCardOrder = ModularLayout.serialize(
+            ModularLayout.order(
+                prefs.getString("modularCardOrder", ModularLayout.DEFAULT_ORDER)
+                    ?: ModularLayout.DEFAULT_ORDER
+            )
+        ),
         modularShowStats = prefs.getBoolean("modularShowStats", true),
         modularShowSocks = prefs.getBoolean("modularShowSocks", false),
         modularShowShortcuts = prefs.getBoolean("modularShowShortcuts", true),
+        modularShowStatus = prefs.getBoolean("modularShowStatus", true),
+        modularShowServers = prefs.getBoolean("modularShowServers", true),
         modularConnectStyle = prefs.getString("modularConnectStyle", "SLIDER") ?: "SLIDER",
         modularCardSize = parseModularCardSize(
             prefs.getString("modularCardSize", ModularCardSize.COMPACT.id) ?: ModularCardSize.COMPACT.id
@@ -387,6 +402,11 @@ class AppStore(context: Context) {
 
         // MARBLE_NIGHT_OUTLINES_V112
         darkOutlineStyle = parseDarkOutlineStyle(prefs.getString("darkOutlineStyle", DarkOutlineStyle.SUBTLE.id) ?: DarkOutlineStyle.SUBTLE.id).id,
+
+        // MARBLE_DOCK_CUSTOM_V145
+        dockShowLabels = prefs.getBoolean("dockShowLabels", true),
+        dockShowIcons = prefs.getBoolean("dockShowIcons", true),
+        dockSize = parseDockSize(prefs.getString("dockSize", DockSize.MEDIUM.id) ?: DockSize.MEDIUM.id).id,
 
         debugModeEnabled = prefs.getBoolean("debugModeEnabled", false),
         expertMode = prefs.getBoolean("expertMode", false)
@@ -408,6 +428,11 @@ class AppStore(context: Context) {
         .putInt("benchBytes", s.benchBytes)
         .putInt("tcpPrecheckTimeoutMs", s.tcpPrecheckTimeoutMs)
         .putInt("tcpWorkers", s.tcpWorkers)
+
+        // MARBLE_PING_CONTROL_V145
+        .putInt("pingTimeoutSec", PingBudget.timeoutSec(s.pingTimeoutSec))
+        .putInt("pingSamples", PingBudget.samples(s.pingSamples))
+        .putInt("pingConcurrency", PingBudget.concurrency(s.pingConcurrency))
 
         .putString("nodeSortMode", s.nodeSortMode.name)
         .putBoolean("nodeSortReverse", s.nodeSortReverse)
@@ -548,10 +573,12 @@ class AppStore(context: Context) {
         .putString("homeStyle", parseHomeStyle(s.homeStyle).id)
         .putString("appLanguage", parseAppLanguage(s.appLanguage).id)
 
-        .putString("modularCardOrder", s.modularCardOrder)
+        .putString("modularCardOrder", ModularLayout.serialize(ModularLayout.order(s.modularCardOrder)))
         .putBoolean("modularShowStats", s.modularShowStats)
         .putBoolean("modularShowSocks", s.modularShowSocks)
         .putBoolean("modularShowShortcuts", s.modularShowShortcuts)
+        .putBoolean("modularShowStatus", s.modularShowStatus)
+        .putBoolean("modularShowServers", s.modularShowServers)
         .putString("modularConnectStyle", s.modularConnectStyle)
         .putString("modularCardSize", parseModularCardSize(s.modularCardSize).id)
         .putInt("modularCardHeightDp", s.modularCardHeightDp.coerceIn(160, 360))
@@ -561,6 +588,11 @@ class AppStore(context: Context) {
 
         // MARBLE_NIGHT_OUTLINES_V112
         .putString("darkOutlineStyle", parseDarkOutlineStyle(s.darkOutlineStyle).id)
+
+        // MARBLE_DOCK_CUSTOM_V145
+        .putBoolean("dockShowLabels", s.dockShowLabels)
+        .putBoolean("dockShowIcons", s.dockShowIcons)
+        .putString("dockSize", parseDockSize(s.dockSize).id)
 
         .putBoolean("debugModeEnabled", s.debugModeEnabled)
         .putBoolean("expertMode", s.expertMode)

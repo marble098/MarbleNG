@@ -309,7 +309,6 @@ fun Aether2026App(
         if (bitmap != null) repo.importQrBitmap(bitmap, libraryIntakeTarget(repo))
     }
     var deckQrSourceOpen by remember { mutableStateOf(false) }
-    var addRouteOpen by remember { mutableStateOf(false) }
 
     val deckActions = HomeActions(
         onToggleConnection = {
@@ -327,14 +326,14 @@ fun Aether2026App(
         onCopyIp = deckCopyIp,
         onRefreshIp = { repo.refreshServerIntel(deck.profile, force = true) },
         onIpDetails = { ipDetailsOpen = true },
-        // MARBLE_HOME_V137 — one ping entry: the live tunnel ladder while connected, the
+        // MARBLE_HOME_V137 — one route ping: the live tunnel ladder while connected, the
         // selected server's endpoint otherwise. Same method, same readout, every state.
         onTestPing = { repo.measureHomePing() },
         onLibrary = { goToTab(SpatialTab.LIBRARY.ordinal) },
         onConnectProfile = { profile -> onConnect(profile) },
-        // MARBLE_HOME_ADD_MENU_V143 — `+` never imports from the clipboard by itself. It opens
-        // an explicit choice: paste from clipboard, scan a QR code, or browse the Servers page.
-        onAddRoute = { addRouteOpen = true },
+        // MARBLE_HOME_ADD_MENU_V145 — `+` opens a dropdown anchored under the icon itself
+        // (see HomeTopActionBar); this entry is its "browse the Servers page" destination.
+        onAddRoute = { goToTab(SpatialTab.LIBRARY.ordinal) },
         onRank = { repo.smartRank() },
         onPrivacy = {
             repo.audit()
@@ -353,9 +352,14 @@ fun Aether2026App(
                 repo.importClipboard(pasted, libraryIntakeTarget(repo))
             }
         },
-        onQrImport = { deckQrSourceOpen = true }
+        onQrImport = { deckQrSourceOpen = true },
+        // MARBLE_HOME_GROUP_PING_V145 — the Home pulse icon measures the entire selected group.
+        onPingGroup = { repo.pingHomeGroup() }
     )
 
+    // MARBLE_DOCK_CUSTOM_V145 — the dock's chosen footprint is published once, so the bar and
+    // every page's bottom clearance are always derived from the same value.
+    CompositionLocalProvider(LocalDockMetrics provides DockMetrics.of(repo.settings)) {
     Scaffold(
         containerColor = Aether.Void
     ) { padding ->
@@ -525,27 +529,12 @@ fun Aether2026App(
                 )
             }
 
-            // MARBLE_HOME_ADD_MENU_V143 — the `+` shortcut is an explicit menu, never a hidden
-            // clipboard import + auto-connect. Adding a route is a deliberate act.
-            if (addRouteOpen) {
-                AddRouteMenuDialog(
-                    onDismiss = { addRouteOpen = false },
-                    onPaste = {
-                        addRouteOpen = false
-                        deckActions.onPasteImport()
-                    },
-                    onScan = {
-                        addRouteOpen = false
-                        deckQrSourceOpen = true
-                    },
-                    onLibrary = {
-                        addRouteOpen = false
-                        goToTab(SpatialTab.LIBRARY.ordinal)
-                    }
-                )
-            }
+            // MARBLE_HOME_ADD_MENU_V145 — the `+` chooser is a dropdown anchored under the icon
+            // in HomeTopActionBar. The full-screen dialog that used to cover the whole product
+            // surface for a three-entry menu is gone: a menu is a menu, not a page.
 
         }
+    }
     }
 
     // The IP row opens an in-app diagnostic surface rather than leaving Home for a browser or
@@ -660,119 +649,6 @@ fun Aether2026App(
                 }
             }
         )
-    }
-}
-
-/** MARBLE_HOME_ADD_MENU_V143 — the `+` action's explicit source chooser. */
-@Composable
-private fun AddRouteMenuDialog(
-    onDismiss: () -> Unit,
-    onPaste: () -> Unit,
-    onScan: () -> Unit,
-    onLibrary: () -> Unit
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = Aether.VoidElevated,
-        shape = ServersCardShape,
-        title = {
-            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text(
-                    trx("Add a route"),
-                    color = Aether.Ink,
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    trx("Where should Marble import it from?"),
-                    color = Aether.InkMuted,
-                    style = MaterialTheme.typography.bodySmall
-                )
-            }
-        },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                AddRouteMenuOption(
-                    icon = HomeIcon.CLIPBOARD,
-                    title = trx("Paste from clipboard"),
-                    detail = trx("Add a copied config or subscription"),
-                    tone = Aether.Cyan,
-                    onClick = onPaste
-                )
-                AddRouteMenuOption(
-                    icon = HomeIcon.QR,
-                    title = trx("Scan a QR code"),
-                    detail = trx("Camera or a saved screenshot"),
-                    tone = Aether.Emerald,
-                    onClick = onScan
-                )
-                AddRouteMenuOption(
-                    icon = HomeIcon.LIBRARY,
-                    title = trx("Browse Servers"),
-                    detail = trx("Add manually or choose a subscription"),
-                    tone = Aether.Amethyst,
-                    onClick = onLibrary
-                )
-            }
-        },
-        confirmButton = {},
-        dismissButton = {
-            MarbleDialogAction(
-                label = trx("Cancel"),
-                tone = Aether.InkMuted,
-                onClick = onDismiss
-            )
-        }
-    )
-}
-
-@Composable
-private fun AddRouteMenuOption(
-    icon: HomeIcon,
-    title: String,
-    detail: String,
-    tone: Color,
-    onClick: () -> Unit
-) {
-    val shape = RoundedCornerShape(14.dp)
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(shape)
-            .background(Aether.Glass.copy(alpha = .40f))
-            .border(1.dp, tone.copy(alpha = .26f), shape)
-            .kineticClickable(role = Role.Button, boundedShape = shape, onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(11.dp)
-    ) {
-        Box(
-            Modifier
-                .size(36.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .background(tone.copy(alpha = .12f)),
-            contentAlignment = Alignment.Center
-        ) {
-            HomeVectorIcon(icon, tone, Modifier.size(19.dp))
-        }
-        Column(Modifier.weight(1f)) {
-            Text(
-                title,
-                color = Aether.Ink,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Bold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                detail,
-                color = Aether.InkMuted,
-                style = MaterialTheme.typography.labelSmall,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-        HomeVectorIcon(HomeIcon.CHEVRON, tone, Modifier.size(16.dp))
     }
 }
 
@@ -1017,9 +893,67 @@ private fun DeepSpaceBackdrop(
     }
 }
 
+/**
+ * MARBLE_DOCK_CUSTOM_V145 — everything the bottom dock's geometry depends on, in one value.
+ *
+ * The dock used to be a set of constants (62 dp tall, 21 dp glyphs, label always drawn) and
+ * `dockClearance()` hard-coded the 88 dp of room every page reserves under its content for it.
+ * Making the bar customizable therefore has to make that reservation customizable in the same
+ * breath, otherwise a small bar leaves a hole under every list and a large one covers the last
+ * row. Both now read the same value out of one composition local, so the bar and the space it
+ * occupies can never disagree.
+ */
+internal data class DockMetrics(
+    val size: DockSize = DockSize.MEDIUM,
+    val showIcons: Boolean = true,
+    val showLabels: Boolean = true
+) {
+    val barHeight: Dp
+        get() = when (size) {
+            DockSize.SMALL -> 50.dp
+            DockSize.MEDIUM -> 62.dp
+            DockSize.LARGE -> 74.dp
+        }
+
+    val iconSize: Dp
+        get() = when (size) {
+            DockSize.SMALL -> 17.dp
+            DockSize.MEDIUM -> 21.dp
+            DockSize.LARGE -> 26.dp
+        }
+
+    val corner: Dp
+        get() = when (size) {
+            DockSize.SMALL -> 24.dp
+            DockSize.MEDIUM -> 28.dp
+            DockSize.LARGE -> 32.dp
+        }
+
+    val innerPadding: Dp
+        get() = when (size) {
+            DockSize.SMALL -> 5.dp
+            DockSize.MEDIUM -> 7.dp
+            DockSize.LARGE -> 9.dp
+        }
+
+    /** Room a page must leave under its content so nothing hides behind the bar. */
+    val clearance: Dp get() = barHeight + 26.dp
+
+    companion object {
+        fun of(settings: AppSettings): DockMetrics = DockMetrics(
+            size = parseDockSize(settings.dockSize),
+            showIcons = dockShowsIcons(settings.dockShowIcons, settings.dockShowLabels),
+            showLabels = dockShowsLabels(settings.dockShowIcons, settings.dockShowLabels)
+        )
+    }
+}
+
+internal val LocalDockMetrics = staticCompositionLocalOf { DockMetrics() }
+
 @Composable
 private fun dockClearance(): Dp =
-    WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 88.dp
+    WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() +
+        LocalDockMetrics.current.clearance
 
 @Composable
 private fun FloatingSpatialDock(
@@ -1027,6 +961,9 @@ private fun FloatingSpatialDock(
     glass: Boolean,
     onSelect: (SpatialTab) -> Unit
 ) {
+    // MARBLE_DOCK_CUSTOM_V145 — footprint and content come from Settings › General ›
+    // Navigation bar. Everything below is unchanged behaviour drawn at the chosen size.
+    val metrics = LocalDockMetrics.current
     // MARBLE_BOTTOM_DOCK_UNIFIED_FLOATING_V661 — unified floating navigation lineage
     // MARBLE_FLOATING_DOCK_V117 / MARBLE_DOCK_STILL_BAR_V132
     //  - rendered as an overlay (no Scaffold bottomBar slot), so pages scroll under it
@@ -1050,7 +987,7 @@ private fun FloatingSpatialDock(
             .padding(start = 20.dp, end = 20.dp, bottom = 10.dp),
         contentAlignment = Alignment.BottomCenter
     ) {
-        val barShape = RoundedCornerShape(28.dp)
+        val barShape = RoundedCornerShape(metrics.corner)
 
         val glassFraction by animateFloatAsState(
             targetValue = if (glass) 1f else 0f,
@@ -1096,7 +1033,7 @@ private fun FloatingSpatialDock(
             modifier = Modifier
                 .widthIn(max = 420.dp)
                 .fillMaxWidth()
-                .height(62.dp)
+                .height(metrics.barHeight)
                 .shadow(
                     elevation = dockElevation,
                     shape = barShape,
@@ -1110,7 +1047,7 @@ private fun FloatingSpatialDock(
                     Aether.BarGlassBorder.copy(alpha = Aether.BarGlassBorder.alpha * borderAlpha),
                     barShape
                 )
-                .padding(horizontal = 8.dp, vertical = 7.dp),
+                .padding(horizontal = 8.dp, vertical = metrics.innerPadding),
             horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -1158,22 +1095,32 @@ private fun FloatingSpatialDock(
                     horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    MarbleTabIcon(
-                        tab = item,
-                        color = inkTone,
-                        active = active,
-                        modifier = Modifier.size(21.dp)
-                    )
-                    Spacer(Modifier.width(7.dp))
-                    Text(
-                        spatialTabLabel(item),
-                        color = inkTone,
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        letterSpacing = 0.01.sp
-                    )
+                    if (metrics.showIcons) {
+                        MarbleTabIcon(
+                            tab = item,
+                            color = inkTone,
+                            active = active,
+                            modifier = Modifier.size(metrics.iconSize)
+                        )
+                    }
+                    if (metrics.showIcons && metrics.showLabels) {
+                        Spacer(Modifier.width(7.dp))
+                    }
+                    if (metrics.showLabels) {
+                        Text(
+                            spatialTabLabel(item),
+                            color = inkTone,
+                            style = when (metrics.size) {
+                                DockSize.SMALL -> MaterialTheme.typography.labelSmall
+                                DockSize.MEDIUM -> MaterialTheme.typography.labelMedium
+                                DockSize.LARGE -> MaterialTheme.typography.labelLarge
+                            },
+                            fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            letterSpacing = 0.01.sp
+                        )
+                    }
                 }
             }
         }
@@ -3914,9 +3861,13 @@ private fun CyberLibrary(
                     shown = group.profiles.size,
                     total = total,
                     refreshing = group.key in repo.refreshingSources,
+                    // A sweep marks every member of its batch, so "is this group being pinged?"
+                    // is answered by the batch itself rather than by a second piece of state.
+                    pinging = repo.probeActive && group.profiles.any { it.id in repo.probeBatch },
                     autoRefresh = settings.subscriptionAutoRefresh,
                     onToggle = { repo.setLibrarySourceCollapsed(group.key, !collapsed) },
                     onRefresh = { repo.refresh(group.key) },
+                    onPing = { repo.testSource(group.key) },
                     onWebsite = { url -> openExternal(context, url) },
                     onMenu = {
                         when (it) {
@@ -3936,7 +3887,6 @@ private fun CyberLibrary(
                                     "${repo.subscriptionNodeCount(group.key)} server links copied"
                                 )
                             }
-                            ServersGroupAction.PING -> repo.testSource(group.key)
                             ServersGroupAction.SHOW_ONLY -> repo.selectLibrarySource(group.key)
                             ServersGroupAction.SHOW_ALL -> repo.selectLibrarySource("all")
                             ServersGroupAction.DELETE -> deleteSubscription = subscription
@@ -4029,10 +3979,10 @@ private enum class ServersGroupAction {
     REFRESH,
     COPY_URL,
     COPY_SERVERS,
-    // MARBLE_ONE_PING_V121 — a subscription menu offers exactly one measurement entry. The old
-    // "Rank this group" ran a second, differently-configured probe that ignored the ping method
-    // chosen in Settings, so the same menu reported two different latencies for the same server.
-    PING,
+    // MARBLE_ONE_PING_V121 — a subscription offers exactly one measurement entry, and since
+    // MARBLE_SERVERS_GROUP_PING_V145 that entry is the ping icon in the group header itself,
+    // not a menu row. The old "Rank this group" ran a second, differently-configured probe that
+    // ignored the ping method chosen in Settings, so one menu reported two latencies per server.
     SHOW_ONLY,
     SHOW_ALL,
     DELETE
@@ -4894,9 +4844,12 @@ private fun ServersGroupHeader(
     shown: Int,
     total: Int,
     refreshing: Boolean,
+    // MARBLE_SERVERS_GROUP_PING_V145 — true while this group's own ping sweep is running.
+    pinging: Boolean,
     autoRefresh: Boolean,
     onToggle: () -> Unit,
     onRefresh: () -> Unit,
+    onPing: () -> Unit,
     onWebsite: (String) -> Unit,
     onMenu: (ServersGroupAction) -> Unit
 ) {
@@ -4998,6 +4951,40 @@ private fun ServersGroupHeader(
                             Modifier.size(16.dp)
                         )
                     }
+                }
+            }
+            // MARBLE_SERVERS_GROUP_PING_V145 — every subscription card carries its own ping
+            // control next to its own refresh control. Measuring a group used to be buried in
+            // the three-dot menu: two taps and a menu scan for the action a user runs more often
+            // than any other on this page, while the icon beside it refreshed the same group in
+            // one. The verb moved to where its sibling already lives; the menu entry is gone, so
+            // there is exactly one way to ping a group.
+            val pingLabel = trx("Ping ${group.title}")
+            Box(
+                modifier = Modifier
+                    .size(34.dp)
+                    .clip(RoundedCornerShape(11.dp))
+                    .semantics { contentDescription = pingLabel }
+                    .kineticClickable(
+                        enabled = !pinging && group.profiles.isNotEmpty(),
+                        role = Role.Button,
+                        boundedShape = RoundedCornerShape(11.dp),
+                        onClick = onPing
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                if (pinging) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(15.dp),
+                        color = Aether.Emerald,
+                        strokeWidth = 2.dp
+                    )
+                } else {
+                    HomeVectorIcon(
+                        HomeIcon.PING,
+                        if (group.profiles.isEmpty()) Aether.InkFaint else Aether.Emerald,
+                        Modifier.size(16.dp)
+                    )
                 }
             }
             ServersGroupMenuButton(
@@ -5197,16 +5184,8 @@ private fun ServersGroupMenu(
                 }
             )
         }
-        ServersMenuItem(
-            label = "Ping this group",
-            icon = HomeIcon.PING,
-            tone = Aether.Emerald,
-            onClick = {
-                onDismiss()
-                onMenu(ServersGroupAction.PING)
-            }
-        )
-        HorizontalDivider(color = Aether.GlassBorderSoft)
+        // MARBLE_SERVERS_GROUP_PING_V145 — "Ping this group" is no longer a menu entry: the
+        // group header owns a real ping icon beside its refresh icon. One verb, one control.
         ServersMenuItem(
             label = "Show only this group",
             icon = HomeIcon.FILTER,
@@ -9520,6 +9499,13 @@ private fun settingsSections(
     return when (tab) {
         SettingsWorkspaceTab.GENERAL -> listOf(
             card("Connection","Tunnel, proxy, port",HomeIcon.TUNNEL,Aether.Cyan) { ConnectionSettings(repo) },
+            // MARBLE_DOCK_CUSTOM_V145 — the bar that is on screen on every page is a preference.
+            card(
+                "Navigation bar",
+                dockSettingsSubtitle(repo.settings),
+                HomeIcon.SERVER,
+                Aether.Emerald
+            ) { DockSettings(repo) },
             card("Subscriptions","Refresh & sources",HomeIcon.LIBRARY,Aether.Amethyst) { SubscriptionSettings(repo) }
         )
         // MARBLE_SETTINGS_EXPERT_ALWAYS_V118 — Advanced Settings is no longer gated. Expert mode was a
@@ -11158,6 +11144,33 @@ private fun RoutingSettings(repo: AppRepository) {
         )
     }
 
+    // MARBLE_GEO_READY_GATE_V145 — while a database the policy needs is still missing, geo
+    // rules are switched off for real (the tunnel still connects, it just proxies everything
+    // that would have gone direct). Saying so here is the difference between "the app is
+    // ignoring my routing settings" and "the app is waiting for a 3 MiB download".
+    val geoGate = repo.geoGateNote.ifBlank {
+        RoutingEngine.geoDowngradeReason(s, assets.geoIpReady, assets.geoSiteReady)
+    }
+    if (geoGate.isNotBlank()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(14.dp))
+                .background(Aether.Amber.copy(alpha = .10f))
+                .border(1.dp, Aether.Amber.copy(alpha = .28f), RoundedCornerShape(14.dp))
+                .padding(11.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(9.dp)
+        ) {
+            HomeVectorIcon(HomeIcon.INFO, Aether.Amber, Modifier.size(15.dp))
+            Text(
+                trx("Geo routing paused until the routing databases finish downloading"),
+                color = Aether.InkMuted,
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
+    }
+
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         CyberButton("Update", Aether.Cyan, Modifier.weight(1f), !repo.busy) {
             repo.prepareRoutingAssets(true)
@@ -12377,10 +12390,178 @@ private fun ProbeSettings(repo: AppRepository) {
         }
     }
 
-    // MARBLE_ONE_PING_V121 — the engine's raw operating numbers (samples per server, timeout per
-    // try, servers per run) are no longer controls. They were standalone technical operators with
-    // no right answer a user could know, and every combination of them produced a different
-    // "ping" for the same server. They remain as tuned engine defaults in AppSettings.
+    HorizontalDivider(color = Aether.GlassBorderSoft)
+
+    // MARBLE_PING_CONTROL_V145 — the measurement budget, back under the user's control.
+    //
+    // V121 removed these controls on the grounds that "no user can know the right answer". The
+    // real problem was never that they were visible: it was that four different code paths
+    // silently overrode whatever they said (one sample, two-second deadline, 24-32 parallel
+    // handshakes), so the same server reported a different latency depending on which button
+    // was pressed. That is fixed at the engine (see PingBudget), and these three numbers are now
+    // the ONLY thing that decides a measurement's shape — which makes them worth showing, with
+    // an explicit statement of what each one costs.
+    Text(
+        trx("Measurement budget"),
+        color = Aether.Ink,
+        style = settingsRowTitleStyle()
+    )
+    Text(
+        trx("Every ping in the app — Home, a group, Ping all — obeys exactly these values."),
+        color = Aether.InkMuted,
+        style = settingsBodyStyle()
+    )
+
+    PingBudgetChoiceRow(
+        title = "Timeout per server",
+        detail = "How long one server may take before it counts as unreachable",
+        selected = PingBudget.timeoutSec(s.pingTimeoutSec),
+        choices = PingBudget.TIMEOUT_CHOICES,
+        suffix = "s",
+        tone = Aether.Cyan
+    ) { repo.updateSettings(repo.settings.copy(pingTimeoutSec = PingBudget.timeoutSec(it))) }
+
+    PingBudgetChoiceRow(
+        title = "Servers at once",
+        detail = "Parallel measurements. Fewer is slower but far more accurate on a weak link",
+        selected = PingBudget.concurrency(s.pingConcurrency),
+        choices = PingBudget.CONCURRENCY_CHOICES,
+        suffix = "",
+        tone = Aether.Emerald
+    ) { repo.updateSettings(repo.settings.copy(pingConcurrency = PingBudget.concurrency(it))) }
+
+    PingBudgetChoiceRow(
+        title = "Samples per server",
+        detail = "The published latency is the median; the warm-up sample is discarded",
+        selected = PingBudget.samples(s.pingSamples),
+        choices = PingBudget.SAMPLE_CHOICES,
+        suffix = "×",
+        tone = Aether.Amethyst
+    ) { repo.updateSettings(repo.settings.copy(pingSamples = PingBudget.samples(it))) }
+
+    Text(
+        "${trx("Worst case per server")}: " +
+            "${PingBudget.perServerBudgetMs(s.pingTimeoutSec, s.pingSamples) / 1000}s • " +
+            "${PingBudget.concurrency(s.pingConcurrency)} ${trx("at once")}",
+        color = Aether.InkFaint,
+        style = settingsBodyStyle()
+    )
+}
+
+/** One budget row: a title, its consequence in one line, and the exact values as chips. */
+@Composable
+private fun PingBudgetChoiceRow(
+    title: String,
+    detail: String,
+    selected: Int,
+    choices: List<Int>,
+    suffix: String,
+    tone: Color,
+    onPick: (Int) -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+        Text(trx(title), color = Aether.Ink, style = settingsRowTitleStyle())
+        Text(trx(detail), color = Aether.InkFaint, style = settingsBodyStyle())
+        Row(
+            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(7.dp)
+        ) {
+            choices.forEach { value ->
+                CyberChoiceChip(
+                    text = "$value$suffix",
+                    selected = value == selected,
+                    color = tone,
+                    onClick = { onPick(value) }
+                )
+            }
+        }
+    }
+}
+
+/** The hub subtitle of the Navigation bar card: what the dock currently looks like. */
+private fun dockSettingsSubtitle(settings: AppSettings): String {
+    val size = when (parseDockSize(settings.dockSize)) {
+        DockSize.SMALL -> "Small"
+        DockSize.MEDIUM -> "Medium"
+        DockSize.LARGE -> "Large"
+    }
+    val content = when {
+        dockShowsIcons(settings.dockShowIcons, settings.dockShowLabels) &&
+            dockShowsLabels(settings.dockShowIcons, settings.dockShowLabels) -> "icons + labels"
+        dockShowsLabels(settings.dockShowIcons, settings.dockShowLabels) -> "labels only"
+        else -> "icons only"
+    }
+    return "$size • $content"
+}
+
+/**
+ * MARBLE_DOCK_CUSTOM_V145 — Settings › General › Navigation bar.
+ *
+ * Three honest controls for the one piece of chrome that is on screen on every page: draw the
+ * captions, draw the glyphs, and how much room the bar takes. Turning both off is refused at the
+ * model level ([dockShowsIcons]) rather than by disabling a switch, so no combination of taps
+ * can produce three blank rectangles.
+ */
+@Composable
+private fun DockSettings(repo: AppRepository) {
+    val s = repo.settings
+    val labels = dockShowsLabels(s.dockShowIcons, s.dockShowLabels)
+    val icons = dockShowsIcons(s.dockShowIcons, s.dockShowLabels)
+
+    Text(
+        trx("The bottom bar of the app: what it shows and how much room it takes."),
+        color = Aether.InkMuted,
+        style = settingsBodyStyle()
+    )
+
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        DockSize.entries.forEach { size ->
+            CyberSegment(
+                label = when (size) {
+                    DockSize.SMALL -> "Small"
+                    DockSize.MEDIUM -> "Medium"
+                    DockSize.LARGE -> "Large"
+                },
+                detail = when (size) {
+                    DockSize.SMALL -> "50 dp"
+                    DockSize.MEDIUM -> "62 dp"
+                    DockSize.LARGE -> "74 dp"
+                },
+                selected = parseDockSize(s.dockSize) == size,
+                color = Aether.Emerald,
+                modifier = Modifier.weight(1f)
+            ) {
+                repo.updateSettings(repo.settings.copy(dockSize = size.id))
+            }
+        }
+    }
+
+    SettingSwitch(
+        title = "Show labels",
+        subtitle = "Tab captions under the bar's glyphs",
+        checked = labels
+    ) { enabled ->
+        repo.updateSettings(
+            repo.settings.copy(
+                dockShowLabels = enabled,
+                // A bar with neither labels nor icons is not a navigation control.
+                dockShowIcons = if (!enabled) true else repo.settings.dockShowIcons
+            )
+        )
+    }
+
+    SettingSwitch(
+        title = "Show icons",
+        subtitle = "Tab glyphs; turning both off is not allowed",
+        checked = icons
+    ) { enabled ->
+        repo.updateSettings(
+            repo.settings.copy(
+                dockShowIcons = enabled,
+                dockShowLabels = if (!enabled) true else repo.settings.dockShowLabels
+            )
+        )
+    }
 }
 
 // =================================================================================================

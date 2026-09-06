@@ -45,6 +45,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
@@ -118,7 +119,7 @@ import com.marbleng.app.model.ConnectionPingState
 import com.marbleng.app.model.ConnectButtonStyle
 import com.marbleng.app.model.HomeStyle
 import com.marbleng.app.model.ModularCardSize
-import com.marbleng.app.model.parseModularCardSize
+import com.marbleng.app.model.ModularLayout
 import com.marbleng.app.model.parseConnectButtonStyle
 import com.marbleng.app.model.ProxyProfile
 import kotlinx.coroutines.delay
@@ -214,7 +215,12 @@ internal data class HomeActions(
     val onRouting: () -> Unit = {},
     val onTests: () -> Unit = {},
     val onPasteImport: () -> Unit = {},
-    val onQrImport: () -> Unit = {}
+    val onQrImport: () -> Unit = {},
+    /**
+     * MARBLE_HOME_GROUP_PING_V145 — measure every server of the group Home currently shows.
+     * Distinct from [onTestPing], which measures the one route the connect button acts on.
+     */
+    val onPingGroup: () -> Unit = {}
 )
 
 /** The per-style skin every shared evidence widget renders through. */
@@ -1651,9 +1657,59 @@ internal fun IosStatusWideCard(
 }
 
 /**
- * MARBLE_HOME_BANNER_V143 — the three top actions (add, ping, IP details) live OUTSIDE the
- * status banner: a transparent, right-aligned cluster above it. There is no background pill,
- * no card frame, and every icon is a true circle so a tap reads as an icon, not a button.
+ * MARBLE_HOME_WORDMARK_V145 — the product signature that opens every Home presentation.
+ *
+ * A single line of type, drawn with the brand's own prism ramp (ice → cyan → amethyst →
+ * emerald) through a text brush, so it is one glyph run rather than four coloured Text nodes
+ * that would break apart under RTL, ellipsis or a font change. It is decorative, so it carries
+ * no click target and no semantics: nothing about the layout below it moves because of it.
+ */
+@Composable
+internal fun MarbleWordmark(modifier: Modifier = Modifier) {
+    // The palette tokens are theme-aware composable reads, so they are resolved here and the
+    // brush is only re-created when one of them actually changes.
+    val ice = Aether.CyanBright
+    val cyan = Aether.Cyan
+    val amethyst = Aether.AmethystBright
+    val emerald = Aether.Emerald
+    val ramp = remember(ice, cyan, amethyst, emerald) {
+        Brush.linearGradient(
+            0.00f to ice,
+            0.42f to cyan,
+            0.72f to amethyst,
+            1.00f to emerald
+        )
+    }
+    Text(
+        text = "MarbleNG",
+        style = MaterialTheme.typography.titleLarge.copy(
+            brush = ramp,
+            fontWeight = FontWeight.Black,
+            letterSpacing = 0.4.sp
+        ),
+        maxLines = 1,
+        softWrap = false,
+        overflow = TextOverflow.Ellipsis,
+        modifier = modifier
+    )
+}
+
+/**
+ * MARBLE_HOME_BANNER_V143 — the top actions (add, ping, IP details) live OUTSIDE the status
+ * banner: a transparent cluster above it. There is no background pill, no card frame, and every
+ * icon is a true circle so a tap reads as an icon, not a button.
+ *
+ * MARBLE_HOME_WORDMARK_V145 — the row now opens with the MarbleNG wordmark, so all four Home
+ * presentations carry the product signature in the same place, at the same size.
+ *
+ * MARBLE_HOME_ADD_MENU_V145 — the + opens its menu ANCHORED UNDER THE + (a DropdownMenu inside
+ * the icon's own Box) instead of throwing a full-screen dialog over the page. A three-entry
+ * chooser is a menu; making it a modal meant the page vanished, the backdrop dimmed and the
+ * user had to travel back to the icon they were already touching.
+ *
+ * MARBLE_HOME_GROUP_PING_V145 — the pulse icon measures the WHOLE selected group, which is the
+ * question the Home page is asking ("how is this subscription doing?"). The per-route ping is
+ * still one tap away on the status banner.
  */
 @Composable
 internal fun HomeTopActionBar(
@@ -1662,23 +1718,38 @@ internal fun HomeTopActionBar(
     repo: AppRepository,
     modifier: Modifier = Modifier
 ) {
+    var addMenuOpen by remember { mutableStateOf(false) }
+    val groupLabel = repo.homeGroupPingLabel()
+    val groupBusy = repo.homeGroupPingRunning
+
     Row(
         modifier = modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.End,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        HomeBareAction(
-            glyph = HomeGlyph.PLUS,
-            tone = Aether.CyanBright,
-            description = Tr.now.proAddRoute,
-            onClick = actions.onAddRoute
-        )
+        MarbleWordmark(modifier = Modifier.weight(1f))
+
+        Box {
+            HomeBareAction(
+                glyph = HomeGlyph.PLUS,
+                tone = Aether.CyanBright,
+                description = Tr.now.proAddRoute,
+                onClick = { addMenuOpen = true }
+            )
+            HomeAddRouteMenu(
+                expanded = addMenuOpen,
+                onDismiss = { addMenuOpen = false },
+                actions = actions
+            )
+        }
+
         HomeBareAction(
             glyph = HomeGlyph.PULSE,
             tone = Aether.Emerald,
-            description = Tr.now.testPing,
-            enabled = homePingTappable(evidence),
-            onClick = actions.onTestPing
+            description = "${Tr.now.testPing} • $groupLabel",
+            enabled = !groupBusy,
+            busy = groupBusy,
+            onClick = actions.onPingGroup
         )
         HomeBareAction(
             glyph = HomeGlyph.INFO,
@@ -1694,13 +1765,117 @@ internal fun HomeTopActionBar(
     }
 }
 
-/** A transparent circular top action: no background surface, rounded icon, kinetic press only. */
+/**
+ * MARBLE_HOME_ADD_MENU_V145 — the three ways a server reaches MarbleNG, in a menu that hangs
+ * directly under the + icon. Styling matches the group menu of the same page.
+ */
+@Composable
+private fun HomeAddRouteMenu(
+    expanded: Boolean,
+    onDismiss: () -> Unit,
+    actions: HomeActions
+) {
+    val t = Tr.now
+    HomeGroupMenu(
+        expanded = expanded,
+        onDismiss = onDismiss,
+        tone = Aether.CyanBright
+    ) {
+        HomeActionMenuItem(
+            label = t.pasteShortcut,
+            detail = trx("Import every link on the clipboard"),
+            glyph = HomeGlyph.PASTE,
+            tone = Aether.CyanBright
+        ) {
+            onDismiss()
+            actions.onPasteImport()
+        }
+        HomeActionMenuItem(
+            label = t.qrShortcut,
+            detail = trx("Scan with the camera or pick an image"),
+            glyph = HomeGlyph.QR,
+            tone = Aether.Emerald
+        ) {
+            onDismiss()
+            actions.onQrImport()
+        }
+        HomeActionMenuItem(
+            label = t.library,
+            detail = trx("Open the Servers page to add or edit"),
+            glyph = HomeGlyph.LIBRARY,
+            tone = Aether.AmethystBright
+        ) {
+            onDismiss()
+            actions.onAddRoute()
+        }
+    }
+}
+
+/** One labelled action row of a Home dropdown: glyph chip, title and a quiet explanation. */
+@Composable
+private fun HomeActionMenuItem(
+    label: String,
+    detail: String,
+    glyph: HomeGlyph,
+    tone: Color,
+    onClick: () -> Unit
+) {
+    val shape = RoundedCornerShape(12.dp)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .kineticClickable(role = Role.Button, boundedShape = shape, onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(28.dp)
+                .clip(RoundedCornerShape(9.dp))
+                .background(tone.copy(alpha = 0.13f)),
+            contentAlignment = Alignment.Center
+        ) {
+            HomeGlyphIcon(glyph, tone, Modifier.size(15.dp))
+        }
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(1.dp)
+        ) {
+            Text(
+                label,
+                color = Aether.Ink,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                detail,
+                color = Aether.InkFaint,
+                style = MaterialTheme.typography.labelSmall,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+/**
+ * A transparent circular top action: no background surface, rounded icon, kinetic press only.
+ *
+ * MARBLE_HOME_GROUP_PING_V145 — [busy] draws the work in the icon's own footprint (the ring
+ * replaces the glyph, the circle never resizes), so a sweep that takes a few seconds is visibly
+ * running instead of looking like a tap that did nothing.
+ */
 @Composable
 private fun HomeBareAction(
     glyph: HomeGlyph,
     tone: Color,
     description: String,
     enabled: Boolean = true,
+    busy: Boolean = false,
     onClick: () -> Unit
 ) {
     Box(
@@ -1708,7 +1883,7 @@ private fun HomeBareAction(
             .size(36.dp)
             .clip(CircleShape)
             .kineticClickable(
-                enabled = enabled,
+                enabled = enabled && !busy,
                 role = Role.Button,
                 pressScale = .92f,
                 boundedShape = CircleShape,
@@ -1717,7 +1892,19 @@ private fun HomeBareAction(
             .semantics { contentDescription = description },
         contentAlignment = Alignment.Center
     ) {
-        HomeGlyphIcon(glyph, if (enabled) tone else tone.copy(alpha = .40f), Modifier.size(18.dp))
+        if (busy) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(17.dp),
+                color = tone,
+                strokeWidth = 2.dp
+            )
+        } else {
+            HomeGlyphIcon(
+                glyph,
+                if (enabled) tone else tone.copy(alpha = .40f),
+                Modifier.size(18.dp)
+            )
+        }
     }
 }
 
@@ -1782,7 +1969,7 @@ internal fun IosServerListBox(
     val activeSubId = repo.librarySourceFilter
     val allSubs = repo.subscriptions
     val activeSubName = when {
-        activeSubId.isBlank() -> t.homeAllServers
+        activeSubId.isBlank() || activeSubId == "all" -> t.homeAllServers
         activeSubId == "manual" -> t.homeManualGroup
         else -> allSubs.firstOrNull { it.id == activeSubId }?.name ?: t.homeAllServers
     }
@@ -1857,7 +2044,8 @@ internal fun IosServerListBox(
                 HomeGroupMenuItem(
                     name = t.homeAllServers,
                     count = repo.libraryProfiles.size,
-                    selected = activeSubId.isBlank(),
+                    // The repository normalises "" to "all", so both spellings mean "All".
+                    selected = activeSubId.isBlank() || activeSubId == "all",
                     tone = HomeCloud.Accent,
                     onClick = {
                         repo.selectLibrarySource("")
@@ -2737,6 +2925,32 @@ internal fun HomeThemeEmbossed(
 // THEME 4: iOS MODULAR CUSTOMIZABLE THEME (Fixed Screen)
 // ---------------------------------------------------------------------------------------------
 
+/**
+ * MARBLE_MODULAR_LAYOUT_V145 — Theme 4, the customizer layout, repaired end to end.
+ *
+ * Bugs this rewrite removes, all of them reachable with nothing but the customizer's own
+ * controls:
+ *
+ *  1. **A module could disappear for good.** The page rendered `modularCardOrder` literally, so
+ *     an order string that had lost an entry (older build, partial save, migrated preference)
+ *     never drew that module again — including CONNECT, i.e. a Home page with no way to
+ *     connect. The order now goes through [ModularLayout.order], which is always a permutation
+ *     of the known modules.
+ *  2. **A duplicated entry drew the same card twice** (same reason, same fix).
+ *  3. **The page could not be reached past the screen edge.** A fixed Column with a 216 dp
+ *     connect slot, a status banner, a stats strip and a server card sized up to 360 dp
+ *     overflows a small screen; a Column clips instead of scrolling, so the bottom modules —
+ *     often the connect button — were simply unreachable. The page scrolls now.
+ *  4. **`weight(1f)` inside that Column** fought the user's own card-height choice: the servers
+ *     module was stretched by the layout instead of sized by the slider. It is bounded by the
+ *     chosen height, exactly as the customizer promises.
+ *  5. **Two settings did nothing.** `modularShowShortcuts` and `modularShowSocks` were
+ *     persisted, restored and never read by any composable. Both are real modules now.
+ *  6. **The floating connect style had no ping companion.** Theme 2 splits into disconnect +
+ *     ping once the tunnel is up; the same control inside the customizer stayed alone, so the
+ *     one gesture the layout advertises was missing. Every connect silhouette in Theme 4 now
+ *     gains the ping action beside it while connected.
+ */
 @Composable
 internal fun HomeThemeModular(
     repo: AppRepository,
@@ -2746,17 +2960,15 @@ internal fun HomeThemeModular(
 ) {
     var customizeOpen by remember { mutableStateOf(false) }
     val settings = repo.settings
-    val cardOrder = settings.modularCardOrder.split(",").map(String::trim).filter(String::isNotBlank)
-    val serverListMaxHeight = settings.modularCardHeightDp.coerceIn(160, 360).dp
+    val cardOrder = ModularLayout.order(settings.modularCardOrder)
+    val serverListMaxHeight = settings.modularCardHeightDp
+        .coerceIn(MODULAR_CARD_HEIGHT_MIN, MODULAR_CARD_HEIGHT_MAX).dp
     val modularConnect = parseConnectButtonStyle(settings.modularConnectStyle)
-    // The tallest silhouette is the round shutter (diameter + caption). Reserving that footprint
-    // makes the connect slot size-independent: swapping the chosen shape in the customizer can
-    // never push the cards below it up or down.
-    val connectModuleHeight = 216.dp
 
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .verticalScroll(rememberScrollState())
             .padding(horizontal = 16.dp, vertical = 6.dp)
             .padding(bottom = bottomClearance),
         verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -2778,7 +2990,10 @@ internal fun HomeThemeModular(
                     .clip(RoundedCornerShape(12.dp))
                     .background(HomeCloud.Accent.copy(alpha = 0.12f))
                     .border(1.dp, HomeCloud.Accent.copy(alpha = 0.30f), RoundedCornerShape(12.dp))
-                    .clickable { customizeOpen = true }
+                    .kineticClickable(
+                        role = Role.Button,
+                        boundedShape = RoundedCornerShape(12.dp)
+                    ) { customizeOpen = true }
                     .padding(horizontal = 10.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -2792,41 +3007,38 @@ internal fun HomeThemeModular(
             }
         }
 
-        // Render modular cards in configured order
+        // Render the modules in the (repaired) configured order, honouring every visibility
+        // switch the customizer offers. CONNECT is deliberately not hideable: a Home page that
+        // cannot open a tunnel is not a layout choice, it is a broken product.
         cardOrder.forEach { cardType ->
             when (cardType) {
-                "STATUS" -> IosStatusWideCard(evidence, actions)
-                "SERVERS" -> IosServerListBox(
-                    repo = repo,
+                ModularLayout.STATUS -> if (settings.modularShowStatus) {
+                    IosStatusWideCard(evidence, actions)
+                }
+                ModularLayout.SERVERS -> if (settings.modularShowServers) {
+                    IosServerListBox(
+                        repo = repo,
+                        evidence = evidence,
+                        actions = actions,
+                        maxListHeight = serverListMaxHeight
+                    )
+                }
+                ModularLayout.CONNECT -> ModularConnectModule(
                     evidence = evidence,
                     actions = actions,
-                    modifier = Modifier.weight(1f, fill = false),
-                    maxListHeight = serverListMaxHeight
+                    style = modularConnect
                 )
-                "CONNECT" -> {
-                    // The connect silhouette is chosen inside the Theme 4 customizer. The module
-                    // reserves one fixed footprint so flipping the shape never re-flows the page.
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(min = connectModuleHeight, max = connectModuleHeight),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        MarbleConnectionButton(
-                            evidence = evidence,
-                            tone = homeStateTone(evidence),
-                            onToggle = actions.onToggleConnection,
-                            flavor = HomeFlavor.IOS_MODULAR,
-                            style = modularConnect
-                        )
-                    }
+                ModularLayout.STATS -> if (settings.modularShowStats) {
+                    HomeSessionStats(evidence, actions, Aether.Cyan)
                 }
-                "STATS" -> {
-                    if (settings.modularShowStats) {
-                        HomeSessionStats(evidence, actions, Aether.Cyan)
-                    }
+                ModularLayout.SHORTCUTS -> if (settings.modularShowShortcuts) {
+                    HomeShortcutDeck(evidence, actions, HomeCloud.Accent)
                 }
             }
+        }
+
+        if (settings.modularShowSocks) {
+            ModularSocksCard(repo = repo, evidence = evidence)
         }
     }
 
@@ -2839,6 +3051,134 @@ internal fun HomeThemeModular(
     }
 }
 
+/**
+ * The connect module of Theme 4: the chosen silhouette, plus the ping companion the layout has
+ * always promised once a tunnel is up.
+ *
+ * The slot keeps one fixed footprint per silhouette family so switching the shape in the
+ * customizer never re-flows the modules above and below it.
+ */
+@Composable
+private fun ModularConnectModule(
+    evidence: HomeEvidence,
+    actions: HomeActions,
+    style: ConnectButtonStyle
+) {
+    val fullWidth = style == ConnectButtonStyle.SLIDE || style == ConnectButtonStyle.STREAM
+    val slotHeight = when (style) {
+        ConnectButtonStyle.ROUND -> 216.dp
+        ConnectButtonStyle.FLOATING -> 132.dp
+        ConnectButtonStyle.CLASSIC -> 116.dp
+        ConnectButtonStyle.SLIDE, ConnectButtonStyle.STREAM -> 104.dp
+    }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = slotHeight, max = slotHeight),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = if (fullWidth) Modifier.weight(1f) else Modifier,
+            contentAlignment = Alignment.Center
+        ) {
+            MarbleConnectionButton(
+                evidence = evidence,
+                tone = homeStateTone(evidence),
+                onToggle = actions.onToggleConnection,
+                flavor = HomeFlavor.IOS_MODULAR,
+                style = style,
+                modifier = if (fullWidth) Modifier.fillMaxWidth() else Modifier
+            )
+        }
+        AnimatedVisibility(
+            visible = evidence.connected,
+            enter = fadeIn(MarbleMotionSpecs.ResponseFloat) +
+                scaleIn(MarbleMotionSpecs.ResponseFloat, initialScale = .80f),
+            exit = fadeOut(MarbleMotionSpecs.ExitFloat) +
+                scaleOut(MarbleMotionSpecs.ExitFloat, targetScale = .80f)
+        ) {
+            Row {
+                Spacer(Modifier.width(12.dp))
+                ModularPingAction(
+                    enabled = homePingTappable(evidence),
+                    onClick = actions.onTestPing
+                )
+            }
+        }
+    }
+}
+
+/** The circular ping companion that appears beside the connect control once protected. */
+@Composable
+private fun ModularPingAction(
+    enabled: Boolean,
+    onClick: () -> Unit
+) {
+    val description = Tr.now.testPing
+    Box(
+        modifier = Modifier
+            .size(54.dp)
+            .shadow(3.dp, CircleShape, spotColor = Aether.Emerald)
+            .clip(CircleShape)
+            .background(Aether.Emerald)
+            .kineticClickable(enabled = enabled, boundedShape = CircleShape, onClick = onClick)
+            .semantics { contentDescription = description },
+        contentAlignment = Alignment.Center
+    ) {
+        HomeGlyphIcon(HomeGlyph.PULSE, Color.White, Modifier.size(24.dp))
+    }
+}
+
+/**
+ * MARBLE_MODULAR_LAYOUT_V145 — the local SOCKS endpoint module.
+ *
+ * `modularShowSocks` was a persisted preference with no renderer. It exists for the people who
+ * point another app at MarbleNG's proxy, so the module states the address, whether it is live,
+ * and copies it on tap.
+ */
+@Composable
+private fun ModularSocksCard(repo: AppRepository, evidence: HomeEvidence) {
+    val clipboard = LocalClipboardManager.current
+    val address = "127.0.0.1:${repo.activeProxyPort()}"
+    val copiedMessage = trx("SOCKS proxy address copied")
+    val tone = if (evidence.connected) Aether.Emerald else Aether.InkMuted
+    HomeCloudCard(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .kineticClickable(role = Role.Button) {
+                    clipboard.setText(AnnotatedString(address))
+                    repo.setRuntimeMessage(copiedMessage)
+                }
+                .padding(horizontal = 14.dp, vertical = 11.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            HomeGlyphIcon(HomeGlyph.BOLT, tone, Modifier.size(16.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    Tr.now.socksProxyLabel,
+                    color = Aether.InkFaint,
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1
+                )
+                Text(
+                    address,
+                    color = Aether.Ink,
+                    style = MaterialTheme.typography.bodyMedium.copy(
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.SemiBold
+                    ),
+                    maxLines = 1
+                )
+            }
+            HomeGlyphIcon(HomeGlyph.COPY, HomeCloud.Accent, Modifier.size(15.dp))
+        }
+    }
+}
+
 private const val MODULAR_CARD_HEIGHT_MIN = 160
 private const val MODULAR_CARD_HEIGHT_MAX = 360
 
@@ -2848,8 +3188,14 @@ private fun ModularCustomizerDialog(
     onDismiss: () -> Unit
 ) {
     val s = repo.settings
-    var order by remember { mutableStateOf(s.modularCardOrder.split(",").filter(String::isNotBlank)) }
+    // MARBLE_MODULAR_LAYOUT_V145 — the editor starts from a repaired order, so a legacy value
+    // cannot present the user with a list that is missing the module they are looking for.
+    var order by remember { mutableStateOf(ModularLayout.order(s.modularCardOrder)) }
+    var showStatus by remember { mutableStateOf(s.modularShowStatus) }
+    var showServers by remember { mutableStateOf(s.modularShowServers) }
     var showStats by remember { mutableStateOf(s.modularShowStats) }
+    var showShortcuts by remember { mutableStateOf(s.modularShowShortcuts) }
+    var showSocks by remember { mutableStateOf(s.modularShowSocks) }
     var connectStyle by remember { mutableStateOf(s.modularConnectStyle) }
     var cardSize by remember { mutableStateOf(s.modularCardSize) }
     var cardHeight by remember {
@@ -2947,7 +3293,10 @@ private fun ModularCustomizerDialog(
                     horizontalArrangement = Arrangement.spacedBy(7.dp)
                 ) {
                     ModularCardSize.entries.forEach { size ->
-                        val selected = parseModularCardSize(cardSize) == size
+                        // The chip reflects the height that is actually configured: dragging the
+                        // slider away from a preset now deselects the chip instead of leaving a
+                        // "Comfortable" badge lit next to a 187 dp card.
+                        val selected = modularCardHeightFor(size) == cardHeight
                         val shape = RoundedCornerShape(12.dp)
                         Column(
                             modifier = Modifier
@@ -3065,42 +3414,129 @@ private fun ModularCustomizerDialog(
                     }
                 }
 
+                HorizontalDivider(color = homeCloudDivider())
+
+                Text(
+                    trx("Modules"),
+                    color = Aether.InkFaint,
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold
+                )
+                ModularToggleRow(
+                    label = trx("Status banner"),
+                    detail = trx("Route, ping and IP"),
+                    checked = showStatus
+                ) { showStatus = it }
+                ModularToggleRow(
+                    label = trx("Servers"),
+                    detail = trx("The group picker and its server list"),
+                    checked = showServers
+                ) { showServers = it }
+                ModularToggleRow(
+                    label = trx("Show traffic stats"),
+                    detail = trx("Uptime, ping and session traffic"),
+                    checked = showStats
+                ) { showStats = it }
+                ModularToggleRow(
+                    label = trx("Quick shortcuts"),
+                    detail = trx("Add, paste, QR and the ping readout"),
+                    checked = showShortcuts
+                ) { showShortcuts = it }
+                ModularToggleRow(
+                    label = trx("Local SOCKS address"),
+                    detail = trx("Show the proxy endpoint other apps can use"),
+                    checked = showSocks
+                ) { showSocks = it }
+                Text(
+                    trx("The connect button is always shown."),
+                    color = Aether.InkFaint,
+                    style = MaterialTheme.typography.labelSmall
+                )
+
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(trx("Show traffic stats"), style = MaterialTheme.typography.bodySmall)
-                    Switch(checked = showStats, onCheckedChange = { showStats = it })
-                }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    TextButton(onClick = onDismiss) { Text(trx("Cancel")) }
-                    Spacer(Modifier.width(6.dp))
+                    // A layout editor without a way back to the factory layout is a trap: the
+                    // user who reorders everything and hides three modules has to reconstruct
+                    // the default from memory.
                     TextButton(
                         onClick = {
-                            repo.updateSettings(
-                                s.copy(
-                                    modularCardOrder = order.joinToString(","),
-                                    modularShowStats = showStats,
-                                    modularConnectStyle = connectStyle,
-                                    modularCardSize = cardSize,
-                                    modularCardHeightDp = cardHeight.coerceIn(
-                                        MODULAR_CARD_HEIGHT_MIN,
-                                        MODULAR_CARD_HEIGHT_MAX
+                            order = ModularLayout.CANONICAL
+                            showStatus = true
+                            showServers = true
+                            showStats = true
+                            showShortcuts = true
+                            showSocks = false
+                            connectStyle = ConnectButtonStyle.ROUND.id
+                            cardSize = ModularCardSize.COMPACT.id
+                            cardHeight = modularCardHeightFor(ModularCardSize.COMPACT)
+                        }
+                    ) { Text(trx("Reset layout")) }
+
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        TextButton(onClick = onDismiss) { Text(trx("Cancel")) }
+                        Spacer(Modifier.width(6.dp))
+                        TextButton(
+                            onClick = {
+                                repo.updateSettings(
+                                    repo.settings.copy(
+                                        modularCardOrder = ModularLayout.serialize(order),
+                                        modularShowStatus = showStatus,
+                                        modularShowServers = showServers,
+                                        modularShowStats = showStats,
+                                        modularShowShortcuts = showShortcuts,
+                                        modularShowSocks = showSocks,
+                                        modularConnectStyle = connectStyle,
+                                        modularCardSize = cardSize,
+                                        modularCardHeightDp = cardHeight.coerceIn(
+                                            MODULAR_CARD_HEIGHT_MIN,
+                                            MODULAR_CARD_HEIGHT_MAX
+                                        )
                                     )
                                 )
-                            )
-                            onDismiss()
-                        }
-                    ) { Text(trx("Save")) }
+                                onDismiss()
+                            }
+                        ) { Text(trx("Save")) }
+                    }
                 }
             }
         }
+    }
+}
+
+/** One module switch of the Theme 4 customizer: what it is, what it shows, on/off. */
+@Composable
+private fun ModularToggleRow(
+    label: String,
+    detail: String,
+    checked: Boolean,
+    onChange: (Boolean) -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                label,
+                color = Aether.Ink,
+                style = MaterialTheme.typography.bodySmall,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                detail,
+                color = Aether.InkFaint,
+                style = MaterialTheme.typography.labelSmall,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        Switch(checked = checked, onCheckedChange = onChange)
     }
 }
 
@@ -3113,10 +3549,11 @@ private fun connectStyleName(style: ConnectButtonStyle): String = when (style) {
 }
 
 private fun modularCardName(item: String): String = when (item) {
-    "STATUS" -> "Status"
-    "SERVERS" -> "Servers"
-    "CONNECT" -> "Connect"
-    "STATS" -> "Stats"
+    ModularLayout.STATUS -> "Status"
+    ModularLayout.SERVERS -> "Servers"
+    ModularLayout.CONNECT -> "Connect"
+    ModularLayout.STATS -> "Stats"
+    ModularLayout.SHORTCUTS -> "Quick shortcuts"
     else -> item
 }
 

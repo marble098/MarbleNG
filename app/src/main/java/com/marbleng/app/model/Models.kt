@@ -347,6 +347,142 @@ enum class ProbeState { IDLE, QUEUED, TESTING }
 enum class ProbeMethod { TUNNEL, TCP, ICMP, HYBRID, HTTP, DNS }
 
 /**
+ * MARBLE_PING_CONTROL_V145 — the user-owned measurement budget of the whole ping engine.
+ *
+ * ## Why this exists
+ *
+ * Every ping entry point in the product used to hard-code its own budget *below* whatever the
+ * engine was configured with, so the numbers on screen were the numbers of whichever clamp
+ * happened to be narrowest:
+ *
+ *  - `AppRepository.testSource` rewrote a sweep to `benchSamples = 1, benchTimeoutSec = 2` for
+ *    TCP/ICMP/DNS/Smart, i.e. one single SYN with a two-second budget for every server of a
+ *    subscription. A route that answers in 2.4 s — perfectly usable — was reported dead.
+ *  - `RouteProbe.smartPing` clamped the caller's budget into `1_200..6_000 ms` and always
+ *    measured exactly one sample, so "Smart ping" was a single un-averaged handshake.
+ *  - The Home ping clamped its budget into `500..8_000 ms`.
+ *  - Concurrency was `max(tcpWorkers, 24).coerceAtMost(32)`: it could neither be lowered on a
+ *    weak link (where 32 parallel handshakes distort every number) nor raised on a fast one.
+ *
+ * A measurement whose budget is decided by four competing clamps is not a measurement. These
+ * three values are the single budget now: the user picks them once and every probe — Home,
+ * group ping, Ping all, per-server ping — obeys exactly them.
+ */
+object PingBudget {
+    const val TIMEOUT_MIN_SEC = 1
+    const val TIMEOUT_MAX_SEC = 30
+    const val SAMPLES_MIN = 1
+    const val SAMPLES_MAX = 10
+    const val CONCURRENCY_MIN = 1
+    const val CONCURRENCY_MAX = 64
+
+    /** Quiet time between two samples of the same server, so a burst is never measured. */
+    const val SAMPLE_SPACING_MS = 60L
+
+    /** Per-server timeouts offered as one-tap choices (seconds). */
+    val TIMEOUT_CHOICES = listOf(2, 3, 5, 10, 15)
+
+    /** Samples per server offered as one-tap choices. */
+    val SAMPLE_CHOICES = listOf(1, 2, 3, 5, 8)
+
+    /** Parallel servers offered as one-tap choices. */
+    val CONCURRENCY_CHOICES = listOf(1, 2, 4, 8, 16, 32)
+
+    fun timeoutSec(value: Int): Int = value.coerceIn(TIMEOUT_MIN_SEC, TIMEOUT_MAX_SEC)
+
+    fun samples(value: Int): Int = value.coerceIn(SAMPLES_MIN, SAMPLES_MAX)
+
+    fun concurrency(value: Int): Int = value.coerceIn(CONCURRENCY_MIN, CONCURRENCY_MAX)
+
+    /**
+     * Wall clock one server may consume: every sample gets the full per-sample budget, plus the
+     * inter-sample spacing the prober inserts, plus scheduling grace. Pure, so the batch
+     * deadline derived from it stays unit-testable.
+     */
+    fun perServerBudgetMs(timeoutSec: Int, samples: Int): Long {
+        val perSample = timeoutSec(timeoutSec) * 1_000L
+        val rounds = samples(samples)
+        return perSample * rounds + SAMPLE_SPACING_MS * (rounds - 1) + 750L
+    }
+}
+
+/** Per-server socket budget, in milliseconds, exactly as the user configured it. */
+fun AppSettings.pingTimeoutMs(): Int = PingBudget.timeoutSec(pingTimeoutSec) * 1_000
+
+/** Samples measured per server before a median is published. */
+fun AppSettings.pingSampleCount(): Int = PingBudget.samples(pingSamples)
+
+/** Servers measured at the same time. */
+fun AppSettings.pingWorkers(): Int = PingBudget.concurrency(pingConcurrency)
+
+/**
+ * MARBLE_DOCK_CUSTOM_V145 — how large the bottom navigation bar renders.
+ *
+ * The dock is the one chrome element present on every page, so its footprint is a user choice
+ * rather than a constant: a small bar hands ~20 dp of height back to the content, a large one
+ * is easier to hit with a thumb on a big phone.
+ */
+enum class DockSize(val id: String) {
+    SMALL("small"),
+    MEDIUM("medium"),
+    LARGE("large")
+}
+
+fun parseDockSize(raw: String): DockSize =
+    DockSize.entries.firstOrNull { it.id.equals(raw.trim(), ignoreCase = true) }
+        ?: when (raw.trim().uppercase()) {
+            "COMPACT" -> DockSize.SMALL
+            "SPACIOUS", "BIG" -> DockSize.LARGE
+            else -> DockSize.MEDIUM
+        }
+
+/**
+ * MARBLE_DOCK_CUSTOM_V145 — the dock's content policy.
+ *
+ * Labels and icons are independent switches, but a bar with neither is not a navigation
+ * control, it is three empty rectangles. These two functions resolve the requested pair into a
+ * legal one exactly once, so the bar can never render blank whatever is persisted.
+ */
+fun dockShowsIcons(showIcons: Boolean, showLabels: Boolean): Boolean = showIcons || !showLabels
+
+@Suppress("UNUSED_PARAMETER")
+fun dockShowsLabels(showIcons: Boolean, showLabels: Boolean): Boolean = showLabels
+
+/**
+ * MARBLE_MODULAR_LAYOUT_V145 — the Theme 4 (customizer) module order, repaired.
+ *
+ * The persisted order is a free-form comma string, and Home used to render it literally. A
+ * stored order that had lost an entry (an older build, a partial save, a hand-edited
+ * preference) therefore dropped that module from the page for good — including CONNECT, which
+ * left the user with a Home screen that cannot connect — and a duplicated entry rendered the
+ * same card twice. The order is now always a permutation of exactly the known modules: unknown
+ * tokens are dropped, duplicates collapse, and anything missing is appended in canonical order.
+ */
+object ModularLayout {
+    const val STATUS = "STATUS"
+    const val SERVERS = "SERVERS"
+    const val CONNECT = "CONNECT"
+    const val STATS = "STATS"
+    const val SHORTCUTS = "SHORTCUTS"
+
+    /** Canonical order, also the factory default of [AppSettings.modularCardOrder]. */
+    val CANONICAL = listOf(STATUS, SERVERS, CONNECT, STATS, SHORTCUTS)
+
+    val DEFAULT_ORDER: String = CANONICAL.joinToString(",")
+
+    fun order(raw: String): List<String> {
+        val requested = raw.split(',')
+            .map { it.trim().uppercase() }
+            .filter { it.isNotBlank() && it in CANONICAL }
+            .distinct()
+        return requested + CANONICAL.filterNot { it in requested }
+    }
+
+    fun serialize(order: List<String>): String = order(order.joinToString(",")).joinToString(",")
+}
+
+
+/**
  * Canonical MarbleNG routing baseline.
  *
  * Chocolate4U/Iran-v2ray-rules publishes a continuously updated `release` branch containing
@@ -436,6 +572,16 @@ data class AppSettings(
     val benchBytes: Int = 262144,
     val tcpPrecheckTimeoutMs: Int = 1000,
     val tcpWorkers: Int = 20,
+
+    // MARBLE_PING_CONTROL_V145 — the ping budget the user owns. See [PingBudget]: these three
+    // values (and nothing else) decide how long one server may take, how many samples its
+    // published latency is the median of, and how many servers are measured at the same time.
+    /** Per-server budget for one ping sample, in seconds (1..30). */
+    val pingTimeoutSec: Int = 5,
+    /** Samples measured per server; the published latency is their median (1..10). */
+    val pingSamples: Int = 3,
+    /** Servers measured in parallel during a sweep (1..64). */
+    val pingConcurrency: Int = 8,
 
     // Library order. Ping is intentionally the default; untested nodes stay last.
     val nodeSortMode: NodeSortMode = NodeSortMode.DEFAULT,
@@ -662,10 +808,14 @@ data class AppSettings(
     val homeStyle: String = HomeStyle.IOS_SLIDER.id,
 
     // Theme 4: Modular customizable dashboard properties
-    val modularCardOrder: String = "STATUS,SERVERS,CONNECT,STATS",
+    val modularCardOrder: String = ModularLayout.DEFAULT_ORDER,
     val modularShowStats: Boolean = true,
     val modularShowSocks: Boolean = false,
     val modularShowShortcuts: Boolean = true,
+    /** MARBLE_MODULAR_LAYOUT_V145 — the status banner is a module like every other one. */
+    val modularShowStatus: Boolean = true,
+    /** MARBLE_MODULAR_LAYOUT_V145 — the server picker is a module like every other one. */
+    val modularShowServers: Boolean = true,
     val modularConnectStyle: String = "SLIDER",
     /** Modular Home card sizing, changed from the Theme 4 customizer. */
     val modularCardSize: String = ModularCardSize.COMPACT.id,
@@ -680,6 +830,14 @@ data class AppSettings(
 
     /** MARBLE_NIGHT_OUTLINES_V112 — dark-theme hairline personality for every frame/card. */
     val darkOutlineStyle: String = DarkOutlineStyle.SUBTLE.id,
+
+    // MARBLE_DOCK_CUSTOM_V145 — the bottom navigation bar is customizable from Settings.
+    /** Draw the tab captions in the dock. */
+    val dockShowLabels: Boolean = true,
+    /** Draw the tab glyphs in the dock. */
+    val dockShowIcons: Boolean = true,
+    /** Dock footprint: small, medium (default) or large. */
+    val dockSize: String = DockSize.MEDIUM.id,
 
     /** MARBLE_BILINGUAL_V110 — "system" follows the device locale; "en"/"fa" are overrides. */
     val appLanguage: String = AppLanguage.SYSTEM.id,

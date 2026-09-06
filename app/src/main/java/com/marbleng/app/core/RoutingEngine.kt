@@ -370,6 +370,132 @@ object RoutingEngine {
         }
     }
 
+    /**
+     * MARBLE_GEO_READY_GATE_V145 — geo routing is disabled until its databases are really here.
+     *
+     * ## What used to happen
+     *
+     * `XrayManager.start` compared the selected policy against the files on disk and, when
+     * geoip.dat/geosite.dat were missing, it *failed the connection*:
+     *
+     * ```
+     * error("geoip.dat is required by the selected routing policy but no local/bundled copy …")
+     * ```
+     *
+     * The default policy (GEO_DIRECT + ad blocking) needs both files, so on any build/install
+     * where the download had not finished — a fresh install on a censored link, a cleared cache,
+     * an interrupted refresh — the product simply could not connect, and the message named a
+     * file the user has no way to produce. The geo split is an *optimisation* (keep domestic
+     * traffic off the tunnel, drop ad domains). Losing it must cost that optimisation, never the
+     * connection.
+     *
+     * ## What happens now
+     *
+     * This function returns the same settings with every rule that would require a missing
+     * database removed, so the config writer emits a policy the engine can actually load:
+     *
+     *  - `GEO_DIRECT` degrades to `BYPASS_PRIVATE` while geoip.dat is missing — private/LAN
+     *    ranges stay direct (those are literal CIDRs, no database involved) and everything else
+     *    is proxied, which is always safe;
+     *  - geo tag lists and geo tokens inside the direct/proxy/block lists are dropped;
+     *  - ad blocking (a geosite category) is switched off while geosite.dat is missing;
+     *  - user rules that match on a missing database are disabled — the rule survives in
+     *    Settings and starts working by itself the moment the asset lands.
+     *
+     * Pure function: the caller keeps the user's real settings, and the UI reads
+     * [geoDowngradeReason] to explain the temporary state.
+     */
+    fun withGeoAssetGate(
+        settings: AppSettings,
+        geoIpReady: Boolean,
+        geoSiteReady: Boolean
+    ): AppSettings {
+        if (geoIpReady && geoSiteReady) return settings
+        var next = settings
+
+        if (!geoIpReady) {
+            if (next.routingMode == RoutingMode.GEO_DIRECT) {
+                next = next.copy(routingMode = RoutingMode.BYPASS_PRIVATE, routeBypassPrivate = true)
+            }
+            next = next.copy(
+                routeGeoIpTags = "",
+                routeDirectIps = stripGeoTokens(next.routeDirectIps, "geoip:"),
+                routeBlockIps = stripGeoTokens(next.routeBlockIps, "geoip:")
+            )
+        }
+
+        if (!geoSiteReady) {
+            next = next.copy(
+                routeGeoSiteTags = "",
+                routeBlockAds = false,
+                routeDirectDomains = stripGeoTokens(next.routeDirectDomains, "geosite:"),
+                routeProxyDomains = stripGeoTokens(next.routeProxyDomains, "geosite:"),
+                routeBlockDomains = stripGeoTokens(next.routeBlockDomains, "geosite:")
+            )
+        }
+
+        if (next.customRoutingEnabled) {
+            val gated = parseRules(next.routingRulesJson).map { rule ->
+                if (rule.enabled && ruleNeedsMissingAsset(rule, geoIpReady, geoSiteReady)) {
+                    rule.copy(enabled = false)
+                } else {
+                    rule
+                }
+            }
+            next = next.copy(routingRulesJson = serializeRules(gated))
+        }
+
+        return next
+    }
+
+    /** True when [rule] can only work once a database that is not on disk arrives. */
+    private fun ruleNeedsMissingAsset(
+        rule: RoutingRule,
+        geoIpReady: Boolean,
+        geoSiteReady: Boolean
+    ): Boolean = when (rule.kind) {
+        RoutingRuleKind.GEOSITE -> !geoSiteReady
+        RoutingRuleKind.GEOIP ->
+            !geoIpReady && !rule.matcher.trim().removePrefix("geoip:").equals("private", true)
+        RoutingRuleKind.DOMAIN ->
+            !geoSiteReady && splitDomains(rule.matcher).any { it.startsWith("geosite:", true) }
+        RoutingRuleKind.IP ->
+            !geoIpReady && splitIps(rule.matcher).any {
+                it.startsWith("geoip:", true) && !it.equals("geoip:private", true)
+            }
+        RoutingRuleKind.PORT -> false
+    }
+
+    /** Drops `geoip:`/`geosite:` tokens from a comma/newline separated list, keeping literals. */
+    private fun stripGeoTokens(raw: String, prefix: String): String {
+        if (raw.isBlank()) return raw
+        return raw.split(',', '\n', '\r', ';')
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .filterNot {
+                it.startsWith(prefix, true) &&
+                    !(prefix == "geoip:" && it.equals("geoip:private", true))
+            }
+            .joinToString(",")
+    }
+
+    /**
+     * One line for the UI/diagnostics explaining what the gate switched off, or "" when the
+     * databases are complete and the user's policy is running exactly as written.
+     */
+    fun geoDowngradeReason(
+        settings: AppSettings,
+        geoIpReady: Boolean,
+        geoSiteReady: Boolean
+    ): String {
+        val missing = buildList {
+            if (!geoIpReady && needsGeoIp(settings)) add("geoip.dat")
+            if (!geoSiteReady && needsGeoSite(settings)) add("geosite.dat")
+        }
+        if (missing.isEmpty()) return ""
+        return "Geo routing paused until ${missing.joinToString(" and ")} finishes downloading"
+    }
+
     fun needsDirectOutbound(settings: AppSettings): Boolean {
         val implicit = implicitRules(settings)
         if (settings.routeBypassPrivate || implicit.forceBypassPrivate) return true

@@ -67,7 +67,11 @@ class BenchmarkEngine(
         // Probing waits on sockets far more than on the CPU, and direct probes spawn no process at
         // all, so the old (cpu / 2) cap left most of the batch idle behind four workers.
         val nominalWorkers = when {
-            directProbe(s) -> s.tcpWorkers.coerceIn(4, 32)
+            // MARBLE_PING_CONTROL_V145 — a direct probe batch runs exactly as wide as the user
+            // asked. The old `coerceIn(4, 32)` made the Settings value advisory: it could not be
+            // lowered to 1 or 2 (which is what a congested mobile link needs before its numbers
+            // mean anything) and it could not be raised past 32 on a fast connection.
+            directProbe(s) -> PingBudget.concurrency(s.tcpWorkers)
             // MarbleNG launches one native Xray child per candidate, unlike v2rayNG's in-process
             // dialer. Four is the safe ceiling here: larger same-host bursts can manufacture
             // Connection reset / TLS timeout failures that disappear when the node is tapped alone.
@@ -112,7 +116,7 @@ class BenchmarkEngine(
          * wedged thread outlives the run. Healthy runs never touch the deadline — it only binds
          * the runs that used to hang.
          */
-        val perTaskCapMs = s.benchTimeoutSec * 1_000L * s.benchSamples.coerceIn(1, 8) +
+        val perTaskCapMs = PingBudget.perServerBudgetMs(s.benchTimeoutSec, s.benchSamples) +
             if (directProbe(s)) BATCH_DIRECT_GRACE_MS else BATCH_TUNNEL_GRACE_MS
         val waves = ((candidates.size + liveWorkers - 1) / liveWorkers).coerceAtLeast(1)
         val batchCapMs = (perTaskCapMs * waves + BATCH_WAVE_GRACE_MS)
@@ -687,27 +691,26 @@ class BenchmarkEngine(
             s.probeMethod == ProbeMethod.HYBRID
 
     private fun directResult(p: ProxyProfile, s: AppSettings): BenchmarkResult {
-        val directTimeoutMs =
-            if (s.probeMethod == ProbeMethod.TCP) {
-                min(
-                    (s.benchTimeoutSec * 1000).coerceIn(500, 10_000),
-                    s.tcpPrecheckTimeoutMs.coerceIn(250, 10_000)
-                )
-            } else {
-                (s.benchTimeoutSec * 1000).coerceIn(500, 10_000)
-            }
+        // MARBLE_PING_CONTROL_V145 — the probe budget is the user's budget, for every method.
+        // TCP used to be additionally clamped by `tcpPrecheckTimeoutMs` (1 s by default), so a
+        // deliberate "10 s per server" choice still measured TCP with a one-second deadline and
+        // reported every slow-but-alive endpoint as dead.
+        val directTimeoutMs = (s.benchTimeoutSec * 1000).coerceIn(
+            PingBudget.TIMEOUT_MIN_SEC * 1_000,
+            PingBudget.TIMEOUT_MAX_SEC * 1_000
+        )
         // MARBLE_PROBE_TOOLKIT_V130 — dispatch to the right RouteProbe method
         return when (s.probeMethod) {
             // MARBLE_SMART_PING_V122 — Smart reuses the unified smart ping (fast TCP+DNS gate
             // plus a real HTTPS measurement), mapped onto the benchmark shape. Any passing
             // signal keeps success > 0, so filtered-but-alive servers never show as failed.
             ProbeMethod.HYBRID -> {
-                val smartTimeoutMs = (s.benchTimeoutSec * 1000).coerceIn(1_200, 6_000)
                 val result = RouteProbe.smartPing(
                     profile = p,
                     tunnelPort = 0,
-                    timeoutMs = smartTimeoutMs,
-                    settings = s
+                    timeoutMs = directTimeoutMs,
+                    settings = s,
+                    samples = PingBudget.samples(s.benchSamples)
                 )
                 BenchmarkResult(
                     profileId = p.id,
@@ -727,7 +730,7 @@ class BenchmarkEngine(
                 val result = RouteProbe.httpPingBatch(
                     socksPort = 0,
                     timeoutMs = directTimeoutMs,
-                    samples = s.benchSamples.coerceIn(1, 8)
+                    samples = PingBudget.samples(s.benchSamples)
                 )
                 BenchmarkResult(
                     profileId = p.id,
@@ -746,7 +749,7 @@ class BenchmarkEngine(
                 val result = RouteProbe.dnsPingExtended(
                     host = p.host,
                     timeoutMs = directTimeoutMs,
-                    samples = s.benchSamples.coerceIn(1, 8)
+                    samples = PingBudget.samples(s.benchSamples)
                 )
                 BenchmarkResult(
                     profileId = p.id,
@@ -763,7 +766,7 @@ class BenchmarkEngine(
                 val sample = RouteProbe.measure(
                     profile = p,
                     icmpMode = s.probeMethod == ProbeMethod.ICMP,
-                    samples = s.benchSamples.coerceIn(1, 8),
+                    samples = PingBudget.samples(s.benchSamples),
                     timeoutMs = directTimeoutMs,
                     settings = s
                 )
@@ -869,7 +872,7 @@ class BenchmarkEngine(
         includeThroughput: Boolean,
         v2rayStyleDelay: Boolean = false
     ): Measurement {
-        val requested = if (v2rayStyleDelay) 2 else s.benchSamples.coerceIn(1, 8)
+        val requested = if (v2rayStyleDelay) 2 else PingBudget.samples(s.benchSamples)
         /*
          * MARBLE_TUNING_MEASUREMENT_PLANE_V134 — the throwaway core a node is judged by is hardened
          * with the same measured link evidence as the live tunnel. It used to be hardened with
@@ -881,10 +884,15 @@ class BenchmarkEngine(
          * here was the resolver inside the measurement core, not the stopwatch outside it.
          */
         val linkEvidence = linkEvidenceFor(p.id)
+        // MARBLE_PING_CONTROL_V145 — the per-sample tunnel budget follows the configured
+        // timeout instead of a hidden 2.5 s ceiling. "Real test" is the method a user picks
+        // precisely to give a slow route the time to answer; capping it two seconds below the
+        // configured budget turned that choice into a lie and marked healthy long-haul nodes
+        // dead. The batch still owns a wall clock (see the deadline in [run]).
         val timeoutMs = if (v2rayStyleDelay) {
             (s.benchTimeoutSec * 1000).coerceIn(4_000, 12_000)
         } else {
-            (s.benchTimeoutSec * 1000).coerceIn(1_200, 2_500)
+            (s.benchTimeoutSec * 1000).coerceIn(1_200, PingBudget.TIMEOUT_MAX_SEC * 1_000)
         }
         var times = emptyList<Double>()
         var warmup = 0.0
