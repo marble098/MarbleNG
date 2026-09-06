@@ -16,7 +16,6 @@ import java.net.URL
 import java.security.MessageDigest
 import java.util.Locale
 import org.json.JSONObject
-import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
@@ -86,18 +85,6 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
 
     private val store = AppStore(context)
     private val io = Executors.newFixedThreadPool(3)
-
-    /*
-     * MARBLE_SHARED_PROBE_POOL_V144 — the Home ping used to build a fresh 9-thread pool on every
-     * tap and tear it down right after: thread-creation churn, nine fresh stacks and a GC wave
-     * per ping, all added to the exact latency the user is trying to read. Nine racing probes
-     * still run, but on one shared cached pool of daemon threads: bursts reuse warm threads,
-     * idle threads reap themselves after a minute, `invokeAll` still cancels stragglers past
-     * the batch budget, and nothing here is ever shut down (a shared pool has no owner per tap).
-     */
-    private val probePool: ExecutorService = Executors.newCachedThreadPool { runnable ->
-        Thread(runnable, "marble-probe").apply { isDaemon = true }
-    }
 
     // IntelligenceStatus includes a SQLite count + thermal inspection. Coalesce it on a worker so
     // a DB writer can never make the Android input thread wait on the HealthDb monitor.
@@ -453,8 +440,6 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     var homePingStabilityClass by mutableStateOf(""); private set
     var nationalEventCause by mutableStateOf(""); private set
     var nationalEventConfidence by mutableStateOf(0f); private set
-    var homePingDetail by mutableStateOf(""); private set
-
     // MARBLE_HOME_V137 — the selected-server endpoint ping for the DISCONNECTED / CONNECTING
     // states. The tunnel ladder above needs a live SOCKS port, so it cannot answer while no
     // traffic flows; this measures the *endpoint* of the server the connect button would act on
@@ -1434,31 +1419,16 @@ private fun postToMain(block: () -> Unit) {
         }
         if (!connectionPingInFlight.compareAndSet(false, true)) return
 
+        val target = homeRoute() ?: lastProfile()
         val port = activeProxyPort()
         val sessionAtStart = connectedSinceMs
+        val timeoutMs = settings.pingTimeoutMs()
+        val samples = settings.pingSampleCount()
 
-        // MARBLE_PING_TRUTH_V147 — a *connected* tunnel ping is necessarily a tunnel question, so
-        // it no longer obeys an address-level method. ICMP/HTTP/DNS/TCP are gone from the product
-        // method set and would be the wrong answer here even if they existed: the user is asking
-        // "is the live route good?", and the only honest answer is the verified in-tunnel ladder
-        // below. The selected-method concept still applies to disconnected servers (see
-        // [measureSelectedPing]) and to server ranking, never to the live tunnel readout.
-
-        // Guarantee 1 — seed the readout with a real measurement the tunnel already owns, so the
-        // value never sits in MEASURING while the race is still running. Stored benchmarks are
-        // bounded by the shared positive/ceiling clamp before they can reach the UI.
-        val storedLatencyMs = benchmarks
-            .firstOrNull { it.profileId == activeProfileId }
-            ?.takeIf { it.success > 0 && it.latencyMs > 0.0 }
-            ?.latencyMs
-            ?.let { LinkQualityEstimator.sanitaryRtt(it.roundToInt()) }
-            ?: 0
-        val seedMs = listOf(livePingMs, storedLatencyMs).firstOrNull { it > 0 } ?: 0
-
-        // MARBLE_PING_FLOOR_V117 — the seed (live monitor RTT / stored benchmark) is useful as a
-        // last-resort tail, but it is never a finished measurement. Showing it as MEASURED let the
-        // Home surface flash an unrepresentative 15 ms before the real probe race had run. The
-        // readout now stays in MEASURING until the median of the verified race is published.
+        // MARBLE_PING_METHODS_V148 — the Home readout obeys Settings → Tests → Ping exactly like
+        // every other measurement. The method gets a real SOCKS port when the tunnel is up, so
+        // Smart / Real test / HTTP GET / HTTP HEAD measure through the live route while
+        // TCP Connect / TCP (recommended) / ICMP intentionally measure the server address itself.
         postToMain {
             connectionPingMs = 0
             connectionPingState = ConnectionPingState.MEASURING
@@ -1466,153 +1436,46 @@ private fun postToMain(block: () -> Unit) {
         }
 
         io.execute {
-            // MARBLE_IRAN_AWARE_PING_L0_TARGETS — the fixed gstatic/cloudflare ladder is replaced
-            // by the rotating [ProbeTargetPool]: CDN diversity (jsdelivr/github/quad9/adguard too)
-            // plus literal proxy ends, in the same 10-minute epoch order Rank uses. One filtered
-            // SNI can no longer decide the Home readout, and no host is ever the reference RTT.
-            val rotated = ProbeTargetPool.ordered(ProbeTargetPool.CDN_TARGETS)
-            val literalTargets = ProbeTargetPool.ordered(ProbeTargetPool.LITERAL_TARGETS)
-                .take(4)
-                .map { Triple(it.host, it.tlsHost, it.path) }
-            val domainTargets = rotated.take(4).map { it.host to it.path }
-
-            data class ProbeSample(val mode: String, val ms: Double, val verified: Boolean)
-
-            val results = java.util.Collections.synchronizedList(ArrayList<ProbeSample>())
-
-            fun record(mode: String, ms: Double, verified: Boolean) {
-                val sane = LinkQualityEstimator.sanitaryRtt(ms)
-                if (sane < 20.0) return
-                results += ProbeSample(mode, sane, verified)
-            }
-
-            // MARBLE_LINK_DEADLINE_V133 — every probe budget here used to be a constant sized for a
-            // fast link (1800/2000/1600 ms) inside a 2600 ms batch. On the ~1.1 s tunnel in the
-            // attached runtime log that truncated the race to one or two responders, so the Home
-            // readout was "the fastest of whatever happened to finish" instead of an honest median,
-            // and `responders=1` looked like four dead providers. The budgets are now derived from
-            // the same measured evidence that sizes the core's DNS deadlines.
-            val pingEvidence = LinkEvidence(
-                rttMs = seedMs.toDouble(),
-                samples = if (seedMs > 0) 1 else 0
-            )
-            val probeTimeoutMs = LinkDeadlinePolicy.httpsProbeTimeoutMs(pingEvidence).toInt()
-                .coerceIn(500, 30_000)
-            val batchBudgetMs = LinkDeadlinePolicy.probeBatchBudgetMs(probeTimeoutMs.toLong())
-
-            // MARBLE_SHARED_PROBE_POOL_V144 — the nine racers run on the shared pool (see the
-            // field): no per-tap thread churn, and `invokeAll` still bounds + cancels the race.
-            // The pool itself is never shut down here — it outlives every single tap.
-            try {
-                val tasks = literalTargets.map { (ip, tlsHost, path) ->
-                    java.util.concurrent.Callable {
-                        ProbeTargetPool.staggerProbe()
-                        runCatching {
-                            SocksHttpClient.httpsFirstByteLatency(
-                                port = port,
-                                host = ip,
-                                path = path,
-                                targetPort = 443,
-                                timeoutMs = probeTimeoutMs,
-                                tlsHost = tlsHost
-                            )
-                        }.getOrNull()?.let { record("first-byte:$tlsHost", it, verified = true) }
-                    }
-                } + domainTargets.map { (host, path) ->
-                    java.util.concurrent.Callable {
-                        ProbeTargetPool.staggerProbe()
-                        runCatching {
-                            SocksHttpClient.tunnelRttBatch(
-                                port = port,
-                                host = host,
-                                path = path,
-                                samples = 1,
-                                timeoutMs = probeTimeoutMs
-                            )
-                        }.getOrNull()
-                            ?.samplesMs
-                            ?.filter { it.isFinite() && it >= 20.0 }
-                            ?.minOrNull()
-                            ?.let { record("real-delay:$host", it, verified = true) }
-                    }
-                } + listOf(
-                    java.util.concurrent.Callable {
-                        ProbeTargetPool.staggerProbe()
-                        // Independent full-request opinion: any 2xx/3xx proves the tunnel
-                        // end-to-end and carries an honest elapsed time.
-                        runCatching {
-                            SocksHttpClient.get(
-                                port,
-                                rotated.first().host,
-                                rotated.first().path,
-                                probeTimeoutMs,
-                                2_048
-                            )
-                        }.getOrNull()
-                            ?.takeIf { it.status in 200..399 && it.elapsedMs >= 20.0 }
-                            ?.let { record("get:${rotated.first().kind}", it.elapsedMs, verified = true) }
-                    },
-                    java.util.concurrent.Callable {
-                        // Guarantee 3 — the cheapest honest measurement of the connected tunnel:
-                        // one SOCKS CONNECT handshake to a literal IP. It answers even when every
-                        // HTTPS origin above is blocked, so the readout is never empty. It is
-                        // recorded as unverified, so it can never outrank a real HTTPS RTT.
-                        runCatching {
-                            SocksHttpClient.connectLatency(
-                                port = port,
-                                host = "1.1.1.1",
-                                targetPort = 443,
-                                timeoutMs = probeTimeoutMs.coerceAtMost(8_000)
-                            )
-                        }.getOrNull()?.let { record("tunnel-handshake", it, verified = false) }
-                    }
+            val probe = runCatching {
+                target?.let {
+                    RouteProbe.measureUnified(
+                        profile = it,
+                        method = settings.probeMethod,
+                        tunnelPort = port,
+                        samples = samples,
+                        timeoutMs = timeoutMs,
+                        settings = settings
+                    )
+                } ?: RouteProbe.ProbeResult(
+                    "HOME",
+                    RouteProbe.UNREACHABLE,
+                    0,
+                    samples,
+                    failureReason = "no-route"
                 )
-                probePool.invokeAll(
-                    tasks,
-                    batchBudgetMs,
-                    java.util.concurrent.TimeUnit.MILLISECONDS
-                )
-            } catch (_: InterruptedException) {
-                Thread.currentThread().interrupt()
-            }
-
-            val verifiedSamples = results.filter { it.verified && it.ms >= 20.0 }
-            // MARBLE_HONEST_PING_V119 — one freaky fast sample never wins the race. The winner
-            // is the median of the verified probes (every sample already bounded positive/ceiling),
-            // so a single outlier cannot pull the Home readout away from the honest centre of the
-            // verified distribution; the unverified SOCKS ladder only counts when nothing verified
-            // answered.
-            val racePool = verifiedSamples.map { it.ms }.sorted()
-            val winnerMs = racePool.getOrNull(racePool.size / 2)
-            // Diagnostics still identify which probe class produced the winning opinion.
-            val winner = verifiedSamples.minByOrNull { it.ms }
-            // Ladder tail: the live tunnel monitor, then the stored benchmark of the live server.
-            val tailMs = listOf(livePingMs, storedLatencyMs).firstOrNull { it >= 20 } ?: 0
-            val measured = (winnerMs?.toInt() ?: tailMs).coerceIn(0, 10_000)
+            }.getOrNull()
+            val measured = probe
+                ?.takeIf { it.successPercent > 0 && it.latencyMs >= 20.0 && it.latencyMs < RouteProbe.UNREACHABLE }
+                ?.latencyMs
+                ?.let { LinkQualityEstimator.sanitaryRtt(it.roundToInt()) }
+                ?: 0
 
             diagnostics.event(
                 "APP",
                 "home-connection-ping",
                 "measured" to measured,
                 "port" to port,
-                "responders" to results.size,
-                "probeTimeoutMs" to probeTimeoutMs,
-                "batchBudgetMs" to batchBudgetMs,
-                "verified" to verifiedSamples.size,
-                "seed" to seedMs,
-                "mode" to (winner?.mode ?: if (tailMs > 0) "tunnel-monitor" else "none"),
-                "modes" to results.joinToString(",") { "${it.mode}=${it.ms.roundToInt()}" }
+                "mode" to settings.probeMethod.name.lowercase(),
+                "profile" to (target?.id ?: "").take(12)
             )
 
-            // MARBLE_IRAN_AWARE_PING — fold this measurement into the Layer 2 series and run the
-            // Layer 3 attribution tick on the worker, then publish signals to the UI.
             val stability = runCatching {
                 intelligence.recordLiveObservation(
                     activeProfileId,
                     measured.toDouble(),
-                    0.0,
-                    if (measured >= 20) 100.0 else 0.0,
-                    transportType = profile(activeProfileId, activeProfileSourceId)
+                    probe?.jitterMs ?: 0.0,
+                    probe?.successPercent?.toDouble() ?: 0.0,
+                    transportType = target
                         ?.let { ProtocolFingerprintAwareVerifier.transportTypeOf(it) } ?: ""
                 )
                 intelligence.consistencyReport(activeProfileId)
@@ -1634,15 +1497,12 @@ private fun postToMain(block: () -> Unit) {
                         connectionPingFailure = ""
                     }
                     else -> {
-                        // When no valid probe answered, mark as FAILED. An empty race means
-                        // every probe timed out against its own socket budget.
                         connectionPingMs = 0
                         connectionPingState = ConnectionPingState.FAILED
-                        connectionPingFailure = if (results.isEmpty()) "timeout" else "unreachable"
+                        connectionPingFailure = classifyPingFailure(probe?.failureReason)
                     }
                 }
-                homePingInjectedReset = results.isEmpty() &&
-                    connectionPingFailure == "unreachable"
+                homePingInjectedReset = probe?.injectedResetSuspected == true || measured < 20
                 homePingStabilityClass = stability?.stabilityClass?.name ?: ""
                 nationalEventCause = if (attribution?.rankingFreeze == true) {
                     CausalAttribution.shortKey(attribution.cause)
@@ -1650,12 +1510,6 @@ private fun postToMain(block: () -> Unit) {
                     ""
                 }
                 nationalEventConfidence = (attribution?.confidence ?: 0.0).toFloat()
-                homePingDetail = listOf(
-                    "responders=${results.size}",
-                    "mode=${winner?.mode ?: "none"}",
-                    if (homePingStabilityClass == "UNSTABLE_UNDER_OBSERVATION") "unstable" else null,
-                    if (nationalEventCause.isNotEmpty()) nationalEventCause else null
-                ).filterNotNull().joinToString(" • ")
             }
         }
     }
@@ -1679,9 +1533,10 @@ private fun postToMain(block: () -> Unit) {
     }
 
     /**
-     * MARBLE_HOME_V137 — the one ping entry Home calls. Connected measures the live tunnel
-     * ladder; anything else measures the selected server's endpoint directly, using the same
-     * Settings → Testing method on both paths so one tap can never report two latencies.
+     * MARBLE_HOME_V137 / MARBLE_PING_METHODS_V148 — the one ping entry Home calls. Connected and
+     * disconnected paths both run the Settings → Testing method; connected simply supplies the
+     * live SOCKS port so tunnel-capable methods measure through the route. One tap never reports
+     * two latencies.
      */
     fun measureHomePing() {
         if (state == "CONNECTED") {
@@ -1702,7 +1557,7 @@ private fun postToMain(block: () -> Unit) {
      */
     fun measureSelectedPing() {
         if (!selectedPingInFlight.compareAndSet(false, true)) return
-        val target = lastProfile()
+        val target = homeRoute() ?: lastProfile()
         if (target == null) {
             postToMain {
                 selectedPingInFlight.set(false)
@@ -1786,11 +1641,6 @@ private fun postToMain(block: () -> Unit) {
                     }
                     homePingInjectedReset = probeResult?.injectedResetSuspected == true || measured < 20
                     homePingStabilityClass = stability?.stabilityClass?.name ?: ""
-                    homePingDetail = listOf(
-                        "mode=${probeResult?.method ?: "none"}",
-                        probeResult?.failureReason?.takeIf { it.isNotBlank() },
-                        if (homePingStabilityClass == "UNSTABLE_UNDER_OBSERVATION") "unstable" else null
-                    ).filterNotNull().joinToString(" • ")
                 }
             }
         }
@@ -2937,9 +2787,10 @@ private fun postToMain(block: () -> Unit) {
                 return@task
             }
             val engine = BenchmarkEngine(xray, intelligence)
-            // MARBLE_SMART_PING_V122 — electing the connected route needs real-tunnel evidence;
-            // a light Smart gate must never choose which server carries traffic.
-            val selectSettings = if (settings.probeMethod == ProbeMethod.HYBRID) {
+            // MARBLE_SMART_PING_V122 / MARBLE_PING_METHODS_V148 — electing the connected route
+            // needs real-tunnel evidence; a light Smart/address-level gate must never choose
+            // which server carries traffic.
+            val selectSettings = if (settings.probeMethod != ProbeMethod.TUNNEL) {
                 settings.copy(probeMethod = ProbeMethod.TUNNEL)
             } else {
                 settings
@@ -3353,13 +3204,18 @@ private fun postToMain(block: () -> Unit) {
         val methodLabel = when (method) {
             ProbeMethod.HYBRID -> "Smart ping"
             ProbeMethod.TUNNEL -> "Real test"
+            ProbeMethod.TCP_CONNECT -> "TCP Connect ping"
+            ProbeMethod.TCP_RECOMMENDED -> "TCP (recommended) ping"
+            ProbeMethod.HTTP_GET -> "HTTP GET ping"
+            ProbeMethod.HTTP_HEAD -> "HTTP HEAD ping"
+            ProbeMethod.ICMP -> "ICMP ping"
         }
-        // MARBLE_SMART_PING_V122 / MARBLE_PING_TRUTH_V147 — Smart's verdict is an endpoint
-        // (host:port) property: a subscription repeating the same endpoint N times genuinely has
-        // one thing to measure, so it shares one verified result among those members exactly like
-        // before. Real test proves a *config* (protocol + account + route), so it stays per
-        // server. HTTP/ICMP/DNS/TCP no longer appear here because none of them is a proxy verdict.
-        val dedupe = method == ProbeMethod.HYBRID
+        // MARBLE_SMART_PING_V122 / MARBLE_PING_METHODS_V148 — Smart and every address-level
+        // method's verdict is an endpoint (host:port) property: a subscription repeating the same
+        // endpoint N times genuinely has one thing to measure, so it shares one verified result
+        // among those members exactly like before. Real test proves a *config* (protocol +
+        // account + route), so it stays per server.
+        val dedupe = method != ProbeMethod.TUNNEL
 
         task("$methodLabel • $scope") {
             val groups = if (dedupe) {

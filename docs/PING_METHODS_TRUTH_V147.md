@@ -1,117 +1,78 @@
-# MARBLE_PING_TRUTH_V147 — Ping methods: critique, removal and accuracy fixes
+# MARBLE_PING_METHODS_V148 — Ping methods and accuracy
 
 ## A short Persian summary (خلاصه)
 
-صفحهٔ «پینگ» در تنظیمات، شش روش داشت که چهارتای آن‌ها هیچ‌وقت دربارهٔ خود پروکسی نبودند:
+صفحهٔ «پینگ» در تنظیمات حالا هفت روش واقعی دارد که کاربر می‌تواند انتخاب کند:
 
-- **ICMP** و **HTTP** و **DNS** اصلاً از تونل نمی‌گذشتند (به‌ترتیب `ping` معمولی، مسیر مستقیم به
-  Google، و فقط رزولوشن DNS سیستم). نتیجه این بود که همیشه عددِ مسیرِ اینترنتِ خودِ گوشی را می‌دادند،
-  نه وضعیت سرور؛ در خروجی پینگِ هر سرور هم همان عدد تکرار می‌شد.
-- **TCP** فقط همان گیتِ لایه‌ی ۰ بود که در «Smart» به‌صورت داخلی استفاده می‌شد. اگر به‌جای Smart
-  انتخاب می‌شد، یک handshake به آدرسِ سرور به‌عنوان «وضعیت پروکسی» جایگزین می‌شد؛ درحالی‌که account،
-  protocol و route را اثبات نمی‌کرد.
+- **Smart** (پیش‌فرض) — دروازهٔ سریع آدرس + تست واقعی HTTPS از تونل وقتی متصل است. اگر سرور
+  فقط به TCP جواب بدهد (مثلاً پورت HTTP یا Shadowsocks)، دیگر به‌عنوان «شکست‌خورده» علامت
+  نمی‌خورد.
+- **Real test** — یک هستهٔ واقعی Xray برای هر سرور؛ مسیر، حساب و پروتکل را اثبات می‌کند.
+- **TCP Connect** — سریع‌ترین بررسی زنده‌بودن: دست‌دادن خام TCP با آدرس سرور.
+- **TCP (recommended)** — دروازهٔ سریعِ TCP+TLS؛ کندتر از TCP خام، ولی خیلی سریع‌تر از تست واقعی.
+- **HTTP GET** — درخواست کامل HTTPS از مسیر انتخاب‌شده.
+- **HTTP HEAD** — همان درخواست با کمترین حجم پاسخ.
+- **ICMP Ping** — پینگ کلاسیک از خود گوشی (از پروکسی عبور نمی‌کند).
 
-علاوه‌بر حذف این چهار گزینه از مدل و صفحهٔ تنظیمات، چند مشکلِ دقت در همان دو روش باقی‌مانده هم ریشه‌ای
-رفع شد:
+همهٔ این روش‌ها از همان بودجهٔ اندازه‌گیری (مهلت، تعداد نمونه، همزمانی) استفاده می‌کنند و
+پینگ صفحهٔ خانه هم دقیقاً همان روشی را اجرا می‌کند که در تنظیمات انتخاب شده است — حتی وقتی تونل
+وصل باشد.
 
-1. **درصد موفقیت دیگر جعل نمی‌شود.** قبل از این، اگر گیت از هر ۳ نمونه فقط ۲ نمونه جواب می‌داد،
-   Smart نتیجه را به‌صورتِ `successPercent = 100` ثبت می‌کرد. حالا همان `up to 66` می‌ماند.
-2. **نمونهٔ گرم (warm-up) در همه‌جا حذف می‌شود.** صفحه می‌گفت «اولین نمونه دور ریخته می‌شود»، ولی
-   مسیرهای HTTP/Tunnel آن را نگه می‌داشتند و مدین را به‌سمتِ مقدارِ سردِ آرپ/کاناترکت می‌کشیدند.
-3. **سقف مخفی «سه نمونه» حذف شد.** Smart و Real test با تعداد نمونهٔ تنظیم‌شده کار می‌کنند؛
-   انتخاب کاربر دیگر صرفاً یک پیشنهاد نیست.
-4. **وقتی تونل متصل است، روشِ آدرس‌محور دیگر نمی‌تواند خواندنیِ تونل زنده را عوض کند.** سؤالِ
-   «پینگِ Home» وقتی متصل هستی همیشه «این مسیر زنده خوب است؟» است.
+## 1. What changed
 
----
+V147 had reduced the product to only `HYBRID` (Smart) and `TUNNEL` (Real test), keeping
+TCP/ICMP/HTTP/DNS as internal primitives. The main problem users reported was that Smart could
+mark a healthy server as failed when the strict verified TCP+TLS gate could not complete (for
+example a server that speaks a non-TLS protocol or a fronted endpoint), while Real test was
+correct but slow.
 
-## 1. What the settings page actually offered (and why it was wrong)
+V148 keeps the accuracy work from V147 (honest success percentages, warm-up discard, no hidden
+sample ceiling, user-owned `PingBudget`) and adds back the address-level methods users actually
+choose, with three deliberate exceptions in behaviour:
 
-| Old method | What it measured | Why it was ineffective for this app |
-|---|---|---|
-| `HYBRID` (Smart) | Fast TCP+DNS gate, then (when a tunnel existed) HTTPS RTT | The only fast candidate, but it overwrote gate success with 100 % |
-| `TUNNEL` (Real test) | Real Xray core + HTTPS through SOCKS | Correct, but it silently capped samples at 3 |
-| `TCP` | Endpoint TCP/TLS handshake | Endpoint-only; never proved protocol/account |
-| `ICMP` | `/system/bin/ping`, bypasses the proxy | Carriers filter it; measures the phone path, not the server |
-| `HTTP` | Direct HTTPS to a fixed 204 origin | Same number for every server, so ranking was meaningless |
-| `DNS` | Cloud/system resolver round trip | Resolver only; for literal IPs it returned instantly without network I/O |
+- **DNS stays removed.** It measured only the local resolver and never the server or proxy path.
+- **TCP Connect is raw** (`Socket.connect`) and only proves the port answers. It is the fastest
+  liveness check.
+- **TCP (recommended)** is the verified Layer-0 gate (TCP + TLS ServerHello/Alert) that Smart
+  uses internally. It is fast and detects stateful filters that accept the handshake and then
+  kill the stream.
 
-The page even admitted three of these were not proxy tests in its own descriptions, while still allowing
-them to be selected and then using the selected method to rank servers. That is the core product bug:
-a measurement surface presented a **network-path meter** as a **proxy-server meter**.
+### Method table
 
-## 2. Root-cause defects found and fixed
+| Method | Enum | What it measures | Fast | Proves config |
+|---|---|---|---|---|
+| Smart (default) | `HYBRID` | Endpoint gate + real HTTPS through the live tunnel | yes | no |
+| Real test | `TUNNEL` | Real Xray core + HTTPS through SOCKS | no | yes |
+| TCP Connect | `TCP_CONNECT` | Raw TCP handshake to `host:port` | yes | no |
+| TCP (recommended) | `TCP_RECOMMENDED` | Verified TCP+TLS gate to `host:port` | yes | no |
+| HTTP GET | `HTTP_GET` | Full HTTPS GET through the selected route | medium | no |
+| HTTP HEAD | `HTTP_HEAD` | Lightweight HTTPS HEAD through the selected route | medium | no |
+| ICMP Ping | `ICMP` | Classic `/system/bin/ping` to the server address | yes | no |
 
-### 2.1 `smartPing` promoted a partial gate to a perfect verdict
+## 2. Router/engine behaviour
 
-`RouteProbe.smartPing` ran the verified `reachabilityExtended` gate and then, on any successful
-TCP fallback, returned `tcpResult.copy(successPercent = 100)`. A node that answered 2/3 samples (or a
-node with injection evidence that still had one good sample) therefore entered ranking as 100 % healthy.
-Real loss/jitter evidence was thrown away at the moment it mattered most.
+- `RouteProbe.measureUnified` dispatches all seven methods. `TUNNEL` reuses the live SOCKS port
+  when connected and falls back to the verified TCP gate when it is not.
+- `BenchmarkEngine.directProbe` is now true for every method except `TUNNEL`, so sweeps of
+  Smart/TCP/HTTP/ICMP run directly in the worker pool and never spawn a throwaway Xray child.
+  `directResult` maps each method to its `RouteProbe` entry point.
+- `AppRepository.measureConnectionPing` no longer hard-codes the old nine-racer tunnel ladder.
+  Connected Home ping now runs the method selected in Settings with the live SOCKS port supplied,
+  so the Home readout follows the settings exactly as the user asked.
+- `AppRepository.pingProfiles` deduplicates endpoint-level methods (all non-`TUNNEL` methods) and
+  keeps Real test per-server.
 
-**Fix:** preserve `tcpResult.successPercent`; set `failureReason = "partial-tcp-gate"` when it is below
-100. The magic `60`/`40` fallback confidence values were also removed — the measured success rate is now
-the only confidence carried next to the measured latency.
+## 3. Home overlay
 
-### 2.2 The warm-up sample was advertised but only honoured on one path
-
-The UI said *“The published latency is the median; the warm-up sample is discarded.”* In code:
-
-- `RouteProbe.measure` (TCP/ICMP) discarded it.
-- `reachabilityExtended` (Smart's gate) did **not**.
-- `httpPingBatch` (Smart's tunnel phase / the real-tunnel path) did **not**.
-- `tunnelHttpsMeasure` did **not**.
-
-So the number depended on how recently the same server had been probed (cold ARP/NDP, cold
-carrier-NAT conntrack, cold TLS session). That is history-dependent noise, not a path property.
-
-**Fix:** all four paths now call the same `summarize`/discard logic and drop the first measured value
-when at least three samples are present. Success and loss percentages still count every attempt; only
-the latency distribution drops the first value.
-
-### 2.3 A hidden “3 samples” ceiling
-
-`smartPing` passed `samples = gateSamples.coerceAtMost(3)` to `httpPingBatch`, and
-`measureUnified`/`tunnelHttpsMeasure` additionally clamped to 3. A user who chose 8 samples still got a
-median of at most 3 HTTPS round trips. This is exactly the class of hidden override that `PingBudget`
-was created to eliminate.
-
-**Fix:** `httpPingBatch` and `tunnelHttpsMeasure` now use `PingBudget.samples(samples)`. The gate still
-keeps dead nodes cheap; the HTTPS phase is no longer allowed to shrink the honest tail.
-
-### 2.4 Connected Home ping could be replaced by an address method
-
-When connected, `measureConnectionPing` had a branch for TCP/ICMP/HTTP/DNS that measured the selected
-profile's endpoint (or the underlay) while the live tunnel was right there. The Home readout then
-claimed to be the ping of the route while actually reporting something else.
-
-**Fix:** the connected Home ping is always the verified in-tunnel ladder. “Selected method” still
-applies to disconnected server pings and to ranking, where there is no active tunnel to consult.
-
-### 2.5 The budget page claimed concurrency was global
-
-The “Servers at once” control said *“Every ping in the app … obeys exactly these values.”* In reality
-`BenchmarkEngine` applies `PingBudget.concurrency` only to direct (Smart) sweeps; the real-tunnel path
-uses a native-safe `2..4` core pool because each candidate spawns a real Xray child. The page is
-honest now: the row is labelled **Smart servers at once**, and it states the native-safe ceiling for
-Real test.
-
-## 3. What remains
-
-- **Smart** (`ProbeMethod.HYBRID`) — verified Layer-0 gate (TCP + TLS ServerHello/Alert, Happy-Eyeballs
-  family racing, 50–400 ms anti-probing stagger), configured sample count, warm-up discarded, real
-  measured success rate. Fast and comparative. When the app is connected the Home readout is upgraded
-  to the live in-tunnel HTTPS ladder.
-- **Real test** (`ProbeMethod.TUNNEL`) — one real Xray core per config, HTTPS through SOCKS, warm-up
-  discard, configured sample count. Slow; the only method that can call a config a failed tunnel.
-
-TCP/ICMP/HTTP/DNS remain as **internal primitives** in `RouteProbe` because Smart needs them. They are
-no longer product methods, so an address verdict can never be presented as a proxy verdict.
+The top-of-page `HomePingInlinePanel` and its `showPingInline` state were removed. Ping results
+are shown by the in-place `HomeLivePingMeter` and the `HomeShortcutDeck` ping button, so tapping
+ping never adds an extra box at the top of Home.
 
 ## 4. Guard to prevent regression
 
 `scripts/system-integrity-check.py` now asserts:
 
-- `ProbeMethod` is exactly `{ HYBRID, TUNNEL }`.
-- The settings UI never contains removed `ProbeMethod.TCP ->` / `ICMP ->` / `HTTP ->` / `DNS ->` cases.
-- `app/src/test/.../ProbeMethodV147Test.kt` pins the same method set in unit tests.
+- `ProbeMethod` contains the seven V148 methods and never `ProbeMethod.DNS`.
+- The settings UI renders every product method and never `ProbeMethod.DNS ->`.
+- `HomePingInlinePanel` / `showPingInline` do not exist in the UI.
+- `app/src/test/.../ProbeMethodV148Test.kt` pins the same method set in unit tests.

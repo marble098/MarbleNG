@@ -287,11 +287,11 @@ check(
 
 # MARBLE_HOME_PING_RESCUE_V112 — the Home ping is a multi-mode ladder, not three 204 domains.
 check(
-    "Home ping races literal-IP first-byte, real-delay and full GET probes",
-    "httpsFirstByteLatency(" in files["repo"]
-    and "tunnelRttBatch(" in files["repo"]
-    and "SocksHttpClient.get(" in files["repo"]
-    and "home-connection-ping" in files["repo"],
+    "connected Home ping runs the configured probe method through the live SOCKS port",
+    "RouteProbe.measureUnified(" in files["repo"]
+    and "settings.probeMethod" in files["repo"]
+    and "home-connection-ping" in files["repo"]
+    and "SocksHttpClient.get(" not in files["repo"],
 )
 # MARBLE_PING_USER_TAPPED_ONLY_V143 — ping is a one-shot user action. The bounded ladder still
 # lives in the repository; the UI never arms a background probe.
@@ -673,25 +673,35 @@ check(
     "legacy global chain settings are removed",
     "chainEnabled" not in files["models"] + files["store"] + files["ui"],
 )
-# MARBLE_PING_TRUTH_V147 — the product ping method set is exactly two answers that can describe a
-# proxy server. ICMP/HTTP/DNS measured the underlay or resolver, TCP was merely Smart's internal
-# Layer-0 gate; exposing them as peer methods let an address verdict replace a proxy verdict.
-# They must never regress into the model or the settings page.
+# MARBLE_PING_METHODS_V148 — the product exposes the seven user-reasoning methods: Smart, Real
+# test, raw TCP Connect, the recommended TCP+TLS gate, HTTP GET / HTTP HEAD and ICMP. DNS stays
+# removed because it only measured the local resolver and never the server or the proxy path.
 check(
-    "product ping methods are exactly Smart and Real tunnel",
-    "enum class ProbeMethod { HYBRID, TUNNEL }" in files["models"]
-    and "ProbeMethod.TCP" not in files["models"]
-    and "ProbeMethod.ICMP" not in files["models"]
-    and "ProbeMethod.HTTP" not in files["models"]
+    "product ping methods are the full V148 method set",
+    "enum class ProbeMethod {" in files["models"]
+    and "HYBRID" in files["models"]
+    and "TUNNEL" in files["models"]
+    and "TCP_CONNECT" in files["models"]
+    and "TCP_RECOMMENDED" in files["models"]
+    and "HTTP_GET" in files["models"]
+    and "HTTP_HEAD" in files["models"]
+    and "ICMP" in files["models"]
     and "ProbeMethod.DNS" not in files["models"],
 )
 check(
-    "settings page never offers removed address-level ping methods",
-    "ProbeMethod.TCP ->" not in files["ui"]
-    and "ProbeMethod.ICMP ->" not in files["ui"]
-    and "ProbeMethod.HTTP ->" not in files["ui"]
+    "settings page offers every product ping method and keeps DNS out",
+    "ProbeMethod.TCP_CONNECT ->" in files["ui"]
+    and "ProbeMethod.TCP_RECOMMENDED ->" in files["ui"]
+    and "ProbeMethod.HTTP_GET ->" in files["ui"]
+    and "ProbeMethod.HTTP_HEAD ->" in files["ui"]
+    and "ProbeMethod.ICMP ->" in files["ui"]
     and "ProbeMethod.DNS ->" not in files["ui"]
     and "ProbeMethod.entries.forEach" in files["ui"],
+)
+check(
+    "Home no longer composes a top-of-page ping overlay",
+    "HomePingInlinePanel" not in files["ui"]
+    and "showPingInline" not in files["ui"],
 )
 check("DNS settings keep their Compose boundary", "@Composable\nprivate fun DnsSettings(" in files["ui"])
 check(
