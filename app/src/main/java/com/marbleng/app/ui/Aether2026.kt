@@ -6491,6 +6491,25 @@ private fun ServersAddNodeForm(
                     onValueChange = { suites -> update { it.copy(cipherSuites = suites) } },
                     modifier = Modifier.fillMaxWidth()
                 )
+                ServersField(
+                    label = "Verify peer certificate by name",
+                    value = draft.verifyPeerCertByName,
+                    onValueChange = { names -> update { it.copy(verifyPeerCertByName = names) } },
+                    placeholder = "example.com, alt.example.com",
+                    modifier = Modifier.fillMaxWidth()
+                )
+                ServersField(
+                    label = "Certificate fingerprint (SHA-256)",
+                    value = draft.pinnedPeerCertSha256,
+                    onValueChange = { pins -> update { it.copy(pinnedPeerCertSha256 = pins) } },
+                    placeholder = "hex or base64, comma separated",
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Text(
+                    trx("Pinning replaces CA verification: names map to verifyPeerCertByName, fingerprints to pinnedPeerCertSha256."),
+                    color = Aether.InkFaint,
+                    style = MaterialTheme.typography.labelSmall
+                )
                 ServersInsecureSwitch(draft.allowInsecure) {
                     update { it.copy(allowInsecure = !it.allowInsecure) }
                 }
@@ -6530,6 +6549,25 @@ private fun ServersAddNodeForm(
                         value = draft.cipherSuites,
                         onValueChange = { suites -> update { it.copy(cipherSuites = suites) } },
                         modifier = Modifier.fillMaxWidth()
+                    )
+                    ServersField(
+                        label = "Verify peer certificate by name",
+                        value = draft.verifyPeerCertByName,
+                        onValueChange = { names -> update { it.copy(verifyPeerCertByName = names) } },
+                        placeholder = "example.com, alt.example.com",
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    ServersField(
+                        label = "Certificate fingerprint (SHA-256)",
+                        value = draft.pinnedPeerCertSha256,
+                        onValueChange = { pins -> update { it.copy(pinnedPeerCertSha256 = pins) } },
+                        placeholder = "hex or base64, comma separated",
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Text(
+                        trx("Pinning replaces CA verification: names map to verifyPeerCertByName, fingerprints to pinnedPeerCertSha256."),
+                        color = Aether.InkFaint,
+                        style = MaterialTheme.typography.labelSmall
                     )
                     ServersInsecureSwitch(draft.allowInsecure) {
                         update { it.copy(allowInsecure = !it.allowInsecure) }
@@ -6722,6 +6760,25 @@ private fun ServersAddNodeForm(
                 )
                 Text(
                     trx("`unsafe` uses native Go TLS; empty Cipher Suites = automatic."),
+                    color = Aether.InkFaint,
+                    style = MaterialTheme.typography.labelSmall
+                )
+                ServersField(
+                    label = "Verify peer certificate by name",
+                    value = draft.verifyPeerCertByName,
+                    onValueChange = { names -> update { it.copy(verifyPeerCertByName = names) } },
+                    placeholder = "example.com, alt.example.com",
+                    modifier = Modifier.fillMaxWidth()
+                )
+                ServersField(
+                    label = "Certificate fingerprint (SHA-256)",
+                    value = draft.pinnedPeerCertSha256,
+                    onValueChange = { pins -> update { it.copy(pinnedPeerCertSha256 = pins) } },
+                    placeholder = "hex or base64, comma separated",
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Text(
+                    trx("Pinning replaces CA verification: names map to verifyPeerCertByName, fingerprints to pinnedPeerCertSha256."),
                     color = Aether.InkFaint,
                     style = MaterialTheme.typography.labelSmall
                 )

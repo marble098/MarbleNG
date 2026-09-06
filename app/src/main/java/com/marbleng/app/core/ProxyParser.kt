@@ -72,6 +72,11 @@ object ProxyParser {
             }
         }
         val outbound = selected ?: error("Xray JSON has no proxy outbound")
+        // MARBLE_TLS_PINNING_V149 — pasted Xray JSON never passes through the share-link parser,
+        // so this is the only place its `tlsSettings` can be brought into line with the core:
+        // pins are re-encoded into the hex form Xray parses and the removed `allowInsecure` flag
+        // is translated instead of being handed to a core that refuses to load it.
+        TlsPinningPolicy.sanitizeConfigDocument(root)
         val protocol = outbound.optString("protocol", "json").lowercase()
         val meta = endpointMeta(outbound)
         val scheme = when (protocol) {
@@ -265,9 +270,25 @@ object ProxyParser {
                 // PattNG share-link extension: `cs` carries Xray's colon-separated cipherSuites.
                 qa(uri, "cs", "cipherSuites").takeIf { it.isNotBlank() }
                     ?.let { put("cipherSuites", it) }
-                if (qa(uri, "allowInsecure", "insecure") in setOf("1", "true")) put("allowInsecure", true)
-                q(uri, "pinnedPeerCertSha256").takeIf { it.isNotBlank() }?.let { put("pinnedPeerCertSha256", it) }
                 q(uri, "echConfigList").takeIf { it.isNotBlank() }?.let { put("echConfigList", it) }
+                // MARBLE_TLS_PINNING_V149 — the two peer-verification options are first-class
+                // Xray fields and MUST reach `tlsSettings`, in Xray's own formats:
+                //   `vcn` → verifyPeerCertByName (comma-separated names)
+                //   `pcs` → pinnedPeerCertSha256 (comma-separated LOWERCASE HEX, 32 bytes each)
+                // Reading only the long-form `pinnedPeerCertSha256` key meant real links (which
+                // use `pcs`/`vcn`) silently produced a plain CA-verified tlsSettings block. A
+                // pinning server is self-signed by construction, so every handshake failed while
+                // the core stayed alive — "connected, no Internet". `allowInsecure` is a removed
+                // feature in this core and is translated here, never emitted.
+                TlsPinningPolicy.sanitizeTlsSettings(
+                    tls = this,
+                    verifyPeerCertByName = qa(uri, *TlsPinningPolicy.VERIFY_BY_NAME_KEYS.toTypedArray()),
+                    pinnedPeerCertSha256 = qa(uri, *TlsPinningPolicy.PINNED_SHA256_KEYS.toTypedArray()),
+                    allowInsecureRequested = TlsPinningPolicy.isTruthy(
+                        qa(uri, *TlsPinningPolicy.ALLOW_INSECURE_KEYS.toTypedArray())
+                    ),
+                    insecureFallbackName = host
+                )
             })
 
         if (security == "reality") stream.put("realitySettings", JSONObject()
@@ -376,9 +397,16 @@ object ProxyParser {
             .put("fingerprint", qa(u, "fp", "fingerprint", default = "chrome"))
             .put("alpn", alpnArray)
             .apply {
-                if (qa(u, "allowInsecure", "insecure", "allow_insecure", "skip-cert-verify") in setOf("1", "true", "yes")) {
-                    put("allowInsecure", true)
-                }
+                // MARBLE_TLS_PINNING_V149 — same contract as the VLESS/VMess/Trojan path.
+                TlsPinningPolicy.sanitizeTlsSettings(
+                    tls = this,
+                    verifyPeerCertByName = qa(u, *TlsPinningPolicy.VERIFY_BY_NAME_KEYS.toTypedArray()),
+                    pinnedPeerCertSha256 = qa(u, *TlsPinningPolicy.PINNED_SHA256_KEYS.toTypedArray()),
+                    allowInsecureRequested = TlsPinningPolicy.isTruthy(
+                        qa(u, *TlsPinningPolicy.ALLOW_INSECURE_KEYS.toTypedArray())
+                    ),
+                    insecureFallbackName = host
+                )
             }
 
         val hySettings = JSONObject().put("version", 2).put("auth", auth)
