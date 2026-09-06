@@ -1081,6 +1081,9 @@ internal fun MarbleSparkline(
     val clean=samples.filter { it > 0 }.takeLast(36)
     val grid=Aether.GlassBorder
     val surface=Aether.VoidElevated
+    // Aether.Danger is a @Composable getter; it must be read here (composable scope) and
+    // captured before the non-composable DrawScope lambda.
+    val danger=Aether.Danger
     Canvas(modifier) {
         if(clean.size<2) return@Canvas
 
@@ -1136,7 +1139,7 @@ internal fun MarbleSparkline(
             val x=dx*index
             val y=size.height-((clean[index]-min)/range)*size.height
             drawCircle(
-                color=Aether.Danger,
+                color=danger,
                 radius=3.6.dp.toPx(),
                 center=Offset(x,y)
             )

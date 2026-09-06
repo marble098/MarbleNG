@@ -1012,7 +1012,7 @@ class BenchmarkEngine(
         // Hysteria2 are recorded separately, never averaged together) plus the throttle shape.
         runCatching {
             intelligence?.recordTransportVerdict(
-                p,
+                p.id,
                 ProtocolFingerprintAwareVerifier.TransportVerdict(
                     transportType = ProtocolFingerprintAwareVerifier.transportTypeOf(p),
                     successPercent = success,

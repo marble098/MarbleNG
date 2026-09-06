@@ -254,16 +254,17 @@ object SawtoothDetector {
         val stalling = peak > 0.0 && tail <= peak * 0.15 && peak / tail >= 4.0
         val earlyStall = tail <= 0.0 &&
             buckets.values.last() < totalBytes * 0.85
+        val high = ProtocolFingerprintAwareVerifier.SAWTOOTH_HIGH_CONFIDENCE
         val confidence = when {
-            stalling -> SAWTOOTH_HIGH_CONFIDENCE + confidenceFromCorrelation(rates) * 0.3
-            earlyStall -> SAWTOOTH_HIGH_CONFIDENCE * 0.85
+            stalling -> high + confidenceFromCorrelation(rates) * 0.3
+            earlyStall -> high * 0.85
             else -> 0.0
         }
         val stallBytes = buckets.entries.lastOrNull { (_, bytes) -> bytes < totalBytes }
             ?.value ?: 0L
         return ProtocolFingerprintAwareVerifier.ThrottlePattern(
             confidence = confidence.coerceIn(0.0, 1.0),
-            sawtoothSuspected = confidence >= SAWTOOTH_HIGH_CONFIDENCE,
+            sawtoothSuspected = confidence >= high,
             peakRateBps = peak,
             tailRateBps = tail,
             stallAfterBytes = stallBytes

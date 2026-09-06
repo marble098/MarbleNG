@@ -25,6 +25,7 @@ import com.marbleng.app.core.LinkEvidence
 import com.marbleng.app.core.LinkQualityEstimator
 import com.marbleng.app.core.NetworkSnapshot
 import com.marbleng.app.core.PathMtuPolicy
+import com.marbleng.app.core.ProtocolFingerprintAwareVerifier
 import com.marbleng.app.core.RecoveryBackoffPolicy
 import com.marbleng.app.core.ResolverEvidencePolicy
 import com.marbleng.app.core.RuntimeDiagnostics
@@ -2030,9 +2031,12 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
      * MARBLE_IRAN_AWARE_PING_L2 — the second independent signal folded into the jitter state
      * machine: the latest tunnel-level sawtooth confidence persisted for the active route.
      */
-    private fun throttleEvidenceForActiveRoute(): Double =
-        if (activeProfileId.isBlank()) 0.0
-        else repo.intelligence.throttleConfidenceFor(activeProfileId)
+    private fun throttleEvidenceForActiveRoute(): Double {
+        if (activeProfileId.isBlank()) return 0.0
+        return (application as MarbleApplication).repo
+            .intelligence
+            .throttleConfidenceFor(activeProfileId)
+    }
 
     private fun sampleRouteLatency(
         session: String,

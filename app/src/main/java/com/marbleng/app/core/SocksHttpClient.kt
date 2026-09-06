@@ -10,6 +10,7 @@ import java.net.Socket
 import java.net.URL
 import java.util.Locale
 import java.util.zip.GZIPInputStream
+import javax.net.ssl.SSLException
 import javax.net.ssl.SSLSocket
 import javax.net.ssl.SSLSocketFactory
 import kotlin.math.min
@@ -680,7 +681,7 @@ object SocksHttpClient {
             val target = socksTarget(host)
             output.write(byteArrayOf(5, 1, 0, target.first.toByte()))
             output.write(target.second)
-            output.write(byteArrayOf(443 ushr 8, 443 and 0xff))
+            output.write(byteArrayOf((443 ushr 8).toByte(), (443 and 0xff).toByte()))
             output.flush()
 
             val reply = ByteArray(4)

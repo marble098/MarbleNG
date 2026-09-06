@@ -578,9 +578,9 @@ private class HealthDb(context: Context) : SQLiteOpenHelper(context, "marble-int
             )
             put("last_success_at", if (result.success > 0) now else old?.lastSuccessAt ?: 0L)
             put("last_seen_at", now)
-            // MARBLE_IRAN_AWARE_PING — preserve Layer 0/1/3 evidence across benchmark rewrites.
-            old?.let { carryLayerColumns(it, values) }
         }
+        // MARBLE_IRAN_AWARE_PING — preserve Layer 0/1/3 evidence across benchmark rewrites.
+        old?.let { carryLayerColumns(it, values) }
         writableDatabase.insertWithOnConflict("node_health", null, values, SQLiteDatabase.CONFLICT_REPLACE)
         trim(networkKey)
     }
@@ -647,8 +647,8 @@ private class HealthDb(context: Context) : SQLiteOpenHelper(context, "marble-int
             put("preferred_mux", if (old?.preferredMux == true) 1 else 0)
             put("last_success_at", if (success) now else old?.lastSuccessAt ?: 0L)
             put("last_seen_at", now)
-            old?.let { carryLayerColumns(it, values) }
         }
+        old?.let { carryLayerColumns(it, values) }
         writableDatabase.insertWithOnConflict(
             "node_health",
             null,
@@ -765,8 +765,8 @@ private class HealthDb(context: Context) : SQLiteOpenHelper(context, "marble-int
             put("preferred_mux", if (old?.preferredMux == true) 1 else 0)
             put("last_success_at", old?.lastSuccessAt ?: 0L)
             put("last_seen_at", System.currentTimeMillis())
-            old?.let { carryLayerColumns(it, values) }
         }
+        old?.let { carryLayerColumns(it, values) }
         writableDatabase.insertWithOnConflict("node_health", null, values, SQLiteDatabase.CONFLICT_REPLACE)
     }
 
@@ -836,7 +836,7 @@ private class HealthDb(context: Context) : SQLiteOpenHelper(context, "marble-int
         // Keep the series bounded: 3×20-minute windows ≈ a week of hourly probes.
         writableDatabase.execSQL(
             "DELETE FROM ping_observation WHERE profile_id=? AND network_key=? AND at_ms < ?",
-            arrayOf(profileId, networkKey, System.currentTimeMillis() - 8L * 24L * 60L * 60L * 1000L)
+            arrayOf<Any?>(profileId, networkKey, System.currentTimeMillis() - 8L * 24L * 60L * 60L * 1000L)
         )
     }
 
@@ -911,7 +911,7 @@ private class HealthDb(context: Context) : SQLiteOpenHelper(context, "marble-int
             val saw = if (c.getColumnIndex("sawtooth_confidence") >= 0) c.getColumnIndexOrThrow("sawtooth_confidence") else -1
             while (c.moveToNext()) {
                 val profileId = c.getString(id) ?: continue
-                out.getOrPut(profileId) { ArrayList() } += BehavioralConsistency.ConsistencySample(
+                out.getOrPut(profileId) { ArrayList<BehavioralConsistency.ConsistencySample>() } += BehavioralConsistency.ConsistencySample(
                     atMs = c.getLong(at),
                     latencyMs = c.getDouble(lat),
                     jitterMs = c.getDouble(jit),

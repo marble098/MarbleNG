@@ -2331,7 +2331,7 @@ private fun HomePingInlinePanel(
             Column(Modifier.weight(1f)) {
                 Text(
                     if (pingMs > 0) "$pingMs ms" else "not measured",
-                    color = Aether.Pearl,
+                    color = Aether.Ink,
                     style = MaterialTheme.typography.titleSmall
                 )
                 val detail = buildList {

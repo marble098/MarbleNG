@@ -328,7 +328,7 @@ object MultiVectorReachability {
     ): ReachabilitySummary {
         val rounds = samples.coerceIn(1, 10)
         val signals = ArrayList<ReachabilitySignal>(rounds)
-        repeat(rounds) { index ->
+        for (index in 0 until rounds) {
             if (index > 0) ProbeTargetPool.staggerProbe()
             // One resolution per run: re-resolving per sample measured the resolver, not the route.
             val signal = probe(host, port, timeoutMs, settings, referenceRttMs, resolved)
@@ -426,8 +426,13 @@ object ProbeTargetPool {
         pool: List<ProbeTarget> = CDN_TARGETS,
         seed: String = ""
     ): List<ProbeTarget> {
-        val epochMinutes = (System.currentTimeMillis() / EPOCH_MS).toInt()
-        val shift = Math.floorMod(seed.hashCode() xor (epochMinutes * 2_654_435_761), pool.size.coerceAtLeast(1))
+        val epoch = (System.currentTimeMillis() / EPOCH_MS).toInt()
+        // 2654435761 is the Knuth multiplicative hash constant; it is a Long literal in Kotlin,
+        // so fold the epoch into the seed hash with Int arithmetic (no Long xor with Int).
+        val shift = Math.floorMod(
+            seed.hashCode() xor Math.floorMod(epoch, Int.MAX_VALUE),
+            pool.size.coerceAtLeast(1)
+        )
         if (pool.size <= 1) return pool
         return pool.mapIndexed { index, target -> (index + shift) % pool.size }
             .map { pool[it] }
