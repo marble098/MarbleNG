@@ -5527,7 +5527,9 @@ private fun ServersNodeCard(
                     )
                 }
             }
-            Spacer(Modifier.width(6.dp))
+            // MARBLE_PING_AIR_V152 — with the capsule's background gone the readout needs its
+            // own clearings on both sides; the name column is a marquee and absorbs the give.
+            Spacer(Modifier.width(9.dp))
             ServersPingCapsule(
                 latencyMs = latency,
                 measured = measured != null,
@@ -5536,8 +5538,8 @@ private fun ServersNodeCard(
                 attempted = result != null && measured == null
             )
             // MARBLE_PING_SPACING_V130 — breathing room between the latency capsule and the
-            // three-dot menu so they never touch. The capsule is now slightly smaller too.
-            Spacer(Modifier.width(8.dp))
+            // three-dot menu so they never touch.
+            Spacer(Modifier.width(10.dp))
             ServersNodeMenu(
                 profile = profile,
                 repo = repo,
@@ -5562,12 +5564,18 @@ private fun ServersNodeCard(
 }
 
 /**
- * The latency capsule. It never changes size.
+ * The latency readout. It never changes size.
  *
  * MARBLE_NO_PHANTOM_PING_V121 — a server that has never been measured reads "—" in a quiet tone,
  * not "0 ms" in red. A freshly imported subscription has no measurements at all, and printing a
  * zero next to every one of its servers claimed both a measurement and an impossible latency.
  * Red is reserved for a probe that actually ran and actually failed.
+ *
+ * MARBLE_PING_AIR_V152 — the pill background is gone: on a stacked subscription row the tinted
+ * slab read as a second chip fighting the protocol badge and the state word, and at 28 dp tall
+ * the glyph/number/unit triad was pressed against its own walls. What is left is the measurement
+ * itself in its quality tone — nothing to compete with, nothing to crop. The fixed minimum width
+ * survives so every row's number still right-aligns to the same column.
  */
 @Composable
 private fun ServersPingCapsule(
@@ -5591,12 +5599,10 @@ private fun ServersPingCapsule(
     }
     Box(
         modifier = Modifier
-            // MARBLE_PING_WIFI_V122 — the capsule carries its own wifi glyph, so it needs a
-            // touch more room; it still never crowds the three-dot menu.
-            .widthIn(min = 64.dp)
+            // MARBLE_PING_AIR_V152 — width first, decoration never: the number owns the space and
+            // no fill, border or shape sits behind it.
+            .widthIn(min = 62.dp)
             .height(28.dp)
-            .clip(ServersPillShape)
-            .background(tone.copy(alpha = .12f))
             .semantics { contentDescription = spoken },
         contentAlignment = Alignment.Center
     ) {
@@ -5610,21 +5616,21 @@ private fun ServersPingCapsule(
             !measured -> Text(
                 if (attempted) "✕" else "—",
                 color = tone,
-                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
                 maxLines = 1
             )
 
             else -> Row(
-                modifier = Modifier.padding(horizontal = 7.dp),
+                modifier = Modifier.padding(horizontal = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(3.dp)
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                // MARBLE_PING_WIFI_V122 — the latency reads as a measurement at a glance.
-                HomeVectorIcon(HomeIcon.PING, tone, Modifier.size(13.dp))
+                // The latency reads as a measurement at a glance, one step larger than before.
+                HomeVectorIcon(HomeIcon.PING, tone, Modifier.size(14.dp))
                 Text(
                     "$latencyMs",
                     color = tone,
-                    style = MaterialTheme.typography.labelSmall.copy(
+                    style = MaterialTheme.typography.labelMedium.copy(
                         fontWeight = FontWeight.Bold,
                         fontFeatureSettings = "tnum"
                     ),
@@ -5632,8 +5638,8 @@ private fun ServersPingCapsule(
                 )
                 Text(
                     trx("ms"),
-                    color = tone.copy(alpha = .72f),
-                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                    color = tone.copy(alpha = .74f),
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
                     maxLines = 1
                 )
             }

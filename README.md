@@ -41,6 +41,14 @@ It focuses on real proxy verification, fast one-tap connection, fail-closed rout
 
 ## Connection reliability
 
+`docs/ENGINE_SELF_HEAL_AND_PING_AIR_V152.md` is the newest chapter: the shipped 8.0.6 build
+could not connect at all on the sing-box engine because the emitted config still carried the
+`dns` outbound sing-box removed in 1.13.0 — every profile was refused, the session went BLOCKED,
+and failover replayed the same refusal seventeen times. The outbound is gone, the config is
+checked by a **self-healing doctor** (`SingBoxConfigDoctor`) that repairs the known core
+migrations in place, and an engine-level fault now switches the session onto the other engine
+instead of walking dead failover candidates.
+
 `docs/CONNECTION_ROOT_CAUSE_V132.md` documents the full trace of the connect path and the five
 defects found in it, including the two that made a healthy server fail in MarbleNG while it
 connected and pinged in another client:

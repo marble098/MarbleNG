@@ -47,6 +47,15 @@ class SingBoxManager(private val context: Context) {
     @Volatile var lastStartPhase: String = "idle"
         private set
 
+    /**
+     * MARBLE_ENGINE_SELF_HEAL_V152 — repairs the last `sing-box check` rejection applied
+     * automatically by [SingBoxConfigDoctor]. Empty when the last config was accepted as
+     * written (the normal case), or when no repair was possible. Surfaced through the VPN
+     * service diagnostics so a self-healed start is visible in the log instead of silent.
+     */
+    @Volatile var lastSelfHealNotes: List<String> = emptyList()
+        private set
+
     /** Clash API port of the running instance; 0 when nothing is running. */
     @Volatile var apiPort: Int = 0
         private set
@@ -79,6 +88,7 @@ class SingBoxManager(private val context: Context) {
             stopLocked()
             lastStartError = ""
             lastStartPhase = "begin"
+            lastSelfHealNotes = emptyList()
 
             if (!isInstalled) {
                 return fail("sing-box extended binary is missing from this build")
@@ -111,8 +121,32 @@ class SingBoxManager(private val context: Context) {
             runCatching { config.writeText(built.json) }
                 .onFailure { return fail("Config write failed: ${it.message}") }
 
+            // MARBLE_ENGINE_SELF_HEAL_V152 — a config the core rejects is repaired in place and
+            // re-checked before the attempt is allowed to fail. The shipped log shows what
+            // happens without this: a single removed `dns` outbound refused all 17 profiles and
+            // every session ended BLOCKED. The doctor fixes the known removals (deprecated dns
+            // outbound, pre-1.12 DNS `address` key), and only a config that still fails after
+            // repair is reported as a start error.
             lastStartPhase = "check"
-            checkConfig(config)?.let { return fail("sing-box rejected the config: $it") }
+            var rejection = checkConfig(config)
+            if (rejection != null) {
+                val repair = SingBoxConfigDoctor.repair(config.readText())
+                if (repair.repaired) {
+                    runCatching {
+                        config.writeText(repair.json)
+                        lastSelfHealNotes = repair.notes
+                    }.onFailure {
+                        lastSelfHealNotes = emptyList()
+                        return fail("Config write failed: ${it.message}")
+                    }
+                    lastStartPhase = "self-heal"
+                    rejection = checkConfig(config)
+                    if (rejection == null) {
+                        lastStartPhase = "check"
+                    }
+                }
+            }
+            rejection?.let { return fail("sing-box rejected the config: $it") }
 
             lastStartPhase = "spawn"
             val child = runCatching {
@@ -254,7 +288,11 @@ class SingBoxManager(private val context: Context) {
             return SingBoxUrlTestResult(0L, false, it.message ?: it::class.java.simpleName)
         }
 
-        runCatching { config.writeText(built.json) }
+        // MARBLE_ENGINE_SELF_HEAL_V152 — the throwaway URL-test instance gets the same doctor
+        // pass as a real start, so a measurement never dies on a schema the core outgrew.
+        val healed = SingBoxConfigDoctor.repair(built.json)
+
+        runCatching { config.writeText(healed.json) }
             .onFailure {
                 return SingBoxUrlTestResult(0L, false, "config write failed: ${it.message}")
             }

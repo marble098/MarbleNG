@@ -2441,8 +2441,10 @@ private fun IosServerItemRow(
         }
 
         // Trailing state — measured latency plus one quiet mark, never a layout of its own.
+        // MARBLE_PING_AIR_V152 — one step more air between the tone-only latency and the mark,
+        // so the two never read as one glued chip now that the slab fill is gone.
         Row(
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             // MARBLE_HOME_MIRRORS_SERVERS_V150 — the same latency capsule the Servers page shows.
@@ -2492,9 +2494,14 @@ private fun IosServerItemRow(
 }
 
 /**
- * MARBLE_HOME_MIRRORS_SERVERS_V150 — a compact latency slab for one Home server row. It is the
+ * MARBLE_HOME_MIRRORS_SERVERS_V150 — a compact latency readout for one Home server row. It is the
  * Home expression of the Servers page's latency capsule (same measured gate, same tone ramp),
  * just at the row's own scale so the list never outshouts the status banner.
+ *
+ * MARBLE_PING_AIR_V152 — the tinted slab is gone, matching the Servers page: inside a row that
+ * already carries a protocol tile, badges and a live pill, the latency's own background was one
+ * surface too many and squeezed the number against its edges. The measurement now stands alone
+ * in its quality tone with room around it.
  */
 @Composable
 private fun HomeServerLatencySlab(
@@ -2530,8 +2537,6 @@ private fun HomeServerLatencySlab(
     Box(
         modifier = Modifier
             .height(26.dp)
-            .clip(RoundedCornerShape(9.dp))
-            .background(tone.copy(alpha = 0.12f))
             .semantics { contentDescription = spoken },
         contentAlignment = Alignment.Center
     ) {
@@ -2544,18 +2549,17 @@ private fun HomeServerLatencySlab(
             !measured -> Text(
                 if (attempted) "✕" else "—",
                 color = tone,
-                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
                 maxLines = 1
             )
             else -> Row(
-                modifier = Modifier.padding(horizontal = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(3.dp)
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 Text(
                     "$latencyMs",
                     color = tone,
-                    style = MaterialTheme.typography.labelSmall.copy(
+                    style = MaterialTheme.typography.labelMedium.copy(
                         fontWeight = FontWeight.Bold,
                         fontFeatureSettings = "tnum"
                     ),
@@ -2563,8 +2567,8 @@ private fun HomeServerLatencySlab(
                 )
                 Text(
                     trx("ms"),
-                    color = tone.copy(alpha = 0.72f),
-                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                    color = tone.copy(alpha = 0.74f),
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
                     maxLines = 1
                 )
             }

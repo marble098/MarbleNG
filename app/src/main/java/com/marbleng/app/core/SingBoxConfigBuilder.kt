@@ -33,9 +33,9 @@ object SingBoxConfigBuilder {
     const val PROXY_TAG = "marble-proxy"
     const val DIRECT_TAG = "direct"
     const val BLOCK_TAG = "block"
-    const val DNS_OUT_TAG = "dns-out"
     const val DNS_REMOTE_TAG = "dns-remote"
     const val DNS_DIRECT_TAG = "dns-direct"
+    const val DNS_LOCAL_TAG = "dns-local"
     const val DNS_HOSTS_TAG = "dns-hosts"
 
     const val STRATEGY_LINK = "link-parser"
@@ -183,10 +183,18 @@ object SingBoxConfigBuilder {
             }
         }
 
+        // MARBLE_SINGBOX_DNS_ACTION_V152 — no `dns` outbound is written any more. sing-box
+        // deprecated it in 1.11.0 and REMOVED it in 1.13.0 ("dns outbound is deprecated in
+        // sing-box 1.11.0 and removed in sing-box 1.13.0, use rule actions instead"), and the
+        // pinned extended core (v1.14.x) rejects the whole config for carrying one — which is
+        // exactly how every profile in the shipped build died at `sing-box check` and pushed the
+        // session into BLOCKED. The route's `hijack-dns` rule action written below is the
+        // replacement the error message itself names, and it is all DNS interception needs: the
+        // mixed inbound's port-53 traffic is sniffed, matched by the `protocol: dns` rule and
+        // answered by the dns module through the configured servers.
         outbounds
             .put(JSONObject().put("type", "direct").put("tag", DIRECT_TAG))
             .put(JSONObject().put("type", "block").put("tag", BLOCK_TAG))
-            .put(JSONObject().put("type", "dns").put("tag", DNS_OUT_TAG))
 
         val root = JSONObject()
             .put(
@@ -196,7 +204,7 @@ object SingBoxConfigBuilder {
                     .put("output", logPath)
                     .put("timestamp", true)
             )
-            .put("dns", dnsConfig(settings))
+            .put("dns", dnsConfig(settings, profile))
             .put(
                 "inbounds",
                 JSONArray().put(
@@ -591,7 +599,7 @@ object SingBoxConfigBuilder {
     // DNS
     // ─────────────────────────────────────────────────────────────────────────────
 
-    private fun dnsConfig(settings: AppSettings): JSONObject {
+    private fun dnsConfig(settings: AppSettings, profile: ProxyProfile): JSONObject {
         val servers = JSONArray()
         servers.put(
             dohServer(
@@ -610,8 +618,24 @@ object SingBoxConfigBuilder {
             )
         )
         servers.put(JSONObject().put("type", "hosts").put("tag", DNS_HOSTS_TAG))
+        // MARBLE_SINGBOX_DNS_ACTION_V152 — the system resolver is the one resolver a censored
+        // underlay cannot afford to block, and the shipped log proved the inverse: every public
+        // DoH literal (1.1.1.1 / 8.8.8.8 / 9.9.9.9) was demoted for deadline storms, so domain
+        // egress died while literal-IP egress kept working (`literalIpHttps=true,
+        // domainHttps=false`). `type: local` asks Android's own resolver, so the node's hostname
+        // bootstrap always has a path that does not depend on an encrypted endpoint being alive.
+        servers.put(JSONObject().put("type", "local").put("tag", DNS_LOCAL_TAG))
 
         val rules = JSONArray()
+        // The proxy endpoint's own hostname resolves through the system resolver first: the
+        // tunnel cannot be established through a resolver that needs the tunnel.
+        profile.host.takeIf { it.isNotBlank() && !isLiteralAddress(it) }?.let { host ->
+            rules.put(
+                JSONObject()
+                    .put("domain", JSONArray().put(host))
+                    .put("server", DNS_LOCAL_TAG)
+            )
+        }
         rules.put(
             JSONObject()
                 .put("rule_set", JSONArray().put(RULE_SET_GEOIP_IR).put(RULE_SET_GEOSITE_IR))
@@ -629,6 +653,14 @@ object SingBoxConfigBuilder {
             .put("final", DNS_REMOTE_TAG)
             .put("strategy", dnsStrategy(settings))
             .put("independent_cache", true)
+    }
+
+    /** True for IPv4/IPv6 literals — addresses never need the DNS bootstrap rule. */
+    private fun isLiteralAddress(host: String): Boolean {
+        val raw = host.trim().removePrefix("[").removeSuffix("]")
+        val octets = raw.split('.')
+        val v4 = octets.size == 4 && octets.all { (it.toIntOrNull() ?: -1) in 0..255 }
+        return v4 || raw.contains(':')
     }
 
     private fun dohServer(tag: String, url: String, detour: String): JSONObject {

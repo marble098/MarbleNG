@@ -169,12 +169,87 @@ class SingBoxCoreV151Test {
         listOf(
             SingBoxConfigBuilder.PROXY_TAG,
             SingBoxConfigBuilder.DIRECT_TAG,
-            SingBoxConfigBuilder.BLOCK_TAG,
-            SingBoxConfigBuilder.DNS_OUT_TAG
+            SingBoxConfigBuilder.BLOCK_TAG
         ).forEach { tag ->
             assertNotNull("outbound \"$tag\" must exist", outboundOrNull(config, tag))
         }
         assertEquals(SingBoxConfigBuilder.PROXY_TAG, config.getJSONObject("route").getString("final"))
+    }
+
+    /**
+     * MARBLE_SINGBOX_DNS_ACTION_V152 — the `dns` outbound is deprecated since 1.11.0 and
+     * REMOVED in 1.13.0, and the pinned extended core (v1.14.x) rejects the entire config for
+     * carrying one: "outbounds[3]: dns outbound is deprecated in sing-box 1.11.0 and removed in
+     * sing-box 1.13.0, use rule actions instead". That single line refused all 17 profiles of
+     * the shipped log and left every session BLOCKED. The builder must never write it, and the
+     * `hijack-dns` rule action — the replacement the error itself names — must be there instead.
+     */
+    @Test
+    fun theDnsOutboundRemovedInSingBox113IsNeverWritten() {
+        val config = JSONObject(build(linkProfile(VLESS_LINK)).json)
+        val outbounds = config.getJSONArray("outbounds")
+        for (i in 0 until outbounds.length()) {
+            val type = outbounds.getJSONObject(i).optString("type")
+            assertFalse(
+                "the removed \"dns\" outbound must never be written (found \"dns-out\" at $i)",
+                type.equals("dns", ignoreCase = true)
+            )
+        }
+        val rules = config.getJSONObject("route").getJSONArray("rules")
+        var hijackPresent = false
+        for (i in 0 until rules.length()) {
+            val rule = rules.getJSONObject(i)
+            if ("hijack-dns" == rule.optString("action")) hijackPresent = true
+            assertFalse(
+                "no route rule may target a removed dns outbound",
+                rule.optString("outbound").equals("dns-out", ignoreCase = true)
+            )
+        }
+        assertTrue("the hijack-dns rule action must intercept DNS", hijackPresent)
+    }
+
+    /**
+     * MARBLE_SINGBOX_DNS_ACTION_V152 — the node's own hostname must not depend on a public DoH
+     * literal being alive: the shipped log demoted 1.1.1.1, 8.8.8.8 and 9.9.9.9 together, and
+     * domain egress died while literal-IP egress worked. A `local` (system resolver) server and
+     * a bootstrap rule for the endpoint's hostname close that hole; an endpoint addressed by a
+     * literal IP needs neither.
+     */
+    @Test
+    fun theProxyHostnameBootstrapsThroughTheSystemResolver() {
+        val literalConfig = JSONObject(build(linkProfile(VLESS_LINK)).json)
+        val hostnameProfile = linkProfile(VLESS_LINK).copy(host = "edge.example.com")
+        val hostnameConfig = JSONObject(build(hostnameProfile).json)
+
+        val servers = hostnameConfig.getJSONObject("dns").getJSONArray("servers")
+        var localPresent = false
+        for (i in 0 until servers.length()) {
+            val server = servers.getJSONObject(i)
+            if (SingBoxConfigBuilder.DNS_LOCAL_TAG == server.optString("tag") &&
+                "local" == server.optString("type")
+            ) {
+                localPresent = true
+            }
+        }
+        assertTrue("a system-resolver (type local) DNS server must exist", localPresent)
+
+        fun bootstrapHosts(config: JSONObject): List<String> {
+            val rules = config.getJSONObject("dns").getJSONArray("rules")
+            val hosts = mutableListOf<String>()
+            for (i in 0 until rules.length()) {
+                val domains = rules.getJSONObject(i).optJSONArray("domain") ?: continue
+                for (d in 0 until domains.length()) hosts += domains.optString(d)
+            }
+            return hosts
+        }
+        assertTrue(
+            "the proxy endpoint's own hostname must resolve via the system resolver",
+            "edge.example.com" in bootstrapHosts(hostnameConfig)
+        )
+        assertTrue(
+            "a literal-IP endpoint needs no DNS bootstrap rule",
+            bootstrapHosts(literalConfig).isEmpty()
+        )
     }
 
     @Test
@@ -184,7 +259,10 @@ class SingBoxCoreV151Test {
         assertTrue(servers.length() >= 2)
         for (i in 0 until servers.length()) {
             val server = servers.getJSONObject(i)
-            if (server.getString("type") == "hosts") continue
+            val type = server.getString("type")
+            // `hosts` and `local` (MARBLE_SINGBOX_DNS_ACTION_V152, the system resolver) have no
+            // address of their own; every address-bearing type must use the 1.12 `server` key.
+            if (type == "hosts" || type == "local") continue
             // sing-box 1.12 renamed the DNS server address key. A server written with `address`
             // parses to nothing and every lookup dies, so this is the single most expensive typo
             // this builder could make.
