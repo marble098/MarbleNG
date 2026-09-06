@@ -36,6 +36,10 @@ files = {
     "coreEngine": read("app/src/main/java/com/marbleng/app/core/CoreEngine.kt"),
     "singBoxBuilder": read("app/src/main/java/com/marbleng/app/core/SingBoxConfigBuilder.kt"),
     "singBox": read("app/src/main/java/com/marbleng/app/core/SingBoxManager.kt"),
+    # MARBLE_ENGINE_SELF_HEAL_V152 — the config doctor is the automatic repair half of the
+    # 8.0.6 BLOCKED-root-cause fix, and its unit test pins the shipped failure verbatim.
+    "singBoxDoctor": read("app/src/main/java/com/marbleng/app/core/SingBoxConfigDoctor.kt"),
+    "singBoxSelfHealTest": read("app/src/test/java/com/marbleng/app/core/SingBoxSelfHealV152Test.kt"),
     "coreLock": read("core-lock.json"),
     "hardener": read("app/src/main/java/com/marbleng/app/core/XrayConfigHardener.kt"),
     "bench": read("app/src/main/java/com/marbleng/app/core/BenchmarkEngine.kt"),
@@ -92,6 +96,12 @@ checks = []
 
 def check(name: str, condition: bool) -> None:
     checks.append((name, bool(condition)))
+
+def _fun_body(source: str, signature: str) -> str:
+    """Body of the first function whose source contains `signature`, up to its closing brace."""
+    if signature not in source:
+        return ""
+    return source.split(signature, 1)[1].split("\n}", 1)[0]
 
 def integer_constant(text: str, name: str) -> int:
     match = re.search(rf"\b{name}\s*=\s*([0-9_]+)", text)
@@ -778,6 +788,80 @@ check(
     "sing-box DNS servers use the 1.12 server key",
     '.put("server", host)' in files["singBoxBuilder"]
     and '.put("address"' not in files["singBoxBuilder"],
+)
+
+# MARBLE_SINGBOX_DNS_ACTION_V152 — the root cause of the shipped 8.0.6 total outage: the builder
+# wrote a `dns` outbound, deprecated in sing-box 1.11.0 and REMOVED in 1.13.0, and the pinned
+# extended core (v1.14.x) rejected every profile's config for carrying one — BLOCKED, kill
+# switch, and a 17-node failover replaying the same refusal. The builder must never write it and
+# the route must carry the `hijack-dns` rule action the deprecation error itself names.
+check(
+    "the sing-box config never carries the removed dns outbound",
+    'put("type", "dns")' not in files["singBoxBuilder"]
+    and 'put("action", "hijack-dns")' in files["singBoxBuilder"]
+    and 'DNS_OUT_TAG' not in files["singBoxBuilder"]
+    and '"hijack-dns"' in files["singBoxTest"],
+)
+# MARBLE_SINGBOX_DNS_ACTION_V152 — domain egress must not depend on one public DoH literal being
+# alive: the shipped log demoted 1.1.1.1, 8.8.8.8 and 9.9.9.9 together while literal-IP egress
+# worked (`literalIpHttps=true, domainHttps=false`). The node's own hostname bootstraps through
+# the system resolver instead.
+check(
+    "the node hostname bootstraps via the sing-box system resolver",
+    '"local"' in files["singBoxBuilder"]
+    and 'DNS_LOCAL_TAG' in files["singBoxBuilder"]
+    and 'isLiteralAddress' in files["singBoxBuilder"]
+    and 'theProxyHostnameBootstrapsThroughTheSystemResolver' in files["singBoxTest"],
+)
+# MARBLE_ENGINE_SELF_HEAL_V152 — a config rejection is engine-level, and Marble Intelligence
+# answers it automatically: the doctor repairs the known removals in place and re-checks, and
+# the VPN service latches an engine fault so failover stops replaying it node by node and the
+# session rides the other engine instead.
+check(
+    "the sing-box config doctor exists and is wired into the manager",
+    'object SingBoxConfigDoctor' in files["singBoxDoctor"]
+    and 'fun repair(' in files["singBoxDoctor"]
+    and 'fun isEngineLevelFault(' in files["singBoxDoctor"]
+    and 'SingBoxConfigDoctor.repair(' in files["singBox"]
+    and 'lastSelfHealNotes' in files["singBox"],
+)
+check(
+    "an engine-level config fault self-heals onto the other engine",
+    'SingBoxConfigDoctor.isEngineLevelFault(' in files["vpn"]
+    and 'engine-selfheal-xray-fallback' in files["vpn"]
+    and 'engine-selfheal-latch-active' in files["vpn"]
+    and 'singBoxConfigFaultLatch' in files["vpn"]
+    and 'sessionEngineSelfHealTried' in files["vpn"],
+)
+check(
+    "the self-heal path is pinned by unit tests",
+    'theShipped860FaultIsRepairedAutomatically' in files["singBoxSelfHealTest"]
+    and 'thePre112DnsAddressKeyIsMigrated' in files["singBoxSelfHealTest"]
+    and 'engineLevelFaultsAreRecognisedSoFailoverStopsWalkingNodes' in files["singBoxSelfHealTest"]
+    and 'anAlreadyModernConfigComesBackUntouched' in files["singBoxSelfHealTest"],
+)
+# MARBLE_RESOLVER_POOL_WIDENED_V152 — when an operator disrupts a resolver *set* (the shipped log
+# demoted all three original stock endpoints), the intelligence needs candidates on different
+# infrastructure to promote, or "demote last, promote first" is a shuffle of dead endpoints.
+check(
+    "the stock DoH pool carries diverse fallbacks beyond the big three",
+    'dns.adguard-dns.com' in files["intel"]
+    and 'dns.shecan.ir' in files["intel"]
+    and '1.0.0.1' in files["intel"],
+)
+# MARBLE_PING_AIR_V152 — the latency readouts on Servers and Home dropped their tinted fill: on
+# a stacked subscription row the slab read as a chip fighting the protocol badge, and the
+# glyph/number/unit triad was pressed against its own walls. The measurement stands alone in
+# its quality tone now; the width floor survives so numbers still column-align.
+check(
+    "the Servers ping readout carries no background of its own",
+    ".background(tone.copy(alpha = .12f))" not in _fun_body(files["ui"], "fun ServersPingCapsule")
+    and "MARBLE_PING_AIR_V152" in files["ui"],
+)
+check(
+    "the Home latency slab is tone-only",
+    ".background(tone.copy(alpha = 0.12f))" not in _fun_body(files["homeStyles"], "fun HomeServerLatencySlab")
+    and "MARBLE_PING_AIR_V152" in files["homeStyles"],
 )
 # Xray's certificate-pinning keys are read here to *report* the limitation, never written into a
 # sing-box config: the fork has no equivalent, and a key it does not know is a config it refuses.

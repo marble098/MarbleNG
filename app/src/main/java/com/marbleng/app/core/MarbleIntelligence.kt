@@ -3140,11 +3140,23 @@ class MarbleIntelligence(private val context: Context) {
          * MARBLE_RESOLVER_EVIDENCE_V134 — the same independent stock resolvers the config writer
          * appends, kept here so the ordering decision and the emitted list are drawn from one pool.
          * A demotion can only promote an endpoint that is actually a candidate.
+         *
+         * MARBLE_RESOLVER_POOL_WIDENED_V152 — the shipped 8.0.6 log demoted *all three* of the
+         * original stock endpoints (1.1.1.1, 8.8.8.8, 9.9.9.9 — deadline storms and EOF on a
+         * censored cellular link), which left the intelligence nothing healthy to promote: every
+         * candidate was failing, so the "demote last, promote first" order was a shuffle of dead
+         * endpoints. The pool now mirrors the ladder [CensorshipAwareDnsResolver] already races:
+         * AdGuard and Shecan answer on different infrastructure than the big three, and
+         * Cloudflare's 1.0.0.1 sibling survives filters that eat 1.1.1.1. Diversity is the
+         * remedy when an operator disrupts a resolver *set*, not one resolver.
          */
         val STOCK_DOH_RESOLVERS = listOf(
             "https://1.1.1.1/dns-query",
             "https://8.8.8.8/dns-query",
-            "https://9.9.9.9/dns-query"
+            "https://9.9.9.9/dns-query",
+            "https://dns.adguard-dns.com/dns-query",
+            "https://dns.shecan.ir/dns-query",
+            "https://1.0.0.1/dns-query"
         )
 
         /** The learned resolver order stays valid for this long before it must be re-measured. */
