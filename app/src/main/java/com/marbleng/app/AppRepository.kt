@@ -3297,8 +3297,29 @@ private fun postToMain(block: () -> Unit) {
      * test proves a *config*, so it is measured per server, exactly as ranking does.
      */
     fun testSource(sourceId: String) {
-        val scoped = libraryScopeSnapshot(sourceId).distinctBy { it.id }
-        val scope = libraryScopeLabel(sourceId)
+        pingProfiles(
+            profiles = libraryScopeSnapshot(sourceId),
+            scopeLabel = libraryScopeLabel(sourceId),
+            scopeId = sourceId
+        )
+    }
+
+    /**
+     * MARBLE_SERVERS_GROUP_PING_V145 — ping an explicit set of servers under one label.
+     *
+     * The Servers page can group by country as well as by source, and a country bucket has no
+     * source id: routing its ping through [testSource] would resolve "country:de" to "no such
+     * source" and measure nothing. The sweep itself is identical for both — this is the entry
+     * point that takes the servers directly.
+     */
+    fun pingProfiles(
+        profiles: List<ProxyProfile>,
+        scopeLabel: String,
+        scopeId: String = "custom"
+    ) {
+        val scoped = profiles.distinctBy { it.id }
+        val scope = scopeLabel
+        val sourceId = scopeId
         if (scoped.isEmpty()) {
             message = "Nothing enabled to ping in $scope"
             return

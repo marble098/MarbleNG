@@ -3867,7 +3867,16 @@ private fun CyberLibrary(
                     autoRefresh = settings.subscriptionAutoRefresh,
                     onToggle = { repo.setLibrarySourceCollapsed(group.key, !collapsed) },
                     onRefresh = { repo.refresh(group.key) },
-                    onPing = { repo.testSource(group.key) },
+                    // A country bucket has no source id, so it hands its servers over directly;
+                    // a subscription/manual group pings its whole source (including rows the
+                    // current filter hides), which is what its header count promises.
+                    onPing = {
+                        if (group.kind == LibraryGroupKind.COUNTRY) {
+                            repo.pingProfiles(group.profiles, group.title, group.key)
+                        } else {
+                            repo.testSource(group.key)
+                        }
+                    },
                     onWebsite = { url -> openExternal(context, url) },
                     onMenu = {
                         when (it) {
