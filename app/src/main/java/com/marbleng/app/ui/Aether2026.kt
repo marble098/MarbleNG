@@ -5862,9 +5862,10 @@ private fun ServersNodeMenu(
                 }
             )
             ServersMenuItem(
-                // MARBLE_PROBE_TOOLKIT_V130 — the menu says which measurement will actually run:
-                // Smart / Real test / TCP ping / ICMP ping / HTTP ping / DNS ping are one
-                // Settings choice, so the ⋯ action can never be a silent surprise.
+                // MARBLE_PROBE_TOOLKIT_V130 / MARBLE_PING_TRUTH_V147 — the menu says which
+                // measurement will actually run: Smart (verified endpoint gate) or Real test
+                // (one Xray core per config). They are one Settings choice, so the ⋯ action can
+                // never be a silent surprise.
                 label = "${trx("Ping")} • ${trx(probeMethodTitle(repo.settings.probeMethod))}",
                 icon = HomeIcon.PING,
                 tone = Aether.Cyan,
@@ -6116,7 +6117,7 @@ private fun ServersSubscriptionDialog(
     onDismiss: () -> Unit
 ) {
     val clipboard = LocalClipboardManager.current
-    val failedPingCount = repo.failedSubscriptionNodeCount(subscription.id, "TCP")
+    val failedPingCount = repo.failedSubscriptionNodeCount(subscription.id, "SMART")
     val failedTunnelCount = repo.failedSubscriptionNodeCount(subscription.id, "TUNNEL")
     val disconnected = repo.state == "DISCONNECTED"
 
@@ -6187,22 +6188,17 @@ private fun ServersSubscriptionDialog(
                     style = MaterialTheme.typography.labelSmall
                 )
                 CyberButton(
-                    label = "Remove failed ping ($failedPingCount)",
+                    label = "Remove failed Smart ($failedPingCount)",
                     color = Aether.Danger,
                     modifier = Modifier.fillMaxWidth(),
                     enabled = !repo.busy && failedPingCount > 0 && disconnected
-                ) { onPrune("TCP") }
+                ) { onPrune("SMART") }
                 CyberButton(
                     label = "Remove failed tunnel ($failedTunnelCount)",
                     color = Aether.Danger,
                     modifier = Modifier.fillMaxWidth(),
                     enabled = !repo.busy && failedTunnelCount > 0 && disconnected
                 ) { onPrune("TUNNEL") }
-                Text(
-                    trx("Only servers with a stored failed result of that exact test type are removed."),
-                    color = Aether.InkFaint,
-                    style = MaterialTheme.typography.labelSmall
-                )
                 Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                     CyberButton(
                         label = "View servers",
@@ -12354,38 +12350,33 @@ private fun BugFinderSettings(repo: AppRepository) {
 // TESTING & PING
 // =================================================================================================
 
+/**
+ * MARBLE_PING_TRUTH_V147 — the page has exactly two answers to two honest questions.
+ *
+ *  - ICMP / HTTP / DNS never touched the proxy (they measured the carrier path or the local
+ *    resolver), so they were removed from both the method list and the enum.
+ *  - TCP was the verified Layer-0 gate used *inside* Smart; as a standalone choice it made an
+ *    endpoint handshake look like a proxy verdict, so it is no longer a product method either.
+ */
 private fun probeMethodTitle(method: ProbeMethod): String = when (method) {
     ProbeMethod.HYBRID -> "Smart"
     ProbeMethod.TUNNEL -> "Real test"
-    ProbeMethod.TCP -> "TCP ping"
-    ProbeMethod.ICMP -> "ICMP ping"
-    ProbeMethod.HTTP -> "HTTP ping"
-    ProbeMethod.DNS -> "DNS ping"
 }
 
 private fun probeMethodDetail(method: ProbeMethod): String = when (method) {
-    ProbeMethod.HYBRID -> "Recommended • fast gate + real HTTPS test"
-    ProbeMethod.TUNNEL -> "Slowest, proves the route end to end"
-    ProbeMethod.TCP -> "Fastest, TCP handshake to server address"
-    ProbeMethod.ICMP -> "Classic ping, bypasses the proxy"
-    // MARBLE_HTTP_SHARED_PATH_V144 — the HTTP row says exactly what it measures now: the
-    // underlay path to Google, shared by every server in a sweep. Identical numbers per row
-    // are correct behaviour for this method, not a bug; Smart is the ranking method.
-    ProbeMethod.HTTP -> "Direct HTTPS to Google — path-only, same for every server"
-    ProbeMethod.DNS -> "DNS resolution time, fastest check"
+    ProbeMethod.HYBRID ->
+        "Verified endpoint gate (TCP + TLS) with median over the configured samples; warm-up discarded"
+    ProbeMethod.TUNNEL ->
+        "One real Xray core per server: HTTPS through the proxy, proving account, protocol and route"
 }
 
 private fun probeMethodShortLabel(method: ProbeMethod): String = when (method) {
     ProbeMethod.HYBRID -> "Smart"
     ProbeMethod.TUNNEL -> "Tunnel"
-    ProbeMethod.TCP -> "TCP"
-    ProbeMethod.ICMP -> "ICMP"
-    ProbeMethod.HTTP -> "HTTP"
-    ProbeMethod.DNS -> "DNS"
 }
 
 /**
- * MARBLE_ONE_PING_V121 — one ping setting for the whole product.
+ * MARBLE_ONE_PING_V121 / MARBLE_PING_TRUTH_V147 — one ping setting for the whole product.
  *
  * Marble used to run several differently-configured probes behind buttons that all said "ping":
  * the Servers group menu forced TCP, the Home button ran its own tunnel ladder, and this page
@@ -12394,9 +12385,15 @@ private fun probeMethodShortLabel(method: ProbeMethod): String = when (method) {
  * and every measurement in the app — the Home ping button, a subscription's ping entry, Ping all
  * and ranking — runs it.
  *
- * Smart ping is the default and the right answer for almost everyone. The engine's raw operating
- * numbers (samples, timeouts, batch size) are no longer standalone controls on this page: they
- * are engine defaults, exposed only under Expert mode for people who genuinely tune them.
+ * The method list is now two, not six. ICMP/HTTP/DNS measured the underlay or the resolver (never
+ * the proxy), and TCP was merely Smart's internal Layer-0 gate. Keeping them as peer methods let
+ * an address verdict silently replace a proxy verdict. The primitives still exist inside the
+ * engine where Smart needs them; they are no longer product choices.
+ *
+ * Smart ping is the default and the right answer for nearly everyone who wants a fast comparative
+ * view; Real test is the one that proves the account/route when a server must actually be
+ * qualified. The engine's raw operating numbers (samples, timeouts, batch size) are not hidden
+ * here — they are the measurement budget below, with the consequence of each value stated.
  */
 @Composable
 private fun ProbeSettings(repo: AppRepository) {
@@ -12409,16 +12406,18 @@ private fun ProbeSettings(repo: AppRepository) {
         style = settingsBodyStyle()
     )
 
+    Text(
+        trx("Smart is the fast comparator. Real test spins up one Xray core per server and proves the config end to end."),
+        color = Aether.InkFaint,
+        style = settingsBodyStyle()
+    )
+
     Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
         ProbeMethod.entries.forEach { candidate ->
             val selected = method == candidate
             val tone = when (candidate) {
                 ProbeMethod.HYBRID -> Aether.Amethyst
                 ProbeMethod.TUNNEL -> Aether.Emerald
-                ProbeMethod.TCP -> Aether.Cyan
-                ProbeMethod.ICMP -> Aether.Amber
-                ProbeMethod.HTTP -> Aether.CyanBright
-                ProbeMethod.DNS -> Aether.AmethystBright
             }
             val shape = RoundedCornerShape(14.dp)
             Row(
@@ -12485,44 +12484,6 @@ private fun ProbeSettings(repo: AppRepository) {
         }
     }
 
-    if (method == ProbeMethod.ICMP) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(15.dp))
-                .background(Aether.Amber.copy(alpha = .08f))
-                .padding(11.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text("!", color = Aether.Amber, style = MaterialTheme.typography.titleMedium)
-            Spacer(Modifier.width(9.dp))
-            Text(
-                trx("ICMP bypasses the proxy; only Smart or Real test proves the route."),
-                color = Aether.InkMuted,
-                style = MaterialTheme.typography.bodySmall
-            )
-        }
-    }
-
-    if (method == ProbeMethod.DNS) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(15.dp))
-                .background(Aether.AmethystBright.copy(alpha = .08f))
-                .padding(11.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text("i", color = Aether.AmethystBright, style = MaterialTheme.typography.titleMedium)
-            Spacer(Modifier.width(9.dp))
-            Text(
-                trx("DNS ping measures resolution time only — it does not test the server itself."),
-                color = Aether.InkMuted,
-                style = MaterialTheme.typography.bodySmall
-            )
-        }
-    }
-
     HorizontalDivider(color = Aether.GlassBorderSoft)
 
     SettingSwitch(
@@ -12558,7 +12519,7 @@ private fun ProbeSettings(repo: AppRepository) {
         style = settingsRowTitleStyle()
     )
     Text(
-        trx("Every ping in the app — Home, a group, Ping all — obeys exactly these values."),
+        trx("Timeout and sample count apply to every method. Servers at once is the Smart sweep concurrency; Real test is capped at the native-safe core pool (2–4) because it launches one real Xray child per server."),
         color = Aether.InkMuted,
         style = settingsBodyStyle()
     )
@@ -12573,8 +12534,8 @@ private fun ProbeSettings(repo: AppRepository) {
     ) { repo.updateSettings(repo.settings.copy(pingTimeoutSec = PingBudget.timeoutSec(it))) }
 
     PingBudgetChoiceRow(
-        title = "Servers at once",
-        detail = "Parallel measurements. Fewer is slower but far more accurate on a weak link",
+        title = "Smart servers at once",
+        detail = "Only Smart uses this exact value; fewer is slower but far more accurate on a weak link",
         selected = PingBudget.concurrency(s.pingConcurrency),
         choices = PingBudget.CONCURRENCY_CHOICES,
         suffix = "",
@@ -12583,7 +12544,7 @@ private fun ProbeSettings(repo: AppRepository) {
 
     PingBudgetChoiceRow(
         title = "Samples per server",
-        detail = "The published latency is the median; the warm-up sample is discarded",
+        detail = "The published latency is the median after the warm-up sample is discarded",
         selected = PingBudget.samples(s.pingSamples),
         choices = PingBudget.SAMPLE_CHOICES,
         suffix = "×",
@@ -12593,7 +12554,7 @@ private fun ProbeSettings(repo: AppRepository) {
     Text(
         "${trx("Worst case per server")}: " +
             "${PingBudget.perServerBudgetMs(s.pingTimeoutSec, s.pingSamples) / 1000}s • " +
-            "${PingBudget.concurrency(s.pingConcurrency)} ${trx("at once")}",
+            "${PingBudget.concurrency(s.pingConcurrency)} ${trx("Smart at once")}",
         color = Aether.InkFaint,
         style = settingsBodyStyle()
     )
