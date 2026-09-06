@@ -8,12 +8,9 @@ import java.net.NoRouteToHostException
 import java.net.Socket
 import java.net.SocketException
 import java.net.SocketTimeoutException
+import java.security.SecureRandom
 import java.util.concurrent.ThreadLocalRandom
 import java.util.concurrent.atomic.AtomicInteger
-import javax.net.ssl.SSLException
-import javax.net.ssl.SSLHandshakeException
-import javax.net.ssl.SSLSocket
-import javax.net.ssl.SSLSocketFactory
 
 /**
  * MARBLE_IRAN_AWARE_PING_L0 — Layer 0 of the Iran-Aware Multi-Signal probing architecture.
@@ -192,10 +189,39 @@ object MultiVectorReachability {
     }
 
     /**
-     * The three signals against one resolved address, on one socket.
+     * MARBLE_PING_TRUTH_V149 — the three signals against one resolved address, on ONE RAW socket.
      *
-     * The attempt runs in a single wall-clock budget so the timing evidence (time-to-RST vs
-     * reference RTT) is measured against the same calendar as the connect attempt itself.
+     * ## Why the JSSE handshake had to go
+     *
+     * The previous implementation wrapped the socket in an `SSLSocket` with
+     * `endpointIdentificationAlgorithm = "HTTPS"` and called `startHandshake()`. That asks the
+     * *Android device's CA store* to validate the server certificate against the endpoint host,
+     * which is a question the gate has no business asking:
+     *
+     *  - a VLESS/Trojan/REALITY node very often serves a **self-signed** certificate — that is the
+     *    entire reason "certificate fingerprint (SHA-256)" and "verify peer certificate by name"
+     *    exist. JSSE throws `SSLHandshakeException`, the gate recorded REFUSED, and a 100 %
+     *    working server was published as FAILED;
+     *  - the certificate CN/SAN legitimately does not match the endpoint host whenever the profile
+     *    fronts a different SNI (`sni=spotify.com` against `vps1.example`) — again a guaranteed
+     *    hostname-verification failure against a perfectly healthy node;
+     *  - an expired or not-yet-valid certificate on an otherwise reachable proxy is irrelevant to
+     *    reachability, because Xray is the component that decides trust, not the probe.
+     *
+     * ## What the gate actually needs to know
+     *
+     * Exactly one thing: **did the far side answer a TLS ClientHello at the record layer?** That is
+     * the signal that separates "port open, stream killed by a filter" from "endpoint alive". So
+     * the probe now writes a minimal, well-formed TLS 1.2/1.3 ClientHello by hand and reads the
+     * first five bytes of the reply. Any valid TLS record type — `0x16` Handshake (ServerHello),
+     * `0x15` Alert (the server answered and declined, which still proves it is alive and not
+     * filtered) — is a verified answer. No trust store is consulted, no certificate is parsed, no
+     * hostname is verified, and there is nothing left for a self-signed or fronted certificate to
+     * fail.
+     *
+     * This also makes the injection heuristic sharper: an RST that arrives after the ClientHello
+     * is on the wire but before any record comes back is now unambiguous, because we know exactly
+     * what we sent and when.
      */
     private fun attempt(
         address: InetAddress,
@@ -206,7 +232,6 @@ object MultiVectorReachability {
         probeTarget: String
     ): ReachabilitySignal {
         val tcp = Socket()
-        var ssl: SSLSocket? = null
         val startNs = System.nanoTime()
         var tcpConnected = false
         var injected = false
@@ -223,16 +248,51 @@ object MultiVectorReachability {
 
             val handshakeStartNs = System.nanoTime()
             try {
-                ssl = (SSLSocketFactory.getDefault() as SSLSocketFactory)
-                    .createSocket(tcp, displayHost, port, true) as SSLSocket
-                val params = ssl.sslParameters
-                params.endpointIdentificationAlgorithm = "HTTPS"
-                ssl.sslParameters = params
-                ssl.soTimeout = timeoutMs
-                ssl.startHandshake()
-                tlsCompleted = true
-                ttfb = (System.nanoTime() - handshakeStartNs) / 1e6
-                verdict = Verdict.REACHABLE
+                val hello = clientHello(displayHost)
+                val out = tcp.getOutputStream()
+                out.write(hello)
+                out.flush()
+
+                val header = ByteArray(TLS_RECORD_HEADER_BYTES)
+                var read = 0
+                val input = tcp.getInputStream()
+                while (read < header.size) {
+                    val n = input.read(header, read, header.size - read)
+                    if (n < 0) break
+                    read += n
+                }
+
+                val elapsed = (System.nanoTime() - handshakeStartNs) / 1e6
+                when {
+                    read >= TLS_RECORD_HEADER_BYTES && isTlsRecord(header) -> {
+                        // The far side spoke TLS back at us. Whether it is a ServerHello or an
+                        // Alert, the endpoint is alive and unfiltered: that is the whole question.
+                        tlsCompleted = true
+                        ttfb = elapsed.coerceAtLeast(1.0)
+                        verdict = Verdict.REACHABLE
+                    }
+
+                    read > 0 -> {
+                        // Bytes arrived that are not a TLS record. A non-TLS listener (plain HTTP,
+                        // Shadowsocks, a fronted endpoint) still PROVED it is alive by answering,
+                        // so this must never be a failure — the old code had no branch for it and
+                        // fell through to SILENT_TIMEOUT.
+                        tlsCompleted = true
+                        ttfb = elapsed.coerceAtLeast(1.0)
+                        verdict = Verdict.REACHABLE
+                        failure = "non-tls-listener"
+                    }
+
+                    else -> {
+                        // Clean EOF with no bytes at all after a successful connect: the stream was
+                        // torn down without an answer. Fast teardown is the injection signature.
+                        val rttRef = referenceRttMs.takeIf { it in 1.0..10_000.0 } ?: 300.0
+                        injected = elapsed < rttRef * 0.5
+                        verdict = if (injected) Verdict.INJECTED_RESET else Verdict.SILENT_TIMEOUT
+                        silent = !injected
+                        failure = if (injected) "injected-eof" else "no-tls-answer"
+                    }
+                }
             } catch (timeout: SocketTimeoutException) {
                 silent = true
                 verdict = Verdict.SILENT_TIMEOUT
@@ -240,9 +300,10 @@ object MultiVectorReachability {
             } catch (e: Throwable) {
                 val elapsedToFailure = (System.nanoTime() - handshakeStartNs) / 1e6
                 val msg = (e.message ?: "").lowercase()
-                val resetLike = e is SocketException &&
-                    (msg.contains("reset") || msg.contains("connection aborted")) ||
-                    e is SSLException && msg.contains("reset")
+                val resetLike = msg.contains("reset") ||
+                    msg.contains("connection aborted") ||
+                    msg.contains("broken pipe") ||
+                    e is SocketException
                 if (resetLike) {
                     // Time-to-RST rule: a reset that lands faster than roughly half a genuine
                     // round trip cannot be the far side finishing its network work — it is the
@@ -252,12 +313,7 @@ object MultiVectorReachability {
                     val rttRef = referenceRttMs.takeIf { it in 1.0..10_000.0 } ?: 300.0
                     injected = elapsedToFailure < rttRef * 0.5
                     verdict = if (injected) Verdict.INJECTED_RESET else Verdict.REFUSED
-                    failure = if (injected) "injected-reset-time-${(elapsedToFailure * 10).toInt()}ms" else "remote-reset"
-                } else if (e is SSLHandshakeException) {
-                    // The far side answered with a certificate/alert — that is a response, not
-                    // a filter: handshake mismatch is REFUSED, never injected.
-                    verdict = Verdict.REFUSED
-                    failure = "tls-rejected"
+                    failure = if (injected) "injected-reset-time-${elapsedToFailure.toInt()}ms" else "remote-reset"
                 } else if (e is ConnectException || e is NoRouteToHostException) {
                     verdict = if (!tcpConnected) Verdict.UNREACHABLE else Verdict.REFUSED
                     failure = e::class.java.simpleName.lowercase()
@@ -286,7 +342,6 @@ object MultiVectorReachability {
                 failure = e::class.java.simpleName.lowercase()
             }
         } finally {
-            runCatching { ssl?.close() }
             runCatching { tcp.close() }
         }
 
@@ -310,6 +365,117 @@ object MultiVectorReachability {
             failureReason = failure,
             atMs = System.currentTimeMillis()
         )
+    }
+
+    /** A TLS record header is 5 bytes: type, major, minor, length-hi, length-lo. */
+    internal const val TLS_RECORD_HEADER_BYTES = 5
+
+    private val random = SecureRandom()
+
+    /**
+     * True when these bytes are the head of a plausible TLS record from a live TLS speaker.
+     *
+     * Accepted content types are Handshake (0x16, a ServerHello) and Alert (0x15, an explicit
+     * refusal that still proves the endpoint answered). ChangeCipherSpec (0x14) is accepted too
+     * because a TLS 1.3 server sends it as compatibility middlebox padding. The version must be
+     * an SSL 3.0 / TLS 1.x legacy record version and the length must be within TLS's own 16 KiB
+     * + expansion ceiling, which is what keeps a random byte stream from reading as TLS.
+     */
+    internal fun isTlsRecord(header: ByteArray): Boolean {
+        if (header.size < TLS_RECORD_HEADER_BYTES) return false
+        val type = header[0].toInt() and 0xFF
+        if (type != 0x16 && type != 0x15 && type != 0x14) return false
+        if ((header[1].toInt() and 0xFF) != 0x03) return false
+        if ((header[2].toInt() and 0xFF) > 0x04) return false
+        val length = ((header[3].toInt() and 0xFF) shl 8) or (header[4].toInt() and 0xFF)
+        return length in 1..18_432
+    }
+
+    /**
+     * A minimal but genuinely well-formed TLS 1.2 ClientHello offering TLS 1.3, with SNI set to
+     * [serverName] when it is a DNS name.
+     *
+     * It must be well-formed: a malformed hello would be answered with a decode_error alert (still
+     * a valid signal) by a real server, but a DPI box could also drop it, which would put noise
+     * exactly where the measurement lives. Common, widely-deployed cipher suites and the standard
+     * extension set are used so the hello looks like ordinary client traffic rather than a probe.
+     */
+    internal fun clientHello(serverName: String): ByteArray {
+        val sni = serverName.takeIf { name ->
+            name.isNotBlank() && name.any { it.isLetter() } && !name.contains(':')
+        }.orEmpty()
+
+        val body = ArrayList<Byte>(256)
+        fun put(vararg values: Int) = values.forEach { body.add((it and 0xFF).toByte()) }
+        fun putBytes(values: ByteArray) = values.forEach { body.add(it) }
+        fun putU16(value: Int) = put(value shr 8, value)
+
+        // client_version = TLS 1.2 (TLS 1.3 is negotiated via supported_versions).
+        put(0x03, 0x03)
+        // 32 random bytes + empty legacy session id.
+        putBytes(ByteArray(32).also { random.nextBytes(it) })
+        put(0x00)
+        // Cipher suites: TLS 1.3 AEADs plus two ubiquitous TLS 1.2 suites.
+        val suites = intArrayOf(0x1301, 0x1302, 0x1303, 0xC02B, 0xC02F, 0xC030)
+        putU16(suites.size * 2)
+        suites.forEach { putU16(it) }
+        // compression_methods = [null]
+        put(0x01, 0x00)
+
+        val extensions = ArrayList<Byte>(128)
+        fun ext(vararg values: Int) = values.forEach { extensions.add((it and 0xFF).toByte()) }
+        fun extBytes(values: ByteArray) = values.forEach { extensions.add(it) }
+        fun extU16(value: Int) = ext(value shr 8, value)
+
+        if (sni.isNotEmpty()) {
+            val name = sni.toByteArray(Charsets.US_ASCII)
+            extU16(0x0000)                    // server_name
+            extU16(name.size + 5)             // extension length
+            extU16(name.size + 3)             // server_name_list length
+            ext(0x00)                         // host_name
+            extU16(name.size)
+            extBytes(name)
+        }
+        // supported_groups: x25519, secp256r1, secp384r1
+        extU16(0x000A); extU16(8); extU16(6); extU16(0x001D); extU16(0x0017); extU16(0x0018)
+        // ec_point_formats: uncompressed
+        extU16(0x000B); extU16(2); ext(0x01, 0x00)
+        // signature_algorithms
+        val sigAlgs = intArrayOf(0x0403, 0x0804, 0x0401, 0x0503, 0x0805, 0x0501, 0x0806, 0x0601)
+        extU16(0x000D); extU16(sigAlgs.size * 2 + 2); extU16(sigAlgs.size * 2)
+        sigAlgs.forEach { extU16(it) }
+        // supported_versions: TLS 1.3, TLS 1.2
+        extU16(0x002B); extU16(5); ext(0x04); extU16(0x0304); extU16(0x0303)
+        // key_share with an x25519 entry. This is what turns the reply into a real ServerHello
+        // (record type 0x16) instead of a `handshake_failure` alert: a TLS 1.3 server that is
+        // offered supported_versions but no key share must either HelloRetryRequest or abort.
+        // Both are still valid signals, but a ServerHello is the strongest evidence available and
+        // it also makes the probe indistinguishable from ordinary client traffic on the wire.
+        run {
+            val share = ByteArray(32).also { random.nextBytes(it) }
+            extU16(0x0033); extU16(share.size + 6); extU16(share.size + 4)
+            extU16(0x001D); extU16(share.size); extBytes(share)
+        }
+
+        putU16(extensions.size)
+        putBytes(extensions.toByteArray())
+
+        val bodyBytes = body.toByteArray()
+        val handshake = ByteArray(4 + bodyBytes.size)
+        handshake[0] = 0x01 // client_hello
+        handshake[1] = ((bodyBytes.size shr 16) and 0xFF).toByte()
+        handshake[2] = ((bodyBytes.size shr 8) and 0xFF).toByte()
+        handshake[3] = (bodyBytes.size and 0xFF).toByte()
+        bodyBytes.copyInto(handshake, 4)
+
+        val record = ByteArray(TLS_RECORD_HEADER_BYTES + handshake.size)
+        record[0] = 0x16 // handshake
+        record[1] = 0x03
+        record[2] = 0x01 // legacy record version TLS 1.0, as real clients send
+        record[3] = ((handshake.size shr 8) and 0xFF).toByte()
+        record[4] = (handshake.size and 0xFF).toByte()
+        handshake.copyInto(record, TLS_RECORD_HEADER_BYTES)
+        return record
     }
 
     /**

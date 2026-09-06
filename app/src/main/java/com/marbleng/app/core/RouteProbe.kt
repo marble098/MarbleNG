@@ -428,6 +428,31 @@ object RouteProbe {
         val flagged = summary.signals.any { it.injectedResetSuspected }
         val silent = summary.signals.any { it.silentTimeoutSuspected }
         if (times.isEmpty()) {
+            // MARBLE_PING_TRUTH_V149 — a silent TLS phase is NOT proof the server is dead.
+            //
+            // The gate answers "did anything come back after a ClientHello". A server whose port
+            // completed a TCP handshake but never spoke TLS is either filtered (the case this gate
+            // exists to catch) or simply not a TLS speaker on that port — a plain Shadowsocks
+            // listener, a raw VLESS endpoint with `security=none`, an obfuscated transport that
+            // waits for its own protocol preamble. Convicting the second group is exactly the
+            // "shows failed while the server is 100 % working" report: a whole class of healthy
+            // nodes was published as dead by a protocol they never agreed to speak.
+            //
+            // An injected reset stays a hard failure — that is real evidence of interference. For
+            // plain silence, fall back to the raw TCP connect and, when the port does answer,
+            // report the measured handshake with the reason recorded so ranking can still weight
+            // it below a fully verified gate.
+            if (!flagged) {
+                val rawConnect = tcpConnectExtended(host, port, timeoutMs, samples, settings)
+                if (rawConnect.latencyMs < UNREACHABLE) {
+                    return rawConnect.copy(
+                        method = "TCP",
+                        tcpHandshakeMs = rawConnect.latencyMs,
+                        silentTimeoutSuspected = silent,
+                        failureReason = "tcp-connect-only"
+                    )
+                }
+            }
             return ProbeResult(
                 "TCP",
                 UNREACHABLE,
@@ -505,7 +530,9 @@ object RouteProbe {
             val process = ProcessBuilder(
                 buildList {
                     add("/system/bin/ping")
-                    add("-n"); add("-q"); add("-c"); add("1"); add("-W"); add(seconds.toString())
+                    // MARBLE_PING_TRUTH_V149 — no `-q`: quiet mode hides the per-packet `time=`
+                    // line this function's own regex depends on. See [icmpExtended].
+                    add("-n"); add("-c"); add("1"); add("-W"); add(seconds.toString())
                     if (target.contains(':')) add("-6")
                     add(target)
                 }
@@ -521,12 +548,14 @@ object RouteProbe {
                 runCatching { process.destroy() }
             }
 
-            if (process.exitValue() != 0) return@runCatching UNREACHABLE
-
-            val average = Regex("=\\s*[\\d.]+/([\\d.]+)/").find(output)
+            // MARBLE_PING_TRUTH_V149 — a measured RTT outranks the exit code. Some ping builds
+            // exit non-zero even after receiving a reply (e.g. when the trailing statistics write
+            // fails); throwing away a real measurement because of that reported healthy hosts as
+            // unreachable. The exit code is only decisive when nothing was measured at all.
+            val average = Regex("time[=<]\\s*([\\d.]+)").find(output)
                 ?.groupValues?.getOrNull(1)
                 ?.toDoubleOrNull()
-                ?: Regex("time=([\\d.]+)").find(output)
+                ?: Regex("=\\s*[\\d.]+/([\\d.]+)/").find(output)
                     ?.groupValues?.getOrNull(1)
                     ?.toDoubleOrNull()
 
@@ -567,10 +596,21 @@ object RouteProbe {
             ?: host
 
         return runCatching {
+            // MARBLE_PING_TRUTH_V149 — `-q` is REMOVED, and this is the whole ICMP bug.
+            //
+            // ping(8)'s quiet mode prints ONLY the trailing statistics block; it deliberately
+            // suppresses every per-packet "64 bytes from …: icmp_seq=1 ttl=56 time=41.3 ms" line.
+            // The parser below extracts RTTs with `time=([\d.]+) ms` — per-packet lines that quiet
+            // mode had already thrown away — so `rttValues` came back EMPTY on every single run.
+            // The `rttValues.isEmpty()` branch then returned UNREACHABLE with "no-responses",
+            // even when the very same output said "0% packet loss". ICMP Ping therefore reported
+            // FAILED for 100 % healthy servers, unconditionally, on every device. Dropping `-q`
+            // restores the per-packet lines; the summary line is still parsed as a fallback below
+            // so a stripped-down busybox ping that omits them is handled too.
             val process = ProcessBuilder(
                 buildList {
                     add("/system/bin/ping")
-                    add("-n"); add("-q")
+                    add("-n")
                     add("-c"); add(packets.toString())
                     add("-W"); add(seconds.toString())
                     // Interval between packets: 200ms to keep the batch fast
@@ -594,25 +634,49 @@ object RouteProbe {
                 runCatching { process.destroy() }
             }
 
-            if (process.exitValue() != 0 && !output.contains("bytes from", true)) {
-                return@runCatching ProbeResult("ICMP", UNREACHABLE, 0, packets, failureReason = "exit-${process.exitValue()}")
-            }
-
-            // Parse individual RTT values: "64 bytes from ...: icmp_seq=1 ttl=56 time=41.3 ms"
-            val rttValues = Regex("time=([\\d.]+)\\s*ms").findAll(output)
-                .mapNotNull { it.groupValues[1].toDoubleOrNull() }
-                .filter { it > 0.0 }
-                .toList()
-
-            // Parse packet loss: "3 packets transmitted, 3 received, 0% packet loss"
+            // Parse packet loss first: "3 packets transmitted, 3 received, 0% packet loss".
+            // MARBLE_PING_TRUTH_V149 — the *statistics* are the verdict, not the exit code. ping
+            // exits non-zero for partial loss on some images, and the old guard only forgave that
+            // when the output contained "bytes from" — text that `-q` had removed. Loss is read
+            // before any early return so a partially-answering host is never thrown away.
             val lossMatch = Regex("(\\d+)%\\s*packet loss").find(output)
             val lossPercent = lossMatch?.groupValues?.getOrNull(1)?.toDoubleOrNull() ?: 100.0
+            val received = Regex("(\\d+)\\s+(?:packets\\s+)?received").find(output)
+                ?.groupValues?.getOrNull(1)?.toIntOrNull() ?: 0
 
             // Parse summary: "rtt min/avg/max/mdev = 41.316/41.316/41.316/0.000 ms"
             val summaryMatch = Regex("=\\s*([\\d.]+)/([\\d.]+)/([\\d.]+)/([\\d.]+)").find(output)
 
+            // Parse individual RTT values: "64 bytes from ...: icmp_seq=1 ttl=56 time=41.3 ms"
+            val perPacket = Regex("time[=<]\\s*([\\d.]+)\\s*ms").findAll(output)
+                .mapNotNull { it.groupValues[1].toDoubleOrNull() }
+                .filter { it > 0.0 }
+                .toList()
+
+            // Fallback for a ping build that prints only the summary (or when the caller's own
+            // options suppress per-packet lines): min/avg/max ARE real measurements and must be
+            // used rather than discarded as "no responses".
+            val rttValues = when {
+                perPacket.isNotEmpty() -> perPacket
+                summaryMatch != null -> listOfNotNull(
+                    summaryMatch.groupValues.getOrNull(1)?.toDoubleOrNull(),
+                    summaryMatch.groupValues.getOrNull(2)?.toDoubleOrNull(),
+                    summaryMatch.groupValues.getOrNull(3)?.toDoubleOrNull()
+                ).filter { it > 0.0 }
+
+                else -> emptyList()
+            }
+
             if (rttValues.isEmpty()) {
-                return@runCatching ProbeResult("ICMP", UNREACHABLE, 0, packets, lossPercent = lossPercent, failureReason = "no-responses")
+                val reason = when {
+                    received > 0 -> "unparsable-output"
+                    lossPercent >= 100.0 -> "no-responses"
+                    else -> "exit-${process.exitValue()}"
+                }
+                return@runCatching ProbeResult(
+                    "ICMP", UNREACHABLE, 0, packets,
+                    lossPercent = lossPercent, failureReason = reason
+                )
             }
 
             val sorted = rttValues.sorted()
@@ -624,16 +688,26 @@ object RouteProbe {
             }
             val p95Index = ((sorted.size - 1) * 0.95).toInt().coerceIn(0, sorted.lastIndex)
 
+            // MARBLE_PING_TRUTH_V149 — real RTTs and a 0 % success rate cannot both be true.
+            // `lossPercent` defaults to 100 when the statistics line cannot be parsed, so a build
+            // whose summary wording differs published "latency 41 ms, success 0 %" — which every
+            // consumer (ranking, the UI badge) reads as FAILED. When measurements exist, the
+            // honest denominator is the packets we sent versus the RTTs we actually received.
+            val measuredLoss = if (lossMatch != null) {
+                lossPercent
+            } else {
+                ((packets - perPacket.size).coerceAtLeast(0)).toDouble() * 100.0 / packets
+            }
             ProbeResult(
                 method = "ICMP",
                 latencyMs = median,
-                successPercent = ((1.0 - lossPercent / 100.0) * 100).toInt().coerceIn(0, 100),
+                successPercent = ((1.0 - measuredLoss / 100.0) * 100).toInt().coerceIn(1, 100),
                 samples = packets,
                 jitterMs = jitter,
                 minMs = sorted.first(),
                 maxMs = sorted.last(),
                 p95Ms = sorted[p95Index],
-                lossPercent = lossPercent
+                lossPercent = measuredLoss
             )
         }.getOrDefault(ProbeResult("ICMP", UNREACHABLE, 0, packets, failureReason = "exception"))
     }
@@ -769,17 +843,27 @@ object RouteProbe {
                 maxBytes = 4_096,
                 headers = mapOf("User-Agent" to "MarbleNG/1.0", "Connection" to "close")
             )
-            if (probe.status in 200..399) {
+            // MARBLE_PING_TRUTH_V149 — ANY complete HTTP response proves the route works.
+            //
+            // The old `200..399` gate is a content check masquerading as a reachability check. A
+            // 403 from a CDN edge that dislikes the probe's User-Agent, a 404 because the origin
+            // moved `/generate_204`, a 429 rate-limit, a 503 from one unhealthy PoP — every one of
+            // these is a full round trip through the tunnel: SOCKS negotiated, DNS resolved inside
+            // the tunnel, TLS completed, request sent, response parsed. That is exactly what the
+            // method claims to measure, and it was being published as FAILED. A status line only
+            // fails the probe when it is absent (status <= 0), which means no response at all.
+            if (probe.status > 0) {
                 val rtt = probe.elapsedMs.coerceAtLeast(1.0)
                 ProbeResult(
                     method = "HTTP",
                     latencyMs = rtt,
                     successPercent = 100,
                     samples = 1,
-                    firstByteMs = rtt
+                    firstByteMs = rtt,
+                    failureReason = if (probe.status in 200..399) "" else "status-${probe.status}"
                 )
             } else {
-                ProbeResult("HTTP", UNREACHABLE, 0, 1, failureReason = "status-${probe.status}")
+                ProbeResult("HTTP", UNREACHABLE, 0, 1, failureReason = "no-response")
             }
         }.getOrDefault(ProbeResult("HTTP", UNREACHABLE, 0, 1, failureReason = "exception"))
 
@@ -807,23 +891,35 @@ object RouteProbe {
                 connection.connect()
                 val connectMs = (System.nanoTime() - start) / 1e6
 
-                val responseCode = connection.responseCode
+                // MARBLE_PING_TRUTH_V149 — `responseCode` is what actually performs the round
+                // trip; it must be read inside its own guard. On a 4xx/5xx, HttpURLConnection
+                // throws from `inputStream` and only exposes the body through `errorStream`, and
+                // the old unconditional `inputStream.read()` also forced the HEAD method to wait
+                // for a body that a HEAD response is defined never to have — the exact reason
+                // "HTTP HEAD" timed out against servers that answered instantly.
+                val responseCode = runCatching { connection.responseCode }.getOrDefault(-1)
                 val firstByteMs = (System.nanoTime() - start) / 1e6
 
-                // Drain a small amount of data to ensure the connection is fully established
-                runCatching { connection.inputStream.read() }
+                // Drain one byte only for GET; a HEAD response has no body by definition.
+                if (!httpMethod.equals("HEAD", ignoreCase = true)) {
+                    runCatching {
+                        (if (responseCode in 200..399) connection.inputStream else connection.errorStream)
+                            ?.read()
+                    }
+                }
 
-                if (responseCode in 200..399) {
+                if (responseCode > 0) {
                     ProbeResult(
                         method = "HTTP",
                         latencyMs = firstByteMs,
                         successPercent = 100,
                         samples = 1,
                         tcpHandshakeMs = connectMs,
-                        firstByteMs = firstByteMs
+                        firstByteMs = firstByteMs,
+                        failureReason = if (responseCode in 200..399) "" else "status-$responseCode"
                     )
                 } else {
-                    ProbeResult("HTTP", UNREACHABLE, 0, 1, failureReason = "status-$responseCode")
+                    ProbeResult("HTTP", UNREACHABLE, 0, 1, failureReason = "no-response")
                 }
             } finally {
                 runCatching { connection.disconnect() }
@@ -849,10 +945,17 @@ object RouteProbe {
         val times = ArrayList<Double>(rounds)
         val handshakeTimes = ArrayList<Double>(rounds)
         var consecutiveFailures = 0
+        // MARBLE_PING_TRUTH_V149 — the honest denominator is the attempts actually made, exactly
+        // as [summarize] already does for every other method. The batch divided successes by the
+        // configured `rounds` even when the early-abandon rule stopped the loop after two, so a
+        // route that answered 2 of 2 attempts under an 8-sample budget published 25 % success —
+        // low enough for the UI badge and the ranker to read it as a failing server.
+        var attempts = 0
         for (round in 0 until rounds) {
             // MARBLE_PING_ACCURACY_V145 — spaced samples: a burst of HTTPS requests to the same
             // 204 origin measures connection reuse and server-side rate limiting, not the route.
             if (round > 0 && !pauseBetweenSamples()) break
+            attempts += 1
             val result = httpPing(socksPort, timeoutMs, targets, httpMethod)
             if (result.latencyMs < UNREACHABLE) {
                 times += result.latencyMs
@@ -864,8 +967,12 @@ object RouteProbe {
             }
         }
         if (times.isEmpty()) {
-            return ProbeResult("HTTP", UNREACHABLE, 0, rounds, lossPercent = 100.0, failureReason = "all-failed")
+            return ProbeResult(
+                "HTTP", UNREACHABLE, 0, attempts.coerceAtLeast(1),
+                lossPercent = 100.0, failureReason = "all-failed"
+            )
         }
+        val denominator = attempts.coerceAtLeast(times.size).coerceAtLeast(1)
         // MARBLE_PING_TRUTH_V147 — the Settings page promises "the warm-up sample is discarded",
         // but the batch kept it in the median. The first HTTPS request of a run carries the same
         // cold resolver/ARP/TLS-session state as a TCP gate, so a 3-sample "median" was really a
@@ -881,13 +988,13 @@ object RouteProbe {
         return ProbeResult(
             method = "HTTP",
             latencyMs = median,
-            successPercent = times.size * 100 / rounds,
-            samples = rounds,
+            successPercent = (times.size * 100 / denominator).coerceIn(1, 100),
+            samples = denominator,
             jitterMs = jitter,
             minMs = sorted.first(),
             maxMs = sorted.last(),
             p95Ms = sorted[p95Index],
-            lossPercent = (rounds - times.size).toDouble() * 100.0 / rounds,
+            lossPercent = (denominator - times.size).toDouble() * 100.0 / denominator,
             tcpHandshakeMs = handshakeTimes.average().takeIf { it.isFinite() } ?: 0.0
         )
     }
@@ -1281,24 +1388,113 @@ object RouteProbe {
         ProbeMethod.TCP_RECOMMENDED -> tcpExtended(
             profile.host, profile.port, timeoutMs, samples, settings
         ).copy(method = "TCP_RECOMMENDED")
-        ProbeMethod.HTTP_GET -> httpPingBatch(
-            socksPort = tunnelPort,
-            timeoutMs = timeoutMs,
-            samples = samples,
-            httpMethod = "GET"
-        ).copy(method = "HTTP_GET")
-        ProbeMethod.HTTP_HEAD -> httpPingBatch(
-            socksPort = tunnelPort,
-            timeoutMs = timeoutMs,
-            samples = samples,
-            httpMethod = "HEAD"
-        ).copy(method = "HTTP_HEAD")
-        ProbeMethod.ICMP -> icmpExtended(
-            profile.host,
-            timeoutMs,
-            count = samples,
-            settings = settings
-        ).copy(method = "ICMP")
+        ProbeMethod.HTTP_GET -> httpMeasure(profile, tunnelPort, samples, timeoutMs, settings, "GET")
+        ProbeMethod.HTTP_HEAD -> httpMeasure(profile, tunnelPort, samples, timeoutMs, settings, "HEAD")
+        ProbeMethod.ICMP -> {
+            val icmpResult = icmpExtended(profile.host, timeoutMs, count = samples, settings = settings)
+            if (icmpResult.latencyMs < UNREACHABLE) {
+                icmpResult.copy(method = "ICMP")
+            } else {
+                // MARBLE_PING_TRUTH_V149 — ICMP silence is the WEAKEST possible evidence of death.
+                // Most VPS providers, and effectively every mobile carrier, drop or rate-limit
+                // ICMP echo outright; the method's own documentation says so. Publishing FAILED
+                // for a server that simply does not answer pings is the single most common false
+                // negative users report. When ICMP is silent, confirm with a raw TCP connect to
+                // the server's real port: if the port answers, the server is alive and the result
+                // carries that measurement with the reason recorded, so the user can see WHY the
+                // number came from a different vector instead of seeing a bare failure.
+                val confirm = tcpConnectExtended(profile.host, profile.port, timeoutMs, samples, settings)
+                if (confirm.latencyMs < UNREACHABLE) {
+                    confirm.copy(
+                        method = "ICMP",
+                        lossPercent = icmpResult.lossPercent,
+                        failureReason = "icmp-blocked-tcp-ok"
+                    )
+                } else {
+                    icmpResult.copy(method = "ICMP")
+                }
+            }
+        }
+    }
+
+    /**
+     * MARBLE_PING_TRUTH_V149 — the HTTP GET / HEAD product methods.
+     *
+     * ## The bug
+     *
+     * Both methods used to call [httpPingBatch] with the caller's `tunnelPort` and nothing else.
+     * When no tunnel is running, `socksPort` is 0 and [httpPingBatch] measures a DIRECT request to
+     * a public 204 origin over the underlay. That measurement has two fatal properties:
+     *
+     *  1. it is **identical for every server in the list** — it never touches `profile.host` at
+     *     all, so "ping this server with HTTP GET" was really "ping Cloudflare"; and
+     *  2. on precisely the censored links this app exists for, those origins are filtered, so the
+     *     probe failed for *every* server at once, which is exactly the reported symptom of
+     *     "HTTP GET says failed while the servers are all working".
+     *
+     * ## The fix
+     *
+     * When a live tunnel is supplied the behaviour is unchanged and correct: a real HTTPS request
+     * through the selected route. Without one, the request is aimed at the server's own endpoint
+     * over TLS instead of at a third-party origin, so the method measures the thing the user
+     * selected. If the endpoint is not an HTTP speaker (the normal case for a proxy port), the
+     * verified TCP+TLS gate provides the answer — the same evidence, one layer down, reported
+     * with its reason rather than as a failure.
+     */
+    private fun httpMeasure(
+        profile: ProxyProfile,
+        tunnelPort: Int,
+        samples: Int,
+        timeoutMs: Int,
+        settings: AppSettings,
+        httpMethod: String
+    ): ProbeResult {
+        val label = if (httpMethod.equals("HEAD", ignoreCase = true)) "HTTP_HEAD" else "HTTP_GET"
+        if (tunnelPort > 0) {
+            val viaTunnel = httpPingBatch(
+                socksPort = tunnelPort,
+                timeoutMs = timeoutMs,
+                samples = samples,
+                httpMethod = httpMethod
+            )
+            if (viaTunnel.latencyMs < UNREACHABLE) return viaTunnel.copy(method = label)
+        }
+
+        // No tunnel (or the tunnel phase was filtered): measure the SELECTED endpoint.
+        //
+        // Only an endpoint that genuinely speaks HTTPS is worth a full HTTP batch. A VLESS/Trojan/
+        // VMess port answers a certificate the device cannot validate (that is the entire premise
+        // of the pinning options), so aiming HttpURLConnection at it would spend the whole budget
+        // proving something already known before reaching the gate below. Restricting the attempt
+        // to HTTP-family profiles keeps this path fast for everything else.
+        if (profile.scheme.lowercase() in setOf("http", "https")) {
+            val direct = httpPingBatch(
+                socksPort = 0,
+                timeoutMs = timeoutMs,
+                samples = samples,
+                targets = listOf(endpointHttpsUrl(profile)),
+                httpMethod = httpMethod
+            )
+            if (direct.latencyMs < UNREACHABLE) {
+                return direct.copy(method = label, failureReason = "endpoint-direct")
+            }
+        }
+
+        val gate = tcpExtended(profile.host, profile.port, timeoutMs, samples, settings)
+        if (gate.latencyMs < UNREACHABLE) {
+            return gate.copy(
+                method = label,
+                failureReason = if (gate.failureReason.isBlank()) "http-unavailable-gate-ok" else gate.failureReason
+            )
+        }
+        return gate.copy(method = label)
+    }
+
+    /** `https://host:port/` for the profile endpoint, with IPv6 literals bracketed. */
+    private fun endpointHttpsUrl(profile: ProxyProfile): String {
+        val host = profile.host.trim()
+        val literal = if (host.contains(':') && !host.startsWith("[")) "[$host]" else host
+        return "https://$literal:${profile.port}/"
     }
 
     /**

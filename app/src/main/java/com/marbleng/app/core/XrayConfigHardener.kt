@@ -258,6 +258,9 @@ object XrayConfigHardener {
             "observatory", "burstObservatory"
         ).forEach { root.remove(it) }
         root.put("log", JSONObject().put("loglevel", "warning"))
+        // MARBLE_TLS_PINNING_V149 — last gate before the core: repair TLS peer-verification
+        // fields even for profiles stored before the pinning fix existed. See [harden].
+        TlsPinningPolicy.sanitizeConfigDocument(root)
         return root.toString()
     }
 
@@ -1094,6 +1097,16 @@ object XrayConfigHardener {
         listOf("api", "reverse", "metrics", "stats", "observatory", "burstObservatory", "fakedns")
             .forEach(src::remove)
 
+        // MARBLE_TLS_PINNING_V149 — the last gate before Xray parses the document.
+        //
+        // The share-link parser and the manual builder both emit correct `tlsSettings` now, but
+        // profiles imported before this fix are already persisted with the old shape: a base64 or
+        // OpenSSL-formatted pin the core cannot decode, or the removed `allowInsecure` flag that
+        // makes `TLSConfig.Build()` reject the WHOLE configuration at load. Running the same
+        // single policy here means a stored profile is repaired on its next connect instead of
+        // requiring the user to re-import it, and it makes the invariant structural: no config
+        // can reach the core with a TLS block Xray refuses.
+        TlsPinningPolicy.sanitizeConfigDocument(src)
         verify(src, socksPort, firstTag, needsDirect, settings, underlayHasIpv6)
         return src.toString(2)
     }

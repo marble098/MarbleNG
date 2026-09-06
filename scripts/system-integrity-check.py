@@ -38,6 +38,12 @@ files = {
     "shield": read("app/src/main/java/com/marbleng/app/core/IranShield.kt"),
     "intel": read("app/src/main/java/com/marbleng/app/core/MarbleIntelligence.kt"),
     "manual": read("app/src/main/java/com/marbleng/app/core/ManualConfigBuilder.kt"),
+    "parser": read("app/src/main/java/com/marbleng/app/core/ProxyParser.kt"),
+    "tlsPinning": read("app/src/main/java/com/marbleng/app/core/TlsPinningPolicy.kt"),
+    "reachability": read("app/src/main/java/com/marbleng/app/core/MultiVectorReachability.kt"),
+    "probe": read("app/src/main/java/com/marbleng/app/core/RouteProbe.kt"),
+    "pinningTest": read("app/src/test/java/com/marbleng/app/core/TlsPinningPolicyTest.kt"),
+    "pingTruthTest": read("app/src/test/java/com/marbleng/app/core/PingMethodTruthV149Test.kt"),
     "ssh": read("app/src/main/java/com/marbleng/app/core/SshTransportManager.kt"),
     "socks": read("app/src/main/java/com/marbleng/app/core/SocksHttpClient.kt"),
     "resolverPolicy": read("app/src/main/java/com/marbleng/app/core/ResolverEvidencePolicy.kt"),
@@ -796,6 +802,90 @@ check(
     and 'gh release edit "$tag" -p' not in build_release
     and "gh release edit $tag -p" not in build_release
     and "draft:false" not in build_release,
+)
+
+# MARBLE_TLS_PINNING_V149 — the "connected but no Internet" root cause must stay fixed.
+check(
+    "TLS pinning policy is the single authority",
+    "object TlsPinningPolicy" in files["tlsPinning"]
+    and "verifyPeerCertByName" in files["tlsPinning"]
+    and "pinnedPeerCertSha256" in files["tlsPinning"],
+)
+check(
+    "share links read Xray's short pinning keys",
+    '"vcn"' in files["tlsPinning"] and '"pcs"' in files["tlsPinning"],
+)
+check(
+    "the parser writes both pinning fields through the policy",
+    "TlsPinningPolicy.sanitizeTlsSettings" in files["parser"]
+    and "TlsPinningPolicy.VERIFY_BY_NAME_KEYS" in files["parser"]
+    and "TlsPinningPolicy.PINNED_SHA256_KEYS" in files["parser"],
+)
+check(
+    "the manual builder writes both pinning fields through the policy",
+    "TlsPinningPolicy.sanitizeTlsSettings" in files["manual"]
+    and "val verifyPeerCertByName" in files["manual"]
+    and "val pinnedPeerCertSha256" in files["manual"],
+)
+check(
+    "the hardener repairs stored profiles before the core sees them",
+    files["hardener"].count("TlsPinningPolicy.sanitizeConfigDocument") >= 2,
+)
+check(
+    "the pinning editor is reachable from the UI",
+    "Verify peer certificate by name" in files["ui"]
+    and "Certificate fingerprint (SHA-256)" in files["ui"],
+)
+check(
+    # Xray v26 removed allowInsecure: emitting it makes TLSConfig.Build() reject the WHOLE config.
+    "allowInsecure is never emitted into an Xray config",
+    'put("allowInsecure"' not in files["parser"]
+    and 'put("allowInsecure"' not in files["manual"]
+    and 'put("allowInsecure"' not in files["hardener"],
+)
+check(
+    "fingerprints are emitted as hex, which is what Xray parses",
+    "hex.DecodeString" in files["tlsPinning"] or "lowercase hex" in files["tlsPinning"],
+)
+
+# MARBLE_PING_TRUTH_V149 — the four product ping methods must not convict healthy servers.
+check(
+    # `-q` hides the per-packet `time=` lines the RTT parser depends on, so every ICMP ping
+    # returned "no-responses" even at 0% packet loss.
+    "ICMP never re-acquires ping's quiet flag",
+    'add("-q")' not in files["probe"],
+)
+# The rationale comment in MultiVectorReachability deliberately NAMES the JSSE calls it removed,
+# so this invariant is asserted against imports and executable statements, not prose.
+_reachability_code = "\n".join(
+    line for line in files["reachability"].splitlines()
+    if not line.lstrip().startswith(("*", "//", "/*"))
+)
+check(
+    "the Layer-0 gate no longer asks the device CA store about a proxy certificate",
+    "javax.net.ssl" not in files["reachability"]
+    and "SSLSocketFactory" not in _reachability_code
+    and "startHandshake()" not in _reachability_code
+    and "endpointIdentificationAlgorithm" not in _reachability_code
+    and "internal fun clientHello" in files["reachability"]
+    and "internal fun isTlsRecord" in files["reachability"],
+)
+check(
+    "HTTP methods accept any complete status line as a round trip",
+    "probe.status > 0" in files["probe"] and "responseCode > 0" in files["probe"],
+)
+check(
+    "HEAD never waits for a body a HEAD response cannot have",
+    'httpMethod.equals("HEAD", ignoreCase = true)' in files["probe"],
+)
+check(
+    "ping success rates use the attempts actually made",
+    "val denominator = attempts" in files["probe"],
+)
+check(
+    "V149 regressions are pinned by unit tests",
+    "TlsPinningPolicyTest" in files["pinningTest"]
+    and "PingMethodTruthV149Test" in files["pingTruthTest"],
 )
 
 # Global concurrency smells.

@@ -41,6 +41,17 @@ data class ManualConfigDraft(
     val fingerprint: String = "chrome",
     /** Xray TLS cipher suite names separated by ':'; empty lets Go/Xray choose automatically. */
     val cipherSuites: String = "",
+    /**
+     * MARBLE_TLS_PINNING_V149 — "Verify peer certificate by name". Comma-separated DNS names,
+     * mapped verbatim onto Xray's `tlsSettings.verifyPeerCertByName`.
+     */
+    val verifyPeerCertByName: String = "",
+    /**
+     * MARBLE_TLS_PINNING_V149 — "Certificate fingerprint (SHA-256)". Comma-separated digests,
+     * mapped onto `tlsSettings.pinnedPeerCertSha256`. Hex, OpenSSL colon-hex and base64 are all
+     * accepted here and normalized to the lowercase hex Xray parses.
+     */
+    val pinnedPeerCertSha256: String = "",
     val path: String = "/",
     val hostHeader: String = "",
     val serviceName: String = "",
@@ -81,6 +92,12 @@ object ManualConfigBuilder {
         if (draft.host.isBlank()) return "Server address is required"
         draft.port.trim().toIntOrNull()?.let { port ->
             if (port !in 1..65535) return "Port must be between 1 and 65535"
+        }
+        // MARBLE_TLS_PINNING_V149 — a malformed pin is refused here rather than silently dropped.
+        // Xray rejects the WHOLE configuration when one fingerprint does not decode to 32 bytes,
+        // so a typo in this field would otherwise be discovered as "core failed to start".
+        if (TlsPinningPolicy.hasInvalidFingerprint(draft.pinnedPeerCertSha256)) {
+            return "Certificate fingerprint must be SHA-256 (64 hex chars, or base64 of 32 bytes)"
         }
         return when (draft.protocol) {
             ManualProtocol.VLESS -> when {
@@ -426,9 +443,19 @@ object ManualConfigBuilder {
                 // PattNG parity: Xray accepts a colon-separated cipherSuites string.
                 d.cipherSuites.trim().takeIf(String::isNotBlank)
                     ?.let { put("cipherSuites", it) }
-                if (d.allowInsecure) put("allowInsecure", true)
                 val values = splitList(d.alpn)
                 if (values.isNotEmpty()) put("alpn", JSONArray(values))
+                // MARBLE_TLS_PINNING_V149 — the manual editor's two peer-verification options
+                // are the same Xray fields the share-link parser writes, produced by the same
+                // single policy so the two entry points can never disagree. `allowInsecure` is
+                // a removed feature in this core and is translated, never emitted.
+                TlsPinningPolicy.sanitizeTlsSettings(
+                    tls = this,
+                    verifyPeerCertByName = d.verifyPeerCertByName,
+                    pinnedPeerCertSha256 = d.pinnedPeerCertSha256,
+                    allowInsecureRequested = d.allowInsecure,
+                    insecureFallbackName = host
+                )
             }
 
     private fun base(outbound: JSONObject): JSONObject =

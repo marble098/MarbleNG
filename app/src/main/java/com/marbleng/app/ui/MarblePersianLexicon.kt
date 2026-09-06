@@ -428,6 +428,14 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Allow insecure TLS" to "اجازه TLS ناامن",
     "TLS server name" to "نام سرور TLS",
     "Host key SHA256 • optional" to "SHA256 کلید میزبان • اختیاری",
+    // MARBLE_TLS_PINNING_V149
+    "Verify peer certificate by name" to "بررسی گواهی سرور بر اساس نام",
+    "Certificate fingerprint (SHA-256)" to "اثر انگشت گواهی (SHA-256)",
+    "hex or base64, comma separated" to "hex یا base64، جدا شده با کاما",
+    "Pinning replaces CA verification: names map to verifyPeerCertByName, fingerprints to pinnedPeerCertSha256." to
+        "پین‌کردن جای بررسی CA را می‌گیرد: نام‌ها به verifyPeerCertByName و اثر انگشت‌ها به pinnedPeerCertSha256 نگاشت می‌شوند.",
+    "Certificate fingerprint must be SHA-256 (64 hex chars, or base64 of 32 bytes)" to
+        "اثر انگشت گواهی باید SHA-256 باشد (۶۴ کاراکتر hex یا base64 از ۳۲ بایت)",
     "TCP via protected loopback; UDP blocked." to "TCP از حلقه محافظت‌شده؛ UDP مسدود است.",
     "Private key" to "کلید خصوصی",
     "Local address / CIDR" to "نشانی محلی / CIDR",
