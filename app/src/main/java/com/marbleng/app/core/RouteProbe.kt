@@ -587,16 +587,66 @@ object RouteProbe {
         socksPort: Int,
         timeoutMs: Int
     ): ProbeResult {
-        return runCatching {
-            val proxy = if (socksPort > 0) {
-                java.net.Proxy(
-                    java.net.Proxy.Type.SOCKS,
-                    InetSocketAddress("127.0.0.1", socksPort)
+        if (socksPort > 0) return httpPingOnceThroughTunnel(url, socksPort, timeoutMs)
+        return httpPingOnceDirect(url, timeoutMs)
+    }
+
+    /**
+     * MARBLE_TUNNEL_PING_DNS_SAFE_V146 — the tunnel measurement must never ask the system
+     * resolver for the target hostname.
+     *
+     * [HttpURLConnection] with a SOCKS proxy resolves the destination host through Android's own
+     * resolver *before* opening the proxy connection, so a "real delay" ping through the tunnel
+     * still leaked the 204 origin's name to the underlay resolver. On a censored link that poisons
+     * or drops Google/Cloudflare names, the tunnel itself was perfectly healthy and the
+     * measurement still reported unreachable — convicted by a DNS lookup the tunnel was built to
+     * bypass.
+     *
+     * The rewrite uses [SocksHttpClient.request], which sends ATYP=domain to the SOCKS5 inbound so
+     * Xray resolves the name inside the tunnel, and completes certificate-verified TLS against the
+     * real hostname. The only name the system resolver ever sees is "127.0.0.1".
+     */
+    private fun httpPingOnceThroughTunnel(url: String, socksPort: Int, timeoutMs: Int): ProbeResult =
+        runCatching {
+            val target = URL(url)
+            if (!target.protocol.equals("https", ignoreCase = true)) {
+                return@runCatching ProbeResult(
+                    "HTTP", UNREACHABLE, 0, 1, failureReason = "non-https-target"
+                )
+            }
+            val targetPort = target.port.takeIf { it > 0 } ?: 443
+            val path = target.file.takeIf { it.isNotBlank() } ?: "/"
+            val probe = SocksHttpClient.request(
+                port = socksPort,
+                host = target.host,
+                targetPort = targetPort,
+                method = "GET",
+                path = path,
+                timeoutMs = timeoutMs,
+                maxBytes = 4_096,
+                headers = mapOf("User-Agent" to "MarbleNG/1.0")
+            )
+            if (probe.status in 200..399) {
+                val rtt = probe.elapsedMs.coerceAtLeast(1.0)
+                ProbeResult(
+                    method = "HTTP",
+                    latencyMs = rtt,
+                    successPercent = 100,
+                    samples = 1,
+                    firstByteMs = rtt
                 )
             } else {
-                java.net.Proxy.NO_PROXY
+                ProbeResult("HTTP", UNREACHABLE, 0, 1, failureReason = "status-${probe.status}")
             }
-            val connection = URL(url).openConnection(proxy) as HttpURLConnection
+        }.getOrDefault(ProbeResult("HTTP", UNREACHABLE, 0, 1, failureReason = "exception"))
+
+    /**
+     * Direct HTTPS GET to the 204 origin over the underlay — no SOCKS hop, so the system resolver
+     * is the right resolver here (the HTTP method is explicitly measuring the underlay path).
+     */
+    private fun httpPingOnceDirect(url: String, timeoutMs: Int): ProbeResult {
+        return runCatching {
+            val connection = URL(url).openConnection() as HttpURLConnection
             try {
                 connection.connectTimeout = timeoutMs
                 connection.readTimeout = timeoutMs
@@ -876,11 +926,14 @@ object RouteProbe {
         }
 
         // Phase 2: real HTTPS measurement — through the live tunnel when one is supplied.
-        // Several independent 204 origins are raced so one censored CDN can never fail the node on its own.
-        val realTimeoutMs = (budgetMs * 0.65).toInt().coerceAtLeast(800)
+        // Several independent 204 origins are raced so one censored CDN can never fail the node
+        // on its own. MARBLE_SMART_BUDGET_FULL_V146 — this phase is the measurement the user
+        // asked for, so it owns the FULL per-sample budget instead of a 65% slice: a route that
+        // answers in 7 s under a 10 s budget must be reported as 7 s, not as timed-out at 6.5 s.
+        // The fast gate above is what keeps dead nodes cheap, not a budget carve-out here.
         val httpResult = httpPingBatch(
             socksPort = tunnelPort,
-            timeoutMs = realTimeoutMs,
+            timeoutMs = budgetMs,
             samples = gateSamples.coerceAtMost(3)
         )
 

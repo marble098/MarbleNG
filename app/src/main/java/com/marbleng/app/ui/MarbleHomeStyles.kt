@@ -217,8 +217,9 @@ internal data class HomeActions(
     val onPasteImport: () -> Unit = {},
     val onQrImport: () -> Unit = {},
     /**
-     * MARBLE_HOME_GROUP_PING_V145 — measure every server of the group Home currently shows.
-     * Distinct from [onTestPing], which measures the one route the connect button acts on.
+     * MARBLE_HOME_PING_ROUTE_GROUP_V146 — measure every server of the subscription that the
+     * route currently shown on Home belongs to. Distinct from [onTestPing], which measures the
+     * one route the connect button acts on.
      */
     val onPingGroup: () -> Unit = {}
 )
@@ -805,6 +806,18 @@ private fun ConnectButtonSlide(
     val shimmer = if (busy) motion.loop(1_400) else 0f
     var dragging by remember { mutableStateOf(false) }
     val thresholdReached = progress >= threshold
+
+    // MARBLE_SLIDE_PARK_V146 — the knob parks on the side it was dragged to. While a route is
+    // live (or being opened) it rests at the END of the track; otherwise at the START. This
+    // replaces the old "always spring back to zero", which left a connected control still
+    // reading "slide to connect".
+    val restAtEnd = evidence.connected || evidence.connecting
+    LaunchedEffect(restAtEnd, travelPx) {
+        if (!dragging) {
+            knob.animateTo(if (restAtEnd) travelPx else 0f, MarbleMotionSpecs.QuickReveal)
+        }
+    }
+
     // One haptic tick at the exact moment the finger crosses the threshold — never while the
     // knob animates on its own (completion beat, spring-back), only while dragged.
     LaunchedEffect(thresholdReached, dragging) {
@@ -901,35 +914,47 @@ private fun ConnectButtonSlide(
                         .size(knobSize)
                         .clip(CircleShape)
                         .background(animatedTone.copy(alpha = .92f))
-                        .pointerInput(armed, travelPx) {
+                        .pointerInput(armed, evidence.connected, travelPx) {
                             if (!armed) return@pointerInput
                             detectHorizontalDragGestures(
                                 onDragStart = { dragging = true },
                                 onDragEnd = {
                                     dragging = false
-                                    // The switch only fires when the knob really crossed the
-                                    // threshold. Completion flies through the end first — one
-                                    // visible beat that the action armed — then springs home.
-                                    // A short drag springs straight back: nothing happened.
-                                    val completed = knob.value >= travelPx * threshold
+                                    // MARBLE_SLIDE_PARK_V146 — the commit direction follows the
+                                    // route state: connected drags back toward the start to
+                                    // disconnect, disconnected drags to the end to connect. A
+                                    // completed drag flies to the committed side and HOLDS there;
+                                    // a short drag springs back to the state's own side.
+                                    val completed = if (evidence.connected) {
+                                        knob.value <= travelPx * (1f - threshold)
+                                    } else {
+                                        knob.value >= travelPx * threshold
+                                    }
                                     scope.launch {
                                         if (completed) {
                                             knob.animateTo(
-                                                travelPx,
+                                                if (evidence.connected) 0f else travelPx,
                                                 MarbleMotionSpecs.QuickReveal
                                             )
                                             haptics.performHapticFeedback(
                                                 HapticFeedbackType.TextHandleMove
                                             )
                                             onToggle()
+                                        } else {
+                                            knob.animateTo(
+                                                if (evidence.connected) travelPx else 0f,
+                                                MarbleMotionSpecs.ResponseFloat
+                                            )
                                         }
-                                        knob.animateTo(0f, MarbleMotionSpecs.ResponseFloat)
                                     }
                                 },
                                 onDragCancel = {
                                     dragging = false
                                     scope.launch {
-                                        knob.animateTo(0f, MarbleMotionSpecs.ResponseFloat)
+                                        knob.animateTo(
+                                            if (evidence.connected) travelPx else 0f,
+                                            MarbleMotionSpecs.ResponseFloat
+                                        )
                                     }
                                 }
                             ) { change, amount ->
@@ -1707,9 +1732,10 @@ internal fun MarbleWordmark(modifier: Modifier = Modifier) {
  * chooser is a menu; making it a modal meant the page vanished, the backdrop dimmed and the
  * user had to travel back to the icon they were already touching.
  *
- * MARBLE_HOME_GROUP_PING_V145 — the pulse icon measures the WHOLE selected group, which is the
- * question the Home page is asking ("how is this subscription doing?"). The per-route ping is
- * still one tap away on the status banner.
+ * MARBLE_HOME_PING_ROUTE_GROUP_V146 — the pulse icon measures the subscription that the route
+ * currently shown on the page belongs to, which is the question the Home page is asking ("how is
+ * the subscription I am looking at doing?"). The per-route ping of that same server is still one
+ * tap away on the status banner.
  */
 @Composable
 internal fun HomeTopActionBar(
@@ -2433,6 +2459,7 @@ internal fun IosSlideToConnect(
 
     val dragOffset = remember { Animatable(0f) }
     val coroutineScope = rememberCoroutineScope()
+    var dragging by remember { mutableStateOf(false) }
 
     val labelText = when {
         evidence.connected -> t.slideToDisconnect
@@ -2454,6 +2481,19 @@ internal fun IosSlideToConnect(
     ) {
         val maxDragPx = max(1f, trackWidthPx - thumbSizePx - 8f)
         val progress = (dragOffset.value / maxDragPx).coerceIn(0f, 1f)
+
+        // MARBLE_SLIDE_PARK_V146 — the thumb parks on the side it was dragged to, instead of
+        // always springing back to the start. While a route is live (or still being opened) the
+        // thumb rests at the END; otherwise it rests at the START. The offset is layout-aware,
+        // so "end" is the right edge in LTR and the left edge in RTL — the physical side the
+        // finger travelled to either way.
+        val restOffset = if (evidence.connected || evidence.connecting) maxDragPx else 0f
+        LaunchedEffect(evidence.connected, evidence.connecting, maxDragPx) {
+            // Never fight the finger: a state change that lands mid-drag waits for the release.
+            if (!dragging) {
+                dragOffset.animateTo(restOffset, tween(260, easing = FastOutSlowInEasing))
+            }
+        }
 
         // Ambient sheen: a single light band on the shared motion clock — slow when armed,
         // fast while the tunnel negotiates, invisible once the user owns the gesture. The clock
@@ -2518,18 +2558,42 @@ internal fun IosSlideToConnect(
                 .background(tone)
                 .pointerInput(evidence.connected, busy, maxDragPx) {
                     detectHorizontalDragGestures(
+                        onDragStart = { dragging = true },
                         onDragEnd = {
-                            if (dragOffset.value >= maxDragPx * 0.65f) {
+                            dragging = false
+                            // MARBLE_SLIDE_PARK_V146 — the commit direction follows the route
+                            // state: while connected the safety switch is dragged back toward the
+                            // start to disconnect; while disconnected it is dragged to the end to
+                            // connect. On a completed drag the thumb flies to the committed side
+                            // and HOLDS there; a short drag springs back to the state's own side
+                            // instead of always to zero.
+                            val completed = if (evidence.connected) {
+                                dragOffset.value <= maxDragPx * 0.35f
+                            } else {
+                                dragOffset.value >= maxDragPx * 0.65f
+                            }
+                            if (completed) {
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                 actions.onToggleConnection()
-                            }
-                            coroutineScope.launch {
-                                dragOffset.animateTo(0f, tween(250, easing = FastOutSlowInEasing))
+                                coroutineScope.launch {
+                                    dragOffset.animateTo(
+                                        if (evidence.connected) 0f else maxDragPx,
+                                        tween(220, easing = FastOutSlowInEasing)
+                                    )
+                                }
+                            } else {
+                                coroutineScope.launch {
+                                    dragOffset.animateTo(
+                                        restOffset,
+                                        tween(250, easing = FastOutSlowInEasing)
+                                    )
+                                }
                             }
                         },
                         onDragCancel = {
+                            dragging = false
                             coroutineScope.launch {
-                                dragOffset.animateTo(0f, tween(200))
+                                dragOffset.animateTo(restOffset, tween(200))
                             }
                         },
                         onHorizontalDrag = { change, dragAmount ->

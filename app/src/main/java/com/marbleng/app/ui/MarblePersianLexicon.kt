@@ -1052,7 +1052,77 @@ private val FaLexicon: Map<String, String> = mapOf(
 
     // ------------------------------------------------------------------ V145: geo asset gate
     "Geo routing paused until the routing databases finish downloading" to
-        "مسیریابی جغرافیایی تا کامل شدن دانلود پایگاه‌های داده موقتاً غیرفعال است"
+        "مسیریابی جغرافیایی تا کامل شدن دانلود پایگاه‌های داده موقتاً غیرفعال است",
+
+    // ------------------------------------------------------------------ V146: Persian completion
+    // MARBLE_PERSIAN_COMPLETION_V146 — the user-facing strings that still fell back to English.
+    // Identity Guard section.
+    "Identity Guard" to "محافظ هویت",
+    "Keep one public exit" to "نگه‌داشتن یک خروجی عمومی",
+    "Pin the session to one exit IP" to "قفل کردن نشست روی یک آی‌پی خروجی",
+    // Routing entry card.
+    "Open the dedicated routing workspace" to "بازکردن فضای اختصاصی مسیریابی",
+    "Control traffic routing, domain resolution and rule matching" to
+        "کنترل مسیریابی ترافیک، تفکیک دامنه و تطبیق قوانین",
+    // Ping method rows (Settings › Tests › Ping).
+    "Recommended • fast gate + real HTTPS test" to "پیشنهادی • دروازه سریع + تست واقعی HTTPS",
+    "Slowest, proves the route end to end" to "کندترین، ولی مسیر را سرتاسری اثبات می‌کند",
+    "Fastest, TCP handshake to server address" to "سریع‌ترین، دست‌دادن TCP با آدرس سرور",
+    "Classic ping, bypasses the proxy" to "پینگ کلاسیک، بدون عبور از پروکسی",
+    "DNS resolution time, fastest check" to "زمان تفکیک DNS، سریع‌ترین بررسی",
+    "Used by the Home ping button, subscription ping and Ping all." to
+        "استفاده توسط دکمه پینگ خانه، پینگ ساب و پینگ همه.",
+    "DNS ping measures resolution time only — it does not test the server itself." to
+        "پینگ DNS فقط زمان تفکیک را می‌سنجد — خود سرور را تست نمی‌کند.",
+    "No response" to "بدون پاسخ",
+    // Routing rule workspace.
+    "Direct & block text lists" to "فهرست‌های متنی مستقیم و مسدود",
+    "Emitted Xray rule" to "قانون تولیدشده Xray",
+    "Geo direct sends these straight over the underlay:" to
+        "مسیر مستقیم جغرافیایی این‌ها را مستقیم از شبکه زیرین می‌فرستد:",
+    "This replaces your current rules with the preset list. Your mode, geo source and expert lists stay untouched." to
+        "این کار قوانین فعلی را با فهرست قالب جایگزین می‌کند. حالت، منبع جغرافیایی و فهرست‌های پیشرفته دست‌نخورده می‌مانند.",
+    "Top wins. Drag to reorder, tap to edit." to
+        "اولی برنده است. برای مرتب‌سازی بکشید، برای ویرایش لمس کنید.",
+    "Several hops, in order" to "چند گام، به ترتیب",
+    "Route through several servers in order" to "عبور از چند سرور به ترتیب",
+    // Import / add-route menu and pickers.
+    "Imports land in" to "مقصد واردات",
+    "Add from QR code" to "افزودن از کد QR",
+    "Add manually" to "افزودن دستی",
+    "Import from QR code" to "وارد کردن از کد QR",
+    "Import from clipboard" to "وارد کردن از کلیپ‌بورد",
+    "Import from file" to "وارد کردن از فایل",
+    "Scan with camera" to "اسکن با دوربین",
+    "Scan with the camera or pick a saved image" to "با دوربین اسکن کنید یا یک تصویر ذخیره‌شده انتخاب کنید",
+    "Pick from gallery" to "انتخاب از گالری",
+    "Point the camera at the code, or pick a screenshot or photo." to
+        "دوربین را روی کد بگیرید یا یک اسکرین‌شات/عکس انتخاب کنید.",
+    "Choose what to build" to "چه چیزی بسازم؟",
+    "Enter protocol, address and credentials" to "پروتکل، آدرس و اعتبارنامه را وارد کنید",
+    "A .txt / .json / subscription export" to "خروجی .txt / .json یا اشتراک",
+    "A provider URL Marble keeps up to date" to "آدرس ساب که ماربل آن را به‌روز نگه می‌دارد",
+    "Select one server source first." to "اول یک منبع سرور انتخاب کنید.",
+    // Hub and runtime status copy.
+    "Routing, tests and servers" to "مسیریابی، تست‌ها و سرورها",
+    "Connect first. Privacy audit uses the active Xray path." to
+        "اول متصل شوید. ممیزی حریم خصوصی از مسیر فعال Xray استفاده می‌کند.",
+    "No privacy report yet. Tap Privacy after the tunnel is healthy." to
+        "هنوز گزارشی نیست. بعد از سلامت تونل، روی «حریم خصوصی» بزنید.",
+    "Running privacy audit through the active Xray route…" to
+        "در حال ممیزی حریم خصوصی از مسیر فعال Xray…",
+    "Auto-update is on" to "به‌روزرسانی خودکار روشن است",
+    "Auto-update is off" to "به‌روزرسانی خودکار خاموش است",
+    "Tap Update to download" to "برای دانلود، روی «به‌روزرسانی» بزنید",
+    "Clipboard is empty" to "کلیپ‌بورد خالی است",
+    "Config link copied" to "لینک کانفیگ کپی شد",
+    "Version details copied" to "جزئیات نسخه کپی شد",
+    "Xray rejected this server configuration • check protocol/TLS settings" to
+        "Xray این پیکربندی را رد کرد • تنظیمات پروتکل/TLS را بررسی کنید",
+    "Unsupported VLESS • pick a server with TLS/REALITY" to
+        "VLESS پشتیبانی‌نشده • سروری با TLS/REALITY انتخاب کنید",
+    "DNS resolver timed out • Marble is switching to a fallback path" to
+        "حل‌کننده DNS زمان را رد کرد • ماربل به مسیر جایگزین می‌رود"
 )
 
 /** Lowercased view of the lexicon so `UPPERCASE` renders of the same keys still match. */

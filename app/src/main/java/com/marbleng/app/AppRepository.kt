@@ -3256,23 +3256,45 @@ private fun postToMain(block: () -> Unit) {
     fun testAll() = testSource("all")
 
     /**
-     * MARBLE_HOME_GROUP_PING_V145 — the Home ping button measures the whole selected group.
+     * MARBLE_HOME_PING_ROUTE_GROUP_V146 — the Home ping button measures the subscription that
+     * the route SHOWN on the Home page belongs to.
      *
-     * Home shows one subscription at a time (the group chip above the server list), and the
-     * user's question when they tap the pulse icon is "how is this subscription doing?", not
-     * "how is the one row I happen to have selected doing?". This runs the same one ping engine
-     * over every server of the currently selected Home group; "All groups" pings everything.
+     * The route on the page is whatever the connect button acts on (the deck's own resolution:
+     * the active route, else the selected one, else the remembered one). When the user taps the
+     * pulse icon their question is "how is the subscription I am looking at doing?", so the sweep
+     * covers exactly that route's group. `"all"` is never substituted: a route always belongs to
+     * a concrete source, and a route that somehow resolved without one degrades to the Manual
+     * bucket instead of silently sweeping every subscription.
      *
-     * The per-server ping of the active route is still one tap away on the status banner, so
-     * neither question lost its answer.
+     * The per-server ping of that same route is still one tap away on the status banner, and the
+     * group-chip ping remains available on the Servers page, so neither question lost its answer.
      */
     fun pingHomeGroup() {
-        ensureLibrarySourceSelectionValid()
-        testSource(librarySourceFilter.ifBlank { "all" })
+        val route = homeRoute()
+        val sourceId = when {
+            route == null -> "manual"
+            route.subscriptionId.isBlank() -> "manual"
+            else -> route.subscriptionId
+        }
+        // Unknown ids fail closed inside libraryScopeSnapshot (empty set), never a full sweep.
+        testSource(sourceId)
     }
 
+    /**
+     * The route the Home page is currently showing — the deck's own resolution, in one place.
+     * Active (carrying traffic), else selected (the connect button's target), else remembered.
+     */
+    fun homeRoute(): ProxyProfile? =
+        profile(activeProfileId, activeProfileSourceId)
+            ?: profile(selectedProfileId, selectedProfileSourceId)
+            ?: lastProfile()
+
     /** Human-readable name of the group [pingHomeGroup] would measure. */
-    fun homeGroupPingLabel(): String = libraryScopeLabel(librarySourceFilter.ifBlank { "all" })
+    fun homeGroupPingLabel(): String {
+        val route = homeRoute()
+        val sourceId = route?.subscriptionId?.takeIf { it.isNotBlank() } ?: "manual"
+        return libraryScopeLabel(sourceId)
+    }
 
     /** True while a ping sweep covering the current Home group is running. */
     val homeGroupPingRunning: Boolean

@@ -352,6 +352,66 @@ class XrayConfigHardenerTest {
         )
     }
 
+    /** A single VLESS node with a domain endpoint, so the liveness pass applies. */
+    private fun vlessDomainSource(): String = JSONObject()
+        .put(
+            "outbounds",
+            JSONArray().put(
+                JSONObject()
+                    .put("tag", "proxy")
+                    .put("protocol", "vless")
+                    .put(
+                        "settings",
+                        JSONObject().put(
+                            "vnext",
+                            JSONArray().put(
+                                JSONObject()
+                                    .put("address", "node.example.net")
+                                    .put("port", 443)
+                                    .put(
+                                        "users",
+                                        JSONArray().put(
+                                            JSONObject()
+                                                .put("id", "11111111-1111-1111-1111-111111111111")
+                                                .put("encryption", "none")
+                                        )
+                                    )
+                            )
+                        )
+                    )
+                    .put(
+                        "streamSettings",
+                        JSONObject().put("network", "tcp").put("security", "tls")
+                    )
+            )
+        )
+        .toString()
+
+    @Test
+    fun `iran mode applies longer tcp liveness to the tunnel outbound`() {
+        val baseline = harden(fragmentChainSettings(), vlessDomainSource())
+        val iran = harden(
+            fragmentChainSettings().copy(iranModePolicy = IranModePolicy.ALWAYS_ON),
+            vlessDomainSource()
+        )
+
+        val baseSockopt = outbound(baseline, "proxy")
+            .optJSONObject("streamSettings")?.optJSONObject("sockopt")
+        val iranSockopt = outbound(iran, "proxy")
+            .optJSONObject("streamSettings")?.optJSONObject("sockopt")
+
+        // Baseline (Iran Mode off) uses the plain non-filtered-network profile.
+        assertEquals(60, baseSockopt?.optInt("tcpKeepAliveIdle"))
+        assertEquals(15, baseSockopt?.optInt("tcpKeepAliveInterval"))
+        assertEquals(60_000, baseSockopt?.optInt("tcpUserTimeout"))
+
+        // Iran Mode on (countermeasures default on) applies the MARBLE_IRAN_LIVENESS_V80 profile:
+        // longer keep-alive and user-timeout for Iran's high-RTT, high-loss filtered transit.
+        assertEquals(108, iranSockopt?.optInt("tcpKeepAliveIdle"))
+        assertEquals(22, iranSockopt?.optInt("tcpKeepAliveInterval"))
+        assertEquals(120_000, iranSockopt?.optInt("tcpUserTimeout"))
+    }
+
     @Test
     fun `freedom only config without fragment is accepted as a hand imported exit`() {
         val source = JSONObject()
