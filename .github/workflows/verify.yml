@@ -32,7 +32,49 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          jq -e '.xray.tag and .hev.tag' core-lock.json
+          # MARBLE_SINGBOX_CORE_V151 — three pinned cores now: Xray, hev-socks5-tunnel and
+          # sing-box extended. A lock missing any one of them must fail here, before a 40-minute
+          # native build discovers it.
+          jq -e '.xray.tag and .xray.repo' core-lock.json
+          jq -e '.hev.tag and .hev.repo' core-lock.json
+          jq -e '.singbox.tag and .singbox.repo' core-lock.json
+
+      - name: Core versions agree everywhere
+        shell: bash
+        run: |
+          set -euo pipefail
+          # MARBLE_CORE_VERSION_PARITY_V151 — Settings → Information prints these three tags, so
+          # they have to be the tags the APK is actually built with. Nothing may hard-code a
+          # version: the gradle build and the native script both have to read core-lock.json, and
+          # the updater has to be the only thing that writes it.
+          XRAY_TAG="$(jq -r '.xray.tag' core-lock.json)"
+          HEV_TAG="$(jq -r '.hev.tag' core-lock.json)"
+          SINGBOX_TAG="$(jq -r '.singbox.tag' core-lock.json)"
+
+          for pair in "xray:$XRAY_TAG" "hev:$HEV_TAG" "singbox:$SINGBOX_TAG"; do
+            component="${pair%%:*}"
+            tag="${pair#*:}"
+            [[ -n "$tag" && "$tag" != "null" ]] || { echo "empty tag for $component"; exit 1; }
+          done
+
+          grep -q 'coreLockField("xray", "tag")' app/build.gradle.kts
+          grep -q 'coreLockField("hev", "tag")' app/build.gradle.kts
+          grep -q 'coreLockField("singbox", "tag")' app/build.gradle.kts
+          grep -q 'SINGBOX_CORE_TAG' app/build.gradle.kts
+
+          grep -q ".xray.tag" scripts/prepare-native.sh
+          grep -q ".hev.tag" scripts/prepare-native.sh
+          grep -q ".singbox.tag" scripts/prepare-native.sh
+          grep -q "libsingbox.so" scripts/prepare-native.sh
+
+          # The sing-box pin tracks the extended beta line, which is what the product ships.
+          [[ "$(jq -r '.singbox.channel' core-lock.json)" == "beta" ]]
+          [[ "$(jq -r '.singbox.repo' core-lock.json)" == "shtorm-7/sing-box-extended" ]]
+          grep -q "beta" scripts/update-core-lock.sh
+
+          # A hard-coded version string anywhere outside the lock is drift waiting to happen.
+          ! grep -RnoE "v26\.[0-9]+\.[0-9]+" app/build.gradle.kts scripts/prepare-native.sh
+          ! grep -RnoE "1\.14\.0-extended" app/build.gradle.kts scripts/prepare-native.sh
 
       - name: Realtime Xray native smoke
         shell: bash
