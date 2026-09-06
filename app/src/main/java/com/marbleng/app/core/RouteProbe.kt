@@ -4,10 +4,14 @@ import com.marbleng.app.model.AppSettings
 import com.marbleng.app.model.ProbeMethod
 import com.marbleng.app.model.ProxyProfile
 import java.net.HttpURLConnection
+import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.Socket
 import java.net.URL
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.abs
 import kotlin.math.sqrt
 
@@ -52,6 +56,16 @@ object RouteProbe {
     private const val FAST_FAILURE_RETRY_WINDOW_MS = 300L
     private const val FAST_FAILURE_RETRY_DELAY_MS = 120L
 
+    /** Scheduling grace added to the HTTP origin race deadline (see [httpPing]). */
+    private const val HTTP_RACE_GRACE_MS = 750L
+
+    /**
+     * MARBLE_ICMP_BUDGET_V144 — ping(8) `-W` speaks whole seconds: 1 s is the smallest wait the
+     * binary can express, 10 s the largest any probe should ever grant one packet batch.
+     */
+    internal const val ICMP_MIN_WAIT_SEC = 1
+    private const val ICMP_MAX_WAIT_SEC = 10
+
     /** Well-known HTTPS 204 targets for real delay tests (v2rayNG-compatible). */
     private val REAL_DELAY_TARGETS = listOf(
         "https://www.gstatic.com/generate_204",
@@ -66,6 +80,18 @@ object RouteProbe {
         "dns.google",
         "dns.cloudflare.com"
     )
+
+    /**
+     * MARBLE_PROBE_DETERMINISM_V144 — the blank-host DNS target used to be `DNS_TARGETS.random()`:
+     * consecutive sweeps measured different resolvers, so two runs of Ping-all produced numbers
+     * that could not be compared and a flaky provider poisoned exactly every third row at random.
+     * Targets now rotate deterministically; the sequence is identical on every run and every
+     * device, which is also what makes the rotation unit-testable.
+     */
+    private val dnsTargetCursor = AtomicInteger(0)
+
+    internal fun nextDnsTarget(): String =
+        DNS_TARGETS[Math.floorMod(dnsTargetCursor.getAndIncrement(), DNS_TARGETS.size)]
 
     data class Sample(val successPercent: Int, val latencyMs: Double)
 
@@ -96,7 +122,13 @@ object RouteProbe {
         timeoutMs: Int,
         plan: IpFamilyPlan
     ): Double {
-        val candidates = AddressFamilyPolicy.resolveCandidates(host, plan)
+        // MARBLE_RESOLVE_BUDGET_V144 — resolution is part of this call's [timeoutMs] contract,
+        // not a free unbounded prelude to it. Domain hosts may spend at most half the budget
+        // (floored/ceiled so tiny budgets still resolve and huge ones never stall); literals
+        // skip the resolver untouched. The stopwatch below still starts after resolution, so a
+        // resolved address keeps the exact same measured latency as before.
+        val dnsBudgetMs = (timeoutMs / 2).coerceIn(500, 2_500)
+        val candidates = AddressFamilyPolicy.resolveCandidates(host, plan, dnsBudgetMs)
         if (candidates.isEmpty()) return UNREACHABLE
         val started = System.nanoTime()
         val perAddressMs = (timeoutMs / candidates.size).coerceIn(minOf(300, timeoutMs), timeoutMs)
@@ -216,9 +248,19 @@ object RouteProbe {
         settings: AppSettings = AppSettings()
     ): Double {
         if (host.isBlank()) return UNREACHABLE
-        val seconds = (timeoutMs / 1000).coerceIn(1, 10)
+        // MARBLE_ICMP_BUDGET_V144 — two honest bounds in one place. (1) The address is resolved
+        // under [AddressFamilyPolicy.resolveWithBudget]: the old inline lookup blocked the probe
+        // thread for the whole OS resolver timeout before ping(8) even started. (2) ping's `-W`
+        // flag only speaks whole seconds, so a sub-second [timeoutMs] CANNOT be honoured by the
+        // binary — the 1 s floor below is that hardware truth made explicit, not a silent
+        // inflation: callers that need sub-second endpoint answers must use TCP, never ICMP.
+        val seconds = (timeoutMs / 1000).coerceIn(ICMP_MIN_WAIT_SEC, ICMP_MAX_WAIT_SEC)
         val target = AddressFamilyPolicy
-            .resolveCandidates(host, AddressFamilyPolicy.plan(settings = settings))
+            .resolveCandidates(
+                host,
+                AddressFamilyPolicy.plan(settings = settings),
+                timeoutMs.coerceIn(500, 5_000)
+            )
             .firstOrNull()
             ?.hostAddress
             ?.takeIf { it.isNotBlank() }
@@ -271,10 +313,18 @@ object RouteProbe {
         if (host.isBlank()) {
             return ProbeResult("ICMP", UNREACHABLE, 0, count, failureReason = "blank-host")
         }
-        val seconds = (timeoutMs / 1000).coerceIn(1, 10)
+        // MARBLE_ICMP_BUDGET_V144 — same two bounds as [icmp]: budgeted resolution, explicit
+        // 1 s ping-binary floor. The process wait below is additionally capped by the caller's
+        // own per-packet budget times the packet count, so a large `-c` can never smuggle a
+        // 30 s wait past a 2 s caller.
+        val seconds = (timeoutMs / 1000).coerceIn(ICMP_MIN_WAIT_SEC, ICMP_MAX_WAIT_SEC)
         val packets = count.coerceIn(1, 8)
         val target = AddressFamilyPolicy
-            .resolveCandidates(host, AddressFamilyPolicy.plan(settings = settings))
+            .resolveCandidates(
+                host,
+                AddressFamilyPolicy.plan(settings = settings),
+                timeoutMs.coerceIn(500, 5_000)
+            )
             .firstOrNull()
             ?.hostAddress
             ?.takeIf { it.isNotBlank() }
@@ -295,7 +345,10 @@ object RouteProbe {
             ).redirectErrorStream(true).start()
 
             val output = try {
-                val waitSec = (seconds.toLong() * packets / 5 + 3).coerceAtMost(30)
+                val callerCapSec = timeoutMs.toLong() * packets / 1_000 + 5
+                val waitSec = (seconds.toLong() * packets / 5 + 3)
+                    .coerceAtMost(callerCapSec)
+                    .coerceIn(3, 30)
                 if (!process.waitFor(waitSec, TimeUnit.SECONDS)) {
                     process.destroyForcibly()
                     return@runCatching ProbeResult("ICMP", UNREACHABLE, 0, packets, failureReason = "timeout")
@@ -360,23 +413,66 @@ object RouteProbe {
      * (the Xray process), proving the full tunnel route works. When [socksPort] is 0,
      * the request goes directly, measuring the underlay network path.
      *
-     * Multiple targets are tried in sequence; the first successful measurement wins.
-     * This prevents a single blocked CDN from classifying an otherwise working node as dead.
+     * MARBLE_HTTP_RACE_V144 — the origins are raced in parallel and the first successful
+     * measurement wins. This prevents a single blocked CDN from classifying an otherwise
+     * working node as dead. Critique of the sequential failover this replaces, so it is never
+     * rebuilt: the old loop dialled the four 204 origins ONE AFTER ANOTHER, each with a full
+     * connect+read timeout, so the worst case for one "ping" was ~8× the configured timeout and
+     * the common censored-link case (first two origins filtered, third alive) always paid two
+     * full timeouts before measuring anything. Origins are redundant failovers, not samples —
+     * racing them changes no measurement semantics (the winner is still one real HTTPS
+     * round-trip with its own TLS handshake) and bounds the worst case by ONE timeout instead
+     * of four. Sample rounds in [httpPingBatch] deliberately stay sequential: parallel samples
+     * would share the radio and destroy the time diversity the jitter math needs.
+     *
+     * Implementation notes: one daemon thread per origin (at most four, each self-bounded by
+     * its own socket timeouts — no pool to saturate, no lifecycle to manage). The first success
+     * wins immediately; when every racer reports failure the call returns without waiting out
+     * the deadline; on deadline expiry the losers are abandoned to finish bounded on their own.
      */
     fun httpPing(
         socksPort: Int = 0,
         timeoutMs: Int = 5000,
         targets: List<String> = REAL_DELAY_TARGETS
     ): ProbeResult {
-        val started = System.nanoTime()
-        for (target in targets) {
-            val result = httpPingOnce(target, socksPort, timeoutMs)
-            if (result.latencyMs < UNREACHABLE) return result
-            // Budget check: stop if we've spent too much time on failed targets
-            val elapsed = (System.nanoTime() - started) / 1_000_000L
-            if (elapsed > timeoutMs * 2L) break
+        if (targets.isEmpty()) {
+            return ProbeResult("HTTP", UNREACHABLE, 0, 1, failureReason = "no-targets")
         }
-        return ProbeResult("HTTP", UNREACHABLE, 0, 1, failureReason = "all-targets-failed")
+        val budgetMs = timeoutMs.coerceIn(500, 15_000)
+        if (targets.size == 1) return httpPingOnce(targets.first(), socksPort, budgetMs)
+
+        val winner = AtomicReference<ProbeResult>()
+        val firstSuccess = CountDownLatch(1)
+        val allFinished = CountDownLatch(targets.size)
+        targets.forEach { target ->
+            Thread({
+                try {
+                    val result = httpPingOnce(target, socksPort, budgetMs)
+                    if (result.latencyMs < UNREACHABLE && winner.compareAndSet(null, result)) {
+                        firstSuccess.countDown()
+                    }
+                } finally {
+                    allFinished.countDown()
+                }
+            }, "marble-http-race").apply { isDaemon = true; start() }
+        }
+
+        // One HTTPS round trip costs a connect timeout plus a read timeout; the race as a whole
+        // is granted both, plus a small grace for thread scheduling.
+        val deadlineNs = System.nanoTime() +
+            TimeUnit.MILLISECONDS.toNanos(budgetMs.toLong() * 2 + HTTP_RACE_GRACE_MS)
+        while (true) {
+            winner.get()?.let { return it }
+            if (allFinished.count == 0L) {
+                return ProbeResult("HTTP", UNREACHABLE, 0, 1, failureReason = "all-targets-failed")
+            }
+            val leftMs = TimeUnit.NANOSECONDS.toMillis(deadlineNs - System.nanoTime())
+            if (leftMs <= 0) {
+                return winner.get()
+                    ?: ProbeResult("HTTP", UNREACHABLE, 0, 1, failureReason = "race-timeout")
+            }
+            runCatching { firstSuccess.await(minOf(leftMs, 100L), TimeUnit.MILLISECONDS) }
+        }
     }
 
     private fun httpPingOnce(
@@ -488,18 +584,32 @@ object RouteProbe {
      * Incy's DNS-based reachability detection.
      *
      * Not a proxy test — only proves the local network's DNS path works.
+     *
+     * MARBLE_DNS_BUDGET_V144 — critique of the old body, which is why [timeoutMs] was a lie:
+     * `InetAddress.getAllByName` is a blocking syscall with NO timeout parameter, and the old
+     * code called it inline with the parameter sitting unused next to it. On a dead link one
+     * DNS "ping" blocked its worker for the full OS resolver timeout (10–20 s); `dnsPingExtended`
+     * repeated that up to 8× SEQUENTIALLY, so a single domain-hosted node could pin a benchmark
+     * worker for over a minute while every budget on the settings screen claimed seconds.
+     *
+     * The rewrite measures the same thing (system-resolver round trip) through
+     * [AddressFamilyPolicy.resolveWithBudget]: numeric literals resolve locally with no
+     * syscalls, domain names resolve on the shared daemon pool, and the wait never exceeds
+     * [timeoutMs] — expiry reports unreachable instead of hanging the batch. [resolver] is an
+     * injection seam for unit tests only; production always passes the system resolver.
      */
     fun dnsPing(
         host: String = "",
-        timeoutMs: Int = 3000
+        timeoutMs: Int = 3000,
+        resolver: (String) -> Array<InetAddress> = InetAddress::getAllByName
     ): Double {
-        val target = host.ifBlank { DNS_TARGETS.random() }
-        return runCatching {
-            val start = System.nanoTime()
-            val addresses = java.net.InetAddress.getAllByName(target)
-            val elapsed = (System.nanoTime() - start) / 1e6
-            if (addresses.isNotEmpty()) elapsed else UNREACHABLE
-        }.getOrDefault(UNREACHABLE)
+        val target = host.ifBlank { nextDnsTarget() }
+        if (target.isBlank()) return UNREACHABLE
+        val budgetMs = timeoutMs.coerceIn(250, 30_000)
+        val start = System.nanoTime()
+        val addresses = AddressFamilyPolicy.resolveWithBudget(target, budgetMs, resolver)
+        val elapsed = (System.nanoTime() - start) / 1e6
+        return if (addresses.isNotEmpty()) elapsed else UNREACHABLE
     }
 
     /**
@@ -511,10 +621,18 @@ object RouteProbe {
         samples: Int = 3
     ): ProbeResult {
         val rounds = samples.coerceIn(1, 8)
+        val budgetMs = timeoutMs.coerceIn(250, 30_000)
+        // MARBLE_DNS_BUDGET_V144 — each round is individually bounded by [dnsPing], and the whole
+        // batch additionally never outlives rounds × budget plus scheduling grace, so a caller
+        // that asked for "8 samples, 10 s each" still gets a predictable wall clock.
+        val deadlineNs = System.nanoTime() +
+            TimeUnit.MILLISECONDS.toNanos(budgetMs.toLong() * rounds + 1_000L)
         val times = ArrayList<Double>(rounds)
         repeat(rounds) {
+            val leftMs = TimeUnit.NANOSECONDS.toMillis(deadlineNs - System.nanoTime())
+            if (leftMs <= 0) return@repeat
             val target = if (host.isNotBlank()) host else DNS_TARGETS[it % DNS_TARGETS.size]
-            val value = dnsPing(target, timeoutMs)
+            val value = dnsPing(target, minOf(budgetMs, leftMs.toInt()))
             if (value < UNREACHABLE) times += value
         }
         if (times.isEmpty()) {

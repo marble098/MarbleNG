@@ -394,16 +394,22 @@ class MarbleVpnService : VpnService() {
             return
         }
 
-        val settings = app.repo.effectiveSettingsFor(profile)
+        // MARBLE_CONNECT_OFF_MAIN_V144 — critique of the old first line: `effectiveSettingsFor`
+        // folds intelligence SQLite reads, DPI-healing and asset checks into one call, and it ran
+        // HERE, on the service main thread, between the tap and the foreground notification —
+        // disk I/O on the input thread on the exact path whose latency the user feels. The
+        // resolved settings are only consumed inside the connection worker (TUN establish, Xray
+        // start), so they are resolved there now, as that worker's first step; the main thread
+        // keeps field init + foreground promotion only. The worker additionally reads fresher
+        // settings than a tap-time snapshot when the user flips a switch mid-dispatch. Same
+        // values, same order of operations — just never on the main thread.
         val normalizedMode = if (mode == MODE_PROXY) MODE_PROXY else MODE_TUN
-        val port = if (normalizedMode == MODE_PROXY) settings.localProxyPort else settings.socksPort
         val session = System.currentTimeMillis().toString(36) + "-" + Integer.toHexString(profile.id.hashCode())
 
         activeSession = session
         activeMode = normalizedMode
         activeProfileId = profile.id
         activeProfileSourceId = profile.subscriptionId
-        activeSettings = settings
         connectStartedNs = System.nanoTime()
         consecutiveProbeFailures = 0
         identityRecoveryAttempts = 0
@@ -445,7 +451,8 @@ class MarbleVpnService : VpnService() {
             "profileId" to profile.id.take(12),
             "profileName" to profile.name,
             "mode" to normalizedMode,
-            "socksPort" to port,
+            // MARBLE_CONNECT_OFF_MAIN_V144 — the port is derived from the worker-resolved
+            // settings below; the per-phase Xray events already log it where it is used.
             "network" to app.repo.intelligence.currentSnapshot().label
         )
 
@@ -491,6 +498,18 @@ class MarbleVpnService : VpnService() {
         connectionWorker.execute {
             runCatching {
                 if (!isCurrent(session)) return@runCatching
+                // MARBLE_CONNECT_OFF_MAIN_V144 — first worker step: resolve the effective
+                // settings (intelligence SQLite reads included) and the SOCKS port off the main
+                // thread. `activeSettings` is published here so every later phase reads the same
+                // object the tunnel was established with.
+                val settings = app.repo.effectiveSettingsFor(profile)
+                if (!isCurrent(session)) return@runCatching
+                activeSettings = settings
+                val port = if (normalizedMode == MODE_PROXY) {
+                    settings.localProxyPort
+                } else {
+                    settings.socksPort
+                }
                 if (normalizedMode == MODE_TUN && !establishTun(profile, session, settings)) {
                     handleFailure(session, "VPN establish failed")
                     return@runCatching

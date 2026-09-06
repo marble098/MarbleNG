@@ -100,8 +100,37 @@ class BenchmarkEngine(
                 onProgress(completed.incrementAndGet(), candidates.size, p.name)
             }
         }
-        jobs.forEach { runCatching { it.get() } }
-        livePool.shutdown()
+        /*
+         * MARBLE_BATCH_DEADLINE_V144 — the old `jobs.forEach { it.get() }` waited for EVERY
+         * candidate with NO global deadline: one wedged worker (a DNS stall inside a probe, a
+         * native core that never reports back, a socket that ignores its own timeout) froze the
+         * whole batch, its progress bar and every result behind it — Ping-all "hangs at 87%"
+         * forever. Each task still owns its own timeouts, but the batch as a whole now owns a
+         * wall clock: slowest-plausible-task × wave count plus grace, with a 15-minute absolute
+         * ceiling. Stragglers past the deadline are cancelled (probes are idempotent; partial
+         * results rank exactly like a task that failed fast) and the pool is stopped hard so no
+         * wedged thread outlives the run. Healthy runs never touch the deadline — it only binds
+         * the runs that used to hang.
+         */
+        val perTaskCapMs = s.benchTimeoutSec * 1_000L * s.benchSamples.coerceIn(1, 8) +
+            if (directProbe(s)) BATCH_DIRECT_GRACE_MS else BATCH_TUNNEL_GRACE_MS
+        val waves = ((candidates.size + liveWorkers - 1) / liveWorkers).coerceAtLeast(1)
+        val batchCapMs = (perTaskCapMs * waves + BATCH_WAVE_GRACE_MS)
+            .coerceAtMost(BATCH_ABSOLUTE_CAP_MS)
+        val batchDeadlineNs = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(batchCapMs)
+        try {
+            jobs.forEach { job ->
+                val leftMs = TimeUnit.NANOSECONDS.toMillis(batchDeadlineNs - System.nanoTime())
+                if (leftMs <= 0L) {
+                    job.cancel(true)
+                } else {
+                    runCatching { job.get(leftMs, TimeUnit.MILLISECONDS) }
+                }
+            }
+        } finally {
+            jobs.forEach { if (!it.isDone) it.cancel(true) }
+            livePool.shutdownNow()
+        }
 
         val ranked = rank(results.toList(), s)
         if (!directProbe(s)) {
@@ -1081,6 +1110,16 @@ class BenchmarkEngine(
         const val BENCHMARK_PORT_SLOTS = 10_000
         const val RACE_BASE_PORT = 19280
         const val OPTIMIZER_BASE_PORT = 20580
+        /**
+         * MARBLE_BATCH_DEADLINE_V144 — grace budgets for the batch wall clock in [run]. Direct
+         * probes only juggle sockets, so a small grace suffices; tunnel probes additionally
+         * start and stop a native Xray child per candidate, which legitimately costs tens of
+         * seconds under spawn storms and must never trip the deadline.
+         */
+        const val BATCH_DIRECT_GRACE_MS = 5_000L
+        const val BATCH_TUNNEL_GRACE_MS = 45_000L
+        const val BATCH_WAVE_GRACE_MS = 10_000L
+        const val BATCH_ABSOLUTE_CAP_MS = 15 * 60_000L
         // Spread nodes across independent verified endpoints. Domain targets travel as SOCKS
         // ATYP=domain (no Android resolver); literal targets remain available when proxy DNS fails.
         val TUNNEL_PROBE_TARGETS = listOf(

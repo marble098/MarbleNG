@@ -3945,11 +3945,11 @@ private fun CyberLibrary(
                 )
             }
 
-            if (collapsed) {
-                item(key = "group-${group.key}-folded") {
-                    ServersFoldedNote(count = total)
-                }
-            } else {
+            // MARBLE_SERVERS_NO_HIDDEN_LINE_V144 — a folded group shows its header only. The
+            // header already carries the exact count ("N servers • M shown"), so the old
+            // "N servers hidden" line duplicated that fact in vaguer words and is gone for good:
+            // no folded placeholder row, no hidden-count copy anywhere on this page.
+            if (!collapsed) {
                 itemsIndexed(
                     items = group.profiles,
                     key = { _, profile -> "${group.key}:${profile.id}" }
@@ -4869,16 +4869,10 @@ private fun ServersProbeStrip(repo: AppRepository) {
     }
 }
 
-/** The quiet line that replaces a folded group's servers. */
-@Composable
-private fun ServersFoldedNote(count: Int) {
-    Text(
-        trx("$count servers hidden"),
-        color = Aether.InkFaint,
-        style = MaterialTheme.typography.labelSmall,
-        modifier = Modifier.padding(start = 6.dp)
-    )
-}
+// MARBLE_SERVERS_NO_HIDDEN_LINE_V144 — ServersFoldedNote ("N servers hidden") was deleted
+// with the folded placeholder row. A folded group is its header alone; the header's own
+// "N servers • M shown" line is the single source of truth for the count, so no second,
+// vaguer count line may be reintroduced here.
 
 // --------------------------------------------------------------------------- group header
 
@@ -9140,6 +9134,16 @@ private fun SettingsInformationPage(
             InformationRow("Tunnel core", BuildConfig.HEV_CORE_TAG, Aether.Amber)
             InformationRow("Build type", BuildConfig.BUILD_TYPE, Aether.InkMuted)
         }
+        // MARBLE_BUGFINDER_HOME_V144 — Bug Finder lives here now, not next to Notifications.
+        // A diagnostics scanner belongs with the build identity, the debug export and the
+        // issue tracker: the scan writes the report, Diagnostics exports it, Links files it.
+        SettingsHubCard(
+            title = "Bug Finder",
+            subtitle = "Scan the runtime, then copy or save the report",
+            tone = Aether.Danger
+        ) {
+            BugFinderSettings(repo)
+        }
         SettingsHubCard(title = "Links", subtitle = "Every link opens in your browser", tone = Aether.Amethyst) {
             InformationLinkRow(
                 title = "Source code",
@@ -9476,7 +9480,7 @@ private fun settingsTabPageSubtitle(tab: SettingsWorkspaceTab): String = when (t
     SettingsWorkspaceTab.TESTS -> "Probes, ranking and live route intelligence"
     SettingsWorkspaceTab.NETWORK -> "DNS, split tunnel and geo rules"
     SettingsWorkspaceTab.ENGINE -> "Xray, transport and adaptive buffers"
-    SettingsWorkspaceTab.SYSTEM -> "Notifications, diagnostics and live stats"
+    SettingsWorkspaceTab.SYSTEM -> "Notifications and live stats"
 }
 
 /**
@@ -9551,9 +9555,13 @@ private fun settingsSections(
         SettingsWorkspaceTab.ENGINE -> listOf(
             card("Fragment & Mux","DPI resilience",HomeIcon.SPARK,Aether.Amber) { FragmentMuxSettings(repo) }
         )
+        // MARBLE_BUGFINDER_HOME_V144 — Bug Finder is a runtime-diagnostics instrument, not an
+        // alert control, so it no longer lives next to Notifications. It moved to
+        // Settings › Information, beside Versions, the Diagnostics export and Report an issue:
+        // the scan produces the exact report an issue filing asks for, and the page already
+        // owns the debug-log switch Bug Finder also drives — one flag, one home, no split brain.
         SettingsWorkspaceTab.SYSTEM -> listOf(
-            card("Notifications","Alerts",HomeIcon.STATUS,Aether.Cyan) { NotificationSettings(repo) },
-            card("Bug Finder","Diagnostics",HomeIcon.DETAILS,Aether.Danger) { BugFinderSettings(repo) }
+            card("Notifications","Alerts",HomeIcon.STATUS,Aether.Cyan) { NotificationSettings(repo) }
         )
     }
 }
@@ -10993,40 +11001,44 @@ private fun RoutingSettings(repo: AppRepository) {
     }
 
     // ------------------------------------------------------------------ 1. Routing mode
+    // MARBLE_ROUTING_MODE_ROWS_V144 — critique of the 2×2 card grid this replaces, so it is
+    // never rebuilt: the cards spoke a different control language from every other single
+    // choice in Settings (probe methods are full-width rows, matchers are chips), their title
+    // (labelLarge Bold) and detail (labelSmall) ramp matched nothing around them, and Persian
+    // details wrapped to two lines in some cells but one in others, so the four "equal" tiles
+    // never shared a height and the grid looked ragged. The mode is one decision with four
+    // mutually exclusive answers, and it now reads as one: four full-width option rows in the
+    // exact shape of the Testing › ping-method list — same ramp (row title + one-line detail),
+    // same selection dot, same heights, ellipsis instead of wrapping. Nothing was removed from
+    // the model; only the buttons were disciplined.
     Text(trx("Routing mode"), color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        RoutingModeCard(
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+        RoutingModeRow(
             title = "Proxy all",
             detail = "Everything rides the tunnel",
             selected = s.routingMode == RoutingMode.PROXY_ALL,
             tone = Aether.Cyan,
-            modifier = Modifier.weight(1f),
             enabled = !repo.busy
         ) { repo.updateSettings(s.copy(routingMode = RoutingMode.PROXY_ALL)) }
-        RoutingModeCard(
+        RoutingModeRow(
             title = "Private direct",
             detail = "LAN never enters the tunnel",
             selected = s.routingMode == RoutingMode.BYPASS_PRIVATE,
             tone = Aether.Emerald,
-            modifier = Modifier.weight(1f),
             enabled = !repo.busy
         ) { repo.updateSettings(s.copy(routingMode = RoutingMode.BYPASS_PRIVATE)) }
-    }
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        RoutingModeCard(
+        RoutingModeRow(
             title = "Geo direct",
             detail = "Selected countries bypass the tunnel",
             selected = s.routingMode == RoutingMode.GEO_DIRECT,
             tone = Aether.Emerald,
-            modifier = Modifier.weight(1f),
             enabled = !repo.busy
         ) { repo.updateSettings(s.copy(routingMode = RoutingMode.GEO_DIRECT)) }
-        RoutingModeCard(
+        RoutingModeRow(
             title = "Custom",
             detail = "Only your rules decide",
             selected = s.routingMode == RoutingMode.CUSTOM,
             tone = Aether.Amethyst,
-            modifier = Modifier.weight(1f),
             enabled = !repo.busy
         ) { repo.updateSettings(s.copy(routingMode = RoutingMode.CUSTOM)) }
     }
@@ -11053,13 +11065,17 @@ private fun RoutingSettings(repo: AppRepository) {
             horizontalArrangement = Arrangement.spacedBy(7.dp),
             verticalArrangement = Arrangement.spacedBy(7.dp)
         ) {
+            // MARBLE_ROUTING_CHIP_LABELS_V144 — the human label is the chip text, never the raw
+            // Xray token. The list always carried both and then threw the label away
+            // (`(value, _)`), so users chose between "IPIfNonMatch" and "AsIs" while the
+            // explanation line below described something else. State still keys on [value].
             listOf(
-                "IPIfNonMatch" to "IPIfNonMatch (v2rayNG default)",
-                "IPOnDemand" to "IPOnDemand",
-                "AsIs" to "AsIs (Fastest)"
-            ).forEach { (value, _) ->
+                "IPIfNonMatch" to "Domain first (default)",
+                "IPOnDemand" to "IP on demand",
+                "AsIs" to "As-is (fastest)"
+            ).forEach { (value, label) ->
                 CyberChoiceChip(
-                    text = value,
+                    text = label,
                     selected = s.routeDomainStrategy == value,
                     color = Aether.Cyan
                 ) { repo.updateSettings(s.copy(routeDomainStrategy = value)) }
@@ -11290,43 +11306,69 @@ private fun routingDragTarget(count: Int, from: Int, delta: Float, heightAt: (In
     return count - 1
 }
 
+/**
+ * One routing-mode answer as a full-width option row — the same control shape the Testing
+ * page uses for the ping method, so the two single-choice lists in Settings can never drift
+ * apart again. Title and detail are each a single ellipsized line on the shared settings
+ * reading ramp; the dot is the only selection chrome, so all four rows share one height in
+ * every language. See MARBLE_ROUTING_MODE_ROWS_V144 above for the critique that retired the
+ * 2×2 card grid.
+ */
 @Composable
-private fun RoutingModeCard(
+private fun RoutingModeRow(
     title: String,
     detail: String,
     selected: Boolean,
     tone: Color,
-    modifier: Modifier = Modifier,
     enabled: Boolean = true,
     onClick: () -> Unit
 ) {
-    val shape = RoundedCornerShape(15.dp)
-    PrismWell(
-        modifier = modifier,
-        tone = tone,
-        selected = selected,
-        onClick = if (enabled) onClick else null,
-        enabled = enabled,
-        contentPadding = PaddingValues(horizontal = 11.dp, vertical = 9.dp)
+    val shape = RoundedCornerShape(14.dp)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(Aether.Glass.copy(alpha = .42f))
+            .border(
+                1.dp,
+                if (selected) tone.copy(alpha = .58f) else Aether.GlassBorderSoft.copy(alpha = .5f),
+                shape
+            )
+            .kineticClickable(
+                enabled = enabled,
+                role = Role.Button,
+                boundedShape = shape,
+                onClick = onClick
+            )
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        Column {
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(1.dp)
+        ) {
             Text(
                 trx(title),
                 color = if (selected) tone else Aether.Ink,
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                style = settingsRowTitleStyle(),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
-            Spacer(Modifier.height(2.dp))
             Text(
                 trx(detail),
-                color = Aether.InkMuted,
-                style = MaterialTheme.typography.labelSmall,
-                maxLines = 2,
+                color = Aether.InkFaint,
+                style = settingsBodyStyle(),
+                maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
         }
+        Box(
+            Modifier
+                .size(9.dp)
+                .clip(CircleShape)
+                .background(if (selected) tone else Aether.InkFaint.copy(alpha = .30f))
+        )
     }
 }
 
@@ -11719,20 +11761,27 @@ private fun RoutingRuleEditorSheet(
             }
 
             // ---- Outbound
+            // MARBLE_ROUTING_EQUAL_THIRDS_V144 — the three outbounds are equal owners of this
+            // row: each third is identical and the pill fills it, so PROXY / DIRECT / BLOCK read
+            // as one segmented decision instead of three left-hugging pills of different sizes.
+            // (The old Box(weight) wrapped the pill at the start of each third — equal columns,
+            // ragged buttons.)
             Text(trx("Then what?"), color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
-            Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(7.dp)
+            ) {
                 listOf(
                     RoutingOutbound.PROXY to Aether.Cyan,
                     RoutingOutbound.DIRECT to Aether.Emerald,
                     RoutingOutbound.BLOCK to Aether.Danger
                 ).forEach { (outbound, tone) ->
-                    Box(Modifier.weight(1f)) {
-                        CyberChoiceChip(
-                            text = outbound.name,
-                            selected = draft.outbound == outbound,
-                            color = tone
-                        ) { draft = draft.copy(outbound = outbound) }
-                    }
+                    CyberChoiceChip(
+                        text = outbound.name,
+                        selected = draft.outbound == outbound,
+                        color = tone,
+                        modifier = Modifier.weight(1f)
+                    ) { draft = draft.copy(outbound = outbound) }
                 }
             }
 
@@ -11940,13 +11989,16 @@ private fun RoutingExpertSection(repo: AppRepository, s: AppSettings) {
                 horizontalArrangement = Arrangement.spacedBy(7.dp),
                 verticalArrangement = Arrangement.spacedBy(7.dp)
             ) {
+                // MARBLE_ROUTING_CHIP_LABELS_V144 — same fix as the strategy chips above: the
+                // list carried human labels ("Hybrid (Trie + Regex)", …) and displayed the raw
+                // tokens ("hybrid", "mph"). The label is shown, the token stays the state key.
                 listOf(
                     "hybrid" to "Hybrid (Trie + Regex)",
                     "linear" to "Linear",
                     "mph" to "Minimal Perfect Hash (MPH)"
-                ).forEach { (value, _) ->
+                ).forEach { (value, label) ->
                     CyberChoiceChip(
-                        text = value,
+                        text = label,
                         selected = s.routeDomainMatcher == value,
                         color = Aether.Emerald
                     ) { repo.updateSettings(s.copy(routeDomainMatcher = value)) }
@@ -12152,7 +12204,10 @@ private fun probeMethodDetail(method: ProbeMethod): String = when (method) {
     ProbeMethod.TUNNEL -> "Slowest, proves the route end to end"
     ProbeMethod.TCP -> "Fastest, TCP handshake to server address"
     ProbeMethod.ICMP -> "Classic ping, bypasses the proxy"
-    ProbeMethod.HTTP -> "Direct HTTPS test, includes TLS time"
+    // MARBLE_HTTP_SHARED_PATH_V144 — the HTTP row says exactly what it measures now: the
+    // underlay path to Google, shared by every server in a sweep. Identical numbers per row
+    // are correct behaviour for this method, not a bug; Smart is the ranking method.
+    ProbeMethod.HTTP -> "Direct HTTPS to Google — path-only, same for every server"
     ProbeMethod.DNS -> "DNS resolution time, fastest check"
 }
 
@@ -12404,10 +12459,14 @@ private fun CyberChoiceChip(
     color: Color,
     selectionTone: Color = Color.Unspecified,
     enabled: Boolean = true,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
     // MARBLE_PRODUCT_SIMPLE_V117 — a flat little pill: tint wash + tinted ink when selected,
     // a quiet hairline when not. No elevation, no tick badge, never resizes.
+    // MARBLE_ROUTING_EQUAL_THIRDS_V144 — [modifier] lets a row hand each chip an equal share
+    // of its width (weight) so segmented decisions fill their thirds instead of hugging the
+    // start; the label stays centred by the Box below in both cases.
     val tone = if (selectionTone == Color.Unspecified) color else selectionTone
     val shape = RoundedCornerShape(12.dp)
     val fill by animateColorAsState(
@@ -12421,7 +12480,7 @@ private fun CyberChoiceChip(
         label = "choice-chip-ink"
     )
     Box(
-        modifier = Modifier
+        modifier = modifier
             .heightIn(min = 34.dp)
             .clip(shape)
             .background(fill)

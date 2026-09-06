@@ -108,6 +108,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.isSpecified
 import androidx.compose.ui.unit.sp
 import com.marbleng.app.AppRepository
 import com.marbleng.app.ServerIntelInfo
@@ -1349,10 +1350,18 @@ internal fun HomeIpRow(
                 fontSize = 15.sp
             )
             Spacer(Modifier.width(8.dp))
+            // MARBLE_HOME_IP_STRIP_V144 — same quiet scale as the banner strip above: the
+            // address never outranks its own row.
             Text(
                 if (evidence.ip.isNotBlank()) evidence.ip else Tr.now.resolving,
-                color = Aether.Ink,
-                style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace)
+                color = Aether.InkMuted,
+                style = MaterialTheme.typography.labelSmall.copy(
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.SemiBold
+                ),
+                maxLines = 1,
+                softWrap = false,
+                overflow = TextOverflow.Ellipsis
             )
         }
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -1576,15 +1585,21 @@ internal fun IosStatusWideCard(
             }
 
             // ── Slot 3 (fixed height): IP identity strip ───────────────────────────────
+            // MARBLE_HOME_IP_STRIP_V144 — the address used to be the only bodySmall (12sp) ink
+            // in a strip of labelSmall (10.5sp) copy, so one full step larger than its own tag,
+            // country and details link it visually shouted over the node name above it. The whole
+            // strip now speaks the same quiet size: the address keeps its monospace face and a
+            // semibold cut so it stays scrutable, but at the strip's own scale and in one
+            // ellipsized line, so long hostnames can never stretch the banner.
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(min = 34.dp)
+                    .heightIn(min = 32.dp)
                     .clip(RoundedCornerShape(12.dp))
                     .background(homeCloudInsetFill())
                     .border(1.dp, homeCloudInsetBorder(), RoundedCornerShape(12.dp))
                     .clickable { actions.onIpDetails() }
-                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                    .padding(horizontal = 10.dp, vertical = 5.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -1600,17 +1615,23 @@ internal fun IosStatusWideCard(
                     Spacer(Modifier.width(8.dp))
                     Text(
                         text = if (evidence.ip.isNotBlank()) evidence.ip else "127.0.0.1",
-                        color = Aether.Ink,
-                        style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                        color = Aether.InkMuted,
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.SemiBold
+                        ),
                         maxLines = 1,
+                        softWrap = false,
                         overflow = TextOverflow.Ellipsis
                     )
                     if (evidence.countryCode.isNotBlank()) {
                         Spacer(Modifier.width(6.dp))
                         Text(
                             "(${evidence.countryCode})",
-                            color = Aether.InkMuted,
-                            style = MaterialTheme.typography.labelSmall
+                            color = Aether.InkFaint,
+                            style = MaterialTheme.typography.labelSmall,
+                            maxLines = 1,
+                            softWrap = false
                         )
                     }
                 }
@@ -1737,6 +1758,16 @@ private fun StatusDot(stateColor: Color, busy: Boolean) {
  * MARBLE_HOME_FLOATING_CLEARANCE_V141 — [bottomOverlayClearance] reserves room for controls
  * that float above the list (the Theme 2 split button), so the last server row is never hidden
  * underneath them.
+ *
+ * MARBLE_HOME_SMART_LIST_HEIGHT_V144 — the box owns no fixed height. It wraps its content
+ * (the sub header plus exactly as many server rows as exist) and only stops growing where the
+ * page itself runs out of room: every caller places this box with `weight(1f, fill = false)`,
+ * so the page column hands it the remaining screen space as its measuring bound and the inner
+ * list scrolls the moment the servers outgrow that bound. The old 244.dp ceiling is gone —
+ * it clipped large libraries into a peephole and left small ones floating in empty card.
+ * A finite [maxListHeight] is still honoured when a caller passes one (Theme 4's user-chosen
+ * card height); [Dp.Unspecified] — the default — means "grow with the servers, scroll on
+ * overflow", which is the contract every fixed theme now uses.
  */
 @Composable
 internal fun IosServerListBox(
@@ -1745,7 +1776,7 @@ internal fun IosServerListBox(
     actions: HomeActions,
     modifier: Modifier = Modifier,
     bottomOverlayClearance: Dp = 0.dp,
-    maxListHeight: Dp = 244.dp
+    maxListHeight: Dp = Dp.Unspecified
 ) {
     val t = Tr.now
     val activeSubId = repo.librarySourceFilter
@@ -1762,10 +1793,18 @@ internal fun IosServerListBox(
 
     // MARBLE_HOME_CLOUD_V140/V141 — the server list is a cloud card: one opaque box, quiet
     // inset rows inside it, and only the selected server earns the sky fill + accent rim.
+    // MARBLE_HOME_SMART_LIST_HEIGHT_V144 — the cap below exists only for callers that pass an
+    // explicit maxListHeight. With the default (Unspecified) the page's own weight bound is the
+    // only ceiling, so the card is exactly as tall as its servers until the screen ends.
+    val listHeightCap = if (maxListHeight.isSpecified) {
+        Modifier.heightIn(max = maxListHeight)
+    } else {
+        Modifier
+    }
     HomeCloudCard(
         modifier = modifier
             .fillMaxWidth()
-            .heightIn(max = maxListHeight),
+            .then(listHeightCap),
         shape = RoundedCornerShape(22.dp)
     ) {
         Column(
@@ -1871,7 +1910,7 @@ internal fun IosServerListBox(
                     modifier = Modifier
                         .fillMaxWidth()
                         .wrapContentHeight()
-                        .heightIn(max = maxListHeight),
+                        .then(listHeightCap),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                     contentPadding = PaddingValues(bottom = bottomOverlayClearance)
                 ) {
