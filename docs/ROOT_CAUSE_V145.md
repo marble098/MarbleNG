@@ -131,6 +131,12 @@ Three more accuracy defects, independent of any setting:
 * `RouteProbe`: per-attempt stopwatch, one resolution per multi-sample run, `PingBudget
   .SAMPLE_SPACING_MS` between samples, warm-up sample discarded at ≥3 samples, and one shared
   `summarize()` producing median / jitter / p95 / loss for every method.
+* **Cost control that does not cost accuracy.** Honest timeouts multiply on dead nodes
+  (`samples × timeout`), which would make a sweep over a subscription of silent servers crawl.
+  A target that produces nothing on two consecutive attempts is abandoned
+  (`CONSECUTIVE_FAILURES_BEFORE_ABANDON`) — the verdict cannot change, only the waiting — while a
+  single success disarms the rule and the full sample budget is spent. Loss is reported against
+  the attempts actually made. Shipped defaults: 5 s, 3 samples, 16 in parallel.
 * `smartPing` honours the caller's budget and measures its TCP gate with the configured sample
   count instead of a single SYN.
 

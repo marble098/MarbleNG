@@ -284,6 +284,18 @@ object RouteProbe {
     }
 
     /**
+     * MARBLE_PING_ACCURACY_V145 — stop paying for a target that has already proven it is silent.
+     *
+     * A median needs samples that exist. Once two consecutive attempts have produced nothing at
+     * all, further attempts cannot change the verdict (still unreachable) — they only multiply
+     * the honest per-server timeout by the sample count, which is what would turn a sweep over a
+     * subscription of dead nodes into minutes of waiting. Any single success disarms this and the
+     * full sample budget is spent, so accuracy for reachable servers is untouched. Loss is
+     * reported against the attempts actually made, which is the honest denominator.
+     */
+    private const val CONSECUTIVE_FAILURES_BEFORE_ABANDON = 2
+
+    /**
      * Extended TCP measurement: multiple samples, statistics, handshake timing.
      *
      * Returns a [ProbeResult] with median, jitter, p95 and loss rate for smart scoring.
@@ -312,12 +324,21 @@ object RouteProbe {
                 failureReason = "dns-failed"
             )
         val times = ArrayList<Double>(rounds)
+        var attempts = 0
+        var consecutiveFailures = 0
         for (round in 0 until rounds) {
             if (round > 0 && !pauseBetweenSamples()) break
+            attempts += 1
             val value = tcp(host, port, timeoutMs, settings, resolved)
-            if (value < UNREACHABLE) times += value
+            if (value < UNREACHABLE) {
+                times += value
+                consecutiveFailures = 0
+            } else {
+                consecutiveFailures += 1
+                if (times.isEmpty() && consecutiveFailures >= CONSECUTIVE_FAILURES_BEFORE_ABANDON) break
+            }
         }
-        return summarize("TCP", times, rounds, warmupDiscarded = true)
+        return summarize("TCP", times, attempts, warmupDiscarded = true)
     }
 
     // ─── ICMP Echo ─────────────────────────────────────────────────────────────
@@ -629,6 +650,7 @@ object RouteProbe {
         val rounds = PingBudget.samples(samples)
         val times = ArrayList<Double>(rounds)
         val handshakeTimes = ArrayList<Double>(rounds)
+        var consecutiveFailures = 0
         for (round in 0 until rounds) {
             // MARBLE_PING_ACCURACY_V145 — spaced samples: a burst of HTTPS requests to the same
             // 204 origin measures connection reuse and server-side rate limiting, not the route.
@@ -637,6 +659,10 @@ object RouteProbe {
             if (result.latencyMs < UNREACHABLE) {
                 times += result.latencyMs
                 if (result.tcpHandshakeMs > 0) handshakeTimes += result.tcpHandshakeMs
+                consecutiveFailures = 0
+            } else {
+                consecutiveFailures += 1
+                if (times.isEmpty() && consecutiveFailures >= CONSECUTIVE_FAILURES_BEFORE_ABANDON) break
             }
         }
         if (times.isEmpty()) {
@@ -913,19 +939,28 @@ object RouteProbe {
         val resolved = if (icmpMode) null else resolveOnce(profile.host, timeoutMs, settings)
         if (!icmpMode && resolved == null) return Sample(0, UNREACHABLE)
         val times = ArrayList<Double>(rounds)
+        var attempts = 0
+        var consecutiveFailures = 0
         for (round in 0 until rounds) {
             if (round > 0 && !pauseBetweenSamples()) break
+            attempts += 1
             val value = if (icmpMode) {
                 icmp(profile.host, timeoutMs, settings)
             } else {
                 tcp(profile.host, profile.port, timeoutMs, settings, resolved)
             }
-            if (value < UNREACHABLE) times += value
+            if (value < UNREACHABLE) {
+                times += value
+                consecutiveFailures = 0
+            } else {
+                consecutiveFailures += 1
+                if (times.isEmpty() && consecutiveFailures >= CONSECUTIVE_FAILURES_BEFORE_ABANDON) break
+            }
         }
         val summary = summarize(
             if (icmpMode) "ICMP" else "TCP",
             times,
-            rounds,
+            attempts,
             warmupDiscarded = true
         )
         if (summary.successPercent <= 0) return Sample(0, UNREACHABLE)

@@ -65,6 +65,6 @@ class PingBudgetTest {
         val defaults = AppSettings()
         assertEquals(5, defaults.pingTimeoutSec)
         assertEquals(3, defaults.pingSamples)
-        assertEquals(8, defaults.pingConcurrency)
+        assertEquals(16, defaults.pingConcurrency)
     }
 }

@@ -580,8 +580,14 @@ data class AppSettings(
     val pingTimeoutSec: Int = 5,
     /** Samples measured per server; the published latency is their median (1..10). */
     val pingSamples: Int = 3,
-    /** Servers measured in parallel during a sweep (1..64). */
-    val pingConcurrency: Int = 8,
+    /**
+     * Servers measured in parallel during a sweep (1..64).
+     *
+     * 16 is the shipped compromise: wide enough that a large subscription finishes while the
+     * user is still looking at it, narrow enough that the parallel handshakes do not distort
+     * each other on a mobile link. Lower it (4, 2, 1) when accuracy matters more than speed.
+     */
+    val pingConcurrency: Int = 16,
 
     // Library order. Ping is intentionally the default; untested nodes stay last.
     val nodeSortMode: NodeSortMode = NodeSortMode.DEFAULT,

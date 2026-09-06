@@ -228,7 +228,7 @@ class AppStore(context: Context) {
         // hand-edited or migrated preference can never hand the engine an illegal budget.
         pingTimeoutSec = PingBudget.timeoutSec(prefs.getInt("pingTimeoutSec", 5)),
         pingSamples = PingBudget.samples(prefs.getInt("pingSamples", 3)),
-        pingConcurrency = PingBudget.concurrency(prefs.getInt("pingConcurrency", 8)),
+        pingConcurrency = PingBudget.concurrency(prefs.getInt("pingConcurrency", 16)),
 
         nodeSortMode = enumValue("nodeSortMode", NodeSortMode.DEFAULT),
         nodeSortReverse = prefs.getBoolean("nodeSortReverse", false),
