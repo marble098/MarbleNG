@@ -1,6 +1,7 @@
 package com.marbleng.app.core
 
 import com.marbleng.app.model.AppSettings
+import com.marbleng.app.model.PingBudget
 import com.marbleng.app.model.ProbeMethod
 import com.marbleng.app.model.ProxyProfile
 import java.net.HttpURLConnection
@@ -120,20 +121,30 @@ object RouteProbe {
         host: String,
         port: Int,
         timeoutMs: Int,
-        plan: IpFamilyPlan
+        plan: IpFamilyPlan,
+        resolved: List<InetAddress>? = null
     ): Double {
         // MARBLE_RESOLVE_BUDGET_V144 — resolution is part of this call's [timeoutMs] contract,
         // not a free unbounded prelude to it. Domain hosts may spend at most half the budget
         // (floored/ceiled so tiny budgets still resolve and huge ones never stall); literals
-        // skip the resolver untouched. The stopwatch below still starts after resolution, so a
-        // resolved address keeps the exact same measured latency as before.
-        val dnsBudgetMs = (timeoutMs / 2).coerceIn(500, 2_500)
-        val candidates = AddressFamilyPolicy.resolveCandidates(host, plan, dnsBudgetMs)
+        // skip the resolver untouched.
+        //
+        // MARBLE_PING_ACCURACY_V145 — [resolved] lets a multi-sample caller resolve once and
+        // reuse the answer. Re-resolving before every sample measured the RESOLVER, not the
+        // route: the first sample of a domain node carried the full DNS round trip and the rest
+        // carried whatever the OS cache decided to do, which is exactly the "same server, three
+        // very different numbers" the user sees.
+        val candidates = resolved
+            ?: AddressFamilyPolicy.resolveCandidates(
+                host,
+                plan,
+                (timeoutMs / 2).coerceIn(500, 2_500)
+            )
         if (candidates.isEmpty()) return UNREACHABLE
-        val started = System.nanoTime()
+        val loopStarted = System.nanoTime()
         val perAddressMs = (timeoutMs / candidates.size).coerceIn(minOf(300, timeoutMs), timeoutMs)
         candidates.forEachIndexed { index, address ->
-            val spentMs = ((System.nanoTime() - started) / 1_000_000L).toInt()
+            val spentMs = ((System.nanoTime() - loopStarted) / 1_000_000L).toInt()
             val remainingMs = timeoutMs - spentMs
             if (remainingMs <= 0) return UNREACHABLE
             val attemptMs = when {
@@ -141,6 +152,11 @@ object RouteProbe {
                 index == candidates.lastIndex -> maxOf(remainingMs, 300)
                 else -> minOf(perAddressMs, maxOf(remainingMs, 300))
             }
+            // MARBLE_PING_ACCURACY_V145 — the stopwatch belongs to the ATTEMPT, not to the whole
+            // Happy-Eyeballs loop. The old code timed from the first candidate, so a dual-stack
+            // node whose AAAA address is blackholed reported "IPv6 timeout + real IPv4 handshake"
+            // as its latency: a 40 ms server measured as 1040 ms, and ranked accordingly.
+            val attemptStarted = System.nanoTime()
             val connected = runCatching {
                 Socket().use { socket ->
                     socket.tcpNoDelay = true
@@ -148,7 +164,7 @@ object RouteProbe {
                     socket.connect(InetSocketAddress(address, port), attemptMs)
                 }
             }.isSuccess
-            if (connected) return ((System.nanoTime() - started) / 1e6)
+            if (connected) return ((System.nanoTime() - attemptStarted) / 1e6)
         }
         return UNREACHABLE
     }
@@ -165,13 +181,14 @@ object RouteProbe {
         host: String,
         port: Int,
         timeoutMs: Int,
-        settings: AppSettings = AppSettings()
+        settings: AppSettings = AppSettings(),
+        resolved: List<InetAddress>? = null
     ): Double {
         if (host.isBlank() || port !in 1..65535) return UNREACHABLE
 
         val plan = AddressFamilyPolicy.plan(settings = settings)
         val firstStarted = System.nanoTime()
-        val first = tcpOnce(host, port, timeoutMs, plan)
+        val first = tcpOnce(host, port, timeoutMs, plan, resolved)
         if (first < UNREACHABLE) return first
 
         val firstFailureElapsedMs =
@@ -187,8 +204,96 @@ object RouteProbe {
             return UNREACHABLE
         }
 
-        return tcpOnce(host, port, timeoutMs, plan)
+        return tcpOnce(host, port, timeoutMs, plan, resolved)
     }
+
+    /**
+     * MARBLE_PING_ACCURACY_V145 — resolve the endpoint once for a whole multi-sample run.
+     *
+     * Returns `null` when nothing resolved, which the callers treat as "unreachable before the
+     * first packet" instead of paying the resolver cost again for every sample.
+     */
+    private fun resolveOnce(
+        host: String,
+        timeoutMs: Int,
+        settings: AppSettings
+    ): List<InetAddress>? {
+        val plan = AddressFamilyPolicy.plan(settings = settings)
+        val candidates = AddressFamilyPolicy.resolveCandidates(
+            host,
+            plan,
+            (timeoutMs / 2).coerceIn(500, 2_500)
+        )
+        return candidates.ifEmpty { null }
+    }
+
+    /**
+     * MARBLE_PING_ACCURACY_V145 — the statistics of a multi-sample run, in one place.
+     *
+     * `samples >= 3` discards the first measurement: the first handshake of a run carries cold
+     * ARP/NDP entries, a cold conntrack row on the carrier NAT and (for domain nodes) whatever
+     * the resolver just did, so keeping it in the median made the published latency depend on
+     * how recently the same server had been probed.
+     */
+    private fun summarize(
+        method: String,
+        times: List<Double>,
+        rounds: Int,
+        warmupDiscarded: Boolean
+    ): ProbeResult {
+        if (times.isEmpty()) {
+            return ProbeResult(
+                method = method,
+                latencyMs = UNREACHABLE,
+                successPercent = 0,
+                samples = rounds,
+                lossPercent = 100.0,
+                failureReason = "all-failed"
+            )
+        }
+        val considered = if (warmupDiscarded && times.size >= 3) times.drop(1) else times
+        val sorted = considered.sorted()
+        val median = sorted[sorted.size / 2]
+        val jitter = if (considered.size >= 2) {
+            considered.zipWithNext { a, b -> abs(a - b) }.average()
+        } else {
+            0.0
+        }
+        val p95Index = ((sorted.size - 1) * 0.95).toInt().coerceIn(0, sorted.lastIndex)
+        return ProbeResult(
+            method = method,
+            latencyMs = median,
+            successPercent = times.size * 100 / rounds,
+            samples = rounds,
+            jitterMs = jitter,
+            minMs = sorted.first(),
+            maxMs = sorted.last(),
+            p95Ms = sorted[p95Index],
+            lossPercent = (rounds - times.size).toDouble() * 100.0 / rounds,
+            tcpHandshakeMs = if (method == "TCP") median else 0.0
+        )
+    }
+
+    /** Quiet gap between two samples of the same endpoint; interruption ends the run. */
+    private fun pauseBetweenSamples(): Boolean = try {
+        Thread.sleep(PingBudget.SAMPLE_SPACING_MS)
+        true
+    } catch (_: InterruptedException) {
+        Thread.currentThread().interrupt()
+        false
+    }
+
+    /**
+     * MARBLE_PING_ACCURACY_V145 — stop paying for a target that has already proven it is silent.
+     *
+     * A median needs samples that exist. Once two consecutive attempts have produced nothing at
+     * all, further attempts cannot change the verdict (still unreachable) — they only multiply
+     * the honest per-server timeout by the sample count, which is what would turn a sweep over a
+     * subscription of dead nodes into minutes of waiting. Any single success disarms this and the
+     * full sample budget is spent, so accuracy for reachable servers is untouched. Loss is
+     * reported against the attempts actually made, which is the honest denominator.
+     */
+    private const val CONSECUTIVE_FAILURES_BEFORE_ABANDON = 2
 
     /**
      * Extended TCP measurement: multiple samples, statistics, handshake timing.
@@ -205,33 +310,35 @@ object RouteProbe {
         if (host.isBlank() || port !in 1..65535) {
             return ProbeResult("TCP", UNREACHABLE, 0, samples, failureReason = "invalid-target")
         }
-        val rounds = samples.coerceIn(1, 8)
+        val rounds = PingBudget.samples(samples)
+        // MARBLE_PING_ACCURACY_V145 — resolve once for the whole run, space the samples out and
+        // summarize with a warm-up discard. Back-to-back SYNs to the same endpoint measure the
+        // remote SYN backlog, not the path.
+        val resolved = resolveOnce(host, timeoutMs, settings)
+            ?: return ProbeResult(
+                "TCP",
+                UNREACHABLE,
+                0,
+                rounds,
+                lossPercent = 100.0,
+                failureReason = "dns-failed"
+            )
         val times = ArrayList<Double>(rounds)
-        repeat(rounds) {
-            val value = tcp(host, port, timeoutMs, settings)
-            if (value < UNREACHABLE) times += value
+        var attempts = 0
+        var consecutiveFailures = 0
+        for (round in 0 until rounds) {
+            if (round > 0 && !pauseBetweenSamples()) break
+            attempts += 1
+            val value = tcp(host, port, timeoutMs, settings, resolved)
+            if (value < UNREACHABLE) {
+                times += value
+                consecutiveFailures = 0
+            } else {
+                consecutiveFailures += 1
+                if (times.isEmpty() && consecutiveFailures >= CONSECUTIVE_FAILURES_BEFORE_ABANDON) break
+            }
         }
-        if (times.isEmpty()) {
-            return ProbeResult("TCP", UNREACHABLE, 0, rounds, lossPercent = 100.0, failureReason = "all-failed")
-        }
-        val sorted = times.sorted()
-        val median = sorted[sorted.size / 2]
-        val jitter = if (times.size >= 2) {
-            times.zipWithNext { a, b -> abs(a - b) }.average()
-        } else 0.0
-        val p95Index = ((times.size - 1) * 0.95).toInt().coerceIn(0, times.lastIndex)
-        return ProbeResult(
-            method = "TCP",
-            latencyMs = median,
-            successPercent = times.size * 100 / rounds,
-            samples = rounds,
-            jitterMs = jitter,
-            minMs = sorted.first(),
-            maxMs = sorted.last(),
-            p95Ms = sorted[p95Index],
-            lossPercent = (rounds - times.size).toDouble() * 100.0 / rounds,
-            tcpHandshakeMs = median
-        )
+        return summarize("TCP", times, attempts, warmupDiscarded = true)
     }
 
     // ─── ICMP Echo ─────────────────────────────────────────────────────────────
@@ -318,7 +425,7 @@ object RouteProbe {
         // own per-packet budget times the packet count, so a large `-c` can never smuggle a
         // 30 s wait past a 2 s caller.
         val seconds = (timeoutMs / 1000).coerceIn(ICMP_MIN_WAIT_SEC, ICMP_MAX_WAIT_SEC)
-        val packets = count.coerceIn(1, 8)
+        val packets = PingBudget.samples(count)
         val target = AddressFamilyPolicy
             .resolveCandidates(
                 host,
@@ -540,14 +647,22 @@ object RouteProbe {
         samples: Int = 3,
         targets: List<String> = REAL_DELAY_TARGETS
     ): ProbeResult {
-        val rounds = samples.coerceIn(1, 8)
+        val rounds = PingBudget.samples(samples)
         val times = ArrayList<Double>(rounds)
         val handshakeTimes = ArrayList<Double>(rounds)
-        repeat(rounds) {
+        var consecutiveFailures = 0
+        for (round in 0 until rounds) {
+            // MARBLE_PING_ACCURACY_V145 — spaced samples: a burst of HTTPS requests to the same
+            // 204 origin measures connection reuse and server-side rate limiting, not the route.
+            if (round > 0 && !pauseBetweenSamples()) break
             val result = httpPing(socksPort, timeoutMs, targets)
             if (result.latencyMs < UNREACHABLE) {
                 times += result.latencyMs
                 if (result.tcpHandshakeMs > 0) handshakeTimes += result.tcpHandshakeMs
+                consecutiveFailures = 0
+            } else {
+                consecutiveFailures += 1
+                if (times.isEmpty() && consecutiveFailures >= CONSECUTIVE_FAILURES_BEFORE_ABANDON) break
             }
         }
         if (times.isEmpty()) {
@@ -620,7 +735,7 @@ object RouteProbe {
         timeoutMs: Int = 3000,
         samples: Int = 3
     ): ProbeResult {
-        val rounds = samples.coerceIn(1, 8)
+        val rounds = PingBudget.samples(samples)
         val budgetMs = timeoutMs.coerceIn(250, 30_000)
         // MARBLE_DNS_BUDGET_V144 — each round is individually bounded by [dnsPing], and the whole
         // batch additionally never outlives rounds × budget plus scheduling grace, so a caller
@@ -683,7 +798,8 @@ object RouteProbe {
         profile: ProxyProfile,
         tunnelPort: Int = 0,
         timeoutMs: Int = 5000,
-        settings: AppSettings = AppSettings()
+        settings: AppSettings = AppSettings(),
+        samples: Int = 1
     ): ProbeResult {
         // MARBLE_SMART_PING_V122 — the default ping method must never blanket-fail healthy
         // servers. The old logic chained hard gates (TCP, then DNS, then HTTPS) so that one
@@ -695,13 +811,26 @@ object RouteProbe {
         if (host.isBlank() || profile.port !in 1..65535) {
             return ProbeResult("SMART", UNREACHABLE, 0, failureReason = "invalid-target")
         }
-        val budgetMs = timeoutMs.coerceIn(1_200, 6_000)
+        // MARBLE_PING_ACCURACY_V145 — the caller's budget is the budget. The old
+        // `coerceIn(1_200, 6_000)` silently discarded the user's Settings choice, so asking for
+        // 10 s per server still failed every route that needed 7 s to answer.
+        val budgetMs = timeoutMs.coerceIn(
+            PingBudget.TIMEOUT_MIN_SEC * 1_000,
+            PingBudget.TIMEOUT_MAX_SEC * 1_000
+        )
+        val gateSamples = PingBudget.samples(samples)
 
-        // Phase 1: fast TCP gate (roughly a third of the budget). A single SYN decides quickly
-        // whether the endpoint listens; only an abnormally fast local failure gets one retry
-        // inside [tcp], a genuine timeout stays failed without burning the HTTPS budget.
-        val gateTimeoutMs = (budgetMs * 0.35).toInt().coerceIn(350, 2_200)
-        val tcpResult = tcpExtended(host, profile.port, gateTimeoutMs, samples = 1, settings = settings)
+        // Phase 1: TCP gate (roughly a third of the budget), measured with the user's own sample
+        // count instead of a single hard-coded SYN — one handshake is a coin toss on a lossy
+        // mobile link, and it was the number the whole product ranked servers by.
+        val gateTimeoutMs = (budgetMs * 0.35).toInt().coerceAtLeast(350)
+        val tcpResult = tcpExtended(
+            host,
+            profile.port,
+            gateTimeoutMs,
+            samples = gateSamples,
+            settings = settings
+        )
         val tcpOk = tcpResult.latencyMs < UNREACHABLE
 
         // Phase 1b: DNS gate — but only for domain hosts. Resolving a literal IP always
@@ -748,11 +877,11 @@ object RouteProbe {
 
         // Phase 2: real HTTPS measurement — through the live tunnel when one is supplied.
         // Several independent 204 origins are raced so one censored CDN can never fail the node on its own.
-        val realTimeoutMs = (budgetMs * 0.65).toInt().coerceIn(800, 4_000)
+        val realTimeoutMs = (budgetMs * 0.65).toInt().coerceAtLeast(800)
         val httpResult = httpPingBatch(
             socksPort = tunnelPort,
             timeoutMs = realTimeoutMs,
-            samples = 2
+            samples = gateSamples.coerceAtMost(3)
         )
 
         if (httpResult.latencyMs in 20.0..UNREACHABLE) {
@@ -805,19 +934,37 @@ object RouteProbe {
         timeoutMs: Int,
         settings: AppSettings = AppSettings()
     ): Sample {
-        val rounds = samples.coerceIn(1, 8)
+        val rounds = PingBudget.samples(samples)
+        // MARBLE_PING_ACCURACY_V145 — one resolution per run, spaced samples, warm-up discarded.
+        val resolved = if (icmpMode) null else resolveOnce(profile.host, timeoutMs, settings)
+        if (!icmpMode && resolved == null) return Sample(0, UNREACHABLE)
         val times = ArrayList<Double>(rounds)
-        repeat(rounds) {
+        var attempts = 0
+        var consecutiveFailures = 0
+        for (round in 0 until rounds) {
+            if (round > 0 && !pauseBetweenSamples()) break
+            attempts += 1
             val value = if (icmpMode) {
                 icmp(profile.host, timeoutMs, settings)
             } else {
-                tcp(profile.host, profile.port, timeoutMs, settings)
+                tcp(profile.host, profile.port, timeoutMs, settings, resolved)
             }
-            if (value < UNREACHABLE) times += value
+            if (value < UNREACHABLE) {
+                times += value
+                consecutiveFailures = 0
+            } else {
+                consecutiveFailures += 1
+                if (times.isEmpty() && consecutiveFailures >= CONSECUTIVE_FAILURES_BEFORE_ABANDON) break
+            }
         }
-        if (times.isEmpty()) return Sample(0, UNREACHABLE)
-        val sorted = times.sorted()
-        return Sample(times.size * 100 / rounds, sorted[sorted.size / 2])
+        val summary = summarize(
+            if (icmpMode) "ICMP" else "TCP",
+            times,
+            attempts,
+            warmupDiscarded = true
+        )
+        if (summary.successPercent <= 0) return Sample(0, UNREACHABLE)
+        return Sample(summary.successPercent, summary.latencyMs)
     }
 
     /**
@@ -850,7 +997,7 @@ object RouteProbe {
                 )
             }
         }
-        ProbeMethod.HYBRID -> smartPing(profile, tunnelPort, timeoutMs, settings)
+        ProbeMethod.HYBRID -> smartPing(profile, tunnelPort, timeoutMs, settings, samples)
     }
 
     // ─── Helpers ───────────────────────────────────────────────────────────────

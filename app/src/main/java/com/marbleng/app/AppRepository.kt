@@ -468,6 +468,13 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     var liveJitterSamples by mutableStateOf(0); private set
     var liveRouteProbeStatus by mutableStateOf(""); private set
 
+    /**
+     * MARBLE_GEO_READY_GATE_V145 — latest gate explanation ("" when the full policy is running),
+     * kept in state so the UI never touches the filesystem to render it.
+     */
+    var geoGateNote by mutableStateOf("")
+        private set
+
     init {
         migrateLocalSourceOwnershipIfNeeded()
         RuntimeDiagnostics.setDebugEnabled(context, settings.debugModeEnabled)
@@ -495,7 +502,56 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
                 android.os.Handler(android.os.Looper.getMainLooper()).post { refreshAll() }
             }
         }
+        // MARBLE_GEO_READY_GATE_V145 — the geo databases fetch themselves in the background.
+        // Geo routing is disabled while they are absent (see RoutingEngine.withGeoAssetGate), so
+        // the only thing left to do is get them here without ever blocking a connect: this runs
+        // off the main thread, takes no task slot, never touches `busy` and swallows failure —
+        // a missing database costs the geo split for this session and nothing else.
+        ensureGeoAssetsInBackground()
     }
+
+    /**
+     * MARBLE_GEO_READY_GATE_V145 — silent, non-blocking preparation of the routing databases.
+     *
+     * Only runs when the user's own policy actually needs an asset that is not on disk, and only
+     * while no tunnel is up (a management download belongs on the underlay). Everything it can
+     * fail at is best effort by design.
+     */
+    private fun ensureGeoAssetsInBackground() {
+        io.execute {
+            runCatching {
+                if (state != "DISCONNECTED") return@runCatching
+                val status = xray.routingAssetStatus()
+                val needIp = RoutingEngine.needsGeoIp(settings) && !status.geoIpReady
+                val needSite = RoutingEngine.needsGeoSite(settings) && !status.geoSiteReady
+                if (!needIp && !needSite) return@runCatching
+                diagnostics.event(
+                    "ROUTING",
+                    "geo-assets-autoprepare",
+                    "geoip" to status.geoIpReady,
+                    "geosite" to status.geoSiteReady
+                )
+                val prepared = xray.prepareRoutingAssets(settings, force = false)
+                diagnostics.event(
+                    "ROUTING",
+                    "geo-assets-autoprepare-done",
+                    "geoip" to prepared.geoIpReady,
+                    "geosite" to prepared.geoSiteReady
+                )
+                postToMain { geoGateNote = geoGateReason() }
+            }
+        }
+    }
+
+    /**
+     * MARBLE_GEO_READY_GATE_V145 — "" while the policy runs exactly as written, otherwise one
+     * line naming the database the engine is waiting for. Surfaced on the Routing page.
+     */
+    fun geoGateReason(): String {
+        val status = runCatching { xray.routingAssetStatus() }.getOrNull() ?: return ""
+        return RoutingEngine.geoDowngradeReason(settings, status.geoIpReady, status.geoSiteReady)
+    }
+
 
     /**
      * Resolve the selected endpoint and enrich only its public IP with coarse public metadata.
@@ -1387,8 +1443,10 @@ private fun postToMain(block: () -> Unit) {
             val target = profile(activeProfileId, activeProfileSourceId)
             io.execute {
                 // MARBLE_PROBE_TOOLKIT_V130 — dispatch to the right RouteProbe method
-                val timeoutMs = (settings.benchTimeoutSec * 1000).coerceIn(500, 8_000)
-                val samples = settings.benchSamples.coerceIn(1, 4)
+                // MARBLE_PING_CONTROL_V145 — the Home ping spends exactly the budget the user
+                // configured (Settings › Tests › Ping), never a narrower hidden one.
+                val timeoutMs = settings.pingTimeoutMs()
+                val samples = settings.pingSampleCount()
                 val probeResult = target?.let { live ->
                     runCatching {
                         RouteProbe.measureUnified(
@@ -1686,8 +1744,9 @@ private fun postToMain(block: () -> Unit) {
             selectedPingFailure = ""
         }
         io.execute {
-            val timeoutMs = (settings.benchTimeoutSec * 1000).coerceIn(500, 8_000)
-            val samples = settings.benchSamples.coerceIn(1, 4)
+            // MARBLE_PING_CONTROL_V145 — same user-owned budget as every other measurement.
+            val timeoutMs = settings.pingTimeoutMs()
+            val samples = settings.pingSampleCount()
             val probeResult = runCatching {
                 RouteProbe.measureUnified(
                     profile = target,
@@ -3196,6 +3255,29 @@ private fun postToMain(block: () -> Unit) {
      */
     fun testAll() = testSource("all")
 
+    /**
+     * MARBLE_HOME_GROUP_PING_V145 — the Home ping button measures the whole selected group.
+     *
+     * Home shows one subscription at a time (the group chip above the server list), and the
+     * user's question when they tap the pulse icon is "how is this subscription doing?", not
+     * "how is the one row I happen to have selected doing?". This runs the same one ping engine
+     * over every server of the currently selected Home group; "All groups" pings everything.
+     *
+     * The per-server ping of the active route is still one tap away on the status banner, so
+     * neither question lost its answer.
+     */
+    fun pingHomeGroup() {
+        ensureLibrarySourceSelectionValid()
+        testSource(librarySourceFilter.ifBlank { "all" })
+    }
+
+    /** Human-readable name of the group [pingHomeGroup] would measure. */
+    fun homeGroupPingLabel(): String = libraryScopeLabel(librarySourceFilter.ifBlank { "all" })
+
+    /** True while a ping sweep covering the current Home group is running. */
+    val homeGroupPingRunning: Boolean
+        get() = probeActive
+
     /** Identity of one physical endpoint: what address-level probes actually measure. */
     private fun quickPingEndpointKey(profile: ProxyProfile): String =
         "${profile.host.trim().lowercase()}:${profile.port}"
@@ -3215,8 +3297,29 @@ private fun postToMain(block: () -> Unit) {
      * test proves a *config*, so it is measured per server, exactly as ranking does.
      */
     fun testSource(sourceId: String) {
-        val scoped = libraryScopeSnapshot(sourceId).distinctBy { it.id }
-        val scope = libraryScopeLabel(sourceId)
+        pingProfiles(
+            profiles = libraryScopeSnapshot(sourceId),
+            scopeLabel = libraryScopeLabel(sourceId),
+            scopeId = sourceId
+        )
+    }
+
+    /**
+     * MARBLE_SERVERS_GROUP_PING_V145 — ping an explicit set of servers under one label.
+     *
+     * The Servers page can group by country as well as by source, and a country bucket has no
+     * source id: routing its ping through [testSource] would resolve "country:de" to "no such
+     * source" and measure nothing. The sweep itself is identical for both — this is the entry
+     * point that takes the servers directly.
+     */
+    fun pingProfiles(
+        profiles: List<ProxyProfile>,
+        scopeLabel: String,
+        scopeId: String = "custom"
+    ) {
+        val scoped = profiles.distinctBy { it.id }
+        val scope = scopeLabel
+        val sourceId = scopeId
         if (scoped.isEmpty()) {
             message = "Nothing enabled to ping in $scope"
             return
@@ -3259,17 +3362,22 @@ private fun postToMain(block: () -> Unit) {
                 else -> scoped.associateBy { it.id }.mapValues { (_, profile) -> listOf(profile) }
             }
             val representatives = groups.values.mapNotNull { it.firstOrNull() }
+            // MARBLE_PING_CONTROL_V145 — a sweep runs the user's budget, full stop.
+            //
+            // The three numbers below used to be rewritten here: `benchSamples = 1` and
+            // `benchTimeoutSec = 2` for every address-level method, and a concurrency of
+            // `max(tcpWorkers, 24)..32`. That is why a subscription full of working servers came
+            // back red on a slow link — every node was judged by a single handshake with a
+            // two-second deadline, 24 of them fired at once — and why raising the timeout in
+            // Settings changed nothing. The ping budget (Settings › Tests › Ping) is now the one
+            // and only source of these values, and the method is still never overridden.
             val quickSettings = settings.copy(
                 benchMode = BenchMode.CUSTOM,
                 benchCandidates = representatives.size.coerceAtLeast(1),
-                // Address-level probes are cheap, so they stay snappy; a real tunnel measurement
-                // keeps the user's own sample/timeout budget, clamped to a size that still feels
-                // like a ping rather than a full benchmark run.
-                benchSamples = if (dedupe) 1 else settings.benchSamples.coerceIn(1, 3),
-                benchTimeoutSec = if (dedupe) 2 else settings.benchTimeoutSec.coerceIn(2, 8),
-                tcpPrecheckTimeoutMs = minOf(settings.tcpPrecheckTimeoutMs, 750),
-                tcpWorkers = maxOf(settings.tcpWorkers, 24).coerceAtMost(32),
-                // The method itself is never overridden: this is the user's setting.
+                benchSamples = settings.pingSampleCount(),
+                benchTimeoutSec = PingBudget.timeoutSec(settings.pingTimeoutSec),
+                tcpPrecheckTimeoutMs = settings.tcpPrecheckTimeoutMs,
+                tcpWorkers = settings.pingWorkers(),
                 probeSpeedTest = false,
                 verifiedPerformanceTuning = false,
                 udpProbeEnabled = false
@@ -3470,6 +3578,7 @@ private fun postToMain(block: () -> Unit) {
         }
         task(if (force) "Updating routing assets" else "Preparing routing assets") {
             val status = xray.prepareRoutingAssets(settings, force)
+            postToMain { geoGateNote = geoGateReason() }
             val parts = mutableListOf<String>()
             parts += if (status.geoIpReady) "geoip ${formatBytes(status.geoIpBytes)}" else "geoip missing (add a geoip.dat URL above)"
             parts += if (status.geoSiteReady) "geosite ${formatBytes(status.geoSiteBytes)}" else "geosite missing (add a geosite.dat URL above)"
@@ -3653,27 +3762,47 @@ private fun postToMain(block: () -> Unit) {
         url.trim().startsWith("https://", ignoreCase = true)
 
     /**
-     * DPI-aware HTTPS fetch. GitHub/raw SNI blocks, UA fingerprinting and first-flight RSTs are
-     * handled by [DpiAwareFetcher] (browser UA, jsDelivr mirrors, no-cleartext redirects).
-     * While connected, management stays inside the live SOCKS route.
-     * Subscription redirect left HTTPS is enforced by DpiAwareFetcher.fetchDirect.
+     * MARBLE_SUBSCRIPTION_REACH_V145 — a subscription link loads whatever the tunnel is doing.
+     *
+     * ## The bug this replaces
+     *
+     * A subscription URL and a proxy route are two independent reachability problems, and the
+     * old code tied them together with two hard rules:
+     *
+     *  - **connected ⇒ SOCKS only** (`allowDirect = !connected`). MarbleNG excludes its own
+     *    package from the TUN, so a "direct" request while connected travels over the physical
+     *    underlay. Panels that only answer their own country (or that block datacentre exit
+     *    IPs) are reachable exactly that way — and the app refused to try it, so those
+     *    subscriptions "only work with the VPN off".
+     *  - **connected ⇒ fail closed** (`check(xray.isAlive)`). A refresh during CONNECTING, or
+     *    while the core was restarting, threw before a single byte was attempted, even though
+     *    the underlay was perfectly able to answer.
+     *  - **disconnected ⇒ direct only** (`throughSocks = null`). A DPI-blocked provider URL had
+     *    no second path at all, so those subscriptions "only work with the VPN on".
+     *
+     * ## The rule now
+     *
+     * Both transports are always attempted; only their ORDER depends on the runtime state. When
+     * a healthy tunnel exists the tunnel goes first (that is what the user asked for by being
+     * connected) and the underlay is the fallback; otherwise the underlay goes first. When the
+     * app is not connected at all and every direct path failed, a short-lived Xray instance is
+     * started on a known-good profile purely to fetch the link, so a censored subscription URL
+     * no longer requires the user to connect manually first.
+     *
+     * DPI evasion itself (browser UA, jsDelivr mirrors, no-cleartext redirects) still belongs to
+     * [DpiAwareFetcher]; "Subscription redirect left HTTPS" is enforced in fetchDirect.
      */
     private fun httpSubscription(url: String): SubscriptionPayload {
         require(isHttpsSubscriptionUrl(url)) {
             "Remote subscriptions must use HTTPS"
         }
-        val connected = state != "DISCONNECTED"
-        if (connected) {
-            check(xray.isAlive) {
-                "Direct management request blocked while the tunnel is not healthy"
-            }
-        }
+        val livePort = liveSocksPortOrZero()
         val throughSocks: ((String, String) -> DpiAwareFetcher.Payload)? =
-            if (connected) {
+            if (livePort > 0) {
                 { candidate, agent ->
                     DpiAwareFetcher.Payload(
                         text = SocksHttpClient.getTextUrl(
-                            activeProxyPort(),
+                            livePort,
                             candidate,
                             maxBytes = MAX_SUBSCRIPTION_BYTES,
                             userAgent = agent
@@ -3683,14 +3812,104 @@ private fun postToMain(block: () -> Unit) {
             } else {
                 null
             }
-        val payload = DpiAwareFetcher.fetch(
-            url = url,
-            maxBytes = MAX_SUBSCRIPTION_BYTES,
-            iranActive = iranMode.active,
-            allowDirect = !connected,
-            throughSocks = throughSocks
-        )
-        return SubscriptionPayload(payload.text, payload.userInfo)
+
+        val attempt = runCatching {
+            DpiAwareFetcher.fetch(
+                url = url,
+                maxBytes = MAX_SUBSCRIPTION_BYTES,
+                iranActive = iranMode.active,
+                allowDirect = true,
+                preferSocks = livePort > 0,
+                throughSocks = throughSocks
+            )
+        }
+        attempt.getOrNull()?.let { payload ->
+            return SubscriptionPayload(payload.text, payload.userInfo)
+        }
+
+        // Last resort while no tunnel is up: borrow one. A subscription the underlay cannot
+        // reach is still reachable through any working server the user already owns.
+        val bootstrapped = if (livePort <= 0) fetchThroughTemporaryTunnel(url) else null
+        if (bootstrapped != null) return bootstrapped
+
+        throw attempt.exceptionOrNull()
+            ?: IllegalStateException("Subscription fetch failed on every transport")
+    }
+
+    /** The SOCKS port of a tunnel that is genuinely up, or 0 when there is none to borrow. */
+    private fun liveSocksPortOrZero(): Int {
+        if (state != "CONNECTED") return 0
+        if (!runCatching { xray.isAlive }.getOrDefault(false)) return 0
+        return activeProxyPort().takeIf { it in 1..65535 } ?: 0
+    }
+
+    /**
+     * MARBLE_SUBSCRIPTION_REACH_V145 — fetch a blocked subscription through a throwaway tunnel.
+     *
+     * Tries the remembered route first, then the best-ranked alternatives, and stops at the
+     * first server that delivers the payload. The temporary core is always torn down by
+     * [XrayManager.temporary]; nothing here changes the user's selection or session state.
+     */
+    private fun fetchThroughTemporaryTunnel(url: String): SubscriptionPayload? {
+        val candidates = subscriptionBootstrapCandidates()
+        if (candidates.isEmpty()) return null
+        for (candidate in candidates) {
+            var payload: DpiAwareFetcher.Payload? = null
+            val started = runCatching {
+                xray.temporary(
+                    profile = candidate,
+                    port = 0,
+                    settings = effectiveSettingsFor(candidate),
+                    link = LinkEvidence.UNKNOWN
+                ) { port ->
+                    payload = runCatching {
+                        DpiAwareFetcher.fetch(
+                            url = url,
+                            maxBytes = MAX_SUBSCRIPTION_BYTES,
+                            iranActive = iranMode.active,
+                            allowDirect = false,
+                            preferSocks = true,
+                            throughSocks = { linkUrl, agent ->
+                                DpiAwareFetcher.Payload(
+                                    text = SocksHttpClient.getTextUrl(
+                                        port,
+                                        linkUrl,
+                                        maxBytes = MAX_SUBSCRIPTION_BYTES,
+                                        userAgent = agent
+                                    )
+                                )
+                            }
+                        )
+                    }.getOrNull()
+                }
+            }.getOrDefault(false)
+            val body = payload
+            if (started && body != null) {
+                diagnostics.event(
+                    "SUBSCRIPTION",
+                    "bootstrap-tunnel-fetch",
+                    "profile" to candidate.id.take(12),
+                    "bytes" to body.text.length
+                )
+                return SubscriptionPayload(body.text, body.userInfo)
+            }
+        }
+        diagnostics.event("SUBSCRIPTION", "bootstrap-tunnel-exhausted", "tried" to candidates.size)
+        return null
+    }
+
+    /** At most three known-good servers worth spending a bootstrap handshake on. */
+    private fun subscriptionBootstrapCandidates(): List<ProxyProfile> {
+        val ranked = benchmarks
+            .asSequence()
+            .filter { it.success > 0 && it.latencyMs > 0.0 }
+            .sortedByDescending { it.score }
+            .mapNotNull { result -> profiles.firstOrNull { it.id == result.profileId } }
+            .toList()
+        return (listOfNotNull(lastProfile()) + ranked + profiles)
+            .distinctBy { it.id }
+            .filter { it.host.isNotBlank() }
+            .take(3)
     }
 
     private fun http(url: String): String = httpSubscription(url).text

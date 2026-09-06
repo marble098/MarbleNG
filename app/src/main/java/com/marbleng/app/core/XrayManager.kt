@@ -343,12 +343,14 @@ class XrayManager(private val context: Context) {
         val site = File(assetsDir, "geosite.dat")
         val ipSource = runCatching { sourceMarker("geoip.dat").readText() }.getOrDefault("")
         val siteSource = runCatching { sourceMarker("geosite.dat").readText() }.getOrDefault("")
+        // MARBLE_GEO_READY_GATE_V145 — READY means "a complete, structurally valid database is
+        // on disk", so a half-written or HTML payload can never enable geo routing.
         return RoutingAssetStatus(
-            geoIpReady = ip.isFile && ip.length() > 1024L,
+            geoIpReady = looksLikeGeoDatabase(ip),
             geoIpBytes = ip.takeIf { it.isFile }?.length() ?: 0L,
             geoIpRemote = ipSource.startsWith("http://") || ipSource.startsWith("https://"),
             geoIpUpdatedAt = ip.takeIf { it.isFile }?.lastModified() ?: 0L,
-            geoSiteReady = site.isFile && site.length() > 1024L,
+            geoSiteReady = looksLikeGeoDatabase(site),
             geoSiteBytes = site.takeIf { it.isFile }?.length() ?: 0L,
             geoSiteRemote = siteSource.startsWith("http://") || siteSource.startsWith("https://"),
             geoSiteUpdatedAt = site.takeIf { it.isFile }?.lastModified() ?: 0L
@@ -391,9 +393,12 @@ class XrayManager(private val context: Context) {
             Thread.currentThread().interrupt()
             false
         }
-        check(acquired) {
-            "Routing assets are being updated; retry after preparation finishes"
-        }
+        // MARBLE_GEO_READY_GATE_V145 — a background asset refresh can no longer veto a connect.
+        // The old `check(acquired)` turned "the updater happens to hold the lock right now" into
+        // a failed connection with a message the user cannot act on. Losing the race simply
+        // means the assets are not ready yet, and the geo gate downgrades the policy for this
+        // session instead of refusing to open the tunnel.
+        if (!acquired) return present
 
         try {
             assetsDir.mkdirs()
@@ -528,6 +533,7 @@ class XrayManager(private val context: Context) {
                 }
             }
             require(temp.length() > 1024L) { "Bundled $name is empty" }
+            require(looksLikeGeoDatabase(temp)) { "Bundled $name is not a geo database" }
             replaceFile(temp, destination)
             true
         }.getOrElse {
@@ -575,6 +581,26 @@ class XrayManager(private val context: Context) {
             }
 
             require(temp.length() > 1024L) { "${destination.name} download is empty" }
+            /*
+             * MARBLE_GEO_READY_GATE_V145 — "fully downloaded" is now verified, not assumed.
+             *
+             * The loop above committed whatever arrived: a connection cut in the middle of a
+             * 3 MiB geosite.dat produced a truncated file well over the 1 KiB floor, and a
+             * captive portal or a censor's block page produced an HTML document of the same
+             * shape. Both were then reported as READY and handed to Xray, which rejects the
+             * database and kills the core — the "connected but nothing loads" failure. A
+             * partial or non-protobuf payload is now discarded, so the previous good copy (or
+             * the bundled one) survives and the gate keeps geo routing off until a complete
+             * file lands.
+             */
+            if (declared >= 0) {
+                require(temp.length() == declared) {
+                    "${destination.name} download is incomplete (${temp.length()}/$declared bytes)"
+                }
+            }
+            require(looksLikeGeoDatabase(temp)) {
+                "${destination.name} download is not a geo database"
+            }
             replaceFile(temp, destination)
         } catch (error: Throwable) {
             temp.delete()
@@ -628,6 +654,37 @@ class XrayManager(private val context: Context) {
         }
     }
 
+    /**
+     * MARBLE_GEO_READY_GATE_V145 — a cheap structural check that the payload is a v2ray geo
+     * database and not an error page, a redirect body or a truncated prefix.
+     *
+     * geoip.dat / geosite.dat are protobuf `GeoIPList` / `GeoSiteList` messages whose first
+     * field is repeated entry #1 (wire type 2), i.e. the first byte is always 0x0A followed by
+     * a varint length that must fit inside the file. HTML, JSON and gzip all fail that test in
+     * their first two bytes.
+     */
+    private fun looksLikeGeoDatabase(file: File): Boolean = runCatching {
+        if (!file.isFile || file.length() <= 1024L) return@runCatching false
+        file.inputStream().use { input ->
+            val header = ByteArray(6)
+            val read = input.read(header)
+            if (read < 2) return@runCatching false
+            if (header[0].toInt() and 0xFF != 0x0A) return@runCatching false
+            var length = 0L
+            var shift = 0
+            for (index in 1 until read) {
+                val byte = header[index].toInt() and 0xFF
+                length = length or ((byte and 0x7F).toLong() shl shift)
+                if (byte and 0x80 == 0) {
+                    return@runCatching length in 1..file.length()
+                }
+                shift += 7
+                if (shift > 28) return@runCatching false
+            }
+            false
+        }
+    }.getOrDefault(false)
+
     private fun sourceMarker(name: String) = File(assetsDir, "$name.source")
     private fun refreshFailureMarker(name: String) = File(assetsDir, "$name.refresh-failed")
 
@@ -669,12 +726,19 @@ class XrayManager(private val context: Context) {
             needGeoIp || needGeoSite || settings.geoIpUrl.isNotBlank() || settings.geoSiteUrl.isNotBlank()
         val status = if (shouldPrepareAssets) prepareRoutingAssets(settings, force = false) else routingAssetStatus()
 
-        if (needGeoIp) require(status.geoIpReady) {
-            "geoip.dat is required by this policy but is missing/invalid"
-        }
-        if (needGeoSite) require(status.geoSiteReady) {
-            "geosite.dat is required by this policy but is missing/invalid"
-        }
+        // MARBLE_GEO_READY_GATE_V145 — verification describes the policy the engine will really
+        // load, which is the gated one while an asset is still downloading. Reporting a hard
+        // failure here for a file the user cannot produce was never actionable advice.
+        val gated = RoutingEngine.withGeoAssetGate(
+            settings,
+            geoIpReady = status.geoIpReady,
+            geoSiteReady = status.geoSiteReady
+        )
+        val downgrade = RoutingEngine.geoDowngradeReason(
+            settings,
+            geoIpReady = status.geoIpReady,
+            geoSiteReady = status.geoSiteReady
+        )
 
         val sourceConfig = if (profile.scheme.equals("ssh", true)) {
             SshProfileCodec.xrayClientConfig(19090)
@@ -687,7 +751,7 @@ class XrayManager(private val context: Context) {
         verifyLog.delete()
 
         return try {
-            config.writeText(XrayConfigHardener.harden(sourceConfig, 19091, settings))
+            config.writeText(XrayConfigHardener.harden(sourceConfig, 19091, gated))
             val testProcess = createProcessBuilder("run", "-test", "-c", config.absolutePath)
                 .redirectOutput(ProcessBuilder.Redirect.appendTo(verifyLog))
                 .start()
@@ -705,9 +769,18 @@ class XrayManager(private val context: Context) {
                 error("Xray rejected the routing/geo policy: $hint")
             }
 
-            val ipState = if (status.geoIpReady) "READY ${status.geoIpBytes / 1024} KiB" else "NOT REQUIRED"
-            val siteState = if (status.geoSiteReady) "READY ${status.geoSiteBytes / 1024} KiB" else "NOT REQUIRED"
-            "Routing verified by Xray • GeoIP $ipState • GeoSite $siteState"
+            val ipState = when {
+                status.geoIpReady -> "READY ${status.geoIpBytes / 1024} KiB"
+                needGeoIp -> "DOWNLOADING"
+                else -> "NOT REQUIRED"
+            }
+            val siteState = when {
+                status.geoSiteReady -> "READY ${status.geoSiteBytes / 1024} KiB"
+                needGeoSite -> "DOWNLOADING"
+                else -> "NOT REQUIRED"
+            }
+            val note = if (downgrade.isBlank()) "" else " • $downgrade"
+            "Routing verified by Xray • GeoIP $ipState • GeoSite $siteState$note"
         } finally {
             runCatching { config.delete() }
         }
@@ -746,15 +819,37 @@ class XrayManager(private val context: Context) {
 
             // Connection-critical path: local filesystem + process spawn only. Never remote HTTP.
             publishStartState(ticket.generation, "assets-local")
-            val needGeoIp = requiresGeoIp(settings)
-            val needGeoSite = requiresGeoSite(settings)
             val assetStatus = prepareRoutingAssetsForConnect(settings)
 
-            if (needGeoIp && !assetStatus.geoIpReady) {
-                error("geoip.dat is required by the selected routing policy but no local/bundled copy is available")
-            }
-            if (needGeoSite && !assetStatus.geoSiteReady) {
-                error("geosite.dat is required by the selected routing policy but no local/bundled copy is available")
+            /*
+             * MARBLE_GEO_READY_GATE_V145 — a missing geo database costs the geo split, never
+             * the connection.
+             *
+             * This used to `error(…)` when the selected policy needed geoip.dat/geosite.dat and
+             * neither a downloaded nor a bundled copy existed, so a fresh install on a censored
+             * link (where the very first asset download is the thing that fails) could not
+             * connect at all, and the failure named a file no user can produce. Geo routing is
+             * an optimisation layered on top of a working tunnel; [RoutingEngine.withGeoAssetGate]
+             * removes exactly the rules that need the absent database and leaves everything else
+             * — including the user's own settings on disk — untouched. The moment the asset
+             * lands, the next connect runs the full policy again with no user action.
+             */
+            val effectiveSettings = RoutingEngine.withGeoAssetGate(
+                settings,
+                geoIpReady = assetStatus.geoIpReady,
+                geoSiteReady = assetStatus.geoSiteReady
+            )
+            if (effectiveSettings !== settings) {
+                runCatching {
+                    logFile.appendText(
+                        "\n[MarbleNG] " +
+                            RoutingEngine.geoDowngradeReason(
+                                settings,
+                                assetStatus.geoIpReady,
+                                assetStatus.geoSiteReady
+                            ) + "\n"
+                    )
+                }
             }
             if (!startStillCurrent(ticket.generation)) return@runCatching false
 
@@ -764,7 +859,10 @@ class XrayManager(private val context: Context) {
             } else {
                 profile.configJson
             }
-            writeRuntimeConfig(config, XrayConfigHardener.harden(sourceConfig, port, settings, link))
+            writeRuntimeConfig(
+                config,
+                XrayConfigHardener.harden(sourceConfig, port, effectiveSettings, link)
+            )
 
             if (!startStillCurrent(ticket.generation)) return@runCatching false
 

@@ -75,20 +75,25 @@ object DpiAwareFetcher {
     }
 
     /**
-     * Direct Chrome-UA attempt, then GitHub mirrors, then the caller's fragment SOCKS bridge.
-     * Never retries over HTTP.
+     * Every transport this fetcher owns, tried until one delivers the payload. Never retries
+     * over HTTP.
      *
-     * MARBLE_FETCH_RELIABILITY_V78 — smarter fallback order:
-     *  1. Direct with browser UA first (covers most unfiltered networks)
-     *  2. Mirror URLs for GitHub-blocked networks
-     *  3. SOCKS path (while connected) for fully filtered environments
-     *  4. Secondary UA with all mirrors for extreme cases
+     * MARBLE_FETCH_RELIABILITY_V78 — browser UA first, GitHub mirrors, then the caller's SOCKS
+     * bridge, then a secondary UA over everything.
+     *
+     * MARBLE_SUBSCRIPTION_REACH_V145 — [preferSocks] flips the order of the two transports
+     * without removing either of them. A subscription host and a proxy route are independent
+     * reachability problems: some panels answer only from the user's own country (underlay),
+     * some only from outside it (tunnel), and the same account can hold both. The caller says
+     * which transport is the likelier winner right now; this function still tries the other one
+     * before giving up, which is what makes a link load whether the VPN is on or off.
      */
     fun fetch(
         url: String,
         maxBytes: Int,
         iranActive: Boolean,
         allowDirect: Boolean = true,
+        preferSocks: Boolean = false,
         throughSocks: ((candidateUrl: String, userAgent: String) -> Payload)? = null
     ): Payload {
         val urls = candidateUrls(url)
@@ -97,44 +102,43 @@ object DpiAwareFetcher {
         val secondaryAgent = DpiEvasionPolicy.MARBLE_UA
         var last: Throwable? = null
 
-        // Pass 1: direct with primary UA (fast path for most networks)
-        if (allowDirect) {
+        fun directPass(agent: String, connectMs: Int, readMs: Int): Payload? {
+            if (!allowDirect) return null
             for (candidate in urls) {
                 val attempt = runCatching {
-                    fetchDirect(candidate, maxBytes, primaryAgent, connectTimeoutMs = 10_000, readTimeoutMs = 25_000)
+                    fetchDirect(candidate, maxBytes, agent, connectTimeoutMs = connectMs, readTimeoutMs = readMs)
                 }
                 if (attempt.isSuccess) return attempt.getOrThrow()
                 last = attempt.exceptionOrNull()
             }
+            return null
         }
 
-        // Pass 2: SOCKS with primary UA (connected/Iran mode)
-        if (throughSocks != null) {
+        fun socksPass(agent: String): Payload? {
+            val bridge = throughSocks ?: return null
             for (candidate in urls) {
-                val attempt = runCatching { throughSocks(candidate, primaryAgent) }
+                val attempt = runCatching { bridge(candidate, agent) }
                 if (attempt.isSuccess) return attempt.getOrThrow()
                 last = attempt.exceptionOrNull()
             }
+            return null
         }
 
-        // Pass 3: direct with secondary UA
-        if (allowDirect) {
-            for (candidate in urls) {
-                val attempt = runCatching {
-                    fetchDirect(candidate, maxBytes, secondaryAgent, connectTimeoutMs = 12_000, readTimeoutMs = 30_000)
-                }
-                if (attempt.isSuccess) return attempt.getOrThrow()
-                last = attempt.exceptionOrNull()
-            }
+        // Pass 1+2: the preferred transport with the browser UA, then the other one.
+        val firstWave: List<() -> Payload?> = if (preferSocks) {
+            listOf({ socksPass(primaryAgent) }, { directPass(primaryAgent, 10_000, 25_000) })
+        } else {
+            listOf({ directPass(primaryAgent, 10_000, 25_000) }, { socksPass(primaryAgent) })
+        }
+        // Pass 3+4: the same two transports with the secondary UA, for UA-fingerprinting DPI.
+        val secondWave: List<() -> Payload?> = if (preferSocks) {
+            listOf({ socksPass(secondaryAgent) }, { directPass(secondaryAgent, 12_000, 30_000) })
+        } else {
+            listOf({ directPass(secondaryAgent, 12_000, 30_000) }, { socksPass(secondaryAgent) })
         }
 
-        // Pass 4: SOCKS with secondary UA
-        if (throughSocks != null) {
-            for (candidate in urls) {
-                val attempt = runCatching { throughSocks(candidate, secondaryAgent) }
-                if (attempt.isSuccess) return attempt.getOrThrow()
-                last = attempt.exceptionOrNull()
-            }
+        (firstWave + secondWave).forEach { pass ->
+            pass()?.let { return it }
         }
 
         throw last ?: IllegalStateException("Subscription fetch failed after all fallback paths")

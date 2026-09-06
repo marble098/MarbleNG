@@ -1005,7 +1005,54 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Peer public key is required" to "کلید عمومی همتا لازم است",
     "Paste the Xray JSON first" to "ابتدا JSON ایکس‌ری را بچسبانید",
     "VLESS needs TLS/REALITY or a non-none encryption" to
-        "VLESS به TLS/REALITY یا رمزنگاری غیر none نیاز دارد"
+        "VLESS به TLS/REALITY یا رمزنگاری غیر none نیاز دارد",
+
+    // ------------------------------------------------------------------ V145: Home + menu, group ping
+    "Import every link on the clipboard" to "همه لینک‌های داخل کلیپ‌بورد را وارد کن",
+    "Scan with the camera or pick an image" to "با دوربین اسکن کن یا یک تصویر انتخاب کن",
+    "Open the Servers page to add or edit" to "برای افزودن یا ویرایش، صفحه سرورها را باز کن",
+
+    // ------------------------------------------------------------------ V145: modular customizer
+    "Modules" to "ماژول‌ها",
+    "Status banner" to "کارت وضعیت",
+    "Route, ping and IP" to "مسیر، پینگ و آی‌پی",
+    "The group picker and its server list" to "انتخاب گروه و فهرست سرورهای آن",
+    "Uptime, ping and session traffic" to "زمان اتصال، پینگ و مصرف نشست",
+    "Quick shortcuts" to "میان‌برهای سریع",
+    "Add, paste, QR and the ping readout" to "افزودن، چسباندن، QR و نمایش پینگ",
+    "Local SOCKS address" to "نشانی SOCKS محلی",
+    "Show the proxy endpoint other apps can use" to "نشانی پروکسی برای استفاده در برنامه‌های دیگر",
+    "The connect button is always shown." to "دکمه اتصال همیشه نمایش داده می‌شود.",
+    "Reset layout" to "بازنشانی چیدمان",
+
+    // ------------------------------------------------------------------ V145: navigation bar
+    "Navigation bar" to "نوار پایین",
+    "The bottom bar of the app: what it shows and how much room it takes." to
+        "نوار پایین برنامه: چه چیزی نشان دهد و چقدر جا بگیرد.",
+    "Show labels" to "نمایش نوشته‌ها",
+    "Tab captions under the bar's glyphs" to "نام تب‌ها کنار آیکون‌ها",
+    "Show icons" to "نمایش آیکون‌ها",
+    "Tab glyphs; turning both off is not allowed" to "آیکون تب‌ها؛ خاموش کردن هر دو ممکن نیست",
+
+    // ------------------------------------------------------------------ V145: ping budget
+    "Measurement budget" to "بودجه اندازه‌گیری",
+    "Every ping in the app — Home, a group, Ping all — obeys exactly these values." to
+        "همه پینگ‌های برنامه — خانه، یک گروه، پینگ همه — دقیقاً از همین مقادیر پیروی می‌کنند.",
+    "Timeout per server" to "مهلت هر سرور",
+    "How long one server may take before it counts as unreachable" to
+        "هر سرور چقدر فرصت دارد تا پیش از «در دسترس نیست» پاسخ دهد",
+    "Servers at once" to "سرورهای هم‌زمان",
+    "Parallel measurements. Fewer is slower but far more accurate on a weak link" to
+        "اندازه‌گیری موازی. کمتر یعنی کندتر ولی روی اینترنت ضعیف بسیار دقیق‌تر",
+    "Samples per server" to "تعداد نمونه هر سرور",
+    "The published latency is the median; the warm-up sample is discarded" to
+        "عدد نهایی میانه نمونه‌هاست؛ نمونه اول (گرم‌کردن) کنار گذاشته می‌شود",
+    "Worst case per server" to "بدترین حالت برای هر سرور",
+    "at once" to "هم‌زمان",
+
+    // ------------------------------------------------------------------ V145: geo asset gate
+    "Geo routing paused until the routing databases finish downloading" to
+        "مسیریابی جغرافیایی تا کامل شدن دانلود پایگاه‌های داده موقتاً غیرفعال است"
 )
 
 /** Lowercased view of the lexicon so `UPPERCASE` renders of the same keys still match. */
