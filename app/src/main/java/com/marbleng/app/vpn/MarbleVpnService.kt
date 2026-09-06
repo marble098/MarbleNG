@@ -34,7 +34,10 @@ import com.marbleng.app.core.SmartNotificationKind
 import com.marbleng.app.core.SmartNotifier
 import com.marbleng.app.core.TransportTelemetry
 import com.marbleng.app.core.TurboBackoffPolicy
+import com.marbleng.app.core.CoreEngine
+import com.marbleng.app.core.SingBoxManager
 import com.marbleng.app.core.XrayManager
+import com.marbleng.app.core.coreEngine
 import com.marbleng.app.model.AppSettings
 import com.marbleng.app.model.ProxyProfile
 import com.marbleng.app.nativebridge.HevTunnel
@@ -193,6 +196,40 @@ class MarbleVpnService : VpnService() {
     private val monitorWorker = Executors.newFixedThreadPool(4)
 
     private lateinit var xray: XrayManager
+    private lateinit var singBox: SingBoxManager
+
+    /**
+     * MARBLE_SINGBOX_CORE_V151 — the engine this session runs.
+     *
+     * Everything downstream of this line speaks to "the core" through [coreAlive], [coreStop]
+     * and friends, because the tunnel does not care whether Xray or sing-box extended owns the
+     * local SOCKS endpoint: hev-socks5-tunnel dials the same 127.0.0.1 port either way.
+     */
+    @Volatile private var activeEngine: CoreEngine = CoreEngine.XRAY
+
+    private val coreTag: String get() = if (activeEngine == CoreEngine.SINGBOX) "SINGBOX" else "XRAY"
+
+    // The `else` arm always names the Xray manager: these three are the engine-agnostic reads,
+    // and reading themselves here would recurse until the stack gave out.
+    private val coreAlive: Boolean
+        get() = if (activeEngine == CoreEngine.SINGBOX) singBox.isAlive else xray.isAlive
+
+    private val coreStartPhase: String
+        get() = if (activeEngine == CoreEngine.SINGBOX) singBox.lastStartPhase else xray.lastStartPhase
+
+    private val coreStartError: String
+        get() = if (activeEngine == CoreEngine.SINGBOX) singBox.lastStartError else xray.lastStartError
+
+    private val coreLogFile: java.io.File
+        get() = if (activeEngine == CoreEngine.SINGBOX) singBox.logFile else xray.logFile
+
+    /** Stops whichever cores are running. Both are stopped: a stale Xray behind a sing-box session
+     *  would hold the local SOCKS port and confuse the next connect. */
+    private fun coreStop() {
+        runCatching { singBox.stop() }
+        runCatching { xray.stop() }
+    }
+
     private lateinit var diag: RuntimeDiagnostics
     private lateinit var notifier: SmartNotifier
     private lateinit var routeOptimizer: ContinuousRouteOptimizer
@@ -257,6 +294,7 @@ class MarbleVpnService : VpnService() {
         super.onCreate()
         val app = application as MarbleApplication
         xray = app.xray
+        singBox = app.repo.singBox
         diag = RuntimeDiagnostics(this)
         notifier = SmartNotifier(this)
         notifier.ensureChannels()
@@ -376,7 +414,7 @@ class MarbleVpnService : VpnService() {
 
     @Synchronized
     private fun startConnection(id: String, sourceId: String?, mode: String) {
-        if (running.get() || tun != null || hevActive || xray.isAlive) cleanupRuntime(setDisconnected = false)
+        if (running.get() || tun != null || hevActive || coreAlive) cleanupRuntime(setDisconnected = false)
 
         val app = application as MarbleApplication
         val profile = app.repo.profile(id, sourceId) ?: run {
@@ -483,12 +521,12 @@ class MarbleVpnService : VpnService() {
                     "timeoutMs" to CONNECT_STARTUP_TIMEOUT_MS
                 )
                 diag.event(
-                    "XRAY",
+                    coreTag,
                     "startup-cancel-request",
                     "session" to session,
-                    "phase" to xray.lastStartPhase
+                    "phase" to coreStartPhase
                 )
-                xray.stop()
+                coreStop()
                 handleFailure(
                     session,
                     "Connection startup timed out after ${CONNECT_STARTUP_TIMEOUT_MS / 1_000}s"
@@ -562,8 +600,13 @@ class MarbleVpnService : VpnService() {
         // must be sized for the link this route actually has, otherwise a healthy ~1.1 s tunnel gets
         // 1350 ms DNS budgets and every lookup dies on a deadline before the resolver can answer.
         val linkEvidence = linkEvidenceFor(profile.id)
+        // MARBLE_SINGBOX_CORE_V151 — the engine for this session is decided before the first
+        // diagnostic is written, so every event on the start path carries the tag of the core
+        // that actually ran rather than the one that ran last time.
+        activeEngine = settings.coreEngine()
         diag.event(
-            "XRAY", if (recovering) "recovery-start" else "start-begin",
+            coreTag, if (recovering) "recovery-start" else "start-begin",
+            "engine" to activeEngine.id,
             "session" to session,
             "profile" to profile.name,
             "port" to port,
@@ -580,40 +623,49 @@ class MarbleVpnService : VpnService() {
         )
 
         val coreStartNs = System.nanoTime()
-        val coreStarted = xray.start(profile, port, settings, linkEvidence)
+        // One switch decides which binary carries this session; [activeEngine] was set above and
+        // every later `coreAlive` check in this session talks to the same process started here.
+        val coreStarted = when (activeEngine) {
+            CoreEngine.SINGBOX -> singBox.start(profile, port, settings)
+            CoreEngine.XRAY -> xray.start(profile, port, settings, linkEvidence)
+        }
         val coreStartMs = ((System.nanoTime() - coreStartNs) / 1_000_000L).coerceAtLeast(0L)
         diag.event(
-            "XRAY",
+            coreTag,
             "start-result",
             "session" to session,
             "ok" to coreStarted,
             "elapsedMs" to coreStartMs,
-            "phase" to xray.lastStartPhase,
-            "alive" to xray.isAlive,
-            "reason" to if (coreStarted) "" else xray.lastStartError.take(500)
+            "phase" to coreStartPhase,
+            "alive" to coreAlive,
+            "reason" to if (coreStarted) "" else coreStartError.take(500)
         )
         if (!coreStarted) {
             // STOP/watchdog/new START may have invalidated this attempt while core startup was
             // unwinding. Never record a second failure or re-block a newer user command.
             if (!isCurrent(session)) {
                 diag.event(
-                    "XRAY",
+                    coreTag,
                     "start-result-stale",
                     "session" to session,
-                    "phase" to xray.lastStartPhase
+                    "phase" to coreStartPhase
                 )
                 return
             }
             handleFailure(
                 session,
-                xray.lastStartError.ifBlank {
-                    "Xray rejected profile or routing policy"
+                coreStartError.ifBlank {
+                    if (activeEngine == CoreEngine.SINGBOX) {
+                        "sing-box extended rejected profile or routing policy"
+                    } else {
+                        "Xray rejected profile or routing policy"
+                    }
                 }
             )
             return
         }
         if (!isCurrent(session)) {
-            xray.stop()
+            coreStop()
             return
         }
 
@@ -622,7 +674,7 @@ class MarbleVpnService : VpnService() {
         // window where interactive jitter is being established.
         scheduleSyntheticEgressObservation(session, generation, port, profile)
 
-        diag.event("XRAY", "socks-ready", "session" to session, "alive" to xray.isAlive, "port" to port)
+        diag.event(coreTag, "socks-ready", "session" to session, "alive" to coreAlive, "port" to port)
 
         // On a fresh session there is no previous exit identity to compare against, so a blocking
         // 5-second trace request cannot prove a rotation and only delays HEV startup. Pin the first
@@ -991,7 +1043,7 @@ class MarbleVpnService : VpnService() {
         updateSentinel(killSwitch = true)
 
         timerWorker.schedule({
-            if (isRouteCurrent(session, generation) && hevActive && xray.isAlive) {
+            if (isRouteCurrent(session, generation) && hevActive && coreAlive) {
                 if (tunReadyPublished.compareAndSet(false, true) && isRouteCurrent(session, generation)) {
                 startupTimedOut.set(false)
                 // MARBLE_RECOVERY_CIRCUIT_V135 — a route that published readiness proved the path:
@@ -1026,14 +1078,14 @@ class MarbleVpnService : VpnService() {
             }
         }, HEV_READY_GRACE_MS, TimeUnit.MILLISECONDS)
 
-        diag.event("HEV", "run-enter", "session" to session, "hevFd" to hevFd, "xrayAlive" to xray.isAlive)
+        diag.event("HEV", "run-enter", "session" to session, "hevFd" to hevFd, "xrayAlive" to coreAlive)
         val result = runCatching { HevTunnel.run(cfg, hevFd) }
         hevActive = false
         val code = result.getOrElse {
             diag.error("HEV", "jni-run-exception", it, "session" to session, "hevFd" to hevFd)
             -10001
         }
-        diag.event("HEV", "run-exit", "session" to session, "code" to code, "runningFlag" to running.get(), "xrayAlive" to xray.isAlive)
+        diag.event("HEV", "run-exit", "session" to session, "code" to code, "runningFlag" to running.get(), "xrayAlive" to coreAlive)
 
         if (isCurrent(session)) {
             if (!tunReadyPublished.get()) {
@@ -1053,7 +1105,7 @@ private fun startProxyMonitor(session: String, port: Int, generation: Int) {
             sampleRouteLatency(session, port, generation)
 
             while (isRouteCurrent(session, generation) && activeMode == MODE_PROXY) {
-                if (!xray.isAlive) {
+                if (!coreAlive) {
                     handleFailure(session, "Xray local proxy stopped")
                     return@execute
                 }
@@ -1094,7 +1146,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             while (isRouteCurrent(session, generation) && hevActive) {
                 if (!sleepQuietly(1_000L)) return@execute
                 if (!isRouteCurrent(session, generation) || !hevActive) break
-                if (!xray.isAlive) {
+                if (!coreAlive) {
                     handleFailure(session, "Xray core stopped")
                     return@execute
                 }
@@ -1144,7 +1196,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                                     "session" to session,
                                     "txWithoutRxBytes" to txWithoutRxBytes,
                                     "stallMs" to (nowMs - txWithoutRxSince),
-                                    "xrayAlive" to xray.isAlive)
+                                    "xrayAlive" to coreAlive)
                                 // Upload-only traffic is legitimate. Confirm the suspected stall
                                 // with independent HTTPS evidence before entering fail-closed
                                 // recovery; the old byte-only rule killed a working route after a
@@ -1173,7 +1225,10 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                     lastT = nowNs
                 }
 
-                if (tick % 2 == 0) {
+                // MARBLE_SINGBOX_CORE_V151 — the transport telemetry file is written by MarbleNG's
+                // Xray patch (MARBLE_REALTIME_ENGINE_V70); sing-box extended has no equivalent, so
+                // the block is skipped instead of reading another engine's stale file.
+                if (tick % 2 == 0 && activeEngine == CoreEngine.XRAY) {
                     TransportTelemetry.latest(xray.transportTelemetryFile)?.takeIf { it.fresh() }?.let { transport ->
                         val liveSettings = activeSettings ?: repo.settings
                         val stressed = transport.retransDelta >= 2 || transport.lost > 0 ||
@@ -1220,7 +1275,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                                 )
                             }
                         }
-                        if (tick % 10 == 0) diag.event("XRAY", "tcp-info", "session" to session,
+                        if (tick % 10 == 0) diag.event(coreTag, "tcp-info", "session" to session,
                             "sockets" to transport.sockets, "rttMs" to transport.rttMs,
                             "p95RttMs" to transport.p95RttMs, "rttVarMs" to transport.rttVarMs,
                             "retransDelta" to transport.retransDelta, "lost" to transport.lost,
@@ -1325,7 +1380,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
      * prefs write only when the attributed evidence actually changed.
      */
     private fun harvestResolverEvidence(session: String) {
-        val file = xray.logFile
+        val file = coreLogFile
         if (!file.isFile) return
         val length = file.length()
         if (length <= 0L) return
@@ -1528,7 +1583,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             minIntervalOverrideMs = 60_000L
         )
         if (hevActive) runCatching { HevTunnel.quit() }
-        xray.stop()
+        coreStop()
         closeHevFd()
         repo.resetTelemetry()
         updateSentinel(killSwitch = holdTun)
@@ -1781,9 +1836,9 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         }
         if (delayMs <= 0L) return
         timerWorker.schedule({
-            if (isRouteCurrent(session, generation) && xray.isAlive) {
+            if (isRouteCurrent(session, generation) && coreAlive) {
                 monitorWorker.execute {
-                    if (!isRouteCurrent(session, generation) || !xray.isAlive) return@execute
+                    if (!isRouteCurrent(session, generation) || !coreAlive) return@execute
                     if (System.currentTimeMillis() < verifiedRttBackoffUntilMs) {
                         diag.event(
                             "EGRESS", "startup-observation-held-by-rtt-backoff",
@@ -1795,7 +1850,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                     val app = application as MarbleApplication
                     val domainHealthy = probeDomainHttps(port)
                     val literalHealthy = domainHealthy || probeLiteralIpHttps(port)
-                    if (!isRouteCurrent(session, generation) || !xray.isAlive) {
+                    if (!isRouteCurrent(session, generation) || !coreAlive) {
                         diag.event(
                             "EGRESS", "startup-observation-stale-discarded",
                             "session" to session,
@@ -1869,12 +1924,12 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         delayMs: Long = 15_000L
     ) {
         timerWorker.schedule({
-            if (isRouteCurrent(session, generation) && xray.isAlive) {
+            if (isRouteCurrent(session, generation) && coreAlive) {
                 val repo = (application as MarbleApplication).repo
                 val throughput = repo.liveDownBps + repo.liveUpBps
                 if (throughput < HEAVY_TRAFFIC_BPS) {
                     monitorWorker.execute {
-                        if (isRouteCurrent(session, generation) && xray.isAlive) {
+                        if (isRouteCurrent(session, generation) && coreAlive) {
                             runCatching {
                                 repo.intelligence.probeDnsResolvers(
                                     port,
@@ -1967,7 +2022,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         generation: Int
     ): Boolean {
         if (!isRouteCurrent(session, generation)) return false
-        if (!xray.isAlive) return true
+        if (!coreAlive) return true
         if (activeMode == MODE_TUN && !hevActive) return true
 
         if (probeLiteralIpHttps(port)) {
@@ -1991,7 +2046,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             if (healthy) return false
         }
         return isRouteCurrent(session, generation) &&
-            xray.isAlive &&
+            coreAlive &&
             (activeMode != MODE_TUN || hevActive)
     }
 
@@ -2273,7 +2328,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                     "ROUTE", "probe-advisory-miss-held",
                     "session" to session,
                     "trafficRecent" to true,
-                    "xrayAlive" to xray.isAlive,
+                    "xrayAlive" to coreAlive,
                     "hevActive" to hevActive
                 )
                 return false
@@ -2317,7 +2372,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
 
             if (recoveryEnabled && consecutiveProbeFailures >= PROBE_FAILURES_BEFORE_RECOVERY) {
                 val confirmedUnavailable = when {
-                    !xray.isAlive -> true
+                    !coreAlive -> true
                     activeMode == MODE_TUN && !hevActive -> true
                     trafficRecentlyMoved -> false
                     else -> confirmRouteUnavailable(session, port, generation)
@@ -2334,7 +2389,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                         "ROUTE", "probe-failure-held",
                         "session" to session,
                         "trafficRecent" to trafficRecentlyMoved,
-                        "xrayAlive" to xray.isAlive,
+                        "xrayAlive" to coreAlive,
                         "hevActive" to hevActive
                     )
                 }
@@ -2776,7 +2831,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             "killSwitchHold" to
                 holdTun,
             "xrayAlive" to
-                xray.isAlive,
+                coreAlive,
             "hevFd" to
                 hevFd,
             "tunOpen" to
@@ -2794,7 +2849,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
 
         hevActive =
             false
-        xray.stop()
+        coreStop()
         closeHevFd()
         repo.resetTelemetry()
 
@@ -3351,7 +3406,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                 mode = activeMode,
                 tunUp = tun != null,
                 ipv6RouteCaptured = ipv6RouteCaptured,
-                xrayUp = xray.isAlive,
+                xrayUp = coreAlive,
                 hevUp = hevActive,
                 killSwitchArmed = killSwitch,
                 previous = repo.sentinel
@@ -3501,7 +3556,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         if (::routeOptimizer.isInitialized) routeOptimizer.reset(System.currentTimeMillis())
         if (hevActive) runCatching { HevTunnel.quit() }
         hevActive = false
-        xray.stop()
+        coreStop()
         closeHevFd()
         closeTun()
 
@@ -3558,7 +3613,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
 
     override fun onDestroy() {
         diag.event("VPN", "service-destroy", "session" to activeSession, "running" to running.get())
-        if (running.get() || tun != null || hevActive || xray.isAlive) cleanupRuntime(setDisconnected = true)
+        if (running.get() || tun != null || hevActive || coreAlive) cleanupRuntime(setDisconnected = true)
         runCatching { connectivityDiagnostics?.close() }
         connectivityDiagnostics = null
         runCatching { networkListener?.close() }

@@ -1,9 +1,11 @@
 package com.marbleng.app.core
 
 import com.marbleng.app.model.AppSettings
+import com.marbleng.app.model.DelayTest
 import com.marbleng.app.model.PingBudget
 import com.marbleng.app.model.ProbeMethod
 import com.marbleng.app.model.ProxyProfile
+import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.InetAddress
 import java.net.InetSocketAddress
@@ -17,40 +19,35 @@ import kotlin.math.abs
 import kotlin.math.sqrt
 
 /**
- * Endpoint reachability probes — the full MarbleNG ping toolkit.
+ * Endpoint reachability probes — MarbleNG's measurement plane.
  *
- * Inspired by the best techniques from v2rayNG (realDelayTest / HTTPing through proxy),
- * PattNG (TLS handshake parity, multi-target racing), Incy (DNS-based reachability),
- * Exclave (TCP connect with Happy Eyeballs), and Lumen (weighted multi-signal scoring).
+ * ## The three product methods
  *
- * ## Methods
+ * MARBLE_PROBE_METHODS_V151 cut the seven-method ladder down to the three measurements that
+ * answer different questions. [measureUnified] is the single entry point the app calls, and it
+ * dispatches on `ProbeMethod` alone:
  *
- *  - [tcpConnect] / [tcpConnectExtended] — raw TCP connect to `host:port`. Proves the
- *    endpoint listens without requiring TLS. Fast, cheap, and the fallback that keeps
- *    Smart from marking a healthy non-TLS server failed.
+ *  - [realDelay] — PattNG's real ping. A cheap TCP gate first, so a dead port never spends a
+ *    core, then one real HTTPS round trip through the live tunnel to the configured delay URL.
+ *    This is the number a browser would feel, which makes it the honest comparator.
  *
- *  - [tcp] / [tcpExtended] — the verified Layer-0 signal: TCP connect plus TLS
- *    ServerHello/Alert with the time-to-RST injection rule. This is the recommended
- *    fast gate (`ProbeMethod.TCP_RECOMMENDED`).
+ *  - [tcpPing] — PattNG's tcping. One timed `Socket.connect` to the node's own `host:port`,
+ *    with no tunnel involved. Fastest liveness check in the product, and the only method whose
+ *    verdict belongs to the endpoint rather than to a route.
  *
- *  - [icmp] / [icmpExtended] — ICMP echo via /system/bin/ping. The classic reachability
- *    test. Many hosts and mobile carriers drop ICMP, so failure here is not proof a
- *    node is dead.
+ *  - [urlTest] — sing-box extended's native delay endpoint, reached through [urlTestHook].
+ *    The running core measures its own live outbound and Marble reports what it measured.
  *
- *  - [httpPing] / [httpPingBatch] — HTTPS GET or HEAD to a well-known 204 endpoint,
- *    through a SOCKS proxy port when one is supplied, direct otherwise. This is the
- *    "real delay" method used by v2rayNG and PattNG: a genuine proxy request that
- *    proves the full route works (handshake + TLS + first byte).
+ * ## Measurement primitives
  *
- *  - [dnsPing] / [dnsPingExtended] — system-resolver measurement. Kept as an internal
- *    Smart signal only; it is deliberately not a product method.
+ * The functions below the dispatch ([tcpConnect], [tcpConnectExtended], [tcp], [tcpExtended],
+ * [icmp], [icmpExtended], [httpPing], [httpPingBatch], [dnsPing], [dnsPingExtended]) are the
+ * instrument set the three methods and the diagnostics are built from, and the ones the ping
+ * truth tests pin. They are not user-selectable: nothing in the product reaches them except
+ * through [measureUnified].
  *
- *  - [smartPing] — the unified Smart method: the fast verified gate plus a real HTTPS
- *    measurement through the live tunnel when one is available. A raw TCP fallback
- *    keeps healthy servers alive when the TLS half of the gate cannot complete.
- *
- *  - [measure] / [measureUnified] — repeat any method and report median latency plus
- *    the success rate; [measureUnified] is the single entry point used by the app.
+ *  - [measure] / [measureUnified] — repeat a method and report median latency plus the success
+ *    rate; [measureUnified] is the single entry point used by the app.
  */
 object RouteProbe {
     // MARBLE_PROBE_TOOLKIT_V130 — full rewrite inspired by v2rayNG, PattNG, Incy, Exclave, Lumen
@@ -1354,11 +1351,14 @@ object RouteProbe {
     }
 
     /**
-     * Unified measurement dispatcher — picks the right method based on [ProbeMethod]
-     * and returns a rich [ProbeResult].
+     * MARBLE_PATTNG_PING_V151 — the one measurement dispatcher of the product.
      *
-     * This is the single entry point every caller in the product should use:
-     * the Home ping button, the Servers group ping, Ping all and ranking.
+     * Three methods, three honest answers. Nothing in here estimates: every branch either measures
+     * the thing it claims to measure, or reports why it could not.
+     *
+     *  - [ProbeMethod.REAL_DELAY] — PattNG's real ping.
+     *  - [ProbeMethod.TCP_PING]   — PattNG's TCP ping.
+     *  - [ProbeMethod.URL_TEST]   — sing-box extended's own delay endpoint.
      */
     fun measureUnified(
         profile: ProxyProfile,
@@ -1368,54 +1368,178 @@ object RouteProbe {
         timeoutMs: Int = 5000,
         settings: AppSettings = AppSettings()
     ): ProbeResult = when (method) {
-        // TUNNEL — real-tunnel evidence. When a live SOCKS port is present the measurement reuses
-        // the running route; a sweep without one falls back to the verified TCP gate (the honest
-        // answer a one-shot button can give without spawning a throwaway Xray child).
-        ProbeMethod.TUNNEL -> {
-            if (tunnelPort > 0) {
-                tunnelHttpsMeasure(tunnelPort, timeoutMs, samples = samples)
-            } else {
-                tcpExtended(profile.host, profile.port, timeoutMs, samples, settings).copy(
-                    method = "TUNNEL",
-                    failureReason = "no-tunnel-fallback-tcp"
+        ProbeMethod.REAL_DELAY -> realDelay(profile, tunnelPort, timeoutMs, samples, settings)
+        ProbeMethod.TCP_PING -> tcpPing(profile, timeoutMs, samples, settings)
+        ProbeMethod.URL_TEST -> urlTest(profile, timeoutMs, settings)
+    }
+
+    /**
+     * MARBLE_PATTNG_PING_V151 — **Real delay**, ported from
+     * `RealPingWorkerService.startRealPing`.
+     *
+     * Two stages, in PattNG's order:
+     *
+     *  1. **The gate.** One raw TCP connect to the node's own `server:port` with a one-second
+     *     budget. PattNG skips it for the protocols where a bare handshake proves nothing —
+     *     complex/custom configs, Hysteria2, WireGuard and HTTP/3-only endpoints — and so does
+     *     this. A gate failure ends the measurement immediately, which is what keeps a sweep over
+     *     a subscription of dead nodes fast: no core is spawned for a port that does not answer.
+     *  2. **The delay.** A real HTTP round trip through the running tunnel to the delay-test URL
+     *     ([DelayTest.url]). The number is the tunnel's, not a socket's.
+     *
+     * Without a live tunnel there is no honest delay to report. The gate measurement is still
+     * published — labelled with its reason — because "the port answers in 84 ms" is true and
+     * useful, and pretending it is a tunnel delay is not.
+     */
+    fun realDelay(
+        profile: ProxyProfile,
+        tunnelPort: Int,
+        timeoutMs: Int,
+        samples: Int,
+        settings: AppSettings = AppSettings()
+    ): ProbeResult {
+        val gate = realDelayGate(profile, settings)
+        if (gate != null) {
+            if (gate.latencyMs >= UNREACHABLE) {
+                return ProbeResult(
+                    METHOD_REAL_DELAY, UNREACHABLE, 0, 1,
+                    lossPercent = 100.0, failureReason = "tcp-gate-failed"
+                )
+            }
+            if (tunnelPort <= 0) {
+                return gate.copy(
+                    method = METHOD_REAL_DELAY,
+                    failureReason = "no-tunnel-tcp-gate"
                 )
             }
         }
-        ProbeMethod.HYBRID -> smartPing(profile, tunnelPort, timeoutMs, settings, samples)
-        ProbeMethod.TCP_CONNECT -> tcpConnectExtended(
-            profile.host, profile.port, timeoutMs, samples, settings
-        ).copy(method = "TCP_CONNECT")
-        ProbeMethod.TCP_RECOMMENDED -> tcpExtended(
-            profile.host, profile.port, timeoutMs, samples, settings
-        ).copy(method = "TCP_RECOMMENDED")
-        ProbeMethod.HTTP_GET -> httpMeasure(profile, tunnelPort, samples, timeoutMs, settings, "GET")
-        ProbeMethod.HTTP_HEAD -> httpMeasure(profile, tunnelPort, samples, timeoutMs, settings, "HEAD")
-        ProbeMethod.ICMP -> {
-            val icmpResult = icmpExtended(profile.host, timeoutMs, count = samples, settings = settings)
-            if (icmpResult.latencyMs < UNREACHABLE) {
-                icmpResult.copy(method = "ICMP")
-            } else {
-                // MARBLE_PING_TRUTH_V149 — ICMP silence is the WEAKEST possible evidence of death.
-                // Most VPS providers, and effectively every mobile carrier, drop or rate-limit
-                // ICMP echo outright; the method's own documentation says so. Publishing FAILED
-                // for a server that simply does not answer pings is the single most common false
-                // negative users report. When ICMP is silent, confirm with a raw TCP connect to
-                // the server's real port: if the port answers, the server is alive and the result
-                // carries that measurement with the reason recorded, so the user can see WHY the
-                // number came from a different vector instead of seeing a bare failure.
-                val confirm = tcpConnectExtended(profile.host, profile.port, timeoutMs, samples, settings)
-                if (confirm.latencyMs < UNREACHABLE) {
-                    confirm.copy(
-                        method = "ICMP",
-                        lossPercent = icmpResult.lossPercent,
-                        failureReason = "icmp-blocked-tcp-ok"
-                    )
-                } else {
-                    icmpResult.copy(method = "ICMP")
-                }
-            }
+
+        if (tunnelPort <= 0) {
+            return ProbeResult(
+                METHOD_REAL_DELAY, UNREACHABLE, 0, PingBudget.samples(samples),
+                lossPercent = 100.0, failureReason = "no-live-tunnel"
+            )
+        }
+
+        return tunnelHttpsMeasure(
+            socksPort = tunnelPort,
+            timeoutMs = timeoutMs,
+            samples = samples,
+            url = DelayTest.url(settings.delayTestUrl)
+        ).copy(method = METHOD_REAL_DELAY)
+    }
+
+    /**
+     * The PattNG liveness gate, or `null` when this profile is one of the types PattNG exempts.
+     *
+     * Exempt: UDP-first and custom protocols, where a TCP handshake to the endpoint is either
+     * meaningless (Hysteria2, WireGuard) or not part of the protocol at all (HTTP/3-only).
+     */
+    private fun realDelayGate(profile: ProxyProfile, settings: AppSettings): ProbeResult? {
+        if (!gateApplies(profile)) return null
+        return tcpPing(profile, DelayTest.TCP_GATE_TIMEOUT_MS, samples = 1, settings = settings)
+    }
+
+    /**
+     * MARBLE_PATTNG_PING_V151 — **TCP ping**, ported from
+     * `RealPingWorkerService.startTcping` → `SpeedtestManager.socketConnectTime`.
+     *
+     * One `Socket.connect(host, port, timeout)` per sample and the wall-clock milliseconds it
+     * took. It measures the node's own endpoint from this device; it never crosses the tunnel and
+     * it never claims to. MarbleNG's [PingBudget] supplies the sample count and the timeout, so
+     * the published number is the median of the samples the user asked for instead of a single
+     * handshake, but the measurement itself is byte-for-byte PattNG's.
+     */
+    fun tcpPing(
+        profile: ProxyProfile,
+        timeoutMs: Int,
+        samples: Int,
+        settings: AppSettings = AppSettings()
+    ): ProbeResult {
+        if (!gateApplies(profile)) {
+            return ProbeResult(
+                METHOD_TCP_PING, UNREACHABLE, 0, 1,
+                lossPercent = 100.0, failureReason = "tcp-ping-not-applicable"
+            )
+        }
+        return tcpConnectExtended(
+            host = profile.host,
+            port = profile.port,
+            timeoutMs = timeoutMs,
+            samples = samples,
+            settings = settings
+        ).copy(method = METHOD_TCP_PING)
+    }
+
+    /**
+     * MARBLE_PATTNG_PING_V151 — **URL test** through sing-box extended.
+     *
+     * The core measures the round trip itself via its Clash-compatible delay endpoint, so the
+     * number accounts for the real transport (unified delay, mux, reality) rather than for a
+     * Kotlin socket that never saw the tunnel. [urlTestHook] is installed by the repository,
+     * which owns the core process; without it the method reports that plainly instead of
+     * substituting a different measurement.
+     */
+    fun urlTest(
+        profile: ProxyProfile,
+        timeoutMs: Int,
+        settings: AppSettings = AppSettings()
+    ): ProbeResult {
+        val hook = urlTestHook
+            ?: return ProbeResult(
+                METHOD_URL_TEST, UNREACHABLE, 0, 1,
+                lossPercent = 100.0, failureReason = "singbox-unavailable"
+            )
+        return runCatching { hook(profile, settings, timeoutMs) }.getOrElse {
+            ProbeResult(
+                METHOD_URL_TEST, UNREACHABLE, 0, 1,
+                lossPercent = 100.0,
+                failureReason = (it.message ?: it::class.java.simpleName).take(120)
+            )
         }
     }
+
+    /** Method labels stored in [ProbeResult.method]; kept as constants so nothing drifts. */
+    const val METHOD_REAL_DELAY = "REAL_DELAY"
+    const val METHOD_TCP_PING = "TCP_PING"
+    const val METHOD_URL_TEST = "URL_TEST"
+
+    /**
+     * Installs the sing-box extended URL-test implementation.
+     *
+     * [RouteProbe] is a process-wide object with no Android context, and the URL test needs the
+     * core process the repository owns. Rather than thread a manager through every call site of
+     * [measureUnified], the repository publishes one closure at startup. `null` (unit tests, or a
+     * build without the core) makes [urlTest] report unavailability instead of guessing.
+     */
+    @Volatile
+    var urlTestHook: ((ProxyProfile, AppSettings, Int) -> ProbeResult)? = null
+
+    /**
+     * True when a raw TCP handshake to the endpoint is meaningful for this profile — PattNG's own
+     * exemption list, expressed on MarbleNG's model.
+     */
+    private fun gateApplies(profile: ProxyProfile): Boolean {
+        val scheme = profile.scheme.lowercase()
+        if (scheme in setOf("hysteria2", "hy2", "hysteria", "wireguard", "wg", "json")) return false
+        if (profile.host.isBlank() || profile.port !in 1..65535) return false
+        // An HTTP/3-only endpoint never completes a TCP handshake; PattNG exempts `alpn=h3`.
+        val alpn = alpnOf(profile)
+        return alpn.isEmpty() || alpn.any { !it.startsWith("h3") }
+    }
+
+    private fun alpnOf(profile: ProxyProfile): List<String> = runCatching {
+        val outbounds = JSONObject(profile.configJson).optJSONArray("outbounds") ?: return@runCatching emptyList<String>()
+        for (i in 0 until outbounds.length()) {
+            val outbound = outbounds.optJSONObject(i) ?: continue
+            val alpn = outbound.optJSONObject("streamSettings")
+                ?.optJSONObject("tlsSettings")
+                ?.optJSONArray("alpn")
+                ?: continue
+            return@runCatching (0 until alpn.length()).mapNotNull { alpn.optString(it).takeIf(String::isNotBlank) }
+        }
+        emptyList()
+    }.getOrDefault(emptyList())
 
     /**
      * MARBLE_PING_TRUTH_V149 — the HTTP GET / HEAD product methods.
@@ -1504,11 +1628,18 @@ object RouteProbe {
     fun tunnelHttpsMeasure(
         socksPort: Int,
         timeoutMs: Int,
-        samples: Int = 2
+        samples: Int = 2,
+        url: String = DelayTest.URL
     ): ProbeResult {
         // MARBLE_PING_TRUTH_V147 — configured samples are the budget. The old 3-sample ceiling
         // made "samples per server" a suggestion for the real-tunnel path, and warm-up was kept
         // in the median as well; both are now the same as every other measurement.
+        //
+        // MARBLE_PATTNG_PING_V151 — the target is the user's delay-test URL, the same one the
+        // core would fetch, instead of a rotating CDN pool. A measurement whose target changes
+        // between two runs cannot be compared, and PattNG's real delay has always been one fixed
+        // `generate_204` endpoint for exactly that reason.
+        val target = delayTarget(url)
         val rounds = PingBudget.samples(samples)
         val times = ArrayList<Double>(rounds)
         var injected = false
@@ -1516,13 +1647,11 @@ object RouteProbe {
         var consecutiveFailures = 0
         for (round in 0 until rounds) {
             if (round > 0 && !pauseBetweenSamples()) break
-            val targetIndex = Math.floorMod(round, ProbeTargetPool.CDN_TARGETS.size)
-            val target = ProbeTargetPool.ordered(ProbeTargetPool.CDN_TARGETS, "tunnel-$targetIndex")[0]
             val result = runCatching {
                 SocksHttpClient.tunnelRttBatch(
                     port = socksPort,
-                    host = target.host,
-                    path = target.path,
+                    host = target.first,
+                    path = target.second,
                     samples = 1,
                     timeoutMs = timeoutMs.coerceIn(1_000, 12_000)
                 )
@@ -1545,7 +1674,7 @@ object RouteProbe {
                 0,
                 rounds,
                 lossPercent = 100.0,
-                failureReason = "tunnel-targets-failed"
+                failureReason = "delay-url-failed"
             )
         }
         val summary = summarize("TUNNEL", times, rounds, warmupDiscarded = true)
@@ -1556,6 +1685,27 @@ object RouteProbe {
     }
 
     // ─── Helpers ───────────────────────────────────────────────────────────────
+
+    /**
+     * Splits a delay-test URL into the `host` / `path` pair the tunnel RTT primitive needs.
+     *
+     * The primitive performs a TLS request, so a plaintext `http://` override cannot be honoured
+     * here and falls back to [DelayTest.URL]; the sing-box URL test accepts either scheme because
+     * the core performs that fetch itself.
+     */
+    private fun delayTarget(url: String): Pair<String, String> {
+        val candidate = url.trim()
+        val normalized = if (candidate.startsWith("https://")) {
+            candidate
+        } else {
+            DelayTest.URL
+        }
+        return runCatching {
+            val parsed = URL(normalized)
+            val path = parsed.path.ifBlank { "/" }
+            parsed.host to path
+        }.getOrElse { "www.gstatic.com" to "/generate_204" }
+    }
 
     /**
      * Compute the standard deviation of a list of values.

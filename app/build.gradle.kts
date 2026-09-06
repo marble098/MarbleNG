@@ -62,6 +62,10 @@ val xrayCoreTag = coreLockField("xray", "tag")
 val xrayCoreRepo = coreLockField("xray", "repo")
 val hevCoreTag = coreLockField("hev", "tag")
 val hevCoreRepo = coreLockField("hev", "repo")
+// MARBLE_SINGBOX_CORE_V151 — the second engine. sing-box extended is pinned exactly like the other
+// two cores, so the version shown in Settings › Information is the binary inside this APK.
+val singBoxCoreTag = coreLockField("singbox", "tag")
+val singBoxCoreRepo = coreLockField("singbox", "repo")
 val marbleSourceUrl = "https://github.com/marble098/MarbleNG"
 
 fun signingValue(name: String): String {
@@ -109,6 +113,8 @@ android {
         buildConfigField("String", "XRAY_CORE_REPO", "\"$xrayCoreRepo\"")
         buildConfigField("String", "HEV_CORE_TAG", "\"$hevCoreTag\"")
         buildConfigField("String", "HEV_CORE_REPO", "\"$hevCoreRepo\"")
+        buildConfigField("String", "SINGBOX_CORE_TAG", "\"$singBoxCoreTag\"")
+        buildConfigField("String", "SINGBOX_CORE_REPO", "\"$singBoxCoreRepo\"")
         buildConfigField("String", "SOURCE_URL", "\"$marbleSourceUrl\"")
     }
 
@@ -201,7 +207,8 @@ android {
 
             keepDebugSymbols += setOf(
                 "**/libmarbleng.so",
-                "**/libhev-socks5-tunnel.so"
+                "**/libhev-socks5-tunnel.so",
+                "**/libsingbox.so"
             )
         }
 

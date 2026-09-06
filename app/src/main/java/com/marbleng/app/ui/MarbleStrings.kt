@@ -192,7 +192,11 @@ data class MarbleStrings(
     val homeManualGroup: String,
     val copyAction: String,
     val socksStandby: String,
-    val modularStudioTitle: String
+    val modularStudioTitle: String,
+    // MARBLE_MODULAR_CUSTOMIZER_V151 — the customizer's hide switch. `customizeLayout` itself
+    // already exists above; only the hide affordance is new.
+    val hideCustomizeButton: String,
+    val hideCustomizeButtonHint: String
 )
 
 private val EnglishStrings = MarbleStrings(
@@ -338,7 +342,9 @@ private val EnglishStrings = MarbleStrings(
     homeManualGroup = "Manual",
     copyAction = "Copy",
     socksStandby = "Waiting for connection",
-    modularStudioTitle = "Modular Studio"
+    modularStudioTitle = "Modular Studio",
+    hideCustomizeButton = "Hide this button",
+    hideCustomizeButtonHint = "Removes the Customize row from Home. Bring it back from Settings → General → Home layout."
 )
 
 private val PersianStrings = MarbleStrings(
@@ -486,7 +492,9 @@ private val PersianStrings = MarbleStrings(
     homeManualGroup = "دستی",
     copyAction = "کپی",
     socksStandby = "در انتظار اتصال",
-    modularStudioTitle = "استودیوی ماژولار"
+    modularStudioTitle = "استودیوی ماژولار",
+    hideCustomizeButton = "پنهان کردن این دکمه",
+    hideCustomizeButtonHint = "ردیف سفارشی‌سازی از خانه حذف می‌شود. برای بازگرداندن آن به تنظیمات ← عمومی ← چیدمان خانه بروید."
 )
 
 internal val LocalMarbleStrings = staticCompositionLocalOf { EnglishStrings }

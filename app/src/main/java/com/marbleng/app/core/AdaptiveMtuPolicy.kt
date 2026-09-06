@@ -26,7 +26,16 @@ object AdaptiveMtuPolicy {
         /** MARBLE_REACTIVE_MTU_V80: current retransmission rate */
         val retransmitRate: Double = 0.0,
         /** MARBLE_REACTIVE_MTU_V80: current loss rate */
-        val lossRate: Double = 0.0
+        val lossRate: Double = 0.0,
+        /**
+         * MARBLE_XRAY_THROUGHPUT_V151: whether the session actually has an IPv6 route.
+         *
+         * The MSS this policy recommends is written into the core's socket options, so the header
+         * overhead has to belong to the family that is really in use. It used to assume IPv6
+         * unconditionally and take 60 bytes off every IPv4 segment — 20 bytes a packet, on every
+         * packet, for a header that was never there.
+         */
+        val hasIpv6: Boolean = false
     )
 
     data class Recommendation(
@@ -87,8 +96,16 @@ object AdaptiveMtuPolicy {
             action = Recommendation.Action.REDUCE
         }
 
-        // MARBLE_REACTIVE_MTU_V80: Critical stress requires immediate action
-        if (input.tcpStressed && input.retransmitRate > 0.15 || input.lossRate > 0.15) {
+        // MARBLE_XRAY_THROUGHPUT_V151: critical stress requires *both* halves of the evidence.
+        //
+        // `&&` binds tighter than `||`, so this condition used to read "stressed and retransmitting,
+        // or merely losing packets". On a censored mobile link a steady 15% loss with a perfectly
+        // healthy TCP stack is the normal state of the world — it is the reason the user runs a
+        // proxy at all — and it pinned MTU to 1280 for the whole session. At 1280 a 1500-MTU radio
+        // carries ~14% less payload per packet, which is exactly the "connected but slow" report
+        // this fix exists for. Loss on its own now adjusts nothing; it has to arrive with the
+        // stress flag that says the transport is actually struggling.
+        if (input.tcpStressed && (input.retransmitRate > 0.15 || input.lossRate > 0.15)) {
             // Drop to minimum if stress is severe
             val criticalCeiling = 1280
             if (ceiling > criticalCeiling) {
@@ -115,10 +132,13 @@ object AdaptiveMtuPolicy {
         val safeFloor = minOf(requestedFloor, ceiling)
         val chosen = ceiling.coerceIn(safeFloor, hardCeiling)
 
-        // MARBLE_REACTIVE_MTU_V80: Compute recommended MSS
-        // Assume IPv6 overhead (60 bytes) for conservative MSS
-        val overhead = 60  // IPv6 + TCP header
-        val recommendedMss = (chosen - overhead).coerceIn(1160, 1460)
+        // MARBLE_XRAY_THROUGHPUT_V151: MSS for the family that is actually in use.
+        // IPv4 costs 20 (IP) + 20 (TCP); IPv6 costs 40 + 20. Charging an IPv4 session the IPv6
+        // bill shrank every segment for nothing, and the same number is what the core is told to
+        // clamp to, so the waste was written into the socket rather than left in a report.
+        val overhead = if (input.hasIpv6) 60 else 40
+        val mssCeiling = if (input.hasIpv6) 1440 else 1460
+        val recommendedMss = (chosen - overhead).coerceIn(1160, mssCeiling)
 
         return Recommendation(
             mtu = chosen,

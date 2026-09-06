@@ -9,5 +9,10 @@
     "tag": "2.17.1",
     "channel": "latest-release"
   },
+  "singbox": {
+    "repo": "shtorm-7/sing-box-extended",
+    "tag": "v1.14.0-extended-2.7.1",
+    "channel": "beta"
+  },
   "updated": "2026-09-06"
 }
