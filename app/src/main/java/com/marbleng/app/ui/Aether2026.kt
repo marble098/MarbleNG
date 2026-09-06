@@ -353,7 +353,8 @@ fun Aether2026App(
             }
         },
         onQrImport = { deckQrSourceOpen = true },
-        // MARBLE_HOME_GROUP_PING_V145 — the Home pulse icon measures the entire selected group.
+        // MARBLE_HOME_PING_ROUTE_GROUP_V146 — the Home pulse icon measures the subscription of
+        // the route shown on the page.
         onPingGroup = { repo.pingHomeGroup() }
     )
 
@@ -2461,13 +2462,10 @@ private class DeckEvidence(
 private fun rememberDeckEvidence(repo: AppRepository): DeckEvidence {
     // MARBLE_SELECT_IS_NOT_CONNECT_V121 — Home follows, in order: the route actually carrying
     // traffic, then the server the user selected on the Servers page, then the remembered one.
-    // Reading the selection state here is what makes a tap on a server move Home immediately.
-    val active = repo.profile(
-        repo.activeProfileId,
-        repo.activeProfileSourceId
-    )
-        ?: repo.profile(repo.selectedProfileId, repo.selectedProfileSourceId)
-        ?: repo.lastProfile()
+    // MARBLE_HOME_PING_ROUTE_GROUP_V146 — the resolution is the repository's single source of
+    // truth (`AppRepository.homeRoute`), so the deck, the connect button and the top ping
+    // action can never disagree about which route the page is showing.
+    val active = repo.homeRoute()
     // Identity always comes from the selected profile, never from the runtime state detail
     // string (which carries engine progress copy and is not a node name).
     val activeName = active?.name ?: "Choose a route"

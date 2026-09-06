@@ -595,6 +595,13 @@ object XrayConfigHardener {
             return if (isV6Literal) ipv6ResolverAllowed else true
         }
 
+        // Iran Mode is armed whenever the mode is on with countermeasures enabled. It is decided
+        // ONCE here (before the per-outbound liveness pass) so the same signal that drives the
+        // poison-block rules also drives the Iran-tuned TCP liveness below — the two can never
+        // disagree about whether the network is being filtered.
+        val iranActive = settings.iranModePolicy != IranModePolicy.OFF &&
+            settings.iranModeCountermeasures
+
         val out = JSONArray()
         keep.forEach { tag ->
             byTag[tag]?.let { outbound ->
@@ -620,7 +627,19 @@ object XrayConfigHardener {
                             ?.optString("tag")
                             ?.isNotBlank() == true
                         if (tcpTransport) {
-                            val liveness = SocketLivenessPolicy.forTransport(method, chained)
+                            // MARBLE_IRAN_LIVENESS_V146 — the Iran-tuned liveness profile was
+                            // designed (longer keep-alive and user-timeout for Iran's high-RTT,
+                            // high-loss filtered transit) but never actually applied: the
+                            // `iranMode` flag existed on the policy yet every caller passed the
+                            // default `false`, so a connected tunnel on MCI/Irancell still used
+                            // the short non-filtered-network timeouts and dropped live
+                            // connections that merely paused. The flag is now the same `iranActive`
+                            // signal that arms the poison-block rules, so the two cannot disagree.
+                            val liveness = SocketLivenessPolicy.forTransport(
+                                method,
+                                chained,
+                                iranMode = iranActive
+                            )
                             sockoptObject.put("tcpKeepAliveIdle", liveness.keepAliveIdleSeconds)
                             sockoptObject.put("tcpKeepAliveInterval", liveness.keepAliveIntervalSeconds)
                             sockoptObject.put("tcpUserTimeout", liveness.userTimeoutMs)
@@ -753,10 +772,9 @@ object XrayConfigHardener {
         val queryStrategy = dnsPlan.dnsQueryStrategy
 
         // Iran Mode: the poison-block rules below and the anti-injector hardening are armed
-        // whenever the mode is on with countermeasures enabled.
-        val iranActive = settings.iranModePolicy != IranModePolicy.OFF &&
-            settings.iranModeCountermeasures
-
+        // whenever the mode is on with countermeasures enabled. `iranActive` is computed once,
+        // above the per-outbound liveness pass, so this block and the TCP liveness tuning share
+        // the exact same verdict.
         val configuredBootstrapIps = listOf(settings.dnsPrimaryIp, settings.dnsSecondaryIp)
             .map { it.trim() }
             .filter { it.isNotBlank() }

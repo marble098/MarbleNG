@@ -70,6 +70,16 @@ class NetworkPolicyTest {
     }
 
     @Test
+    fun iranSocketPolicyIsMorePatientThanBaseline() {
+        val baseline = SocketLivenessPolicy.forTransport("tcp", chained = false)
+        val iran = SocketLivenessPolicy.forTransport("tcp", chained = false, iranMode = true)
+        assertTrue("iran profile is flagged as tuned", iran.iranTuned)
+        assertTrue(iran.keepAliveIdleSeconds > baseline.keepAliveIdleSeconds)
+        assertTrue(iran.keepAliveIntervalSeconds > baseline.keepAliveIntervalSeconds)
+        assertTrue(iran.userTimeoutMs > baseline.userTimeoutMs)
+    }
+
+    @Test
     fun dnsHedgePlanUsesReliableResolverAndBoundedDelay() {
         val plan = requireNotNull(
             DnsHedgePolicy.plan(
