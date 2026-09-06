@@ -353,7 +353,7 @@ object ResolverEvidencePolicy {
         evidence: List<EndpointEvidence>,
         nowMs: Long
     ): List<String> =
-        order(candidates, evidence = evidence, nowMs = nowMs, seed = "legacy")
+        order(candidates, evidence = evidence, nowMs = nowMs, seed = "")
 
     /** Endpoints of [candidates] that are currently demoted, for diagnostics and the config writer. */
     fun demoted(
@@ -420,7 +420,10 @@ object ResolverEvidencePolicy {
         candidates.map { providerFamily(it) }.filter { it.isNotBlank() }.distinct().size
 
     /**
-     * Rotate the *healthy* part of the pool deterministically every [ROTATION_EPOCH_MS].
+     * Rotate the *healthy* part of the pool deterministically every [ROTATION_EPOCH_MS] — but only
+     * when the caller supplies a rotation seed. The no-seed form is the historical deterministic
+     * order (healthy in pool order, demoted last); rotation is opt-in so legacy callers and the
+     * pre-rotation contract are not silently reordered.
      *
      * Demoted endpoints always stay last — rotation may never promote a failing resolver — and
      * the rotation gives an operator that manipulates per-endpoint DNS a moving target instead of
@@ -439,6 +442,7 @@ object ResolverEvidencePolicy {
         if (distinct.size < 2) return distinct
         val (healthy, failing) = distinct.partition { !isDemoted(it, evidence, nowMs) }
         if (healthy.isEmpty()) return distinct
+        if (seed.isBlank()) return healthy + failing
         val epoch = (nowMs / ROTATION_EPOCH_MS).toInt()
         val shift = Math.floorMod(seed.hashCode() xor epoch, healthy.size)
         val rotated = healthy.drop(shift) + healthy.take(shift)

@@ -3047,10 +3047,14 @@ class MarbleIntelligence(private val context: Context) {
                 nowMs - learnedAt <= DNS_WINNER_TTL_MS
 
         val evidence = resolverEvidence()
+        // MARBLE_IRAN_AWARE_PING_RESOLVERS — the emitted pool rotates on a 10-minute epoch (network
+        // key as seed) so no single resolver signature is stable enough to be fingerprinted, while
+        // demoted endpoints still always stay last.
         val ordered = ResolverEvidencePolicy.order(
             dnsCandidatePool(settings),
             evidence,
-            nowMs
+            nowMs,
+            seed = key
         )
         if (ordered.size < 2) {
             return settings.dnsPrimaryDoH to

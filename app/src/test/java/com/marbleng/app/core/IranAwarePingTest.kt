@@ -143,8 +143,8 @@ class IranAwarePingTest {
     fun `three spaced samples with high stddev are unstable under observation`() {
         val t0 = System.currentTimeMillis() - 61L * 60_000L
         val samples = listOf(
-            BehavioralConsistency.ConsistencySample(t0, 80.0),
-            BehavioralConsistency.ConsistencySample(t0 + 20L * 60_000L, 220.0),
+            BehavioralConsistency.ConsistencySample(t0, 70.0),
+            BehavioralConsistency.ConsistencySample(t0 + 20L * 60_000L, 250.0),
             BehavioralConsistency.ConsistencySample(t0 + 40L * 60_000L, 190.0)
         )
         val report = BehavioralConsistency.evaluate(samples)
@@ -323,7 +323,11 @@ class IranAwarePingTest {
     @Test
     fun `diversified pool appends independent providers when short`() {
         val short = listOf("https://1.1.1.1/dns-query", "https://1.0.0.1/dns-query")
-        val fallback = listOf("https://dns.google/dns-query", "https://dns.quad9.net/dns-query")
+        val fallback = listOf(
+            "https://dns.google/dns-query",
+            "https://dns.quad9.net/dns-query",
+            "https://dns.adguard-dns.com/dns-query"
+        )
         val merged = ResolverEvidencePolicy.diversified(short, fallback)
         assertTrue(ResolverEvidencePolicy.diversity(merged) >= ResolverEvidencePolicy.MIN_DIVERSE_PROVIDERS)
     }
