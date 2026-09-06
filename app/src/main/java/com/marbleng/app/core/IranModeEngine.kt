@@ -215,7 +215,10 @@ class IranModeEngine {
             stressLevel = stressLevel,
             tcpStressed = decision.urgency != TcpStressMonitor.TuningDecision.Urgency.NONE,
             retransmitRate = 0.0, // Updated by observeTcpStress
-            lossRate = 0.0
+            lossRate = 0.0,
+            // MARBLE_XRAY_THROUGHPUT_V151 — this parameter was accepted and then dropped on the
+            // floor, so the MSS recommendation was always sized for IPv6.
+            hasIpv6 = hasIpv6
         )
 
         return AdaptiveMtuPolicy.recommend(input)

@@ -1,0 +1,39 @@
+name: Update beta cores
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: marbleng-core-updater
+  cancel-in-progress: false
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with: { fetch-depth: 0 }
+      - name: Resolve newest upstream channels
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./scripts/update-core-lock.sh
+      - name: Validate the resolved lock
+        shell: bash
+        run: |
+          set -euo pipefail
+          # MARBLE_SINGBOX_CORE_V151 — three cores now, and this job pushes straight to main, so a
+          # half-resolved lock must die here rather than in somebody's release build.
+          jq -e '.xray.tag and .xray.repo' core-lock.json
+          jq -e '.hev.tag and .hev.repo' core-lock.json
+          jq -e '.singbox.tag and .singbox.repo' core-lock.json
+          [[ "$(jq -r '.singbox.channel' core-lock.json)" == "beta" ]]
+          jq -r '"xray \(.xray.tag)  hev \(.hev.tag)  singbox \(.singbox.tag)"' core-lock.json
+      - name: Commit only when tags changed
+        run: |
+          if git diff --quiet -- core-lock.json; then echo 'No core update.'; exit 0; fi
+          git config user.name 'marbleng-core-bot'
+          git config user.email 'actions@users.noreply.github.com'
+          git add core-lock.json
+          git commit -m "chore(cores): update Xray/HEV/sing-box"
+          git push origin HEAD:main

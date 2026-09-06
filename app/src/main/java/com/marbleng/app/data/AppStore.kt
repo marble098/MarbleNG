@@ -1,6 +1,8 @@
 package com.marbleng.app.data
 
 import android.content.Context
+import com.marbleng.app.core.CoreEngine
+import com.marbleng.app.core.parseCoreEngine
 import com.marbleng.app.model.*
 import org.json.JSONArray
 import org.json.JSONObject
@@ -213,8 +215,16 @@ class AppStore(context: Context) {
         localProxyPort = prefs.getInt("localProxyPort", 10101),
         connectionMode = enumValue("connectionMode", ConnectionMode.FULL_TUN),
 
-        probeMethod = enumValue("probeMethod", ProbeMethod.HYBRID),
+        probeMethod = probeMethod(),
         probeSpeedTest = prefs.getBoolean("probeSpeedTest", false),
+
+        // MARBLE_PATTNG_PING_V151 / MARBLE_SINGBOX_CORE_V151
+        delayTestUrl = DelayTest.url(prefs.getString("delayTestUrl", DelayTest.URL) ?: DelayTest.URL),
+        coreEngineId = parseCoreEngine(prefs.getString("coreEngineId", CoreEngine.XRAY.id) ?: CoreEngine.XRAY.id).id,
+        singBoxUnifiedDelay = prefs.getBoolean("singBoxUnifiedDelay", true),
+        singBoxConnectTimeoutSec = prefs.getInt("singBoxConnectTimeoutSec", 10).coerceIn(3, 60),
+        singBoxCacheFile = prefs.getBoolean("singBoxCacheFile", true),
+        singBoxPreferParser = prefs.getBoolean("singBoxPreferParser", true),
 
         benchMode = enumValue("benchMode", BenchMode.BALANCED),
         benchCandidates = prefs.getInt("benchCandidates", 20),
@@ -396,6 +406,7 @@ class AppStore(context: Context) {
             prefs.getString("modularCardSize", ModularCardSize.COMPACT.id) ?: ModularCardSize.COMPACT.id
         ).id,
         modularCardHeightDp = prefs.getInt("modularCardHeightDp", 180).coerceIn(160, 360),
+        modularHideCustomizerButton = prefs.getBoolean("modularHideCustomizerButton", false),
 
         // MARBLE_CONNECT_BUTTON_V121
         connectButtonStyle = parseConnectButtonStyle(prefs.getString("connectButtonStyle", ConnectButtonStyle.ROUND.id) ?: ConnectButtonStyle.ROUND.id).id,
@@ -419,6 +430,13 @@ class AppStore(context: Context) {
         .putString("connectionMode", s.connectionMode.name)
 
         .putString("probeMethod", s.probeMethod.name)
+        // MARBLE_PATTNG_PING_V151 / MARBLE_SINGBOX_CORE_V151
+        .putString("delayTestUrl", DelayTest.url(s.delayTestUrl))
+        .putString("coreEngineId", parseCoreEngine(s.coreEngineId).id)
+        .putBoolean("singBoxUnifiedDelay", s.singBoxUnifiedDelay)
+        .putInt("singBoxConnectTimeoutSec", s.singBoxConnectTimeoutSec.coerceIn(3, 60))
+        .putBoolean("singBoxCacheFile", s.singBoxCacheFile)
+        .putBoolean("singBoxPreferParser", s.singBoxPreferParser)
         .putBoolean("probeSpeedTest", s.probeSpeedTest)
 
         .putString("benchMode", s.benchMode.name)
@@ -582,6 +600,7 @@ class AppStore(context: Context) {
         .putString("modularConnectStyle", s.modularConnectStyle)
         .putString("modularCardSize", parseModularCardSize(s.modularCardSize).id)
         .putInt("modularCardHeightDp", s.modularCardHeightDp.coerceIn(160, 360))
+        .putBoolean("modularHideCustomizerButton", s.modularHideCustomizerButton)
 
         // MARBLE_CONNECT_BUTTON_V121
         .putString("connectButtonStyle", parseConnectButtonStyle(s.connectButtonStyle).id)
@@ -597,6 +616,23 @@ class AppStore(context: Context) {
         .putBoolean("debugModeEnabled", s.debugModeEnabled)
         .putBoolean("expertMode", s.expertMode)
         .apply()
+
+    /**
+     * MARBLE_PATTNG_PING_V151 — the persisted ping method, migrated from the seven-method V148
+     * menu.
+     *
+     * The old names are gone from the enum, so `enumValueOf` would throw and every upgraded
+     * install would silently reset to the default. Mapping them keeps the user's intent: a
+     * "Real test" user stays on the real measurement, a "TCP Connect" user stays on the raw
+     * handshake, and the four estimates collapse onto the honest default.
+     */
+    private fun probeMethod(): ProbeMethod = when (prefs.getString("probeMethod", null)) {
+        ProbeMethod.REAL_DELAY.name, "TUNNEL" -> ProbeMethod.REAL_DELAY
+        ProbeMethod.TCP_PING.name, "TCP_CONNECT" -> ProbeMethod.TCP_PING
+        ProbeMethod.URL_TEST.name -> ProbeMethod.URL_TEST
+        "HYBRID", "TCP_RECOMMENDED", "HTTP_GET", "HTTP_HEAD", "ICMP" -> ProbeMethod.REAL_DELAY
+        else -> ProbeMethod.REAL_DELAY
+    }
 
     private inline fun <reified T : Enum<T>> enumValue(key: String, fallback: T): T =
         runCatching { enumValueOf<T>(prefs.getString(key, fallback.name) ?: fallback.name) }.getOrDefault(fallback)

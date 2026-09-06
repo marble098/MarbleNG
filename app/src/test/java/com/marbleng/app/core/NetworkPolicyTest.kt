@@ -283,4 +283,70 @@ class NetworkPolicyTest {
         assertEquals(HandoverCoordinator.State.IDLE, handover.snapshot().state)
         assertEquals("route-b", handover.snapshot().activeRoute)
     }
+
+    /**
+     * MARBLE_XRAY_THROUGHPUT_V151 — the precedence bug this pins: `a && b || c` meant a lossy
+     * radio with a healthy TCP stack clamped MTU to 1280 for the whole session.
+     */
+    @Test
+    fun packetLossAloneDoesNotClampTheMtu() {
+        val lossy = AdaptiveMtuPolicy.recommend(
+            AdaptiveMtuPolicy.Input(
+                physicalMtu = 1500,
+                configuredMin = 1280,
+                configuredMax = 1500,
+                networkTransport = "cellular",
+                proxyScheme = "vless",
+                proxyTransport = "tcp",
+                tcpStressed = false,
+                retransmitRate = 0.0,
+                lossRate = 0.42
+            )
+        )
+        assertEquals(1420, lossy.mtu)
+        assertFalse("critical-stress-minimum" in lossy.reason)
+        assertEquals(AdaptiveMtuPolicy.Recommendation.Action.HOLD, lossy.action)
+    }
+
+    @Test
+    fun stressTogetherWithLossStillClampsToTheMinimum() {
+        val critical = AdaptiveMtuPolicy.recommend(
+            AdaptiveMtuPolicy.Input(
+                physicalMtu = 1500,
+                configuredMin = 1280,
+                configuredMax = 1500,
+                networkTransport = "cellular",
+                proxyScheme = "vless",
+                proxyTransport = "tcp",
+                tcpStressed = true,
+                retransmitRate = 0.0,
+                lossRate = 0.42
+            )
+        )
+        assertEquals(1280, critical.mtu)
+        assertTrue("critical-stress-minimum" in critical.reason)
+        assertEquals(AdaptiveMtuPolicy.Recommendation.Action.CRITICAL, critical.action)
+    }
+
+    /**
+     * The recommended MSS is written into the core's socket options, so charging an IPv4 session
+     * the 60-byte IPv6 header cost shrank every segment it sent.
+     */
+    @Test
+    fun recommendedMssFollowsTheAddressFamily() {
+        fun mss(hasIpv6: Boolean): Int = AdaptiveMtuPolicy.recommend(
+            AdaptiveMtuPolicy.Input(
+                physicalMtu = 1500,
+                configuredMin = 1280,
+                configuredMax = 1500,
+                networkTransport = "cellular",
+                proxyScheme = "vless",
+                proxyTransport = "tcp",
+                hasIpv6 = hasIpv6
+            )
+        ).recommendedMss
+
+        assertEquals(1380, mss(hasIpv6 = false)) // 1420 - (20 IP + 20 TCP)
+        assertEquals(1360, mss(hasIpv6 = true))  // 1420 - (40 IP + 20 TCP)
+    }
 }

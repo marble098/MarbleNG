@@ -1245,7 +1245,10 @@ class MarbleIntelligence(private val context: Context) {
                 configuredMax = settings.mtuMax,
                 networkTransport = n.transport,
                 proxyScheme = profile.scheme,
-                proxyTransport = profile.transport
+                proxyTransport = profile.transport,
+                // MARBLE_XRAY_THROUGHPUT_V151 — the snapshot already knows whether this underlay
+                // has an IPv6 route; the MSS now follows it instead of assuming the larger header.
+                hasIpv6 = n.hasIpv6
             )
         )
         val learned = learnedPathMtu(profile.id)
@@ -1581,18 +1584,35 @@ class MarbleIntelligence(private val context: Context) {
                         (network.transport == "cellular" || network.metered)
                     )
 
+        // MARBLE_XRAY_THROUGHPUT_V151 — read before the latency-first cap, because that cap is
+        // sized from the measured RTT now rather than from a constant.
+        val liveHealth = if (settings.healthHistoryEnabled) db.get(profileId, network.key()) else null
+        val latencyRttMs = (liveHealth?.latencyEwma ?: 0.0).takeIf { it in 20.0..4_000.0 } ?: 0.0
+
         val latencyCapped = if (latencyFirst) {
             TunnelTuning(
                 maxSessions = min(throughputTuned.maxSessions, 4096),
-                tcpBufferBytes = min(throughputTuned.tcpBufferBytes, 65_536),
-                udpBufferBytes = min(throughputTuned.udpBufferBytes, 524_288),
+                // The bufferbloat guard is still here; only its arithmetic changed. A fixed 64 KiB
+                // queue caps a single stream at 64 KiB per RTT, which on a 200 ms tunnel is
+                // ~2.6 Mbit/s however fast the radio is — the queue is now sized to the link's own
+                // bandwidth-delay product, so it is still never a second queue in front of the
+                // physical link, but it no longer throttles the pipe it is supposed to be feeding.
+                tcpBufferBytes = LatencyBufferPolicy.tcpBytes(
+                    downstreamKbps = network.downstreamKbps,
+                    rttMs = latencyRttMs,
+                    tunedBytes = throughputTuned.tcpBufferBytes
+                ),
+                udpBufferBytes = LatencyBufferPolicy.udpBytes(
+                    downstreamKbps = network.downstreamKbps,
+                    rttMs = latencyRttMs,
+                    tunedBytes = throughputTuned.udpBufferBytes
+                ),
                 label = "${throughputTuned.label}/latency-first"
             )
         } else {
             throughputTuned
         }
 
-        val liveHealth = if (settings.healthHistoryEnabled) db.get(profileId, network.key()) else null
         val jitterHigh = (liveHealth?.jitterEwma ?: 0.0) >= 24.0
         val pingHigh = (liveHealth?.latencyEwma ?: 0.0) >= 250.0 &&
             (liveHealth?.latencyEwma ?: 0.0) < 9000.0

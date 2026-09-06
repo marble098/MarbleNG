@@ -1686,15 +1686,20 @@ internal fun IosStatusWideCard(
                         )
                     }
                 }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = t.ipDetails,
-                        color = HomeCloud.Accent,
-                        style = MaterialTheme.typography.labelSmall
-                    )
-                    Spacer(Modifier.width(3.dp))
-                    HomeGlyphIcon(HomeGlyph.INFO, HomeCloud.Accent, Modifier.size(11.dp))
-                }
+                // MARBLE_HOME_IP_STRIP_V151 — the "Show complete IP information" caption is gone.
+                //
+                // The strip already opens the full report on tap, and the caption repeated the
+                // action in nine words under a 32 dp row that only had room to ellipsize it. The
+                // INFO glyph stays as the affordance; the words survive as its content
+                // description, where a screen reader can still read them and a sighted user never
+                // has to.
+                HomeGlyphIcon(
+                    glyph = HomeGlyph.INFO,
+                    color = HomeCloud.Accent,
+                    modifier = Modifier
+                        .size(12.dp)
+                        .semantics { contentDescription = t.ipDetails }
+                )
             }
 
         }
@@ -2932,64 +2937,86 @@ internal fun HomeThemeFloating(
             )
         }
 
-        // Floating Action Controls Pinned to the Right
-        Box(
+        // Floating Action Controls Pinned to the Right. MARBLE_MODULAR_FLOATING_V151 moved the
+        // control into its own composable so the customizer layout can offer the exact same one.
+        HomeFloatingSplitControl(
+            evidence = evidence,
+            actions = actions,
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .padding(end = 6.dp, bottom = 12.dp)
-        ) {
-            AnimatedContent(
-                targetState = evidence.connected,
-                transitionSpec = {
-                    (fadeIn(tween(300)) + scaleIn(tween(300)))
-                        .togetherWith(fadeOut(tween(200)) + scaleOut(tween(200)))
-                },
-                label = "floating-split-anim"
-            ) { isConnected ->
-                if (isConnected) {
-                    // Split into TWO buttons: Disconnect (pause) and Ping
-                    Column(
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        FloatingSplitAction(
-                            tone = Aether.Danger,
-                            description = Tr.now.disconnect,
-                            onClick = { actions.onToggleConnection() }
-                        ) {
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(5.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Box(
-                                    Modifier
-                                        .width(4.dp)
-                                        .height(18.dp)
-                                        .clip(RoundedCornerShape(2.dp))
-                                        .background(Color.White)
-                                )
-                                Box(
-                                    Modifier
-                                        .width(4.dp)
-                                        .height(18.dp)
-                                        .clip(RoundedCornerShape(2.dp))
-                                        .background(Color.White)
-                                )
-                            }
-                        }
+        )
+    }
+}
 
-                        FloatingSplitAction(
-                            tone = Aether.Emerald,
-                            description = Tr.now.testPing,
-                            enabled = homePingTappable(evidence),
-                            onClick = { actions.onTestPing() }
+/**
+ * MARBLE_MODULAR_FLOATING_V151 — Home style 2's floating control, lifted out of that theme.
+ *
+ * The behaviour is unchanged from the theme it came from: while the tunnel is down it is one
+ * shutter-style FAB that starts the connection, and the moment it is up it splits into two
+ * stacked actions — disconnect and ping — so the two things a connected user reaches for are
+ * already under the thumb. It lives here rather than inside [HomeThemeFloating] because the
+ * customizer layout ([HomeThemeModular]) now offers it as its own connect style, and two copies
+ * of an animation would drift apart the first time either is tuned.
+ */
+@Composable
+internal fun HomeFloatingSplitControl(
+    evidence: HomeEvidence,
+    actions: HomeActions,
+    modifier: Modifier = Modifier
+) {
+    Box(modifier = modifier) {
+        AnimatedContent(
+            targetState = evidence.connected,
+            transitionSpec = {
+                (fadeIn(tween(300)) + scaleIn(tween(300)))
+                    .togetherWith(fadeOut(tween(200)) + scaleOut(tween(200)))
+            },
+            label = "floating-split-anim"
+        ) { isConnected ->
+            if (isConnected) {
+                // Split into TWO buttons: Disconnect (pause) and Ping
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    FloatingSplitAction(
+                        tone = Aether.Danger,
+                        description = Tr.now.disconnect,
+                        onClick = { actions.onToggleConnection() }
+                    ) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(5.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            HomeGlyphIcon(HomeGlyph.PULSE, Color.White, Modifier.size(24.dp))
+                            Box(
+                                Modifier
+                                    .width(4.dp)
+                                    .height(18.dp)
+                                    .clip(RoundedCornerShape(2.dp))
+                                    .background(Color.White)
+                            )
+                            Box(
+                                Modifier
+                                    .width(4.dp)
+                                    .height(18.dp)
+                                    .clip(RoundedCornerShape(2.dp))
+                                    .background(Color.White)
+                            )
                         }
                     }
-                } else {
-                    FloatingConnectFab(evidence = evidence, onToggle = { actions.onToggleConnection() })
+
+                    FloatingSplitAction(
+                        tone = Aether.Emerald,
+                        description = Tr.now.testPing,
+                        enabled = homePingTappable(evidence),
+                        onClick = { actions.onTestPing() }
+                    ) {
+                        HomeGlyphIcon(HomeGlyph.PULSE, Color.White, Modifier.size(24.dp))
+                    }
                 }
+            } else {
+                FloatingConnectFab(evidence = evidence, onToggle = { actions.onToggleConnection() })
             }
         }
     }
@@ -3180,47 +3207,61 @@ internal fun HomeThemeModular(
         .coerceIn(MODULAR_CARD_HEIGHT_MIN, MODULAR_CARD_HEIGHT_MAX).dp
     val modularConnect = parseConnectButtonStyle(settings.modularConnectStyle)
 
-    Column(
-        modifier = Modifier
+    // MARBLE_MODULAR_FLOATING_V151 — "Floating button" in the customizer is Home style 2's own
+    // control, and it behaves the way it does there: an overlay pinned to the bottom-end corner
+    // that splits into disconnect + ping once the tunnel is up. It cannot be an inline module,
+    // because a module scrolls away and the whole point of the silhouette is that it stays under
+    // the thumb. The page therefore reserves the same 104 dp of clearance Theme 2 reserves, so no
+    // module is ever buried underneath it.
+    val floatingOverlay = modularConnect == ConnectButtonStyle.FLOATING
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 16.dp, vertical = 6.dp)
-            .padding(bottom = bottomClearance),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        // Top actions (outside the banner) + Top Bar with Customize Layout Button
-        HomeTopActionBar(evidence, actions, repo)
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+            .padding(bottom = bottomClearance + (if (floatingOverlay) 104.dp else 0.dp)),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Text(
-                text = Tr.now.modularStudioTitle,
-                color = Aether.Ink,
-                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
-            )
+            // Top actions (outside the banner) + Top Bar with Customize Layout Button
+            HomeTopActionBar(evidence, actions, repo)
             Row(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(HomeCloud.Accent.copy(alpha = 0.12f))
-                    .border(1.dp, HomeCloud.Accent.copy(alpha = 0.30f), RoundedCornerShape(12.dp))
-                    .kineticClickable(
-                        role = Role.Button,
-                        boundedShape = RoundedCornerShape(12.dp)
-                    ) { customizeOpen = true }
-                    .padding(horizontal = 10.dp, vertical = 4.dp),
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                HomeGlyphIcon(HomeGlyph.MORE, HomeCloud.Accent, Modifier.size(12.dp))
-                Spacer(Modifier.width(4.dp))
                 Text(
-                    text = Tr.now.customizeLayout,
-                    color = HomeCloud.Accent,
-                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold)
+                    text = Tr.now.modularStudioTitle,
+                    color = Aether.Ink,
+                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
                 )
+                // MARBLE_MODULAR_CUSTOMIZER_V151 — the Customize affordance can be hidden. The user
+            // asks for it at the moment they are customizing, and the switch that brings it back
+            // lives in Settings → General → Home layout, so hiding it can never strand the layout.
+                if (!settings.modularHideCustomizerButton) {
+                    Row(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(HomeCloud.Accent.copy(alpha = 0.12f))
+                            .border(1.dp, HomeCloud.Accent.copy(alpha = 0.30f), RoundedCornerShape(12.dp))
+                            .kineticClickable(
+                                role = Role.Button,
+                                boundedShape = RoundedCornerShape(12.dp)
+                            ) { customizeOpen = true }
+                            .padding(horizontal = 10.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        HomeGlyphIcon(HomeGlyph.MORE, HomeCloud.Accent, Modifier.size(12.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            text = Tr.now.customizeLayout,
+                            color = HomeCloud.Accent,
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold)
+                        )
+                    }
+                }
             }
-        }
 
         // Render the modules in the (repaired) configured order, honouring every visibility
         // switch the customizer offers. CONNECT is deliberately not hideable: a Home page that
@@ -3238,11 +3279,13 @@ internal fun HomeThemeModular(
                         maxListHeight = serverListMaxHeight
                     )
                 }
-                ModularLayout.CONNECT -> ModularConnectModule(
-                    evidence = evidence,
-                    actions = actions,
-                    style = modularConnect
-                )
+                ModularLayout.CONNECT -> if (!floatingOverlay) {
+                    ModularConnectModule(
+                        evidence = evidence,
+                        actions = actions,
+                        style = modularConnect
+                    )
+                }
                 ModularLayout.STATS -> if (settings.modularShowStats) {
                     HomeSessionStats(evidence, actions, Aether.Cyan)
                 }
@@ -3254,6 +3297,17 @@ internal fun HomeThemeModular(
 
         if (settings.modularShowSocks) {
             ModularSocksCard(repo = repo, evidence = evidence)
+        }
+        }
+
+        if (floatingOverlay) {
+            HomeFloatingSplitControl(
+                evidence = evidence,
+                actions = actions,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 16.dp, bottom = bottomClearance + 12.dp)
+            )
         }
     }
 
@@ -3412,6 +3466,9 @@ private fun ModularCustomizerDialog(
     var showShortcuts by remember { mutableStateOf(s.modularShowShortcuts) }
     var showSocks by remember { mutableStateOf(s.modularShowSocks) }
     var connectStyle by remember { mutableStateOf(s.modularConnectStyle) }
+    // MARBLE_MODULAR_CUSTOMIZER_V151 — the hide affordance lives here, at the moment the user is
+    // actually customizing, which is when they ask for it.
+    var hideCustomize by remember { mutableStateOf(s.modularHideCustomizerButton) }
     var cardSize by remember { mutableStateOf(s.modularCardSize) }
     var cardHeight by remember {
         mutableIntStateOf(s.modularCardHeightDp.coerceIn(MODULAR_CARD_HEIGHT_MIN, MODULAR_CARD_HEIGHT_MAX))
@@ -3662,6 +3719,11 @@ private fun ModularCustomizerDialog(
                     detail = trx("Show the proxy endpoint other apps can use"),
                     checked = showSocks
                 ) { showSocks = it }
+                ModularToggleRow(
+                    label = Tr.now.hideCustomizeButton,
+                    detail = Tr.now.hideCustomizeButtonHint,
+                    checked = hideCustomize
+                ) { hideCustomize = it }
                 Text(
                     trx("The connect button is always shown."),
                     color = Aether.InkFaint,
@@ -3685,6 +3747,7 @@ private fun ModularCustomizerDialog(
                             showShortcuts = true
                             showSocks = false
                             connectStyle = ConnectButtonStyle.ROUND.id
+                            hideCustomize = false
                             cardSize = ModularCardSize.COMPACT.id
                             cardHeight = modularCardHeightFor(ModularCardSize.COMPACT)
                         }
@@ -3704,6 +3767,7 @@ private fun ModularCustomizerDialog(
                                         modularShowShortcuts = showShortcuts,
                                         modularShowSocks = showSocks,
                                         modularConnectStyle = connectStyle,
+                                        modularHideCustomizerButton = hideCustomize,
                                         modularCardSize = cardSize,
                                         modularCardHeightDp = cardHeight.coerceIn(
                                             MODULAR_CARD_HEIGHT_MIN,

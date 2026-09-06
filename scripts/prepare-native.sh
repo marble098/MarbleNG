@@ -18,6 +18,12 @@ set -euo pipefail
 #     - x86_64
 #     - x86
 #
+#   sing-box extended (second engine, upstream Android release binaries):
+#     - arm64-v8a
+#     - armeabi-v7a
+#     - x86_64
+#     - x86
+#
 #   MarbleNG JNI bridge
 #
 #   Assets:
@@ -225,6 +231,7 @@ for cmd in \
     go \
     curl \
     unzip \
+    tar \
     sed \
     awk \
     grep \
@@ -254,6 +261,7 @@ fi
 
 XRAY_TAG="$(jq -r '.xray.tag // empty' "$LOCK")"
 HEV_TAG="$(jq -r '.hev.tag // empty' "$LOCK")"
+SINGBOX_TAG="$(jq -r '.singbox.tag // empty' "$LOCK")"
 
 [[ -n "$XRAY_TAG" ]] || {
     die "Missing .xray.tag in core-lock.json"
@@ -263,10 +271,15 @@ HEV_TAG="$(jq -r '.hev.tag // empty' "$LOCK")"
     die "Missing .hev.tag in core-lock.json"
 }
 
+[[ -n "$SINGBOX_TAG" ]] || {
+    die "Missing .singbox.tag in core-lock.json"
+}
+
 log "Locked native versions"
 
-echo "Xray : $XRAY_TAG"
-echo "HEV  : $HEV_TAG"
+echo "Xray    : $XRAY_TAG"
+echo "HEV     : $HEV_TAG"
+echo "sing-box: $SINGBOX_TAG"
 
 
 # ==============================================================================
@@ -389,7 +402,7 @@ ok "Native workspace cleaned"
 # 1/4 - Xray source
 # ==============================================================================
 
-log "[1/4] Cloning Xray source $XRAY_TAG"
+log "[1/5] Cloning Xray source $XRAY_TAG"
 
 git clone \
     --quiet \
@@ -550,7 +563,7 @@ fi
 # 2/4 - Xray Android binaries
 # ==============================================================================
 
-log "[2/4] Building Xray Android binaries"
+log "[2/5] Building Xray Android binaries"
 
 
 # ==============================================================================
@@ -755,7 +768,7 @@ done
 # 3/4 - HEV SOCKS5 Tunnel
 # ==============================================================================
 
-log "[3/4] Cloning HEV SOCKS5 Tunnel $HEV_TAG"
+log "[3/5] Cloning HEV SOCKS5 Tunnel $HEV_TAG"
 
 git clone \
     --quiet \
@@ -1198,7 +1211,7 @@ ok "APK size guard: no duplicate libmarblerank.so"
 # 4/4 - Xray assets
 # ==============================================================================
 
-log "[4/4] Downloading Xray geo assets for $XRAY_TAG"
+log "[4/5] Downloading Xray geo assets for $XRAY_TAG"
 
 XRAY_ZIP="$CORE/xray-release.zip"
 XRAY_ASSET_NAME="Xray-linux-64.zip"
@@ -1375,6 +1388,204 @@ cp -f \
 
 ok "core-lock.json installed into Android assets"
 
+# ==============================================================================
+# 5/5 - sing-box extended (second engine)
+#
+# sing-box extended already publishes upstream-built Android binaries for
+# exactly the four ABIs MarbleNG ships, so this core is never cross-compiled
+# here: the release artifact IS the payload.
+#
+#   ABI           upstream asset architecture
+#   arm64-v8a     android-arm64
+#   armeabi-v7a   android-armv7
+#   x86_64        android-amd64
+#   x86           android-386
+#
+# It is installed as libsingbox.so because Android only extracts files named
+# lib*.so from jniLibs, and the app executes it with ProcessBuilder exactly
+# like libxray.so.
+#
+# The uncompressed asset is used on purpose: the "-compressed" variants are
+# UPX-packed, and a UPX stub adds an extra memory map plus decompression time
+# to every process spawn - the one cost a connect-time budget cannot afford.
+# ==============================================================================
+
+log "[5/5] Installing sing-box extended $SINGBOX_TAG"
+
+[[ "$SINGBOX_TAG" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || {
+    die "Unsafe sing-box release tag in core-lock.json: $SINGBOX_TAG"
+}
+
+SINGBOX_REPO="$(jq -r '.singbox.repo // "shtorm-7/sing-box-extended"' "$LOCK")"
+
+[[ "$SINGBOX_REPO" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || {
+    die "Unsafe sing-box repository in core-lock.json: $SINGBOX_REPO"
+}
+
+SINGBOX_STAGE="$CORE/singbox"
+
+rm -rf "$SINGBOX_STAGE"
+mkdir -p "$SINGBOX_STAGE"
+
+# goreleaser strips a leading "v" from the tag when it renders {{ .Version }},
+# but a tag can also be published without one, so both spellings are tried
+# before the Releases API is consulted at all.
+SINGBOX_VERSION="${SINGBOX_TAG#v}"
+
+# Optional: authenticate the API fallback in CI so a shared runner IP quota
+# cannot turn a public lookup into HTTP 403.
+SINGBOX_API_HEADERS=(-H "Accept: application/vnd.github+json")
+
+if [[ -n "${GH_TOKEN:-}" || -n "${GITHUB_TOKEN:-}" ]]; then
+    SINGBOX_API_HEADERS+=(
+        -H "Authorization: Bearer ${GH_TOKEN:-$GITHUB_TOKEN}"
+        -H "X-GitHub-Api-Version: 2022-11-28"
+    )
+fi
+
+singbox_asset_url() {
+    printf '%s\n' \
+        "https://github.com/${SINGBOX_REPO}/releases/download/${SINGBOX_TAG}/sing-box-${2}-android-${1}.tar.gz"
+}
+
+# Releases API fallback: resolve the real asset URL for one architecture.
+singbox_api_asset_url() {
+    local arch="$1"
+    local json=""
+
+    json="$(
+        curl \
+            -fsSL \
+            --retry 4 \
+            --retry-delay 3 \
+            --connect-timeout 20 \
+            "${SINGBOX_API_HEADERS[@]}" \
+            "https://api.github.com/repos/${SINGBOX_REPO}/releases/tags/${SINGBOX_TAG}"
+    )" || {
+        printf ''
+        return 0
+    }
+
+    jq -r \
+        --arg arch "$arch" \
+        '[
+            .assets[]?.browser_download_url
+            | select(test("-compressed\\.tar\\.gz$") | not)
+            | select(test("-android-" + $arch + "\\.tar\\.gz$"))
+        ][0] // empty' <<< "$json"
+}
+
+# Verify the binary really is the requested Android architecture. A wrongly
+# labelled asset must fail the build here, not the user's first connection.
+singbox_assert_machine() {
+    local file="$1" expected="$2"
+
+    "$LLVM_READELF" -h "$file" 2>/dev/null |
+        grep -q "Machine:.*$expected" || {
+            die "sing-box binary is not $expected: $file"
+        }
+}
+
+install_singbox_abi() {
+    local abi="$1" arch="$2" machine="$3"
+    local archive="$SINGBOX_STAGE/sing-box-${abi}.tar.gz"
+    local extracted="$SINGBOX_STAGE/$abi"
+    local fetched=0 candidate url binary destination
+
+    rm -rf "$archive" "$extracted"
+    mkdir -p "$extracted"
+
+    for candidate in "$SINGBOX_VERSION" "$SINGBOX_TAG"; do
+        if download_file \
+            "$(singbox_asset_url "$arch" "$candidate")" \
+            "$archive" \
+            600
+        then
+            fetched=1
+            break
+        fi
+        rm -f "$archive" "${archive}.part"
+    done
+
+    if (( fetched == 0 )); then
+        url="$(singbox_api_asset_url "$arch")"
+
+        [[ -n "$url" ]] || {
+            die "No sing-box extended Android asset found for $abi ($arch)"
+        }
+
+        echo "sing-box asset resolved through the Releases API:"
+        echo "  $url"
+
+        download_file "$url" "$archive" 600 || {
+            die "sing-box extended download failed for $abi"
+        }
+    fi
+
+    [[ -s "$archive" ]] || {
+        die "Downloaded sing-box archive is empty for $abi"
+    }
+
+    tar -xzf \
+        "$archive" \
+        -C "$extracted"
+
+    # The goreleaser archive wraps its payload in one directory
+    # (wrap_in_directory: true), so the binary is located by name.
+    binary="$(
+        find "$extracted" \
+            -type f \
+            -name 'sing-box' \
+            -print \
+            -quit
+    )"
+
+    [[ -n "$binary" && -s "$binary" ]] || {
+        die "sing-box binary missing from the release archive for $abi"
+    }
+
+    singbox_assert_machine "$binary" "$machine"
+
+    destination="$JNILIBS/$abi/libsingbox.so"
+
+    mkdir -p "$JNILIBS/$abi"
+
+    cp -f \
+        "$binary" \
+        "$destination"
+
+    chmod 755 "$destination"
+
+    [[ -s "$destination" ]] || {
+        die "Could not install sing-box into jniLibs for $abi"
+    }
+
+    ok "Installed sing-box extended $SINGBOX_TAG -> $abi"
+}
+
+install_singbox_abi \
+    "arm64-v8a" \
+    "arm64" \
+    "AArch64"
+
+install_singbox_abi \
+    "armeabi-v7a" \
+    "armv7" \
+    "ARM"
+
+install_singbox_abi \
+    "x86_64" \
+    "amd64" \
+    "Advanced Micro Devices X86-64"
+
+install_singbox_abi \
+    "x86" \
+    "386" \
+    "Intel 80386"
+
+ok "sing-box extended installed for every ABI"
+
+
 
 # ==============================================================================
 # Final native verification
@@ -1399,6 +1610,32 @@ do
     XRAY_FILE="$JNILIBS/$abi/libxray.so"
     HEV_FILE="$JNILIBS/$abi/libhev-socks5-tunnel.so"
     BRIDGE_FILE="$JNILIBS/$abi/libmarbleng.so"
+    SINGBOX_FILE="$JNILIBS/$abi/libsingbox.so"
+
+
+    # --------------------------------------------------------------------------
+    # sing-box extended
+    # --------------------------------------------------------------------------
+
+    if [[ -s "$SINGBOX_FILE" ]]; then
+
+        SINGBOX_SIZE="$(
+            wc -c < "$SINGBOX_FILE" |
+            tr -d ' '
+        )"
+
+        echo "[OK] $abi / sing-box extended"
+        echo "     $SINGBOX_SIZE bytes"
+
+    else
+
+        echo "[FAIL] $abi / sing-box extended missing:"
+        echo "       $SINGBOX_FILE"
+
+        FAILED=1
+
+    fi
+
 
 
     # --------------------------------------------------------------------------
@@ -1642,6 +1879,10 @@ do
     sha256sum "$JNILIBS/$abi/libhev-socks5-tunnel.so"
 
     echo
+    echo "sing-box extended:"
+    sha256sum "$JNILIBS/$abi/libsingbox.so"
+
+    echo
     echo "MarbleNG JNI:"
     sha256sum "$JNILIBS/$abi/libmarbleng.so"
 
@@ -1688,6 +1929,11 @@ echo -n "  Effective Go    : "
 echo
 echo "HEV"
 echo "  Tag             : $HEV_TAG"
+
+echo
+echo "sing-box extended"
+echo "  Tag             : $SINGBOX_TAG"
+echo "  Repository      : $SINGBOX_REPO"
 
 echo
 echo "Android"

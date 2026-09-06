@@ -328,45 +328,68 @@ enum class ConnectionPingState { IDLE, MEASURING, MEASURED, FAILED }
 enum class ProbeState { IDLE, QUEUED, TESTING }
 
 /**
- * MARBLE_UNIFIED_PING_V121 / MARBLE_PROBE_TOOLKIT_V130 / MARBLE_PING_METHODS_V148 — the single ping
- * engine of the whole product.
+ * MARBLE_PATTNG_PING_V151 — the ping menu is now the PattNG menu, and nothing else.
  *
- * One user choice in Settings → Tests → Ping drives every measurement the user can trigger: the
- * Home ping button, the per-source ping in the Servers three-dot menu and the page-wide ping.
- * There is no second, hidden ping path any more.
+ * V148 shipped seven methods. Five of them were estimates dressed up as measurements:
  *
- * ## The method list
+ *  - `HYBRID` ("Smart") published an *endpoint gate* latency when the tunnel test could not run,
+ *    so the number on Home described a TCP handshake, not the route.
+ *  - `TCP_RECOMMENDED` measured a TLS ServerHello, which is a filter probe, not a delay.
+ *  - `HTTP_GET` / `HTTP_HEAD` measured a public 204 origin whenever no tunnel was up — identical
+ *    for every server in the list.
+ *  - `ICMP` never leaves the device, so on a censored mobile link it reported the carrier, not
+ *    the node.
  *
- *  - [HYBRID] "Smart" — the product default. A fast verified endpoint gate plus, when a live
- *    SOCKS port is available, a real HTTPS round trip through that tunnel. A server that answers
- *    a raw TCP handshake is still reported healthy (with its measured latency), so a healthy node
- *    is never marked "failed" just because every HTTPS origin happened to be blocked.
- *  - [TUNNEL] "Real test" — the slowest and the only method that proves a *config* end to end:
- *    one real Xray core per server, HTTPS through the SOCKS inbound. When a tunnel is already
- *    connected this reuses the live port; during a sweep it launches a throwaway Xray child.
- *  - [TCP_CONNECT] "TCP Connect" — the fastest liveness check: a raw TCP three-way handshake to the
- *    server address. It answers in milliseconds but only proves the port is listening.
- *  - [TCP_RECOMMENDED] "TCP (recommended)" — a fast, safer midpoint: TCP connect plus a verified
- *    TLS ServerHello/Alert round trip. It detects stateful filters that accept the handshake and
- *    then kill the stream, while remaining much quicker than the full Real tunnel test.
- *  - [HTTP_GET] "HTTP GET" — a full HTTPS GET through the selected route (or direct when no tunnel
- *    is running). It measures the real first-byte response time of a working HTTP request.
- *  - [HTTP_HEAD] "HTTP HEAD" — the lightweight sibling of HTTP GET: a full HTTPS HEAD round trip
- *    with almost no response body, so it uses less data.
- *  - [ICMP] "ICMP Ping" — the classic `/system/bin/ping` echo to the server address. It bypasses
- *    the proxy and is often dropped by mobile carriers, but it is still a useful underlay check.
+ * Two of them were real, and they are the two PattNG (patterniha/PattNG, the v2rayNG fork) uses:
  *
- * The shared measurement budget ([PingBudget]) is the only thing that decides when a probe gives
- * up, how many samples it keeps and how many servers it measures at the same time.
+ *  - **Real delay** — `RealPingWorkerService.startRealPing`: a raw TCP connect to `server:port`
+ *    as a cheap liveness gate (skipped for protocols where a handshake proves nothing), then the
+ *    *core itself* measures an HTTP round trip through the tunnel to the delay-test URL. The
+ *    published number is the core's, so it is the number the tunnel really has.
+ *  - **TCP ping** — `RealPingWorkerService.startTcping` → `SpeedtestManager.socketConnectTime`:
+ *    one `Socket.connect(host, port, timeout)`, and the wall-clock milliseconds it took, or a
+ *    failure. Nothing is inferred from it.
+ *
+ * The third entry is the sing-box extended **URL test**: the core's own Clash API delay endpoint
+ * (`GET /proxies/{tag}/delay?url=&timeout=`), which measures through the selected outbound with
+ * unified-delay accounting. It exists because sing-box extended can measure a route MarbleNG
+ * cannot see from Kotlin.
+ *
+ * The shared measurement budget ([PingBudget]) still decides the timeout, the sample count and
+ * the concurrency of every one of them.
  */
 enum class ProbeMethod {
-    HYBRID,
-    TUNNEL,
-    TCP_CONNECT,
-    TCP_RECOMMENDED,
-    HTTP_GET,
-    HTTP_HEAD,
-    ICMP
+    /** PattNG real delay: TCP gate, then a real round trip through the core to [DelayTest.URL]. */
+    REAL_DELAY,
+
+    /** PattNG TCP ping: one raw `Socket.connect` to the node's own address, timed. */
+    TCP_PING,
+
+    /** sing-box extended URL test: the core's native delay endpoint through the live tunnel. */
+    URL_TEST;
+
+    /** True when the verdict is a property of `host:port` and can be shared across duplicates. */
+    fun isEndpointLevel(): Boolean = this == TCP_PING
+}
+
+/**
+ * MARBLE_PATTNG_PING_V151 — the URL a real-delay / URL-test measurement fetches.
+ *
+ * PattNG's own constants, byte for byte: `DELAY_TEST_URL` is the primary and `DELAY_TEST_URL2`
+ * the retry. A `generate_204` endpoint is the right target because the answer is empty, so the
+ * measurement is a round trip and not a download. The user can override the primary from
+ * Settings → Tests.
+ */
+object DelayTest {
+    const val URL = "https://www.gstatic.com/generate_204"
+    const val URL_SECONDARY = "https://www.google.com/generate_204"
+
+    /** The raw TCP liveness gate PattNG runs before it spends a core on a node. */
+    const val TCP_GATE_TIMEOUT_MS = 1_000
+
+    fun url(configured: String): String =
+        configured.trim().takeIf { it.startsWith("http://") || it.startsWith("https://") }
+            ?: URL
 }
 
 /**
@@ -585,8 +608,42 @@ data class AppSettings(
     val connectionMode: ConnectionMode = ConnectionMode.FULL_TUN,
 
     // How nodes are measured, and how deep each measurement goes.
-    val probeMethod: ProbeMethod = ProbeMethod.HYBRID,
+    val probeMethod: ProbeMethod = ProbeMethod.REAL_DELAY,
     val probeSpeedTest: Boolean = false,
+
+    /**
+     * MARBLE_PATTNG_PING_V151 — the URL every real delay / URL test fetches through the tunnel.
+     * PattNG's default; a blank or non-HTTP value falls back to [DelayTest.URL].
+     */
+    val delayTestUrl: String = DelayTest.URL,
+
+    /**
+     * MARBLE_SINGBOX_CORE_V151 — which core carries the tunnel. See [com.marbleng.app.core.CoreEngine]:
+     * `xray` (default) or `singbox` (sing-box extended).
+     */
+    val coreEngineId: String = "xray",
+
+    /** sing-box extended: measure a real round trip instead of trusting a cached handshake. */
+    val singBoxUnifiedDelay: Boolean = true,
+
+    /** sing-box extended: per-connection dial budget, in seconds. */
+    val singBoxConnectTimeoutSec: Int = 10,
+
+    /**
+     * sing-box extended: keep a cache file of resolved addresses and RDRC answers between runs.
+     * Off means every session resolves from scratch — slower to come up, but nothing is written
+     * to disk and a stale answer can never be reused.
+     */
+    val singBoxCacheFile: Boolean = true,
+
+    /**
+     * sing-box extended: hand the original share link to the core's own `parser` outbound when
+     * there is one, instead of translating it into an explicit outbound. The parser is the
+     * upstream's own reader, so it follows future link syntax Marble does not know yet; turning
+     * this off forces the explicit translation, which is the answer when a link behaves
+     * differently through the parser.
+     */
+    val singBoxPreferParser: Boolean = true,
 
     val benchMode: BenchMode = BenchMode.BALANCED,
     val benchCandidates: Int = 20,
@@ -850,6 +907,15 @@ data class AppSettings(
     val modularCardSize: String = ModularCardSize.COMPACT.id,
     /** Fine-grained server-card height (dp) when the user drags the custom resize slider. */
     val modularCardHeightDp: Int = 180,
+
+    /**
+     * MARBLE_MODULAR_HIDE_CUSTOMIZER_V151 — hide the "Customize Layout" chip from Home.
+     *
+     * The chip is the customizer's only way in, so hiding it is only safe because two ways back
+     * remain: long-press the modular studio title, and Settings → Home presentation has the same
+     * switch. Nothing about the saved layout changes when it is hidden.
+     */
+    val modularHideCustomizerButton: Boolean = false,
 
     /**
      * MARBLE_CONNECT_BUTTON_V121 — the connection-button silhouette shown on every Home style:

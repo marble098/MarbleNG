@@ -231,8 +231,8 @@ class BenchmarkEngine(
         // stay real-tunnel: it is recorded straight into the persistent intelligence and can
         // trigger route switches, so a light Smart/address-level gate is never an acceptable
         // substitute here.
-        val effectiveSettings = if (settings.probeMethod != ProbeMethod.TUNNEL) {
-            settings.copy(probeMethod = ProbeMethod.TUNNEL)
+        val effectiveSettings = if (settings.probeMethod != ProbeMethod.REAL_DELAY) {
+            settings.copy(probeMethod = ProbeMethod.REAL_DELAY)
         } else {
             settings
         }
@@ -681,14 +681,17 @@ class BenchmarkEngine(
     /**
      * True when the selected method never needs a temporary Xray process.
      *
-     * MARBLE_PING_METHODS_V148 — every method except [ProbeMethod.TUNNEL] is an address-level
-     * or underlay measurement that runs directly in the worker. Only Real test needs a
-     * throwaway Xray child per candidate (to prove protocol + account + route). The `!directProbe`
-     * guard in [run] therefore keeps all of these endpoint/underlay measurements out of the
-     * persistent tunnel intelligence, exactly as it always did for address-level probes.
+     * MARBLE_PATTNG_PING_V151 — two of the three methods run directly in the worker:
+     *
+     *  - [ProbeMethod.TCP_PING] is a raw connect to the node's own endpoint.
+     *  - [ProbeMethod.URL_TEST] drives sing-box extended, which owns its own throwaway instance
+     *    ([SingBoxManager.urlTestProfile]); it must not be wrapped in a second Xray child.
+     *
+     * Only [ProbeMethod.REAL_DELAY] needs a throwaway Xray child per candidate, because proving
+     * protocol + account + route is exactly what that child is for.
      */
     private fun directProbe(s: AppSettings): Boolean =
-        s.probeMethod != ProbeMethod.TUNNEL
+        s.probeMethod != ProbeMethod.REAL_DELAY
 
     private fun directResult(p: ProxyProfile, s: AppSettings): BenchmarkResult {
         // MARBLE_PING_CONTROL_V145 — the probe budget is the user's budget, for every method.
@@ -716,56 +719,25 @@ class BenchmarkEngine(
             )
 
         return when (s.probeMethod) {
-            ProbeMethod.HYBRID -> asBenchmark(
-                "SMART",
-                RouteProbe.smartPing(
+            ProbeMethod.TCP_PING -> asBenchmark(
+                RouteProbe.METHOD_TCP_PING,
+                RouteProbe.tcpPing(
                     profile = p,
-                    tunnelPort = 0,
-                    timeoutMs = directTimeoutMs,
-                    settings = s,
-                    samples = samples
-                )
-            )
-            ProbeMethod.TCP_CONNECT -> asBenchmark(
-                "TCP_CONNECT",
-                RouteProbe.tcpConnectExtended(
-                    p.host, p.port, directTimeoutMs, samples, s
-                )
-            )
-            ProbeMethod.TCP_RECOMMENDED -> asBenchmark(
-                "TCP_RECOMMENDED",
-                RouteProbe.tcpExtended(
-                    p.host, p.port, directTimeoutMs, samples, s
-                )
-            )
-            ProbeMethod.HTTP_GET -> asBenchmark(
-                "HTTP_GET",
-                RouteProbe.httpPingBatch(
-                    socksPort = 0,
                     timeoutMs = directTimeoutMs,
                     samples = samples,
-                    httpMethod = "GET"
-                )
-            )
-            ProbeMethod.HTTP_HEAD -> asBenchmark(
-                "HTTP_HEAD",
-                RouteProbe.httpPingBatch(
-                    socksPort = 0,
-                    timeoutMs = directTimeoutMs,
-                    samples = samples,
-                    httpMethod = "HEAD"
-                )
-            )
-            ProbeMethod.ICMP -> asBenchmark(
-                "ICMP",
-                RouteProbe.icmpExtended(
-                    p.host,
-                    directTimeoutMs,
-                    count = samples,
                     settings = s
                 )
             )
-            ProbeMethod.TUNNEL -> error("TUNNEL is a native path and must never reach directResult")
+            ProbeMethod.URL_TEST -> asBenchmark(
+                RouteProbe.METHOD_URL_TEST,
+                RouteProbe.urlTest(
+                    profile = p,
+                    timeoutMs = directTimeoutMs,
+                    settings = s
+                )
+            )
+            ProbeMethod.REAL_DELAY ->
+                error("REAL_DELAY is a native path and must never reach directResult")
         }
     }
 

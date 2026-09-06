@@ -165,6 +165,9 @@ import com.marbleng.app.core.GeoAssetIndex
 import com.marbleng.app.core.RoutingEngine
 import com.marbleng.app.core.RoutingPresets
 import com.marbleng.app.core.BugSeverity
+import com.marbleng.app.core.CoreEngine
+import com.marbleng.app.core.CoreEngineInfo
+import com.marbleng.app.core.parseCoreEngine
 import com.marbleng.app.core.IranModeState
 import com.marbleng.app.core.ManualConfigBuilder
 import com.marbleng.app.core.ManualConfigDraft
@@ -7795,6 +7798,9 @@ private object SettingsPages {
     const val TYPEFACE = "typeface"
     const val LANGUAGE = "language"
     const val INFORMATION = "information"
+    // MARBLE_SINGBOX_CORE_V151 — the tunnel core has its own page: the engine switch, the pinned
+    // versions and the sing-box extended controls.
+    const val CORE = "core"
     const val ROUTING = "routing"
     private const val WORKSPACE = "workspace"
 
@@ -8558,6 +8564,16 @@ private fun SettingsHub(
                     tone = Aether.Amethyst,
                     onClick = { onNavigate(SettingsPages.INFORMATION) }
                 ) { SettingsVersionPreview(Aether.Amethyst) }
+
+                // MARBLE_SINGBOX_CORE_V151 — the engine Marble starts is a first-class decision,
+                // so it sits on the hub next to the build identity it belongs to.
+                SettingsHubRow(
+                    title = "Tunnel core",
+                    subtitle = coreEngineTitle(parseCoreEngine(repo.settings.coreEngineId)) +
+                        " • " + CoreEngineInfo.displayName(repo.activeCoreEngine),
+                    tone = Aether.CyanBright,
+                    onClick = { onNavigate(SettingsPages.CORE) }
+                ) { SettingsVersionPreview(Aether.CyanBright) }
             }
         }
     }
@@ -9202,6 +9218,201 @@ private fun SettingsLanguagePage(
 }
 
 /**
+ * MARBLE_SINGBOX_CORE_V151 — Core: which tunnel engine Marble starts, and how it is configured.
+ *
+ * MarbleNG ships two tunnel cores. Xray core is the one the product has always run, fronted by
+ * hev-socks5-tunnel for the TUN. sing-box extended is the second, and it is not a fallback: it
+ * carries protocols and a rule-set engine Xray does not have, and it answers delay tests for its
+ * own live outbound. The engine is a user decision, so it gets a page of its own rather than a
+ * hidden flag, and the pinned version of every core is printed on it — the same three strings the
+ * build config, the native build script and the release workflow were assembled from.
+ */
+@Composable
+private fun SettingsCorePage(
+    repo: AppRepository,
+    onBack: () -> Unit,
+    listState: LazyListState = rememberLazyListState()
+) {
+    val s = repo.settings
+    val engine = parseCoreEngine(s.coreEngineId)
+    SettingsSubPage(
+        title = trx("Tunnel core"),
+        subtitle = trx("The engine Marble starts when you connect"),
+        onBack = onBack,
+        listState = listState
+    ) {
+        SettingsHubCard(
+            title = trx("Engine"),
+            subtitle = trx("Switching closes the tunnel; reconnect to run the new core"),
+            tone = Aether.Cyan
+        ) {
+            CoreEngine.entries.forEach { candidate ->
+                val selected = engine == candidate
+                val tone = if (candidate == CoreEngine.XRAY) Aether.Emerald else Aether.Amethyst
+                val shape = RoundedCornerShape(14.dp)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(shape)
+                        .background(Aether.Glass.copy(alpha = .42f))
+                        .border(
+                            1.dp,
+                            if (selected) tone.copy(alpha = .58f) else Aether.GlassBorderSoft.copy(alpha = .5f),
+                            shape
+                        )
+                        .kineticClickable(role = Role.Button, boundedShape = shape) {
+                            repo.setCoreEngine(candidate)
+                        }
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(1.dp)
+                    ) {
+                        Text(
+                            trx(coreEngineTitle(candidate)),
+                            color = if (selected) tone else Aether.Ink,
+                            style = settingsRowTitleStyle(),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            trx(coreEngineDetail(candidate)),
+                            color = Aether.InkFaint,
+                            style = settingsBodyStyle(),
+                            maxLines = 3,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    Box(
+                        Modifier
+                            .size(9.dp)
+                            .clip(CircleShape)
+                            .background(if (selected) tone else Aether.InkFaint.copy(alpha = .30f))
+                    )
+                }
+            }
+        }
+
+        SettingsHubCard(
+            title = trx("Pinned versions"),
+            subtitle = trx("Read from core-lock.json at build time"),
+            tone = Aether.Emerald
+        ) {
+            InformationRow(trx("Xray core"), BuildConfig.XRAY_CORE_TAG, Aether.Emerald)
+            InformationRow(trx("Tunnel core"), BuildConfig.HEV_CORE_TAG, Aether.Amber)
+            InformationRow(trx("sing-box extended"), BuildConfig.SINGBOX_CORE_TAG, Aether.CyanBright)
+            InformationRow(
+                trx("Running engine"),
+                CoreEngineInfo.displayName(repo.activeCoreEngine),
+                if (repo.activeCoreEngine == CoreEngine.SINGBOX) Aether.Amethyst else Aether.Emerald
+            )
+            if (repo.coreStartPhase.isNotBlank()) {
+                InformationRow(trx("Start phase"), repo.coreStartPhase, Aether.InkMuted)
+            }
+            if (repo.coreStartError.isNotBlank()) {
+                InformationRow(trx("Last start error"), repo.coreStartError, Aether.Danger)
+            }
+        }
+
+        if (engine == CoreEngine.SINGBOX) {
+            SettingsHubCard(
+                title = trx("sing-box extended"),
+                subtitle = trx("How the extended core is configured"),
+                tone = Aether.Amethyst
+            ) {
+                SettingSwitch(
+                    title = trx("Prefer link parser"),
+                    subtitle = trx("Hand the original vless://, trojan:// or ss:// link to the extended core's own parser instead of translating it. The parser follows link syntax this app has not been updated for; turn this off if a node behaves differently through it. Unreadable links still fall back to the parser either way."),
+                    checked = s.singBoxPreferParser,
+                    onChecked = { repo.updateSettings(repo.settings.copy(singBoxPreferParser = it)) }
+                )
+                SettingSwitch(
+                    title = trx("Unified delay"),
+                    subtitle = trx("Measure a real round trip instead of trusting a cached handshake, so a slow server cannot look fast. Recommended: it is also what makes URL test comparable to Real delay."),
+                    checked = s.singBoxUnifiedDelay,
+                    onChecked = { repo.updateSettings(repo.settings.copy(singBoxUnifiedDelay = it)) }
+                )
+                SettingSwitch(
+                    title = trx("Cache file"),
+                    subtitle = trx("Remember resolved addresses and DNS answers between runs so a reconnect does not repeat every lookup. Turn off to write nothing to disk."),
+                    checked = s.singBoxCacheFile,
+                    onChecked = { repo.updateSettings(repo.settings.copy(singBoxCacheFile = it)) }
+                )
+                NumberSetting(
+                    title = trx("Connect timeout"),
+                    value = s.singBoxConnectTimeoutSec,
+                    range = 3..60,
+                    suffix = "s",
+                    onValue = { repo.updateSettings(repo.settings.copy(singBoxConnectTimeoutSec = it.coerceIn(3, 60))) }
+                )
+                Text(
+                    trx("The core's own control API listens on 127.0.0.1 inside this app on a port it chooses at start. MarbleNG reads it to answer URL test with the delay the core measured for the live outbound; nothing outside the app can reach it."),
+                    color = Aether.InkFaint,
+                    style = settingsBodyStyle()
+                )
+                Text(
+                    trx("The extended core speaks WARP, MASQUE, MTProxy, Mieru, TrustTunnel and the standard protocols, and carries the geo rule sets itself. A node it cannot run is reported on the server with the reason, never silently dropped."),
+                    color = Aether.InkFaint,
+                    style = settingsBodyStyle()
+                )
+            }
+        } else {
+            SettingsHubCard(
+                title = trx("Xray core"),
+                subtitle = trx("How the Xray path is assembled"),
+                tone = Aether.Emerald
+            ) {
+                Text(
+                    trx("Marble builds a full Xray config from the server link or subscription, pins TLS when you asked for it, and hands the SOCKS port to hev-socks5-tunnel, which owns the TUN interface. Every Xray tuning switch in Settings applies to this path."),
+                    color = Aether.InkMuted,
+                    style = settingsBodyStyle()
+                )
+                InformationRow(trx("Fronted by"), "hev-socks5-tunnel ${BuildConfig.HEV_CORE_TAG}", Aether.Amber)
+            }
+        }
+
+        SettingsHubCard(
+            title = trx("Delay test"),
+            subtitle = trx("What a real-delay measurement loads"),
+            tone = Aether.Amber
+        ) {
+            TinyField(
+                label = trx("Delay test URL"),
+                value = s.delayTestUrl,
+                onValue = { repo.setDelayTestUrl(it) }
+            )
+            Text(
+                trx("Real delay opens this address through the tunnel and times it. A small, always-reachable page gives the most comparable numbers; an https address is required because sing-box discards plain http."),
+                color = Aether.InkFaint,
+                style = settingsBodyStyle()
+            )
+            if (s.delayTestUrl.trim() != DelayTest.URL) {
+                CyberButton(
+                    label = trx("Reset to default"),
+                    color = Aether.Cyan,
+                    modifier = Modifier.fillMaxWidth()
+                ) { repo.setDelayTestUrl(DelayTest.URL) }
+            }
+        }
+    }
+}
+
+private fun coreEngineTitle(engine: CoreEngine): String = when (engine) {
+    CoreEngine.XRAY -> "Xray core"
+    CoreEngine.SINGBOX -> "sing-box extended"
+}
+
+private fun coreEngineDetail(engine: CoreEngine): String = when (engine) {
+    CoreEngine.XRAY ->
+        "The engine Marble has always run: Xray core behind hev-socks5-tunnel, with every tuning switch in Settings applied to it"
+    CoreEngine.SINGBOX ->
+        "The extended core: one process owns the tunnel, adds warp, masque and mieru, ships the geo rule sets, and answers URL test from its own measurements"
+}
+
+/**
  * Information: what this build actually is. App version, the pinned tunnel cores read from
  * core-lock.json at build time, and the source repository — tapping a link opens the browser
  * directly, never an in-app page.
@@ -9226,6 +9437,9 @@ private fun SettingsInformationPage(
             InformationRow("Version code", BuildConfig.VERSION_CODE.toString(), Aether.InkMuted)
             InformationRow("Xray core", BuildConfig.XRAY_CORE_TAG, Aether.Emerald)
             InformationRow("Tunnel core", BuildConfig.HEV_CORE_TAG, Aether.Amber)
+            // MARBLE_SINGBOX_CORE_V151 — the third pinned core, shown next to the other two so a
+            // user can confirm the app, the native build and the release notes all agree.
+            InformationRow("sing-box core", BuildConfig.SINGBOX_CORE_TAG, Aether.CyanBright)
             InformationRow("Build type", BuildConfig.BUILD_TYPE, Aether.InkMuted)
         }
         // MARBLE_BUGFINDER_HOME_V144 — Bug Finder lives here now, not next to Notifications.
@@ -9273,6 +9487,14 @@ private fun SettingsInformationPage(
                     openExternal(context, "https://github.com/${BuildConfig.HEV_CORE_REPO}")
                 }
             )
+            InformationLinkRow(
+                title = "sing-box core",
+                subtitle = "https://github.com/${BuildConfig.SINGBOX_CORE_REPO}",
+                tone = Aether.CyanBright,
+                onClick = {
+                    openExternal(context, "https://github.com/${BuildConfig.SINGBOX_CORE_REPO}")
+                }
+            )
         }
         SettingsHubCard(title = "Diagnostics", tone = Aether.SlateBright) {
             Text(
@@ -9290,7 +9512,8 @@ private fun SettingsInformationPage(
                         AnnotatedString(
                             "MarbleNG ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})\n" +
                                 "xray ${BuildConfig.XRAY_CORE_TAG}\n" +
-                                "hev-socks5-tunnel ${BuildConfig.HEV_CORE_TAG}"
+                                "hev-socks5-tunnel ${BuildConfig.HEV_CORE_TAG}\n" +
+                                "sing-box ${BuildConfig.SINGBOX_CORE_TAG}"
                         )
                     )
                     repo.setRuntimeMessage("Version details copied")
@@ -9414,6 +9637,7 @@ private fun SpatialSettings(
     val typefaceListState = rememberLazyListState()
     val languageListState = rememberLazyListState()
     val informationListState = rememberLazyListState()
+    val coreListState = rememberLazyListState()
     val routingListState = rememberLazyListState()
     // One scroll state per workspace tab; only the active tab's is shown at a time.
     val workspaceListStates = remember {
@@ -9502,6 +9726,12 @@ private fun SpatialSettings(
                     listState = routingListState,
                     onBack = { page = SettingsPages.HUB }
                 )
+
+            target == SettingsPages.CORE -> SettingsCorePage(
+                repo = repo,
+                listState = coreListState,
+                onBack = { page = SettingsPages.HUB }
+            )
 
             else -> SettingsInformationPage(
                 repo = repo,
@@ -9621,7 +9851,27 @@ private fun settingsSections(
                 HomeIcon.SERVER,
                 Aether.Emerald
             ) { DockSettings(repo) },
-            card("Subscriptions","Refresh & sources",HomeIcon.LIBRARY,Aether.Amethyst) { SubscriptionSettings(repo) }
+            card("Subscriptions","Refresh & sources",HomeIcon.LIBRARY,Aether.Amethyst) { SubscriptionSettings(repo) },
+            // MARBLE_MODULAR_CUSTOMIZER_V151 — Home style 4 can hide its Customize affordance.
+            // The switch that hides it lives in the customizer itself, so the way back has to live
+            // somewhere that is always reachable: here.
+            card(
+                "Home layout",
+                if (repo.settings.modularHideCustomizerButton) {
+                    "Customize button hidden"
+                } else {
+                    "Customize button visible"
+                },
+                HomeIcon.MODE,
+                Aether.CyanBright
+            ) {
+                SettingSwitch(
+                    title = "Show the Customize button",
+                    subtitle = "Home style 4 keeps a Customize row at the top of the page. Turn this off for a clean page; this switch is how it comes back.",
+                    checked = !repo.settings.modularHideCustomizerButton,
+                    onChecked = { repo.updateSettings(repo.settings.copy(modularHideCustomizerButton = !it)) }
+                )
+            }
         )
         // MARBLE_SETTINGS_EXPERT_ALWAYS_V118 — Advanced Settings is no longer gated. Expert mode was a
         // switch that hid the low-level tunnel controls; the product owner removed the gating so every
@@ -12326,41 +12576,36 @@ private fun BugFinderSettings(repo: AppRepository) {
  *  - TCP was the verified Layer-0 gate used *inside* Smart; as a standalone choice it made an
  *    endpoint handshake look like a proxy verdict, so it is no longer a product method either.
  */
+// MARBLE_PROBE_METHODS_V151 — three methods, and only three.
+//
+// Marble shipped seven probes (Smart, Real test, raw TCP Connect, TCP+TLS gate, HTTP GET, HTTP
+// HEAD and ICMP). Five of them answered the same question with a different socket call, so the
+// same server reported five different numbers depending on which button a user happened to
+// press, and ICMP was the one that always lied: an Iranian ISP answers an echo request even when
+// the proxy behind it is unusable. The list is now the three measurements that mean something
+// different from each other — how long a real page takes through the tunnel (Real delay), how
+// fast the server's port answers at all (TCP ping), and what the running sing-box core reports
+// for its own live outbound (URL test).
+
 private fun probeMethodTitle(method: ProbeMethod): String = when (method) {
-    ProbeMethod.HYBRID -> "Smart"
-    ProbeMethod.TUNNEL -> "Real test"
-    ProbeMethod.TCP_CONNECT -> "TCP Connect"
-    ProbeMethod.TCP_RECOMMENDED -> "TCP (recommended)"
-    ProbeMethod.HTTP_GET -> "HTTP GET"
-    ProbeMethod.HTTP_HEAD -> "HTTP HEAD"
-    ProbeMethod.ICMP -> "ICMP Ping"
+    ProbeMethod.REAL_DELAY -> "Real delay"
+    ProbeMethod.TCP_PING -> "TCP ping"
+    ProbeMethod.URL_TEST -> "URL test"
 }
 
 private fun probeMethodDetail(method: ProbeMethod): String = when (method) {
-    ProbeMethod.HYBRID ->
-        "Fast endpoint gate plus real HTTPS through the tunnel when connected; healthy TCP-only servers stay healthy"
-    ProbeMethod.TUNNEL ->
-        "One real Xray core per server: HTTPS through the proxy, proving account, protocol and route"
-    ProbeMethod.TCP_CONNECT ->
-        "Fastest, TCP handshake to server address"
-    ProbeMethod.TCP_RECOMMENDED ->
-        "Verified TCP + TLS gate to the server address; fast and safer than raw connect"
-    ProbeMethod.HTTP_GET ->
-        "Full HTTPS GET through the selected route; real response time"
-    ProbeMethod.HTTP_HEAD ->
-        "Lightweight HTTPS HEAD through the selected route; minimal data"
-    ProbeMethod.ICMP ->
-        "Classic ping, bypasses the proxy"
+    ProbeMethod.REAL_DELAY ->
+        "Opens a real HTTPS page through the tunnel and times it: the number a browser would feel"
+    ProbeMethod.TCP_PING ->
+        "TCP handshake to the server port: fastest liveness check, measured without the tunnel"
+    ProbeMethod.URL_TEST ->
+        "Asks the running sing-box extended core to delay-test its live outbound and reports what it measured"
 }
 
 private fun probeMethodShortLabel(method: ProbeMethod): String = when (method) {
-    ProbeMethod.HYBRID -> "Smart"
-    ProbeMethod.TUNNEL -> "Tunnel"
-    ProbeMethod.TCP_CONNECT -> "TCP Connect"
-    ProbeMethod.TCP_RECOMMENDED -> "TCP"
-    ProbeMethod.HTTP_GET -> "HTTP GET"
-    ProbeMethod.HTTP_HEAD -> "HTTP HEAD"
-    ProbeMethod.ICMP -> "ICMP"
+    ProbeMethod.REAL_DELAY -> "Real delay"
+    ProbeMethod.TCP_PING -> "TCP ping"
+    ProbeMethod.URL_TEST -> "URL test"
 }
 
 /**
@@ -12395,7 +12640,7 @@ private fun ProbeSettings(repo: AppRepository) {
     )
 
     Text(
-        trx("Smart is the fast comparator. TCP Connect is the quickest liveness check. Real test spins up one Xray core per server and proves the config end to end."),
+        trx("Real delay is the honest comparator. TCP ping is the quickest liveness check. URL test reads the delay the running sing-box extended core measured for its own outbound."),
         color = Aether.InkFaint,
         style = settingsBodyStyle()
     )
@@ -12403,14 +12648,15 @@ private fun ProbeSettings(repo: AppRepository) {
     Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
         ProbeMethod.entries.forEach { candidate ->
             val selected = method == candidate
+            // URL test is a conversation with a running sing-box core, so it is offered only
+            // while that engine is the one Marble will start. Selecting it on the Xray core would
+            // leave the Servers list showing a permanent "no response" for a reason no row could
+            // explain.
+            val available = candidate != ProbeMethod.URL_TEST || s.coreEngineId == CoreEngine.SINGBOX.id
             val tone = when (candidate) {
-                ProbeMethod.HYBRID -> Aether.Amethyst
-                ProbeMethod.TUNNEL -> Aether.Emerald
-                ProbeMethod.TCP_CONNECT -> Aether.Cyan
-                ProbeMethod.TCP_RECOMMENDED -> Aether.CyanBright
-                ProbeMethod.HTTP_GET -> Aether.AmethystBright
-                ProbeMethod.HTTP_HEAD -> Aether.AmethystBright
-                ProbeMethod.ICMP -> Aether.Amber
+                ProbeMethod.REAL_DELAY -> Aether.Emerald
+                ProbeMethod.TCP_PING -> Aether.CyanBright
+                ProbeMethod.URL_TEST -> Aether.Amethyst
             }
             val shape = RoundedCornerShape(14.dp)
             Row(
@@ -12423,7 +12669,12 @@ private fun ProbeSettings(repo: AppRepository) {
                         if (selected) tone.copy(alpha = .58f) else Aether.GlassBorderSoft.copy(alpha = .5f),
                         shape
                     )
-                    .kineticClickable(role = Role.Button, boundedShape = shape) {
+                    .alpha(if (available) 1f else .45f)
+                    .kineticClickable(
+                        enabled = available,
+                        role = Role.Button,
+                        boundedShape = shape
+                    ) {
                         repo.updateSettings(repo.settings.copy(probeMethod = candidate))
                     }
                     .padding(horizontal = 12.dp, vertical = 10.dp),
@@ -12445,7 +12696,7 @@ private fun ProbeSettings(repo: AppRepository) {
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
-                        if (candidate == ProbeMethod.HYBRID) {
+                        if (candidate == ProbeMethod.REAL_DELAY) {
                             Text(
                                 trx("Default"),
                                 color = tone,
@@ -12455,6 +12706,18 @@ private fun ProbeSettings(repo: AppRepository) {
                                 modifier = Modifier
                                     .clip(ServersBadgeShape)
                                     .background(tone.copy(alpha = .13f))
+                                    .padding(horizontal = 6.dp, vertical = 1.dp)
+                            )
+                        }
+                        if (!available) {
+                            Text(
+                                trx("sing-box extended only"),
+                                color = Aether.InkFaint,
+                                style = MaterialTheme.typography.labelSmall,
+                                maxLines = 1,
+                                modifier = Modifier
+                                    .clip(ServersBadgeShape)
+                                    .background(Aether.Glass.copy(alpha = .6f))
                                     .padding(horizontal = 6.dp, vertical = 1.dp)
                             )
                         }

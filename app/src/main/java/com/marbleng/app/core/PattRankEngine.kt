@@ -381,7 +381,9 @@ class PattRankEngine(
                     benchSamples = 1,
                     benchTimeoutSec = settings.benchTimeoutSec.coerceIn(4, 6),
                     tcpWorkers = pendingLegacy.size.coerceIn(1, 4),
-                    probeMethod = ProbeMethod.TUNNEL,
+                    // MARBLE_PROBE_METHODS_V151 — the legacy ladder measured through a real core;
+                    // Real delay is that same measurement in the three-method product.
+                    probeMethod = ProbeMethod.REAL_DELAY,
                     probeSpeedTest = false,
                     verifiedPerformanceTuning = false,
                     udpProbeEnabled = false

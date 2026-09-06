@@ -10,10 +10,18 @@ set -euo pipefail
 #
 # Channels
 # --------
-#   xray.channel = "prerelease"  → latest Xray pre-release (beta) tag
-#   xray.channel = "latest-release" → latest Xray stable tag
-#   hev.channel  = "prerelease"  → latest HEV pre-release (beta) tag
-#   hev.channel  = "latest-release" → latest HEV stable tag
+#   xray.channel    = "prerelease"     → latest Xray pre-release (beta) tag
+#   xray.channel    = "latest-release" → latest Xray stable tag
+#   hev.channel     = "prerelease"     → latest HEV pre-release (beta) tag
+#   hev.channel     = "latest-release" → latest HEV stable tag
+#   singbox.channel = "beta"           → newest sing-box extended tag, whether
+#                                        it is marked pre-release or not. The
+#                                        extended fork publishes its newest
+#                                        work as ordinary releases, so a strict
+#                                        "prerelease" filter would pin an
+#                                        abandoned March rc forever; "beta"
+#                                        means "the newest build of the fork".
+#   singbox.channel = "latest-release" → newest sing-box extended stable tag
 #
 # When a channel entry is missing or unrecognised the script falls back to
 # "latest-release" for safety.
@@ -46,6 +54,7 @@ fi
 #
 # Prints the tag_name of the newest matching release.
 #   channel = "prerelease"     → first non-draft pre-release
+#   channel = "beta"           → first non-draft release of any kind
 #   channel = "latest-release" → first non-draft non-pre-release (stable)
 # ------------------------------------------------------------------------------
 resolve_latest_tag() {
@@ -64,6 +73,9 @@ resolve_latest_tag() {
         prerelease)
             jq -r '[.[] | select(.draft == false and .prerelease == true)][0].tag_name // empty' <<< "$json"
             ;;
+        beta)
+            jq -r '[.[] | select(.draft == false)][0].tag_name // empty' <<< "$json"
+            ;;
         *)
             jq -r '[.[] | select(.draft == false and .prerelease == false)][0].tag_name // empty' <<< "$json"
             ;;
@@ -75,15 +87,19 @@ resolve_latest_tag() {
 # ------------------------------------------------------------------------------
 xray_repo="$(jq -r '.xray.repo // "XTLS/Xray-core"' "$LOCK")"
 hev_repo="$(jq -r '.hev.repo // "heiher/hev-socks5-tunnel"' "$LOCK")"
+singbox_repo="$(jq -r '.singbox.repo // "shtorm-7/sing-box-extended"' "$LOCK")"
 xray_channel="$(jq -r '.xray.channel // "prerelease"' "$LOCK")"
 hev_channel="$(jq -r '.hev.channel // "latest-release"' "$LOCK")"
+singbox_channel="$(jq -r '.singbox.channel // "beta"' "$LOCK")"
 
 echo "Resolving upstream cores …"
-echo "  Xray  repo=$xray_repo  channel=$xray_channel"
-echo "  HEV   repo=$hev_repo   channel=$hev_channel"
+echo "  Xray     repo=$xray_repo     channel=$xray_channel"
+echo "  HEV      repo=$hev_repo      channel=$hev_channel"
+echo "  sing-box repo=$singbox_repo  channel=$singbox_channel"
 
 xray_tag="$(resolve_latest_tag "$xray_repo" "$xray_channel")"
 hev_tag="$(resolve_latest_tag "$hev_repo" "$hev_channel")"
+singbox_tag="$(resolve_latest_tag "$singbox_repo" "$singbox_channel")"
 
 if [[ -z "$xray_tag" ]]; then
     echo "::error::Could not resolve Xray tag from $xray_repo (channel=$xray_channel)" >&2
@@ -93,16 +109,22 @@ if [[ -z "$hev_tag" ]]; then
     echo "::error::Could not resolve HEV tag from $hev_repo (channel=$hev_channel)" >&2
     exit 1
 fi
+if [[ -z "$singbox_tag" ]]; then
+    echo "::error::Could not resolve sing-box tag from $singbox_repo (channel=$singbox_channel)" >&2
+    exit 1
+fi
 
 # Preserve the channel settings; update only tags and the timestamp.
 jq \
     --arg x "$xray_tag" \
     --arg h "$hev_tag" \
+    --arg s "$singbox_tag" \
     --arg d "$(date -u +%F)" \
-    '.xray.tag = $x | .hev.tag = $h | .updated = $d' \
+    '.xray.tag = $x | .hev.tag = $h | .singbox.tag = $s | .updated = $d' \
     "$LOCK" > "$LOCK.tmp" && mv -f "$LOCK.tmp" "$LOCK"
 
 echo ""
 echo "Resolved:"
-echo "  Xray = $xray_tag  ($xray_channel)"
-echo "  HEV  = $hev_tag  ($hev_channel)"
+echo "  Xray     = $xray_tag     ($xray_channel)"
+echo "  HEV      = $hev_tag      ($hev_channel)"
+echo "  sing-box = $singbox_tag  ($singbox_channel)"

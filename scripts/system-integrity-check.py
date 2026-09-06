@@ -30,9 +30,22 @@ files = {
     "models": read("app/src/main/java/com/marbleng/app/model/Models.kt"),
     "vpn": read("app/src/main/java/com/marbleng/app/vpn/MarbleVpnService.kt"),
     "xray": read("app/src/main/java/com/marbleng/app/core/XrayManager.kt"),
+    # MARBLE_SINGBOX_CORE_V151 — the second engine: the switch, the config writer and the
+    # process owner. They are required files now: a build that drops one of them silently
+    # turns Settings → Tunnel core into a page that cannot start anything.
+    "coreEngine": read("app/src/main/java/com/marbleng/app/core/CoreEngine.kt"),
+    "singBoxBuilder": read("app/src/main/java/com/marbleng/app/core/SingBoxConfigBuilder.kt"),
+    "singBox": read("app/src/main/java/com/marbleng/app/core/SingBoxManager.kt"),
+    "coreLock": read("core-lock.json"),
     "hardener": read("app/src/main/java/com/marbleng/app/core/XrayConfigHardener.kt"),
     "bench": read("app/src/main/java/com/marbleng/app/core/BenchmarkEngine.kt"),
     "tuner": read("app/src/main/java/com/marbleng/app/core/ConnectionTuner.kt"),
+    "bufferPolicy": read("app/src/main/java/com/marbleng/app/core/LatencyBufferPolicy.kt"),
+    "bufferPolicyTest": read("app/src/test/java/com/marbleng/app/core/LatencyBufferPolicyTest.kt"),
+    "mtuPolicy": read("app/src/main/java/com/marbleng/app/core/AdaptiveMtuPolicy.kt"),
+    "networkPolicyTest": read("app/src/test/java/com/marbleng/app/core/NetworkPolicyTest.kt"),
+    "singBoxTest": read("app/src/test/java/com/marbleng/app/core/SingBoxCoreV151Test.kt"),
+    "probeMethodTest": read("app/src/test/java/com/marbleng/app/model/ProbeMethodV151Test.kt"),
     "optimizer": read("app/src/main/java/com/marbleng/app/core/ContinuousRouteOptimizer.kt"),
     "identity": read("app/src/main/java/com/marbleng/app/core/IdentityGuard.kt"),
     "shield": read("app/src/main/java/com/marbleng/app/core/IranShield.kt"),
@@ -679,30 +692,167 @@ check(
     "legacy global chain settings are removed",
     "chainEnabled" not in files["models"] + files["store"] + files["ui"],
 )
-# MARBLE_PING_METHODS_V148 — the product exposes the seven user-reasoning methods: Smart, Real
-# test, raw TCP Connect, the recommended TCP+TLS gate, HTTP GET / HTTP HEAD and ICMP. DNS stays
-# removed because it only measured the local resolver and never the server or the proxy path.
+# MARBLE_PROBE_METHODS_V151 — the product exposes exactly three measurements: Real delay (a real
+# page through the tunnel, PattNG's real ping), TCP ping (the port answers, PattNG's tcping) and
+# URL test (the delay the running sing-box extended core measured for its own outbound).
+#
+# The five retired methods are checked for by *name*, in the enum body only: their names still
+# appear in Models.kt prose, because the reason each one was removed is part of the record.
+probe_method_enum = files["models"].split("enum class ProbeMethod {", 1)[1].split("\n}", 1)[0]
 check(
-    "product ping methods are the full V148 method set",
+    "product ping methods are exactly the V151 three",
     "enum class ProbeMethod {" in files["models"]
-    and "HYBRID" in files["models"]
-    and "TUNNEL" in files["models"]
-    and "TCP_CONNECT" in files["models"]
-    and "TCP_RECOMMENDED" in files["models"]
-    and "HTTP_GET" in files["models"]
-    and "HTTP_HEAD" in files["models"]
-    and "ICMP" in files["models"]
-    and "ProbeMethod.DNS" not in files["models"],
+    and "REAL_DELAY" in probe_method_enum
+    and "TCP_PING" in probe_method_enum
+    and "URL_TEST" in probe_method_enum
+    and not any(
+        retired in probe_method_enum
+        for retired in ("HYBRID", "TUNNEL", "TCP_CONNECT", "TCP_RECOMMENDED", "HTTP_GET", "HTTP_HEAD", "ICMP", "DNS")
+    ),
 )
 check(
-    "settings page offers every product ping method and keeps DNS out",
-    "ProbeMethod.TCP_CONNECT ->" in files["ui"]
-    and "ProbeMethod.TCP_RECOMMENDED ->" in files["ui"]
-    and "ProbeMethod.HTTP_GET ->" in files["ui"]
-    and "ProbeMethod.HTTP_HEAD ->" in files["ui"]
-    and "ProbeMethod.ICMP ->" in files["ui"]
+    "settings page offers every product ping method and none of the retired ones",
+    "ProbeMethod.REAL_DELAY ->" in files["ui"]
+    and "ProbeMethod.TCP_PING ->" in files["ui"]
+    and "ProbeMethod.URL_TEST ->" in files["ui"]
+    and "ProbeMethod.entries.forEach" in files["ui"]
     and "ProbeMethod.DNS ->" not in files["ui"]
-    and "ProbeMethod.entries.forEach" in files["ui"],
+    and "ProbeMethod.ICMP ->" not in files["ui"]
+    and "ProbeMethod.HYBRID ->" not in files["ui"]
+    and "ProbeMethod.TCP_CONNECT ->" not in files["ui"],
+)
+check(
+    "no production code still selects a retired ping method",
+    not any(
+        "ProbeMethod." + retired in files[key]
+        for retired in ("HYBRID", "TUNNEL", "TCP_CONNECT", "TCP_RECOMMENDED", "HTTP_GET", "HTTP_HEAD", "ICMP", "DNS")
+        for key in ("repo", "bench", "probe", "ui", "vpn", "store", "models")
+    ),
+)
+check(
+    "the URL test is served by the sing-box core, not a re-implementation",
+    "urlTestHook" in files["probe"]
+    and "urlTestHook =" in files["repo"]
+    and "urlTestLive(" in files["singBox"]
+    and "urlTestProfile(" in files["singBox"]
+    and "METHOD_URL_TEST" in files["probe"],
+)
+# A legacy stored method must never crash the settings screen or measure something the product no
+# longer offers: every retired name maps onto the honest replacement.
+check(
+    "stored legacy ping methods migrate onto a real one",
+    '"HYBRID", "TCP_RECOMMENDED", "HTTP_GET", "HTTP_HEAD", "ICMP" -> ProbeMethod.REAL_DELAY' in files["store"]
+    and '"TUNNEL" -> ProbeMethod.REAL_DELAY' in files["store"]
+    and '"TCP_CONNECT" -> ProbeMethod.TCP_PING' in files["store"],
+)
+
+# MARBLE_SINGBOX_CORE_V151 — the second engine is a product surface, so its four moving parts have
+# to agree: the pin, the packaging, the switch, and the page the user reads it on.
+check(
+    "sing-box extended is pinned in core-lock.json",
+    '"singbox"' in files["coreLock"] and '"tag"' in files["coreLock"],
+)
+check(
+    "the native build installs the sing-box binary",
+    "libsingbox.so" in files["native"] and "sing-box" in files["native"],
+)
+check(
+    "the engine switch is one setting and one decision point",
+    "coreEngineId" in files["models"]
+    and "coreEngineId" in files["store"]
+    and "fun setCoreEngine(" in files["repo"]
+    and "settings.coreEngine()" in files["vpn"]
+    and "singBox.start(" in files["vpn"]
+    and "xray.start(" in files["vpn"],
+)
+check(
+    "the engine page shows all three pinned versions",
+    "BuildConfig.SINGBOX_CORE_TAG" in files["ui"]
+    and "BuildConfig.XRAY_CORE_TAG" in files["ui"]
+    and "BuildConfig.HEV_CORE_TAG" in files["ui"]
+    and "SINGBOX_CORE_TAG" in files["gradle"],
+)
+# sing-box 1.12 renamed the DNS server address key. `address` parses to nothing, so a config that
+# still uses it fails every lookup at run time — long after any compiler has approved it.
+check(
+    "sing-box DNS servers use the 1.12 server key",
+    '.put("server", host)' in files["singBoxBuilder"]
+    and '.put("address"' not in files["singBoxBuilder"],
+)
+# Xray's certificate-pinning keys are read here to *report* the limitation, never written into a
+# sing-box config: the fork has no equivalent, and a key it does not know is a config it refuses.
+check(
+    "the sing-box config never invents an Xray-only schema",
+    '.put("pinnedPeerCertSha256"' not in files["singBoxBuilder"]
+    and '.put("verifyPeerCertByName"' not in files["singBoxBuilder"]
+    and 'pinnedPeerCertSha256' in files["singBoxBuilder"]
+    and '"cache_file"' in files["singBoxBuilder"]
+    and '"clash_api"' in files["singBoxBuilder"]
+    and '"unified_delay"' in files["singBoxBuilder"],
+)
+# The engine-agnostic reads in the VPN service must name the Xray manager in their else arm; a
+# getter that reads itself compiles cleanly and then dies on the stack at connect time.
+check(
+    "engine-agnostic core reads never recurse",
+    "else xray.isAlive" in files["vpn"]
+    and "else xray.lastStartPhase" in files["vpn"]
+    and "else xray.lastStartError" in files["vpn"]
+    and "runCatching { xray.stop() }" in files["vpn"],
+)
+# Xray's transport telemetry comes from MarbleNG's own Xray patch; reading it on the sing-box
+# engine would report another engine's numbers as this one's.
+check(
+    "Xray transport telemetry is read only on the Xray engine",
+    "activeEngine == CoreEngine.XRAY" in files["vpn"],
+)
+
+# MARBLE_XRAY_THROUGHPUT_V151 — the two arithmetic bugs behind "connected on Xray but slow".
+# Both are operator-precedence / unit errors that compile cleanly and only show up as a slow link.
+check(
+    "packet loss alone no longer clamps MTU to the minimum",
+    "input.tcpStressed && (input.retransmitRate > 0.15 || input.lossRate > 0.15)" in files["mtuPolicy"]
+    and "input.tcpStressed && input.retransmitRate > 0.15 || input.lossRate > 0.15" not in files["mtuPolicy"]
+    and "packetLossAloneDoesNotClampTheMtu" in files["networkPolicyTest"],
+)
+check(
+    "the recommended MSS is sized for the address family in use",
+    "if (input.hasIpv6) 60 else 40" in files["mtuPolicy"]
+    and "val overhead = 60" not in files["mtuPolicy"]
+    and "recommendedMssFollowsTheAddressFamily" in files["networkPolicyTest"],
+)
+check(
+    "the latency-first queue is sized to the link, not to a constant",
+    "LatencyBufferPolicy.tcpBytes(" in files["intel"]
+    and "fun tcpBytes(downstreamKbps: Int, rttMs: Double, tunedBytes: Int)" in files["bufferPolicy"]
+    and "BASELINE_TCP_BYTES" in files["bufferPolicy"]
+    and "aLongFatTunnelGetsEnoughQueueToFillThePipe" in files["bufferPolicyTest"],
+)
+check(
+    "the V151 probe set and the sing-box schema are pinned by unit tests",
+    "productMethodsAreExactlyThree" in files["probeMethodTest"]
+    and "dnsServersUseTheSchemaSingBoxActuallyReads" in files["singBoxTest"]
+    and "theThreeEngineSwitchesReachTheConfig" in files["singBoxTest"],
+)
+
+# MARBLE_HOME_IP_STRIP_V151 — the "Show complete IP information" caption is gone from Home. The
+# words survive as the glyph's content description, so the strip is still readable out loud.
+check(
+    "Home no longer prints the IP-details caption",
+    "t.ipDetails" not in files["homeStyles"].replace(
+        "contentDescription = t.ipDetails", ""
+    )
+    and "contentDescription = t.ipDetails" in files["homeStyles"],
+)
+# MARBLE_MODULAR_CUSTOMIZER_V151 — Home style 4 offers Home style 2's floating control, and its
+# Customize affordance can be hidden with the way back kept in Settings.
+check(
+    "the modular layout offers the floating control and can hide its customizer",
+    "HomeFloatingSplitControl(" in files["homeStyles"]
+    and files["homeStyles"].count("HomeFloatingSplitControl(") >= 3
+    and "modularHideCustomizerButton" in files["models"]
+    and "modularHideCustomizerButton" in files["store"]
+    and "modularHideCustomizerButton" in files["homeStyles"]
+    and "modularHideCustomizerButton" in files["ui"],
 )
 check(
     "Home no longer composes a top-of-page ping overlay",

@@ -59,6 +59,32 @@ data class ServerIntelInfo(
 }
 
 class AppRepository(private val context: Context, val xray: XrayManager) {
+
+    /**
+     * MARBLE_SINGBOX_CORE_V151 — the second engine.
+     *
+     * Owned here, next to [xray], because the repository is the object that already serialises
+     * every connect/disconnect and holds the settings both cores are configured from. The VPN
+     * service reaches it through [MarbleApplication] exactly like it reaches [xray].
+     */
+    val singBox: SingBoxManager = SingBoxManager(context)
+
+    /**
+     * MARBLE_SINGBOX_CORE_V151 — the engine the current settings select, plus the last start
+     * report from whichever core that is.
+     *
+     * Both are read straight from the managers instead of a cached copy: each core writes its own
+     * start phase and error, and the Engine page shows the pair that belongs to the engine the
+     * user actually picked. The `else` arm always names [xray], so neither getter can read itself.
+     */
+    val activeCoreEngine: CoreEngine get() = parseCoreEngine(settings.coreEngineId)
+
+    val coreStartPhase: String
+        get() = if (activeCoreEngine == CoreEngine.SINGBOX) singBox.lastStartPhase else xray.lastStartPhase
+
+    val coreStartError: String
+        get() = if (activeCoreEngine == CoreEngine.SINGBOX) singBox.lastStartError else xray.lastStartError
+
     // MARBLE_LIBRARY_POWER_V10
     // MARBLE_ENGINE_RESCUE_V11
     // MARBLE_CONNECT_DISPATCH_V13
@@ -471,6 +497,7 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
 
     init {
         migrateLocalSourceOwnershipIfNeeded()
+        installUrlTestHook()
         RuntimeDiagnostics.setDebugEnabled(context, settings.debugModeEnabled)
         diagnostics.event("APP", "repository-init", "debugMode" to settings.debugModeEnabled)
         notifier.ensureChannels()
@@ -502,6 +529,51 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         // off the main thread, takes no task slot, never touches `busy` and swallows failure —
         // a missing database costs the geo split for this session and nothing else.
         ensureGeoAssetsInBackground()
+    }
+
+    /**
+     * MARBLE_PATTNG_PING_V151 — publishes the sing-box extended URL test to [RouteProbe].
+     *
+     * The prober is a context-free object and the core process belongs to this repository, so the
+     * bridge is one closure installed once. It prefers the tunnel the user already has: when the
+     * live engine is sing-box extended and it is running, the core measures through the real
+     * session; otherwise a throwaway instance measures the node on its own.
+     */
+    private fun installUrlTestHook() {
+        RouteProbe.urlTestHook = { profile, probeSettings, timeoutMs ->
+            // sing-box extended's delay endpoint throws away a plain-http URL before it ever dials,
+            // which would surface as a failed test on a node that is perfectly reachable. Marble's
+            // own real-delay measurement accepts http; this one does not, so it is forced to the
+            // https default rather than handed a URL the core would silently ignore.
+            val url = DelayTest.url(probeSettings.delayTestUrl)
+                .takeIf { it.startsWith("https://") } ?: DelayTest.URL
+            val result = if (
+                settings.coreEngine() == CoreEngine.SINGBOX && singBox.isAlive &&
+                    activeProfileId == profile.id
+            ) {
+                singBox.urlTestLive(SingBoxConfigBuilder.PROXY_TAG, url, timeoutMs)
+            } else {
+                singBox.urlTestProfile(profile, probeSettings, url, timeoutMs)
+            }
+            if (result.ok) {
+                RouteProbe.ProbeResult(
+                    method = RouteProbe.METHOD_URL_TEST,
+                    latencyMs = result.delayMs.toDouble(),
+                    successPercent = 100,
+                    samples = 1,
+                    failureReason = if (result.live) "urltest-live" else "urltest-throwaway"
+                )
+            } else {
+                RouteProbe.ProbeResult(
+                    method = RouteProbe.METHOD_URL_TEST,
+                    latencyMs = RouteProbe.UNREACHABLE,
+                    successPercent = 0,
+                    samples = 1,
+                    lossPercent = 100.0,
+                    failureReason = result.detail.ifBlank { "urltest-failed" }.take(160)
+                )
+            }
+        }
     }
 
     /**
@@ -1383,6 +1455,40 @@ private fun postToMain(block: () -> Unit) {
         message = when (mode) {
             ConnectionMode.FULL_TUN -> "Full-device TUN selected"
             ConnectionMode.LOCAL_PROXY -> "Local SOCKS5 proxy selected • 127.0.0.1:${settings.localProxyPort}"
+        }
+    }
+
+    /**
+     * MARBLE_SINGBOX_CORE_V151 — switching the tunnel core.
+     *
+     * The engine is the user's choice, and switching it is a real act rather than a flag flip:
+     * the other core's process cannot keep the tun, so a live tunnel is closed first and the user
+     * reconnects into the engine they just picked. URL test is a conversation with a running
+     * sing-box core, so leaving that engine leaves that probe method behind too — rather than
+     * storing a selection no measurement could ever satisfy.
+     */
+    fun setCoreEngine(engine: CoreEngine) {
+        val previous = parseCoreEngine(settings.coreEngineId)
+        if (previous == engine) return
+        var next = settings.copy(coreEngineId = engine.id)
+        if (engine != CoreEngine.SINGBOX && next.probeMethod == ProbeMethod.URL_TEST) {
+            next = next.copy(probeMethod = ProbeMethod.REAL_DELAY)
+        }
+        if (state == "CONNECTED" || state == "CONNECTING" || state == "BLOCKED") stopVpn()
+        updateSettings(next)
+        diagnostics.event("CORE", "engine-switch", "from" to previous.id, "to" to engine.id)
+        message = "Tunnel core set to ${CoreEngineInfo.displayName(engine)}. Reconnect to run it."
+    }
+
+    /** MARBLE_SINGBOX_CORE_V151 — the URL every real-delay measurement is timed against. */
+    fun setDelayTestUrl(url: String) {
+        updateSettings(settings.copy(delayTestUrl = url.trim()))
+        // The hook is rebuilt on every measurement from the current settings, so nothing else has
+        // to be reset here; the message just tells the user the next ping already uses it.
+        message = if (url.trim().isEmpty()) {
+            "Delay URL reset to ${DelayTest.URL}"
+        } else {
+            "Delay URL set to ${url.trim()}"
         }
     }
 
@@ -2790,8 +2896,8 @@ private fun postToMain(block: () -> Unit) {
             // MARBLE_SMART_PING_V122 / MARBLE_PING_METHODS_V148 — electing the connected route
             // needs real-tunnel evidence; a light Smart/address-level gate must never choose
             // which server carries traffic.
-            val selectSettings = if (settings.probeMethod != ProbeMethod.TUNNEL) {
-                settings.copy(probeMethod = ProbeMethod.TUNNEL)
+            val selectSettings = if (settings.probeMethod != ProbeMethod.REAL_DELAY) {
+                settings.copy(probeMethod = ProbeMethod.REAL_DELAY)
             } else {
                 settings
             }
@@ -2950,7 +3056,7 @@ private fun postToMain(block: () -> Unit) {
                 // MARBLE_TURBO_RANK_V91: full-wave parallelism — every node dials at once inside
                 // the helper (capped at 128), instead of 4-16 sequential waves.
                 tcpWorkers = maxOf(settings.tcpWorkers, 64).coerceAtMost(128),
-                probeMethod = ProbeMethod.TUNNEL,
+                probeMethod = ProbeMethod.REAL_DELAY,
                 probeSpeedTest = false,
                 verifiedPerformanceTuning = false,
                 udpProbeEnabled = false
@@ -3202,20 +3308,16 @@ private fun postToMain(block: () -> Unit) {
 
         val method = settings.probeMethod
         val methodLabel = when (method) {
-            ProbeMethod.HYBRID -> "Smart ping"
-            ProbeMethod.TUNNEL -> "Real test"
-            ProbeMethod.TCP_CONNECT -> "TCP Connect ping"
-            ProbeMethod.TCP_RECOMMENDED -> "TCP (recommended) ping"
-            ProbeMethod.HTTP_GET -> "HTTP GET ping"
-            ProbeMethod.HTTP_HEAD -> "HTTP HEAD ping"
-            ProbeMethod.ICMP -> "ICMP ping"
+            ProbeMethod.REAL_DELAY -> "Real delay"
+            ProbeMethod.TCP_PING -> "TCP ping"
+            ProbeMethod.URL_TEST -> "URL test (sing-box extended)"
         }
         // MARBLE_SMART_PING_V122 / MARBLE_PING_METHODS_V148 — Smart and every address-level
         // method's verdict is an endpoint (host:port) property: a subscription repeating the same
         // endpoint N times genuinely has one thing to measure, so it shares one verified result
         // among those members exactly like before. Real test proves a *config* (protocol +
         // account + route), so it stays per server.
-        val dedupe = method != ProbeMethod.TUNNEL
+        val dedupe = method.isEndpointLevel()
 
         task("$methodLabel • $scope") {
             val groups = if (dedupe) {
