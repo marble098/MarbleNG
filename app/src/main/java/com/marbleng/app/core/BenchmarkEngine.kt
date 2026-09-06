@@ -53,11 +53,10 @@ class BenchmarkEngine(
         val batchNetworkKey = intelligence?.currentSnapshot()?.key()
         // TUNNEL means "test everything for real". The v2rayNG-style path also keeps every card
         // and goes straight to Xray, because an underlay TCP failure cannot prove a proxy failure.
-        // MARBLE_SMART_PING_V122 / MARBLE_PING_TRUTH_V147 — HYBRID carries its own verified
-        // TCP+TLS gate inside RouteProbe.smartPing, so the raw-SYN precheck must never run: it
-        // rejected healthy-but-filtered nodes with zero evidence before the real measurement
-        // started. With TCP/ICMP/HTTP/DNS gone from the product method set, no method needs the
-        // legacy separate precheck at all.
+        // MARBLE_SMART_PING_V122 / MARBLE_PING_METHODS_V148 — every non-TUNNEL method carries its
+        // own honest probe inside RouteProbe or BenchmarkEngine.directResult, so the raw-SYN
+        // precheck must never run: it rejected healthy-but-filtered nodes with zero evidence
+        // before the real measurement started.
         val precheck = false
         val candidates = selectCandidates(profiles, s, precheck).distinctBy { it.id }
         if (candidates.isEmpty()) return emptyList()
@@ -93,8 +92,8 @@ class BenchmarkEngine(
                 val measured = testCandidate(p, benchmarkPort(idx), s, v2rayStyleDelay)
                 val result = rank(listOf(measured), s).firstOrNull() ?: measured
                 results += result
-                // SMART proves endpoint reachability (and its own TCP+TLS gate), not that the
-                // Xray route/account works. Never poison persistent tunnel intelligence with
+                // Every direct method proves endpoint/underlay reachability, not that the Xray
+                // route/account works. Never poison persistent tunnel intelligence with
                 // underlay-only measurements; only the native TUNNEL path records it.
                 if (
                     !directProbe(s) &&
@@ -228,10 +227,11 @@ class BenchmarkEngine(
         deep: Boolean,
         onProgress: (String) -> Unit = {}
     ): List<BenchmarkResult> {
-        // MARBLE_SMART_PING_V122 — autopilot challenger evidence must stay real-tunnel: it is
-        // recorded straight into the persistent intelligence and can trigger route switches, so
-        // a light Smart gate is never an acceptable substitute here.
-        val effectiveSettings = if (settings.probeMethod == ProbeMethod.HYBRID) {
+        // MARBLE_SMART_PING_V122 / MARBLE_PING_METHODS_V148 — autopilot challenger evidence must
+        // stay real-tunnel: it is recorded straight into the persistent intelligence and can
+        // trigger route switches, so a light Smart/address-level gate is never an acceptable
+        // substitute here.
+        val effectiveSettings = if (settings.probeMethod != ProbeMethod.TUNNEL) {
             settings.copy(probeMethod = ProbeMethod.TUNNEL)
         } else {
             settings
@@ -681,18 +681,14 @@ class BenchmarkEngine(
     /**
      * True when the selected method never needs a temporary Xray process.
      *
-     * MARBLE_SMART_PING_V122 / MARBLE_PING_TRUTH_V147 — HYBRID is now the only non-native
-     * product method: RouteProbe.smartPing runs the verified Layer-0 gate (TCP + TLS
-     * ServerHello/Alert, family racing, anti-probing stagger, configured samples with the
-     * warm-up discarded) and never invents a perfect score from a partial handshake. The
-     * `!directProbe` guard in [run] therefore still keeps this endpoint gate evidence out of
-     * the persistent tunnel intelligence, exactly as it always did for address-level probes.
-     *
-     * TCP / ICMP / HTTP / DNS are internal primitives used by that gate; they are deliberately
-     * no longer exposed as product methods because they cannot prove a proxy config.
+     * MARBLE_PING_METHODS_V148 — every method except [ProbeMethod.TUNNEL] is an address-level
+     * or underlay measurement that runs directly in the worker. Only Real test needs a
+     * throwaway Xray child per candidate (to prove protocol + account + route). The `!directProbe`
+     * guard in [run] therefore keeps all of these endpoint/underlay measurements out of the
+     * persistent tunnel intelligence, exactly as it always did for address-level probes.
      */
     private fun directProbe(s: AppSettings): Boolean =
-        s.probeMethod == ProbeMethod.HYBRID
+        s.probeMethod != ProbeMethod.TUNNEL
 
     private fun directResult(p: ProxyProfile, s: AppSettings): BenchmarkResult {
         // MARBLE_PING_CONTROL_V145 — the probe budget is the user's budget, for every method.
@@ -702,29 +698,73 @@ class BenchmarkEngine(
             PingBudget.TIMEOUT_MIN_SEC * 1_000,
             PingBudget.TIMEOUT_MAX_SEC * 1_000
         )
+        val samples = PingBudget.samples(s.benchSamples)
+
+        fun asBenchmark(kind: String, result: RouteProbe.ProbeResult): BenchmarkResult =
+            BenchmarkResult(
+                profileId = p.id,
+                name = p.name,
+                success = result.successPercent,
+                latencyMs = result.latencyMs,
+                bytesPerSecond = 0.0,
+                score = 0.0,
+                probeKind = kind,
+                jitterMs = result.jitterMs,
+                p95LatencyMs = result.p95Ms,
+                lossPercent = result.lossPercent,
+                failureReason = result.failureReason.take(180)
+            )
+
         return when (s.probeMethod) {
-            ProbeMethod.HYBRID -> {
-                val result = RouteProbe.smartPing(
+            ProbeMethod.HYBRID -> asBenchmark(
+                "SMART",
+                RouteProbe.smartPing(
                     profile = p,
                     tunnelPort = 0,
                     timeoutMs = directTimeoutMs,
                     settings = s,
-                    samples = PingBudget.samples(s.benchSamples)
+                    samples = samples
                 )
-                BenchmarkResult(
-                    profileId = p.id,
-                    name = p.name,
-                    success = result.successPercent,
-                    latencyMs = result.latencyMs,
-                    bytesPerSecond = 0.0,
-                    score = 0.0,
-                    probeKind = "SMART",
-                    jitterMs = result.jitterMs,
-                    p95LatencyMs = result.p95Ms,
-                    lossPercent = result.lossPercent,
-                    failureReason = result.failureReason.take(180)
+            )
+            ProbeMethod.TCP_CONNECT -> asBenchmark(
+                "TCP_CONNECT",
+                RouteProbe.tcpConnectExtended(
+                    p.host, p.port, directTimeoutMs, samples, s
                 )
-            }
+            )
+            ProbeMethod.TCP_RECOMMENDED -> asBenchmark(
+                "TCP_RECOMMENDED",
+                RouteProbe.tcpExtended(
+                    p.host, p.port, directTimeoutMs, samples, s
+                )
+            )
+            ProbeMethod.HTTP_GET -> asBenchmark(
+                "HTTP_GET",
+                RouteProbe.httpPingBatch(
+                    socksPort = 0,
+                    timeoutMs = directTimeoutMs,
+                    samples = samples,
+                    httpMethod = "GET"
+                )
+            )
+            ProbeMethod.HTTP_HEAD -> asBenchmark(
+                "HTTP_HEAD",
+                RouteProbe.httpPingBatch(
+                    socksPort = 0,
+                    timeoutMs = directTimeoutMs,
+                    samples = samples,
+                    httpMethod = "HEAD"
+                )
+            )
+            ProbeMethod.ICMP -> asBenchmark(
+                "ICMP",
+                RouteProbe.icmpExtended(
+                    p.host,
+                    directTimeoutMs,
+                    count = samples,
+                    settings = s
+                )
+            )
             ProbeMethod.TUNNEL -> error("TUNNEL is a native path and must never reach directResult")
         }
     }

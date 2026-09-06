@@ -310,10 +310,8 @@ fun Aether2026App(
     }
     var deckQrSourceOpen by remember { mutableStateOf(false) }
 
-    // MARBLE_IRAN_AWARE_PING_UI — the top-bar ping icon tap shows the ping results for the
-    // selected server / subscription inline on Home (minimal, subtle panel under the bar).
-    var showPingInline by remember { mutableStateOf(false) }
-
+    // MARBLE_PING_METHODS_V148 — Home ping results live in the in-place meter / shortcut deck;
+    // no separate top-of-page overlay is composed while a ping is running.
     val deckActions = HomeActions(
         onToggleConnection = {
             with(deck.evidence) {
@@ -330,10 +328,10 @@ fun Aether2026App(
         onCopyIp = deckCopyIp,
         onRefreshIp = { repo.refreshServerIntel(deck.profile, force = true) },
         onIpDetails = { ipDetailsOpen = true },
-        // MARBLE_HOME_V137 — one route ping: the live tunnel ladder while connected, the
-        // selected server's endpoint otherwise. Same method, same readout, every state.
+        // MARBLE_HOME_V137 / MARBLE_PING_METHODS_V148 — one route ping that follows Settings →
+        // Tests → Ping in every state. The result surfaces in the in-place live meter and the
+        // shortcut deck, so no top-of-page overlay is ever needed.
         onTestPing = {
-            showPingInline = true
             repo.measureHomePing()
         },
         onLibrary = { goToTab(SpatialTab.LIBRARY.ordinal) },
@@ -361,9 +359,9 @@ fun Aether2026App(
         },
         onQrImport = { deckQrSourceOpen = true },
         // MARBLE_HOME_PING_ROUTE_GROUP_V146 — the Home pulse icon measures the subscription of
-        // the route shown on the page, and shows the results inline (tap again to dismiss).
+        // the route shown on the page. Progress/results are reported through the shared probe
+        // batch state and the group label, never through a top-of-page overlay.
         onPingGroup = {
-            showPingInline = true
             repo.pingHomeGroup()
         }
     )
@@ -412,9 +410,7 @@ fun Aether2026App(
                         repo = repo,
                         deck = deck,
                         actions = deckActions,
-                        onContentScrollChanged = reportContentScroll,
-                        showPingInline = showPingInline,
-                        onTogglePingInline = { showPingInline = !showPingInline }
+                        onContentScrollChanged = reportContentScroll
                     )
                     SpatialTab.LIBRARY -> CyberLibrary(
                         repo = repo,
@@ -2291,77 +2287,6 @@ private fun MarbleConnectionQualityRing(
 }
 
 /**
- * MARBLE_IRAN_AWARE_PING_UI — inline ping results shown when the user taps the top-bar ping
- * icon. Subtle by design: one line of facts (measured latency, status glyph, stability class,
- * attribution short key) that explains *why* the capsule shows what it shows.
- */
-@Composable
-private fun HomePingInlinePanel(
-    repo: AppRepository,
-    activeName: String,
-    stabilityClass: String,
-    modifier: Modifier = Modifier
-) {
-    val connected = repo.state == "CONNECTED"
-    val pingMs = if (connected) repo.connectionPingMs else repo.selectedPingMs
-    val pingState = if (connected) repo.connectionPingState else repo.selectedPingState
-    val failure = if (connected) repo.connectionPingFailure else repo.selectedPingFailure
-    val glyph = when {
-        pingState == ConnectionPingState.MEASURING -> "⏳"
-        pingState == ConnectionPingState.FAILED -> "🚫"
-        repo.homePingInjectedReset -> "⚠️"
-        stabilityClass == "UNSTABLE_UNDER_OBSERVATION" -> "⚠️"
-        pingState == ConnectionPingState.MEASURED -> "✅"
-        else -> "—"
-    }
-    val tone = when {
-        glyph == "🚫" -> Aether.Danger
-        glyph == "⚠️" -> Aether.Amber
-        glyph == "✅" -> Aether.Emerald
-        else -> Aether.InkMuted
-    }
-    PrismPanel(
-        modifier = modifier,
-        accent = tone,
-        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp)
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(glyph, color = tone, style = MaterialTheme.typography.titleMedium)
-            Spacer(Modifier.width(8.dp))
-            Column(Modifier.weight(1f)) {
-                Text(
-                    if (pingMs > 0) "$pingMs ms" else "not measured",
-                    color = Aether.Ink,
-                    style = MaterialTheme.typography.titleSmall
-                )
-                val detail = buildList {
-                    if (activeName.isNotBlank()) add(activeName)
-                    if (stabilityClass == "UNSTABLE_UNDER_OBSERVATION") add("unstable • observing")
-                    if (repo.homePingDetail.isNotBlank()) add(repo.homePingDetail)
-                    if (failure.isNotBlank()) add(failure)
-                }.joinToString(" • ")
-                if (detail.isNotBlank()) {
-                    Text(
-                        detail,
-                        color = Aether.InkMuted,
-                        style = MaterialTheme.typography.labelSmall,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
-            if (pingState == ConnectionPingState.MEASURING) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(14.dp),
-                    color = Aether.Amber,
-                    strokeWidth = 2.dp
-                )
-            }
-        }
-    }
-}
-
-/**
  * MARBLE_IRAN_AWARE_PING_L3_UI — the national-filtering banner. Shown only while a confident
  * [CausalAttribution.AttributedCause.NATIONAL_FILTERING_EVENT] is active, and only on Home.
  */
@@ -2614,9 +2539,7 @@ private fun CyberDeck(
     repo: AppRepository,
     deck: DeckEvidence,
     actions: HomeActions,
-    onContentScrollChanged: (Boolean) -> Unit,
-    showPingInline: Boolean = false,
-    onTogglePingInline: () -> Unit = {}
+    onContentScrollChanged: (Boolean) -> Unit
 ) {
     // MARBLE_HOME_STYLE_V110 — Home is one evidence model rendered by one of the four themes.
     // The style is a pure presentation choice made in Settings; the runtime facts (node, source,
@@ -2655,22 +2578,10 @@ private fun CyberDeck(
             )
         }
 
-        // MARBLE_IRAN_AWARE_PING_UI — top-bar ping results panel (minimal, subtle) and the
-        // Layer 3 national-filtering banner.
+        // MARBLE_PING_METHODS_V148 — the only top-of-page overlay is the Layer 3 national-filtering
+        // banner. Ping results are read from the in-place meter / shortcut deck, never from a panel
+        // that appears at the top while a ping is running.
         NationalEventBanner(repo = repo, modifier = Modifier.align(Alignment.TopCenter))
-        if (showPingInline) {
-            HomePingInlinePanel(
-                repo = repo,
-                activeName = active?.name ?: "",
-                stabilityClass = repo.homePingStabilityClass,
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .padding(top = 44.dp)
-                    .widthIn(max = 460.dp)
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp)
-            )
-        }
 
         if (evidence.blocked && repo.stateDetail.isNotBlank()) {
             Text(
@@ -12361,22 +12272,42 @@ private fun BugFinderSettings(repo: AppRepository) {
 private fun probeMethodTitle(method: ProbeMethod): String = when (method) {
     ProbeMethod.HYBRID -> "Smart"
     ProbeMethod.TUNNEL -> "Real test"
+    ProbeMethod.TCP_CONNECT -> "TCP Connect"
+    ProbeMethod.TCP_RECOMMENDED -> "TCP (recommended)"
+    ProbeMethod.HTTP_GET -> "HTTP GET"
+    ProbeMethod.HTTP_HEAD -> "HTTP HEAD"
+    ProbeMethod.ICMP -> "ICMP Ping"
 }
 
 private fun probeMethodDetail(method: ProbeMethod): String = when (method) {
     ProbeMethod.HYBRID ->
-        "Verified endpoint gate (TCP + TLS) with median over the configured samples; warm-up discarded"
+        "Fast endpoint gate plus real HTTPS through the tunnel when connected; healthy TCP-only servers stay healthy"
     ProbeMethod.TUNNEL ->
         "One real Xray core per server: HTTPS through the proxy, proving account, protocol and route"
+    ProbeMethod.TCP_CONNECT ->
+        "Fastest, TCP handshake to server address"
+    ProbeMethod.TCP_RECOMMENDED ->
+        "Verified TCP + TLS gate to the server address; fast and safer than raw connect"
+    ProbeMethod.HTTP_GET ->
+        "Full HTTPS GET through the selected route; real response time"
+    ProbeMethod.HTTP_HEAD ->
+        "Lightweight HTTPS HEAD through the selected route; minimal data"
+    ProbeMethod.ICMP ->
+        "Classic ping, bypasses the proxy"
 }
 
 private fun probeMethodShortLabel(method: ProbeMethod): String = when (method) {
     ProbeMethod.HYBRID -> "Smart"
     ProbeMethod.TUNNEL -> "Tunnel"
+    ProbeMethod.TCP_CONNECT -> "TCP Connect"
+    ProbeMethod.TCP_RECOMMENDED -> "TCP"
+    ProbeMethod.HTTP_GET -> "HTTP GET"
+    ProbeMethod.HTTP_HEAD -> "HTTP HEAD"
+    ProbeMethod.ICMP -> "ICMP"
 }
 
 /**
- * MARBLE_ONE_PING_V121 / MARBLE_PING_TRUTH_V147 — one ping setting for the whole product.
+ * MARBLE_ONE_PING_V121 / MARBLE_PING_METHODS_V148 — one ping setting for the whole product.
  *
  * Marble used to run several differently-configured probes behind buttons that all said "ping":
  * the Servers group menu forced TCP, the Home button ran its own tunnel ladder, and this page
@@ -12385,15 +12316,15 @@ private fun probeMethodShortLabel(method: ProbeMethod): String = when (method) {
  * and every measurement in the app — the Home ping button, a subscription's ping entry, Ping all
  * and ranking — runs it.
  *
- * The method list is now two, not six. ICMP/HTTP/DNS measured the underlay or the resolver (never
- * the proxy), and TCP was merely Smart's internal Layer-0 gate. Keeping them as peer methods let
- * an address verdict silently replace a proxy verdict. The primitives still exist inside the
- * engine where Smart needs them; they are no longer product choices.
+ * The list is the seven methods a user can reason about: Smart (default), Real test, raw TCP
+ * Connect, the recommended TCP+TLS gate, HTTP GET / HTTP HEAD and ICMP. All methods share the
+ * same measurement budget (timeout, samples, concurrency), and the Home readout obeys the chosen
+ * method even while a tunnel is connected.
  *
- * Smart ping is the default and the right answer for nearly everyone who wants a fast comparative
- * view; Real test is the one that proves the account/route when a server must actually be
- * qualified. The engine's raw operating numbers (samples, timeouts, batch size) are not hidden
- * here — they are the measurement budget below, with the consequence of each value stated.
+ * Smart is the default and the best comparative answer for most users; Real test is the one that
+ * proves the account/route when a server must actually be qualified. The engine's raw operating
+ * numbers (samples, timeouts, batch size) are not hidden here — they are the measurement budget
+ * below, with the consequence of each value stated.
  */
 @Composable
 private fun ProbeSettings(repo: AppRepository) {
@@ -12407,7 +12338,7 @@ private fun ProbeSettings(repo: AppRepository) {
     )
 
     Text(
-        trx("Smart is the fast comparator. Real test spins up one Xray core per server and proves the config end to end."),
+        trx("Smart is the fast comparator. TCP Connect is the quickest liveness check. Real test spins up one Xray core per server and proves the config end to end."),
         color = Aether.InkFaint,
         style = settingsBodyStyle()
     )
@@ -12418,6 +12349,11 @@ private fun ProbeSettings(repo: AppRepository) {
             val tone = when (candidate) {
                 ProbeMethod.HYBRID -> Aether.Amethyst
                 ProbeMethod.TUNNEL -> Aether.Emerald
+                ProbeMethod.TCP_CONNECT -> Aether.Cyan
+                ProbeMethod.TCP_RECOMMENDED -> Aether.CyanBright
+                ProbeMethod.HTTP_GET -> Aether.AmethystBright
+                ProbeMethod.HTTP_HEAD -> Aether.AmethystBright
+                ProbeMethod.ICMP -> Aether.Amber
             }
             val shape = RoundedCornerShape(14.dp)
             Row(
@@ -12519,7 +12455,7 @@ private fun ProbeSettings(repo: AppRepository) {
         style = settingsRowTitleStyle()
     )
     Text(
-        trx("Timeout and sample count apply to every method. Servers at once is the Smart sweep concurrency; Real test is capped at the native-safe core pool (2–4) because it launches one real Xray child per server."),
+        trx("Timeout and sample count apply to every method. Servers at once is the direct-method sweep concurrency; Real test is capped at the native-safe core pool (2–4) because it launches one real Xray child per server."),
         color = Aether.InkMuted,
         style = settingsBodyStyle()
     )
@@ -12534,8 +12470,8 @@ private fun ProbeSettings(repo: AppRepository) {
     ) { repo.updateSettings(repo.settings.copy(pingTimeoutSec = PingBudget.timeoutSec(it))) }
 
     PingBudgetChoiceRow(
-        title = "Smart servers at once",
-        detail = "Only Smart uses this exact value; fewer is slower but far more accurate on a weak link",
+        title = "Direct servers at once",
+        detail = "Direct methods use this exact value; fewer is slower but far more accurate on a weak link",
         selected = PingBudget.concurrency(s.pingConcurrency),
         choices = PingBudget.CONCURRENCY_CHOICES,
         suffix = "",
@@ -12554,7 +12490,7 @@ private fun ProbeSettings(repo: AppRepository) {
     Text(
         "${trx("Worst case per server")}: " +
             "${PingBudget.perServerBudgetMs(s.pingTimeoutSec, s.pingSamples) / 1000}s • " +
-            "${PingBudget.concurrency(s.pingConcurrency)} ${trx("Smart at once")}",
+            "${PingBudget.concurrency(s.pingConcurrency)} ${trx("Direct at once")}",
         color = Aether.InkFaint,
         style = settingsBodyStyle()
     )

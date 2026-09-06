@@ -1070,6 +1070,32 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Fastest, TCP handshake to server address" to "سریع‌ترین، دست‌دادن TCP با آدرس سرور",
     "Classic ping, bypasses the proxy" to "پینگ کلاسیک، بدون عبور از پروکسی",
     "DNS resolution time, fastest check" to "زمان تفکیک DNS، سریع‌ترین بررسی",
+    "TCP Connect" to "پینگ TCP Connect",
+    "TCP (recommended)" to "TCP (پیشنهادی)",
+    "HTTP GET" to "درخواست GET",
+    "HTTP HEAD" to "درخواست HEAD",
+    "ICMP Ping" to "پینگ ICMP",
+    "TCP Connect ping" to "پینگ TCP Connect",
+    "TCP (recommended) ping" to "پینگ TCP (پیشنهادی)",
+    "HTTP GET ping" to "پینگ GET",
+    "HTTP HEAD ping" to "پینگ HEAD",
+    "ICMP ping" to "پینگ ICMP",
+    "Verified TCP + TLS gate to the server address; fast and safer than raw connect" to
+        "دروازه تأییدشده TCP + TLS با آدرس سرور؛ سریع و مطمئن‌تر از اتصال خام",
+    "Full HTTPS GET through the selected route; real response time" to
+        "درخواست کامل HTTPS GET از مسیر انتخاب‌شده؛ زمان پاسخ واقعی",
+    "Lightweight HTTPS HEAD through the selected route; minimal data" to
+        "درخواست سبک HTTPS HEAD از مسیر انتخاب‌شده؛ مصرف داده کم",
+    "Fast endpoint gate plus real HTTPS through the tunnel when connected; healthy TCP-only servers stay healthy" to
+        "دروازه سریع آدرس + HTTPS واقعی از تونل در حالت اتصال؛ سرورهای سالمِ فقط-TCP سالم می‌مانند",
+    "Smart is the fast comparator. TCP Connect is the quickest liveness check. Real test spins up one Xray core per server and proves the config end to end." to
+        "هوشمند مقایسه‌گر سریع است. TCP Connect سریع‌ترین بررسی زنده‌بودن است. تست واقعی برای هر سرور یک هسته Xray راه می‌اندازد و پیکربندی را سرتاسری اثبات می‌کند.",
+    "Direct servers at once" to "سرورهای مستقیم هم‌زمان",
+    "Direct at once" to "مستقیم هم‌زمان",
+    "Direct methods use this exact value; fewer is slower but far more accurate on a weak link" to
+        "روش‌های مستقیم دقیقاً همین مقدار را استفاده می‌کنند؛ تعداد کمتر کندتر ولی روی اتصال ضعیف بسیار دقیق‌تر است",
+    "Timeout and sample count apply to every method. Servers at once is the direct-method sweep concurrency; Real test is capped at the native-safe core pool (2–4) because it launches one real Xray child per server." to
+        "مهلت و تعداد نمونه برای هر روش اعمال می‌شود. سرورهای هم‌زمان، همزمانی پویش روش‌های مستقیم است؛ تست واقعی به دلیل اجرای یک هسته Xray برای هر سرور به ۲ تا ۴ محدود است.",
     "Used by the Home ping button, subscription ping and Ping all." to
         "استفاده توسط دکمه پینگ خانه، پینگ ساب و پینگ همه.",
     "DNS ping measures resolution time only — it does not test the server itself." to

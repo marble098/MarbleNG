@@ -328,40 +328,46 @@ enum class ConnectionPingState { IDLE, MEASURING, MEASURED, FAILED }
 enum class ProbeState { IDLE, QUEUED, TESTING }
 
 /**
- * MARBLE_UNIFIED_PING_V121 / MARBLE_PROBE_TOOLKIT_V130 / MARBLE_PING_TRUTH_V147 — the single ping
+ * MARBLE_UNIFIED_PING_V121 / MARBLE_PROBE_TOOLKIT_V130 / MARBLE_PING_METHODS_V148 — the single ping
  * engine of the whole product.
  *
  * One user choice in Settings → Tests → Ping drives every measurement the user can trigger: the
  * Home ping button, the per-source ping in the Servers three-dot menu and the page-wide ping.
  * There is no second, hidden ping path any more.
  *
- * ## Why the list is exactly two methods
+ * ## The method list
  *
- * The old page offered six methods. Four of them were not measurements of a *proxy server*:
+ *  - [HYBRID] "Smart" — the product default. A fast verified endpoint gate plus, when a live
+ *    SOCKS port is available, a real HTTPS round trip through that tunnel. A server that answers
+ *    a raw TCP handshake is still reported healthy (with its measured latency), so a healthy node
+ *    is never marked "failed" just because every HTTPS origin happened to be blocked.
+ *  - [TUNNEL] "Real test" — the slowest and the only method that proves a *config* end to end:
+ *    one real Xray core per server, HTTPS through the SOCKS inbound. When a tunnel is already
+ *    connected this reuses the live port; during a sweep it launches a throwaway Xray child.
+ *  - [TCP_CONNECT] "TCP Connect" — the fastest liveness check: a raw TCP three-way handshake to the
+ *    server address. It answers in milliseconds but only proves the port is listening.
+ *  - [TCP_RECOMMENDED] "TCP (recommended)" — a fast, safer midpoint: TCP connect plus a verified
+ *    TLS ServerHello/Alert round trip. It detects stateful filters that accept the handshake and
+ *    then kill the stream, while remaining much quicker than the full Real tunnel test.
+ *  - [HTTP_GET] "HTTP GET" — a full HTTPS GET through the selected route (or direct when no tunnel
+ *    is running). It measures the real first-byte response time of a working HTTP request.
+ *  - [HTTP_HEAD] "HTTP HEAD" — the lightweight sibling of HTTP GET: a full HTTPS HEAD round trip
+ *    with almost no response body, so it uses less data.
+ *  - [ICMP] "ICMP Ping" — the classic `/system/bin/ping` echo to the server address. It bypasses
+ *    the proxy and is often dropped by mobile carriers, but it is still a useful underlay check.
  *
- *  - ICMP bypasses the tunnel and is usually dropped by carriers; it cannot prove a config.
- *  - HTTP hit a fixed Google/Cloudflare 204 over the *underlay*, not the proxy; every row got the
- *    same number, so it could only re-rank the phone's current network.
- *  - DNS measured the local resolver and nothing else; for literal-IP nodes it was not even a
- *    network round trip (it returned an already-resolved address instantly).
- *  - TCP was the fast layer-0 gate used *inside* Smart. Exposing it as a separate top-level answer
- *    made an endpoint handshake look like a proxy verdict, and let a bad user selection silently
- *    replace route ranking with address reachability.
- *
- * The primitives still exist inside [com.marbleng.app.core.RouteProbe] where Smart uses them, but
- * they are no longer product choices. A proxy app has exactly two honest questions to answer, and
- * the settings page now exposes only those two.
- *
- *  - [HYBRID] "Smart" — the product default and the fastest answer: the verified Layer-0 gate
- *    (TCP + TLS ServerHello/Alert, Happy-Eyeballs family racing, 50–400 ms anti-probing stagger,
- *    median over the configured samples with the warm-up sample discarded). It never invents a
- *    100 % verdict from a partial handshake. When the app is connected it is upgraded by the live
- *    in-tunnel ladder, so the number shown there is still a real HTTPS round trip.
- *  - [TUNNEL] "Real test" — one real Xray core per config, HTTPS through the SOCKS inbound,
- *    proving the protocol, the account, the route and the TLS handshake end to end. Slowest,
- *    most accurate, and the only method allowed to mark a config "failed tunnel".
+ * The shared measurement budget ([PingBudget]) is the only thing that decides when a probe gives
+ * up, how many samples it keeps and how many servers it measures at the same time.
  */
-enum class ProbeMethod { HYBRID, TUNNEL }
+enum class ProbeMethod {
+    HYBRID,
+    TUNNEL,
+    TCP_CONNECT,
+    TCP_RECOMMENDED,
+    HTTP_GET,
+    HTTP_HEAD,
+    ICMP
+}
 
 /**
  * MARBLE_PING_CONTROL_V145 — the user-owned measurement budget of the whole ping engine.
