@@ -107,6 +107,17 @@ object TurboBackoffPolicy {
     /** After this many early releases the engine trusts the full timer again. */
     const val MAX_EARLY_RELEASES = 2
 
+    /**
+     * MARBLE_IRAN_AWARE_PING_L3 — retry cadence while a national filtering event is attributed.
+     * Long enough not to hammer a filtered fleet, short enough to catch the window ending.
+     */
+    const val NATIONAL_EVENT_RETRY_MS = 300_000L
+
+    private fun quietMsFor(state: State, nowMs: Long): Long {
+        if (state.streak <= 0 || nowMs < state.lastOutcomeAtMs) return 0L
+        return nowMs - state.lastOutcomeAtMs
+    }
+
     /** Streak after [elapsedMs] of quiet, i.e. escalation that no longer reflects the link. */
     fun decayedStreak(streak: Int, elapsedMs: Long, halfLifeMs: Long = STREAK_HALF_LIFE_MS): Int {
         if (streak <= 0 || elapsedMs <= 0L) return max(0, streak)
@@ -131,10 +142,33 @@ object TurboBackoffPolicy {
         nowMs: Long,
         cause: Cause,
         baseMs: Long,
-        maxMs: Long
+        maxMs: Long,
+        nationalFilteringEvent: Boolean = false
     ): Outcome {
         require(baseMs > 0L) { "baseMs must be positive" }
         require(maxMs >= baseMs) { "maxMs must not be below baseMs" }
+
+        /*
+         * MARBLE_IRAN_AWARE_PING_L3 — the causal gate runs BEFORE the escalation ladder.
+         * A NATIONAL_FILTERING_EVENT means the fleet is dropping together: the pass's inconclusive
+         * verdict is the national filter's fault, not the transport's. Escalating the transport
+         * backoff here would punish the healthy protocol for the country's actions and keep the
+         * recovery path (other transport, other carrier, wait it out) from ever being tried.
+         * It gets a bounded, non-escalating retry window — a filtered path recovers when the
+         * window ends, and the engine must be there to re-measure it.
+         */
+        if (nationalFilteringEvent) {
+            val backoff = NATIONAL_EVENT_RETRY_MS.coerceAtMost(maxMs)
+            return Outcome(
+                state = state.copy(
+                    streak = decayedStreak(state.streak, quietMsFor(state, nowMs)),
+                    untilMs = nowMs + backoff
+                ),
+                backoffMs = backoff,
+                escalated = false,
+                reason = "national-filtering-event-no-escalation"
+            )
+        }
 
         if (cause == Cause.PROBE_UNAVAILABLE) {
             val backoff = PROBE_UNAVAILABLE_RETRY_MS.coerceAtMost(maxMs)

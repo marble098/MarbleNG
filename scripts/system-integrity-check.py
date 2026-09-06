@@ -428,11 +428,15 @@ check(
     and "ResolverFailureClassifier.isDnsRelated(line)" in files["resolverPolicy"],
 )
 check(
-    "resolver demotion decays, is time-bounded and never deletes a resolver",
+    "resolver demotion decays, is time-bounded, never deletes a resolver and rotates healthy first",
+    # MARBLE_IRAN_AWARE_PING_RESOLVERS — order() now rotates the healthy part of the pool per
+    # 10-minute epoch (anti-DPI discipline) while demoted endpoints still always stay last and a
+    # list where every candidate is failing still returns unchanged.
     "DECAY_HALF_LIFE_MS" in files["resolverPolicy"]
     and "DEMOTE_TTL_MS" in files["resolverPolicy"]
     and "fun order(" in files["resolverPolicy"]
-    and "if (healthy.isEmpty()) distinct else healthy + failing" in files["resolverPolicy"],
+    and "if (healthy.isEmpty()) return distinct" in files["resolverPolicy"]
+    and "rotated + failing" in files["resolverPolicy"],
 )
 check(
     "the emitted resolver list is ordered by attributed runtime evidence",

@@ -25,6 +25,7 @@ import com.marbleng.app.core.LinkEvidence
 import com.marbleng.app.core.LinkQualityEstimator
 import com.marbleng.app.core.NetworkSnapshot
 import com.marbleng.app.core.PathMtuPolicy
+import com.marbleng.app.core.ProtocolFingerprintAwareVerifier
 import com.marbleng.app.core.RecoveryBackoffPolicy
 import com.marbleng.app.core.ResolverEvidencePolicy
 import com.marbleng.app.core.RuntimeDiagnostics
@@ -1191,13 +1192,21 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                                 state = pathMtuState,
                                 observedMtu = transport.pmtu,
                                 activeMtu = activeMtu,
-                                nowMs = System.currentTimeMillis()
+                                nowMs = System.currentTimeMillis(),
+                                // MARBLE_IRAN_AWARE_PING_L2/3 — a PMTU drop that appears exactly
+                                // when the transfer shape collapses is a filter shrinking packets,
+                                // not a path property. The verdict is surfaced to Layer 3.
+                                sawtoothConfidence = throttleEvidenceForActiveRoute(),
+                                throttleActive = jitterControlState.throttleActive
                             )
                             pathMtuState = mtuDecision.state
                             mtuDecision.commitMtu?.let { committed ->
                                 repo.intelligence.rememberPathMtu(activeProfileId, committed)
                             }
                             if (mtuDecision.requestTune) tuningRequested.set(true)
+                            if (mtuDecision.throttlingSynchronized) {
+                                runCatching { repo.intelligence.attributionTick() }
+                            }
                             if (mtuDecision.commitMtu != null || mtuDecision.requestTune) {
                                 diag.event(
                                     "MTU", "path-mtu-learned",
@@ -2018,6 +2027,17 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         (application as MarbleApplication).repo.invalidateLiveJitter()
     }
 
+    /**
+     * MARBLE_IRAN_AWARE_PING_L2 — the second independent signal folded into the jitter state
+     * machine: the latest tunnel-level sawtooth confidence persisted for the active route.
+     */
+    private fun throttleEvidenceForActiveRoute(): Double {
+        if (activeProfileId.isBlank()) return 0.0
+        return (application as MarbleApplication).repo
+            .intelligence
+            .throttleConfidenceFor(activeProfileId)
+    }
+
     private fun sampleRouteLatency(
         session: String,
         port: Int,
@@ -2374,6 +2394,20 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             successPercent,
             activeSettings ?: repo.settings
         )
+        // MARBLE_IRAN_AWARE_PING_L2/L3 — every live route sample is also a Layer 2 observation
+        // (temporal stability + time-of-day bucket) and feeds the Layer 3 attribution tick.
+        if (activeProfileId.isNotBlank()) {
+            val profile = repo.profile(activeProfileId)
+            repo.intelligence.recordLiveObservation(
+                activeProfileId,
+                quality.latencyMs.toDouble(),
+                jitterMs.toDouble(),
+                successPercent.toDouble(),
+                transportType = profile?.let { ProtocolFingerprintAwareVerifier.transportTypeOf(it) }
+                    ?: ""
+            )
+            runCatching { repo.intelligence.attributionTick() }
+        }
 
         val highThreshold = maxOf(
             ROUTE_JITTER_TRIGGER_MS,
@@ -2399,7 +2433,10 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                 // LinkQualityEstimator.Summary reports whole milliseconds/percent as Int.
                 p95IpdvMs = link.p95IpdvMs.toDouble(),
                 lossPercent = link.lossPercent.toDouble(),
-                spikePercent = link.spikePercent.toDouble()
+                spikePercent = link.spikePercent.toDouble(),
+                // MARBLE_IRAN_AWARE_PING_L2 — the second independent signal for the throttle
+                // verdict: the latest tunnel-level sawtooth confidence observed for this node.
+                sawtoothConfidence = throttleEvidenceForActiveRoute()
             ),
             state = jitterControlState,
             nowMs = System.currentTimeMillis()
@@ -2408,6 +2445,25 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         jitterControlActive = jitterDecision.state.active
 
         when (jitterDecision.verdict) {
+            // MARBLE_IRAN_AWARE_PING_L2 — both independent signals (jitter + sawtooth shape)
+            // together. The stronger state must also make the route monitor heavier so the
+            // pattern can be confirmed rather than inferred from one tick.
+            JitterControlPolicy.Verdict.SUSPECTED_THROTTLE -> diag.event(
+                "ROUTE", "jitter-throttle-suspected",
+                "session" to session,
+                "target" to host,
+                "pingMs" to quality.latencyMs,
+                "jitterMs" to jitterMs,
+                "sawtooth" to throttleEvidenceForActiveRoute(),
+                "tick" to jitterDecision.tick
+            )
+            JitterControlPolicy.Verdict.THROTTLE_CLEARED -> diag.event(
+                "ROUTE", "jitter-throttle-cleared",
+                "session" to session,
+                "target" to host,
+                "pingMs" to quality.latencyMs,
+                "tick" to jitterDecision.tick
+            )
             JitterControlPolicy.Verdict.ENTER -> diag.event(
                 "ROUTE", "jitter-control-enter",
                 "session" to session,

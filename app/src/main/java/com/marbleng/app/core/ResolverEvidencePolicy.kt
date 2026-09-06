@@ -347,19 +347,13 @@ object ResolverEvidencePolicy {
      * unchanged: there is no better alternative, and churning the emitted config would cost a
      * reconnect for nothing.
      */
-    fun order(
+    @Deprecated("Superseded by the rotating overload; use order(..., seed = )")
+    fun orderLegacy(
         candidates: List<String>,
         evidence: List<EndpointEvidence>,
         nowMs: Long
-    ): List<String> {
-        val distinct = candidates
-            .map { it.trim() }
-            .filter { it.isNotBlank() }
-            .distinctBy { normalize(it) }
-        if (distinct.size < 2) return distinct
-        val (healthy, failing) = distinct.partition { !isDemoted(it, evidence, nowMs) }
-        return if (healthy.isEmpty()) distinct else healthy + failing
-    }
+    ): List<String> =
+        order(candidates, evidence = evidence, nowMs = nowMs, seed = "")
 
     /** Endpoints of [candidates] that are currently demoted, for diagnostics and the config writer. */
     fun demoted(
@@ -371,6 +365,152 @@ object ResolverEvidencePolicy {
         .filter { it.isNotBlank() }
         .distinctBy { normalize(it) }
         .filter { isDemoted(it, evidence, nowMs) }
+
+    // ------------------------------------------------ MARBLE_IRAN_AWARE_PING_RESOLVERS
+
+    /** A resolver pool of fewer than this many *independent operators* is not evidence of diversity. */
+    const val MIN_DIVERSE_PROVIDERS = 4
+
+    /** A blacklisted operator's endpoints stay out of the emitted list this long. */
+    const val OPERATOR_BLACKLIST_TTL_MS = 30L * 60_000L
+
+    /** After this quiet period a blacklisted operator is re-tested (periodic re-test requirement). */
+    const val OPERATOR_RETEST_MS = 20L * 60_000L
+
+    /** Sentinel: not blacklisted. */
+    const val NOT_BLACKLISTED = -1L
+
+    /** The rotation epoch, matching the probe-pool discipline so no two subsystems repeat. */
+    private const val ROTATION_EPOCH_MS = 10L * 60_000L
+
+    /** Known independent resolver operators, by hostname suffix (host part of the URL). */
+    private val OPERATOR_BY_SUFFIX = listOf(
+        "cloudflare-dns.com" to "cloudflare",
+        "1.1.1.1" to "cloudflare",
+        "1.0.0.1" to "cloudflare",
+        "dns.google" to "google",
+        "8.8.8.8" to "google",
+        "8.8.4.4" to "google",
+        "dns.quad9.net" to "quad9",
+        "9.9.9.9" to "quad9",
+        "149.112.112.112" to "quad9",
+        "dns.adguard-dns.com" to "adguard",
+        "94.140.14.14" to "adguard",
+        "dns.nextdns.io" to "nextdns",
+        "dns.mullvad.net" to "mullvad"
+    )
+
+    fun providerFamily(endpoint: String): String {
+        val host = endpoint
+            .substringAfter("://", endpoint)
+            .substringBefore('/')
+            .substringBefore(':')
+            .trim()
+            .lowercase()
+        return OPERATOR_BY_SUFFIX.firstOrNull { host == it.first || host.endsWith("." + it.first) }
+            ?.second
+            ?: host
+    }
+
+    /**
+     * Diversity audit: how many independent operator families [candidates] cover. A pool of five
+     * endpoints from one operator is one failure domain, not five providers.
+     */
+    fun diversity(candidates: List<String>): Int =
+        candidates.map { providerFamily(it) }.filter { it.isNotBlank() }.distinct().size
+
+    /**
+     * Rotate the *healthy* part of the pool deterministically every [ROTATION_EPOCH_MS] — but only
+     * when the caller supplies a rotation seed. The no-seed form is the historical deterministic
+     * order (healthy in pool order, demoted last); rotation is opt-in so legacy callers and the
+     * pre-rotation contract are not silently reordered.
+     *
+     * Demoted endpoints always stay last — rotation may never promote a failing resolver — and
+     * the rotation gives an operator that manipulates per-endpoint DNS a moving target instead of
+     * a stable five-endpoint signature to learn.
+     */
+    fun order(
+        candidates: List<String>,
+        evidence: List<EndpointEvidence>,
+        nowMs: Long,
+        seed: String = ""
+    ): List<String> {
+        val distinct = candidates
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .distinctBy { normalize(it) }
+        if (distinct.size < 2) return distinct
+        val (healthy, failing) = distinct.partition { !isDemoted(it, evidence, nowMs) }
+        if (healthy.isEmpty()) return distinct
+        if (seed.isBlank()) return healthy + failing
+        val epoch = (nowMs / ROTATION_EPOCH_MS).toInt()
+        val shift = Math.floorMod(seed.hashCode() xor epoch, healthy.size)
+        val rotated = healthy.drop(shift) + healthy.take(shift)
+        return rotated + failing
+    }
+
+    /**
+     * Dynamic per-operator blacklist: an operator whose *every* observed endpoint is demoted is a
+     * failure domain, not four unrelated failures. The operator is removed from the emitted pool
+     * until [OPERATOR_BLACKLIST_TTL_MS] has passed.
+     */
+    fun blacklistedOperators(
+        candidates: List<String>,
+        evidence: List<EndpointEvidence>,
+        nowMs: Long
+    ): Map<String, Long> {
+        val byOperator = candidates
+            .filter { it.isNotBlank() }
+            .groupBy { providerFamily(it) }
+        val out = HashMap<String, Long>()
+        byOperator.forEach { (operator, endpoints) ->
+            if (operator.isBlank()) return@forEach
+            if (endpoints.size < 2) return@forEach
+            val onlyDemoted = endpoints.all { isDemoted(it, evidence, nowMs) }
+            if (!onlyDemoted) return@forEach
+            val newestFailure = endpoints
+                .mapNotNull { evidenceFor(it, evidence) }
+                .maxOfOrNull { it.lastFailureAtMs }
+                ?: 0L
+            if (newestFailure > 0L) out[operator] = newestFailure
+        }
+        return out.filterValues { nowMs - it <= OPERATOR_BLACKLIST_TTL_MS }
+    }
+
+    /**
+     * Periodic re-test gate: a blacklisted operator is eligible for one endpoint again after
+     * [OPERATOR_RETEST_MS], even though the full blacklist TTL may not have passed. A filtering
+     * window ends without warning; without the retest the operator would stay out a full TTL
+     * after recovery.
+     */
+    fun retestDue(
+        operator: String,
+        blacklistedAtMs: Long,
+        nowMs: Long,
+        retestMs: Long = OPERATOR_RETEST_MS
+    ): Boolean = blacklistedAtMs > 0L &&
+        nowMs - blacklistedAtMs >= retestMs
+
+    /**
+     * The pool actually emitted after diversity enforcement. When the candidates cover fewer than
+     * [MIN_DIVERSE_PROVIDERS] independent families, the [fallbacks] (always-available independent
+     * DoH operators) are appended so the emitted list cannot be one operator's failure domain.
+     */
+    fun diversified(
+        candidates: List<String>,
+        fallbacks: List<String>,
+        nowMs: Long = System.currentTimeMillis()
+    ): List<String> {
+        val merged = LinkedHashSet<String>()
+        merged += candidates.map { it.trim() }.filter { it.isNotBlank() }
+        if (diversity(merged.toList()) < MIN_DIVERSE_PROVIDERS) {
+            fallbacks.forEach { candidate ->
+                val trimmed = candidate.trim()
+                if (trimmed.isNotBlank()) merged += trimmed
+            }
+        }
+        return merged.toList()
+    }
 
     /**
      * Whether Xray should race its encrypted resolvers instead of failing over serially.

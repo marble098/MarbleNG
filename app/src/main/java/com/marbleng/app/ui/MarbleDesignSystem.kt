@@ -990,7 +990,10 @@ internal fun MarbleMetricCard(
     unit: String,
     tone: Color,
     modifier: Modifier = Modifier,
-    sparkline: List<Int> = emptyList()
+    sparkline: List<Int> = emptyList(),
+    // MARBLE_IRAN_AWARE_PING_UI — per-point injection flags; flagged samples render in danger
+    // color so the sparkline shows WHERE resets happened, not just the average.
+    flaggedSamples: List<Boolean> = emptyList()
 ) {
     val shape=RoundedCornerShape(20.dp)
     val border=Brush.linearGradient(
@@ -1058,6 +1061,7 @@ internal fun MarbleMetricCard(
                 MarbleSparkline(
                     samples=sparkline,
                     tone=tone,
+                    flagged=cleanFlags(flaggedSamples, sparkline),
                     modifier=Modifier
                         .fillMaxWidth()
                         .height(42.dp)
@@ -1071,11 +1075,15 @@ internal fun MarbleMetricCard(
 internal fun MarbleSparkline(
     samples: List<Int>,
     tone: Color,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    flagged: List<Int> = emptyList()
 ) {
     val clean=samples.filter { it > 0 }.takeLast(36)
     val grid=Aether.GlassBorder
     val surface=Aether.VoidElevated
+    // Aether.Danger is a @Composable getter; it must be read here (composable scope) and
+    // captured before the non-composable DrawScope lambda.
+    val danger=Aether.Danger
     Canvas(modifier) {
         if(clean.size<2) return@Canvas
 
@@ -1124,7 +1132,31 @@ internal fun MarbleSparkline(
             radius=3.dp.toPx(),
             center=Offset(size.width,lastY)
         )
+
+        // MARBLE_IRAN_AWARE_PING_UI — injection-flagged points are drawn in danger color over
+        // the tone line, so the sparkline shows exactly where the reset pattern occurred.
+        flagged.filter { it in clean.indices }.forEach { index ->
+            val x=dx*index
+            val y=size.height-((clean[index]-min)/range)*size.height
+            drawCircle(
+                color=danger,
+                radius=3.6.dp.toPx(),
+                center=Offset(x,y)
+            )
+        }
     }
+}
+
+/**
+ * Maps the per-point flag list into indices of the cleaned sparkline (same filtering the drawing
+ * path applies: values > 0, last 36).
+ */
+private fun cleanFlags(flaggedSamples: List<Boolean>, samples: List<Int>): List<Int> {
+    if (flaggedSamples.isEmpty()) return emptyList()
+    val pairs = samples.zip(flaggedSamples)
+        .filter { it.first > 0 }
+        .takeLast(36)
+    return pairs.mapIndexedNotNull { index, pair -> if (pair.second) index else null }
 }
 
 @Composable

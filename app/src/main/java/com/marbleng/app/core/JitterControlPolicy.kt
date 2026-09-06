@@ -33,7 +33,7 @@ package com.marbleng.app.core
  */
 object JitterControlPolicy {
 
-    enum class Verdict { ENTER, EXIT, HOLD }
+    enum class Verdict { ENTER, EXIT, HOLD, SUSPECTED_THROTTLE, THROTTLE_CLEARED }
 
     /** One route-quality tick, already reduced to the numbers the state machine needs. */
     data class Sample(
@@ -48,7 +48,13 @@ object JitterControlPolicy {
         val releaseMs: Double,
         val p95IpdvMs: Double,
         val lossPercent: Double,
-        val spikePercent: Double
+        val spikePercent: Double,
+        /**
+         * MARBLE_IRAN_AWARE_PING_L2 — 0..1 confidence that the *shape* of the transfer is
+         * deliberate throttling ([SawtoothDetector]). Only a jitter signal plus an independent
+         * sawtooth signal may escalate to [Verdict.SUSPECTED_THROTTLE] (cross-validation rule).
+         */
+        val sawtoothConfidence: Double = 0.0
     )
 
     data class State(
@@ -58,13 +64,21 @@ object JitterControlPolicy {
         /** When jitter control was last entered; 0 = never. */
         val enteredAtMs: Long = 0L,
         /** When jitter control was last released; 0 = never. */
-        val exitedAtMs: Long = 0L
+        val exitedAtMs: Long = 0L,
+        /** MARBLE_IRAN_AWARE_PING_L2 — is the stronger throttle state active? */
+        val throttleActive: Boolean = false,
+        /** Consecutive ticks that satisfy jitter+sawtooth together. */
+        val throttleStreak: Int = 0,
+        /** Consecutive ticks that satisfy neither signal; releases throttle state. */
+        val throttleClearStreak: Int = 0,
+        /** When throttle state was last entered; 0 = never. */
+        val throttleEnteredAtMs: Long = 0L
     )
 
     data class Decision(
         val state: State,
         val verdict: Verdict,
-        /** `high`, `low`, `mixed`, `insufficient`, `dwell` — recorded in diagnostics. */
+        /** `high`, `low`, `mixed`, `insufficient`, `dwell`, `throttle` … recorded in diagnostics. */
         val tick: String,
         val highStreak: Int,
         val lowStreak: Int
@@ -87,6 +101,14 @@ object JitterControlPolicy {
 
     /** Minimum verified samples before any verdict is possible. */
     const val MIN_SAMPLES = 3
+
+    /** MARBLE_IRAN_AWARE_PING_L2 — throttle confirmation constants. */
+    const val THROTTLE_CONFIRMATIONS = 2
+    const val THROTTLE_CLEAR_CONFIRMATIONS = 3
+    const val THROTTLE_MIN_HOLD_MS = 60_000L
+    const val THROTTLE_SAWTOOTH_ENTER = ProtocolFingerprintAwareVerifier.SAWTOOTH_HIGH_CONFIDENCE
+    const val THROTTLE_SAWTOOTH_RELEASE = 0.30
+    const val THROTTLE_JITTER_FOLD = 2.0
 
     private const val TAIL_IPDV_ENTER_MS = 35.0
     private const val TAIL_IPDV_RELEASE_MS = 20.0
@@ -141,6 +163,67 @@ object JitterControlPolicy {
         }
         val tick = if (high) "high" else if (low) "low" else "mixed"
 
+        // MARBLE_IRAN_AWARE_PING_L2 — suspected throttle: the cross-validation rule in action.
+        // Jitter alone is a *weak* signal (congestion also jitters). Sawtooth alone is a weak
+        // signal (a slow server also drains). The throttle verdict is only reached when BOTH are
+        // present in the same tick — one signal folds the other's confidence in.
+        val sawtoothHigh = sample.sawtoothConfidence >= THROTTLE_SAWTOOTH_ENTER
+        val sawtoothLow = sample.sawtoothConfidence <= THROTTLE_SAWTOOTH_RELEASE
+        val jitterFold = sample.jitterMs >= trigger * THROTTLE_JITTER_FOLD
+        val throttleEvidence = sawtoothHigh && (jitterFold || high)
+        val throttleClean = sawtoothLow && low
+
+        val throttleNext = when {
+            throttleEvidence -> next.copy(
+                throttleStreak = (next.throttleStreak + 1).coerceAtMost(MAX_STREAK),
+                throttleClearStreak = (next.throttleClearStreak - 1).coerceAtLeast(0)
+            )
+            throttleClean -> next.copy(
+                throttleClearStreak = (next.throttleClearStreak + 1).coerceAtMost(MAX_STREAK),
+                throttleStreak = (next.throttleStreak - 1).coerceAtLeast(0)
+            )
+            else -> next.copy(
+                throttleStreak = (next.throttleStreak - 1).coerceAtLeast(0),
+                throttleClearStreak = (next.throttleClearStreak - 1).coerceAtLeast(0)
+            )
+        }
+
+        if (!throttleNext.throttleActive &&
+            throttleNext.throttleStreak >= THROTTLE_CONFIRMATIONS
+        ) {
+            val entered = throttleNext.copy(
+                throttleActive = true,
+                throttleStreak = 0,
+                throttleClearStreak = 0,
+                throttleEnteredAtMs = nowMs
+            )
+            return Decision(
+                entered,
+                Verdict.SUSPECTED_THROTTLE,
+                "throttle",
+                entered.highStreak,
+                entered.lowStreak
+            )
+        }
+
+        if (throttleNext.throttleActive &&
+            throttleNext.throttleClearStreak >= THROTTLE_CLEAR_CONFIRMATIONS &&
+            nowMs - throttleNext.throttleEnteredAtMs >= THROTTLE_MIN_HOLD_MS
+        ) {
+            val cleared = throttleNext.copy(
+                throttleActive = false,
+                throttleStreak = 0,
+                throttleClearStreak = 0
+            )
+            return Decision(
+                cleared,
+                Verdict.THROTTLE_CLEARED,
+                "throttle-cleared",
+                cleared.highStreak,
+                cleared.lowStreak
+            )
+        }
+
         if (!next.active && next.highStreak >= HIGH_CONFIRMATIONS) {
             if (next.exitedAtMs > 0L && nowMs - next.exitedAtMs < MIN_DWELL_MS) {
                 return Decision(next, Verdict.HOLD, "dwell", next.highStreak, next.lowStreak)
@@ -160,6 +243,6 @@ object JitterControlPolicy {
             return Decision(exited, Verdict.EXIT, tick, exited.highStreak, exited.lowStreak)
         }
 
-        return Decision(next, Verdict.HOLD, tick, next.highStreak, next.lowStreak)
+        return Decision(throttleNext, Verdict.HOLD, tick, throttleNext.highStreak, throttleNext.lowStreak)
     }
 }

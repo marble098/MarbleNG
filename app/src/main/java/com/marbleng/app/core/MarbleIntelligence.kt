@@ -93,8 +93,33 @@ data class NodeHealthRecord(
     val preferredFragment: Boolean = false,
     val preferredMux: Boolean = false,
     val lastSuccessAt: Long = 0L,
-    val lastSeenAt: Long = 0L
+    val lastSeenAt: Long = 0L,
+    // MARBLE_IRAN_AWARE_PING — Layer 0/1/3 evidence columns.
+    val injectedResetRate: Double = 0.0,
+    val throttlePatternConfidence: Double = 0.0,
+    val timeOfDayBucketScores: Map<String, Double> = emptyMap(),
+    val transportSpecificScores: Map<String, Double> = emptyMap(),
+    val attributedCauseLast: String = "",
+    val carrierContext: String = "",
+/** Serialized JSON of the Layer 2 observation history key used by continuity checks. */
+        val observationSeriesKey: String = ""
 )
+
+private fun parseScoreMap(raw: String?): Map<String, Double> {
+    if (raw.isNullOrBlank()) return emptyMap()
+    return runCatching {
+        val obj = JSONObject(raw)
+        val out = HashMap<String, Double>(obj.length())
+        obj.keys().forEach { key -> out[key] = obj.optDouble(key, 0.0) }
+        out
+    }.getOrDefault(emptyMap())
+}
+
+private fun encodeScoreMap(map: Map<String, Double>): String {
+    val obj = JSONObject()
+    map.forEach { (key, value) -> obj.put(key, value) }
+    return obj.toString()
+}
 
 data class PrivacySentinelState(
     val coverage: String = "OFFLINE",
@@ -297,7 +322,7 @@ private class DnsStormGuard {
 /**
  * Persistent, network-scoped health store. SQLite keeps the hot path dependency-free and bounded.
  */
-private class HealthDb(context: Context) : SQLiteOpenHelper(context, "marble-intelligence.db", null, 2) {
+private class HealthDb(context: Context) : SQLiteOpenHelper(context, "marble-intelligence.db", null, 3) {
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
             """
@@ -316,17 +341,108 @@ private class HealthDb(context: Context) : SQLiteOpenHelper(context, "marble-int
                 preferred_mux INTEGER NOT NULL DEFAULT 0,
                 last_success_at INTEGER NOT NULL DEFAULT 0,
                 last_seen_at INTEGER NOT NULL DEFAULT 0,
+                injected_reset_rate REAL NOT NULL DEFAULT 0,
+                throttle_pattern_confidence REAL NOT NULL DEFAULT 0,
+                time_of_day_bucket_scores TEXT NOT NULL DEFAULT '{}',
+                transport_specific_scores TEXT NOT NULL DEFAULT '{}',
+                attributed_cause_last TEXT NOT NULL DEFAULT '',
+                carrier_context TEXT NOT NULL DEFAULT '',
+                observation_series_key TEXT NOT NULL DEFAULT '',
                 PRIMARY KEY(profile_id, network_key)
             )
             """.trimIndent()
         )
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_health_network ON node_health(network_key, last_seen_at DESC)")
+        // Layer 2/3 observation history is a separate time series so causality can be judged
+        // over 20-minute windows without cluttering the EWMA store.
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS ping_observation(
+                profile_id TEXT NOT NULL,
+                network_key TEXT NOT NULL,
+                at_ms INTEGER NOT NULL,
+                latency_ms REAL NOT NULL DEFAULT 0,
+                jitter_ms REAL NOT NULL DEFAULT 0,
+                success_percent REAL NOT NULL DEFAULT 0,
+                throughput_bps REAL NOT NULL DEFAULT 0,
+                transport_type TEXT NOT NULL DEFAULT '',
+                injected_reset_suspected INTEGER NOT NULL DEFAULT 0,
+                injected_reset_rate REAL NOT NULL DEFAULT 0,
+                sawtooth_confidence REAL NOT NULL DEFAULT 0,
+                PRIMARY KEY(profile_id, network_key, at_ms)
+            )
+            """.trimIndent()
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_ping_obs_network ON ping_observation(network_key, at_ms DESC)")
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
         if (oldVersion < 2) {
             db.execSQL("ALTER TABLE node_health ADD COLUMN jitter_ewma REAL NOT NULL DEFAULT 0")
         }
+        if (oldVersion < 3) {
+            db.execSQL("ALTER TABLE node_health ADD COLUMN injected_reset_rate REAL NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE node_health ADD COLUMN throttle_pattern_confidence REAL NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE node_health ADD COLUMN time_of_day_bucket_scores TEXT NOT NULL DEFAULT '{}'")
+            db.execSQL("ALTER TABLE node_health ADD COLUMN transport_specific_scores TEXT NOT NULL DEFAULT '{}'")
+            db.execSQL("ALTER TABLE node_health ADD COLUMN attributed_cause_last TEXT NOT NULL DEFAULT ''")
+            db.execSQL("ALTER TABLE node_health ADD COLUMN carrier_context TEXT NOT NULL DEFAULT ''")
+            db.execSQL("ALTER TABLE node_health ADD COLUMN observation_series_key TEXT NOT NULL DEFAULT ''")
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS ping_observation(
+                    profile_id TEXT NOT NULL,
+                    network_key TEXT NOT NULL,
+                    at_ms INTEGER NOT NULL,
+                    latency_ms REAL NOT NULL DEFAULT 0,
+                    jitter_ms REAL NOT NULL DEFAULT 0,
+                    success_percent REAL NOT NULL DEFAULT 0,
+                    throughput_bps REAL NOT NULL DEFAULT 0,
+                    transport_type TEXT NOT NULL DEFAULT '',
+                    injected_reset_suspected INTEGER NOT NULL DEFAULT 0,
+                    injected_reset_rate REAL NOT NULL DEFAULT 0,
+                    sawtooth_confidence REAL NOT NULL DEFAULT 0,
+                    PRIMARY KEY(profile_id, network_key, at_ms)
+                )
+                """.trimIndent()
+            )
+            db.execSQL("CREATE INDEX IF NOT EXISTS idx_ping_obs_network ON ping_observation(network_key, at_ms DESC)")
+        }
+    }
+
+    /** One cursor row → record. The v3 columns are read defensively so a mid-upgrade DB can't crash a read. */
+    private fun readRecord(c: android.database.Cursor): NodeHealthRecord {
+        fun i(name: String) = c.getColumnIndexOrThrow(name)
+        return NodeHealthRecord(
+            profileId = c.getString(i("profile_id")),
+            networkKey = c.getString(i("network_key")),
+            samples = c.getInt(i("samples")),
+            successEwma = c.getDouble(i("success_ewma")),
+            latencyEwma = c.getDouble(i("latency_ewma")),
+            jitterEwma = c.getDouble(i("jitter_ewma")),
+            throughputEwma = c.getDouble(i("throughput_ewma")),
+            udpEwma = c.getDouble(i("udp_ewma")),
+            connectMsEwma = c.getDouble(i("connect_ms_ewma")),
+            failureStreak = c.getInt(i("failure_streak")),
+            preferredFragment = c.getInt(i("preferred_fragment")) != 0,
+            preferredMux = c.getInt(i("preferred_mux")) != 0,
+            lastSuccessAt = c.getLong(i("last_success_at")),
+            lastSeenAt = c.getLong(i("last_seen_at")),
+            injectedResetRate = if (c.getColumnIndex("injected_reset_rate") >= 0) c.getDouble(i("injected_reset_rate")) else 0.0,
+            throttlePatternConfidence =
+                if (c.getColumnIndex("throttle_pattern_confidence") >= 0) c.getDouble(i("throttle_pattern_confidence")) else 0.0,
+            timeOfDayBucketScores = if (c.getColumnIndex("time_of_day_bucket_scores") >= 0) {
+                parseScoreMap(c.getString(i("time_of_day_bucket_scores")))
+            } else emptyMap(),
+            transportSpecificScores = if (c.getColumnIndex("transport_specific_scores") >= 0) {
+                parseScoreMap(c.getString(i("transport_specific_scores")))
+            } else emptyMap(),
+            attributedCauseLast =
+                if (c.getColumnIndex("attributed_cause_last") >= 0) c.getString(i("attributed_cause_last")) ?: "" else "",
+            carrierContext = if (c.getColumnIndex("carrier_context") >= 0) c.getString(i("carrier_context")) ?: "" else "",
+            observationSeriesKey =
+                if (c.getColumnIndex("observation_series_key") >= 0) c.getString(i("observation_series_key")) ?: "" else ""
+        )
     }
 
     @Synchronized
@@ -342,23 +458,7 @@ private class HealthDb(context: Context) : SQLiteOpenHelper(context, "marble-int
             "1"
         ).use { c ->
             if (!c.moveToFirst()) return null
-            fun i(name: String) = c.getColumnIndexOrThrow(name)
-            return NodeHealthRecord(
-                profileId = c.getString(i("profile_id")),
-                networkKey = c.getString(i("network_key")),
-                samples = c.getInt(i("samples")),
-                successEwma = c.getDouble(i("success_ewma")),
-                latencyEwma = c.getDouble(i("latency_ewma")),
-                jitterEwma = c.getDouble(i("jitter_ewma")),
-                throughputEwma = c.getDouble(i("throughput_ewma")),
-                udpEwma = c.getDouble(i("udp_ewma")),
-                connectMsEwma = c.getDouble(i("connect_ms_ewma")),
-                failureStreak = c.getInt(i("failure_streak")),
-                preferredFragment = c.getInt(i("preferred_fragment")) != 0,
-                preferredMux = c.getInt(i("preferred_mux")) != 0,
-                lastSuccessAt = c.getLong(i("last_success_at")),
-                lastSeenAt = c.getLong(i("last_seen_at"))
-            )
+            return readRecord(c)
         }
     }
 
@@ -370,23 +470,7 @@ private class HealthDb(context: Context) : SQLiteOpenHelper(context, "marble-int
             null, null, "last_seen_at DESC", "1"
         ).use { c ->
             if (!c.moveToFirst()) return null
-            fun i(name: String) = c.getColumnIndexOrThrow(name)
-            return NodeHealthRecord(
-                profileId = c.getString(i("profile_id")),
-                networkKey = c.getString(i("network_key")),
-                samples = c.getInt(i("samples")),
-                successEwma = c.getDouble(i("success_ewma")),
-                latencyEwma = c.getDouble(i("latency_ewma")),
-                jitterEwma = c.getDouble(i("jitter_ewma")),
-                throughputEwma = c.getDouble(i("throughput_ewma")),
-                udpEwma = c.getDouble(i("udp_ewma")),
-                connectMsEwma = c.getDouble(i("connect_ms_ewma")),
-                failureStreak = c.getInt(i("failure_streak")),
-                preferredFragment = c.getInt(i("preferred_fragment")) != 0,
-                preferredMux = c.getInt(i("preferred_mux")) != 0,
-                lastSuccessAt = c.getLong(i("last_success_at")),
-                lastSeenAt = c.getLong(i("last_seen_at"))
-            )
+            return readRecord(c)
         }
     }
 
@@ -411,37 +495,9 @@ private class HealthDb(context: Context) : SQLiteOpenHelper(context, "marble-int
         ).use { c ->
             if (!c.moveToFirst()) return out
             val idIndex = c.getColumnIndexOrThrow("profile_id")
-            val keyIndex = c.getColumnIndexOrThrow("network_key")
-            val samplesIndex = c.getColumnIndexOrThrow("samples")
-            val successIndex = c.getColumnIndexOrThrow("success_ewma")
-            val latencyIndex = c.getColumnIndexOrThrow("latency_ewma")
-            val jitterIndex = c.getColumnIndexOrThrow("jitter_ewma")
-            val throughputIndex = c.getColumnIndexOrThrow("throughput_ewma")
-            val udpIndex = c.getColumnIndexOrThrow("udp_ewma")
-            val connectIndex = c.getColumnIndexOrThrow("connect_ms_ewma")
-            val streakIndex = c.getColumnIndexOrThrow("failure_streak")
-            val fragmentIndex = c.getColumnIndexOrThrow("preferred_fragment")
-            val muxIndex = c.getColumnIndexOrThrow("preferred_mux")
-            val lastSuccessIndex = c.getColumnIndexOrThrow("last_success_at")
-            val lastSeenIndex = c.getColumnIndexOrThrow("last_seen_at")
             do {
                 val id = c.getString(idIndex) ?: continue
-                out[id] = NodeHealthRecord(
-                    profileId = id,
-                    networkKey = c.getString(keyIndex),
-                    samples = c.getInt(samplesIndex),
-                    successEwma = c.getDouble(successIndex),
-                    latencyEwma = c.getDouble(latencyIndex),
-                    jitterEwma = c.getDouble(jitterIndex),
-                    throughputEwma = c.getDouble(throughputIndex),
-                    udpEwma = c.getDouble(udpIndex),
-                    connectMsEwma = c.getDouble(connectIndex),
-                    failureStreak = c.getInt(streakIndex),
-                    preferredFragment = c.getInt(fragmentIndex) != 0,
-                    preferredMux = c.getInt(muxIndex) != 0,
-                    lastSuccessAt = c.getLong(lastSuccessIndex),
-                    lastSeenAt = c.getLong(lastSeenIndex)
-                )
+                out[id] = readRecord(c)
             } while (c.moveToNext())
         }
         return out
@@ -455,26 +511,11 @@ private class HealthDb(context: Context) : SQLiteOpenHelper(context, "marble-int
             "node_health", null, null, null, null, null, "last_seen_at DESC", "2000"
         ).use { c ->
             if (!c.moveToFirst()) return out
-            fun i(name: String) = c.getColumnIndexOrThrow(name)
+            val idIndex = c.getColumnIndexOrThrow("profile_id")
             do {
-                val id = c.getString(i("profile_id")) ?: continue
+                val id = c.getString(idIndex) ?: continue
                 if (id in out) continue
-                out[id] = NodeHealthRecord(
-                    profileId = id,
-                    networkKey = c.getString(i("network_key")),
-                    samples = c.getInt(i("samples")),
-                    successEwma = c.getDouble(i("success_ewma")),
-                    latencyEwma = c.getDouble(i("latency_ewma")),
-                    jitterEwma = c.getDouble(i("jitter_ewma")),
-                    throughputEwma = c.getDouble(i("throughput_ewma")),
-                    udpEwma = c.getDouble(i("udp_ewma")),
-                    connectMsEwma = c.getDouble(i("connect_ms_ewma")),
-                    failureStreak = c.getInt(i("failure_streak")),
-                    preferredFragment = c.getInt(i("preferred_fragment")) != 0,
-                    preferredMux = c.getInt(i("preferred_mux")) != 0,
-                    lastSuccessAt = c.getLong(i("last_success_at")),
-                    lastSeenAt = c.getLong(i("last_seen_at"))
-                )
+                out[id] = readRecord(c)
             } while (c.moveToNext())
         }
         return out
@@ -538,8 +579,21 @@ private class HealthDb(context: Context) : SQLiteOpenHelper(context, "marble-int
             put("last_success_at", if (result.success > 0) now else old?.lastSuccessAt ?: 0L)
             put("last_seen_at", now)
         }
+        // MARBLE_IRAN_AWARE_PING — preserve Layer 0/1/3 evidence across benchmark rewrites.
+        old?.let { carryLayerColumns(it, values) }
         writableDatabase.insertWithOnConflict("node_health", null, values, SQLiteDatabase.CONFLICT_REPLACE)
         trim(networkKey)
+    }
+
+    /** CONFLICT_REPLACE wipes unspecified columns; carry the new evidence columns forward. */
+    private fun carryLayerColumns(old: NodeHealthRecord, values: ContentValues) {
+        values.put("injected_reset_rate", old.injectedResetRate)
+        values.put("throttle_pattern_confidence", old.throttlePatternConfidence)
+        values.put("time_of_day_bucket_scores", encodeScoreMap(old.timeOfDayBucketScores))
+        values.put("transport_specific_scores", encodeScoreMap(old.transportSpecificScores))
+        values.put("attributed_cause_last", old.attributedCauseLast)
+        values.put("carrier_context", old.carrierContext)
+        values.put("observation_series_key", old.observationSeriesKey)
     }
 
     @Synchronized
@@ -594,6 +648,7 @@ private class HealthDb(context: Context) : SQLiteOpenHelper(context, "marble-int
             put("last_success_at", if (success) now else old?.lastSuccessAt ?: 0L)
             put("last_seen_at", now)
         }
+        old?.let { carryLayerColumns(it, values) }
         writableDatabase.insertWithOnConflict(
             "node_health",
             null,
@@ -711,6 +766,7 @@ private class HealthDb(context: Context) : SQLiteOpenHelper(context, "marble-int
             put("last_success_at", old?.lastSuccessAt ?: 0L)
             put("last_seen_at", System.currentTimeMillis())
         }
+        old?.let { carryLayerColumns(it, values) }
         writableDatabase.insertWithOnConflict("node_health", null, values, SQLiteDatabase.CONFLICT_REPLACE)
     }
 
@@ -720,6 +776,155 @@ private class HealthDb(context: Context) : SQLiteOpenHelper(context, "marble-int
                 "(SELECT rowid FROM node_health WHERE network_key=? ORDER BY last_seen_at DESC LIMIT 600)",
             arrayOf(networkKey, networkKey)
         )
+    }
+
+    /**
+     * Layer-0/1/3 evidence writers. `old` is the pre-read record so an upsert never resets the
+     * columns this writer does not own; absence of the row creates a minimal fresh one.
+     */
+    @Synchronized
+    fun updateLayerFields(
+        profileId: String,
+        networkKey: String,
+        values: ContentValues,
+        old: NodeHealthRecord?
+    ) {
+        if (old != null) {
+            writableDatabase.update(
+                "node_health",
+                values,
+                "profile_id=? AND network_key=?",
+                arrayOf(profileId, networkKey)
+            )
+        } else {
+            values.put("profile_id", profileId)
+            values.put("network_key", networkKey)
+            writableDatabase.insertWithOnConflict(
+                "node_health",
+                null,
+                values,
+                SQLiteDatabase.CONFLICT_REPLACE
+            )
+        }
+    }
+
+    @Synchronized
+    fun insertObservation(
+        profileId: String,
+        networkKey: String,
+        sample: BehavioralConsistency.ConsistencySample
+    ) {
+        val values = ContentValues().apply {
+            put("profile_id", profileId)
+            put("network_key", networkKey)
+            put("at_ms", sample.atMs)
+            put("latency_ms", sample.latencyMs)
+            put("jitter_ms", sample.jitterMs)
+            put("success_percent", sample.successPercent)
+            put("throughput_bps", sample.throughputBps)
+            put("transport_type", sample.transportType)
+            put("injected_reset_suspected", if (sample.injectedResetSuspected) 1 else 0)
+            put("injected_reset_rate", sample.injectedResetRatePercent)
+            put("sawtooth_confidence", sample.sawtoothConfidence)
+        }
+        writableDatabase.insertWithOnConflict(
+            "ping_observation",
+            null,
+            values,
+            SQLiteDatabase.CONFLICT_REPLACE
+        )
+        // Keep the series bounded: 3×20-minute windows ≈ a week of hourly probes.
+        writableDatabase.execSQL(
+            "DELETE FROM ping_observation WHERE profile_id=? AND network_key=? AND at_ms < ?",
+            arrayOf<Any?>(profileId, networkKey, System.currentTimeMillis() - 8L * 24L * 60L * 60L * 1000L)
+        )
+    }
+
+    /** Layer 2 observation series for one node on one network, oldest first. */
+    @Synchronized
+    fun observations(
+        profileId: String,
+        networkKey: String,
+        sinceMs: Long
+    ): List<BehavioralConsistency.ConsistencySample> {
+        val out = ArrayList<BehavioralConsistency.ConsistencySample>()
+        readableDatabase.query(
+            "ping_observation",
+            null,
+            "profile_id=? AND network_key=? AND at_ms>=?",
+            arrayOf(profileId, networkKey, sinceMs.toString()),
+            null,
+            null,
+            "at_ms ASC"
+        ).use { c ->
+            val at = c.getColumnIndexOrThrow("at_ms")
+            val lat = c.getColumnIndexOrThrow("latency_ms")
+            val jit = c.getColumnIndexOrThrow("jitter_ms")
+            val success = c.getColumnIndexOrThrow("success_percent")
+            val tp = c.getColumnIndexOrThrow("throughput_bps")
+            val transport = c.getColumnIndexOrThrow("transport_type")
+            val reset = c.getColumnIndexOrThrow("injected_reset_suspected")
+            val rate = c.getColumnIndexOrThrow("injected_reset_rate")
+            val saw = c.getColumnIndexOrThrow("sawtooth_confidence")
+            while (c.moveToNext()) {
+                out += BehavioralConsistency.ConsistencySample(
+                    atMs = c.getLong(at),
+                    latencyMs = c.getDouble(lat),
+                    jitterMs = c.getDouble(jit),
+                    successPercent = c.getDouble(success),
+                    throughputBps = c.getDouble(tp),
+                    transportType = c.getString(transport) ?: "",
+                    injectedResetSuspected = c.getInt(reset) != 0,
+                    injectedResetRatePercent = c.getDouble(rate),
+                    sawtoothConfidence = if (c.getColumnIndex("sawtooth_confidence") >= 0) c.getDouble(saw) else 0.0
+                )
+            }
+        }
+        return out
+    }
+
+    /** All observations on one network inside a time window (used by Layer 3 attribution). */
+    @Synchronized
+    fun networkObservations(
+        networkKey: String,
+        sinceMs: Long
+    ): Map<String, List<BehavioralConsistency.ConsistencySample>> {
+        val out = HashMap<String, MutableList<BehavioralConsistency.ConsistencySample>>()
+        readableDatabase.query(
+            "ping_observation",
+            null,
+            "network_key=? AND at_ms>=?",
+            arrayOf(networkKey, sinceMs.toString()),
+            null,
+            null,
+            "at_ms ASC"
+        ).use { c ->
+            val id = c.getColumnIndexOrThrow("profile_id")
+            val at = c.getColumnIndexOrThrow("at_ms")
+            val lat = c.getColumnIndexOrThrow("latency_ms")
+            val jit = c.getColumnIndexOrThrow("jitter_ms")
+            val success = c.getColumnIndexOrThrow("success_percent")
+            val tp = c.getColumnIndexOrThrow("throughput_bps")
+            val transport = c.getColumnIndexOrThrow("transport_type")
+            val reset = c.getColumnIndexOrThrow("injected_reset_suspected")
+            val rate = c.getColumnIndexOrThrow("injected_reset_rate")
+            val saw = if (c.getColumnIndex("sawtooth_confidence") >= 0) c.getColumnIndexOrThrow("sawtooth_confidence") else -1
+            while (c.moveToNext()) {
+                val profileId = c.getString(id) ?: continue
+                out.getOrPut(profileId) { ArrayList<BehavioralConsistency.ConsistencySample>() } += BehavioralConsistency.ConsistencySample(
+                    atMs = c.getLong(at),
+                    latencyMs = c.getDouble(lat),
+                    jitterMs = c.getDouble(jit),
+                    successPercent = c.getDouble(success),
+                    throughputBps = c.getDouble(tp),
+                    transportType = c.getString(transport) ?: "",
+                    injectedResetSuspected = c.getInt(reset) != 0,
+                    injectedResetRatePercent = c.getDouble(rate),
+                    sawtoothConfidence = if (saw >= 0) c.getDouble(saw) else 0.0
+                )
+            }
+        }
+        return out
     }
 }
 
@@ -1655,6 +1860,315 @@ class MarbleIntelligence(private val context: Context) {
     /** Profile ids that already carry measured evidence on the current physical network. */
     fun knownProfileIds(): Set<String> = healthSnapshot().keys
 
+    // ---------------------------------------------------------------- MARBLE_IRAN_AWARE_PING (L0-L3)
+
+    /** Current underlay fingerprint used as the carrier context for Layer 3 attribution. */
+    private fun currentCarrierContext(): String =
+        currentSnapshot().label.take(80)
+
+    /**
+     * Layer 0: persist a multi-vector reachability run for one node.
+     *
+     * Updates `injected_reset_rate` (EWMA) and appends the observation so Layer 2 can judge
+     * temporal consistency, while the old EWMA columns remain the ranking's long-run health.
+     */
+    fun recordReachability(
+        profileId: String,
+        summary: MultiVectorReachability.ReachabilitySummary,
+        transportType: String = ""
+    ) {
+        val n = currentSnapshot()
+        val old = db.get(profileId, n.key())
+        val rate = summary.injectedResetRatePercent.coerceIn(0.0, 100.0)
+        val newRate = if (old == null || old.injectedResetRate <= 0.0) rate
+        else old.injectedResetRate * 0.7 + rate * 0.3
+        val now = System.currentTimeMillis()
+        db.updateLayerFields(
+            profileId,
+            n.key(),
+            ContentValues().apply {
+                put("injected_reset_rate", newRate)
+                put("carrier_context", currentCarrierContext())
+                put("last_seen_at", now)
+            },
+            old
+        )
+        db.insertObservation(
+            profileId,
+            n.key(),
+            BehavioralConsistency.ConsistencySample(
+                atMs = now,
+                latencyMs = summary.medianTtfbMs.takeIf { it > 0.0 } ?: 0.0,
+                successPercent = if (summary.signals.isEmpty()) 0.0
+                else summary.reachableSamples * 100.0 / summary.signals.size,
+                transportType = transportType,
+                injectedResetSuspected = summary.injectedResetCount > 0,
+                injectedResetRatePercent = rate
+            )
+        )
+    }
+
+    /**
+     * Layer 1: persist one transport-specific verdict.
+     *
+     * `transport_specific_scores` is an EWMA per transport_type — never an average across
+     * transports — and `throttle_pattern_confidence` folds the sawtooth signal in.
+     */
+    fun recordTransportVerdict(
+        profileId: String,
+        verdict: ProtocolFingerprintAwareVerifier.TransportVerdict
+    ) {
+        val n = currentSnapshot()
+        val old = db.get(profileId, n.key())
+        val now = System.currentTimeMillis()
+        val scores = HashMap(old?.transportSpecificScores ?: emptyMap())
+        val transportScore = transportScoreOf(verdict)
+        scores[verdict.transportType] =
+            if (scores.containsKey(verdict.transportType)) {
+                scores.getValue(verdict.transportType) * 0.65 + transportScore * 0.35
+            } else {
+                transportScore
+            }
+        val sawEwma = if (old == null || old.throttlePatternConfidence <= 0.0) {
+            verdict.sawtoothConfidence
+        } else {
+            old.throttlePatternConfidence * 0.7 + verdict.sawtoothConfidence * 0.3
+        }
+        db.updateLayerFields(
+            profileId,
+            n.key(),
+            ContentValues().apply {
+                put("transport_specific_scores", encodeScoreMap(scores))
+                put("throttle_pattern_confidence", sawEwma.coerceIn(0.0, 1.0))
+                put("injected_reset_rate", if (verdict.injectedResetSuspected) 1.0 else 0.0)
+                put("carrier_context", currentCarrierContext())
+                put("last_seen_at", now)
+            },
+            old
+        )
+        db.insertObservation(
+            profileId,
+            n.key(),
+            BehavioralConsistency.ConsistencySample(
+                atMs = now,
+                latencyMs = verdict.latencyMs.takeIf { it > 0.0 } ?: 0.0,
+                jitterMs = verdict.jitterMs,
+                successPercent = verdict.successPercent.toDouble(),
+                throughputBps = verdict.throughputBps,
+                transportType = verdict.transportType,
+                injectedResetSuspected = verdict.injectedResetSuspected,
+                injectedResetRatePercent = if (verdict.injectedResetSuspected) 100.0 else 0.0,
+                sawtoothConfidence = verdict.sawtoothConfidence
+            )
+        )
+    }
+
+    /** Transport score: reliability first, then latency/jitter, with throttle/injection penalties. */
+    private fun transportScoreOf(v: ProtocolFingerprintAwareVerifier.TransportVerdict): Double {
+        val reliability = v.successPercent.coerceIn(0, 100).toDouble()
+        val latencyScore = if (v.latencyMs > 0.0) {
+            100.0 * kotlin.math.exp(-v.latencyMs / 250.0)
+        } else {
+            0.0
+        }
+        val jitterScore = if (v.jitterMs > 0.0) 100.0 * kotlin.math.exp(-v.jitterMs / 45.0) else 50.0
+        var score = 0.45 * reliability + 0.35 * latencyScore + 0.20 * jitterScore
+        score -= v.sawtoothConfidence * 40.0
+        if (v.injectedResetSuspected) score -= 30.0
+        if (v.silentTimeoutSuspected) score -= 20.0
+        return score.coerceIn(0.0, 100.0)
+    }
+
+    /** Layer 3: persist the last attributed cause for one node. */
+    fun recordAttribution(
+        profileId: String,
+        result: CausalAttribution.AttributionResult
+    ) {
+        if (result.confidence < CausalAttribution.MIN_CONFIDENCE &&
+            result.cause != CausalAttribution.AttributedCause.NATIONAL_FILTERING_EVENT
+        ) {
+            return
+        }
+        val n = currentSnapshot()
+        val old = db.get(profileId, n.key())
+        db.updateLayerFields(
+            profileId,
+            n.key(),
+            ContentValues().apply {
+                put("attributed_cause_last", CausalAttribution.encode(result.cause))
+                put("carrier_context", currentCarrierContext())
+                put("last_seen_at", System.currentTimeMillis())
+            },
+            old
+        )
+    }
+
+    /** Last persisted Layer 3 verdict for a node. */
+    fun attributedCauseFor(profileId: String): CausalAttribution.AttributedCause? =
+        CausalAttribution.parseCause(healthOf(profileId)?.attributedCauseLast)
+
+    /** Layer 2 consistency report from the persisted observation series. */
+    fun consistencyReport(profileId: String): BehavioralConsistency.ConsistencyReport {
+        val n = currentSnapshot()
+        val observations = db.observations(profileId, n.key(), 0L)
+        return BehavioralConsistency.evaluate(observations)
+    }
+
+    /**
+     * The score for *right now*: only the current 6-hour bucket and the winning transport of
+     * the node count. An all-day mean would hide the evening peak that actually decides whether
+     * the user's 22:00 session works.
+     *
+     * Pure over the stored record: no DB reads, so ranking a large subscription stays one bulk
+     * health read (the same discipline as [rankingScores]).
+     */
+    fun scoreForCurrentTimeWindow(profileId: String): Double =
+        windowScoreFromRecord(healthOf(profileId) ?: return 50.0)
+
+    private fun windowScoreFromRecord(record: NodeHealthRecord): Double {
+        val bucket = BehavioralConsistency.timeOfDayBucket(System.currentTimeMillis())
+        val bucketKey = BehavioralConsistency.bucketKey(bucket)
+        val bucketLatency = record.timeOfDayBucketScores[bucketKey]
+        val bucketScore = if (bucketLatency == null || bucketLatency <= 0.0) {
+            // No sample in this bucket yet: fall back to the EWMA but stay honest about it.
+            val latency = record.latencyEwma.takeIf { it in 1.0..8_000.0 } ?: return 50.0
+            (100.0 * kotlin.math.exp(-latency / 250.0)) * 0.85
+        } else {
+            100.0 * kotlin.math.exp(-bucketLatency / 250.0)
+        }
+        val transportBest = record.transportSpecificScores.values.maxOrNull() ?: 0.0
+        // A node under observation cannot be fully trusted; the flat 50% prior is the honest
+        // middle until three spaced samples resolve it.
+        val stability = if (record.samples >= 3) 0.75 else 0.5
+        return (0.5 * bucketScore + 0.3 * transportBest + 0.2 * stability * 100.0)
+            .coerceIn(0.0, 100.0)
+    }
+
+    /**
+     * The transport with the best measured score for this node. The user's current config can
+     * then be compared; a protocol-targeted filter makes this the fallback answer.
+     */
+    fun preferredTransportFor(profileId: String): String {
+        val record = healthOf(profileId) ?: return ""
+        return record.transportSpecificScores
+            .maxByOrNull { it.value }
+            ?.key
+            ?.takeIf { it.isNotBlank() }
+            ?: ""
+    }
+
+    /**
+     * Layer 3 network-wide detection: are more than 70% of measured servers dropping in the
+     * same 10-minute window despite different IPs/ASNs/carriers?
+     *
+     * Returns null when there is not enough evidence yet (fewer than 5 measured servers).
+     */
+    fun detectNationalEvent(
+        profiles: Map<String, ProxyProfile> = emptyMap()
+    ): CausalAttribution.AttributionResult? {
+        val n = currentSnapshot()
+        val since = System.currentTimeMillis() - CausalAttribution.SIMULTANEITY_WINDOW_MS
+        val observationsByProfile = db.networkObservations(n.key(), since)
+        if (observationsByProfile.size < 5) return null
+        val health = healthSnapshot()
+        val observations = observationsByProfile.mapNotNull { (profileId, series) ->
+            val latest = series.lastOrNull() ?: return@mapNotNull null
+            val record = health[profileId]
+            val profile = profiles[profileId]
+            CausalAttribution.ServerObservation(
+                profileId = profileId,
+                ip = profile?.host?.takeIf { it.isNotBlank() } ?: "",
+                asn = "",
+                carrier = record?.carrierContext?.ifBlank { null } ?: n.label,
+                transportType = latest.transportType.ifBlank {
+                    record?.transportSpecificScores?.keys?.maxByOrNull { record.transportSpecificScores.getValue(it) } ?: ""
+                },
+                dropped = latest.successPercent <= 25.0,
+                injectedResetSuspected = latest.injectedResetSuspected,
+                sawtoothConfidence = latest.sawtoothConfidence,
+                priorEvidence = (record?.samples ?: 0) >= 3 &&
+                    (record?.lastSuccessAt ?: 0L) < (series.firstOrNull()?.atMs ?: Long.MAX_VALUE),
+                windowStartMs = series.first().atMs,
+                windowEndMs = series.last().atMs
+            )
+        }
+        return CausalAttribution.attribute(observations)
+    }
+
+    /**
+     * Layer 2 live observation: the route monitor's own sample is appended to the same series
+     * the consistency analysis uses, and the current time bucket is updated with it.
+     */
+    fun recordLiveObservation(
+        profileId: String,
+        latencyMs: Double,
+        jitterMs: Double,
+        successPercent: Double,
+        transportType: String = "",
+        injectedResetSuspected: Boolean = false
+    ) {
+        if (profileId.isBlank() || latencyMs <= 0.0) return
+        val n = currentSnapshot()
+        val now = System.currentTimeMillis()
+        val old = db.get(profileId, n.key())
+        val bucket = BehavioralConsistency.timeOfDayBucket(now)
+        val bucketKey = BehavioralConsistency.bucketKey(bucket)
+        val buckets = HashMap(old?.timeOfDayBucketScores ?: emptyMap())
+        val previous = buckets[bucketKey]
+            ?: (old?.latencyEwma?.takeIf { it in 1.0..8_000.0 } ?: latencyMs)
+        val alpha = BehavioralConsistency.BUCKET_EWMA_ALPHA
+        buckets[bucketKey] = previous * (1.0 - alpha) + latencyMs * alpha
+        db.updateLayerFields(
+            profileId,
+            n.key(),
+            ContentValues().apply {
+                put("time_of_day_bucket_scores", encodeScoreMap(buckets))
+                put("carrier_context", currentCarrierContext())
+                put("last_seen_at", now)
+            },
+            old
+        )
+        db.insertObservation(
+            profileId,
+            n.key(),
+            BehavioralConsistency.ConsistencySample(
+                atMs = now,
+                latencyMs = latencyMs,
+                jitterMs = jitterMs,
+                successPercent = successPercent.coerceIn(0.0, 100.0),
+                transportType = transportType,
+                injectedResetSuspected = injectedResetSuspected
+            )
+        )
+    }
+
+    /** Latest observed throttle confidence for one node (drives the jitter state machine). */
+    fun throttleConfidenceFor(profileId: String): Double =
+        healthOf(profileId)?.throttlePatternConfidence?.coerceIn(0.0, 1.0) ?: 0.0
+
+    /**
+     * Run the Layer 3 attribution over the current evidence and, when a cause is confident,
+     * persist it. Returns the attribution even when it is not confident, so the UI can show
+     * "observing" instead of nothing.
+     */
+    fun attributionTick(
+        profiles: Map<String, ProxyProfile> = emptyMap()
+    ): CausalAttribution.AttributionResult? {
+        val result = detectNationalEvent(profiles) ?: return null
+        if (result.confidence >= CausalAttribution.MIN_CONFIDENCE) {
+            healthSnapshot().keys.forEach { profileId ->
+                recordAttribution(profileId, result)
+            }
+            lastNationalAttribution = result
+        }
+        return result
+    }
+
+    @Volatile private var lastNationalAttribution: CausalAttribution.AttributionResult? = null
+
+    /** Last confident national-event verdict (null when no event attributed this session). */
+    fun nationalEventResult(): CausalAttribution.AttributionResult? = lastNationalAttribution
+
     fun predictedScore(
         profile: ProxyProfile,
         settings: AppSettings
@@ -1907,10 +2421,19 @@ class MarbleIntelligence(private val context: Context) {
         profiles.forEach { profile ->
             if (!out.containsKey(profile.id)) {
                 val exact = health[profile.id]
-                out[profile.id] =
+                val predicted =
                     predictedScoreOf(exact ?: priors[profile.id], settings, if (exact == null) 0.35 else 1.0) +
                         IranShield.profileBias(profile, iranState) +
                         ProtocolFitness.bias(profile, link)
+                // MARBLE_IRAN_AWARE_PING_L2 — with exact evidence on this network, fold in the
+                // current 6-hour-window verdict. The all-day EWMA hides the evening peak that
+                // actually decides the user's session; the window score makes it count without
+                // discarding the long-run history.
+                out[profile.id] = if (exact != null) {
+                    predicted * 0.6 + windowScoreFromRecord(exact) * 0.4
+                } else {
+                    predicted
+                }
             }
         }
         return out
@@ -1921,6 +2444,14 @@ class MarbleIntelligence(private val context: Context) {
         settings: AppSettings
     ): List<ProxyProfile> {
         if (profiles.isEmpty()) {
+            return profiles
+        }
+
+        // MARBLE_IRAN_AWARE_PING_L3 — national filtering freezes ranking. When >70% of the
+        // fleet is dropping together, reordering on per-server scores is pure churn: every
+        // alternative is equally filtered, and each reorder restarts the 20-minute observation
+        // window for no benefit. The existing user/subscription order is kept as-is.
+        if (nationalEventResult()?.rankingFreeze == true) {
             return profiles
         }
 
@@ -2516,10 +3047,14 @@ class MarbleIntelligence(private val context: Context) {
                 nowMs - learnedAt <= DNS_WINNER_TTL_MS
 
         val evidence = resolverEvidence()
+        // MARBLE_IRAN_AWARE_PING_RESOLVERS — the emitted pool rotates on a 10-minute epoch (network
+        // key as seed) so no single resolver signature is stable enough to be fingerprinted, while
+        // demoted endpoints still always stay last.
         val ordered = ResolverEvidencePolicy.order(
             dnsCandidatePool(settings),
             evidence,
-            nowMs
+            nowMs,
+            seed = key
         )
         if (ordered.size < 2) {
             return settings.dnsPrimaryDoH to

@@ -10,6 +10,7 @@ import java.net.Socket
 import java.net.URL
 import java.util.Locale
 import java.util.zip.GZIPInputStream
+import javax.net.ssl.SSLException
 import javax.net.ssl.SSLSocket
 import javax.net.ssl.SSLSocketFactory
 import kotlin.math.min
@@ -24,6 +25,20 @@ data class HttpProbe(
     val body: ByteArray,
     val elapsedMs: Double,
     val bytesPerSecond: Double,
+    val headers: Map<String, String> = emptyMap()
+)
+
+/** A through-the-tunnel bulk download sampled at wall-clock intervals for shape analysis. */
+data class SampledTransfer(
+    val status: Int,
+    val bytesReceived: Long,
+    val expectedBytes: Long,
+    val elapsedMs: Double,
+    val bytesPerSecond: Double,
+    val samples: List<ProtocolFingerprintAwareVerifier.ThroughputSample>,
+    /** mid-body reset after data was being transferred — the volumetric injection signature. */
+    val injectedResetSuspected: Boolean,
+    val silentTimeoutSuspected: Boolean,
     val headers: Map<String, String> = emptyMap()
 )
 
@@ -615,6 +630,212 @@ object SocksHttpClient {
         }
     }
 
+
+    /**
+     * MARBLE_IRAN_AWARE_PING_L1_THROUGHPUT — bounded 256 KiB download with transfer-shape
+     * sampling.
+     *
+     * Unlike [get], which reads the body as fast as the socket gives it and reports only an
+     * average, this function records a `(elapsedMs, cumulativeBytes)` point whenever a chunk
+     * arrives. The point stream is what [SawtoothDetector.evaluate] needs to distinguish a
+     * rate that collapses deliberately (DPI ramping in) from a rate that was simply low from
+     * the start (congestion).
+     *
+     * Injection handling is deliberately different from Layer 0: a reset after bytes were
+     * already flowing is the *volumetric* signature (`reset-after-volume`). Layer 0 already
+     * covers `reset-before-answer`; together they cover both phases of a stateful filter.
+     */
+    fun sampledGet(
+        port: Int,
+        host: String,
+        path: String = "/",
+        timeoutMs: Int = 15_000,
+        maxBytes: Int = 256 * 1024,
+        headers: Map<String, String> = emptyMap()
+    ): SampledTransfer {
+        require(port in 1..65535)
+        require(host.isNotBlank())
+        require(maxBytes in 1..(8 * 1024 * 1024))
+
+        val startNs = System.nanoTime()
+        val tcp = Socket()
+        var ssl: SSLSocket? = null
+        var injectedReset = false
+        var silentTimeout = false
+        var status = 0
+        var expected = 0L
+        var received = 0L
+        val samples = ArrayList<ProtocolFingerprintAwareVerifier.ThroughputSample>()
+        val responseHeaders = linkedMapOf<String, String>()
+        try {
+            tcp.soTimeout = timeoutMs
+            tcp.connect(InetSocketAddress("127.0.0.1", port), timeoutMs)
+
+            val output = BufferedOutputStream(tcp.getOutputStream())
+            val input = BufferedInputStream(tcp.getInputStream())
+
+            output.write(byteArrayOf(5, 1, 0))
+            output.flush()
+            require(input.read() == 5 && input.read() == 0) { "SOCKS auth negotiation failed" }
+
+            val target = socksTarget(host)
+            output.write(byteArrayOf(5, 1, 0, target.first.toByte()))
+            output.write(target.second)
+            output.write(byteArrayOf((443 ushr 8).toByte(), (443 and 0xff).toByte()))
+            output.flush()
+
+            val reply = ByteArray(4)
+            readFully(input, reply)
+            require(reply[0].toInt() == 5 && reply[1].toInt() == 0) {
+                "SOCKS connect failed: ${reply[1].toInt() and 0xff}"
+            }
+            when (reply[3].toInt() and 0xff) {
+                1 -> skip(input, 4)
+                3 -> {
+                    val length = input.read()
+                    require(length >= 0)
+                    skip(input, length)
+                }
+                4 -> skip(input, 16)
+                else -> error("Invalid SOCKS address type")
+            }
+            skip(input, 2)
+
+            val secure = (SSLSocketFactory.getDefault() as SSLSocketFactory)
+                .createSocket(tcp, host, 443, true) as SSLSocket
+            ssl = secure
+            secure.soTimeout = timeoutMs
+            val parameters = secure.sslParameters
+            parameters.endpointIdentificationAlgorithm = "HTTPS"
+            secure.sslParameters = parameters
+            secure.startHandshake()
+
+            val sslOut = BufferedOutputStream(secure.getOutputStream())
+            val sslIn = BufferedInputStream(secure.getInputStream())
+
+            val normalizedHeaders = LinkedHashMap<String, String>()
+            normalizedHeaders["User-Agent"] = "MarbleNG/1"
+            normalizedHeaders["Connection"] = "close"
+            normalizedHeaders["Accept-Encoding"] = "identity"
+            headers.forEach { (key, value) -> normalizedHeaders[key] = value }
+
+            val requestText = buildString {
+                append("GET $path HTTP/1.1\r\n")
+                append("Host: ${httpHostHeader(host, 443)}\r\n")
+                normalizedHeaders.forEach { (key, value) -> append("$key: $value\r\n") }
+                append("\r\n")
+            }
+            sslOut.write(requestText.toByteArray(Charsets.ISO_8859_1))
+            sslOut.flush()
+
+            // Header is read byte-by-byte so not a single body byte is lost to buffering.
+            // Only the small header section pays the per-byte cost; the 256 KiB body is read
+            // in 16 KiB chunks and every chunk becomes a shape sample.
+            val headerText = readHttpHeader(sslIn)
+            val headerLines = headerText.split("\r\n")
+            status = headerLines.firstOrNull()?.split(' ')?.getOrNull(1)?.toIntOrNull() ?: 0
+            headerLines.drop(1).forEach { line ->
+                val colon = line.indexOf(':')
+                if (colon > 0) {
+                    val key = line.substring(0, colon).trim().lowercase(Locale.US)
+                    val value = line.substring(colon + 1).trim()
+                    responseHeaders[key] = responseHeaders[key]?.let { "$it, $value" } ?: value
+                }
+            }
+            expected = responseHeaders["content-length"]?.toLongOrNull() ?: -1L
+
+            // Cap the transfer to what we asked for: a larger-than-expected body on a bulk
+            // endpoint means the server ignored our byte cap and the sample is not comparable.
+            val targetBytes = min(maxBytes.toLong(), if (expected > 0L) expected else maxBytes.toLong())
+            val buffer = ByteArray(16 * 1024)
+            while (received < targetBytes) {
+                val read = try {
+                    sslIn.read(
+                        buffer,
+                        0,
+                        min(buffer.size.toLong(), targetBytes - received).toInt().coerceAtLeast(1)
+                    )
+                } catch (timeout: java.net.SocketTimeoutException) {
+                    // Bytes flowed, then nothing: the volume-shaped stall of an adaptive filter.
+                    silentTimeout = received > 0L
+                    break
+                } catch (reset: java.net.SocketException) {
+                    // Reset-after-volume: a genuine server closing cleanly sends EOF, not RST.
+                    injectedReset = received > 0L
+                    break
+                } catch (sslError: SSLException) {
+                    if (received > 0L && (sslError.message ?: "").contains("reset")) {
+                        injectedReset = true
+                    } else if (received > 0L) {
+                        silentTimeout = true
+                    }
+                    break
+                }
+                if (read < 0) break
+                if (read == 0) continue
+                received += read
+                val elapsedMs = (System.nanoTime() - startNs) / 1e6
+                samples += ProtocolFingerprintAwareVerifier.ThroughputSample(
+                    elapsedMs = elapsedMs.toLong(),
+                    bytes = received
+                )
+            }
+            // Always record the terminal point so the detector sees the full transfer shape.
+            val finalElapsed = (System.nanoTime() - startNs) / 1e6
+            if (samples.isEmpty() || samples.last().bytes != received) {
+                samples += ProtocolFingerprintAwareVerifier.ThroughputSample(
+                    elapsedMs = finalElapsed.toLong(),
+                    bytes = received
+                )
+            }
+        } catch (error: Throwable) {
+            val msg = (error.message ?: "").lowercase()
+            if (msg.contains("reset")) injectedReset = received > 0L
+            if (error is java.net.SocketTimeoutException) silentTimeout = true
+        } finally {
+            runCatching { ssl?.close() }
+            runCatching { tcp.close() }
+        }
+
+        val elapsedMs = (System.nanoTime() - startNs) / 1e6
+        return SampledTransfer(
+            status = status,
+            bytesReceived = received,
+            expectedBytes = expected,
+            elapsedMs = elapsedMs,
+            bytesPerSecond = if (elapsedMs > 0.0 && received > 0L) received / (elapsedMs / 1000.0) else 0.0,
+            samples = samples,
+            injectedResetSuspected = injectedReset,
+            silentTimeoutSuspected = silentTimeout,
+            headers = responseHeaders
+        )
+    }
+
+    /**
+     * Reads exactly one HTTP header section (through the blank line). Reads are single-byte and
+     * each consumed byte is appended to the returned string, so body bytes always stay in the
+     * stream for the caller.
+     */
+    private fun readHttpHeader(input: java.io.InputStream, maxChars: Int = 8 * 1024): String {
+        val sb = StringBuilder()
+        var state = 0 // 0 fresh, 1 saw \r, 2 saw \r\n, 3 saw \r\n\r
+        while (sb.length < maxChars) {
+            val b = input.read()
+            if (b < 0) break
+            sb.append(b.toChar())
+            state = when {
+                state == 0 && b == '\r'.code -> 1
+                state == 1 && b == '\n'.code -> 2
+                state == 2 && b == '\r'.code -> 3
+                state == 3 && b == '\n'.code -> return sb.toString()
+                state == 3 -> 0
+                state == 2 -> if (b == '\r'.code) 1 else 0
+                state == 1 -> 0
+                else -> state
+            }
+        }
+        error("Header section too large or truncated")
+    }
 
     /**
      * The SOCKS5 target for a literal IPv4 (ATYP 1), literal IPv6 (ATYP 4) or hostname (ATYP 3).

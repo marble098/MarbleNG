@@ -310,6 +310,10 @@ fun Aether2026App(
     }
     var deckQrSourceOpen by remember { mutableStateOf(false) }
 
+    // MARBLE_IRAN_AWARE_PING_UI — the top-bar ping icon tap shows the ping results for the
+    // selected server / subscription inline on Home (minimal, subtle panel under the bar).
+    var showPingInline by remember { mutableStateOf(false) }
+
     val deckActions = HomeActions(
         onToggleConnection = {
             with(deck.evidence) {
@@ -328,7 +332,10 @@ fun Aether2026App(
         onIpDetails = { ipDetailsOpen = true },
         // MARBLE_HOME_V137 — one route ping: the live tunnel ladder while connected, the
         // selected server's endpoint otherwise. Same method, same readout, every state.
-        onTestPing = { repo.measureHomePing() },
+        onTestPing = {
+            showPingInline = true
+            repo.measureHomePing()
+        },
         onLibrary = { goToTab(SpatialTab.LIBRARY.ordinal) },
         onConnectProfile = { profile -> onConnect(profile) },
         // MARBLE_HOME_ADD_MENU_V145 — `+` opens a dropdown anchored under the icon itself
@@ -354,8 +361,11 @@ fun Aether2026App(
         },
         onQrImport = { deckQrSourceOpen = true },
         // MARBLE_HOME_PING_ROUTE_GROUP_V146 — the Home pulse icon measures the subscription of
-        // the route shown on the page.
-        onPingGroup = { repo.pingHomeGroup() }
+        // the route shown on the page, and shows the results inline (tap again to dismiss).
+        onPingGroup = {
+            showPingInline = true
+            repo.pingHomeGroup()
+        }
     )
 
     // MARBLE_DOCK_CUSTOM_V145 — the dock's chosen footprint is published once, so the bar and
@@ -402,7 +412,9 @@ fun Aether2026App(
                         repo = repo,
                         deck = deck,
                         actions = deckActions,
-                        onContentScrollChanged = reportContentScroll
+                        onContentScrollChanged = reportContentScroll,
+                        showPingInline = showPingInline,
+                        onTogglePingInline = { showPingInline = !showPingInline }
                     )
                     SpatialTab.LIBRARY -> CyberLibrary(
                         repo = repo,
@@ -2278,10 +2290,117 @@ private fun MarbleConnectionQualityRing(
     )
 }
 
+/**
+ * MARBLE_IRAN_AWARE_PING_UI — inline ping results shown when the user taps the top-bar ping
+ * icon. Subtle by design: one line of facts (measured latency, status glyph, stability class,
+ * attribution short key) that explains *why* the capsule shows what it shows.
+ */
+@Composable
+private fun HomePingInlinePanel(
+    repo: AppRepository,
+    activeName: String,
+    stabilityClass: String,
+    modifier: Modifier = Modifier
+) {
+    val connected = repo.state == "CONNECTED"
+    val pingMs = if (connected) repo.connectionPingMs else repo.selectedPingMs
+    val pingState = if (connected) repo.connectionPingState else repo.selectedPingState
+    val failure = if (connected) repo.connectionPingFailure else repo.selectedPingFailure
+    val glyph = when {
+        pingState == ConnectionPingState.MEASURING -> "⏳"
+        pingState == ConnectionPingState.FAILED -> "🚫"
+        repo.homePingInjectedReset -> "⚠️"
+        stabilityClass == "UNSTABLE_UNDER_OBSERVATION" -> "⚠️"
+        pingState == ConnectionPingState.MEASURED -> "✅"
+        else -> "—"
+    }
+    val tone = when {
+        glyph == "🚫" -> Aether.Danger
+        glyph == "⚠️" -> Aether.Amber
+        glyph == "✅" -> Aether.Emerald
+        else -> Aether.InkMuted
+    }
+    PrismPanel(
+        modifier = modifier,
+        accent = tone,
+        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(glyph, color = tone, style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.width(8.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    if (pingMs > 0) "$pingMs ms" else "not measured",
+                    color = Aether.Ink,
+                    style = MaterialTheme.typography.titleSmall
+                )
+                val detail = buildList {
+                    if (activeName.isNotBlank()) add(activeName)
+                    if (stabilityClass == "UNSTABLE_UNDER_OBSERVATION") add("unstable • observing")
+                    if (repo.homePingDetail.isNotBlank()) add(repo.homePingDetail)
+                    if (failure.isNotBlank()) add(failure)
+                }.joinToString(" • ")
+                if (detail.isNotBlank()) {
+                    Text(
+                        detail,
+                        color = Aether.InkMuted,
+                        style = MaterialTheme.typography.labelSmall,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+            if (pingState == ConnectionPingState.MEASURING) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(14.dp),
+                    color = Aether.Amber,
+                    strokeWidth = 2.dp
+                )
+            }
+        }
+    }
+}
+
+/**
+ * MARBLE_IRAN_AWARE_PING_L3_UI — the national-filtering banner. Shown only while a confident
+ * [CausalAttribution.AttributedCause.NATIONAL_FILTERING_EVENT] is active, and only on Home.
+ */
+@Composable
+private fun NationalEventBanner(repo: AppRepository, modifier: Modifier = Modifier) {
+    AnimatedVisibility(
+        visible = repo.nationalEventCause.isNotEmpty(),
+        modifier = modifier,
+        enter = fadeIn(MarbleMotionSpecs.ResponseFloat),
+        exit = fadeOut(MarbleMotionSpecs.ExitFloat)
+    ) {
+        Row(
+            modifier = Modifier
+                .padding(horizontal = 20.dp, vertical = 6.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(Aether.Danger.copy(alpha = 0.14f))
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("🚩", style = MaterialTheme.typography.titleSmall)
+            Spacer(Modifier.width(8.dp))
+            Text(
+                "National filtering detected • ranking frozen • ${repo.nationalEventCause.replace("-", " ")}",
+                color = Aether.Danger,
+                style = MaterialTheme.typography.labelMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
 @Composable
 private fun HomeMetricBento(repo: AppRepository) {
     // MARBLE_LIVE_QUALITY_BENTO_V78 — robust sparkline + correct live state guards
     val pingHistory = remember { mutableStateListOf<Int>() }
+    // MARBLE_IRAN_AWARE_PING_UI — parallel flags: which history points carried the
+    // injected-reset signature (sparkline color segments).
+    val pingFlags = remember { mutableStateListOf<Boolean>() }
 
     // Accumulate ping samples; only add when there is a real measurement
     LaunchedEffect(repo.livePingMs) {
@@ -2289,11 +2408,16 @@ private fun HomeMetricBento(repo: AppRepository) {
         if (value > 0) {
             if (pingHistory.lastOrNull() != value || pingHistory.size < 2) {
                 pingHistory += value
-                while (pingHistory.size > 36) pingHistory.removeAt(0)
+                pingFlags += repo.homePingInjectedReset
+                while (pingHistory.size > 36) {
+                    pingHistory.removeAt(0)
+                    pingFlags.removeAt(0)
+                }
             }
         } else if (repo.state != "CONNECTED") {
             // Clear sparkline when disconnected so stale history doesn't linger
             pingHistory.clear()
+            pingFlags.clear()
         }
     }
 
@@ -2349,6 +2473,7 @@ private fun HomeMetricBento(repo: AppRepository) {
                 // mutableStateListOf() per recomposition churned memory and made the sparkline
                 // flicker/glitch on every live update.
                 sparkline = pingHistory,
+                flaggedSamples = pingFlags,
                 modifier = Modifier
                     .weight(1.08f)
                     .fillMaxHeight()
@@ -2489,7 +2614,9 @@ private fun CyberDeck(
     repo: AppRepository,
     deck: DeckEvidence,
     actions: HomeActions,
-    onContentScrollChanged: (Boolean) -> Unit
+    onContentScrollChanged: (Boolean) -> Unit,
+    showPingInline: Boolean = false,
+    onTogglePingInline: () -> Unit = {}
 ) {
     // MARBLE_HOME_STYLE_V110 — Home is one evidence model rendered by one of the four themes.
     // The style is a pure presentation choice made in Settings; the runtime facts (node, source,
@@ -2525,6 +2652,23 @@ private fun CyberDeck(
                 // dock turns to glass exactly when content moves under it.
                 onScrollChanged = onContentScrollChanged,
                 repo = repo
+            )
+        }
+
+        // MARBLE_IRAN_AWARE_PING_UI — top-bar ping results panel (minimal, subtle) and the
+        // Layer 3 national-filtering banner.
+        NationalEventBanner(repo = repo, modifier = Modifier.align(Alignment.TopCenter))
+        if (showPingInline) {
+            HomePingInlinePanel(
+                repo = repo,
+                activeName = active?.name ?: "",
+                stabilityClass = repo.homePingStabilityClass,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 44.dp)
+                    .widthIn(max = 460.dp)
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp)
             )
         }
 
