@@ -659,12 +659,117 @@ object SingBoxConfigBuilder {
             }
 
             "hysteria2", "hysteria" -> {
-            result.put("type", "hysteria2")
-            result.put("type", "hysteria")
-            firstServer(xraySettings)?.optString("auth_str")
-                ?.takeIf { it.isNotBlank() }
-                ?.let { result.put("auth_str", it) }
-        }
+                val server = firstServer(xraySettings)
+                val address = sequenceOf<String?>(
+                    server?.optString("address"),
+                    xraySettings.optString("address")
+                ).firstOrNull { !it.isNullOrBlank() }
+                    ?: error("$protocol outbound has no address")
+                val port = sequenceOf<Int?>(
+                    server?.optInt("port", 0),
+                    xraySettings.optInt("port", 0)
+                ).firstOrNull { it != null && it > 0 } ?: error("$protocol outbound has no port")
+                // MARBLE_SINGBOX_AUTOPARSER_V154 — the explicit `version` wins; the protocol
+                // name is only the tiebreak. Stored hy2 nodes are `protocol: hysteria` +
+                // `version: 2`, so the old name-only rule mistyped them as v1 and the QUIC
+                // handshake died on the first auth check.
+                val hySettings = stream.optJSONObject("hysteriaSettings")
+                val explicitVersion = sequenceOf<Int>(
+                    xraySettings.optInt("version", 0),
+                    server?.optInt("version", 0) ?: 0,
+                    hySettings?.optInt("version", 0) ?: 0
+                ).firstOrNull { it == 1 || it == 2 }
+                val version = explicitVersion ?: if (protocol == "hysteria2") 2 else 1
+                // MARBLE_SINGBOX_PROTOCOLS_V153 — Hysteria v1 and v2 are different sing-box
+                // outbound types. The old writer always typed `hysteria2` and read `password` on
+                // the Xray v1 settings (which use `auth_str`), so a Hysteria v1 node ran as a v2
+                // auth mismatch and died at the first QUIC handshake.
+                val authSource = server ?: xraySettings
+                if (version == 1) {
+                    result.put("type", "hysteria")
+                    val auth = sequenceOf<String?>(
+                        authSource.optString("auth_str"),
+                        authSource.optString("auth"),
+                        authSource.optString("password"),
+                        hySettings?.optString("auth"),
+                        hySettings?.optString("auth_str")
+                    ).firstOrNull { !it.isNullOrBlank() }
+                    if (auth != null) result.put("auth_str", auth)
+                } else {
+                    result.put("type", "hysteria2")
+                    val auth = sequenceOf<String?>(
+                        authSource.optString("password"),
+                        authSource.optString("auth"),
+                        authSource.optString("auth_str"),
+                        hySettings?.optString("auth"),
+                        hySettings?.optString("auth_str")
+                    ).firstOrNull { !it.isNullOrBlank() }
+                    if (auth != null) result.put("password", auth)
+                }
+                result.put("server", address)
+                result.put("server_port", port)
+                // MARBLE_SINGBOX_AUTOPARSER_V154 — the rate fields arrive as integers, strings,
+                // or human strings ("100 Mbps"): digit-extraction instead of raw `toString`.
+                // The core REQUIRES both rates on v1, so the missing ones get the documented
+                // 10/50 defaults instead of a config `sing-box check` refuses.
+                val up = firstMbps(
+                    optMbps(server, "up_mbps"),
+                    optMbps(hySettings, "up_mbps"),
+                    optMbps(xraySettings, "up_mbps"),
+                    mbpsDigits(hySettings?.optString("up"))
+                )
+                val down = firstMbps(
+                    optMbps(server, "down_mbps"),
+                    optMbps(hySettings, "down_mbps"),
+                    optMbps(xraySettings, "down_mbps"),
+                    mbpsDigits(hySettings?.optString("down"))
+                )
+                result.put("up_mbps", up ?: 10)
+                result.put("down_mbps", down ?: 50)
+                // Obfs, from every source the emitters actually use: the QUIC `finalmask`
+                // (v2), the `settings.obfs` string (v1 share links) and the legacy
+                // `hysteriaSettings.obfs` / server-level object.
+                val finalmask = stream.optJSONObject("finalmask")?.optJSONArray("udp")?.optJSONObject(0)
+                if (version == 1) {
+                    val obfsRaw = firstNonBlank(
+                        xraySettings.optString("obfs"),
+                        hySettings?.optString("obfs"),
+                        server?.optString("obfs"),
+                        finalmask?.optString("type").orEmpty()
+                    )
+                    if (obfsRaw != null && !obfsRaw.equals("none", ignoreCase = true)) {
+                        result.put("obfs", obfsRaw)
+                    }
+                } else {
+                    when {
+                        finalmask != null -> {
+                            val type = finalmask.optString("type").ifBlank { "salamander" }
+                            if (!type.equals("none", ignoreCase = true)) {
+                                val fmSettings = finalmask.optJSONObject("settings") ?: JSONObject()
+                                val password = fmSettings.optJSONObject(type)?.optString("password")
+                                    .ifBlank { fmSettings.optString("password") }
+                                result.put(
+                                    "obfs",
+                                    JSONObject().put("type", type).apply {
+                                        if (password.isNotBlank()) put("password", password)
+                                    }
+                                )
+                            }
+                        }
+                        else -> server?.optJSONObject("obfs")?.let { obfs ->
+                            val obfsPassword = obfs.optString("password").ifBlank { obfs.optString("obfs") }
+                            if (obfsPassword.isNotBlank()) {
+                                result.put(
+                                    "obfs",
+                                    JSONObject()
+                                        .put("type", obfs.optString("type").ifBlank { "salamander" })
+                                        .put("password", obfsPassword)
+                                )
+                            }
+                        }
+                    }
+                }
+            
 
             // MARBLE_SINGBOX_AUTOPARSER_V154 — WireGuard, translated from Xray's
             // `secretKey` + `peers` shape onto sing-box's `private_key` + `server`/`peers`
