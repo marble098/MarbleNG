@@ -368,22 +368,52 @@ object SingBoxConfigBuilder {
 
         when (protocol) {
             "vless", "vmess" -> {
-                val server = xraySettings.optJSONArray("vnext")?.optJSONObject(0)
-                    ?: error("$protocol outbound has no vnext server")
-                val user = server.optJSONArray("users")?.optJSONObject(0) ?: JSONObject()
+                // MARBLE_SINGBOX_AUTOPARSER_V154 — Xray stores the endpoint under
+                // `settings.vnext[0]` in the classic shape, but PattNG and Marble's own JSON
+                // imports emit a direct `settings.{address,port,users|id|flow|…}` shape with no
+                // `vnext`. The old reader only knew `vnext`, so a perfectly healthy direct-form
+                // node threw "no vnext server" and its sing-box URL test was painted FAILED even
+                // though one tap connected it. Accept both shapes; the direct form is simply the
+                // settings object itself.
+                val vnextServer = xraySettings.optJSONArray("vnext")?.optJSONObject(0)
+                val settingsServer = xraySettings.takeIf {
+                    it.optString("address").isNotBlank() && it.optInt("port", 0) > 0
+                }
+                val server = vnextServer ?: settingsServer
+                    ?: error("$protocol outbound has neither a vnext[] server nor a direct {address,port} one")
+                // The user may live under `server.users[0]` (classic) or, for direct-form imports,
+                // on the server/settings object directly. Resolve every field across all three
+                // locations so a partially populated user object never drops the whole node.
+                val user0 = server.optJSONArray("users")?.optJSONObject(0)
+                    ?: xraySettings.optJSONArray("users")?.optJSONObject(0)
+                fun pick(key: String, from: JSONObject?): String =
+                    from?.optString(key)?.takeIf { it.isNotBlank() }.orEmpty()
+                fun resolve(vararg keys: String): String = keys
+                    .mapNotNull { key -> pick(key, user0).ifBlank { pick(key, server) }.ifBlank { pick(key, xraySettings) } }
+                    .firstOrNull()
+                    .orEmpty()
                 result.put("type", protocol)
-                result.put("server", server.optString("address"))
-                result.put("server_port", server.optInt("port"))
-                result.put("uuid", user.optString("id"))
+                result.put("server", resolve("address").ifBlank { server.optString("address") })
+                result.put("server_port", server.optInt("port", 0).takeIf { it > 0 }
+                    ?: xraySettings.optInt("port", 0))
+                result.put("uuid", resolve("id", "uuid"))
                 if (protocol == "vless") {
-                    user.optString("flow").takeIf { it.isNotBlank() }?.let { result.put("flow", it) }
-                    user.optString("encryption").takeIf { it.isNotBlank() }
+                    resolve("flow").takeIf { it.isNotBlank() }?.let { result.put("flow", it) }
+                    resolve("encryption").takeIf { it.isNotBlank() }
                         ?.let { result.put("encryption", it) }
                 } else {
-                    result.put("security", user.optString("security").ifBlank { "auto" })
-                    val alterId = user.optInt("alterId", 0)
+                    result.put("security", resolve("security").ifBlank { "auto" })
+                    val alterId = resolve("alterId").toIntOrNull()?.takeIf { it > 0 } ?: 0
                     if (alterId > 0) result.put("alter_id", alterId)
-                    if (user.optBoolean("globalPadding", false)) result.put("global_padding", true)
+                    val globalPadding = user0?.optBoolean("globalPadding", false) == true ||
+                        server.optBoolean("globalPadding", false)
+                    if (globalPadding) result.put("global_padding", true)
+                    // VMess UDP parity: Xray's `packetEncoding` (`none`/`packetaddr`/`xudp`)
+                    // maps to sing-box's `packet_encoding`. Without it a UDP-capable node
+                    // silently loses its datagram channel on the sing-box engine.
+                    resolve("packetEncoding").ifBlank { xraySettings.optString("packetEncoding") }
+                        .takeIf { it.isNotBlank() && !it.equals("none", ignoreCase = true) }
+                        ?.let { result.put("packet_encoding", it) }
                 }
             }
 

@@ -503,6 +503,120 @@ class SingBoxCoreV151Test {
         }
     }
 
+    /**
+     * MARBLE_SINGBOX_AUTOPARSER_V154 — a vless/vmess node whose endpoint lives on `settings`
+     * directly (no `vnext[]`) is exactly what PattNG exports and Marble imports for scheme `json`.
+     * The old translator threw "no vnext server" for these, so the sing-box URL test painted an
+     * otherwise-healthy server FAILED. The translator must accept the direct form.
+     */
+    @Test
+    fun aDirectFormVlessWithoutVnextTranslatesInsteadOfThrowing() {
+        val profile = directFormProfile(
+            protocol = "vless",
+            user = mapOf("id" to "11111111-2222-3333-4444-555555555555", "encryption" to "none"),
+            extra = mapOf("flow" to "xtls-rprx-vision")
+        )
+        val build = build(profile) // must not throw "no vnext server"
+        assertEquals(SingBoxConfigBuilder.STRATEGY_TRANSLATED, build.strategy)
+        val config = JSONObject(build.json)
+        val proxy = outbound(config, SingBoxConfigBuilder.PROXY_TAG)
+        assertEquals("vless", proxy.getString("type"))
+        assertEquals("198.51.100.20", proxy.getString("server"))
+        assertEquals(443, proxy.getInt("server_port"))
+        assertEquals("11111111-2222-3333-4444-555555555555", proxy.getString("uuid"))
+        assertEquals("xtls-rprx-vision", proxy.getString("flow"))
+    }
+
+    @Test
+    fun aDirectFormVmessCarriesItsUdpPacketEncoding() {
+        val profile = directFormProfile(
+            protocol = "vmess",
+            user = mapOf("id" to "11111111-2222-3333-4444-555555555555", "alterId" to "0"),
+            extra = mapOf("packetEncoding" to "xudp")
+        )
+        val proxy = outbound(JSONObject(build(profile).json), SingBoxConfigBuilder.PROXY_TAG)
+        assertEquals("vmess", proxy.getString("type"))
+        assertEquals("198.51.100.20", proxy.getString("server"))
+        assertEquals("11111111-2222-3333-4444-555555555555", proxy.getString("uuid"))
+        assertEquals("xudp", proxy.getString("packet_encoding"))
+    }
+
+    /**
+     * A user object that only carries part of the account (for example `users[0]` with an id but
+     * the alter-id on the server block) must not lose the whole node: every field is resolved
+     * independently across `users[0]`, the server and the settings object.
+     */
+    @Test
+    fun aPartiallyPopulatedUserResolvesEveryFieldInsteadOfDroppingTheNode() {
+        val profile = ProxyProfile(
+            id = "split-user",
+            name = "Split user",
+            scheme = "vmess",
+            raw = "",
+            configJson = JSONObject().put(
+                "outbounds",
+                JSONArray().put(
+                    JSONObject()
+                        .put("protocol", "vmess")
+                        .put("tag", "proxy")
+                        .put(
+                            "settings",
+                            JSONObject()
+                                .put(
+                                    "vnext",
+                                    JSONArray().put(
+                                        JSONObject()
+                                            .put("address", "198.51.100.20")
+                                            .put("port", 443)
+                                            .put(
+                                                "users",
+                                                JSONArray().put(
+                                                    JSONObject().put(
+                                                        "id", "11111111-2222-3333-4444-555555555555"
+                                                    )
+                                                )
+                                            )
+                                    )
+                                )
+                                .put("alterId", 64)
+                        )
+                )
+            ).toString(),
+            host = "198.51.100.20",
+            port = 443
+        )
+        val proxy = outbound(JSONObject(build(profile).json), SingBoxConfigBuilder.PROXY_TAG)
+        assertEquals("198.51.100.20", proxy.getString("server"))
+        assertEquals("11111111-2222-3333-4444-555555555555", proxy.getString("uuid"))
+        assertEquals(64, proxy.getInt("alter_id"))
+    }
+
+    private fun directFormProfile(
+        protocol: String,
+        user: Map<String, String>,
+        extra: Map<String, String> = emptyMap()
+    ): ProxyProfile {
+        val settings = JSONObject().put("address", "198.51.100.20").put("port", 443)
+        user.forEach { (k, v) -> settings.put(k, v) }
+        extra.forEach { (k, v) -> settings.put(k, v) }
+        val outbound = JSONObject()
+            .put("protocol", protocol)
+            .put("tag", "proxy")
+            .put("settings", settings)
+        return ProxyProfile(
+            id = "direct-$protocol",
+            name = "Direct $protocol",
+            scheme = protocol,
+            raw = "",
+            configJson = JSONObject().put(
+                "outbounds",
+                JSONArray().put(outbound)
+            ).toString(),
+            host = "198.51.100.20",
+            port = 443
+        )
+    }
+
     private fun outboundOrNull(config: JSONObject, tag: String): JSONObject? {
         val outbounds = config.getJSONArray("outbounds")
         for (i in 0 until outbounds.length()) {
