@@ -1192,8 +1192,7 @@ internal fun loopFade(t: Float): Float = sin((t.coerceIn(0f, 1f)) * PI.toFloat()
 // ---------------------------------------------------------------------------------------------
 
 internal enum class HomeGlyph {
-    POWER, CHECK, RESET, COPY, REFRESH, MORE, PULSE, CLOCK, LIBRARY, PLUS, BOLT, PASTE, QR, INFO,
-    STOP
+    POWER, CHECK, RESET, COPY, REFRESH, MORE, PULSE, CLOCK, LIBRARY, PLUS, BOLT, PASTE, QR, INFO
 }
 
 @Composable
@@ -1323,15 +1322,6 @@ internal fun HomeGlyphIcon(glyph: HomeGlyph, color: Color, modifier: Modifier = 
                 drawCircle(color = color, radius = w * .38f, center = Offset(w * .5f, h * .5f), style = line)
                 drawCircle(color = color, radius = stroke * .7f, center = Offset(w * .5f, h * .32f))
                 drawLine(color, Offset(w * .5f, h * .44f), Offset(w * .5f, h * .68f), stroke, StrokeCap.Round)
-            }
-            HomeGlyph.STOP -> {
-                // A rounded, filled square — the universal "halt this run" mark.
-                drawRoundRect(
-                    color = color,
-                    topLeft = Offset(w * .26f, h * .26f),
-                    size = Size(w * .48f, h * .48f),
-                    cornerRadius = CornerRadius(w * .12f, h * .12f)
-                )
             }
         }
     }
@@ -1755,22 +1745,12 @@ internal fun MarbleWordmark(modifier: Modifier = Modifier) {
 }
 
 /**
- * MARBLE_HOME_TOPBAR_V154 — the Home top cluster, rethought as one instrument.
+ * MARBLE_HOME_BANNER_V143 — the top actions (add, ping, IP details) live OUTSIDE the status
+ * banner: a transparent cluster above it. There is no background pill, no card frame, and every
+ * icon is a true circle so a tap reads as an icon, not a button.
  *
- * What was three bare circles floating above the banner is now a single floating glass capsule:
- * the brand on the left (gradient prism tile + MarbleNG wordmark + a live state line with a
- * breathing status dot, so the page breathes its session state from the very first row) and
- * three tonal actions on the right — Add (menu), Test (the subscription pulse), IP details.
- *
- * The Test action answers the pattern every long-running test wants: it swaps to a filled STOP
- * square while the sweep is live and taps through to [AppRepository.cancelProbes], so a user who
- * started "Ping all" can stop it from the same place they started it. Cancel keeps every server
- * measured so far; only queued work is abandoned.
- *
- * MARBLE_HOME_BANNER_V143 — the capsule still lives OUTSIDE the status banner, anchored above it.
- *
- * MARBLE_HOME_WORDMARK_V145 — the wordmark stays first: all four Home presentations carry the
- * product signature in the same place, at the same size.
+ * MARBLE_HOME_WORDMARK_V145 — the row now opens with the MarbleNG wordmark, so all four Home
+ * presentations carry the product signature in the same place, at the same size.
  *
  * MARBLE_HOME_ADD_MENU_V145 — the + opens its menu ANCHORED UNDER THE + (a DropdownMenu inside
  * the icon's own Box) instead of throwing a full-screen dialog over the page. A three-entry
@@ -1792,61 +1772,16 @@ internal fun HomeTopActionBar(
     var addMenuOpen by remember { mutableStateOf(false) }
     val groupLabel = repo.homeGroupPingLabel()
     val groupBusy = repo.homeGroupPingRunning
-    val stateTone = homeStateTone(evidence)
-    val onSurface = MaterialTheme.colorScheme.onSurface
-
-    val capsule = Brush.verticalGradient(
-        listOf(
-            onSurface.copy(alpha = .115f),
-            onSurface.copy(alpha = .050f),
-            MaterialTheme.colorScheme.surface.copy(alpha = .55f)
-        )
-    )
-    val capsuleEdge = Brush.verticalGradient(
-        listOf(
-            Color.White.copy(alpha = .20f),
-            onSurface.copy(alpha = .06f)
-        )
-    )
-    val capsuleShape = RoundedCornerShape(22.dp)
 
     Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .clip(capsuleShape)
-            .background(capsule)
-            .border(1.dp, capsuleEdge, capsuleShape)
-            .padding(start = 13.dp, end = 7.dp, top = 7.dp, bottom = 7.dp),
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.End,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        HomePrismTile(stateTone = stateTone)
-        Spacer(Modifier.width(11.dp))
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
-            MarbleWordmark()
-            Spacer(Modifier.height(2.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                HomeLiveDot(tone = stateTone, active = evidence.connected || evidence.connecting)
-                Spacer(Modifier.width(6.dp))
-                Text(
-                    text = if (evidence.connected) {
-                        Tr.now.homeConnectedBadge
-                    } else {
-                        Tr.now.socksStandby
-                    },
-                    style = MaterialTheme.typography.labelSmall.copy(
-                        fontWeight = FontWeight.Medium,
-                        letterSpacing = 0.2.sp
-                    ),
-                    color = onSurface.copy(alpha = .62f),
-                    maxLines = 1,
-                    softWrap = false,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-        }
+        MarbleWordmark(modifier = Modifier.weight(1f))
 
         Box {
-            HomeTopBarAction(
+            HomeBareAction(
                 glyph = HomeGlyph.PLUS,
                 tone = Aether.CyanBright,
                 description = Tr.now.proAddRoute,
@@ -1859,35 +1794,15 @@ internal fun HomeTopActionBar(
             )
         }
 
-        Spacer(Modifier.width(6.dp))
-        // The test action becomes the cancellation affordance the moment a sweep is live —
-        // same spot the user tapped, opposite meaning now, always reachable.
-        AnimatedContent(
-            targetState = groupBusy,
-            transitionSpec = {
-                (fadeIn(tween(160)) + scaleIn(tween(160), initialScale = .82f))
-                    .togetherWith(fadeOut(tween(110)) + scaleOut(tween(110), targetScale = .82f))
-            },
-            label = "homeTopBarPingState"
-        ) { busy ->
-            if (busy) {
-                HomeTopBarAction(
-                    glyph = HomeGlyph.STOP,
-                    tone = Aether.Danger,
-                    description = "${Tr.now.cancel} • ${Tr.now.testPing}",
-                    onClick = repo::cancelProbes
-                )
-            } else {
-                HomeTopBarAction(
-                    glyph = HomeGlyph.PULSE,
-                    tone = Aether.Emerald,
-                    description = "${Tr.now.testPing} • $groupLabel",
-                    onClick = actions.onPingGroup
-                )
-            }
-        }
-        Spacer(Modifier.width(6.dp))
-        HomeTopBarAction(
+        HomeBareAction(
+            glyph = HomeGlyph.PULSE,
+            tone = Aether.Emerald,
+            description = "${Tr.now.testPing} • $groupLabel",
+            enabled = !groupBusy,
+            busy = groupBusy,
+            onClick = actions.onPingGroup
+        )
+        HomeBareAction(
             glyph = HomeGlyph.INFO,
             tone = Aether.AmethystBright,
             description = Tr.now.ipDetails,
@@ -1898,100 +1813,6 @@ internal fun HomeTopActionBar(
                 actions.onIpDetails()
             }
         )
-    }
-}
-
-/**
- * A 38dp tonal round action: colour only where the meaning is, never chrome. The faint border
- * keeps the button legible on the glass capsule at every theme's brightness.
- */
-@Composable
-private fun HomeTopBarAction(
-    glyph: HomeGlyph,
-    tone: Color,
-    description: String,
-    onClick: () -> Unit
-) {
-    Box(
-        modifier = Modifier
-            .size(38.dp)
-            .clip(CircleShape)
-            .background(tone.copy(alpha = .14f))
-            .border(1.dp, tone.copy(alpha = .26f), CircleShape)
-            .kineticClickable(
-                role = Role.Button,
-                pressScale = .90f,
-                boundedShape = CircleShape,
-                onClick = onClick
-            )
-            .semantics { contentDescription = description },
-        contentAlignment = Alignment.Center
-    ) {
-        HomeGlyphIcon(glyph = glyph, color = tone, modifier = Modifier.size(18.dp))
-    }
-}
-
-/** The brand tile: a 36dp prism of the signature ramp with a marble orb inside it. */
-@Composable
-private fun HomePrismTile(stateTone: Color) {
-    val ice = Aether.CyanBright
-    val amethyst = Aether.AmethystBright
-    val emerald = Aether.Emerald
-    val ramp = remember(ice, amethyst, emerald) {
-        Brush.linearGradient(listOf(ice, amethyst, emerald))
-    }
-    val shape = RoundedCornerShape(12.dp)
-    Box(
-        modifier = Modifier
-            .size(36.dp)
-            .clip(shape)
-            .background(ramp)
-            .border(
-                1.dp,
-                Brush.verticalGradient(
-                    listOf(Color.White.copy(alpha = .45f), Color.White.copy(alpha = .04f))
-                ),
-                shape
-            ),
-        contentAlignment = Alignment.Center
-    ) {
-        Canvas(Modifier.size(18.dp)) {
-            val w = size.width
-            // The marble orb: a deep disc with the session-state colour as its rim light —
-            // one glance says what the node is doing without reading a word.
-            drawCircle(Color(0xFF0B1020), radius = w * .50f, center = Offset(w * .5f, size.height * .5f))
-            drawCircle(
-                color = stateTone,
-                radius = w * .50f,
-                center = Offset(w * .5f, size.height * .5f),
-                style = Stroke(width = w * .10f)
-            )
-            drawCircle(
-                color = Color.White.copy(alpha = .85f),
-                radius = w * .10f,
-                center = Offset(w * .34f, size.height * .34f)
-            )
-        }
-    }
-}
-
-/** The tiny status dot beside the wordmark, breathing softly while the session is live. */
-@Composable
-private fun HomeLiveDot(tone: Color, active: Boolean) {
-    val pulse by if (active) {
-        rememberInfiniteTransition(label = "homeLiveDot")
-            .animateFloat(
-                initialValue = .55f,
-                targetValue = 1f,
-                animationSpec = infiniteRepeatable(tween(1200, easing = FastOutSlowInEasing), RepeatMode.Reverse),
-                label = "homeLiveDotAlpha"
-            )
-    } else {
-        remember { mutableStateOf(.35f) }
-    }
-    Canvas(Modifier.size(7.dp)) {
-        drawCircle(tone.copy(alpha = .30f * pulse), radius = size.width * .5f)
-        drawCircle(tone.copy(alpha = pulse), radius = size.width * .28f)
     }
 }
 
@@ -2087,6 +1908,52 @@ private fun HomeActionMenuItem(
                 style = MaterialTheme.typography.labelSmall,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+/**
+ * A transparent circular top action: no background surface, rounded icon, kinetic press only.
+ *
+ * MARBLE_HOME_GROUP_PING_V145 — [busy] draws the work in the icon's own footprint (the ring
+ * replaces the glyph, the circle never resizes), so a sweep that takes a few seconds is visibly
+ * running instead of looking like a tap that did nothing.
+ */
+@Composable
+private fun HomeBareAction(
+    glyph: HomeGlyph,
+    tone: Color,
+    description: String,
+    enabled: Boolean = true,
+    busy: Boolean = false,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .size(36.dp)
+            .clip(CircleShape)
+            .kineticClickable(
+                enabled = enabled && !busy,
+                role = Role.Button,
+                pressScale = .92f,
+                boundedShape = CircleShape,
+                onClick = onClick
+            )
+            .semantics { contentDescription = description },
+        contentAlignment = Alignment.Center
+    ) {
+        if (busy) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(17.dp),
+                color = tone,
+                strokeWidth = 2.dp
+            )
+        } else {
+            HomeGlyphIcon(
+                glyph,
+                if (enabled) tone else tone.copy(alpha = .40f),
+                Modifier.size(18.dp)
             )
         }
     }
