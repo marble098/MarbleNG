@@ -139,7 +139,7 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     }
     private val notifier = SmartNotifier(context)
     private val iranDetector = IranModeDetector(context, intelligence)
-    private val bugFinder = BugFinder(context, xray)
+    private val bugFinder = BugFinder(context, xray, singBox)
     private val diagnostics = RuntimeDiagnostics(context)
 
     val profiles = mutableStateListOf<ProxyProfile>().apply { addAll(store.loadProfiles()) }
