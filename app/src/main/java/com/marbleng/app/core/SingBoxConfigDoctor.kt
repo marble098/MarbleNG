@@ -55,9 +55,13 @@ object SingBoxConfigDoctor {
         "create network monitor",
         "independent_cache",
         // MARBLE_SINGBOX_ANDROID_RUNTIME_V155 — the 1.14 impending-deprecation exits. The core
-        // prints the option, then `to continuing using this feature, set environment variable
-        // ENABLE_DEPRECATED_…=true`, then calls os.Exit(1). Every one of them is a config fault.
-        "missing domain resolver",
+        // logs `<description> is deprecated in sing-box 1.12.0 …` at error level, then
+        // `to continuing using this feature, set environment variable ENABLE_DEPRECATED_…=true`
+        // at fatal level, then calls os.Exit(1). Every one of them is a config fault. The two
+        // domain-resolver markers below spell the option the way the core spells it —
+        // "missing `route.default_domain_resolver` or `domain_resolver` in dial fields" from the
+        // deprecation note, and "default domain resolver not found: <tag>" from route start.
+        "domain_resolver",
         "default domain resolver not found",
         "enable_deprecated_",
         "is conflict with",

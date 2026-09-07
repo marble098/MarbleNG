@@ -276,10 +276,24 @@ class SingBoxAndroidRuntimeV155Test {
             "FATAL to continuing using this feature, set environment variable " +
                 "ENABLE_DEPRECATED_MISSING_DOMAIN_RESOLVER=true"
         assertTrue(SingBoxConfigDoctor.isEngineLevelFault(fatal))
+        // The error line the core prints just before that fatal one, verbatim from
+        // experimental/deprecated: `<description> is deprecated in sing-box <x> and will be
+        // removed in sing-box <y>, checkout documentation for migration: <link>`.
+        assertTrue(
+            SingBoxConfigDoctor.isEngineLevelFault(
+                "missing `route.default_domain_resolver` or `domain_resolver` in dial fields " +
+                    "is deprecated in sing-box 1.12.0 and will be removed in sing-box 1.14.0"
+            )
+        )
+        // …and the bare description on its own, because the retained log is line-truncated.
         assertTrue(
             SingBoxConfigDoctor.isEngineLevelFault(
                 "missing `route.default_domain_resolver` or `domain_resolver` in dial fields"
             )
+        )
+        // The route-start error for a tag that does not resolve to a DNS server.
+        assertTrue(
+            SingBoxConfigDoctor.isEngineLevelFault("default domain resolver not found: dns-local")
         )
     }
 
