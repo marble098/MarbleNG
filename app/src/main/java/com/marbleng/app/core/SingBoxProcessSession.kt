@@ -1,0 +1,199 @@
+package com.marbleng.app.core
+
+import org.json.JSONObject
+import java.io.Closeable
+import java.io.File
+import java.io.RandomAccessFile
+import java.net.HttpURLConnection
+import java.net.InetSocketAddress
+import java.net.Socket
+import java.net.URL
+import java.net.URLEncoder
+import java.util.concurrent.TimeUnit
+
+/** JVM-testable process lifecycle shared by VPN, Real Delay and URL Test. Every session owns its
+ * files, controller secret and process. No shell, global check file, shared BoltDB or swallowed
+ * interruption. The manager separately bounds how many temporary sessions can exist. */
+class SingBoxProcessSession private constructor(
+    private val child: Process,
+    private val logPump: Thread,
+    private val apiPort: Int,
+    private val secret: String,
+    val logFile: File
+) : Closeable {
+    val isAlive: Boolean get() = child.isAlive
+
+    fun delay(url: String, timeoutMs: Int): CoreUrlTestResult {
+        if (!isAlive) return CoreUrlTestResult(0, false, "core-exit: ${tail(logFile)}")
+        val target = runCatching { URL(url) }.getOrNull()
+        // The pinned Clash API silently replaces http:// with its own gstatic URL.
+        if (target?.protocol != "https" || target.host.isNullOrBlank()) {
+            return CoreUrlTestResult(0, false, "urltest-url: an HTTPS URL is required")
+        }
+        checkInterrupted()
+        val budget = timeoutMs.coerceIn(1, 30_000)
+        val endpoint = "http://127.0.0.1:$apiPort/proxies/${SingBoxConfigBuilder.PROXY_TAG}/delay" +
+            "?url=${URLEncoder.encode(url, "UTF-8")}&timeout=$budget"
+        val connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
+            connectTimeout = minOf(1500, budget)
+            readTimeout = budget + 250
+            instanceFollowRedirects = false
+            setRequestProperty("Authorization", "Bearer $secret")
+        }
+        return try {
+            val status = connection.responseCode
+            val body = (if (status in 200..299) connection.inputStream else connection.errorStream)
+                ?.bufferedReader()?.use { it.readTextLimited(4096) }.orEmpty()
+            val json = runCatching { JSONObject(body) }.getOrNull()
+            val delay = json?.optLong("delay", -1) ?: -1
+            if (status in 200..299 && delay > 0) CoreUrlTestResult(delay, true)
+            else CoreUrlTestResult(0, false, "urltest-http-$status: ${json?.optString("message").orEmpty()}".take(300))
+        } catch (error: Exception) {
+            checkInterrupted()
+            CoreUrlTestResult(0, false, "urltest-transport: ${error.message ?: error.javaClass.simpleName}".take(300))
+        } finally { connection.disconnect() }
+    }
+
+    override fun close() {
+        stop(child)
+        // A killed process closes the pipe. Do not leave a daemon copying a stale child's log.
+        val interrupted = Thread.interrupted()
+        try { logPump.join(1000) } finally { if (interrupted) Thread.currentThread().interrupt() }
+    }
+
+    companion object {
+        private const val LOG_LIMIT = 512 * 1024L
+
+        fun open(binary: File, config: String, configFile: File, logFile: File,
+                 tempDir: File, socksPort: Int, apiPort: Int, secret: String,
+                 startupTimeoutMs: Long = 12_000): SingBoxProcessSession {
+            checkInterrupted()
+            val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(startupTimeoutMs)
+            fun left(): Long = TimeUnit.NANOSECONDS.toMillis(deadline - System.nanoTime()).coerceAtLeast(0)
+            val root = JSONObject(config)
+            // One sink only: the bounded pump owns the runtime log, including early fatal errors.
+            root.optJSONObject("log")?.remove("output")
+            configFile.parentFile?.mkdirs()
+            atomicWrite(configFile, root.toString())
+            check(binary.isFile) { "core-install: sing-box executable is missing" }
+            tempDir.mkdirs()
+            logFile.parentFile?.mkdirs()
+            logFile.writeText("")
+            val diagnostic = File.createTempFile("check-", ".log", tempDir)
+            try {
+                val check = builder(binary, listOf("check", "-c", configFile.absolutePath), configFile.parentFile, tempDir)
+                    .redirectOutput(diagnostic).start()
+                try {
+                    if (!check.waitFor(left().coerceAtMost(8000), TimeUnit.MILLISECONDS)) {
+                        error("core-check-timeout: configuration validation did not finish")
+                    }
+                    check(check.exitValue() == 0) { "core-config: ${tail(diagnostic)}" }
+                } finally { stop(check) }
+            } finally { diagnostic.delete() }
+            checkInterrupted()
+            check(left() > 0) { "core-start-timeout" }
+            val child = builder(binary, listOf("run", "-c", configFile.absolutePath), configFile.parentFile, tempDir).start()
+            val pump = Thread({
+                runCatching {
+                    child.inputStream.use { input ->
+                        RandomAccessFile(logFile, "rw").use { sink ->
+                            val buffer = ByteArray(8192)
+                            while (true) {
+                                val count = input.read(buffer)
+                                if (count < 0) break
+                                if (sink.length() + count > LOG_LIMIT) { sink.setLength(0); sink.seek(0) }
+                                sink.write(buffer, 0, count)
+                            }
+                        }
+                    }
+                }
+            }, "marble-singbox-log").apply { isDaemon = true; start() }
+            val session = SingBoxProcessSession(child, pump, apiPort, secret, logFile)
+            try {
+                while (left() > 0) {
+                    checkInterrupted()
+                    if (!child.isAlive) {
+                        pump.join(200)
+                        error("core-start: exited ${child.exitValue()}: ${tail(logFile)}")
+                    }
+                    if (listening(socksPort, left()) && apiReady(apiPort, secret, left())) return session
+                    Thread.sleep(minOf(60, left()).coerceAtLeast(1))
+                }
+                error("core-start-timeout: ${tail(logFile)}")
+            } catch (error: Throwable) {
+                session.close()
+                throw error
+            }
+        }
+
+        private fun builder(binary: File, args: List<String>, workingDir: File?, tempDir: File) =
+            SingBoxAndroidRuntime.prepare(ProcessBuilder(listOf(binary.absolutePath) + args).redirectErrorStream(true), workingDir, tempDir)
+
+        private fun listening(port: Int, left: Long): Boolean = runCatching {
+            Socket().use { it.connect(InetSocketAddress("127.0.0.1", port), minOf(left, 150).coerceAtLeast(1).toInt()) }
+            true
+        }.getOrDefault(false)
+
+        private fun apiReady(port: Int, secret: String, left: Long): Boolean {
+            val connection = (URL("http://127.0.0.1:$port/proxies").openConnection() as HttpURLConnection).apply {
+                connectTimeout = minOf(left, 200).coerceAtLeast(1).toInt()
+                readTimeout = connectTimeout
+                setRequestProperty("Authorization", "Bearer $secret")
+            }
+            return try {
+                // 401 is NOT ready. Also wait for this outbound, not just a listening port.
+                connection.responseCode == 200 && connection.inputStream.bufferedReader().use {
+                    JSONObject(it.readTextLimited(128 * 1024)).optJSONObject("proxies")?.has(SingBoxConfigBuilder.PROXY_TAG) == true
+                }
+            } catch (_: Exception) { false } finally { connection.disconnect() }
+        }
+
+        internal fun stop(child: Process) {
+            val interrupted = Thread.interrupted()
+            try {
+                child.destroy()
+                if (!child.waitFor(600, TimeUnit.MILLISECONDS)) {
+                    child.destroyForcibly()
+                    child.waitFor(1500, TimeUnit.MILLISECONDS)
+                }
+            } catch (_: InterruptedException) {
+                child.destroyForcibly()
+                Thread.currentThread().interrupt()
+            } finally { if (interrupted) Thread.currentThread().interrupt() }
+        }
+
+        internal fun checkInterrupted() {
+            if (Thread.currentThread().isInterrupted) throw InterruptedException("probe cancelled")
+        }
+
+        internal fun atomicWrite(target: File, text: String) {
+            val temp = File.createTempFile("${target.name}-", ".tmp", target.parentFile)
+            try {
+                temp.outputStream().use { output -> output.write(text.toByteArray()); output.fd.sync() }
+                check(temp.renameTo(target)) { "Cannot replace runtime config atomically" }
+            } finally { temp.delete() }
+        }
+
+        fun tail(file: File, limit: Int = 4096): String = runCatching {
+            RandomAccessFile(file, "r").use { input ->
+                val size = minOf(input.length(), limit.toLong()).toInt()
+                input.seek(input.length() - size)
+                val bytes = ByteArray(size)
+                input.readFully(bytes)
+                String(bytes, Charsets.UTF_8).trim()
+            }
+        }.getOrDefault("")
+
+        private fun java.io.Reader.readTextLimited(limit: Int): String {
+            val buffer = CharArray(limit + 1)
+            var total = 0
+            while (total < buffer.size) {
+                val count = read(buffer, total, buffer.size - total)
+                if (count < 0) break
+                total += count
+            }
+            check(total <= limit) { "Controller response exceeds limit" }
+            return String(buffer, 0, total)
+        }
+    }
+}

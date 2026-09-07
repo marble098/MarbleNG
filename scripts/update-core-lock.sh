@@ -114,13 +114,21 @@ if [[ -z "$singbox_tag" ]]; then
     exit 1
 fi
 
+# Release archive integrity is part of the pin, not trust-on-first-use at build time.
+singbox_digests="$(curl -fsSL --retry 4 "${GITHUB_API_HEADERS[@]}" \
+    "https://api.github.com/repos/${singbox_repo}/releases/tags/${singbox_tag}" | jq -ce '
+    [.assets[] | select(.name | test("-(android-(386|amd64|arm64|armv7)|linux-amd64)\\.tar\\.gz$"))
+      | select(.digest | startswith("sha256:")) | {key:.name, value:(.digest | sub("^sha256:"; ""))}]
+    | from_entries | select(length == 5)')"
+
 # Preserve the channel settings; update only tags and the timestamp.
 jq \
     --arg x "$xray_tag" \
     --arg h "$hev_tag" \
     --arg s "$singbox_tag" \
+    --argjson sha "$singbox_digests" \
     --arg d "$(date -u +%F)" \
-    '.xray.tag = $x | .hev.tag = $h | .singbox.tag = $s | .updated = $d' \
+    '.xray.tag = $x | .hev.tag = $h | .singbox.tag = $s | .singbox.sha256 = $sha | .updated = $d' \
     "$LOCK" > "$LOCK.tmp" && mv -f "$LOCK.tmp" "$LOCK"
 
 echo ""

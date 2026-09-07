@@ -1373,24 +1373,8 @@ object RouteProbe {
         ProbeMethod.URL_TEST -> urlTest(profile, timeoutMs, settings)
     }
 
-    /**
-     * MARBLE_PATTNG_PING_V151 — **Real delay**, ported from
-     * `RealPingWorkerService.startRealPing`.
-     *
-     * Two stages, in PattNG's order:
-     *
-     *  1. **The gate.** One raw TCP connect to the node's own `server:port` with a one-second
-     *     budget. PattNG skips it for the protocols where a bare handshake proves nothing —
-     *     complex/custom configs, Hysteria2, WireGuard and HTTP/3-only endpoints — and so does
-     *     this. A gate failure ends the measurement immediately, which is what keeps a sweep over
-     *     a subscription of dead nodes fast: no core is spawned for a port that does not answer.
-     *  2. **The delay.** A real HTTP round trip through the running tunnel to the delay-test URL
-     *     ([DelayTest.url]). The number is the tunnel's, not a socket's.
-     *
-     * Without a live tunnel there is no honest delay to report. The gate measurement is still
-     * published — labelled with its reason — because "the port answers in 84 ms" is true and
-     * useful, and pretending it is a tunnel delay is not.
-     */
+    /** Real protocol delay through the already-running selected-core tunnel. Endpoint-only
+     * TCP probes are a different method and cannot veto or stand in for this measurement. */
     fun realDelay(
         profile: ProxyProfile,
         tunnelPort: Int,
@@ -1398,21 +1382,9 @@ object RouteProbe {
         samples: Int,
         settings: AppSettings = AppSettings()
     ): ProbeResult {
-        val gate = realDelayGate(profile, settings)
-        if (gate != null) {
-            if (gate.latencyMs >= UNREACHABLE) {
-                return ProbeResult(
-                    METHOD_REAL_DELAY, UNREACHABLE, 0, 1,
-                    lossPercent = 100.0, failureReason = "tcp-gate-failed"
-                )
-            }
-            if (tunnelPort <= 0) {
-                return gate.copy(
-                    method = METHOD_REAL_DELAY,
-                    failureReason = "no-tunnel-tcp-gate"
-                )
-            }
-        }
+        // A naked TCP SYN proves neither the account nor the transport. It must not veto
+        // a healthy REALITY/fronted/QUIC route or masquerade as a tunnel delay.
+
 
         if (tunnelPort <= 0) {
             return ProbeResult(
@@ -1427,17 +1399,6 @@ object RouteProbe {
             samples = samples,
             url = DelayTest.url(settings.delayTestUrl)
         ).copy(method = METHOD_REAL_DELAY)
-    }
-
-    /**
-     * The PattNG liveness gate, or `null` when this profile is one of the types PattNG exempts.
-     *
-     * Exempt: UDP-first and custom protocols, where a TCP handshake to the endpoint is either
-     * meaningless (Hysteria2, WireGuard) or not part of the protocol at all (HTTP/3-only).
-     */
-    private fun realDelayGate(profile: ProxyProfile, settings: AppSettings): ProbeResult? {
-        if (!gateApplies(profile)) return null
-        return tcpPing(profile, DelayTest.TCP_GATE_TIMEOUT_MS, samples = 1, settings = settings)
     }
 
     /**
@@ -1639,7 +1600,6 @@ object RouteProbe {
         // core would fetch, instead of a rotating CDN pool. A measurement whose target changes
         // between two runs cannot be compared, and PattNG's real delay has always been one fixed
         // `generate_204` endpoint for exactly that reason.
-        val target = delayTarget(url)
         val rounds = PingBudget.samples(samples)
         val times = ArrayList<Double>(rounds)
         var injected = false
@@ -1648,12 +1608,9 @@ object RouteProbe {
         for (round in 0 until rounds) {
             if (round > 0 && !pauseBetweenSamples()) break
             val result = runCatching {
-                SocksHttpClient.tunnelRttBatch(
-                    port = socksPort,
-                    host = target.first,
-                    path = target.second,
-                    samples = 1,
-                    timeoutMs = timeoutMs.coerceIn(1_000, 12_000)
+                SocksHttpClient.tunnelRttBatchUrl(
+                    port = socksPort, url = url, samples = 1,
+                    timeoutMs = timeoutMs.coerceIn(500, 30_000)
                 )
             }.getOrNull()
             if (result != null && result.samplesMs.isNotEmpty()) {
@@ -1685,27 +1642,6 @@ object RouteProbe {
     }
 
     // ─── Helpers ───────────────────────────────────────────────────────────────
-
-    /**
-     * Splits a delay-test URL into the `host` / `path` pair the tunnel RTT primitive needs.
-     *
-     * The primitive performs a TLS request, so a plaintext `http://` override cannot be honoured
-     * here and falls back to [DelayTest.URL]; the sing-box URL test accepts either scheme because
-     * the core performs that fetch itself.
-     */
-    private fun delayTarget(url: String): Pair<String, String> {
-        val candidate = url.trim()
-        val normalized = if (candidate.startsWith("https://")) {
-            candidate
-        } else {
-            DelayTest.URL
-        }
-        return runCatching {
-            val parsed = URL(normalized)
-            val path = parsed.path.ifBlank { "/" }
-            parsed.host to path
-        }.getOrElse { "www.gstatic.com" to "/generate_204" }
-    }
 
     /**
      * Compute the standard deviation of a list of values.

@@ -531,6 +531,7 @@ private class HealthDb(context: Context) : SQLiteOpenHelper(context, "marble-int
 
     @Synchronized
     fun recordBenchmark(profileId: String, networkKey: String, result: BenchmarkResult) {
+        if (CoreFailurePolicy.isLocal(result.failureReason) || result.probeKind == RouteProbe.METHOD_TCP_PING) return
         val old = get(profileId, networkKey)
         val n = (old?.samples ?: 0) + 1
         val alpha = when {
@@ -1411,17 +1412,19 @@ class MarbleIntelligence(private val context: Context) {
      * without releasing the whole stock list into every config. Demoted endpoints stay last (they
      * are never deleted), and the layout rotates with the network seed like the Xray hardener.
      */
-    fun singBoxResolverPool(settings: AppSettings, limit: Int = 6): List<String> =
-        if (!settings.adaptiveDnsEnabled) {
-            dnsCandidatePool(settings).take(limit.coerceIn(2, 6))
-        } else {
-            ResolverEvidencePolicy.order(
-                dnsCandidatePool(settings),
-                resolverEvidence(),
-                System.currentTimeMillis(),
-                seed = currentSnapshot().key()
-            ).take(limit.coerceIn(2, 6))
-        }
+    fun singBoxResolverPool(settings: AppSettings, limit: Int = 3): List<String> {
+        val candidates = (listOf(settings.dnsPrimaryDoH, settings.dnsSecondaryDoH) + STOCK_DOH_RESOLVERS + "tls://9.9.9.9")
+            .map(String::trim).filter { it.startsWith("https://") || it.startsWith("tls://") || it.startsWith("quic://") || it.startsWith("h3://") }.distinct()
+        if (!settings.adaptiveDnsEnabled) return candidates.take(limit.coerceIn(1, 3))
+        val now = System.currentTimeMillis()
+        val evidence = resolverEvidence()
+        val demoted = ResolverEvidencePolicy.demoted(candidates, evidence, now).toSet()
+        val eligible = candidates.filter { it !in demoted }
+        // If all peers have underlay failures, keep a bounded evidence-ordered set for tunneled
+        // attempts. Underlay censorship is not proof that the same resolver fails via the proxy.
+        return ResolverEvidencePolicy.order(eligible.ifEmpty { candidates }, evidence, now,
+            seed = currentSnapshot().key()).take(limit.coerceIn(1, 3))
+    }
 
     /** Endpoints of [settings]' resolver pool that are currently demoted on this network. */
     fun resolverDemotedEndpoints(settings: AppSettings): List<String> {

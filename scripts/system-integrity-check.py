@@ -36,6 +36,7 @@ files = {
     "coreEngine": read("app/src/main/java/com/marbleng/app/core/CoreEngine.kt"),
     "singBoxBuilder": read("app/src/main/java/com/marbleng/app/core/SingBoxConfigBuilder.kt"),
     "singBox": read("app/src/main/java/com/marbleng/app/core/SingBoxManager.kt"),
+    "singBoxSession": read("app/src/main/java/com/marbleng/app/core/SingBoxProcessSession.kt"),
     # MARBLE_ENGINE_SELF_HEAL_V152 — the config doctor is the automatic repair half of the
     # 8.0.6 BLOCKED-root-cause fix, and its unit test pins the shipped failure verbatim.
     "singBoxDoctor": read("app/src/main/java/com/marbleng/app/core/SingBoxConfigDoctor.kt"),
@@ -740,12 +741,13 @@ check(
     ),
 )
 check(
-    "the URL test is served by the sing-box core, not a re-implementation",
+    "URL Test uses native sing-box delay or the selected Xray SOCKS tunnel",
     "urlTestHook" in files["probe"]
     and "urlTestHook =" in files["repo"]
     and "urlTestLive(" in files["singBox"]
     and "urlTestProfile(" in files["singBox"]
-    and "METHOD_URL_TEST" in files["probe"],
+    and "METHOD_URL_TEST" in files["probe"]
+    and "SocksUrlTest.measure(" in files["repo"],
 )
 # A legacy stored method must never crash the settings screen or measure something the product no
 # longer offers: every retired name maps onto the honest replacement.
@@ -822,16 +824,15 @@ check(
     'object SingBoxConfigDoctor' in files["singBoxDoctor"]
     and 'fun repair(' in files["singBoxDoctor"]
     and 'fun isEngineLevelFault(' in files["singBoxDoctor"]
-    and 'SingBoxConfigDoctor.repair(' in files["singBox"]
+    and 'SingBoxConfigDoctor.hardenForAndroid(' in files["singBox"]
     and 'lastSelfHealNotes' in files["singBox"],
 )
 check(
-    "an engine-level config fault self-heals onto the other engine",
-    'SingBoxConfigDoctor.isEngineLevelFault(' in files["vpn"]
-    and 'engine-selfheal-xray-fallback' in files["vpn"]
-    and 'engine-selfheal-latch-active' in files["vpn"]
-    and 'singBoxConfigFaultLatch' in files["vpn"]
-    and 'sessionEngineSelfHealTried' in files["vpn"],
+    "a local core fault neither changes engines nor penalizes healthy servers",
+    'activeEngine = settings.coreEngine()' in files["vpn"]
+    and 'allowRecovery = false' in files["vpn"]
+    and 'recordProfileFailure = false' in files["vpn"]
+    and 'singBoxConfigFaultLatch' not in files["vpn"],
 )
 check(
     "the self-heal path is pinned by unit tests",
@@ -943,11 +944,12 @@ check(
     and "hysteriaV1TranslatesToTheV1OutboundNotHysteria2" in files["singBoxTest"],
 )
 check(
-    "the URL-test throwaway path runs the same config check as a real start",
-    "var rejection = checkConfig(config)" in files["singBox"]
-    and "if (!waitForApi(controllerPort, secret, 3_000L, child))" in files["singBox"]
-    and "singBoxResolverPool(settings)" in files["singBox"]
-    and "intelligence.effectiveSettings(profile, probeSettings)" in files["repo"],
+    "connect and temporary probes use one tested process/check implementation",
+    files["singBox"].count("SingBoxProcessSession.open(") == 2
+    and 'listOf("check", "-c",' in files["singBoxSession"]
+    and 'connection.responseCode == 200' in files["singBoxSession"]
+    and 'singBoxResolverPool(settings)' in files["singBox"]
+    and 'intelligence.effectiveSettings(profile, probeSettings)' in files["repo"],
 )
 
 # MARBLE_HOME_IP_STRIP_V151 — the "Show complete IP information" caption is gone from Home. The

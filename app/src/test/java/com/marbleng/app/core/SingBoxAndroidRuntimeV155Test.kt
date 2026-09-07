@@ -225,7 +225,8 @@ class SingBoxAndroidRuntimeV155Test {
                 .put("store_rdrc", true)
             val sets = getJSONObject("route").getJSONArray("rule_set")
             for (i in 0 until sets.length()) {
-                sets.getJSONObject(i).remove("http_client")
+                sets.getJSONObject(i).remove("path")
+                sets.getJSONObject(i).put("type", "remote").put("url", "https://example.com/test.srs")
                 sets.getJSONObject(i).put("download_detour", "direct")
             }
         }
@@ -249,25 +250,12 @@ class SingBoxAndroidRuntimeV155Test {
     }
 
     @Test
-    fun everyDeprecationEscapeHatchTheCoreKnowsIsExported() {
-        // The list is `experimental/deprecated/constants.go` of the pinned core. Any option whose
-        // scheduled removal reaches the running minor version becomes `os.Exit(1)` unless its
-        // flag is set, so missing one here means a future core bump silently kills the engine.
-        val expected = setOf(
-            "ENABLE_DEPRECATED_OUTBOUND_DNS_RULE_ITEM",
-            "ENABLE_DEPRECATED_MISSING_DOMAIN_RESOLVER",
-            "ENABLE_DEPRECATED_LEGACY_DOMAIN_STRATEGY_OPTIONS",
-            "ENABLE_DEPRECATED_INLINE_ACME_OPTIONS",
-            "ENABLE_DEPRECATED_LEGACY_RULE_SET_DOWNLOAD_DETOUR",
-            "ENABLE_DEPRECATED_DNS_RULE_RULE_SET_IP_CIDR_ACCEPT_EMPTY",
-            "ENABLE_DEPRECATED_LEGACY_DNS_ADDRESS_FILTER",
-            "ENABLE_DEPRECATED_LEGACY_DNS_RULE_STRATEGY",
-            "ENABLE_DEPRECATED_INDEPENDENT_DNS_CACHE",
-            "ENABLE_DEPRECATED_STORE_RDRC",
-            "ENABLE_DEPRECATED_IMPLICIT_DEFAULT_HTTP_CLIENT"
-        )
-        assertEquals(expected, SingBoxAndroidRuntime.DEPRECATION_ENV.keys)
-        assertTrue(SingBoxAndroidRuntime.DEPRECATION_ENV.values.all { it == "true" })
+    fun deprecatedEscapeHatchesAreNotExportedOrInherited() {
+        assertTrue(SingBoxAndroidRuntime.DEPRECATION_ENV.isEmpty())
+        val process = ProcessBuilder("sing-box")
+        process.environment()["ENABLE_DEPRECATED_MISSING_DOMAIN_RESOLVER"] = "true"
+        SingBoxAndroidRuntime.prepare(process, null, null)
+        assertFalse(process.environment().keys.any { it.startsWith("ENABLE_DEPRECATED_") })
     }
 
     @Test
@@ -323,30 +311,20 @@ class SingBoxAndroidRuntimeV155Test {
                 "http_client and download_detour together are rejected by the core",
                 set.has("download_detour")
             )
-            assertEquals(
-                SingBoxConfigBuilder.DIRECT_TAG,
-                set.getJSONObject("http_client").getString("detour")
-            )
+            assertEquals("local", set.getString("type"))
+            assertFalse(set.has("url"))
+            assertFalse(set.has("http_client"))
         }
     }
 
     @Test
-    fun aCoreWithoutHttpClientsIsDowngradedRatherThanLost() {
-        // The trade-off is gated on the core's own complaint: swapping a modern spelling for a
-        // deprecated one is only right once `http_client` is what it refused. An engine that
-        // starts beats a perfectly modern config nobody can run.
-        val rejection = "decode config at route.rule_set[0]: json: unknown field \"http_client\""
-        val healed = SingBoxConfigDoctor.repair(build().toString(), rejection)
-        assertTrue(healed.repaired)
-        val config = JSONObject(healed.json)
-        assertFalse(config.has("http_clients"))
-        assertFalse(config.getJSONObject("route").has("default_http_client"))
-        val sets = config.getJSONObject("route").getJSONArray("rule_set")
-        for (i in 0 until sets.length()) {
-            val set = sets.getJSONObject(i)
-            assertFalse(set.has("http_client"))
-            assertEquals(SingBoxConfigBuilder.DIRECT_TAG, set.getString("download_detour"))
-        }
+    fun aPinnedCoreIsNeverDowngradedToDeprecatedHttpClientOptions() {
+        val original = build().toString()
+        val rejection = "decode config: json: unknown field http_client"
+        val healed = SingBoxConfigDoctor.repair(original, rejection)
+        assertFalse(healed.repaired)
+        assertEquals(original, healed.json)
+        assertFalse(healed.json.contains("download_detour"))
     }
 
     @Test

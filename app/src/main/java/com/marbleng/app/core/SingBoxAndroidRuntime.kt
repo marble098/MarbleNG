@@ -2,65 +2,12 @@ package com.marbleng.app.core
 
 import java.io.File
 
-/**
- * MARBLE_SINGBOX_ANDROID_RUNTIME_V155 — the execution contract for running the sing-box extended
- * **CLI** as a child process on Android.
+/** Android app-UID CLI contract. HEV/VpnService owns TUN, so sing-box must not enforce a
+ * Linux interface monitor. The pinned core tolerates unavailable netlink with auto-detection
+ * off (route/network.go). DNS is supplied separately by AndroidDnsBridge, NOT type:local.
  *
- * ## Why this file exists
- *
- * The official sing-box Android client (SFA) never spawns `sing-box`. It links `libbox` and hands
- * the core a **PlatformInterface** implemented on top of Android's `ConnectivityManager`, so
- * `route.NewNetworkManager` takes the `usePlatformDefaultInterfaceMonitor` branch and never opens
- * a netlink socket. MarbleNG ships the upstream *release binary* instead (one process per engine,
- * fed by `hev-socks5-tunnel`), which means `platformInterface == nil` and the core falls back to
- * the Linux monitors. Android ≥ 11 blocks `AF_NETLINK`/`NETLINK_ROUTE` for app UIDs, and
- * `sing-tun` turns that into a hard error:
- *
- * ```
- * netlink socket in Android is banned by Google, use the root or system (ADB) user to run
- * sing-box, or switch to the sing-box Android graphical interface client
- * ```
- *
- * Reading `route/network.go` of the pinned core (`shtorm-7/sing-box-extended
- * v1.14.0-extended-2.7.1`) shows exactly when that error is fatal:
- *
- * ```go
- * enforceInterfaceMonitor := options.AutoDetectInterface
- * if !usePlatformDefaultInterfaceMonitor {
- *     networkMonitor, err := tun.NewNetworkUpdateMonitor(logger)
- *     if !((err != nil && !enforceInterfaceMonitor) || errors.Is(err, os.ErrInvalid)) {
- *         if err != nil { return nil, E.Cause(err, "create network monitor") }
- *         ...
- * ```
- *
- * A banned netlink socket is **tolerated** — the core simply runs without an interface monitor —
- * unless something in the config *enforces* one. So the netlink FATAL is not an Android
- * limitation MarbleNG has to live with: it is a config bug, and [ANDROID_FORBIDDEN_ROUTE_KEYS]
- * plus [SingBoxConfigDoctor.hardenForAndroid] is the fix. A rooted device or ADB shell is only
- * needed by configs that genuinely want interface monitoring (a `tun` inbound with `auto_route`,
- * `default_network_strategy`, DHCP DNS…), none of which MarbleNG uses: the TUN belongs to
- * Android's own `VpnService` and the core only ever sees a local `mixed` inbound.
- *
- * ## The second half: impending deprecations are `os.Exit(1)`
- *
- * `experimental/deprecated` classifies every deprecated option with a *scheduled removal*
- * version. Once `ScheduledVersion.Minor - Version.Minor <= 1`, `stderrManager.ReportDeprecated`
- * stops warning and calls `logger.Fatal(…)`, which is `os.Exit(1)` in `log/observable.go`:
- *
- * ```go
- * f.logger.Error(feature.MessageWithLink())
- * f.logger.Fatal("to continuing using this feature, set environment variable ENABLE_DEPRECATED_" +
- *     feature.EnvName + "=true")
- * ```
- *
- * On the pinned 1.14 core that already applies to `missing route.default_domain_resolver`,
- * legacy domain-strategy options and outbound DNS rule items — every one of which kills
- * `sing-box check` **and** `sing-box run` before a single packet moves. MarbleNG writes a config
- * that carries none of them ([SingBoxConfigBuilder]), but a hand-edited profile, a future core
- * bump or a deprecation MarbleNG has not seen yet must never be able to take the engine down.
- * [DEPRECATION_ENV] is the documented escape hatch, applied to every child process: an impending
- * deprecation degrades back to a warning in the log instead of an exit code.
- */
+ * Generated configs must pass the pinned core WITHOUT deprecation escape hatches. Suppressing
+ * migration failures made schema regressions look like network outages in previous builds. */
 object SingBoxAndroidRuntime {
 
     /**
@@ -114,25 +61,8 @@ object SingBoxAndroidRuntime {
      */
     val ANDROID_FORBIDDEN_DNS_TYPES: List<String> = listOf("dhcp")
 
-    /**
-     * `ENABLE_DEPRECATED_<EnvName>` for every note in the pinned core's
-     * `experimental/deprecated/constants.go`. Setting them all to `true` is exactly what the
-     * core's own fatal message asks for, and it is a no-op for any option MarbleNG does not
-     * write — the manager reports nothing it does not see.
-     */
-    val DEPRECATION_ENV: Map<String, String> = listOf(
-        "OUTBOUND_DNS_RULE_ITEM",
-        "MISSING_DOMAIN_RESOLVER",
-        "LEGACY_DOMAIN_STRATEGY_OPTIONS",
-        "INLINE_ACME_OPTIONS",
-        "LEGACY_RULE_SET_DOWNLOAD_DETOUR",
-        "DNS_RULE_RULE_SET_IP_CIDR_ACCEPT_EMPTY",
-        "LEGACY_DNS_ADDRESS_FILTER",
-        "LEGACY_DNS_RULE_STRATEGY",
-        "INDEPENDENT_DNS_CACHE",
-        "STORE_RDRC",
-        "IMPLICIT_DEFAULT_HTTP_CLIENT"
-    ).associate { "ENABLE_DEPRECATED_$it" to "true" }
+    /** Kept as diagnostic metadata: no deprecated features are enabled by this runtime. */
+    val DEPRECATION_ENV: Map<String, String> = emptyMap()
 
     /**
      * True when [reason] is the Android netlink ban rather than any other startup failure. The
@@ -155,19 +85,13 @@ object SingBoxAndroidRuntime {
             "friends) before the core is started; a config that still requests it cannot run " +
             "without root/ADB."
 
-    /**
-     * Prepares [builder] to run a sing-box extended child process from an Android app UID.
-     *
-     *  - every `ENABLE_DEPRECATED_*` flag, so an impending deprecation is a warning, not
-     *    `os.Exit(1)`;
-     *  - `TMPDIR` pointed at the app's own cache: Go's `os.TempDir()` returns `/tmp` on Android,
-     *    which does not exist, so anything the core spools (rule-set downloads, cache writes)
-     *    would fail with `no such file or directory`;
-     *  - `HOME` for the same reason — the core resolves `~` for its working directory.
-     */
+    /** Writable Android paths, bounded Go heap target, and no inherited legacy escape hatches. */
     fun prepare(builder: ProcessBuilder, workingDir: File?, tempDir: File?): ProcessBuilder {
         val environment = builder.environment()
-        DEPRECATION_ENV.forEach { (key, value) -> environment[key] = value }
+        environment.keys.filter { it.startsWith("ENABLE_DEPRECATED_") }.forEach(environment::remove)
+        // This is a soft GC target, not an OS memory cap. Bounded temporary process concurrency
+        // and log buffers remain necessary; never infer a leak just from a LOW_MEMORY exit.
+        environment["GOMEMLIMIT"] = "96MiB"
         tempDir?.let { dir ->
             runCatching { dir.mkdirs() }
             environment["TMPDIR"] = dir.absolutePath

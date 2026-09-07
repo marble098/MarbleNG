@@ -26,6 +26,8 @@ data class RoutingAssetStatus(
 )
 
 class XrayManager(private val context: Context) {
+    /** Installed by the repository. Shared measurement contract, not a silent core fallback. */
+    @Volatile var singBox: SingBoxManager? = null
     // MARBLE_FAST_START_V12
     // MARBLE_LOG_RESCUE_V13
     // MARBLE_DIAG_PROCESS_PID_V15
@@ -1022,6 +1024,10 @@ class XrayManager(private val context: Context) {
         link: LinkEvidence = LinkEvidence.UNKNOWN,
         block: (Int) -> Unit
     ): Boolean {
+        if (settings.coreEngine() == CoreEngine.SINGBOX) {
+            return (singBox ?: error("core-install: sing-box manager is unavailable"))
+                .temporary(profile, settings, block)
+        }
         if (!bin.isFile || port !in 0..65535) return false
         val actualPort = reserveTemporaryPort(port) ?: return false
 
@@ -1111,9 +1117,11 @@ class XrayManager(private val context: Context) {
                     sshBridge?.stop()
                     runCatching { config.delete() }
                 }
-            }.getOrElse {
+            }.getOrElse { error ->
                 sshBridge?.stop()
                 runCatching { config.delete() }
+                if (error is InterruptedException) { Thread.currentThread().interrupt(); throw error }
+                if (error is ConfigTranslationException) throw error
                 false
             }
         } finally {

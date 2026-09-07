@@ -75,6 +75,7 @@ class ResolverEndpointQuarantine(
             null -> {
                 st.consecutiveHandshakeFails.set(0)
                 st.consecutiveEofFails.set(0)
+                st.deadlineStormStreak.set(0)
                 stickyEndpoints[endpoint] = now()
                 return
             }

@@ -71,7 +71,8 @@ class BenchmarkEngine(
             // user asked. The old `coerceIn(4, 32)` made the Settings value advisory: it could not
             // be lowered to 1 or 2 (which is what a congested mobile link needs before its numbers
             // mean anything) and it could not be raised past 32 on a fast connection.
-            directProbe(s) -> PingBudget.concurrency(s.tcpWorkers)
+            s.probeMethod == ProbeMethod.TCP_PING -> PingBudget.concurrency(s.tcpWorkers)
+            s.probeMethod == ProbeMethod.URL_TEST || s.coreEngine() == CoreEngine.SINGBOX -> s.tcpWorkers.coerceIn(1, 2)
             // MarbleNG launches one native Xray child per candidate, unlike v2rayNG's in-process
             // dialer. Four is the safe ceiling here: larger same-host bursts can manufacture
             // Connection reset / TLS timeout failures that disappear when the node is tapped alone.
@@ -118,7 +119,7 @@ class BenchmarkEngine(
          * the runs that used to hang.
          */
         val perTaskCapMs = PingBudget.perServerBudgetMs(s.benchTimeoutSec, s.benchSamples) +
-            if (directProbe(s)) BATCH_DIRECT_GRACE_MS else BATCH_TUNNEL_GRACE_MS
+            if (s.probeMethod == ProbeMethod.TCP_PING) BATCH_DIRECT_GRACE_MS else maxOf(BATCH_TUNNEL_GRACE_MS, 15_000L)
         val waves = ((candidates.size + liveWorkers - 1) / liveWorkers).coerceAtLeast(1)
         val batchCapMs = (perTaskCapMs * waves + BATCH_WAVE_GRACE_MS)
             .coerceAtMost(BATCH_ABSOLUTE_CAP_MS)
@@ -859,7 +860,7 @@ class BenchmarkEngine(
         var warmup = 0.0
         var speed = 0.0
         var udpSuccess = 0
-        var failureReason = "xray-start"
+        var failureReason = "${s.coreEngine().id}-start"
 
         val started = runCatching {
             // Reachability must be judged with the same runtime-compatible hardening class
@@ -871,23 +872,11 @@ class BenchmarkEngine(
                 // anymore. Both styles now probe the rotating pool (CDN diversity + literal ends)
                 // in the same 10-minute epoch order, so Rank, Home and the tuner all describe the
                 // same measurement plane and no single SNI can poison the fleet verdict.
-                val targets = RankTargetScheduler.ordered(
-                    targets = rankTargets(),
-                    networkKey = intelligence?.currentSnapshot()?.key().orEmpty()
-                )
+                val targets = DelayTest.candidates(s.delayTestUrl)
                 val batch = targets.firstNotNullOfOrNull { target ->
-                    // Anti-probing stagger: a burst of identical handshakes from one core is the
-                    // pattern adaptive DPI learns. One 50–400 ms random delay per target keeps the
-                    // burst asymmetric while bounded by the batch wall clock.
-                    ProbeTargetPool.staggerProbe()
+                    SingBoxProcessSession.checkInterrupted()
                     runCatching {
-                        SocksHttpClient.tunnelRttBatch(
-                            port = livePort,
-                            host = target.first,
-                            path = target.second,
-                            samples = requested,
-                            timeoutMs = timeoutMs
-                        )
+                        SocksHttpClient.tunnelRttBatchUrl(livePort, target, requested, timeoutMs)
                     }.onFailure { error ->
                         failureReason = "https:${error::class.java.simpleName}:${error.message.orEmpty()}"
                     }.getOrNull()
@@ -949,8 +938,11 @@ class BenchmarkEngine(
                     ) 100 else 0
                 }
             }
+        }.onFailure { error ->
+            if (error is InterruptedException) { Thread.currentThread().interrupt(); throw error }
+            failureReason = error.message ?: "${s.coreEngine().id}-start"
         }.getOrDefault(false)
-        if (!started && failureReason.isBlank()) failureReason = "xray-start"
+        if (!started && failureReason.isBlank()) failureReason = "${s.coreEngine().id}-start"
 
         val outcomes = times.map { kotlin.math.round(it).toInt().coerceIn(1, 10_000) }.toMutableList()
         repeat((requested - outcomes.size).coerceAtLeast(0)) { outcomes += -1 }
@@ -968,7 +960,7 @@ class BenchmarkEngine(
             else link?.successPercent ?: (times.size * 100 / requested)
         // MARBLE_IRAN_AWARE_PING_L1 — persist the per-transport verdict (VLESS+Reality and
         // Hysteria2 are recorded separately, never averaged together) plus the throttle shape.
-        runCatching {
+        if (!CoreFailurePolicy.isLocal(failureReason)) runCatching {
             intelligence?.recordTransportVerdict(
                 p.id,
                 ProtocolFingerprintAwareVerifier.TransportVerdict(

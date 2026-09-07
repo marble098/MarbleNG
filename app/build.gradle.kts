@@ -252,6 +252,15 @@ tasks.withType<Test>().configureEach {
     }
 }
 
+val prepareSingBoxRules by tasks.registering(Exec::class) {
+    workingDir(rootProject.projectDir)
+    commandLine("python3", "scripts/prepare-singbox-rules.py")
+    inputs.file(rootProject.file("singbox-rules-lock.json"))
+    inputs.file(rootProject.file("scripts/prepare-singbox-rules.py"))
+    outputs.dir(project.file("src/main/assets/singbox"))
+}
+tasks.named("preBuild") { dependsOn(prepareSingBoxRules) }
+
 dependencies {
 
     implementation(
