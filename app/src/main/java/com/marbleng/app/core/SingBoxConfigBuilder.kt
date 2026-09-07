@@ -457,7 +457,7 @@ object SingBoxConfigBuilder {
                         authSource.optString("password"),
                         hySettings?.optString("auth"),
                         hySettings?.optString("auth_str")
-                    ).firstOrNull { it.isNotBlank() }
+                    ).firstOrNull { !it.isNullOrBlank() }
                     if (auth != null) result.put("auth_str", auth)
                 } else {
                     result.put("type", "hysteria2")
@@ -467,7 +467,7 @@ object SingBoxConfigBuilder {
                         authSource.optString("auth_str"),
                         hySettings?.optString("auth"),
                         hySettings?.optString("auth_str")
-                    ).firstOrNull { it.isNotBlank() }
+                    ).firstOrNull { !it.isNullOrBlank() }
                     if (auth != null) result.put("password", auth)
                 }
                 result.put("server", address)
