@@ -612,51 +612,20 @@ object SingBoxConfigBuilder {
         }
 
             "trojan" -> {
-                val server = firstServer(xraySettings) ?: error("trojan outbound has no server")
-                result.put("type", "trojan")
-                result.put("server", server.optString("address"))
-                result.put("server_port", server.optInt("port"))
-                result.put("password", server.optString("password"))
-            }
+            result.put("type", protocol)
+        }
 
             "shadowsocks" -> {
-                val server = firstServer(xraySettings) ?: error("shadowsocks outbound has no server")
-                result.put("type", "shadowsocks")
-                result.put("server", server.optString("address"))
-                result.put("server_port", server.optInt("port"))
-                result.put("method", server.optString("method"))
-                result.put("password", server.optString("password"))
-                // MARBLE_SINGBOX_AUTOPARSER_V154 — SIP002 `uot`: Xray wraps UDP in TCP on this
-                // flag, and sing-box spells the same request `udp_over_tcp`. The field was read
-                // nowhere before, so a UOT node silently dropped to unencrypted UDP semantics.
-                if (server.optBoolean("uot", false) || xraySettings.optBoolean("uot", false)) {
-                    result.put("udp_over_tcp", JSONObject().put("enabled", true))
-                }
-                server.optString("plugin").takeIf { it.isNotBlank() }?.let { result.put("plugin", it) }
-                server.optString("plugin_opts").takeIf { it.isNotBlank() }
-                    ?.let { result.put("plugin_opts", it) }
-            }
+            result.put("type", protocol)
+        }
 
             "socks" -> {
-                val server = firstServer(xraySettings) ?: error("socks outbound has no server")
-                result.put("type", "socks")
-                result.put("server", server.optString("address"))
-                result.put("server_port", server.optInt("port"))
-                result.put("version", "5")
-                server.optJSONArray("users")?.optJSONObject(0)?.let { user ->
-                    putUserPass(result, user)
-                } ?: putUserPass(result, server)
-            }
+            result.put("type", protocol)
+        }
 
             "http" -> {
-                val server = firstServer(xraySettings) ?: error("http outbound has no server")
-                result.put("type", "http")
-                result.put("server", server.optString("address"))
-                result.put("server_port", server.optInt("port"))
-                server.optJSONArray("users")?.optJSONObject(0)?.let { user ->
-                    putUserPass(result, user)
-                } ?: putUserPass(result, server)
-            }
+            result.put("type", protocol)
+        }
 
             "hysteria2", "hysteria" -> {
             result.put("type", protocol)
