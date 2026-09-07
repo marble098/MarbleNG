@@ -678,7 +678,7 @@ class BugFinder(private val context: Context, private val xray: XrayManager, pri
                 appendLine("profile-id=${activeProfileId.take(16)}")
                 appendLine("historical-crash-like=${exits.crashLike}")
                 appendLine("historical-low-memory=${exits.lowMemory}")
-                appendLine("stability-typed=RESTARTS:$restarts EXIT-BLOCK:$exits TIMEOUT:$timeouts UPTIME:${tunnelUptimeMs}ms")
+                appendLine("stability-typed=RESTARTS:$restarts EXIT-BLOCK:$exitEvents TIMEOUT:$timeouts UPTIME:${tunnelUptimeMs}ms")
             }
         )
 
