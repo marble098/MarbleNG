@@ -36,6 +36,14 @@ data class SingBoxUrlTestResult(
  * so `GET /proxies/{tag}/delay?url=…&timeout=…` asks the *core* to measure a real round trip
  * through the selected outbound. That is the honest version of a latency number — no Kotlin socket
  * stands in for the tunnel.
+ *
+ * MARBLE_SINGBOX_ANDROID_RUNTIME_V155 — every child process this class spawns goes through
+ * [spawn], which applies [SingBoxAndroidRuntime]: the config is hardened *before* the core sees
+ * it, the `ENABLE_DEPRECATED_*` flags are exported so an impending deprecation cannot become
+ * `os.Exit(1)`, and `TMPDIR`/`HOME` point somewhere an Android app UID may actually write. That
+ * is what turned `URL test (sing-box extended)` from a permanent `reachable=0` into a
+ * measurement: the test never failed at the Clash API, it failed because the core it needed had
+ * already died on `create network monitor: netlink socket in Android is banned by Google`.
  */
 class SingBoxManager(private val context: Context) {
 
@@ -127,7 +135,15 @@ class SingBoxManager(private val context: Context) {
 
             lastStartPhase = "write"
             val config = runtimeConfig
-            runCatching { config.writeText(built.json) }
+            // MARBLE_SINGBOX_ANDROID_RUNTIME_V155 — hardening is a *preflight*, not a rescue.
+            // Waiting for `sing-box check` to refuse a config and then guessing the repair from a
+            // Go error string is strictly worse than never writing the option: the netlink FATAL
+            // and the 1.14 impending deprecations are both decidable from the JSON alone. The
+            // pass is idempotent, so a config the builder already writes correctly produces no
+            // notes and no diff.
+            val hardened = SingBoxConfigDoctor.hardenForAndroid(built.json)
+            if (hardened.repaired) lastSelfHealNotes = hardened.notes
+            runCatching { config.writeText(hardened.json) }
                 .onFailure { return fail("Config write failed: ${it.message}") }
 
             // MARBLE_ENGINE_SELF_HEAL_V152 — a config the core rejects is repaired in place and
@@ -139,11 +155,11 @@ class SingBoxManager(private val context: Context) {
             lastStartPhase = "check"
             var rejection = checkConfig(config)
             if (rejection != null) {
-                val repair = SingBoxConfigDoctor.repair(config.readText())
+                val repair = SingBoxConfigDoctor.repair(config.readText(), rejection.orEmpty())
                 if (repair.repaired) {
                     runCatching {
                         config.writeText(repair.json)
-                        lastSelfHealNotes = repair.notes
+                        lastSelfHealNotes = hardened.notes + repair.notes
                     }.onFailure {
                         lastSelfHealNotes = emptyList()
                         return fail("Config write failed: ${it.message}")
@@ -155,12 +171,11 @@ class SingBoxManager(private val context: Context) {
                     }
                 }
             }
-            rejection?.let { return fail("sing-box rejected the config: $it") }
+            rejection?.let { return fail("sing-box rejected the config: ${explain(it)}") }
 
             lastStartPhase = "spawn"
             val child = runCatching {
-                ProcessBuilder(bin.absolutePath, "run", "-c", config.absolutePath)
-                    .redirectErrorStream(true)
+                spawn(listOf("run", "-c", config.absolutePath))
                     .redirectOutput(ProcessBuilder.Redirect.appendTo(logFile))
                     .start()
             }.getOrElse { return fail("Spawn failed: ${it.message}") }
@@ -176,9 +191,9 @@ class SingBoxManager(private val context: Context) {
                 stopLocked()
                 return fail(
                     if (alive) {
-                        "sing-box listener did not open: ${lastLogHint()}"
+                        "sing-box listener did not open: ${explain(lastLogHint())}"
                     } else {
-                        "sing-box exited with code ${exit ?: -1}: ${lastLogHint()}"
+                        "sing-box exited with code ${exit ?: -1}: ${explain(lastLogHint())}"
                     }
                 )
             }
@@ -215,23 +230,83 @@ class SingBoxManager(private val context: Context) {
     fun checkConfig(config: File): String? {
         val output = File(context.cacheDir, "singbox-check.log")
         runCatching { output.delete() }
+        // MARBLE_SINGBOX_ANDROID_RUNTIME_V155 — the config is checked through a diagnostic copy
+        // whose `log.output` is stripped. That single key was hiding the answer: with it set, the
+        // core opens the runtime log file and every deprecation warning, DNS error and fatal exit
+        // is written *there*, while the pipe MarbleNG actually reads gets only the last line the
+        // cobra command prints. The copy is byte-identical apart from the log sink, so the
+        // verdict is still the verdict for the real config.
+        val target = diagnosticCopy(config) ?: config
         val check = runCatching {
-            ProcessBuilder(bin.absolutePath, "check", "-c", config.absolutePath)
-                .redirectErrorStream(true)
+            spawn(listOf("check", "-c", target.absolutePath))
                 .redirectOutput(ProcessBuilder.Redirect.to(output))
                 .start()
-        }.getOrElse { return it.message ?: it::class.java.simpleName }
-
-        if (!runCatching { check.waitFor(15, TimeUnit.SECONDS) }.getOrDefault(false)) {
-            runCatching { check.destroyForcibly() }
-            return "check timed out"
+        }.getOrElse {
+            if (target !== config) runCatching { target.delete() }
+            return it.message ?: it::class.java.simpleName
         }
-        if (check.exitValue() == 0) return null
-        return runCatching {
-            output.useLines { lines ->
-                lines.filter { it.isNotBlank() }.toList().takeLast(6).joinToString(" | ")
-            }.take(900)
-        }.getOrDefault("check failed")
+
+        try {
+            if (!runCatching { check.waitFor(15, TimeUnit.SECONDS) }.getOrDefault(false)) {
+                runCatching { check.destroyForcibly() }
+                return "check timed out"
+            }
+            if (check.exitValue() == 0) return null
+            return runCatching {
+                output.useLines { lines ->
+                    lines.filter { it.isNotBlank() }.toList().takeLast(6).joinToString(" | ")
+                }.take(900)
+            }.getOrDefault("check failed")
+        } finally {
+            if (target !== config) runCatching { target.delete() }
+        }
+    }
+
+    /**
+     * A copy of [config] with `log.output` removed and the level lowered to `info`, so that
+     * everything the core has to say about the config lands on the pipe this process reads.
+     * Returns null when the config cannot be parsed — the caller then checks the original, and
+     * the core's parser produces the (better) error.
+     */
+    private fun diagnosticCopy(config: File): File? = runCatching {
+        val root = JSONObject(config.readText())
+        val log = root.optJSONObject("log") ?: JSONObject()
+        log.remove("output")
+        log.put("level", "info")
+        log.put("disabled", false)
+        root.put("log", log)
+        val copy = File(context.cacheDir, "singbox-check-config.json")
+        copy.writeText(root.toString())
+        copy
+    }.getOrNull()
+
+    /**
+     * MARBLE_SINGBOX_ANDROID_RUNTIME_V155 — every sing-box child process is built here, so no
+     * call site can forget the Android execution contract: the `ENABLE_DEPRECATED_*` flags that
+     * turn an impending deprecation back into a warning instead of `os.Exit(1)`, and a writable
+     * `TMPDIR`/`HOME` (Go's `os.TempDir()` answers `/tmp`, which does not exist on Android).
+     */
+    private fun spawn(args: List<String>): ProcessBuilder {
+        val builder = ProcessBuilder(listOf(bin.absolutePath) + args).redirectErrorStream(true)
+        return SingBoxAndroidRuntime.prepare(
+            builder,
+            workingDir = context.filesDir,
+            tempDir = File(context.cacheDir, "singbox-tmp")
+        )
+    }
+
+    /**
+     * Appends a human remediation to a core rejection when MarbleNG knows one. The raw Go error
+     * is always kept: the point is to add the sentence the user can act on, never to replace the
+     * evidence with a guess.
+     */
+    private fun explain(reason: String): String = when {
+        SingBoxAndroidRuntime.isNetlinkBan(reason) ->
+            "$reason — ${SingBoxAndroidRuntime.NETLINK_REMEDIATION}"
+        "ENABLE_DEPRECATED_" in reason ->
+            "$reason — this build already exports every ENABLE_DEPRECATED_* flag, so the core " +
+                "is refusing the option itself rather than its deprecation."
+        else -> reason
     }
 
     // ─────────────────────────────────────────────────────────────────────────────
@@ -317,14 +392,20 @@ class SingBoxManager(private val context: Context) {
         // The previous throwaway path skipped `checkConfig` entirely and only ran the doctor; a
         // config that still contained a translation bug was therefore measured as a startup
         // failure with a raw single-line log hint instead of being repaired first.
-        runCatching { config.writeText(built.json) }
+        //
+        // MARBLE_SINGBOX_ANDROID_RUNTIME_V155 — and the same *preflight* hardening as a real
+        // start, because a URL test that cannot start the core is exactly the failure the user
+        // sees as `reachable=0`. The measurement path and the connect path now write byte-for-byte
+        // the same class of config; there is no second, weaker writer left to drift.
+        val hardened = SingBoxConfigDoctor.hardenForAndroid(built.json)
+        runCatching { config.writeText(hardened.json) }
             .onFailure {
                 return SingBoxUrlTestResult(0L, false, "config write failed: ${it.message}")
             }
 
         var rejection = checkConfig(config)
         if (rejection != null) {
-            val healed = SingBoxConfigDoctor.repair(config.readText())
+            val healed = SingBoxConfigDoctor.repair(config.readText(), rejection.orEmpty())
             if (healed.repaired) {
                 runCatching { config.writeText(healed.json) }
                     .onFailure {
@@ -334,13 +415,14 @@ class SingBoxManager(private val context: Context) {
             }
         }
         rejection?.let {
-            return SingBoxUrlTestResult(0L, false, "sing-box rejected the URL-test config: $it")
+            return SingBoxUrlTestResult(
+                0L, false, "sing-box rejected the URL-test config: ${explain(it)}"
+            )
         }
 
         var child: Process? = null
         return try {
-            child = ProcessBuilder(bin.absolutePath, "run", "-c", config.absolutePath)
-                .redirectErrorStream(true)
+            child = spawn(listOf("run", "-c", config.absolutePath))
                 .redirectOutput(ProcessBuilder.Redirect.appendTo(log))
                 .start()
             if (!waitPort(controllerPort, 8_000L, child)) {
@@ -349,7 +431,7 @@ class SingBoxManager(private val context: Context) {
                         lines.filter { it.isNotBlank() }.toList().takeLast(4).joinToString(" | ")
                     }.take(600)
                 }.getOrDefault("")
-                return SingBoxUrlTestResult(0L, false, "core did not start: $hint")
+                return SingBoxUrlTestResult(0L, false, "core did not start: ${explain(hint)}")
             }
             // The controller port can accept a TCP connection slightly before the Clash API
             // has finished registering the proxy list. A single immediate request then produces

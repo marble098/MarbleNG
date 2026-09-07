@@ -38,6 +38,12 @@ object SingBoxConfigBuilder {
     const val DNS_LOCAL_TAG = "dns-local"
     const val DNS_HOSTS_TAG = "dns-hosts"
 
+    /**
+     * MARBLE_SINGBOX_ANDROID_RUNTIME_V155 — the single named HTTP client every remote rule-set
+     * download uses. See [routeConfig] for why it exists instead of `download_detour`.
+     */
+    const val HTTP_CLIENT_DIRECT_TAG = "marble-http-direct"
+
     const val STRATEGY_LINK = "link-parser"
     const val STRATEGY_TRANSLATED = "translated"
 
@@ -227,6 +233,19 @@ object SingBoxConfigBuilder {
                 )
             )
             .put("outbounds", outbounds)
+            .put(
+                // MARBLE_SINGBOX_ANDROID_RUNTIME_V155 — one named HTTP client, used by every
+                // remote rule set and by `route.default_http_client`. `download_detour` (the old
+                // spelling) is deprecated in 1.14, and an unnamed default client is deprecated
+                // too; a single explicit client answers both, and keeps the promise that matters:
+                // rule sets are fetched `direct`, never through a tunnel that does not exist yet.
+                "http_clients",
+                JSONArray().put(
+                    JSONObject()
+                        .put("tag", HTTP_CLIENT_DIRECT_TAG)
+                        .put("detour", DIRECT_TAG)
+                )
+            )
             .put("route", routeConfig(settings, notes))
             .put(
                 "experimental",
@@ -252,7 +271,11 @@ object SingBoxConfigBuilder {
                                 JSONObject()
                                     .put("enabled", true)
                                     .put("path", cachePath)
-                                    .put("store_rdrc", true)
+                                    // MARBLE_SINGBOX_ANDROID_RUNTIME_V155 — `store_rdrc` is
+                                    // deprecated in sing-box 1.14 (removal scheduled for 1.16);
+                                    // `store_dns` is the documented replacement and persists the
+                                    // whole DNS cache rather than only the rejected-domain cache.
+                                    .put("store_dns", true)
                             )
                         }
                     }
@@ -917,6 +940,26 @@ object SingBoxConfigBuilder {
             .put("rules", rules)
             .put("rule_set", ruleSets)
             .put("final", PROXY_TAG)
+            // MARBLE_SINGBOX_ANDROID_RUNTIME_V155 — the two route keys that keep the pinned 1.14
+            // core alive on Android.
+            //
+            // `default_domain_resolver` is not a nicety. Its *absence* is a deprecation whose
+            // scheduled removal version is 1.14.0, so `deprecated.Report` takes the impending
+            // branch and calls `os.Exit(1)` before the first packet moves. MarbleNG always
+            // configures more than one DNS transport, which is precisely the condition the core
+            // checks, so every start would exit. The resolver named here is the *system* one:
+            // a dial-time lookup must never depend on the tunnel it is helping to build.
+            //
+            // `default_http_client` is the modern owner of remote rule-set downloads. Naming it
+            // also silences the "implicit default HTTP client" deprecation, which would otherwise
+            // fire the first time a rule set is fetched.
+            //
+            // Note what is *not* here: `auto_detect_interface`. It is the only option that sets
+            // `enforceInterfaceMonitor` in `route.NewNetworkManager`, and with it the core turns
+            // Android's banned netlink socket into `initialize network manager: create network
+            // monitor: …`. Absent, the very same code path tolerates the ban and runs.
+            .put("default_domain_resolver", DNS_LOCAL_TAG)
+            .put("default_http_client", HTTP_CLIENT_DIRECT_TAG)
     }
 
     private fun remoteRuleSet(tag: String, relativePath: String): JSONObject = JSONObject()
@@ -924,7 +967,12 @@ object SingBoxConfigBuilder {
         .put("tag", tag)
         .put("format", "binary")
         .put("url", "$RULE_SET_BASE/$relativePath")
-        .put("download_detour", DIRECT_TAG)
+        // MARBLE_SINGBOX_ANDROID_RUNTIME_V155 — `download_detour` is deprecated in sing-box 1.14
+        // ("legacy `download_detour` remote rule-set option", scheduled for removal in 1.16) and
+        // the core refuses a rule-set that carries both spellings. The replacement is a real HTTP
+        // client, and the *point* of it is unchanged: a fresh install has no working tunnel yet
+        // when the first rule set is fetched, so the download must go out `direct`.
+        .put("http_client", JSONObject().put("detour", DIRECT_TAG))
         .put("update_interval", "7d")
 
     private fun splitList(raw: String): JSONArray {
