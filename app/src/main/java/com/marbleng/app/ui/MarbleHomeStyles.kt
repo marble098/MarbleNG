@@ -2128,7 +2128,7 @@ private fun HomeBareAction(
                 boundedShape = CircleShape,
                 onClick = onClick
             )
-            .semantics { contentDescription = contentDescription },
+            .semantics { contentDescription = description },
         contentAlignment = Alignment.Center
     ) {
         if (busy) {
@@ -3091,7 +3091,7 @@ private fun FloatingSplitAction(
             .clip(CircleShape)
             .background(tone)
             .kineticClickable(enabled = enabled, boundedShape = CircleShape, onClick = onClick)
-            .semantics { contentDescription = contentDescription },
+            .semantics { contentDescription = description },
         contentAlignment = Alignment.Center
     ) {
         content()
@@ -3584,7 +3584,7 @@ private fun ModularPingAction(
             .clip(CircleShape)
             .background(Aether.Emerald)
             .kineticClickable(enabled = enabled, boundedShape = CircleShape, onClick = onClick)
-            .semantics { contentDescription = contentDescription },
+            .semantics { contentDescription = description },
         contentAlignment = Alignment.Center
     ) {
         HomeGlyphIcon(HomeGlyph.PULSE, Color.White, Modifier.size(24.dp))
