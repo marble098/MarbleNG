@@ -143,3 +143,6 @@ and no workflow runs that script.
 **Not verified locally:** there is no JDK, Android SDK or Gradle in this environment and the
 download hosts are unreachable, so `:app:compileDebugKotlin` and `:app:testDebugUnitTest` have not
 been run here. The pull request's CI run is the compile and test gate for this branch.
+
+
+> Baseline probe commit: reproduce verify on the unchanged main tree to split CI-failure ownership. No code change.
