@@ -430,12 +430,12 @@ object SingBoxConfigBuilder {
 
             "hysteria2", "hysteria" -> {
                 val server = firstServer(xraySettings)
-                val address = sequenceOf(
+                val address = sequenceOf<String?>(
                     server?.optString("address"),
                     xraySettings.optString("address")
                 ).firstOrNull { !it.isNullOrBlank() }
                     ?: error("$protocol outbound has no address")
-                val port = sequenceOf(
+                val port = sequenceOf<Int?>(
                     server?.optInt("port", 0),
                     xraySettings.optInt("port", 0)
                 ).firstOrNull { it != null && it > 0 } ?: error("$protocol outbound has no port")
@@ -451,7 +451,7 @@ object SingBoxConfigBuilder {
                 val authSource = server ?: xraySettings
                 if (version == 1) {
                     result.put("type", "hysteria")
-                    val auth = sequenceOf(
+                    val auth = sequenceOf<String?>(
                         authSource.optString("auth_str"),
                         authSource.optString("auth"),
                         authSource.optString("password"),
@@ -461,7 +461,7 @@ object SingBoxConfigBuilder {
                     if (auth != null) result.put("auth_str", auth)
                 } else {
                     result.put("type", "hysteria2")
-                    val auth = sequenceOf(
+                    val auth = sequenceOf<String?>(
                         authSource.optString("password"),
                         authSource.optString("auth"),
                         authSource.optString("auth_str"),
@@ -472,13 +472,13 @@ object SingBoxConfigBuilder {
                 }
                 result.put("server", address)
                 result.put("server_port", port)
-                val up = sequenceOf(
+                val up = sequenceOf<Int?>(
                     server?.optInt("up_mbps", 0)?.takeIf { it > 0 },
                     hySettings?.optInt("up_mbps", 0)?.takeIf { it > 0 },
                     hySettings?.optString("up")?.toIntOrNull()?.takeIf { it > 0 }
                 ).firstOrNull { it != null }
                 if (up != null) result.put("up_mbps", up)
-                val down = sequenceOf(
+                val down = sequenceOf<Int?>(
                     server?.optInt("down_mbps", 0)?.takeIf { it > 0 },
                     hySettings?.optInt("down_mbps", 0)?.takeIf { it > 0 },
                     hySettings?.optString("down")?.toIntOrNull()?.takeIf { it > 0 }
