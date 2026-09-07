@@ -708,7 +708,26 @@ object SingBoxConfigBuilder {
                 }
                 result.put("server", address)
                 result.put("server_port", port)
-        }
+        
+                // MARBLE_SINGBOX_AUTOPARSER_V154 — the rate fields arrive as integers, strings,
+                // or human strings ("100 Mbps"): digit-extraction instead of raw `toString`.
+                // The core REQUIRES both rates on v1, so the missing ones get the documented
+                // 10/50 defaults instead of a config `sing-box check` refuses.
+                val up = firstMbps(
+                    optMbps(server, "up_mbps"),
+                    optMbps(hySettings, "up_mbps"),
+                    optMbps(xraySettings, "up_mbps"),
+                    mbpsDigits(hySettings?.optString("up"))
+                )
+                val down = firstMbps(
+                    optMbps(server, "down_mbps"),
+                    optMbps(hySettings, "down_mbps"),
+                    optMbps(xraySettings, "down_mbps"),
+                    mbpsDigits(hySettings?.optString("down"))
+                )
+                result.put("up_mbps", up ?: 10)
+                result.put("down_mbps", down ?: 50)
+}
 
             // MARBLE_SINGBOX_AUTOPARSER_V154 — WireGuard, translated from Xray's
             // `secretKey` + `peers` shape onto sing-box's `private_key` + `server`/`peers`
