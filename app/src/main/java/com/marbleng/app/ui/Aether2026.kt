@@ -3923,11 +3923,15 @@ private fun CyberLibrary(
                     autoRefresh = settings.subscriptionAutoRefresh,
                     onToggle = { repo.setLibrarySourceCollapsed(group.key, !collapsed) },
                     onRefresh = { repo.refresh(group.key) },
+                    // MARBLE_PING_CANCEL_V154 — the header ping toggles: while THIS group is
+                    // being measured, a tap stops the sweep; while it is not, a tap starts it.
                     // A country bucket has no source id, so it hands its servers over directly;
                     // a subscription/manual group pings its whole source (including rows the
                     // current filter hides), which is what its header count promises.
                     onPing = {
-                        if (group.kind == LibraryGroupKind.COUNTRY) {
+                        if (repo.probeActive && group.profiles.any { it.id in repo.probeBatch }) {
+                            repo.cancelProbes()
+                        } else if (group.kind == LibraryGroupKind.COUNTRY) {
                             repo.pingProfiles(group.profiles, group.title, group.key)
                         } else {
                             repo.testSource(group.key)
@@ -4697,31 +4701,51 @@ private fun ServersFilterRail(
         }
 
         // Page-wide ping: measures every server of the current scope at once.
-        val pingLabel = trx(
-            if (groupActive) "Ping every server in this group" else "Ping every server"
-        )
+        // MARBLE_PING_CANCEL_V154 — while the sweep is live the button becomes a stop square:
+        // the same spot that started "Ping all servers" ends it. Results measured so far stay.
+        val probing = repo.probeActive
+        val pingLabel = when {
+            probing -> Tr.now.cancel
+            else -> trx(
+                if (groupActive) "Ping every server in this group" else "Ping every server"
+            )
+        }
         Box(
             modifier = Modifier
                 .size(38.dp)
                 .clip(ServersBadgeShape)
-                .background(if (busy) Aether.Cyan.copy(alpha = .12f) else Aether.GlassStrong.copy(alpha = .30f))
+                .background(
+                    when {
+                        probing -> Aether.Danger.copy(alpha = .14f)
+                        busy -> Aether.Cyan.copy(alpha = .12f)
+                        else -> Aether.GlassStrong.copy(alpha = .30f)
+                    }
+                )
+                .border(
+                    width = 1.dp,
+                    color = when {
+                        probing -> Aether.Danger.copy(alpha = .40f)
+                        else -> Color.Transparent
+                    },
+                    shape = ServersBadgeShape
+                )
                 .semantics { contentDescription = pingLabel }
                 .kineticClickable(
-                    enabled = !repo.busy,
+                    enabled = probing || !repo.busy,
                     role = Role.Button,
                     boundedShape = ServersBadgeShape,
-                    onClick = onPingAll
+                    onClick = { if (probing) repo.cancelProbes() else onPingAll() }
                 ),
             contentAlignment = Alignment.Center
         ) {
-            if (busy) {
-                CircularProgressIndicator(
+            when {
+                probing -> HomeVectorIcon(HomeIcon.STOP, Aether.Danger, Modifier.size(17.dp))
+                busy -> CircularProgressIndicator(
                     modifier = Modifier.size(16.dp),
                     color = Aether.Cyan,
                     strokeWidth = 2.dp
                 )
-            } else {
-                HomeVectorIcon(HomeIcon.PING, Aether.Ink, Modifier.size(19.dp))
+                else -> HomeVectorIcon(HomeIcon.PING, Aether.Ink, Modifier.size(19.dp))
             }
         }
     }
@@ -4806,7 +4830,13 @@ private fun ServersProbeStrip(repo: AppRepository) {
                 Modifier.size(17.dp)
             )
             Text(
-                if (refreshing) trx("Refreshing sources") else trx("Measuring servers"),
+                if (repo.probeCancelling) {
+                    trx("Cancelling…")
+                } else if (refreshing) {
+                    trx("Refreshing sources")
+                } else {
+                    trx("Measuring servers")
+                },
                 color = Aether.Ink,
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.SemiBold,
@@ -4822,6 +4852,27 @@ private fun ServersProbeStrip(repo: AppRepository) {
                         fontWeight = FontWeight.Bold
                     )
                 )
+            }
+            // MARBLE_PING_CANCEL_V154 — the strip that announces the sweep also ends it: one
+            // obvious stop control next to the live counter, so cancelling a long "Ping all"
+            // never requires finding the little button that started it.
+            if (repo.probeActive) {
+                Box(
+                    modifier = Modifier
+                        .size(30.dp)
+                        .clip(RoundedCornerShape(9.dp))
+                        .background(Aether.Danger.copy(alpha = .14f))
+                        .border(1.dp, Aether.Danger.copy(alpha = .40f), RoundedCornerShape(9.dp))
+                        .semantics { contentDescription = Tr.now.cancel }
+                        .kineticClickable(
+                            role = Role.Button,
+                            boundedShape = RoundedCornerShape(9.dp),
+                            onClick = repo::cancelProbes
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    HomeVectorIcon(HomeIcon.STOP, Aether.Danger, Modifier.size(14.dp))
+                }
             }
         }
         Box(
@@ -5024,14 +5075,23 @@ private fun ServersGroupHeader(
             // than any other on this page, while the icon beside it refreshed the same group in
             // one. The verb moved to where its sibling already lives; the menu entry is gone, so
             // there is exactly one way to ping a group.
-            val pingLabel = trx("Ping ${group.title}")
+            // MARBLE_PING_CANCEL_V154 — the ping verb toggles to a stop square while this
+            // group's sweep is live: the place that started the measurement also ends it.
+            val pingLabel = if (pinging) {
+                "${Tr.now.cancel} • ${group.title}"
+            } else {
+                trx("Ping ${group.title}")
+            }
             Box(
                 modifier = Modifier
                     .size(34.dp)
                     .clip(RoundedCornerShape(11.dp))
+                    .background(
+                        if (pinging) Aether.Danger.copy(alpha = .12f) else Color.Transparent
+                    )
                     .semantics { contentDescription = pingLabel }
                     .kineticClickable(
-                        enabled = !pinging && group.profiles.isNotEmpty(),
+                        enabled = (pinging || group.profiles.isNotEmpty()),
                         role = Role.Button,
                         boundedShape = RoundedCornerShape(11.dp),
                         onClick = onPing
@@ -5039,11 +5099,7 @@ private fun ServersGroupHeader(
                 contentAlignment = Alignment.Center
             ) {
                 if (pinging) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(15.dp),
-                        color = Aether.Emerald,
-                        strokeWidth = 2.dp
-                    )
+                    HomeVectorIcon(HomeIcon.STOP, Aether.Danger, Modifier.size(15.dp))
                 } else {
                     HomeVectorIcon(
                         HomeIcon.PING,

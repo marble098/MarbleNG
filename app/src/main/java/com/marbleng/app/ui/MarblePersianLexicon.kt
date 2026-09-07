@@ -946,6 +946,7 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Ping every server" to "پینگ همه سرورها",
     "Ping every server in this group" to "پینگ همه سرورهای این گروه",
     "Measuring servers" to "در حال اندازه‌گیری سرورها",
+    "Cancelling…" to "در حال لغو…",
     "Refreshing sources" to "در حال به‌روزرسانی منابع",
     "Add a server, paste a config or import a subscription to get started." to
         "برای شروع یک سرور اضافه کنید، کانفیگ بچسبانید یا اشتراک وارد کنید.",
