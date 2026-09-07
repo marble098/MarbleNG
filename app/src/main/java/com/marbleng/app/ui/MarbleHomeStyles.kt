@@ -1730,9 +1730,11 @@ internal fun MarbleWordmark(modifier: Modifier = Modifier) {
             1.00f to emerald
         )
     }
+    // MARBLE_HOME_TOPBAR_CLEAN_V155 — the wordmark grew a step (titleLarge → headlineSmall) so
+    // the logo reads as the header's primary element now that the plate behind it is gone.
     Text(
         text = "MarbleNG",
-        style = MaterialTheme.typography.titleLarge.copy(
+        style = MaterialTheme.typography.headlineSmall.copy(
             brush = ramp,
             fontWeight = FontWeight.Black,
             letterSpacing = 0.4.sp
@@ -1773,10 +1775,10 @@ internal fun HomeTopActionBar(
     val groupLabel = repo.homeGroupPingLabel()
     val groupBusy = repo.homeGroupPingRunning
 
-    // MARBLE_HOME_AURORA_HEADER_V154 — one shared header for all four Home skins. The former
-    // transparent icon row had no visual anchor and made the top of each theme feel unfinished.
-    // This compact two-level surface gives the page a clear identity, live state and actions
-    // without changing the evidence or action contract used by any theme.
+    // MARBLE_HOME_TOPBAR_CLEAN_V155 — the header plate is gone. The translucent gradient plate
+    // this row used to sit on read as a second status card fighting the banner underneath it, so
+    // it is removed: the wordmark, the live-state dot and the three actions now float directly on
+    // the page with no pill, no frame and no background behind them.
     val stateTone = homeStateTone(evidence)
     val stateLabel = when {
         evidence.connected -> "CONNECTED"
@@ -1785,55 +1787,35 @@ internal fun HomeTopActionBar(
         evidence.blocked -> "BLOCKED"
         else -> "READY"
     }
-    val headerShape = RoundedCornerShape(22.dp)
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .clip(headerShape)
-            .background(
-                Brush.horizontalGradient(
-                    listOf(
-                        Aether.VoidElevated,
-                        stateTone.copy(alpha = .12f),
-                        Aether.VoidElevated
-                    )
-                )
-            )
-            .border(1.dp, stateTone.copy(alpha = .20f), headerShape)
-            .padding(start = 14.dp, end = 8.dp, top = 10.dp, bottom = 10.dp),
+            .padding(start = 4.dp, end = 4.dp, top = 4.dp, bottom = 2.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Column(
+        // Live state sits BESIDE the wordmark, never stacked underneath it, so nothing reads as a
+        // caption under the logo and the whole header stays one optical line.
+        Row(
             modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(3.dp)
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             MarbleWordmark()
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    Modifier
-                        .size(7.dp)
-                        .clip(CircleShape)
-                        .background(stateTone)
-                )
-                Spacer(Modifier.width(6.dp))
-                Text(
-                    stateLabel,
-                    color = stateTone,
-                    style = MaterialTheme.typography.labelSmall.copy(
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 1.3.sp
-                    )
-                )
-                if (evidence.profile != null) {
-                    Text(
-                        "  •  ${evidence.nodeName.ifBlank { Tr.now.chooseRoute }}",
-                        color = Aether.InkMuted,
-                        style = MaterialTheme.typography.labelSmall,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
+            Box(
+                Modifier
+                    .size(8.dp)
+                    .clip(CircleShape)
+                    .background(stateTone)
+            )
+            Text(
+                stateLabel,
+                color = stateTone,
+                style = MaterialTheme.typography.labelMedium.copy(
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.1.sp
+                ),
+                maxLines = 1
+            )
         }
 
         Box {
