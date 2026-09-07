@@ -160,11 +160,13 @@ class DohResolverPool(
     )
 
     companion object {
-        /** Cloudflare, Google, Quad9 + an internal/proxied DoH. */
+        /** Cloudflare, Google, Quad9, AdGuard, fallback + internal/proxied DoH. */
         val DEFAULT_PROVIDERS = listOf(
             Provider("cloudflare-doh", "https://1.1.1.1/dns-query"),
             Provider("google-doh", "https://8.8.8.8/dns-query"),
             Provider("quad9-doh", "https://9.9.9.9/dns-query"),
+            Provider("adguard-doh", "https://dns.adguard-dns.com/dns-query"),
+            Provider("cloudflare-fallback", "https://1.0.0.1/dns-query"),
             Provider("internal-doh", "https://dns.shecan.ir/dns-query", internal = true)
         )
     }

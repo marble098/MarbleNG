@@ -926,6 +926,13 @@ private class HealthDb(context: Context) : SQLiteOpenHelper(context, "marble-int
         }
         return out
     }
+
+    @Synchronized
+    fun trimMemory() {
+        runCatching {
+            writableDatabase.execSQL("PRAGMA shrink_memory")
+        }
+    }
 }
 
 /**
@@ -2508,6 +2515,24 @@ class MarbleIntelligence(private val context: Context) {
                 it.name
             }
         )
+    }
+
+    /**
+     * Shed reconstructable in-memory caches and shrink memory footprint under OS memory pressure.
+     */
+    fun onMemoryPressure(level: Int) {
+        if (level >= 20) {
+            accelerationCache.clear()
+        }
+        if (level >= 40) {
+            val active = activeNetwork
+            if (active != null) {
+                capsByNetwork.keys.retainAll(setOf(active))
+                linksByNetwork.keys.retainAll(setOf(active))
+                availableTransports.keys.retainAll(setOf(active))
+            }
+            db.trimMemory()
+        }
     }
 
     fun recoveryCandidates(

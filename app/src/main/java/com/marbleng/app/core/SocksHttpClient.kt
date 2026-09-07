@@ -188,6 +188,7 @@ object SocksHttpClient {
 
             return (System.nanoTime() - started) / 1e6
         } finally {
+            runCatching { tcp.shutdownOutput() }
             runCatching { tcp.close() }
         }
     }

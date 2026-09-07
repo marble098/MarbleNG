@@ -205,11 +205,47 @@ class SingBoxSelfHealV152Test {
                 "cannot unmarshal array into Go struct field NetworkOptions.network of type string"
             )
         )
+        assertTrue(
+            "netlink socket failure is an engine-level fault",
+            SingBoxConfigDoctor.isEngineLevelFault(
+                "FATAL initialize network manager: create network monitor: netlink socket in Android is banned by Google"
+            )
+        )
+        assertTrue(
+            "independent_cache deprecation warning/rejection is an engine-level fault",
+            SingBoxConfigDoctor.isEngineLevelFault(
+                "WARN `independent_cache` DNS option is deprecated in sing-box 1.14"
+            )
+        )
         // Node and network failures are NOT engine faults: those are exactly what failover exists
         // for, and misclassifying them would strand the user on one engine.
         assertFalse(SingBoxConfigDoctor.isEngineLevelFault("sing-box listener did not open: refused"))
         assertFalse(SingBoxConfigDoctor.isEngineLevelFault("spawn failed: no space left on device"))
         assertFalse(SingBoxConfigDoctor.isEngineLevelFault(""))
+    }
+
+    @Test
+    fun deprecatedIndependentCacheAndAutoDetectInterfaceAreRepaired() {
+        val raw = JSONObject(
+            SingBoxConfigBuilder.build(
+                profile = modernProfile(),
+                settings = com.marbleng.app.model.AppSettings(),
+                socksPort = 10808,
+                apiPort = 39090,
+                apiSecret = "secret",
+                logPath = "/data/local/tmp/singbox.log",
+                cachePath = "/data/local/tmp/singbox-cache.db"
+            ).json
+        ).apply {
+            getJSONObject("dns").put("independent_cache", true)
+            getJSONObject("route").put("auto_detect_interface", true)
+        }.toString()
+
+        val repair = SingBoxConfigDoctor.repair(raw)
+        assertTrue("doctor must repair legacy independent_cache and auto_detect_interface", repair.repaired)
+        val healed = JSONObject(repair.json)
+        assertFalse("independent_cache must be removed", healed.getJSONObject("dns").has("independent_cache"))
+        assertFalse("auto_detect_interface must be removed", healed.getJSONObject("route").has("auto_detect_interface"))
     }
 
     private fun modernProfile() = com.marbleng.app.model.ProxyProfile(
