@@ -708,68 +708,7 @@ object SingBoxConfigBuilder {
                 }
                 result.put("server", address)
                 result.put("server_port", port)
-                // MARBLE_SINGBOX_AUTOPARSER_V154 — the rate fields arrive as integers, strings,
-                // or human strings ("100 Mbps"): digit-extraction instead of raw `toString`.
-                // The core REQUIRES both rates on v1, so the missing ones get the documented
-                // 10/50 defaults instead of a config `sing-box check` refuses.
-                val up = firstMbps(
-                    optMbps(server, "up_mbps"),
-                    optMbps(hySettings, "up_mbps"),
-                    optMbps(xraySettings, "up_mbps"),
-                    mbpsDigits(hySettings?.optString("up"))
-                )
-                val down = firstMbps(
-                    optMbps(server, "down_mbps"),
-                    optMbps(hySettings, "down_mbps"),
-                    optMbps(xraySettings, "down_mbps"),
-                    mbpsDigits(hySettings?.optString("down"))
-                )
-                result.put("up_mbps", up ?: 10)
-                result.put("down_mbps", down ?: 50)
-                // Obfs, from every source the emitters actually use: the QUIC `finalmask`
-                // (v2), the `settings.obfs` string (v1 share links) and the legacy
-                // `hysteriaSettings.obfs` / server-level object.
-                val finalmask = stream.optJSONObject("finalmask")?.optJSONArray("udp")?.optJSONObject(0)
-                if (version == 1) {
-                    val obfsRaw = firstNonBlank(
-                        xraySettings.optString("obfs"),
-                        hySettings?.optString("obfs"),
-                        server?.optString("obfs"),
-                        finalmask?.optString("type").orEmpty()
-                    )
-                    if (obfsRaw != null && !obfsRaw.equals("none", ignoreCase = true)) {
-                        result.put("obfs", obfsRaw)
-                    }
-                } else {
-                    when {
-                        finalmask != null -> {
-                            val type = finalmask.optString("type").ifBlank { "salamander" }
-                            if (!type.equals("none", ignoreCase = true)) {
-                                val fmSettings = finalmask.optJSONObject("settings") ?: JSONObject()
-                                val password = fmSettings.optJSONObject(type)?.optString("password")
-                                    .ifBlank { fmSettings.optString("password") }
-                                result.put(
-                                    "obfs",
-                                    JSONObject().put("type", type).apply {
-                                        if (password.isNotBlank()) put("password", password)
-                                    }
-                                )
-                            }
-                        }
-                        else -> server?.optJSONObject("obfs")?.let { obfs ->
-                            val obfsPassword = obfs.optString("password").ifBlank { obfs.optString("obfs") }
-                            if (obfsPassword.isNotBlank()) {
-                                result.put(
-                                    "obfs",
-                                    JSONObject()
-                                        .put("type", obfs.optString("type").ifBlank { "salamander" })
-                                        .put("password", obfsPassword)
-                                )
-                            }
-                        }
-                    }
-                }
-            }
+        }
 
             // MARBLE_SINGBOX_AUTOPARSER_V154 — WireGuard, translated from Xray's
             // `secretKey` + `peers` shape onto sing-box's `private_key` + `server`/`peers`
