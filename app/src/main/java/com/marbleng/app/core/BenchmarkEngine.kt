@@ -43,13 +43,6 @@ class BenchmarkEngine(
         settings: AppSettings,
         usePrecheck: Boolean = true,
         v2rayStyleDelay: Boolean = false,
-        /**
-         * MARBLE_PING_CANCEL_V154 — cooperative stop. Polled between candidates and before each
-         * result is published; when it flips, queued candidates are abandoned, in-flight workers
-         * are interrupted through the normal future cancellation and whatever already measured
-         * is returned. Cancellation never discards a finished measurement.
-         */
-        shouldStop: () -> Boolean = { false },
         onCandidates: (List<ProxyProfile>) -> Unit = {},
         onStart: (ProxyProfile) -> Unit = {},
         onResult: (ProxyProfile, BenchmarkResult) -> Unit = { _, _ -> },
@@ -78,15 +71,7 @@ class BenchmarkEngine(
             // user asked. The old `coerceIn(4, 32)` made the Settings value advisory: it could not
             // be lowered to 1 or 2 (which is what a congested mobile link needs before its numbers
             // mean anything) and it could not be raised past 32 on a fast connection.
-            directProbe(s) -> PingBudget.concurrency(s.tcpWorkers).let { workers ->
-                // MARBLE_SINGBOX_AUTOPARSER_V154 — every URL-test candidate spawns a whole
-                // throwaway sing-box child (plus its two `check` passes). Letting 20+ of those
-                // run at once — the direct-probe default — starved modest devices of RAM and
-                // file descriptors, children died at spawn, and the whole subscription read
-                // FAILED on a perfectly healthy list. Four cores measuring in parallel is the
-                // same ceiling the other native-child paths already hold themselves to.
-                if (s.probeMethod == ProbeMethod.URL_TEST) workers.coerceAtMost(4) else workers
-            }
+            directProbe(s) -> PingBudget.concurrency(s.tcpWorkers)
             // MarbleNG launches one native Xray child per candidate, unlike v2rayNG's in-process
             // dialer. Four is the safe ceiling here: larger same-host bursts can manufacture
             // Connection reset / TLS timeout failures that disappear when the node is tapped alone.
@@ -101,13 +86,10 @@ class BenchmarkEngine(
         val results = Collections.synchronizedList(mutableListOf<BenchmarkResult>())
         val jobs = candidates.mapIndexed { idx, p ->
             livePool.submit {
-                // A cancelled sweep abandons queued candidates; in-flight ones unwind below.
-                if (shouldStop()) return@submit
                 onStart(p)
                 // Score each measurement as it lands so the caller can publish a finished node
                 // immediately instead of holding every result back until the batch ends.
                 val measured = testCandidate(p, benchmarkPort(idx), s, v2rayStyleDelay)
-                if (shouldStop()) return@submit
                 val result = rank(listOf(measured), s).firstOrNull() ?: measured
                 results += result
                 // Every direct method proves endpoint/underlay reachability, not that the Xray
@@ -144,7 +126,7 @@ class BenchmarkEngine(
         try {
             jobs.forEach { job ->
                 val leftMs = TimeUnit.NANOSECONDS.toMillis(batchDeadlineNs - System.nanoTime())
-                if (leftMs <= 0L || shouldStop()) {
+                if (leftMs <= 0L) {
                     job.cancel(true)
                 } else {
                     runCatching { job.get(leftMs, TimeUnit.MILLISECONDS) }
@@ -879,7 +861,7 @@ class BenchmarkEngine(
         var udpSuccess = 0
         var failureReason = "xray-start"
 
-        fun spawnAttempt(): Boolean = runCatching {
+        val started = runCatching {
             // Reachability must be judged with the same runtime-compatible hardening class
             // used by a real user connection. The old delayTest=true path deliberately stripped
             // managed runtime pieces; a config could therefore fail Rank yet work immediately when
@@ -968,16 +950,6 @@ class BenchmarkEngine(
                 }
             }
         }.getOrDefault(false)
-
-        // MARBLE_REALDELAY_TRUTH_V154 — a measurement core that never bound its port is a dead
-        // spawn (a spawn storm), not a dead node: attempt twice before "xray-start" may stand.
-        // A genuinely unbuildable config exits instantly in both attempts, so the retry costs
-        // milliseconds there and only re-waits while a true storm clears.
-        var started = spawnAttempt()
-        if (!started) {
-            runCatching { Thread.sleep(150L) }
-            started = spawnAttempt()
-        }
         if (!started && failureReason.isBlank()) failureReason = "xray-start"
 
         val outcomes = times.map { kotlin.math.round(it).toInt().coerceIn(1, 10_000) }.toMutableList()

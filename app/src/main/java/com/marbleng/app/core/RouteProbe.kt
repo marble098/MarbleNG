@@ -1391,32 +1391,6 @@ object RouteProbe {
      * published — labelled with its reason — because "the port answers in 84 ms" is true and
      * useful, and pretending it is a tunnel delay is not.
      */
-    /**
-     * MARBLE_REALDELAY_TRUTH_V154 — **Real delay**, rewritten around one promise: an alive
-     * server never reports FAILED.
-     *
-     * The old flow had two ways to lie exactly that:
-     *
-     *  1. **No tunnel meant no measurement.** Disconnected (the Home ping, ranking previews),
-     *    every profile the TCP gate exempts — Hysteria2, WireGuard and every raw Xray JSON node
-     *    (`scheme == "json"`… i.e. precisely a subscription full of Xray configs) — reported
-     *    `no-live-tunnel` → FAILED, although one tap would have connected it.
-     *  2. **The gate's clock was one second.** [DelayTest.TCP_GATE_TIMEOUT_MS] is a PattNG
-     *    desktop budget; on a congested mobile link an alive endpoint frequently needs two or
-     *    three times that for a bare handshake, so `tcp-gate-failed` red-lined nodes that were
-     *    simply far away.
-     *
-     * The rewrite measures, in order of honesty:
-     *
-     *  1. **Live tunnel** — through the session the user already has, exactly as before.
-     *  2. **Throwaway tunnel** — [realDelayHook], installed by the repository, spawns a
-     *     temporary core for the candidate and times real HTTPS round trips through it to
-     *     [DelayTest.url]. The TCP gate stays, but only as a cheap early-out for endpoints that
-     *     are *actually* dead (same destination the core would dial), and its budget follows the
-     *     caller's timeout instead of a fixed second ([gateBudgetMs]).
-     *  3. **Gate only** — when no core adapter exists (unit tests), the gate number is
-     *     published labelled for what it is.
-     */
     fun realDelay(
         profile: ProxyProfile,
         tunnelPort: Int,
@@ -1424,62 +1398,36 @@ object RouteProbe {
         samples: Int,
         settings: AppSettings = AppSettings()
     ): ProbeResult {
-        if (tunnelPort > 0) {
-            return tunnelHttpsMeasure(
-                socksPort = tunnelPort,
-                timeoutMs = timeoutMs,
-                samples = samples,
-                url = DelayTest.url(settings.delayTestUrl)
-            ).copy(method = METHOD_REAL_DELAY)
+        val gate = realDelayGate(profile, settings)
+        if (gate != null) {
+            if (gate.latencyMs >= UNREACHABLE) {
+                return ProbeResult(
+                    METHOD_REAL_DELAY, UNREACHABLE, 0, 1,
+                    lossPercent = 100.0, failureReason = "tcp-gate-failed"
+                )
+            }
+            if (tunnelPort <= 0) {
+                return gate.copy(
+                    method = METHOD_REAL_DELAY,
+                    failureReason = "no-tunnel-tcp-gate"
+                )
+            }
         }
 
-        val gate = realDelayGate(profile, settings, gateBudgetMs(timeoutMs))
-
-        val hook = realDelayHook
-        if (hook == null) {
-            // No core adapter (unit tests, no-xray builds): the gate is the only measurement.
-            if (gate != null) {
-                if (gate.latencyMs >= UNREACHABLE) {
-                    return ProbeResult(
-                        METHOD_REAL_DELAY, UNREACHABLE, 0, 1,
-                        lossPercent = 100.0, failureReason = "tcp-gate-failed"
-                    )
-                }
-                return gate.copy(method = METHOD_REAL_DELAY, failureReason = "no-tunnel-tcp-gate")
-            }
+        if (tunnelPort <= 0) {
             return ProbeResult(
                 METHOD_REAL_DELAY, UNREACHABLE, 0, PingBudget.samples(samples),
                 lossPercent = 100.0, failureReason = "no-live-tunnel"
             )
         }
 
-        if (gate != null && gate.latencyMs >= UNREACHABLE) {
-            return ProbeResult(
-                METHOD_REAL_DELAY, UNREACHABLE, 0, PingBudget.samples(samples),
-                lossPercent = 100.0, failureReason = "tcp-gate-failed"
-            )
-        }
-
-        val measured = runCatching {
-            hook(profile, settings, timeoutMs, samples)
-        }.getOrElse { error ->
-            ProbeResult(
-                METHOD_REAL_DELAY, UNREACHABLE, 0, PingBudget.samples(samples),
-                lossPercent = 100.0,
-                failureReason = (error.message ?: error::class.java.simpleName).take(120)
-            )
-        }
-        return measured.copy(method = METHOD_REAL_DELAY)
+        return tunnelHttpsMeasure(
+            socksPort = tunnelPort,
+            timeoutMs = timeoutMs,
+            samples = samples,
+            url = DelayTest.url(settings.delayTestUrl)
+        ).copy(method = METHOD_REAL_DELAY)
     }
-
-    /**
-     * The gate follows the configured sample timeout instead of PattNG's fixed desktop second:
-     * never below 1.5 s (a bare handshake floor), never above 4 s (a dead port must not stall a
-     * sweep). An alive endpoint that needs longer than this would make the tunnel measurement
-     * itself time out anyway.
-     */
-    private fun gateBudgetMs(timeoutMs: Int): Int =
-        timeoutMs.coerceIn(1_500, 4_000)
 
     /**
      * The PattNG liveness gate, or `null` when this profile is one of the types PattNG exempts.
@@ -1487,13 +1435,9 @@ object RouteProbe {
      * Exempt: UDP-first and custom protocols, where a TCP handshake to the endpoint is either
      * meaningless (Hysteria2, WireGuard) or not part of the protocol at all (HTTP/3-only).
      */
-    private fun realDelayGate(
-        profile: ProxyProfile,
-        settings: AppSettings,
-        budgetMs: Int = DelayTest.TCP_GATE_TIMEOUT_MS
-    ): ProbeResult? {
+    private fun realDelayGate(profile: ProxyProfile, settings: AppSettings): ProbeResult? {
         if (!gateApplies(profile)) return null
-        return tcpPing(profile, budgetMs, samples = 1, settings = settings)
+        return tcpPing(profile, DelayTest.TCP_GATE_TIMEOUT_MS, samples = 1, settings = settings)
     }
 
     /**
@@ -1570,17 +1514,6 @@ object RouteProbe {
      */
     @Volatile
     var urlTestHook: ((ProxyProfile, AppSettings, Int) -> ProbeResult)? = null
-
-    /**
-     * MARBLE_REALDELAY_TRUTH_V154 — installs the throwaway-tunnel real-delay measurement.
-     *
-     * Same shape as [urlTestHook] for the same reason: [RouteProbe] owns no process and no
-     * context, while the real-delay promise ("an alive server can never read FAILED") requires
-     * spawning a temporary core when the user is disconnected. The repository publishes one
-     * closure at startup; `null` (unit tests) makes [realDelay] fall back to the labelled gate.
-     */
-    @Volatile
-    var realDelayHook: ((ProxyProfile, AppSettings, Int, Int) -> ProbeResult)? = null
 
     /**
      * True when a raw TCP handshake to the endpoint is meaningful for this profile — PattNG's own

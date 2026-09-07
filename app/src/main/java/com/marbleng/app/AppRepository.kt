@@ -19,7 +19,6 @@ import org.json.JSONObject
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
-import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.exp
 import kotlin.math.roundToInt
 
@@ -395,39 +394,6 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     val probeDone: Int get() = probeFinished.size
     val probeActive: Boolean get() = probeTotal > 0
 
-    /**
-     * MARBLE_PING_CANCEL_V154 — cooperative cancellation for every ping/test sweep.
-     *
-     * A sweep is a long user-invoked job (up to 15 minutes wall clock across a big
-     * subscription); before this existed, the only way out of a tapped-by-mistake Ping-all was
-     * to wait. The flag is armed when a sweep starts, read between every single measurement by
-     * [BenchmarkEngine] and by the sweeps themselves, and cleared when the batch unwinds.
-     * Already-finished servers keep their results — cancel means "stop what has not started",
-     * never "erase what was measured".
-     */
-    private val probeCancelRequested = AtomicBoolean(false)
-
-    /** True after [cancelProbes] and until the running sweep has unwound. */
-    var probeCancelling by mutableStateOf(false); private set
-
-    /**
-     * Asks the running ping/test sweep to stop. Safe at any time: with no sweep running it is a
-     * no-op, so every surface that conditionally shows a Cancel action can call it blind.
-     */
-    fun cancelProbes() {
-        if (!probeActive) return
-        if (probeCancelRequested.compareAndSet(false, true)) {
-            postToMain { probeCancelling = true }
-            diagnostics.event(
-                "BENCHMARK",
-                "probe-cancel-requested",
-                "done" to probeDone,
-                "total" to probeTotal
-            )
-            message = "Cancelling test…"
-        }
-    }
-
     /** True while any card is showing its own progress, so the global bar can stay hidden. */
     val inlineProgressActive: Boolean get() = probeActive || refreshingSources.isNotEmpty()
 
@@ -475,9 +441,6 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         probeFinished = emptySet()
         probeTotal = 0
         probeCurrentName = ""
-        // The sweep is over; the next one starts uncancelled.
-        probeCancelRequested.set(false)
-        probeCancelling = false
     }
 
     private fun beginRefresh(ids: Collection<String>) = postToMain {
@@ -541,7 +504,6 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     init {
         migrateLocalSourceOwnershipIfNeeded()
         installUrlTestHook()
-        installRealDelayHook()
         RuntimeDiagnostics.setDebugEnabled(context, settings.debugModeEnabled)
         diagnostics.event("APP", "repository-init", "debugMode" to settings.debugModeEnabled)
         notifier.ensureChannels()
@@ -625,131 +587,6 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
             }
         }
     }
-
-    /**
-     * MARBLE_REALDELAY_TRUTH_V154 — the real-delay measurement an alive server can never fail
-     * on a technicality.
-     *
-     * When the user is disconnected, [RouteProbe.realDelay] used to stop at "no live tunnel" for
-     * every gate-exempt protocol (Hysteria2, WireGuard, and every pasted Xray JSON) and at a
-     * one-second TCP gate for everything else. This closure is the fix: a temporary core is
-     * spawned for the candidate and the delay URL is timed through that real tunnel — the same
-     * measurement the live session reports, just owned by the probe. The gate stays ahead of it
-     * as a cheap early-out for endpoints that are genuinely dead.
-     */
-    private fun installRealDelayHook() {
-        RouteProbe.realDelayHook = { profile, probeSettings, timeoutMs, samples ->
-            measureRealDelayThroughTemporaryCore(profile, probeSettings, timeoutMs, samples)
-        }
-    }
-
-    /**
-     * The body of [installRealDelayHook]: prove the route through a real throwaway tunnel and
-     * time HTTPS round trips to the delay URL. Three attempts at the truth, cheapest first:
-     *
-     *  1. Xray — the default measurement core (retrying a dead spawn once: a spawn storm is not
-     *     a dead node).
-     *  2. sing-box extended — for profiles Xray cannot run at all (hysteria v1, blank-config
-     *     tuic/anytls link nodes), or as the last reader when Xray refuses twice. The URL test
-     *     spins a real config through the candidate net, so the number stays honest.
-     *
-     * A node FAILED here only when every engine that can carry it says so.
-     */
-    private fun measureRealDelayThroughTemporaryCore(
-        profile: ProxyProfile,
-        probeSettings: AppSettings,
-        timeoutMs: Int,
-        samples: Int
-    ): RouteProbe.ProbeResult {
-        val requested = PingBudget.samples(samples)
-        fun dead(reason: String) = RouteProbe.ProbeResult(
-            RouteProbe.METHOD_REAL_DELAY,
-            RouteProbe.UNREACHABLE,
-            0,
-            requested,
-            lossPercent = 100.0,
-            failureReason = reason
-        )
-
-        /** One honest measurement through sing-box extended, or null when it cannot serve. */
-        fun throughSingBox(): RouteProbe.ProbeResult? = runCatching {
-            val support = SingBoxConfigBuilder.describe(profile, probeSettings)
-            if (!support.supported) return null
-            val measured = singBox.urlTestProfile(
-                profile = profile,
-                settings = probeSettings,
-                url = DelayTest.url(probeSettings.delayTestUrl),
-                timeoutMs = timeoutMs
-            )
-            if (measured.ok) {
-                RouteProbe.ProbeResult(
-                    RouteProbe.METHOD_REAL_DELAY,
-                    measured.delayMs.toDouble().coerceAtLeast(1.0),
-                    successPercent = 100,
-                    samples = 1
-                )
-            } else {
-                dead(measured.detail.ifBlank { "sing-box-measurement" })
-            }
-        }.getOrNull()
-
-        val xrayCanTry = profile.configJson.isNotBlank() &&
-            !profile.scheme.equals("tuic", true) &&
-            !profile.scheme.equals("anytls", true) &&
-            !profile.scheme.equals("hysteria", true)
-            if (!xrayCanTry) return throughSingBox() ?: dead("no-usable-engine")
-
-            // The throwaway core proves the route and nothing else: proxy-everything routing, no
-            // geo databases, no throughput pass — the same benchmark-mode hardening Rank uses.
-            val measurementSettings = probeSettings.copy(
-            routingMode = RoutingMode.PROXY_ALL,
-            routeBypassPrivate = false,
-            routeBlockAds = false,
-            probeSpeedTest = false,
-            udpProbeEnabled = false,
-            verifiedPerformanceTuning = false
-        )
-        val verdict = AtomicReference(dead("core-start"))
-        fun spawn(): Boolean = runCatching {
-            xray.temporary(
-                profile = profile,
-                port = 0,
-                settings = measurementSettings,
-                delayTest = false,
-                link = LinkEvidence.UNKNOWN
-            ) { livePort ->
-                verdict.set(
-                    RouteProbe.tunnelHttpsMeasure(
-                        socksPort = livePort,
-                        timeoutMs = timeoutMs,
-                        samples = samples,
-                        url = DelayTest.url(probeSettings.delayTestUrl)
-                    )
-                )
-            }
-        }.getOrDefault(false)
-
-        // A single-node measurement can afford the mercy a sweep cannot: one re-spawn before
-        // "core-start" may stand.
-        var started = spawn()
-        if (!started) {
-            runCatching { Thread.sleep(150L) }
-            started = spawn()
-        }
-        val measured = verdict.get()
-        if (measured.latencyMs >= RouteProbe.UNREACHABLE && !started) {
-            // Xray refused twice: one last honest reader before the verdict can stand.
-            throughSingBox()?.let { return it }
-        }
-            return measured.copy(
-                method = RouteProbe.METHOD_REAL_DELAY,
-                failureReason = when {
-                    measured.latencyMs < RouteProbe.UNREACHABLE -> measured.failureReason
-                    started -> measured.failureReason.ifBlank { "delay-url-failed" }
-                    else -> "core-start"
-                }
-            )
-        }
 
     /**
      * MARBLE_GEO_READY_GATE_V145 — silent, non-blocking preparation of the routing databases.
@@ -3495,10 +3332,6 @@ private fun postToMain(block: () -> Unit) {
         val dedupe = method.isEndpointLevel()
 
         task("$methodLabel • $scope") {
-            // MARBLE_PING_CANCEL_V154 — arm a fresh, uncancelled run. A stale flag could
-            // otherwise survive from a previous sweep that was cancelled during its unwind.
-            probeCancelRequested.set(false)
-            postToMain { probeCancelling = false }
             val groups = if (dedupe) {
                 scoped.groupBy(::quickPingEndpointKey)
             } else {
@@ -3538,7 +3371,6 @@ private fun postToMain(block: () -> Unit) {
                     representatives,
                     quickSettings,
                     usePrecheck = false,
-                    shouldStop = { probeCancelRequested.get() },
                     onCandidates = { beginProbeBatch(scoped) },
                     onStart = { representative ->
                         membersFor(representative).forEach(::markProbeStart)
@@ -3553,11 +3385,7 @@ private fun postToMain(block: () -> Unit) {
                     }
                 ) { done, total, name ->
                     val unit = if (dedupe) "endpoints" else "servers"
-                    message = if (probeCancelRequested.get()) {
-                        "$methodLabel • $scope • cancelling…"
-                    } else {
-                        "$methodLabel • $scope • $done/$total $unit • $name"
-                    }
+                    message = "$methodLabel • $scope • $done/$total $unit • $name"
                 }
 
             val firstStartedNs = System.nanoTime()
@@ -3566,7 +3394,6 @@ private fun postToMain(block: () -> Unit) {
                 ((System.nanoTime() - firstStartedNs) / 1_000_000L).coerceAtLeast(0L)
 
             if (
-                !probeCancelRequested.get() &&
                 representatives.size >= 4 &&
                 representativeResults.isNotEmpty() &&
                 representativeResults.none { it.success > 0 } &&
@@ -3602,12 +3429,11 @@ private fun postToMain(block: () -> Unit) {
                 }
             }
 
-            val cancelled = probeCancelRequested.get()
             mergeBenchmarks(expanded)
             val passed = expanded.count { it.success > 0 }
             diagnostics.event(
                 "BENCHMARK",
-                if (cancelled) "ping-source-cancelled" else "ping-source-finish",
+                "ping-source-finish",
                 "source" to sourceId.take(24),
                 "scope" to scope,
                 "requested" to scoped.size,
@@ -3615,10 +3441,7 @@ private fun postToMain(block: () -> Unit) {
                 "tested" to expanded.size,
                 "reachable" to passed
             )
-            message = if (cancelled) {
-                // Finished servers keep their results; cancel only stops what never started.
-                "$methodLabel • $scope • cancelled • $passed reachable of ${expanded.size} measured"
-            } else if (dedupe) {
+            message = if (dedupe) {
                 "$methodLabel • $scope • ${expanded.size} servers / " +
                     "${representatives.size} endpoints • $passed reachable"
             } else {
