@@ -388,8 +388,26 @@ object DelayTest {
     const val TCP_GATE_TIMEOUT_MS = 1_000
 
     fun url(configured: String): String =
-        configured.trim().takeIf { it.startsWith("http://") || it.startsWith("https://") }
-            ?: URL
+        configured.trim().takeIf {
+            it.startsWith("http://", ignoreCase = true) ||
+                it.startsWith("https://", ignoreCase = true)
+        }?.let { candidate ->
+            // URL-test is an HTTP client, not a string-prefix check. Reject malformed values here
+            // so a bad preference can never turn every node into a red result.
+            runCatching {
+                val parsed = java.net.URI(candidate)
+                require(parsed.host.orEmpty().isNotBlank())
+                require(parsed.scheme.equals("http", true) || parsed.scheme.equals("https", true))
+                candidate
+            }.getOrNull()
+        } ?: URL
+
+    /** Deterministic fallbacks for networks that filter one public generate_204 origin. */
+    fun candidates(configured: String): List<String> = buildList {
+        add(url(configured))
+        add(URL_SECONDARY)
+        add("https://www.cloudflare.com/cdn-cgi/trace")
+    }.distinct()
 }
 
 /**

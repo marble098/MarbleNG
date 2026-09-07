@@ -551,15 +551,18 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
             // which would surface as a failed test on a node that is perfectly reachable. Marble's
             // own real-delay measurement accepts http; this one does not, so it is forced to the
             // https default rather than handed a URL the core would silently ignore.
-            val url = DelayTest.url(probeSettings.delayTestUrl)
-                .takeIf { it.startsWith("https://") } ?: DelayTest.URL
+            // A single public origin is not a valid health oracle: filtering gstatic/google on
+            // one carrier used to paint every otherwise healthy node FAILED. Keep the user's URL
+            // first, then use deterministic independent origins. This is still the same core,
+            // proxy and timeout for every attempt; only the destination is hedged.
+            val targets = DelayTest.candidates(probeSettings.delayTestUrl)
             // MARBLE_SINGBOX_PROTOCOLS_V153 — the URL test now measures from the same effective
             // settings as a real connection: evidence-guided resolver order, family plan and
             // protocol-fitness verdict. The old path passed the raw probe settings, so the
             // throwaway core could use a demoted resolver pair that the live session had already
             // replaced.
             val singBoxSettings = intelligence.effectiveSettings(profile, probeSettings)
-            val result = if (
+            fun testUrl(url: String): SingBoxUrlTestResult = if (
                 settings.coreEngine() == CoreEngine.SINGBOX && singBox.isAlive &&
                     activeProfileId == profile.id
             ) {
@@ -567,6 +570,10 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
             } else {
                 singBox.urlTestProfile(profile, singBoxSettings, url, timeoutMs)
             }
+            val attempts = targets.map(::testUrl)
+            val result = attempts.firstOrNull { it.ok }
+                ?: attempts.lastOrNull()
+                ?: SingBoxUrlTestResult(0L, false, "urltest-no-target")
             if (result.ok) {
                 RouteProbe.ProbeResult(
                     method = RouteProbe.METHOD_URL_TEST,
