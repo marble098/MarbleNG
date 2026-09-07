@@ -285,7 +285,7 @@ object SingBoxConfigBuilder {
      */
     fun shareLink(profile: ProxyProfile): String? {
         val raw = profile.raw.trim()
-        if (raw.isEmpty() || raw.length() > 4096 || raw.contains('\n')) return null
+        if (raw.isEmpty() || raw.length > 4096 || raw.contains('\n')) return null
         val scheme = raw.substringBefore("://", "").lowercase()
         if (scheme !in LINK_SCHEMES) return null
         return raw
