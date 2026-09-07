@@ -332,7 +332,17 @@ class SingBoxCoreV151Test {
         assertTrue(sets.length() >= 3)
         for (i in 0 until sets.length()) {
             val set = sets.getJSONObject(i)
-            assertEquals("direct", set.getString("download_detour"))
+            // MARBLE_SINGBOX_ANDROID_RUNTIME_V155 — the promise is unchanged (rule sets are
+            // fetched outside the tunnel); only its spelling moved from the deprecated
+            // `download_detour` to an `http_client`, which sing-box 1.14 requires.
+            assertFalse(
+                "`download_detour` is deprecated in sing-box 1.14 and conflicts with http_client",
+                set.has("download_detour")
+            )
+            assertEquals(
+                SingBoxConfigBuilder.DIRECT_TAG,
+                set.getJSONObject("http_client").getString("detour")
+            )
             assertTrue(set.getString("url").startsWith("https://"))
             assertEquals("binary", set.getString("format"))
         }

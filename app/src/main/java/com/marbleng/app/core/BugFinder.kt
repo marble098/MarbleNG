@@ -628,6 +628,28 @@ class BugFinder(private val context: Context, private val xray: XrayManager, pri
 
         sections += BugSection("SINGBOX EXTENDED CORE STATUS", "libsingbox.so=" + File(context.applicationInfo.nativeLibraryDir, "libsingbox.so").exists() + " • singboxLog=" + (singboxLog.length) + " chars • urlTestLog=" + (singboxUrlTestLog.length) + " chars")
 
+        // MARBLE_SINGBOX_ANDROID_RUNTIME_V155 — the two lines a sing-box triage always needs
+        // first: does anything still request the netlink interface monitor Android bans, and did
+        // the core exit on an impending deprecation instead of a real fault?
+        val runtimeConfigText = runCatching {
+            File(context.filesDir, "runtime-singbox.json").readText()
+        }.getOrDefault("")
+        val netlinkRequests = if (runtimeConfigText.isBlank()) {
+            listOf("no runtime config on disk")
+        } else {
+            SingBoxAndroidRuntime.ANDROID_FORBIDDEN_ROUTE_KEYS
+                .filter { key -> "\"$key\"" in runtimeConfigText }
+                .ifEmpty { listOf("none — the config asks for no interface monitor") }
+        }
+        sections += BugSection(
+            "SINGBOX ANDROID RUNTIME CONTRACT",
+            "interface-monitor requests in runtime config: " + netlinkRequests.joinToString(", ") +
+                "\ndeprecation escape hatches exported: " +
+                SingBoxAndroidRuntime.DEPRECATION_ENV.keys.sorted().joinToString(", ") +
+                "\nnetlink ban seen in retained sing-box log: " +
+                SingBoxAndroidRuntime.isNetlinkBan(singboxLog + singboxUrlTestLog)
+        )
+
         return BugReport(
             generatedAt = now,
             state = "$appState • ${stateDetail.ifBlank { "no active route" }}",

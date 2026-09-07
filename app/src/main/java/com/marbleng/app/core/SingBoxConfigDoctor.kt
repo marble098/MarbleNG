@@ -53,7 +53,20 @@ object SingBoxConfigDoctor {
         "banned by google",
         "initialize network manager",
         "create network monitor",
-        "independent_cache"
+        "independent_cache",
+        // MARBLE_SINGBOX_ANDROID_RUNTIME_V155 — the 1.14 impending-deprecation exits. The core
+        // logs `<description> is deprecated in sing-box 1.12.0 …` at error level, then
+        // `to continuing using this feature, set environment variable ENABLE_DEPRECATED_…=true`
+        // at fatal level, then calls os.Exit(1). Every one of them is a config fault. The two
+        // domain-resolver markers below spell the option the way the core spells it —
+        // "missing `route.default_domain_resolver` or `domain_resolver` in dial fields" from the
+        // deprecation note, and "default domain resolver not found: <tag>" from route start.
+        "domain_resolver",
+        "default domain resolver not found",
+        "enable_deprecated_",
+        "is conflict with",
+        "unknown transport type",
+        "only supported on"
     )
 
     data class Repair(
@@ -68,8 +81,13 @@ object SingBoxConfigDoctor {
     /**
      * Repairs [json] against the sing-box 1.12/1.13 removals. Never throws: an unreadable config
      * comes back unrepaired, because only the core's own verdict is authoritative.
+     *
+     * @param rejection the verbatim text the core printed when it refused this config, when the
+     *   caller has it. Most migrations are unconditional, but a few are trade-offs that are only
+     *   correct in the presence of a specific complaint — see [downgradeHttpClients].
      */
-    fun repair(json: String): Repair {
+    @JvmOverloads
+    fun repair(json: String, rejection: String = ""): Repair {
         val root = runCatching { JSONObject(json) }.getOrNull()
             ?: return Repair(json, false, emptyList())
         val notes = mutableListOf<String>()
@@ -96,13 +114,61 @@ object SingBoxConfigDoctor {
         }
 
         migrateDnsServerAddressKey(root, notes)
-        migrateDnsOptions(root, notes)
-        migrateRouteOptions(root, notes)
         migrateNetworkAndTlsFields(root, notes)
+        // MARBLE_SINGBOX_ANDROID_RUNTIME_V155 — everything the preflight pass already guarantees
+        // is re-applied here, because `repair` also runs on configs the builder never wrote
+        // (a re-check after a partial repair, a config restored from disk).
+        harden(root, notes)
+        // …and one migration that only `repair` may make, because it trades a modern spelling for
+        // a deprecated one. It is gated on the core actually having complained about it.
+        if (mentionsHttpClient(rejection)) downgradeHttpClients(root, notes)
 
         if (notes.isEmpty()) return Repair(json, false, emptyList())
         return Repair(root.toString(), true, notes)
     }
+
+    /**
+     * MARBLE_SINGBOX_ANDROID_RUNTIME_V155 — the **preflight** pass, run on every config before
+     * it is ever handed to the core.
+     *
+     * [repair] is reactive: it only runs once `sing-box check` has already refused a config. That
+     * is the wrong shape for the two faults that made the sing-box engine unusable on Android,
+     * because both of them are *predictable*: a config either asks for a netlink interface
+     * monitor or it does not, and either carries a 1.14 impending deprecation or it does not.
+     * Waiting for the core to die, parsing its Go error and guessing the repair is strictly worse
+     * than never emitting the option. Hardening is therefore unconditional, idempotent, and cheap
+     * enough to run on the throwaway URL-test config too.
+     */
+    fun hardenForAndroid(json: String): Repair {
+        val root = runCatching { JSONObject(json) }.getOrNull()
+            ?: return Repair(json, false, emptyList())
+        val notes = mutableListOf<String>()
+        harden(root, notes)
+        if (notes.isEmpty()) return Repair(json, false, emptyList())
+        return Repair(root.toString(), true, notes)
+    }
+
+    /** The shared body of [hardenForAndroid] and the tail of [repair]. */
+    private fun harden(root: JSONObject, notes: MutableList<String>) {
+        migrateDnsOptions(root, notes)
+        migrateRouteOptions(root, notes)
+        stripAndroidUnsafeRouteOptions(root, notes)
+        stripAndroidUnsafeDialOptions(root, notes)
+        stripAndroidUnsafeInbounds(root, notes)
+        stripAndroidUnsafeDnsServers(root, notes)
+        migrateCacheFileOptions(root, notes)
+        migrateRuleSetDownloadDetour(root, notes)
+        ensureDefaultDomainResolver(root, notes)
+    }
+
+    /** True when the core's rejection blames the rule-set HTTP client plumbing. */
+    private fun mentionsHttpClient(rejection: String): Boolean {
+        val text = rejection.lowercase()
+        return "http_client" in text
+    }
+
+
+
 
     /**
      * Route rules may still point at an outbound that was just removed; a dangling reference is
@@ -196,6 +262,264 @@ object SingBoxConfigDoctor {
             route.remove("auto_detect_interface")
             notes += "removed `auto_detect_interface` (avoiding banned Android netlink socket)"
         }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // MARBLE_SINGBOX_ANDROID_RUNTIME_V155 — the preflight hardening pass
+    // ─────────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Drops every `route.*` key that makes `route.NewNetworkManager` demand a netlink-backed
+     * interface monitor. This is *the* fix for
+     * `initialize network manager: create network monitor: netlink socket in Android is banned by
+     * Google`: with none of these keys present `enforceInterfaceMonitor` is false and the core
+     * tolerates the banned socket, exactly as the upstream code intends.
+     */
+    private fun stripAndroidUnsafeRouteOptions(root: JSONObject, notes: MutableList<String>) {
+        val route = root.optJSONObject("route") ?: return
+        val removed = SingBoxAndroidRuntime.ANDROID_FORBIDDEN_ROUTE_KEYS.filter { key ->
+            // `false`/`0`/`""` are already the Go zero value; only a *requesting* value matters,
+            // and removing an explicit negative would churn the config for nothing.
+            route.has(key) && isRequesting(route.opt(key))
+        }
+        removed.forEach { route.remove(it) }
+        if (removed.isNotEmpty()) {
+            notes += "removed route option(s) that require an Android-banned netlink interface " +
+                "monitor: ${removed.joinToString(", ")}"
+        }
+    }
+
+    /** The dial-field half of [stripAndroidUnsafeRouteOptions], applied to every outbound. */
+    private fun stripAndroidUnsafeDialOptions(root: JSONObject, notes: MutableList<String>) {
+        val outbounds = root.optJSONArray("outbounds") ?: return
+        var count = 0
+        for (i in 0 until outbounds.length()) {
+            val outbound = outbounds.optJSONObject(i) ?: continue
+            SingBoxAndroidRuntime.ANDROID_FORBIDDEN_DIAL_KEYS.forEach { key ->
+                if (outbound.has(key) && isRequesting(outbound.opt(key))) {
+                    outbound.remove(key)
+                    count++
+                }
+            }
+        }
+        if (count > 0) {
+            notes += "removed $count interface-bound dial field(s) unavailable to an Android app " +
+                "process"
+        }
+    }
+
+    /**
+     * A `tun`/`redirect`/`tproxy` inbound belongs to a core that owns the network stack. MarbleNG's
+     * TUN is Android's own `VpnService`, and a `tun` inbound with `auto_route` is the other way to
+     * force the interface monitor the platform bans.
+     */
+    private fun stripAndroidUnsafeInbounds(root: JSONObject, notes: MutableList<String>) {
+        val inbounds = root.optJSONArray("inbounds") ?: return
+        val kept = JSONArray()
+        val dropped = mutableListOf<String>()
+        for (i in 0 until inbounds.length()) {
+            val inbound = inbounds.optJSONObject(i) ?: continue
+            val type = inbound.optString("type").lowercase()
+            if (type in SingBoxAndroidRuntime.ANDROID_FORBIDDEN_INBOUND_TYPES) {
+                dropped += type
+                continue
+            }
+            kept.put(inbound)
+        }
+        if (dropped.isNotEmpty()) {
+            root.put("inbounds", kept)
+            notes += "removed ${dropped.joinToString(", ")} inbound(s): the Android VpnService " +
+                "owns the tunnel, the core only serves the local mixed inbound"
+        }
+    }
+
+    /** A `dhcp` DNS transport reads the lease through netlink; on Android it can only fail. */
+    private fun stripAndroidUnsafeDnsServers(root: JSONObject, notes: MutableList<String>) {
+        val dns = root.optJSONObject("dns") ?: return
+        val servers = dns.optJSONArray("servers") ?: return
+        val kept = JSONArray()
+        val droppedTags = mutableSetOf<String>()
+        for (i in 0 until servers.length()) {
+            val server = servers.optJSONObject(i) ?: continue
+            val type = server.optString("type").lowercase()
+            if (type in SingBoxAndroidRuntime.ANDROID_FORBIDDEN_DNS_TYPES) {
+                droppedTags += server.optString("tag").ifBlank { type }
+                continue
+            }
+            kept.put(server)
+        }
+        if (droppedTags.isEmpty()) return
+        dns.put("servers", kept)
+        notes += "removed DNS transport(s) that need netlink on Android: " +
+            droppedTags.joinToString(", ")
+        // A rule pointing at a server that no longer exists is a fresh rejection.
+        val rules = dns.optJSONArray("rules") ?: return
+        val keptRules = JSONArray()
+        for (i in 0 until rules.length()) {
+            val rule = rules.optJSONObject(i) ?: continue
+            if (rule.optString("server") in droppedTags) continue
+            keptRules.put(rule)
+        }
+        dns.put("rules", keptRules)
+        if (dns.optString("final") in droppedTags) dns.remove("final")
+    }
+
+    /**
+     * `store_rdrc` is deprecated in sing-box 1.14 and scheduled for removal in 1.16; the
+     * documented replacement persists the whole DNS cache instead:
+     *
+     * ```json
+     * { "experimental": { "cache_file": { "enabled": true, "store_dns": true } } }
+     * ```
+     */
+    private fun migrateCacheFileOptions(root: JSONObject, notes: MutableList<String>) {
+        val cacheFile = root.optJSONObject("experimental")?.optJSONObject("cache_file") ?: return
+        if (!cacheFile.has("store_rdrc")) return
+        val enabled = cacheFile.optBoolean("store_rdrc", false)
+        cacheFile.remove("store_rdrc")
+        if (enabled && !cacheFile.has("store_dns")) cacheFile.put("store_dns", true)
+        notes += "migrated the deprecated `store_rdrc` cache-file option to `store_dns`"
+    }
+
+    /**
+     * `download_detour` on a remote rule-set is deprecated in 1.14 in favour of an HTTP client:
+     *
+     * ```json
+     * { "type": "remote", "url": "…", "http_client": { "detour": "direct" } }
+     * ```
+     *
+     * The core also rejects a rule-set that carries both (`http_client is conflict with
+     * deprecated download_detour field`), so the migration is a move, never a copy.
+     */
+    private fun migrateRuleSetDownloadDetour(root: JSONObject, notes: MutableList<String>) {
+        val ruleSets = root.optJSONObject("route")?.optJSONArray("rule_set") ?: return
+        var migrated = 0
+        var conflicts = 0
+        for (i in 0 until ruleSets.length()) {
+            val ruleSet = ruleSets.optJSONObject(i) ?: continue
+            if (!ruleSet.has("download_detour")) continue
+            val detour = ruleSet.optString("download_detour")
+            ruleSet.remove("download_detour")
+            if (ruleSet.optJSONObject("http_client") != null) {
+                conflicts++
+                continue
+            }
+            if (detour.isNotBlank()) {
+                ruleSet.put("http_client", JSONObject().put("detour", detour))
+            }
+            migrated++
+        }
+        if (migrated > 0) {
+            notes += "migrated $migrated rule-set(s) from the deprecated `download_detour` to " +
+                "`http_client`"
+        }
+        if (conflicts > 0) {
+            notes += "dropped $conflicts conflicting `download_detour` field(s) (the rule-set " +
+                "already carries an `http_client`)"
+        }
+    }
+
+    /**
+     * Reverses [migrateRuleSetDownloadDetour] and removes the top-level HTTP clients. Only
+     * [repair] reaches this, and only when the core's own rejection names `http_client`: a core
+     * older than 1.14 does not know `http_clients`, and losing the modern spelling is infinitely
+     * better than losing the engine.
+     */
+    private fun downgradeHttpClients(root: JSONObject, notes: MutableList<String>) {
+        val route = root.optJSONObject("route")
+        var changed = false
+        val ruleSets = route?.optJSONArray("rule_set")
+        if (ruleSets != null) {
+            for (i in 0 until ruleSets.length()) {
+                val ruleSet = ruleSets.optJSONObject(i) ?: continue
+                val client = ruleSet.optJSONObject("http_client") ?: continue
+                ruleSet.remove("http_client")
+                val detour = client.optString("detour")
+                if (detour.isNotBlank()) ruleSet.put("download_detour", detour)
+                changed = true
+            }
+        }
+        if (route?.has("default_http_client") == true) {
+            route.remove("default_http_client")
+            changed = true
+        }
+        if (root.has("http_clients")) {
+            root.remove("http_clients")
+            changed = true
+        }
+        if (changed) {
+            notes += "downgraded the rule-set HTTP client plumbing to `download_detour` for a " +
+                "core that predates `http_clients`"
+        }
+    }
+
+    /**
+     * sing-box 1.12 introduced `route.default_domain_resolver`; 1.14 schedules the *absence* of
+     * it for removal, which on the pinned core means `deprecated.Report` takes the impending
+     * branch and calls `os.Exit(1)`:
+     *
+     * ```
+     * missing `route.default_domain_resolver` or `domain_resolver` in dial fields is deprecated
+     * in sing-box 1.12.0 and will be removed in sing-box 1.14.0
+     * to continuing using this feature, set environment variable
+     * ENABLE_DEPRECATED_MISSING_DOMAIN_RESOLVER=true
+     * ```
+     *
+     * The report fires whenever a dialer has to resolve a domain and more than one DNS transport
+     * is configured — which is every MarbleNG config, because the resolver pool is plural by
+     * design. The fix is to name the resolver explicitly, and the only correct answer for a
+     * *dial* is a resolver that does not need the tunnel: the system one.
+     */
+    private fun ensureDefaultDomainResolver(root: JSONObject, notes: MutableList<String>) {
+        val servers = root.optJSONObject("dns")?.optJSONArray("servers") ?: return
+        if (servers.length() < 2) return
+        val route = root.optJSONObject("route") ?: JSONObject().also { root.put("route", it) }
+        val existing = route.opt("default_domain_resolver")
+        val tags = (0 until servers.length()).mapNotNull { index ->
+            servers.optJSONObject(index)?.optString("tag")?.takeIf { it.isNotBlank() }
+        }
+        val currentTag = when (existing) {
+            is String -> existing
+            is JSONObject -> existing.optString("server")
+            else -> ""
+        }
+        if (currentTag.isNotBlank() && currentTag in tags) return
+
+        // Preference order mirrors the bootstrap order of the config itself: the system resolver
+        // first (it can never depend on the tunnel it is helping to build), then the direct
+        // resolver. A config with neither gets a `local` transport appended rather than being
+        // pointed at a resolver that lives behind the proxy — that would be a bootstrap loop,
+        // which is a subtler and much worse failure than the deprecation this fixes.
+        fun tagOfType(type: String): String? = (0 until servers.length()).firstNotNullOfOrNull { i ->
+            servers.optJSONObject(i)
+                ?.takeIf { it.optString("type").equals(type, ignoreCase = true) }
+                ?.optString("tag")
+                ?.takeIf { it.isNotBlank() }
+        }
+        val chosen = tagOfType("local")
+            ?: tags.firstOrNull { it == SingBoxConfigBuilder.DNS_DIRECT_TAG }
+            ?: SingBoxConfigBuilder.DNS_LOCAL_TAG.also { tag ->
+                servers.put(JSONObject().put("type", "local").put("tag", tag))
+                notes += "added a system-resolver DNS transport (`$tag`) for dial-time lookups"
+            }
+        route.put("default_domain_resolver", chosen)
+
+        notes += if (currentTag.isBlank()) {
+            "set `route.default_domain_resolver` to `$chosen` (its absence is fatal on sing-box 1.14)"
+        } else {
+            "repointed `route.default_domain_resolver` from the unknown `$currentTag` to `$chosen`"
+        }
+    }
+
+    /** True for a JSON value that actually asks for the feature, rather than a written-out zero. */
+    private fun isRequesting(value: Any?): Boolean = when (value) {
+        null, JSONObject.NULL -> false
+        is Boolean -> value
+        is Number -> value.toDouble() != 0.0
+        is String -> value.isNotBlank()
+        is JSONArray -> value.length() > 0
+        is JSONObject -> value.length() > 0
+        else -> true
     }
 
     /**
