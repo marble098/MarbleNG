@@ -609,7 +609,7 @@ object SingBoxConfigBuilder {
         when (protocol) {
             "vless", "vmess" -> {
             result.put("type", protocol)
-        
+        }
 
             "trojan" -> {
                 val server = firstServer(xraySettings) ?: error("trojan outbound has no server")
@@ -660,7 +660,7 @@ object SingBoxConfigBuilder {
 
             "hysteria2", "hysteria" -> {
             result.put("type", protocol)
-        
+        }
 
             // MARBLE_SINGBOX_AUTOPARSER_V154 — WireGuard, translated from Xray's
             // `secretKey` + `peers` shape onto sing-box's `private_key` + `server`/`peers`
@@ -669,7 +669,7 @@ object SingBoxConfigBuilder {
             // routes all traffic through the tunnel.
             "wireguard" -> {
             result.put("type", protocol)
-        
+        }
 
             else -> error("unsupported protocol for sing-box: $protocol")
         }
