@@ -917,6 +917,30 @@ check(
     and "dnsServersUseTheSchemaSingBoxActuallyReads" in files["singBoxTest"]
     and "theThreeEngineSwitchesReachTheConfig" in files["singBoxTest"],
 )
+# MARBLE_SINGBOX_PROTOCOLS_V153 — the schema regressions that made translated profiles fail at
+# `sing-box check` are blocked at the source and at the doctor: `network` must never be an array,
+# Hysteria v1 and v2 must map to their own outbound types, and the throwaway URL-test config must
+# run the same check pass as a real start.
+check(
+    "sing-box never writes an array network field and the doctor repairs one",
+    'result.put("network", JSONArray()' not in files["singBoxBuilder"]
+    and "migrateNetworkAndTlsFields" in files["singBoxDoctor"]
+    and "translatedOutboundsNeverCarryAnArrayNetworkField" in files["singBoxTest"]
+    and "anArrayNetworkFieldAndTlsFragmentAreRepaired" in files["singBoxSelfHealTest"],
+)
+check(
+    "Hysteria v1 and v2 translate to their own sing-box outbound types",
+    'result.put("type", "hysteria2")' in files["singBoxBuilder"]
+    and 'result.put("type", "hysteria")' in files["singBoxBuilder"]
+    and "hysteriaV1TranslatesToTheV1OutboundNotHysteria2" in files["singBoxTest"],
+)
+check(
+    "the URL-test throwaway path runs the same config check as a real start",
+    "var rejection = checkConfig(config)" in files["singBox"]
+    and "if (!waitForApi(controllerPort, secret, 3_000L, child))" in files["singBox"]
+    and "dnsCandidatePool(settings)" in files["singBox"]
+    and "intelligence.effectiveSettings(profile, probeSettings)" in files["repo"],
+)
 
 # MARBLE_HOME_IP_STRIP_V151 — the "Show complete IP information" caption is gone from Home. The
 # words survive as the glyph's content description, so the strip is still readable out loud.

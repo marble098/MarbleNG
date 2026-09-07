@@ -43,7 +43,12 @@ object SingBoxConfigDoctor {
         "parse config",
         "invalid config",
         "unknown outbound",
-        "unknown field"
+        "unknown field",
+        "cannot unmarshal",
+        "cannot unmarshal array",
+        "json: cannot",
+        "wrong type for field",
+        "invalid configuration"
     )
 
     data class Repair(
@@ -86,6 +91,7 @@ object SingBoxConfigDoctor {
         }
 
         migrateDnsServerAddressKey(root, notes)
+        migrateNetworkAndTlsFields(root, notes)
 
         if (notes.isEmpty()) return Repair(json, false, emptyList())
         return Repair(root.toString(), true, notes)
@@ -158,6 +164,54 @@ object SingBoxConfigDoctor {
         }
         if (migrated > 0) {
             notes += "migrated $migrated DNS server(s) from the pre-1.12 `address` key to `server`"
+        }
+    }
+
+    /**
+     * MARBLE_SINGBOX_PROTOCOLS_V153 — the two translation bugs that made every non-parser
+     * profile fail at `sing-box check`.
+     *
+     * The builder used to write `"network": ["tcp","udp"]`. sing-box's common `network` field is
+     * a scalar (`tcp` or `udp`), so the core printed `cannot unmarshal array into Go struct
+     * field ... of type string` and rejected the whole config. The doctor migrates that in place
+     * to the scalar the core expects; for Xray's habitual `["tcp","udp"]` the correct fix is to
+     * omit the field entirely (both networks are already the default).
+     *
+     * It also removes the Xray-only `fragment` key from `tls`. sing-box's outbound TLS options do
+     * not contain that field, and `fragment` belongs to route-options instead.
+     */
+    private fun migrateNetworkAndTlsFields(root: JSONObject, notes: MutableList<String>) {
+        val outbounds = root.optJSONArray("outbounds") ?: return
+        var networkMigrated = 0
+        var fragmentRemoved = 0
+        for (i in 0 until outbounds.length()) {
+            val outbound = outbounds.optJSONObject(i) ?: continue
+
+            val network = outbound.opt("network")
+            if (network is JSONArray) {
+                val values = (0 until network.length()).map { network.optString(it).trim().lowercase() }
+                if (values.all { it == "tcp" || it == "udp" }) {
+                    outbound.remove("network")
+                    networkMigrated++
+                } else {
+                    outbound.remove("network")
+                    networkMigrated++
+                }
+            }
+
+            outbound.optJSONObject("tls")?.let { tls ->
+                if (tls.has("fragment")) {
+                    tls.remove("fragment")
+                    fragmentRemoved++
+                }
+            }
+        }
+        if (networkMigrated > 0) {
+            notes += "migrated $networkMigrated outbound(s) from the array `network` field to the " +
+                "sing-box scalar form (both networks are the default)"
+        }
+        if (fragmentRemoved > 0) {
+            notes += "removed $fragmentRemoved Xray-only TLS `fragment` field(s)"
         }
     }
 

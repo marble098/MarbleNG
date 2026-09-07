@@ -62,6 +62,13 @@ class SingBoxManager(private val context: Context) {
 
     @Volatile private var apiSecret: String = ""
 
+    /**
+     * MARBLE_SINGBOX_PROTOCOLS_V153 — the resolver evidence brain. It is published by
+     * [AppRepository] after the manager is constructed; without it the config falls back to the
+     * two configured DoH literals exactly as before.
+     */
+    @Volatile var intelligence: MarbleIntelligence? = null
+
     val isAlive: Boolean get() = process?.isAlive == true
 
     private val bin: File get() = File(context.applicationInfo.nativeLibraryDir, CoreEngineInfo.SINGBOX_BINARY)
@@ -104,6 +111,7 @@ class SingBoxManager(private val context: Context) {
             val controllerPort = freePort() ?: return fail("No free port for the sing-box controller")
             val secret = UUID.randomUUID().toString()
 
+            val resolverPool = intelligence?.dnsCandidatePool(settings) ?: emptyList()
             val built = runCatching {
                 SingBoxConfigBuilder.build(
                     profile = profile,
@@ -112,7 +120,8 @@ class SingBoxManager(private val context: Context) {
                     apiPort = controllerPort,
                     apiSecret = secret,
                     logPath = logFile.absolutePath,
-                    cachePath = cacheFile.absolutePath
+                    cachePath = cacheFile.absolutePath,
+                    resolverPool = resolverPool
                 )
             }.getOrElse { return fail("Config: ${it.message ?: it::class.java.simpleName}") }
 
@@ -237,11 +246,24 @@ class SingBoxManager(private val context: Context) {
     fun urlTestLive(tag: String, url: String, timeoutMs: Int): SingBoxUrlTestResult {
         val port = apiPort
         val secret = apiSecret
-        if (port <= 0 || !isAlive) {
+        val child = process
+        if (port <= 0 || child == null || !child.isAlive) {
             return SingBoxUrlTestResult(0L, false, "sing-box extended is not running")
         }
-        val result = requestDelay(port, secret, tag, url, timeoutMs)
-        return result.copy(live = true)
+        // MARBLE_SINGBOX_PROTOCOLS_V153 — a real connection publishes the SOCKS listener slightly
+        // before the Clash API controller is fully registered. The old live path fired the delay
+        // request immediately and returned a transient 404/empty body right after connect.
+        if (!waitForApi(port, secret, 2_000L, child)) {
+            val immediate = requestDelay(port, secret, tag, url, timeoutMs)
+            if (immediate.ok) return immediate.copy(live = true)
+        }
+        var last = SingBoxUrlTestResult(0L, false, "url test did not run").copy(live = true)
+        for (attempt in 1..2) {
+            last = requestDelay(port, secret, tag, url, timeoutMs)
+            if (last.ok) return last.copy(live = true)
+            last = last.copy(live = true, detail = "attempt $attempt: ${last.detail}")
+        }
+        return last
     }
 
     /**
@@ -274,6 +296,7 @@ class SingBoxManager(private val context: Context) {
         val log = File(context.cacheDir, "singbox-urltest.log")
         runCatching { log.delete() }
 
+        val resolverPool = intelligence?.dnsCandidatePool(settings) ?: emptyList()
         val built = runCatching {
             SingBoxConfigBuilder.build(
                 profile = profile,
@@ -282,20 +305,37 @@ class SingBoxManager(private val context: Context) {
                 apiPort = controllerPort,
                 apiSecret = secret,
                 logPath = log.absolutePath,
-                cachePath = File(context.cacheDir, "singbox-urltest-cache.db").absolutePath
+                cachePath = File(context.cacheDir, "singbox-urltest-cache.db").absolutePath,
+                resolverPool = resolverPool
             )
         }.getOrElse {
             return SingBoxUrlTestResult(0L, false, it.message ?: it::class.java.simpleName)
         }
 
-        // MARBLE_ENGINE_SELF_HEAL_V152 — the throwaway URL-test instance gets the same doctor
-        // pass as a real start, so a measurement never dies on a schema the core outgrew.
-        val healed = SingBoxConfigDoctor.repair(built.json)
-
-        runCatching { config.writeText(healed.json) }
+        // MARBLE_ENGINE_SELF_HEAL_V152 — the throwaway URL-test instance gets the same doctor +
+        // check pass as a real start, so a measurement never dies on a schema the core outgrew.
+        // The previous throwaway path skipped `checkConfig` entirely and only ran the doctor; a
+        // config that still contained a translation bug was therefore measured as a startup
+        // failure with a raw single-line log hint instead of being repaired first.
+        runCatching { config.writeText(built.json) }
             .onFailure {
                 return SingBoxUrlTestResult(0L, false, "config write failed: ${it.message}")
             }
+
+        var rejection = checkConfig(config)
+        if (rejection != null) {
+            val healed = SingBoxConfigDoctor.repair(config.readText())
+            if (healed.repaired) {
+                runCatching { config.writeText(healed.json) }
+                    .onFailure {
+                        return SingBoxUrlTestResult(0L, false, "config write failed: ${it.message}")
+                    }
+                rejection = checkConfig(config)
+            }
+        }
+        rejection?.let {
+            return SingBoxUrlTestResult(0L, false, "sing-box rejected the URL-test config: $it")
+        }
 
         var child: Process? = null
         return try {
@@ -311,7 +351,27 @@ class SingBoxManager(private val context: Context) {
                 }.getOrDefault("")
                 return SingBoxUrlTestResult(0L, false, "core did not start: $hint")
             }
-            requestDelay(controllerPort, secret, SingBoxConfigBuilder.PROXY_TAG, url, timeoutMs)
+            // The controller port can accept a TCP connection slightly before the Clash API
+            // has finished registering the proxy list. A single immediate request then produces
+            // a transient 404/empty response. A short bounded API probe makes the measurement
+            // wait for the surface it actually talks to.
+            if (!waitForApi(controllerPort, secret, 3_000L, child)) {
+                val hint = runCatching {
+                    log.useLines { lines ->
+                        lines.filter { it.isNotBlank() }.toList().takeLast(4).joinToString(" | ")
+                    }.take(600)
+                }.getOrDefault("")
+                return SingBoxUrlTestResult(0L, false, "core Clash API is not ready: $hint")
+            }
+            var last = SingBoxUrlTestResult(0L, false, "url test did not run")
+            for (attempt in 1..2) {
+                last = requestDelay(
+                    controllerPort, secret, SingBoxConfigBuilder.PROXY_TAG, url, timeoutMs
+                )
+                if (last.ok) return last
+                last = last.copy(detail = "attempt $attempt: ${last.detail}")
+            }
+            last
         } catch (error: Throwable) {
             SingBoxUrlTestResult(0L, false, error.message ?: error::class.java.simpleName)
         } finally {
@@ -323,6 +383,47 @@ class SingBoxManager(private val context: Context) {
             }
             runCatching { config.delete() }
         }
+    }
+
+    /**
+     * MARBLE_SINGBOX_PROTOCOLS_V153 — a short Clash-API readiness probe. It is deliberately cheap
+     * (`GET /proxies`, no delay measurement) and is only used by the throwaway URL-test path.
+     */
+    private fun waitForApi(
+        port: Int,
+        secret: String,
+        timeoutMs: Long,
+        child: Process
+    ): Boolean {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline) {
+            if (!child.isAlive) return false
+            val connection = runCatching {
+                (URL("http://127.0.0.1:$port/proxies").openConnection() as HttpURLConnection).apply {
+                    requestMethod = "GET"
+                    connectTimeout = 600
+                    readTimeout = 600
+                    instanceFollowRedirects = false
+                    if (secret.isNotBlank()) setRequestProperty("Authorization", "Bearer $secret")
+                }
+            }.getOrNull()
+            val ready = connection?.let { socket ->
+                try {
+                    val status = socket.responseCode
+                    // The API is up when it answers the controller surface at all. A bad secret is
+                    // a real configuration problem, not a startup race; a 404 means the Clash API
+                    // still has not registered its route table.
+                    status in 200..299 || status == 401
+                } catch (_: Throwable) {
+                    false
+                } finally {
+                    runCatching { socket.disconnect() }
+                }
+            } ?: false
+            if (ready) return true
+            runCatching { Thread.sleep(90L) }
+        }
+        return false
     }
 
     /**
