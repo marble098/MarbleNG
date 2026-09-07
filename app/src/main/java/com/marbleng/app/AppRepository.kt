@@ -1083,6 +1083,7 @@ fun resetTelemetry() {
             "heapUsedKb" to heapUsedKb
         )
         if (level < 15) return
+        intelligence.onMemoryPressure(level)
         postToMain {
             if (level >= 15) privacy = null
             if (level >= 20) {

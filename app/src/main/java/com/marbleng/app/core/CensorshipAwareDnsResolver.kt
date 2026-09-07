@@ -139,12 +139,13 @@ object CensorshipAwareDnsResolver {
         Triple("cloudflare-doh", "https://1.1.1.1/dns-query", DnsStage.DOH),
         Triple("google-doh", "https://8.8.8.8/dns-query", DnsStage.DOH),
         Triple("quad9-doh", "https://9.9.9.9/dns-query", DnsStage.DOH),
-        Triple("adguard-doh", "https://dns.adguard-dns.com/dns-query", DnsStage.DOH)
+        Triple("adguard-doh", "https://dns.adguard-dns.com/dns-query", DnsStage.DOH),
+        Triple("cloudflare-fallback", "https://1.0.0.1/dns-query", DnsStage.DOH)
     )
 
     private val DEFAULT_FALLBACK_DOH = listOf(
         Triple("shecan-doh", "https://dns.shecan.ir/dns-query", DnsStage.FALLBACK_DOH),
-        Triple("cloudflare-fallback", "https://1.0.0.1/dns-query", DnsStage.FALLBACK_DOH)
+        Triple("quad9-secondary", "https://149.112.112.112/dns-query", DnsStage.FALLBACK_DOH)
     )
 
     // Known Iranian block-page address ranges for anti-poisoning validation

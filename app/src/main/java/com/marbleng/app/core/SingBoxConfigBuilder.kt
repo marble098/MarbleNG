@@ -803,7 +803,6 @@ object SingBoxConfigBuilder {
             .put("final", DNS_REMOTE_TAG)
             .put("strategy", dnsStrategy(settings))
             .put("timeout", "${settings.singBoxConnectTimeoutSec.coerceIn(3, 20)}s")
-            .put("independent_cache", true)
     }
 
     /** True for IPv4/IPv6 literals — addresses never need the DNS bootstrap rule. */
@@ -918,7 +917,6 @@ object SingBoxConfigBuilder {
             .put("rules", rules)
             .put("rule_set", ruleSets)
             .put("final", PROXY_TAG)
-            .put("auto_detect_interface", true)
     }
 
     private fun remoteRuleSet(tag: String, relativePath: String): JSONObject = JSONObject()

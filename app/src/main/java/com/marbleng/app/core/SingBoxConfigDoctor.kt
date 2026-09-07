@@ -48,7 +48,12 @@ object SingBoxConfigDoctor {
         "cannot unmarshal array",
         "json: cannot",
         "wrong type for field",
-        "invalid configuration"
+        "invalid configuration",
+        "netlink socket",
+        "banned by google",
+        "initialize network manager",
+        "create network monitor",
+        "independent_cache"
     )
 
     data class Repair(
@@ -91,6 +96,8 @@ object SingBoxConfigDoctor {
         }
 
         migrateDnsServerAddressKey(root, notes)
+        migrateDnsOptions(root, notes)
+        migrateRouteOptions(root, notes)
         migrateNetworkAndTlsFields(root, notes)
 
         if (notes.isEmpty()) return Repair(json, false, emptyList())
@@ -164,6 +171,30 @@ object SingBoxConfigDoctor {
         }
         if (migrated > 0) {
             notes += "migrated $migrated DNS server(s) from the pre-1.12 `address` key to `server`"
+        }
+    }
+
+    /**
+     * sing-box 1.14 deprecated `independent_cache` (removed in 1.16). Omitting it restores
+     * clean parsing without warnings or rejections.
+     */
+    private fun migrateDnsOptions(root: JSONObject, notes: MutableList<String>) {
+        val dns = root.optJSONObject("dns") ?: return
+        if (dns.has("independent_cache")) {
+            dns.remove("independent_cache")
+            notes += "removed deprecated `independent_cache` DNS option"
+        }
+    }
+
+    /**
+     * sing-box `auto_detect_interface` attempts to create Linux netlink socket monitors, which
+     * are banned on Android without root/ADB privileges. Removing it prevents fatal process exits.
+     */
+    private fun migrateRouteOptions(root: JSONObject, notes: MutableList<String>) {
+        val route = root.optJSONObject("route") ?: return
+        if (route.has("auto_detect_interface")) {
+            route.remove("auto_detect_interface")
+            notes += "removed `auto_detect_interface` (avoiding banned Android netlink socket)"
         }
     }
 

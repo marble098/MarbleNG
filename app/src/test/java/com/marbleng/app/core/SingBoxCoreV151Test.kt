@@ -255,6 +255,21 @@ class SingBoxCoreV151Test {
     }
 
     @Test
+    fun modernConfigNeverCarriesDeprecatedIndependentCacheOrAutoDetectInterface() {
+        val config = JSONObject(build(linkProfile(VLESS_LINK)).json)
+        val dns = config.getJSONObject("dns")
+        assertFalse(
+            "sing-box 1.14+ deprecated independent_cache; modern configs must omit it",
+            dns.has("independent_cache")
+        )
+        val route = config.getJSONObject("route")
+        assertFalse(
+            "sing-box auto_detect_interface crashes on Android due to banned netlink socket; must omit it",
+            route.has("auto_detect_interface")
+        )
+    }
+
+    @Test
     fun dnsServersUseTheSchemaSingBoxActuallyReads() {
         val config = JSONObject(build(linkProfile(VLESS_LINK)).json)
         val servers = config.getJSONObject("dns").getJSONArray("servers")
