@@ -68,6 +68,15 @@ class ProbeMethodV151Test {
         assertEquals("https://example.com/g", DelayTest.url("  https://example.com/g  "))
         // Marble's own real-delay measurement accepts plain http; sing-box's endpoint does not.
         assertEquals("http://example.com/g", DelayTest.url("http://example.com/g"))
+        assertEquals(DelayTest.URL, DelayTest.url("https://"))
+        assertEquals(
+            listOf(
+                DelayTest.URL,
+                DelayTest.URL_SECONDARY,
+                "https://www.cloudflare.com/cdn-cgi/trace"
+            ),
+            DelayTest.candidates(DelayTest.URL)
+        )
         assertEquals(DelayTest.URL, AppSettings().delayTestUrl)
     }
 }

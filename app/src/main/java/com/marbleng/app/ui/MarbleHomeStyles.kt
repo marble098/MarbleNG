@@ -1773,12 +1773,68 @@ internal fun HomeTopActionBar(
     val groupLabel = repo.homeGroupPingLabel()
     val groupBusy = repo.homeGroupPingRunning
 
+    // MARBLE_HOME_AURORA_HEADER_V154 — one shared header for all four Home skins. The former
+    // transparent icon row had no visual anchor and made the top of each theme feel unfinished.
+    // This compact two-level surface gives the page a clear identity, live state and actions
+    // without changing the evidence or action contract used by any theme.
+    val stateTone = homeStateTone(evidence)
+    val stateLabel = when {
+        evidence.connected -> "CONNECTED"
+        evidence.connecting -> "CONNECTING"
+        evidence.disconnecting -> "DISCONNECTING"
+        evidence.blocked -> "BLOCKED"
+        else -> "READY"
+    }
+    val headerShape = RoundedCornerShape(22.dp)
     Row(
-        modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.End,
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(headerShape)
+            .background(
+                Brush.horizontalGradient(
+                    listOf(
+                        Aether.VoidElevated,
+                        stateTone.copy(alpha = .12f),
+                        Aether.VoidElevated
+                    )
+                )
+            )
+            .border(1.dp, stateTone.copy(alpha = .20f), headerShape)
+            .padding(start = 14.dp, end = 8.dp, top = 10.dp, bottom = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        MarbleWordmark(modifier = Modifier.weight(1f))
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(3.dp)
+        ) {
+            MarbleWordmark()
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    Modifier
+                        .size(7.dp)
+                        .clip(CircleShape)
+                        .background(stateTone)
+                )
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    stateLabel,
+                    color = stateTone,
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.3.sp
+                    )
+                )
+                if (evidence.profile != null) {
+                    Text(
+                        "  •  ${evidence.nodeName.ifBlank { Tr.now.chooseRoute }}",
+                        color = Aether.InkMuted,
+                        style = MaterialTheme.typography.labelSmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+        }
 
         Box {
             HomeBareAction(
@@ -1793,7 +1849,6 @@ internal fun HomeTopActionBar(
                 actions = actions
             )
         }
-
         HomeBareAction(
             glyph = HomeGlyph.PULSE,
             tone = Aether.Emerald,
@@ -1807,9 +1862,7 @@ internal fun HomeTopActionBar(
             tone = Aether.AmethystBright,
             description = Tr.now.ipDetails,
             onClick = {
-                if (repo.serverIntel == null) {
-                    repo.refreshServerIntel(evidence.profile, force = true)
-                }
+                if (repo.serverIntel == null) repo.refreshServerIntel(evidence.profile, force = true)
                 actions.onIpDetails()
             }
         )
