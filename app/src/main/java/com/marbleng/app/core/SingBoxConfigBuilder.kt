@@ -769,7 +769,7 @@ object SingBoxConfigBuilder {
                         }
                     }
                 }
-            
+            }
 
             // MARBLE_SINGBOX_AUTOPARSER_V154 — WireGuard, translated from Xray's
             // `secretKey` + `peers` shape onto sing-box's `private_key` + `server`/`peers`
