@@ -43,8 +43,16 @@ object ProfilePreflightValidator {
 
     /** Minimal Xray outbound protocols that actually dial a server and must have an address+port. */
     private val DIALING_PROTOCOLS = setOf(
-        "vless", "vmess", "trojan", "shadowsocks", "ss", "socks", "http", "tuic", "hysteria", "hysteria2", "hy2", "wireguard"
+        "vless", "vmess", "trojan", "shadowsocks", "ss", "socks", "http", "tuic", "anytls", "hysteria", "hysteria2", "hy2", "wireguard"
     )
+
+    /**
+     * MARBLE_SINGBOX_PROTOCOLS_V153 — protocols whose only Marble representation is a share link
+     * because the extended core's own `parser` outbound runs them and there is no Xray outbound
+     * shape. Only these may pass preflight with an empty `configJson`; every other protocol still
+     * needs real Xray JSON before it may be ranked.
+     */
+    private val SINGBOX_LINK_ONLY_PROTOCOLS = setOf("tuic", "anytls")
 
     /** TLS/REALITY security schemes that require a serverName to be present to validate. */
     private val TLS_REQUIRING_SECURITY = setOf("tls", "reality")
@@ -71,6 +79,19 @@ object ProfilePreflightValidator {
         // SS/SSR hostname-only profiles may carry no emitted JSON yet; allow them through so the
         // engine (XrayManager) is the judge, but flag them for re-check.
         if (profile.configJson.isBlank()) {
+            // MARBLE_SINGBOX_PROTOCOLS_V153 — TUIC and AnyTLS have no Xray outbound shape, so the
+            // importer keeps only the share link and an empty config. On the sing-box extended
+            // engine the core's own `parser` outbound runs them; quarantining them as "no Xray
+            // JSON" hid exactly the nodes the second engine is there for.
+            if (profile.scheme.lowercase() in SINGBOX_LINK_ONLY_PROTOCOLS &&
+                SingBoxConfigBuilder.shareLink(profile) != null
+            ) {
+                return PreflightVerdict(
+                    Verdict.VALID,
+                    "singbox-parser-link",
+                    "sing-box extended's parser runs the stored share link; no Xray JSON needed"
+                )
+            }
             return PreflightVerdict(
                 Verdict.INVALID,
                 "config-json-blank",
@@ -185,7 +206,7 @@ object ProfilePreflightValidator {
             "wireguard" -> {
                 settingsObject.optString("address", "").takeIf { it.isNotBlank() }
             }
-            "tuic" -> {
+            "tuic", "anytls" -> {
                 settingsObject.optString("server", "").takeIf { it.isNotBlank() }
             }
             "hysteria", "hysteria2", "hy2" -> {
@@ -214,7 +235,7 @@ object ProfilePreflightValidator {
                 else vnext.optJSONObject(0)?.optInt("port", 0)?.takeIf { it in 1..65535 }
             }
             "wireguard" -> outbound.optInt("port", 0).takeIf { it in 1..65535 }
-            "tuic" -> settingsObject.optInt("port", 0).takeIf { it in 1..65535 }
+            "tuic", "anytls" -> settingsObject.optInt("port", 0).takeIf { it in 1..65535 }
             "hysteria", "hysteria2", "hy2" -> {
                 settingsObject.optInt("port", 0).takeIf { it in 1..65535 }
                     ?: settingsObject.optInt("server_port", 0).takeIf { it in 1..65535 }

@@ -144,6 +144,24 @@ object ProfileSecurityAuditor {
                     "Hysteria2 uses UDP which may be blocked during Iranian clampdowns")
             }
 
+            scheme == "hysteria" -> {
+                encrypted = true
+                forwardSecrecy = true
+                findings += SecurityFinding("protocol", SecurityLevel.ADEQUATE,
+                    "Hysteria: TLS-encrypted QUIC-based protocol")
+                findings += SecurityFinding("transport", SecurityLevel.INFO_LEVEL,
+                    "Hysteria uses UDP which may be blocked during Iranian clampdowns")
+            }
+
+            scheme == "tuic" || scheme == "anytls" -> {
+                encrypted = true
+                forwardSecrecy = true
+                findings += SecurityFinding("protocol", SecurityLevel.ADEQUATE,
+                    "${scheme.uppercase()}: sing-box extended QUIC/DATAGRAM protocol")
+                findings += SecurityFinding("transport", SecurityLevel.INFO_LEVEL,
+                    "${scheme.uppercase()} uses UDP which may be blocked during Iranian clampdowns")
+            }
+
             scheme == "wireguard" -> {
                 encrypted = true
                 forwardSecrecy = false  // WireGuard has known limitations with forward secrecy

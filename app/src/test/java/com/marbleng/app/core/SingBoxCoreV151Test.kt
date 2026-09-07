@@ -75,7 +75,8 @@ class SingBoxCoreV151Test {
 
     private fun build(
         profile: ProxyProfile,
-        settings: AppSettings = AppSettings()
+        settings: AppSettings = AppSettings(),
+        resolverPool: List<String> = emptyList()
     ): SingBoxConfigBuilder.Build = SingBoxConfigBuilder.build(
         profile = profile,
         settings = settings,
@@ -83,7 +84,8 @@ class SingBoxCoreV151Test {
         apiPort = 39090,
         apiSecret = "secret",
         logPath = "/data/local/tmp/singbox.log",
-        cachePath = "/data/local/tmp/singbox-cache.db"
+        cachePath = "/data/local/tmp/singbox-cache.db",
+        resolverPool = resolverPool
     )
 
     @Test
@@ -346,8 +348,159 @@ class SingBoxCoreV151Test {
     fun shareLinkIgnoresAnythingThatIsNotALink() {
         assertNull(SingBoxConfigBuilder.shareLink(jsonProfile("vless")))
         assertNull(SingBoxConfigBuilder.shareLink(linkProfile("ftp://example.com")))
-        assertNull(SingBoxConfigBuilder.shareLink(linkProfile("vless://two words")))
+        // MARBLE_SINGBOX_PROTOCOLS_V153 — a single line with spaces in its display-name fragment
+        // is a real link, not a blob; the core parser can read it.
+        assertEquals(
+            "vless://two words",
+            SingBoxConfigBuilder.shareLink(linkProfile("vless://two words"))
+        )
         assertEquals(VLESS_LINK, SingBoxConfigBuilder.shareLink(linkProfile(VLESS_LINK)))
+    }
+
+    // MARBLE_SINGBOX_PROTOCOLS_V153 — the network field regression and the link-parser guard that
+    // together made "none of the other servers work" on the sing-box engine.
+    @Test
+    fun shareLinksWithSpacesInTheDisplayNameAreHandedToTheCoreParser() {
+        val withSpace = "vless://11111111-2222-3333-4444-555555555555@198.51.100.7:443" +
+            "?security=tls&type=tcp#Node A"
+        assertEquals(
+            "a single line may carry unencoded spaces in its display-name fragment",
+            withSpace,
+            SingBoxConfigBuilder.shareLink(linkProfile(withSpace))
+        )
+        assertNull(SingBoxConfigBuilder.shareLink(linkProfile("vless://a\nvless://b")))
+    }
+
+    @Test
+    fun translatedOutboundsNeverCarryAnArrayNetworkField() {
+        val config = JSONObject(
+            build(jsonProfile("vless"), AppSettings(singBoxPreferParser = false)).json
+        )
+        val proxy = outbound(config, SingBoxConfigBuilder.PROXY_TAG)
+        assertFalse(
+            "sing-box `network` is a scalar or absent; an array rejects the whole config",
+            proxy.has("network")
+        )
+    }
+
+    @Test
+    fun hysteriaV1TranslatesToTheV1OutboundNotHysteria2() {
+        val profile = jsonProfile("hysteria").let { source ->
+            val root = JSONObject(source.configJson)
+            val outbound = root.getJSONArray("outbounds").getJSONObject(0)
+            outbound.put(
+                "settings",
+                JSONObject()
+                    .put("address", "198.51.100.7")
+                    .put("port", 443)
+                    .put("auth_str", "hysteria-auth")
+            )
+            outbound.put(
+                "streamSettings",
+                JSONObject().put("method", "hysteria").put("security", "tls")
+            )
+            source.copy(configJson = root.toString())
+        }
+        val config = JSONObject(
+            build(profile, AppSettings(singBoxPreferParser = false)).json
+        )
+        val proxy = outbound(config, SingBoxConfigBuilder.PROXY_TAG)
+        assertEquals("hysteria", proxy.getString("type"))
+        assertEquals("hysteria-auth", proxy.getString("auth_str"))
+    }
+
+    @Test
+    fun directServerShapesAreTranslatedForShadowsocks() {
+        val profile = jsonProfile("shadowsocks").let { source ->
+            val root = JSONObject(source.configJson)
+            root.getJSONArray("outbounds").getJSONObject(0).put(
+                "settings",
+                JSONObject()
+                    .put("address", "198.51.100.7")
+                    .put("port", 443)
+                    .put("method", "2022-blake3-aes-128-gcm")
+                    .put("password", "password")
+            )
+            source.copy(configJson = root.toString())
+        }
+        val config = JSONObject(
+            build(profile, AppSettings(singBoxPreferParser = false)).json
+        )
+        val proxy = outbound(config, SingBoxConfigBuilder.PROXY_TAG)
+        assertEquals("shadowsocks", proxy.getString("type"))
+        assertEquals("2022-blake3-aes-128-gcm", proxy.getString("method"))
+        assertEquals("password", proxy.getString("password"))
+    }
+
+    @Test
+    fun resolverPoolReachesTheDnsConfigSoDemotedEndpointsHaveIndependentFallbacks() {
+        val pool = listOf(
+            "https://9.9.9.9/dns-query",
+            "https://dns.adguard-dns.com/dns-query"
+        )
+        val config = JSONObject(
+            build(linkProfile(VLESS_LINK), AppSettings(), resolverPool = pool).json
+        )
+        val servers = config.getJSONObject("dns").getJSONArray("servers")
+        val tags = (0 until servers.length()).map { servers.getJSONObject(it).optString("tag") }
+        assertTrue(
+            "the intelligence pool must reach the emitted DNS graph: $tags",
+            tags.contains(SingBoxConfigBuilder.DNS_REMOTE_TAG) &&
+                tags.contains(SingBoxConfigBuilder.DNS_DIRECT_TAG) &&
+                tags.contains("dns-remote-0") &&
+                tags.contains("dns-remote-1")
+        )
+    }
+
+    @Test
+    fun singboxOnlyProtocolsPassPreflightWhenTheyCarryAParserLink() {
+        val tuic = ProxyProfile(
+            id = "tuic-1",
+            name = "TUIC",
+            scheme = "tuic",
+            raw = "tuic://uuid:password@198.51.100.7:443?sni=example.com#Node",
+            configJson = "",
+            host = "198.51.100.7",
+            port = 443
+        )
+        val anytls = ProxyProfile(
+            id = "anytls-1",
+            name = "AnyTLS",
+            scheme = "anytls",
+            raw = "anytls://password@198.51.100.7:443?sni=example.com#Node",
+            configJson = "",
+            host = "198.51.100.7",
+            port = 443
+        )
+        assertTrue(
+            "TUIC has no Xray JSON shape but runs on sing-box extended",
+            ProfilePreflightValidator.validate(tuic).valid
+        )
+        assertTrue(
+            "AnyTLS has no Xray JSON shape but runs on sing-box extended",
+            ProfilePreflightValidator.validate(anytls).valid
+        )
+    }
+
+    @Test
+    fun tlsFragmentIsNeverEmittedInsideTheSingBoxTlsObject() {
+        val profile = jsonProfile("vless").let {
+            val root = JSONObject(it.configJson)
+            root.getJSONArray("outbounds")
+                .getJSONObject(0)
+                .getJSONObject("streamSettings")
+                .put("security", "tls")
+                .put("tlsSettings", JSONObject().put("serverName", "example.com"))
+            it.copy(configJson = root.toString())
+        }
+        val config = JSONObject(
+            build(profile, AppSettings(singBoxPreferParser = false, fragmentEnabled = true)).json
+        )
+        val proxy = outbound(config, SingBoxConfigBuilder.PROXY_TAG)
+        val tls = proxy.optJSONObject("tls")
+        if (tls != null) {
+            assertFalse("Xray-only fragment must not appear in a sing-box tls object", tls.has("fragment"))
+        }
     }
 
     private fun outboundOrNull(config: JSONObject, tag: String): JSONObject? {

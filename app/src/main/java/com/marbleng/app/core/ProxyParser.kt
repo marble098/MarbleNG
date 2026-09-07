@@ -16,8 +16,16 @@ import java.security.MessageDigest
  * compatibility escape hatch and is preserved for XrayManager's final `xray run -test` check.
  */
 object ProxyParser {
-    private val shareSchemes = Regex("(?i)^(vless|vmess|trojan|ss|hysteria2|hy2|socks|socks5|http|https|ssh)://")
-    private val shareFinder = Regex("(?i)(?:vless|vmess|trojan|ss|hysteria2|hy2|socks5?|https?|ssh)://[^\\s]+")
+    // MARBLE_SINGBOX_PROTOCOLS_V153 — the sing-box extended parser understands Hysteria v1
+    // (`hysteria://`), TUIC (`tuic://`) and AnyTLS (`anytls://`). The old importer silently
+    // dropped those links from a subscription because the scheme regex never matched them, which
+    // is one reason "all the other types" appeared broken on the sing-box engine.
+    private val shareSchemes = Regex(
+        "(?i)^(vless|vmess|trojan|ss|hysteria2|hy2|hysteria|tuic|anytls|socks|socks5|http|https|ssh)://"
+    )
+    private val shareFinder = Regex(
+        "(?i)(?:vless|vmess|trojan|ss|hysteria2|hy2|hysteria|tuic|anytls|socks5?|https?|ssh)://[^\\s]+"
+    )
     private val infraProtocols = setOf("freedom", "blackhole", "dns", "loopback")
 
     fun parseInput(input: String, subId: String = "manual", subName: String = "Manual"): List<ProxyProfile> {
@@ -181,6 +189,9 @@ object ProxyParser {
         "trojan" -> parseTrojan(raw, sid, sname)
         "ss" -> parseSs(raw, sid, sname)
         "hysteria2", "hy2" -> parseHy2(raw, sid, sname)
+        "hysteria" -> parseHysteria(raw, sid, sname)
+        "tuic" -> parseTuic(raw, sid, sname)
+        "anytls" -> parseAnyTls(raw, sid, sname)
         "socks", "socks5", "http", "https" -> parseBasic(raw, sid, sname)
         "ssh" -> parseSsh(raw, sid, sname)
         else -> error("Unsupported share URI")
@@ -437,6 +448,85 @@ object ProxyParser {
             .put("settings", JSONObject().put("version", 2).put("address", host).put("port", port)).put("streamSettings", st)
         val profileName = u.fragment?.let { dec(it) }?.ifBlank { null } ?: "Hysteria2 $host"
         return prof(raw, profileName, "hysteria2", host, port, "hysteria", "tls", base(out), sid, sname)
+    }
+
+    /**
+     * Hysteria v1 share links are distinct from Hysteria2 (`hy2`). The old importer only knew
+     * `hysteria2`/`hy2`, so a `hysteria://` node vanished from the library entirely. This builds
+     * an Xray-shaped config for the v1 protocol while preserving the raw link for sing-box
+     * extended's own parser; [SingBoxConfigBuilder] translates it to `type: hysteria` (not
+     * `type: hysteria2`) using the v1 `auth_str` field.
+     */
+    private fun parseHysteria(raw: String, sid: String, sname: String): ProxyProfile {
+        val u = Uri.parse(raw); val host = u.host ?: error("host"); val port = u.port.takeIf { it > 0 } ?: 443
+        val auth = qa(u, "auth", "auth_str", "password").ifBlank { dec(u.userInfo) }
+        val obfs = qa(u, "obfs", "obfs-param", "obfsparam")
+        val tls = tlsSettingsFor(u, host, qa(u, "fp", "fingerprint", default = "chrome"))
+        val hySettings = JSONObject()
+            .put("version", 1)
+            .put("address", host)
+            .put("port", port)
+            .apply {
+                if (auth.isNotBlank()) put("auth_str", auth)
+                qa(u, "up", "up_mbps", "upload_mbps", "upmbps").toIntOrNull()
+                    ?.takeIf { it > 0 }?.let { put("up_mbps", it) }
+                qa(u, "down", "down_mbps", "download_mbps", "downmbps").toIntOrNull()
+                    ?.takeIf { it > 0 }?.let { put("down_mbps", it) }
+                if (obfs.isNotBlank()) put("obfs", obfs)
+            }
+        val st = JSONObject()
+            .put("method", "hysteria")
+            .put("security", "tls")
+            .put("tlsSettings", tls)
+            .put("hysteriaSettings", hySettings)
+        val out = JSONObject()
+            .put("tag", "proxy")
+            .put("protocol", "hysteria")
+            .put("settings", hySettings)
+            .put("streamSettings", st)
+        val profileName = u.fragment?.let { dec(it) }?.ifBlank { null } ?: "Hysteria $host"
+        return prof(raw, profileName, "hysteria", host, port, "hysteria", "tls", base(out), sid, sname)
+    }
+
+    /**
+     * TUIC and AnyTLS are sing-box extended protocols with no Xray outbound shape. A share link
+     * is preserved as-is so the sing-box engine's parser can run it; the empty [ProxyProfile.configJson]
+     * makes Marble report the node honestly on the Xray engine instead of inventing a config that
+     * core would refuse.
+     */
+    private fun parseTuic(raw: String, sid: String, sname: String): ProxyProfile {
+        val u = Uri.parse(raw); val host = u.host ?: error("host"); val port = u.port.takeIf { it > 0 } ?: 443
+        val name = u.fragment?.let { dec(it) }?.ifBlank { null } ?: "TUIC $host"
+        return ProxyProfile(id(raw), dec(name).take(120), "tuic", raw, "", host, port, "tuic", "tls", sid, sname)
+    }
+
+    private fun parseAnyTls(raw: String, sid: String, sname: String): ProxyProfile {
+        val u = Uri.parse(raw); val host = u.host ?: error("host"); val port = u.port.takeIf { it > 0 } ?: 443
+        val name = u.fragment?.let { dec(it) }?.ifBlank { null } ?: "AnyTLS $host"
+        return ProxyProfile(id(raw), dec(name).take(120), "anytls", raw, "", host, port, "anytls", "tls", sid, sname)
+    }
+
+    private fun tlsSettingsFor(uri: Uri, host: String, fingerprint: String): JSONObject {
+        val tls = JSONObject()
+            .put("serverName", qa(uri, "sni", "serverName", "peer").ifBlank { host })
+            .put("fingerprint", fingerprint)
+        val alpn = qa(uri, "alpn")
+        if (alpn.isNotBlank()) {
+            val array = JSONArray()
+            alpn.split(',').forEach { token -> token.trim().takeIf(String::isNotBlank)?.let(array::put) }
+            tls.put("alpn", array)
+        }
+        // Insecure/pinning keys are normalised by the single TLS policy authority; the removed
+        // `allowInsecure` field must never be written into an Xray config.
+        return TlsPinningPolicy.sanitizeTlsSettings(
+            tls = tls,
+            verifyPeerCertByName = qa(uri, *TlsPinningPolicy.VERIFY_BY_NAME_KEYS.toTypedArray()),
+            pinnedPeerCertSha256 = qa(uri, *TlsPinningPolicy.PINNED_SHA256_KEYS.toTypedArray()),
+            allowInsecureRequested = TlsPinningPolicy.isTruthy(
+                qa(uri, *TlsPinningPolicy.ALLOW_INSECURE_KEYS.toTypedArray())
+            ),
+            insecureFallbackName = host
+        )
     }
 
     private fun parseBasic(raw: String, sid: String, sname: String): ProxyProfile {

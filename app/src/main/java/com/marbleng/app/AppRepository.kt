@@ -130,7 +130,13 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     private val iranScanInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
     private val iranPolicyGeneration = java.util.concurrent.atomic.AtomicLong(0L)
 
-    val intelligence = MarbleIntelligence(context)
+    val intelligence = MarbleIntelligence(context).also {
+        // MARBLE_SINGBOX_PROTOCOLS_V153 — the sing-box config writer now consumes the same
+        // resolver pool that the Xray hardener already races. Without this wiring the second
+        // engine would keep emitting the two configured literals forever while the evidence
+        // loop was reordering a pool it never saw.
+        singBox.intelligence = it
+    }
     private val notifier = SmartNotifier(context)
     private val iranDetector = IranModeDetector(context, intelligence)
     private val bugFinder = BugFinder(context, xray)
@@ -547,13 +553,19 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
             // https default rather than handed a URL the core would silently ignore.
             val url = DelayTest.url(probeSettings.delayTestUrl)
                 .takeIf { it.startsWith("https://") } ?: DelayTest.URL
+            // MARBLE_SINGBOX_PROTOCOLS_V153 — the URL test now measures from the same effective
+            // settings as a real connection: evidence-guided resolver order, family plan and
+            // protocol-fitness verdict. The old path passed the raw probe settings, so the
+            // throwaway core could use a demoted resolver pair that the live session had already
+            // replaced.
+            val singBoxSettings = intelligence.effectiveSettings(profile, probeSettings)
             val result = if (
                 settings.coreEngine() == CoreEngine.SINGBOX && singBox.isAlive &&
                     activeProfileId == profile.id
             ) {
                 singBox.urlTestLive(SingBoxConfigBuilder.PROXY_TAG, url, timeoutMs)
             } else {
-                singBox.urlTestProfile(profile, probeSettings, url, timeoutMs)
+                singBox.urlTestProfile(profile, singBoxSettings, url, timeoutMs)
             }
             if (result.ok) {
                 RouteProbe.ProbeResult(

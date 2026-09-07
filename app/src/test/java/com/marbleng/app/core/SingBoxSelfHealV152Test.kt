@@ -150,6 +150,46 @@ class SingBoxSelfHealV152Test {
         assertTrue(repair.notes.isEmpty())
     }
 
+    // MARBLE_SINGBOX_PROTOCOLS_V153 — the two schema errors that made translation fail on every
+    // non-parser profile. They are repaired in place and the config is re-checked, so the user
+    // is not bounced between engines by a known decoder rejection.
+    @Test
+    fun anArrayNetworkFieldAndTlsFragmentAreRepaired() {
+        val config = JSONObject(
+            SingBoxConfigBuilder.build(
+                profile = modernProfile(),
+                settings = com.marbleng.app.model.AppSettings(singBoxPreferParser = false),
+                socksPort = 10808,
+                apiPort = 39090,
+                apiSecret = "secret",
+                logPath = "/data/local/tmp/singbox.log",
+                cachePath = "/data/local/tmp/singbox-cache.db"
+            ).json
+        )
+        val proxyOutbounds = config.getJSONArray("outbounds")
+        for (i in 0 until proxyOutbounds.length()) {
+            val outbound = proxyOutbounds.getJSONObject(i)
+            if (outbound.optString("tag") == SingBoxConfigBuilder.PROXY_TAG) {
+                outbound.put("network", JSONArray().put("tcp").put("udp"))
+                outbound.put("tls", JSONObject().put("enabled", true).put("fragment", true))
+            }
+        }
+
+        val repair = SingBoxConfigDoctor.repair(config.toString())
+        assertTrue("the doctor must repair a known decoder rejection", repair.repaired)
+        val healed = JSONObject(repair.json)
+        for (i in 0 until healed.getJSONArray("outbounds").length()) {
+            val outbound = healed.getJSONArray("outbounds").getJSONObject(i)
+            if (outbound.optString("tag") == SingBoxConfigBuilder.PROXY_TAG) {
+                assertFalse("array `network` must be migrated away", outbound.has("network"))
+                val tls = outbound.optJSONObject("tls")
+                if (tls != null) {
+                    assertFalse("Xray-only TLS `fragment` must be removed", tls.has("fragment"))
+                }
+            }
+        }
+    }
+
     @Test
     fun engineLevelFaultsAreRecognisedSoFailoverStopsWalkingNodes() {
         val shippedError = "sing-box rejected the config: outbounds[3]: dns outbound is " +
@@ -159,6 +199,12 @@ class SingBoxSelfHealV152Test {
             SingBoxConfigDoctor.isEngineLevelFault(shippedError)
         )
         assertTrue(SingBoxConfigDoctor.isEngineLevelFault("Config: decode config: unknown field"))
+        assertTrue(
+            "a translation array `network` rejection is an engine-level, not node, fault",
+            SingBoxConfigDoctor.isEngineLevelFault(
+                "cannot unmarshal array into Go struct field NetworkOptions.network of type string"
+            )
+        )
         // Node and network failures are NOT engine faults: those are exactly what failover exists
         // for, and misclassifying them would strand the user on one engine.
         assertFalse(SingBoxConfigDoctor.isEngineLevelFault("sing-box listener did not open: refused"))

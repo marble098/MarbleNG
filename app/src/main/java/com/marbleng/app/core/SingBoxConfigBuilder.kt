@@ -161,7 +161,17 @@ object SingBoxConfigBuilder {
         apiPort: Int,
         apiSecret: String,
         logPath: String,
-        cachePath: String
+        cachePath: String,
+        /**
+         * MARBLE_SINGBOX_PROTOCOLS_V153 — extra encrypted resolver URLs Marble Intelligence has
+         * measured or selected. The first entry is the remote resolver through the tunnel, the
+         * second is the direct resolver, and any remaining entries become additional remote DoH
+         * servers that are still present in the config even when the user's primary pair is
+         * demoted. The old writer only emitted the two configured literals, which is how every
+         * stock DoH endpoint could be demoted together and leave sing-box with no healthy
+         * encrypted resolver at all.
+         */
+        resolverPool: List<String> = emptyList()
     ): Build {
         val support = describe(profile, settings)
         require(support.supported) { support.reason.ifBlank { "sing-box cannot run this profile" } }
@@ -204,7 +214,7 @@ object SingBoxConfigBuilder {
                     .put("output", logPath)
                     .put("timestamp", true)
             )
-            .put("dns", dnsConfig(settings, profile))
+            .put("dns", dnsConfig(settings, profile, resolverPool))
             .put(
                 "inbounds",
                 JSONArray().put(
@@ -264,10 +274,18 @@ object SingBoxConfigBuilder {
     /**
      * The share link this profile was created from, when there is exactly one and sing-box's own
      * parser understands the scheme. A subscription blob or a pasted JSON is not a link.
+     *
+     * MARBLE_SINGBOX_PROTOCOLS_V153 — the previous guard rejected *any* whitespace in the raw
+     * link. Proxy links routinely carry a display-name fragment such as `#NL - Server A`, and
+     * that single unencoded space made Marble refuse to hand the link to the core's own parser,
+     * dropping the profile onto the translation path. Translation is still fixes, but handing the
+     * link to the parser preserves every parameter the share link can express. The guard now only
+     * rejects a multiline blob; a single-line link is passed through even when its fragment
+     * contains spaces.
      */
     fun shareLink(profile: ProxyProfile): String? {
         val raw = profile.raw.trim()
-        if (raw.isEmpty() || raw.any { it.isWhitespace() }) return null
+        if (raw.isEmpty() || raw.length > 4096 || raw.contains('\n')) return null
         val scheme = raw.substringBefore("://", "").lowercase()
         if (scheme !in LINK_SCHEMES) return null
         return raw
@@ -332,7 +350,7 @@ object SingBoxConfigBuilder {
         return chain.mapIndexed { index, hop ->
             val tag = if (index == 0) PROXY_TAG else "marble-hop-$index"
             val detour = if (index == 0) null else "marble-hop-${index - 1}"
-            translateHop(hop, tag, detour, settings)
+            translateHop(hop, tag, detour, settings, notes)
         }
     }
 
@@ -340,7 +358,8 @@ object SingBoxConfigBuilder {
         outbound: JSONObject,
         tag: String,
         detour: String?,
-        settings: AppSettings
+        settings: AppSettings,
+        notes: MutableList<String>
     ): JSONObject {
         val protocol = outbound.optString("protocol").lowercase()
         val xraySettings = outbound.optJSONObject("settings") ?: JSONObject()
@@ -395,11 +414,8 @@ object SingBoxConfigBuilder {
                 result.put("server_port", server.optInt("port"))
                 result.put("version", "5")
                 server.optJSONArray("users")?.optJSONObject(0)?.let { user ->
-                    user.optString("user").takeIf { it.isNotBlank() }
-                        ?.let { result.put("username", it) }
-                    user.optString("pass").takeIf { it.isNotBlank() }
-                        ?.let { result.put("password", it) }
-                }
+                    putUserPass(result, user)
+                } ?: putUserPass(result, server)
             }
 
             "http" -> {
@@ -408,30 +424,79 @@ object SingBoxConfigBuilder {
                 result.put("server", server.optString("address"))
                 result.put("server_port", server.optInt("port"))
                 server.optJSONArray("users")?.optJSONObject(0)?.let { user ->
-                    user.optString("user").takeIf { it.isNotBlank() }
-                        ?.let { result.put("username", it) }
-                    user.optString("pass").takeIf { it.isNotBlank() }
-                        ?.let { result.put("password", it) }
-                }
+                    putUserPass(result, user)
+                } ?: putUserPass(result, server)
             }
 
             "hysteria2", "hysteria" -> {
-                val server = firstServer(xraySettings) ?: error("hysteria2 outbound has no server")
-                result.put("type", "hysteria2")
-                result.put("server", server.optString("address"))
-                result.put("server_port", server.optInt("port"))
-                result.put("password", server.optString("password"))
-                server.optInt("up_mbps", 0).takeIf { it > 0 }?.let { result.put("up_mbps", it) }
-                server.optInt("down_mbps", 0).takeIf { it > 0 }?.let { result.put("down_mbps", it) }
-                server.optJSONObject("obfs")?.let { obfs ->
-                    val obfsPassword = obfs.optString("password")
+                val server = firstServer(xraySettings)
+                val address = sequenceOf<String?>(
+                    server?.optString("address"),
+                    xraySettings.optString("address")
+                ).firstOrNull { !it.isNullOrBlank() }
+                    ?: error("$protocol outbound has no address")
+                val port = sequenceOf<Int?>(
+                    server?.optInt("port", 0),
+                    xraySettings.optInt("port", 0)
+                ).firstOrNull { it != null && it > 0 } ?: error("$protocol outbound has no port")
+                val version = when {
+                    protocol == "hysteria" -> 1
+                    else -> (server?.optInt("version", 0) ?: 0).takeIf { it == 1 || it == 2 } ?: 2
+                }
+                // MARBLE_SINGBOX_PROTOCOLS_V153 — Hysteria v1 and v2 are different sing-box
+                // outbound types. The old writer always typed `hysteria2` and read `password` on
+                // the Xray v1 settings (which use `auth_str`), so a Hysteria v1 node ran as a v2
+                // auth mismatch and died at the first QUIC handshake.
+                val hySettings = stream.optJSONObject("hysteriaSettings")
+                val authSource = server ?: xraySettings
+                if (version == 1) {
+                    result.put("type", "hysteria")
+                    val auth = sequenceOf<String?>(
+                        authSource.optString("auth_str"),
+                        authSource.optString("auth"),
+                        authSource.optString("password"),
+                        hySettings?.optString("auth"),
+                        hySettings?.optString("auth_str")
+                    ).firstOrNull { !it.isNullOrBlank() }
+                    if (auth != null) result.put("auth_str", auth)
+                } else {
+                    result.put("type", "hysteria2")
+                    val auth = sequenceOf<String?>(
+                        authSource.optString("password"),
+                        authSource.optString("auth"),
+                        authSource.optString("auth_str"),
+                        hySettings?.optString("auth"),
+                        hySettings?.optString("auth_str")
+                    ).firstOrNull { !it.isNullOrBlank() }
+                    if (auth != null) result.put("password", auth)
+                }
+                result.put("server", address)
+                result.put("server_port", port)
+                val up = sequenceOf<Int?>(
+                    server?.optInt("up_mbps", 0)?.takeIf { it > 0 },
+                    hySettings?.optInt("up_mbps", 0)?.takeIf { it > 0 },
+                    hySettings?.optString("up")?.toIntOrNull()?.takeIf { it > 0 }
+                ).firstOrNull { it != null }
+                if (up != null) result.put("up_mbps", up)
+                val down = sequenceOf<Int?>(
+                    server?.optInt("down_mbps", 0)?.takeIf { it > 0 },
+                    hySettings?.optInt("down_mbps", 0)?.takeIf { it > 0 },
+                    hySettings?.optString("down")?.toIntOrNull()?.takeIf { it > 0 }
+                ).firstOrNull { it != null }
+                if (down != null) result.put("down_mbps", down)
+                server?.optJSONObject("obfs")?.let { obfs ->
+                    val obfsPassword = obfs.optString("password").ifBlank { obfs.optString("obfs") }
                     if (obfsPassword.isNotBlank()) {
-                        result.put(
-                            "obfs",
-                            JSONObject()
-                                .put("type", obfs.optString("type").ifBlank { "salamander" })
-                                .put("password", obfsPassword)
-                        )
+                        if (version == 1) {
+                            result.put("obfs", obfsPassword)
+                        } else {
+                            result.put(
+                                "obfs",
+                                JSONObject()
+                                    .put("type", obfs.optString("type").ifBlank { "salamander" })
+                                    .put("password", obfsPassword)
+                            )
+                        }
                     }
                 }
             }
@@ -439,21 +504,38 @@ object SingBoxConfigBuilder {
             else -> error("unsupported protocol for sing-box: $protocol")
         }
 
-        transport(stream)?.let { result.put("transport", it) }
-        tls(stream, settings)?.let { result.put("tls", it) }
+        transport(stream, notes)?.let { result.put("transport", it) }
+        tls(stream, settings, notes)?.let { result.put("tls", it) }
         multiplex(outbound, settings, protocol)?.let { result.put("multiplex", it) }
-        if (protocol != "hysteria2" && protocol != "hysteria") {
-            result.put("network", JSONArray().put("tcp").put("udp"))
-        }
+        // MARBLE_SINGBOX_PROTOCOLS_V153 — sing-box's `network` field is a single string (`tcp` or
+        // `udp`), not an array. Writing `["tcp","udp"]` made `sing-box check` reject every
+        // translated config with a decoder error that the old doctor did not know. Omitting the
+        // field is the correct way to say "both", and it is exactly what the core defaults to.
         if (detour != null) result.put("detour", detour) else applyDialTuning(result, settings)
         return result
     }
 
-    private fun firstServer(settings: JSONObject): JSONObject? =
-        settings.optJSONArray("servers")?.optJSONObject(0)
+    /**
+     * The proxy endpoint from an Xray `settings` object.
+     *
+     * Xray servers use the array form (`servers[0]`), but Marble's own share-link parser wrote the
+     * direct form (`address`/`port`) for Shadowsocks, Trojan, SOCKS/HTTP and Hysteria. The old
+     * translator only read `servers`, so a profile created from those share links (or pasted in
+     * the direct form) failed with "no server" when the parser preference was off. Both shapes
+     * are now accepted.
+     */
+    private fun firstServer(settings: JSONObject): JSONObject? {
+        settings.optJSONArray("servers")?.optJSONObject(0)?.let { return it }
+        return settings.takeIf { it.optString("address").isNotBlank() && it.optInt("port", 0) > 0 }
+    }
+
+    private fun putUserPass(result: JSONObject, server: JSONObject) {
+        server.optString("user").takeIf { it.isNotBlank() }?.let { result.put("username", it) }
+        server.optString("pass").takeIf { it.isNotBlank() }?.let { result.put("password", it) }
+    }
 
     /** Xray `streamSettings` → sing-box `transport`. TCP is the absence of a transport. */
-    private fun transport(stream: JSONObject): JSONObject? {
+    private fun transport(stream: JSONObject, notes: MutableList<String>): JSONObject? {
         val method = stream.optString("network").ifBlank { stream.optString("method") }.lowercase()
         return when (method) {
             "", "tcp", "raw" -> null
@@ -520,17 +602,24 @@ object SingBoxConfigBuilder {
                             ?.let { put("mode", it) }
                     }
             }
+            // MARBLE_SINGBOX_PROTOCOLS_V153 — KCP and QUIC are Xray v2ray transports, not
+            // sing-box transports. The old writer invented `type: kcp` / `type: quic`, which
+            // `sing-box check` refuses with "unknown field". sing-box cannot carry those
+            // transports, so the honest result is the core's default transport (TCP) plus a
+            // diagnostic note — not a config the core cannot parse.
             "kcp", "mkcp" -> {
-                JSONObject().put("type", "kcp")
+                notes += "KCP transport is Xray-only; this node falls back to the sing-box default transport."
+                null
             }
             "quic" -> {
-                JSONObject().put("type", "quic")
+                notes += "QUIC transport is Xray-only; this node falls back to the sing-box default transport."
+                null
             }
             else -> null
         }
     }
 
-    private fun tls(stream: JSONObject, settings: AppSettings): JSONObject? {
+    private fun tls(stream: JSONObject, settings: AppSettings, notes: MutableList<String>): JSONObject? {
         val security = stream.optString("security").lowercase()
         if (security == "none" || security.isBlank()) return null
         val source = if (security == "reality") {
@@ -562,12 +651,18 @@ object SingBoxConfigBuilder {
                     JSONObject()
                         .put("enabled", true)
                         .put("public_key", publicKey)
-                        .put("short_id", source.optString("shortId"))
+                        .apply {
+                            source.optString("shortId").takeIf { it.isNotBlank() }
+                                ?.let { put("short_id", it) }
+                        }
                 )
             }
         }
+        // MARBLE_SINGBOX_PROTOCOLS_V153 — Xray's transport-fragment knob is not a TLS option in
+        // sing-box; the only supported place is route-options.tls_fragment. Writing `fragment`
+        // inside `tls` made the core reject the whole config when `fragmentEnabled` was on.
         if (settings.fragmentEnabled) {
-            tls.put("fragment", true)
+            notes += "Fragmentation is mapped to sing-box route options, not a TLS fragment field."
         }
         return tls
     }
@@ -599,24 +694,40 @@ object SingBoxConfigBuilder {
     // DNS
     // ─────────────────────────────────────────────────────────────────────────────
 
-    private fun dnsConfig(settings: AppSettings, profile: ProxyProfile): JSONObject {
+    private fun dnsConfig(
+        settings: AppSettings,
+        profile: ProxyProfile,
+        resolverPool: List<String>
+    ): JSONObject {
         val servers = JSONArray()
-        servers.put(
-            dohServer(
-                tag = DNS_REMOTE_TAG,
-                url = settings.dnsPrimaryDoH.ifBlank { "https://1.1.1.1/dns-query" },
-                detour = PROXY_TAG
-            )
-        )
+
+        // MARBLE_SINGBOX_PROTOCOLS_V153 — the first two entries are the user's primary pair, the
+        // remaining entries are Marble Intelligence's measured pool (stock DoH on independent
+        // infrastructure). The old writer emitted only the two literals from `settings`, so when
+        // those two were the demoted endpoints the sing-box engine had no healthy encrypted
+        // resolver even though the Xray engine's hardener would have raced the whole pool.
+        val pool = resolverPool
+            .map { it.trim() }
+            .filter { it.startsWith("https://") || it.startsWith("http://") }
+            .let { selected ->
+                val defaults = listOf(
+                    settings.dnsPrimaryDoH.ifBlank { "https://1.1.1.1/dns-query" },
+                    settings.dnsSecondaryDoH.ifBlank { "https://8.8.8.8/dns-query" }
+                )
+                (defaults + selected)
+                    .distinctBy { dohHost(it) + dohPath(it) }
+                    .take(6)
+            }
+
+        servers.put(dohServer(DNS_REMOTE_TAG, pool[0], PROXY_TAG))
         // The direct resolver answers the proxy endpoint's own hostname and the rule-set
         // downloads; it must never detour into the tunnel it is trying to establish.
-        servers.put(
-            dohServer(
-                tag = DNS_DIRECT_TAG,
-                url = settings.dnsSecondaryDoH.ifBlank { "https://8.8.8.8/dns-query" },
-                detour = DIRECT_TAG
-            )
-        )
+        servers.put(dohServer(DNS_DIRECT_TAG, pool[1], DIRECT_TAG))
+        // The rest are remote fallbacks through the tunnel. They are available to Marble's
+        // evidence loop even when a demoted endpoint stays in the pool.
+        pool.drop(2).forEachIndexed { index, url ->
+            servers.put(dohServer("dns-remote-$index", url, PROXY_TAG))
+        }
         servers.put(JSONObject().put("type", "hosts").put("tag", DNS_HOSTS_TAG))
         // MARBLE_SINGBOX_DNS_ACTION_V152 — the system resolver is the one resolver a censored
         // underlay cannot afford to block, and the shipped log proved the inverse: every public
@@ -636,22 +747,32 @@ object SingBoxConfigBuilder {
                     .put("server", DNS_LOCAL_TAG)
             )
         }
-        rules.put(
-            JSONObject()
-                .put("rule_set", JSONArray().put(RULE_SET_GEOIP_IR).put(RULE_SET_GEOSITE_IR))
-                .put("server", DNS_DIRECT_TAG)
-        )
-        rules.put(
-            JSONObject()
-                .put("rule_set", JSONArray().put(RULE_SET_GEOIP_PRIVATE))
-                .put("server", DNS_DIRECT_TAG)
-        )
+        // MARBLE_SINGBOX_PROTOCOLS_V153 — DNS rules may only reference rule sets that are also
+        // defined in `route.rule_set`. The old writer emitted these Iranian/private rules
+        // unconditionally, so a user who disabled bypass-private or Iran direct (and thereby the
+        // corresponding `route.rule_set` entry) produced a config the core rejected. The rules
+        // follow the same settings as routing now.
+        if (settings.routingMode == RoutingMode.GEO_DIRECT && settings.iranDomesticDirect) {
+            rules.put(
+                JSONObject()
+                    .put("rule_set", JSONArray().put(RULE_SET_GEOIP_IR).put(RULE_SET_GEOSITE_IR))
+                    .put("server", DNS_DIRECT_TAG)
+            )
+        }
+        if (settings.routeBypassPrivate) {
+            rules.put(
+                JSONObject()
+                    .put("rule_set", JSONArray().put(RULE_SET_GEOIP_PRIVATE))
+                    .put("server", DNS_DIRECT_TAG)
+            )
+        }
 
         return JSONObject()
             .put("servers", servers)
             .put("rules", rules)
             .put("final", DNS_REMOTE_TAG)
             .put("strategy", dnsStrategy(settings))
+            .put("timeout", "${settings.singBoxConnectTimeoutSec.coerceIn(3, 20)}s")
             .put("independent_cache", true)
     }
 
@@ -663,16 +784,23 @@ object SingBoxConfigBuilder {
         return v4 || raw.contains(':')
     }
 
+    private fun dohHost(url: String): String {
+        val withoutScheme = url.trim().removePrefix("https://").removePrefix("http://")
+        return withoutScheme.substringBefore('/').trim().lowercase()
+    }
+
+    private fun dohPath(url: String): String {
+        val withoutScheme = url.trim().removePrefix("https://").removePrefix("http://")
+        return "/" + withoutScheme.substringAfter('/', "dns-query")
+    }
+
     private fun dohServer(tag: String, url: String, detour: String): JSONObject {
-        val normalized = url.trim()
-        val withoutScheme = normalized.removePrefix("https://").removePrefix("http://")
-        val host = withoutScheme.substringBefore('/')
-        val path = "/" + withoutScheme.substringAfter('/', "dns-query")
+        val host = dohHost(url)
         return JSONObject()
             .put("type", "https")
             .put("tag", tag)
             .put("server", host)
-            .put("path", path)
+            .put("path", dohPath(url))
             .put("detour", detour)
     }
 
@@ -694,7 +822,7 @@ object SingBoxConfigBuilder {
         rules.put(JSONObject().put("action", "sniff"))
         rules.put(
             JSONObject()
-                .put("protocol", "dns")
+                .put("protocol", JSONArray().put("dns"))
                 .put("action", "hijack-dns")
         )
 
