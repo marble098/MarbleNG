@@ -1,6 +1,7 @@
 package com.marbleng.app.core
 
 import com.marbleng.app.model.AppSettings
+import com.marbleng.app.model.DelayTest
 import com.marbleng.app.model.ProxyProfile
 import com.marbleng.app.model.RoutingMode
 import org.json.JSONArray
@@ -210,15 +211,39 @@ class CoreInteropRegressionTest {
         assertEquals(ResolverFailureKind.DEADLINE, ResolverFailureClassifier.classify("dns: TLS handshake timeout"))
         assertEquals(ResolverFailureKind.OTHER, ResolverFailureClassifier.classify("dns: read: connection reset by peer"))
     }
-    @Test fun urlTestXrayStopsAtTheFirstCompleteResponseAndPreservesTarget() {
-        val visited = mutableListOf<String>()
-        val result = SocksUrlTest.measureTargets(listOf("https://example.com:8443/check?token=kept", "https://unused.invalid"), 2000) { url, _ ->
-            visited += url.toString()
-            HttpProbe(204, byteArrayOf(), 1.5, 0.0)
+    // MARBLE_URLTEST_SINGBOX_ONLY_V156 — the URL test is sing-box extended's own measurement, so
+    // the target contract lives with the session that asks the core, not with a second HTTP
+    // client. What is pinned is the part that protects the user: no plain http (the core would
+    // silently substitute its own target) and never a URL carrying credentials.
+    @Test fun urlTestAcceptsOnlyAPlainHttpsTarget() {
+        assertNull(UrlTestTarget.validate("https://example.com:8443/check?token=kept"))
+        assertNull(UrlTestTarget.validate(DelayTest.URL))
+        assertEquals(UrlTestTarget.INVALID, UrlTestTarget.validate("http://example.com/generate_204"))
+        assertEquals(UrlTestTarget.INVALID, UrlTestTarget.validate("https://user:pw@example.com/"))
+        assertEquals(UrlTestTarget.INVALID, UrlTestTarget.validate("https://"))
+        assertEquals(UrlTestTarget.INVALID, UrlTestTarget.validate("not a url at all"))
+        assertTrue(CoreFailurePolicy.isLocal(UrlTestTarget.INVALID))
+    }
+
+    // The method belongs to one engine now: on any other it says so instead of measuring
+    // something else behind the same name.
+    @Test fun urlTestRefusesAnEngineThatDoesNotOwnIt() {
+        RouteProbe.urlTestHook = { _, _, _ ->
+            RouteProbe.ProbeResult(RouteProbe.METHOD_URL_TEST, 42.0, 100, 1)
         }
-        assertTrue(result.ok)
-        assertEquals(2L, result.delayMs)
-        assertEquals(listOf("https://example.com:8443/check?token=kept"), visited)
+        try {
+            val onXray = RouteProbe.urlTest(profile(vless()), 1000, plain)
+            assertEquals(0, onXray.successPercent)
+            assertEquals(RouteProbe.URL_TEST_ENGINE_GATE, onXray.failureReason)
+
+            val onSingBox = RouteProbe.urlTest(
+                profile(vless()), 1000, plain.copy(coreEngineId = CoreEngine.SINGBOX.id)
+            )
+            assertEquals(100, onSingBox.successPercent)
+            assertEquals(42.0, onSingBox.latencyMs, 0.001)
+        } finally {
+            RouteProbe.urlTestHook = null
+        }
     }
 
     @Test fun localFaultsAndAbsentTunnelDoNotPretendToMeasureServerHealth() {

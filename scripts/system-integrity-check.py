@@ -34,6 +34,11 @@ files = {
     # process owner. They are required files now: a build that drops one of them silently
     # turns Settings → Tunnel core into a page that cannot start anything.
     "coreEngine": read("app/src/main/java/com/marbleng/app/core/CoreEngine.kt"),
+    "coreUrlTest": read("app/src/main/java/com/marbleng/app/core/CoreUrlTest.kt"),
+    "cancelGate": read("app/src/main/java/com/marbleng/app/core/ProbeCancelGate.kt"),
+    "rankEngine": read("app/src/main/java/com/marbleng/app/core/PattRankEngine.kt"),
+    "linkAuthorityTest": read("app/src/test/java/com/marbleng/app/core/SingBoxLinkAuthorityV156Test.kt"),
+    "probeTruthTest": read("app/src/test/java/com/marbleng/app/core/ProbeTruthV156Test.kt"),
     "singBoxBuilder": read("app/src/main/java/com/marbleng/app/core/SingBoxConfigBuilder.kt"),
     "singBox": read("app/src/main/java/com/marbleng/app/core/SingBoxManager.kt"),
     "singBoxSession": read("app/src/main/java/com/marbleng/app/core/SingBoxProcessSession.kt"),
@@ -740,15 +745,124 @@ check(
         for key in ("repo", "bench", "probe", "ui", "vpn", "store", "models")
     ),
 )
+# MARBLE_URLTEST_SINGBOX_ONLY_V156 — the URL test is sing-box extended's own delay controller and
+# nothing else. The Xray look-alike (a Kotlin HTTPS HEAD through Xray's SOCKS inbound) measured
+# something different behind the same label, so the same server reported two incomparable numbers
+# depending on the selected core. The method now refuses on any engine that does not own it, and
+# Settings stops offering it there.
 check(
-    "URL Test uses native sing-box delay or the selected Xray SOCKS tunnel",
+    "URL Test belongs to sing-box extended alone and refuses elsewhere",
     "urlTestHook" in files["probe"]
     and "urlTestHook =" in files["repo"]
     and "urlTestLive(" in files["singBox"]
     and "urlTestProfile(" in files["singBox"]
     and "METHOD_URL_TEST" in files["probe"]
-    and "SocksUrlTest.measure(" in files["repo"],
+    and "URL_TEST_ENGINE_GATE" in files["probe"]
+    and "RouteProbe.URL_TEST_ENGINE_GATE" in files["repo"]
+    and "availableOn(" in files["coreEngine"]
+    and "candidate.availableOn(s.coreEngine())" in files["ui"]
+    # The retired Xray substitute must not come back under any name.
+    and "SocksUrlTest" not in files["repo"] + files["probe"] + files["bench"]
+    and "object SocksUrlTest" not in files["coreUrlTest"],
 )
+# ───────────────────────────────────────────────────────────────────────────────────────────────
+# MARBLE_V156 — the share link is the authority, the URL test belongs to one engine, every bulk
+# measurement can be cancelled, Real delay works with no tunnel up, and the Home header no longer
+# repeats the session state next to the logo.
+# ───────────────────────────────────────────────────────────────────────────────────────────────
+
+check(
+    "the share link, not the derived Xray JSON, leads the sing-box config",
+    "candidateSet(" in files["singBoxBuilder"]
+    and "settings.singBoxPreferParser" in files["singBoxBuilder"]
+    and "STRATEGY_LINK_TRANSLATED" in files["singBoxBuilder"]
+    and "ProxyParser.parseInput(link)" in files["singBoxBuilder"]
+    # The writer must not quietly ignore the preference the Settings page exposes.
+    and "singBoxPreferParser" in files["store"]
+    and "aStoredNodeIsHandedToTheCoresOwnParserFirst" in files["linkAuthorityTest"]
+    and "everyReaderIsOfferedSoOneRefusalCannotKillTheNode" in files["linkAuthorityTest"],
+)
+
+check(
+    "routing is written once, for every reader, and never kills the engine",
+    "routingIsIdenticalForEveryReaderOfTheSameNode" in files["linkAuthorityTest"]
+    and "anUnbundledGeoRuleIsReportedInsteadOfKillingTheEngine" in files["linkAuthorityTest"]
+    and "internal fun geoTag(ip: Boolean, raw: String): String?" in files["singBoxBuilder"]
+    and "is not bundled for sing-box" not in files["singBoxBuilder"],
+)
+
+check(
+    "every stored node is reconciled with the link it came from",
+    "reconcileProfilesWithTheirLinks()" in files["repo"]
+    and "private fun reconcileWithLink(" in files["repo"]
+    and "SingBoxConfigBuilder.shareLink(profile)" in files["repo"]
+    and "profile-link-reconcile" in files["repo"],
+)
+
+check(
+    "Real delay measures with no tunnel up instead of reporting no-live-tunnel",
+    "realDelayHook" in files["probe"]
+    and "realDelayHook =" in files["repo"]
+    and "installRealDelayHook()" in files["repo"]
+    and "realDelayWithoutATunnelSaysSoOnlyWhenNoHookCanBuildOne" in files["probeTruthTest"]
+    # The spawn-storm mercy that kept healthy nodes reporting xray-start/singbox-start.
+    and "fun attempt(): Boolean = xray.temporary(" in files["bench"]
+    and "if (spawned || times.isNotEmpty()) spawned else attempt()" in files["bench"],
+)
+
+check(
+    "a measurement core skips only the overhead a measurement does not need",
+    "validate: Boolean = true" in files["singBoxSession"]
+    and "awaitApi: Boolean = true" in files["singBoxSession"]
+    and "(!awaitApi || apiReady(apiPort, secret, left()))" in files["singBoxSession"]
+    and "validate = false" in files["singBox"]
+    and "MAX_TEMPORARY_CORES" in files["singBox"]
+    and "SingBoxManager.MAX_TEMPORARY_CORES" in files["bench"],
+)
+
+check(
+    "every bulk measurement can be cancelled and keeps what it measured",
+    "class ProbeCancelGate" in files["cancelGate"]
+    and "fun cancelProbes()" in files["repo"]
+    and "probeCancelGate.arm()" in files["repo"]
+    and "probeCancelGate.reset()" in files["repo"]
+    and "shouldStop: () -> Boolean" in files["bench"]
+    and "shouldStop: () -> Boolean" in files["rankEngine"]
+    and "shouldStop = probeShouldStop" in files["repo"]
+    # The same control from every surface that can start a sweep.
+    and "repo.cancelProbes()" in files["ui"] + files["homeStyles"]
+    and files["ui"].count("repo.cancelProbes()") >= 2
+    and "HomeGlyph.STOP" in files["homeStyles"]
+    and "HomeIcon.STOP" in files["ui"]
+    and "aCancelArmsOnceAndCanBeReusedByTheNextSweep" in files["probeTruthTest"],
+)
+
+# The status word and its dot sat between the wordmark and the actions. `repo.state == "CONNECTED"`
+# elsewhere in the file builds the evidence model the banner below reads; that stays. What must not
+# come back is the header rendering a status word of its own.
+# Comments are stripped first: the reason the status word was removed is recorded in the comment
+# right where it used to be, and that prose must not read as the readout coming back.
+home_top_bar = "\n".join(
+    line.split("//", 1)[0]
+    for line in files["homeStyles"]
+    .split("internal fun HomeTopActionBar(", 1)[1]
+    .split("internal fun ", 1)[0]
+    .splitlines()
+)
+check(
+    "the Home header no longer repeats the session state next to the logo",
+    "MARBLE_HOME_TOPBAR_NO_STATUS_V156" in files["homeStyles"]
+    and "val stateLabel" not in files["homeStyles"]
+    and "val stateTone = homeStateTone(evidence)" not in files["homeStyles"]
+    and "stateLabel" not in home_top_bar
+    and "stateTone" not in home_top_bar
+    and "CONNECTED" not in home_top_bar
+    and "READY" not in home_top_bar
+    and "MarbleWordmark()" in home_top_bar
+    # All four presentations share this one header, so removing it there removes it everywhere.
+    and files["homeStyles"].count("HomeTopActionBar(evidence, actions, repo)") == 4,
+)
+
 # A legacy stored method must never crash the settings screen or measure something the product no
 # longer offers: every retired name maps onto the honest replacement.
 check(
@@ -943,9 +1057,16 @@ check(
     and 'result.put("type", "hysteria")' in files["singBoxBuilder"]
     and "hysteriaV1TranslatesToTheV1OutboundNotHysteria2" in files["singBoxTest"],
 )
+# MARBLE_SINGBOX_LINK_AUTHORITY_V156 — both the connect path and the measurement path open their
+# core through ONE opener that walks every representation of the profile, so the two cannot drift.
+# The strictness difference is a parameter of that opener, not a second code path.
 check(
     "connect and temporary probes use one tested process/check implementation",
-    files["singBox"].count("SingBoxProcessSession.open(") == 2
+    files["singBox"].count("SingBoxProcessSession.open(") == 1
+    and "private fun openFirst(" in files["singBox"]
+    and files["singBox"].count("openFirst(") >= 3
+    and "candidateBuilds(" in files["singBoxBuilder"]
+    and "lastStartStrategy" in files["singBox"]
     and 'listOf("check", "-c",' in files["singBoxSession"]
     and 'connection.responseCode == 200' in files["singBoxSession"]
     and 'singBoxResolverPool(settings)' in files["singBox"]

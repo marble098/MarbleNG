@@ -1192,7 +1192,14 @@ internal fun loopFade(t: Float): Float = sin((t.coerceIn(0f, 1f)) * PI.toFloat()
 // ---------------------------------------------------------------------------------------------
 
 internal enum class HomeGlyph {
-    POWER, CHECK, RESET, COPY, REFRESH, MORE, PULSE, CLOCK, LIBRARY, PLUS, BOLT, PASTE, QR, INFO
+    POWER, CHECK, RESET, COPY, REFRESH, MORE, PULSE, CLOCK, LIBRARY, PLUS, BOLT, PASTE, QR, INFO,
+
+    /**
+     * MARBLE_PING_CANCEL_V156 — a filled rounded square: the universal stop. It is the glyph the
+     * Home pulse action swaps to while a bulk measurement is live, so the control that started a
+     * sweep is always the one that can end it.
+     */
+    STOP
 }
 
 @Composable
@@ -1322,6 +1329,16 @@ internal fun HomeGlyphIcon(glyph: HomeGlyph, color: Color, modifier: Modifier = 
                 drawCircle(color = color, radius = w * .38f, center = Offset(w * .5f, h * .5f), style = line)
                 drawCircle(color = color, radius = stroke * .7f, center = Offset(w * .5f, h * .32f))
                 drawLine(color, Offset(w * .5f, h * .44f), Offset(w * .5f, h * .68f), stroke, StrokeCap.Round)
+            }
+            HomeGlyph.STOP -> {
+                // Solid, not outlined: a stop has to read at 12 dp and at a glance, and a hollow
+                // square at this size reads as an empty checkbox instead.
+                drawRoundRect(
+                    color = color,
+                    topLeft = Offset(w * .22f, h * .22f),
+                    size = Size(w * .56f, h * .56f),
+                    cornerRadius = CornerRadius(w * .12f, h * .12f)
+                )
             }
         }
     }
@@ -1777,45 +1794,27 @@ internal fun HomeTopActionBar(
 
     // MARBLE_HOME_TOPBAR_CLEAN_V155 — the header plate is gone. The translucent gradient plate
     // this row used to sit on read as a second status card fighting the banner underneath it, so
-    // it is removed: the wordmark, the live-state dot and the three actions now float directly on
-    // the page with no pill, no frame and no background behind them.
-    val stateTone = homeStateTone(evidence)
-    val stateLabel = when {
-        evidence.connected -> "CONNECTED"
-        evidence.connecting -> "CONNECTING"
-        evidence.disconnecting -> "DISCONNECTING"
-        evidence.blocked -> "BLOCKED"
-        else -> "READY"
-    }
+    // it is removed: the wordmark and the three actions now float directly on the page with no
+    // pill, no frame and no background behind them.
+    //
+    // MARBLE_HOME_TOPBAR_NO_STATUS_V156 — the status dot and its CONNECTED / READY word next to
+    // the logo are gone too, on all four Home presentations. They were a third place announcing a
+    // session state the status banner underneath already owns in full (with the reason, the
+    // uptime and the route), and next to the wordmark they read as part of the brand rather than
+    // as information. The header is now the product signature and its three actions.
+    val cancelling = repo.probeCancelling
+    val sweeping = groupBusy || cancelling
     Row(
         modifier = modifier
             .fillMaxWidth()
             .padding(start = 4.dp, end = 4.dp, top = 4.dp, bottom = 2.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Live state sits BESIDE the wordmark, never stacked underneath it, so nothing reads as a
-        // caption under the logo and the whole header stays one optical line.
         Row(
             modifier = Modifier.weight(1f),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+            verticalAlignment = Alignment.CenterVertically
         ) {
             MarbleWordmark()
-            Box(
-                Modifier
-                    .size(8.dp)
-                    .clip(CircleShape)
-                    .background(stateTone)
-            )
-            Text(
-                stateLabel,
-                color = stateTone,
-                style = MaterialTheme.typography.labelMedium.copy(
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 1.1.sp
-                ),
-                maxLines = 1
-            )
         }
 
         Box {
@@ -1831,13 +1830,16 @@ internal fun HomeTopActionBar(
                 actions = actions
             )
         }
+        // MARBLE_PING_CANCEL_V156 — the same icon that starts the group sweep ends it. While a
+        // sweep is live the pulse becomes a filled STOP square, so the Home page can cancel a
+        // bulk measurement without travelling to the Servers page.
         HomeBareAction(
-            glyph = HomeGlyph.PULSE,
-            tone = Aether.Emerald,
-            description = "${Tr.now.testPing} • $groupLabel",
-            enabled = !groupBusy,
-            busy = groupBusy,
-            onClick = actions.onPingGroup
+            glyph = if (sweeping) HomeGlyph.STOP else HomeGlyph.PULSE,
+            tone = if (sweeping) Aether.Danger else Aether.Emerald,
+            description = if (sweeping) trx("Cancel measuring") else "${Tr.now.testPing} • $groupLabel",
+            enabled = sweeping || !groupBusy,
+            busy = false,
+            onClick = { if (sweeping) repo.cancelProbes() else actions.onPingGroup() }
         )
         HomeBareAction(
             glyph = HomeGlyph.INFO,

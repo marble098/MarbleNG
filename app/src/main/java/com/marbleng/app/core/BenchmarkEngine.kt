@@ -46,7 +46,14 @@ class BenchmarkEngine(
         onCandidates: (List<ProxyProfile>) -> Unit = {},
         onStart: (ProxyProfile) -> Unit = {},
         onResult: (ProxyProfile, BenchmarkResult) -> Unit = { _, _ -> },
-        onProgress: (Int, Int, String) -> Unit = { _, _, _ -> }
+        onProgress: (Int, Int, String) -> Unit = { _, _, _ -> },
+        /**
+         * MARBLE_PING_CANCEL_V156 — the caller's cancel flag, polled between candidates and
+         * between completions. A sweep across a big subscription can run for minutes and used to
+         * have no undo at all. Cancellation is honest about what it means: what never started is
+         * abandoned, what was already measured is kept and published, and nothing is erased.
+         */
+        shouldStop: () -> Boolean = { false }
     ): List<BenchmarkResult> {
         if (profiles.isEmpty()) return emptyList()
         val s = tuned(settings)
@@ -72,7 +79,11 @@ class BenchmarkEngine(
             // be lowered to 1 or 2 (which is what a congested mobile link needs before its numbers
             // mean anything) and it could not be raised past 32 on a fast connection.
             s.probeMethod == ProbeMethod.TCP_PING -> PingBudget.concurrency(s.tcpWorkers)
-            s.probeMethod == ProbeMethod.URL_TEST || s.coreEngine() == CoreEngine.SINGBOX -> s.tcpWorkers.coerceIn(1, 2)
+            // MARBLE_REAL_DELAY_SPEED_V156 — every measurement on the sing-box engine builds its
+            // own native child, so the pool is capped at the child ceiling the manager enforces.
+            // The old cap of two serialised a whole subscription behind two process spawns.
+            s.probeMethod == ProbeMethod.URL_TEST || s.coreEngine() == CoreEngine.SINGBOX ->
+                s.tcpWorkers.coerceIn(1, SingBoxManager.MAX_TEMPORARY_CORES)
             // MarbleNG launches one native Xray child per candidate, unlike v2rayNG's in-process
             // dialer. Four is the safe ceiling here: larger same-host bursts can manufacture
             // Connection reset / TLS timeout failures that disappear when the node is tapped alone.
@@ -83,10 +94,16 @@ class BenchmarkEngine(
             .coerceAtMost(candidates.size)
 
         val livePool = Executors.newFixedThreadPool(liveWorkers)
+        // MARBLE_PING_CANCEL_V156 — a completion queue, so the batch waits in ONE place that can
+        // be re-polled every slice instead of blocking on each future in turn.
+        val completion = ExecutorCompletionService<Unit>(livePool)
         val completed = AtomicInteger(0)
         val results = Collections.synchronizedList(mutableListOf<BenchmarkResult>())
         val jobs = candidates.mapIndexed { idx, p ->
-            livePool.submit {
+            completion.submit {
+                // Cancelled before this candidate was picked up: leave it unmeasured rather than
+                // reporting a fabricated failure for a server nobody looked at.
+                if (shouldStop()) return@submit
                 onStart(p)
                 // Score each measurement as it lands so the caller can publish a finished node
                 // immediately instead of holding every result back until the batch ends.
@@ -124,13 +141,32 @@ class BenchmarkEngine(
         val batchCapMs = (perTaskCapMs * waves + BATCH_WAVE_GRACE_MS)
             .coerceAtMost(BATCH_ABSOLUTE_CAP_MS)
         val batchDeadlineNs = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(batchCapMs)
+        /*
+         * MARBLE_PING_CANCEL_V156 — `job.get(leftMs)` blocks for the whole remaining budget, so
+         * the old loop could not notice a cancel until the slowest worker finished on its own.
+         * The same waits are now sliced: every slice re-reads the caller's flag, so a cancelled
+         * sweep stops starting work within one slice and the workers already in flight are
+         * interrupted instead of being waited out. Results that already landed were published as
+         * they landed, so a cancel never discards a measurement.
+         */
         try {
-            jobs.forEach { job ->
+            var remaining = jobs.size
+            while (remaining > 0) {
+                if (shouldStop()) {
+                    jobs.forEach { if (!it.isDone) it.cancel(true) }
+                    break
+                }
                 val leftMs = TimeUnit.NANOSECONDS.toMillis(batchDeadlineNs - System.nanoTime())
                 if (leftMs <= 0L) {
-                    job.cancel(true)
-                } else {
-                    runCatching { job.get(leftMs, TimeUnit.MILLISECONDS) }
+                    jobs.forEach { if (!it.isDone) it.cancel(true) }
+                    break
+                }
+                // One bounded wait per slice. A cancelled task still reaches the queue (cancelling
+                // a FutureTask runs its `done()` hook), so the counter stays exact.
+                val finished = completion.poll(minOf(leftMs, CANCEL_POLL_SLICE_MS), TimeUnit.MILLISECONDS)
+                if (finished != null) {
+                    remaining--
+                    runCatching { finished.get() }
                 }
             }
         } finally {
@@ -867,7 +903,14 @@ class BenchmarkEngine(
             // used by a real user connection. The old delayTest=true path deliberately stripped
             // managed runtime pieces; a config could therefore fail Rank yet work immediately when
             // tapped. v2rayStyleDelay still controls the lightweight HTTP measurement semantics.
-            xray.temporary(p, port, s, delayTest = false, link = linkEvidence) { livePort ->
+            //
+            // MARBLE_REAL_DELAY_TRUTH_V156 — one retry when the child never came up. A spawn
+            // storm (four measurement cores starting at once on a phone) is a fact about the
+            // device, not a verdict about the server, and it used to be reported as
+            // `xray-start` / `singbox-start` FAILED. A genuinely unbuildable config exits
+            // instantly on both attempts, so the retry costs milliseconds where it is pointless
+            // and saves a healthy node where it is not.
+            fun attempt(): Boolean = xray.temporary(p, port, s, delayTest = false, link = linkEvidence) { livePort ->
                 // MARBLE_IRAN_AWARE_PING_L0_TARGETS — no fixed gstatic/cloudflare reference set
                 // anymore. Both styles now probe the rotating pool (CDN diversity + literal ends)
                 // in the same 10-minute epoch order, so Rank, Home and the tuner all describe the
@@ -938,6 +981,8 @@ class BenchmarkEngine(
                     ) 100 else 0
                 }
             }
+            val spawned = attempt()
+            if (spawned || times.isNotEmpty()) spawned else attempt()
         }.onFailure { error ->
             if (error is InterruptedException) { Thread.currentThread().interrupt(); throw error }
             failureReason = error.message ?: "${s.coreEngine().id}-start"
@@ -1104,6 +1149,12 @@ class BenchmarkEngine(
         const val BATCH_TUNNEL_GRACE_MS = 45_000L
         const val BATCH_WAVE_GRACE_MS = 10_000L
         const val BATCH_ABSOLUTE_CAP_MS = 15 * 60_000L
+        /**
+         * MARBLE_PING_CANCEL_V156 — how often the batch wait re-reads the caller's cancel flag.
+         * Long enough that a healthy run's wait is one `Future.get` per slice rather than a busy
+         * loop; short enough that a cancelled sweep stops starting work within a quarter second.
+         */
+        const val CANCEL_POLL_SLICE_MS = 250L
         /**
          * MARBLE_IRAN_AWARE_PING_L0_TARGETS — the fixed Google/Cloudflare reference set is gone.
          * Rank targets come from [ProbeTargetPool] in the deterministic 10-minute rotation (shared

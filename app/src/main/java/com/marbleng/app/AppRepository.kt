@@ -17,8 +17,10 @@ import java.security.MessageDigest
 import java.util.Locale
 import org.json.JSONObject
 import java.util.concurrent.Executors
+import java.util.concurrent.Future
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.exp
 import kotlin.math.roundToInt
 
@@ -119,6 +121,13 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
 
     // `busy` is UI state, not a cross-thread lock. This atomic gate is the actual task mutex.
     private val taskInFlight = AtomicBoolean(false)
+
+    /**
+     * MARBLE_PING_CANCEL_V156 — the handle of the task a sweep is running on, so a cancel can
+     * interrupt the worker instead of merely asking it nicely. Kept only while a task is in
+     * flight; `null` means there is nothing to cancel.
+     */
+    private val activeTask = AtomicReference<Future<*>?>(null)
 
     // MARBLE_SMART_RANK_V90: debounce + single-flight gate for the Rank action, so a tap storm can
     // never re-run the whole preflight + benchmark pool (observed: 9 triggers in 7s, zero results).
@@ -318,6 +327,90 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         if (changed) store.saveProfiles(profiles)
     }
 
+    /**
+     * MARBLE_SINGBOX_LINK_AUTHORITY_V156 — make the stored config agree with the link it came
+     * from, for every node that has one.
+     *
+     * A profile keeps two copies of the same truth: the share link the user subscribed to
+     * (`raw`) and the Xray JSON derived from it at import time (`configJson`). The Xray engine
+     * runs the JSON and, until now, the sing-box engine ran a translation of that same JSON — so
+     * anything the importer got wrong, or that a later app version learned to read better, was
+     * frozen into every node forever and neither core could reach the real configuration.
+     *
+     * This pass re-reads each link with the *current* parser and repairs the stored copy where
+     * the two disagree on anything that decides how the node dials (protocol, endpoint,
+     * transport, security) or where the stored copy is missing entirely. It is deliberately
+     * narrow:
+     *
+     *  - only single-line share links are touched, so a pasted JSON document or a subscription
+     *    blob a user edited by hand is never rewritten;
+     *  - identity (id, name, source, ownership) always comes from the stored profile;
+     *  - a link-only scheme the parser stores with a blank `configJson` (tuic, anytls) never
+     *    blanks a working stored config — it is handed to the sing-box core's own parser instead;
+     *  - it is idempotent: after one repair the comparison matches and nothing is written again.
+     *
+     * Both engines consume the result, which is what makes "the original config link is the
+     * authority" true for Xray as well as for sing-box.
+     */
+    private fun reconcileProfilesWithTheirLinks() {
+        var changed = false
+        val repaired = mutableListOf<String>()
+        for (index in profiles.indices) {
+            val current = profiles[index]
+            val repairedProfile = runCatching { reconcileWithLink(current) }.getOrNull() ?: continue
+            profiles[index] = repairedProfile
+            repaired += current.name
+            changed = true
+        }
+        if (!changed) return
+        store.saveProfiles(profiles)
+        diagnostics.event(
+            "APP",
+            "profile-link-reconcile",
+            "repaired" to repaired.size,
+            "profiles" to repaired.take(12).joinToString(",")
+        )
+    }
+
+    /** The repaired copy of [profile], or `null` when the stored one already agrees with its link. */
+    private fun reconcileWithLink(profile: ProxyProfile): ProxyProfile? {
+        val link = SingBoxConfigBuilder.shareLink(profile) ?: return null
+        val derived = ProxyParser.parseInput(link).singleOrNull() ?: return null
+        val derivedJson = derived.configJson.takeIf { it.isNotBlank() } ?: return null
+        val agrees = profile.configJson.isNotBlank() &&
+            profile.scheme.equals(derived.scheme, ignoreCase = true) &&
+            profile.host == derived.host &&
+            profile.port == derived.port &&
+            storedEndpoint(profile.configJson) == "${derived.host}:${derived.port}"
+        if (agrees) return null
+        return profile.copy(
+            scheme = derived.scheme,
+            configJson = derivedJson,
+            host = derived.host,
+            port = derived.port,
+            transport = derived.transport,
+            security = derived.security
+        )
+    }
+
+    /** The `address:port` a stored Xray JSON dials, or "" when it has no readable proxy outbound. */
+    private fun storedEndpoint(configJson: String): String = runCatching {
+        val outbounds = JSONObject(configJson).optJSONArray("outbounds") ?: return@runCatching ""
+        for (i in 0 until outbounds.length()) {
+            val outbound = outbounds.optJSONObject(i) ?: continue
+            val protocol = outbound.optString("protocol").lowercase()
+            if (protocol in setOf("freedom", "blackhole", "dns", "loopback")) continue
+            val settings = outbound.optJSONObject("settings") ?: continue
+            val server = settings.optJSONArray("vnext")?.optJSONObject(0)
+                ?: settings.optJSONArray("servers")?.optJSONObject(0)
+                ?: settings
+            val address = server.optString("address").ifBlank { server.optString("server") }
+            val port = server.optInt("port", 0).takeIf { it > 0 } ?: server.optInt("server_port", 0)
+            if (address.isNotBlank() && port > 0) return@runCatching "$address:$port"
+        }
+        ""
+    }.getOrDefault("")
+
     var networkSnapshot by mutableStateOf(intelligence.currentSnapshot()); private set
     var intelligenceStatus by mutableStateOf(IntelligenceStatus()); private set
     var sentinel by mutableStateOf(PrivacySentinelState()); private set
@@ -385,6 +478,13 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     var probeRunning by mutableStateOf<Set<String>>(emptySet()); private set
     var probeFinished by mutableStateOf<Set<String>>(emptySet()); private set
     var probeTotal by mutableStateOf(0); private set
+    /**
+     * MARBLE_PING_CANCEL_V156 — a cancel has been asked for and the sweep is unwinding. The stop
+     * controls read this so the icon does not flip back to "start" while the workers are still
+     * putting their sockets down, which is the moment a second tap would start a new sweep.
+     */
+    var probeCancelling by mutableStateOf(false); private set
+    private val probeCancelGate = ProbeCancelGate()
     var probeCurrentName by mutableStateOf(""); private set
     var probeLastName by mutableStateOf(""); private set
     var probeLastOutcome by mutableStateOf(""); private set
@@ -412,6 +512,38 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         probeLastName = ""
         probeLastOutcome = ""
         probeLastLatencyMs = 0
+        probeCancelling = false
+    }
+
+    /**
+     * MARBLE_PING_CANCEL_V156 — stops every kind of bulk measurement in the product.
+     *
+     * "Ping all", a group ping, the Home group ping, Smart and Rank all funnel into the same
+     * probe batch, so one control ends all of them. Cancellation is cooperative *and* immediate:
+     *
+     *  - the flag is polled at every candidate boundary, so nothing new is started;
+     *  - the task's worker thread is interrupted, so a worker already blocked on a socket, a
+     *    core spawn or the measurement semaphore unwinds now instead of at its own timeout;
+     *  - measurements that already finished stay on screen. A cancel means "stop", not "throw
+     *    away what you learned".
+     *
+     * Safe to call at any time: with no sweep live it does nothing at all.
+     */
+    fun cancelProbes() {
+        if (!probeActive && !probeCancelling) return
+        // Idempotent: only the tap that actually arms the latch publishes the unwind.
+        if (!probeCancelGate.arm()) return
+        diagnostics.event(
+            "BENCHMARK",
+            "probe-cancel-requested",
+            "done" to probeDone,
+            "total" to probeTotal
+        )
+        message = "Cancelling • keeping the ${probeDone} measurements already made"
+        postToMain { probeCancelling = true }
+        // Interrupt last: the flag must be visible before the worker wakes up, otherwise a
+        // worker that catches the interrupt could immediately pick up the next candidate.
+        runCatching { activeTask.get()?.cancel(true) }
     }
 
     private fun markProbeStart(profile: ProxyProfile) = postToMain {
@@ -439,13 +571,20 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         mergeBenchmarks(listOf(result))
     }
 
-    private fun endProbeBatch() = postToMain {
-        probeBatch = emptySet()
-        probeRunning = emptySet()
-        probeFinished = emptySet()
-        probeTotal = 0
-        probeCurrentName = ""
+    private fun endProbeBatch() {
+        probeCancelGate.reset()
+        postToMain {
+            probeBatch = emptySet()
+            probeRunning = emptySet()
+            probeFinished = emptySet()
+            probeTotal = 0
+            probeCurrentName = ""
+            probeCancelling = false
+        }
     }
+
+    /** The cancel predicate handed to every sweep: true from the tap until the batch ends. */
+    private val probeShouldStop: () -> Boolean = probeCancelGate.shouldStop
 
     private fun beginRefresh(ids: Collection<String>) = postToMain {
         refreshingSources = ids.toSet()
@@ -508,6 +647,10 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     init {
         migrateLocalSourceOwnershipIfNeeded()
         installUrlTestHook()
+        installRealDelayHook()
+        // MARBLE_SINGBOX_LINK_AUTHORITY_V156 — every stored node is checked against the share
+        // link it came from, so both engines run a config that is faithful to that link.
+        reconcileProfilesWithTheirLinks()
         RuntimeDiagnostics.setDebugEnabled(context, settings.debugModeEnabled)
         diagnostics.event("APP", "repository-init", "debugMode" to settings.debugModeEnabled)
         notifier.ensureChannels()
@@ -541,27 +684,31 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         ensureGeoAssetsInBackground()
     }
 
-    /** Publish the selected-core URL test. Sing-box uses native Clash delay; Xray uses an
-     * equivalent verified HTTPS HEAD through its live or temporary SOCKS outbound. */
+    /**
+     * Publish the URL test: sing-box extended's own delay controller, and nothing else.
+     *
+     * MARBLE_URLTEST_SINGBOX_ONLY_V156 — the Xray branch this hook used to carry measured
+     * something different behind the same name (a Kotlin HTTPS HEAD through Xray's SOCKS inbound,
+     * with no controller and no unified-delay accounting), so the same server reported two
+     * incomparable numbers depending on which core was selected. The method now belongs to the
+     * engine that owns it and refuses on any other; Settings stops offering it there too.
+     */
     private fun installUrlTestHook() {
         RouteProbe.urlTestHook = { profile, probeSettings, timeoutMs ->
             val targets = DelayTest.candidates(probeSettings.delayTestUrl)
             val effective = intelligence.effectiveSettings(profile, probeSettings)
             val sameLiveProfile = activeProfileId == profile.id && state == "CONNECTED"
             val result = if (effective.coreEngine() == CoreEngine.SINGBOX) {
+                // The live session's controller answers for the route that is actually carrying
+                // traffic; any other profile gets its own throwaway core, because the delay
+                // endpoint can only measure the outbound of the process it belongs to.
                 if (activeCoreEngine == CoreEngine.SINGBOX && singBox.isAlive && sameLiveProfile) {
                     singBox.urlTestLiveTargets(targets, timeoutMs)
                 } else {
                     singBox.urlTestProfileTargets(profile, effective, targets, timeoutMs)
                 }
             } else {
-                val live = liveSocksPortOrZero().takeIf { sameLiveProfile && activeCoreEngine == CoreEngine.XRAY } ?: 0
-                if (live > 0) SocksUrlTest.measure(live, targets, timeoutMs).copy(live = true)
-                else {
-                    var measured = CoreUrlTestResult(0, false, "xray-start: temporary URL test failed")
-                    xray.temporary(profile, 0, effective) { port -> measured = SocksUrlTest.measure(port, targets, timeoutMs) }
-                    measured
-                }
+                CoreUrlTestResult(0, false, RouteProbe.URL_TEST_ENGINE_GATE)
             }
             if (result.ok) {
                 RouteProbe.ProbeResult(
@@ -579,6 +726,60 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
                     samples = 1,
                     lossPercent = 100.0,
                     failureReason = result.detail.ifBlank { "urltest-failed" }.take(160)
+                )
+            }
+        }
+    }
+
+    /**
+     * MARBLE_REAL_DELAY_TRUTH_V156 — Real delay with no tunnel up.
+     *
+     * The method's promise is "how long a real page takes through the tunnel". Before this hook
+     * existed it could only keep that promise while a tunnel was already connected; disconnected,
+     * it answered `no-live-tunnel` → FAILED, which is why Real delay looked broken on the Home
+     * ping button and on every gate-exempt protocol (Hysteria2, WireGuard, and every pasted Xray
+     * JSON, whose scheme is `json`). A missing tunnel is not a verdict about the server, so the
+     * probe now builds one for the occasion: the same throwaway core the sweep path uses, on the
+     * selected engine, timed with the identical HTTPS round-trip measurement.
+     *
+     * A core that never comes up is retried once — a spawn storm is a fact about the device, not
+     * a dead node.
+     */
+    private fun installRealDelayHook() {
+        RouteProbe.realDelayHook = { profile, timeoutMs, samples, probeSettings ->
+            val effective = intelligence.effectiveSettings(profile, probeSettings)
+            val url = DelayTest.url(probeSettings.delayTestUrl)
+            var measured: RouteProbe.ProbeResult? = null
+            fun attempt() {
+                runCatching {
+                    xray.temporary(profile, 0, effective) { port ->
+                        measured = RouteProbe.tunnelHttpsMeasure(
+                            socksPort = port,
+                            timeoutMs = timeoutMs,
+                            samples = samples,
+                            url = url
+                        )
+                    }
+                }.onFailure { error ->
+                    if (error is InterruptedException) {
+                        Thread.currentThread().interrupt()
+                        throw error
+                    }
+                }
+            }
+            attempt()
+            if (measured == null) attempt()
+            val result = measured
+            if (result != null) {
+                result.copy(method = RouteProbe.METHOD_REAL_DELAY)
+            } else {
+                RouteProbe.ProbeResult(
+                    RouteProbe.METHOD_REAL_DELAY,
+                    RouteProbe.UNREACHABLE,
+                    0,
+                    PingBudget.samples(samples),
+                    lossPercent = 100.0,
+                    failureReason = "${effective.coreEngine().id}-start"
                 )
             }
         }
@@ -1149,16 +1350,32 @@ fun resetTelemetry() {
     fun updateSettings(v: AppSettings) {
         val debugChanged = settings.debugModeEnabled != v.debugModeEnabled
         val updateChecksWereEnabled = settings.appUpdateCheckEnabled
+        // MARBLE_URLTEST_SINGBOX_ONLY_V156 — the URL test is the sing-box extended core's own
+        // delay controller, so switching the engine away from it must not leave a stored choice
+        // that can only ever fail. This is the single decision point: every writer of
+        // `coreEngineId` and every restore of a stored preference passes through here.
+        val usableProbeMethod = v.probeMethod.forEngine(v.coreEngine())
+        val probeMethodDemoted = usableProbeMethod != v.probeMethod
         // MARBLE_INTELLIGENCE_ALWAYS_ON_V143 — Marble Intelligence is a permanent product
         // contract. No caller, screen or stored preference may switch it off.
-        settings = v.copy(intelligenceEnabled = true)
+        settings = v.copy(intelligenceEnabled = true, probeMethod = usableProbeMethod)
         if (!v.appUpdateCheckEnabled) {
             postToMain { availableUpdate = null }
         } else if (!updateChecksWereEnabled) {
             dismissedUpdateTag = ""
         }
         ensureLibrarySourceSelectionValid()
-        store.saveSettings(v)
+        store.saveSettings(settings)
+        if (probeMethodDemoted) {
+            diagnostics.event(
+                "BENCHMARK",
+                "probe-method-demoted",
+                "from" to v.probeMethod.name,
+                "to" to usableProbeMethod.name,
+                "engine" to v.coreEngine().id
+            )
+            message = "URL test runs on sing-box extended • ${usableProbeMethod.name.replace('_', ' ').lowercase()} selected instead"
+        }
         if (debugChanged) {
             RuntimeDiagnostics.setDebugEnabled(context, v.debugModeEnabled)
             diagnostics.event("DEBUG", "mode-changed", "enabled" to v.debugModeEnabled)
@@ -2914,6 +3131,7 @@ private fun postToMain(block: () -> Unit) {
                     onStart = ::markProbeStart,
                     onResult = ::markProbeResult
                 ) { n -> message = "Connection race • $n" }
+                if (probeShouldStop()) return@task
                 endProbeBatch()
                 if (raced != null) {
                     mergeBenchmarks(listOf(raced.second))
@@ -2927,7 +3145,8 @@ private fun postToMain(block: () -> Unit) {
                 selectSettings,
                 onCandidates = ::beginProbeBatch,
                 onStart = ::markProbeStart,
-                onResult = ::markProbeResult
+                onResult = ::markProbeResult,
+                shouldStop = probeShouldStop
             ) { a, b, n -> message = "Tunnel intelligence $a/$b • $n" }
             mergeBenchmarks(results)
             val best = results.firstOrNull { it.success > 0 }?.let { profile(it.profileId) }
@@ -3076,7 +3295,8 @@ private fun postToMain(block: () -> Unit) {
                 rankSettings,
                 onCandidates = ::beginProbeBatch,
                 onStart = ::markProbeStart,
-                onResult = ::markProbeResult
+                onResult = ::markProbeResult,
+                shouldStop = probeShouldStop
             ) { done, total, name ->
                 message = "Rank • $scope • $done/$total • $name"
             }
@@ -3364,6 +3584,7 @@ private fun postToMain(block: () -> Unit) {
                     representatives,
                     quickSettings,
                     usePrecheck = false,
+                    shouldStop = probeShouldStop,
                     onCandidates = { beginProbeBatch(scoped) },
                     onStart = { representative ->
                         membersFor(representative).forEach(::markProbeStart)
@@ -3693,15 +3914,29 @@ private fun postToMain(block: () -> Unit) {
         }
         diagnostics.event("APP", "task-start", "label" to label)
 
-        io.execute {
+        val future = io.submit(Runnable {
             try {
+                // A cancelled task interrupts this pooled thread. The interrupt is normally
+                // consumed by the InterruptedException that ends the block, but if it landed
+                // between two interruptible calls the flag would survive into the *next* task on
+                // this thread and cancel work nobody asked to cancel. Both ends are cleared.
+                Thread.interrupted()
                 block()
             } catch (t: Throwable) {
-                diagnostics.error("APP", "task-failed", t, "label" to label)
-                message = "${t::class.simpleName}: ${t.message}"
+                if (t is InterruptedException) {
+                    // MARBLE_PING_CANCEL_V156 — a cancelled sweep is an outcome, not a failure.
+                    // The measurements that already landed were published as they landed.
+                    diagnostics.event("APP", "task-cancelled", "label" to label)
+                    message = "Cancelled • ${probeDone} measurements kept"
+                } else {
+                    diagnostics.error("APP", "task-failed", t, "label" to label)
+                    message = "${t::class.simpleName}: ${t.message}"
+                }
             } finally {
+                Thread.interrupted()
                 diagnostics.event("APP", "task-finish", "label" to label)
                 taskInFlight.set(false)
+                activeTask.set(null)
                 // No card may be left spinning if a batch aborts.
                 endProbeBatch()
                 postToMain {
@@ -3709,7 +3944,8 @@ private fun postToMain(block: () -> Unit) {
                     refreshingSources = emptySet()
                 }
             }
-        }
+        })
+        activeTask.set(future)
         return true
     }
 

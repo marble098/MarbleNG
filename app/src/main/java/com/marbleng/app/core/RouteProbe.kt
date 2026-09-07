@@ -1373,8 +1373,18 @@ object RouteProbe {
         ProbeMethod.URL_TEST -> urlTest(profile, timeoutMs, settings)
     }
 
-    /** Real protocol delay through the already-running selected-core tunnel. Endpoint-only
-     * TCP probes are a different method and cannot veto or stand in for this measurement. */
+    /**
+     * Real protocol delay through the selected core's tunnel. Endpoint-only TCP probes are a
+     * different method and cannot veto or stand in for this measurement.
+     *
+     * MARBLE_REAL_DELAY_TRUTH_V156 — [tunnelPort] of 0 means "no tunnel is up right now", which
+     * used to be the end of the measurement: Real delay answered `no-live-tunnel` → FAILED for
+     * every server the user pinged before connecting, i.e. for the Home ping button in its
+     * disconnected state and for every gate-exempt protocol. That is not a verdict about the
+     * server, and it is why the method looked broken. With no live tunnel the probe now spawns a
+     * throwaway core through [realDelayHook] and times the same real HTTPS round trips through
+     * that tunnel — the identical measurement, with the tunnel built for the occasion.
+     */
     fun realDelay(
         profile: ProxyProfile,
         tunnelPort: Int,
@@ -1384,13 +1394,20 @@ object RouteProbe {
     ): ProbeResult {
         // A naked TCP SYN proves neither the account nor the transport. It must not veto
         // a healthy REALITY/fronted/QUIC route or masquerade as a tunnel delay.
-
-
         if (tunnelPort <= 0) {
-            return ProbeResult(
-                METHOD_REAL_DELAY, UNREACHABLE, 0, PingBudget.samples(samples),
-                lossPercent = 100.0, failureReason = "no-live-tunnel"
-            )
+            val hook = realDelayHook
+                ?: return ProbeResult(
+                    METHOD_REAL_DELAY, UNREACHABLE, 0, PingBudget.samples(samples),
+                    lossPercent = 100.0, failureReason = "no-live-tunnel"
+                )
+            return runCatching { hook(profile, timeoutMs, samples, settings) }.getOrElse {
+                if (it is InterruptedException) throw it
+                ProbeResult(
+                    METHOD_REAL_DELAY, UNREACHABLE, 0, PingBudget.samples(samples),
+                    lossPercent = 100.0,
+                    failureReason = (it.message ?: it::class.java.simpleName).take(120)
+                )
+            }
         }
 
         return tunnelHttpsMeasure(
@@ -1440,18 +1457,30 @@ object RouteProbe {
      * Kotlin socket that never saw the tunnel. [urlTestHook] is installed by the repository,
      * which owns the core process; without it the method reports that plainly instead of
      * substituting a different measurement.
+     *
+     * MARBLE_URLTEST_SINGBOX_ONLY_V156 — the measurement belongs to one engine, so it refuses on
+     * any other instead of quietly measuring something else behind the same name. Xray-core has
+     * no delay controller; the look-alike HEAD request MarbleNG used to run there was a second,
+     * independently-timed HTTP stack whose number was not comparable to the core's own.
      */
     fun urlTest(
         profile: ProxyProfile,
         timeoutMs: Int,
         settings: AppSettings = AppSettings()
     ): ProbeResult {
+        if (!ProbeMethod.URL_TEST.availableOn(settings.coreEngine())) {
+            return ProbeResult(
+                METHOD_URL_TEST, UNREACHABLE, 0, 1,
+                lossPercent = 100.0, failureReason = URL_TEST_ENGINE_GATE
+            )
+        }
         val hook = urlTestHook
             ?: return ProbeResult(
                 METHOD_URL_TEST, UNREACHABLE, 0, 1,
                 lossPercent = 100.0, failureReason = "singbox-unavailable"
             )
         return runCatching { hook(profile, settings, timeoutMs) }.getOrElse {
+            if (it is InterruptedException) throw it
             ProbeResult(
                 METHOD_URL_TEST, UNREACHABLE, 0, 1,
                 lossPercent = 100.0,
@@ -1459,6 +1488,9 @@ object RouteProbe {
             )
         }
     }
+
+    /** The one failure reason the URL test gives on an engine that does not own it. */
+    const val URL_TEST_ENGINE_GATE = "urltest-requires-singbox"
 
     /** Method labels stored in [ProbeResult.method]; kept as constants so nothing drifts. */
     const val METHOD_REAL_DELAY = "REAL_DELAY"
@@ -1475,6 +1507,17 @@ object RouteProbe {
      */
     @Volatile
     var urlTestHook: ((ProxyProfile, AppSettings, Int) -> ProbeResult)? = null
+
+    /**
+     * MARBLE_REAL_DELAY_TRUTH_V156 — installs the throwaway-tunnel Real delay measurement.
+     *
+     * Same reason and same shape as [urlTestHook]: [RouteProbe] is a process-wide object with no
+     * Android context, and building a tunnel for one measurement belongs to the repository, which
+     * owns both core processes and the concurrency limit around them. `null` (unit tests) leaves
+     * [realDelay] reporting `no-live-tunnel` exactly as it always did.
+     */
+    @Volatile
+    var realDelayHook: ((ProxyProfile, Int, Int, AppSettings) -> ProbeResult)? = null
 
     /**
      * True when a raw TCP handshake to the endpoint is meaningful for this profile — PattNG's own

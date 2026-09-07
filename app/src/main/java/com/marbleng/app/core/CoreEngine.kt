@@ -1,6 +1,7 @@
 package com.marbleng.app.core
 
 import com.marbleng.app.model.AppSettings
+import com.marbleng.app.model.ProbeMethod
 
 /**
  * MARBLE_SINGBOX_CORE_V151 — the proxy core that carries the tunnel.
@@ -77,3 +78,38 @@ object CoreEngineInfo {
                 "a native URL test through its Clash API."
     }
 }
+
+// ───────────────────────────────────────────────────────────────────────────────────────────────
+// MARBLE_URLTEST_SINGBOX_ONLY_V156 — which measurement belongs to which core
+// ───────────────────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * The URL test is the sing-box extended core's *own* measurement: `GET /proxies/{tag}/delay`
+ * against the core's Clash controller, which times the round trip with unified-delay accounting
+ * through the outbound the core itself dialed.
+ *
+ * MarbleNG used to answer the same button on the Xray engine with a look-alike: an HTTPS HEAD
+ * pushed through Xray's SOCKS inbound by a Kotlin socket. That is a different measurement wearing
+ * the same label — no controller, no unified delay, and a second, independently-timed HTTP stack
+ * — so the same server reported two different numbers depending on which core happened to be
+ * selected. One method, one engine, one number: the URL test exists exactly when the engine that
+ * owns it is selected, and is not offered otherwise.
+ */
+fun ProbeMethod.availableOn(engine: CoreEngine): Boolean =
+    this != ProbeMethod.URL_TEST || engine == CoreEngine.SINGBOX
+
+/**
+ * The method to run when the user's stored choice is not offered by [engine] — switching the
+ * engine to Xray while "URL test" was selected must degrade to the closest honest measurement
+ * instead of silently measuring something else or reporting a permanent failure.
+ */
+fun ProbeMethod.forEngine(engine: CoreEngine): ProbeMethod =
+    if (availableOn(engine)) this else ProbeMethod.REAL_DELAY
+
+/** Why [availableOn] is false, in the one sentence the Settings page shows under the row. */
+fun ProbeMethod.unavailableReason(engine: CoreEngine): String = when {
+    availableOn(engine) -> ""
+    else -> "Runs on sing-box extended's own delay controller. Switch Settings → Tunnel core to " +
+        "sing-box extended to use it."
+}
+

@@ -167,6 +167,8 @@ import com.marbleng.app.core.RoutingPresets
 import com.marbleng.app.core.BugSeverity
 import com.marbleng.app.core.CoreEngine
 import com.marbleng.app.core.CoreEngineInfo
+import com.marbleng.app.core.availableOn
+import com.marbleng.app.core.unavailableReason
 import com.marbleng.app.core.parseCoreEngine
 import com.marbleng.app.core.IranModeState
 import com.marbleng.app.core.ManualConfigBuilder
@@ -3920,6 +3922,7 @@ private fun CyberLibrary(
                     // A sweep marks every member of its batch, so "is this group being pinged?"
                     // is answered by the batch itself rather than by a second piece of state.
                     pinging = repo.probeActive && group.profiles.any { it.id in repo.probeBatch },
+                    cancelling = repo.probeCancelling,
                     autoRefresh = settings.subscriptionAutoRefresh,
                     onToggle = { repo.setLibrarySourceCollapsed(group.key, !collapsed) },
                     onRefresh = { repo.refresh(group.key) },
@@ -3933,6 +3936,7 @@ private fun CyberLibrary(
                             repo.testSource(group.key)
                         }
                     },
+                    onCancelPing = { repo.cancelProbes() },
                     onWebsite = { url -> openExternal(context, url) },
                     onMenu = {
                         when (it) {
@@ -4697,31 +4701,48 @@ private fun ServersFilterRail(
         }
 
         // Page-wide ping: measures every server of the current scope at once.
+        // MARBLE_PING_CANCEL_V156 — while a sweep is live the same button is the stop for it, so
+        // the control that started a bulk measurement is always the one that can end it.
+        val sweeping = repo.probeActive || repo.probeCancelling
         val pingLabel = trx(
-            if (groupActive) "Ping every server in this group" else "Ping every server"
+            when {
+                sweeping -> "Cancel measuring"
+                groupActive -> "Ping every server in this group"
+                else -> "Ping every server"
+            }
         )
         Box(
             modifier = Modifier
                 .size(38.dp)
                 .clip(ServersBadgeShape)
-                .background(if (busy) Aether.Cyan.copy(alpha = .12f) else Aether.GlassStrong.copy(alpha = .30f))
+                .background(
+                    when {
+                        sweeping -> Aether.Danger.copy(alpha = .14f)
+                        busy -> Aether.Cyan.copy(alpha = .12f)
+                        else -> Aether.GlassStrong.copy(alpha = .30f)
+                    }
+                )
                 .semantics { contentDescription = pingLabel }
                 .kineticClickable(
-                    enabled = !repo.busy,
+                    enabled = sweeping || !repo.busy,
                     role = Role.Button,
                     boundedShape = ServersBadgeShape,
-                    onClick = onPingAll
+                    onClick = { if (sweeping) repo.cancelProbes() else onPingAll() }
                 ),
             contentAlignment = Alignment.Center
         ) {
-            if (busy) {
-                CircularProgressIndicator(
+            when {
+                sweeping -> HomeVectorIcon(
+                    HomeIcon.STOP,
+                    if (repo.probeCancelling) Aether.InkFaint else Aether.Danger,
+                    Modifier.size(15.dp)
+                )
+                busy -> CircularProgressIndicator(
                     modifier = Modifier.size(16.dp),
                     color = Aether.Cyan,
                     strokeWidth = 2.dp
                 )
-            } else {
-                HomeVectorIcon(HomeIcon.PING, Aether.Ink, Modifier.size(19.dp))
+                else -> HomeVectorIcon(HomeIcon.PING, Aether.Ink, Modifier.size(19.dp))
             }
         }
     }
@@ -4779,12 +4800,21 @@ private fun ServersFilterCapsule(
     }
 }
 
-/** The live probe/refresh strip: it appears only while something is actually being measured. */
+/**
+ * The live probe/refresh strip: it appears only while something is actually being measured.
+ *
+ * MARBLE_PING_CANCEL_V156 — it also carries the product's cancel control. A sweep across a big
+ * subscription can run for minutes and starting one by mistake used to have no undo at all, so
+ * the strip that announces the sweep is exactly where the stop lives: one filled square, always
+ * visible while anything is being measured, whatever started it.
+ */
 @Composable
 private fun ServersProbeStrip(repo: AppRepository) {
     val done = repo.probeDone.coerceAtMost(repo.probeTotal)
     val progress = if (repo.probeTotal > 0) done.toFloat() / repo.probeTotal.toFloat() else 0f
     val refreshing = repo.refreshingSources.isNotEmpty()
+    val cancelling = repo.probeCancelling
+    val stopLabel = trx("Cancel measuring")
 
     Column(
         modifier = Modifier
@@ -4806,8 +4836,12 @@ private fun ServersProbeStrip(repo: AppRepository) {
                 Modifier.size(17.dp)
             )
             Text(
-                if (refreshing) trx("Refreshing sources") else trx("Measuring servers"),
-                color = Aether.Ink,
+                when {
+                    cancelling -> trx("Cancelling…")
+                    refreshing -> trx("Refreshing sources")
+                    else -> trx("Measuring servers")
+                },
+                color = if (cancelling) Aether.Danger else Aether.Ink,
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
@@ -4821,6 +4855,30 @@ private fun ServersProbeStrip(repo: AppRepository) {
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold
                     )
+                )
+            }
+            // MARBLE_PING_CANCEL_V156 — the one control that ends any bulk measurement. It stays
+            // on screen (dimmed, not gone) after the tap so the state reads as "unwinding"
+            // instead of flickering back into a start button.
+            Box(
+                modifier = Modifier
+                    .size(28.dp)
+                    .clip(CircleShape)
+                    .background(if (cancelling) Aether.Danger.copy(alpha = .10f) else Aether.Danger.copy(alpha = .18f))
+                    .border(1.dp, Aether.Danger.copy(alpha = .40f), CircleShape)
+                    .semantics { contentDescription = stopLabel }
+                    .kineticClickable(
+                        enabled = !cancelling,
+                        role = Role.Button,
+                        boundedShape = CircleShape,
+                        onClick = repo::cancelProbes
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                HomeVectorIcon(
+                    HomeIcon.STOP,
+                    if (cancelling) Aether.Danger.copy(alpha = .45f) else Aether.Danger,
+                    Modifier.size(12.dp)
                 )
             }
         }
@@ -4911,10 +4969,14 @@ private fun ServersGroupHeader(
     refreshing: Boolean,
     // MARBLE_SERVERS_GROUP_PING_V145 — true while this group's own ping sweep is running.
     pinging: Boolean,
+    // MARBLE_PING_CANCEL_V156 — a cancel has been asked for, so the group's control shows the
+    // sweep unwinding instead of offering to start another one.
+    cancelling: Boolean,
     autoRefresh: Boolean,
     onToggle: () -> Unit,
     onRefresh: () -> Unit,
     onPing: () -> Unit,
+    onCancelPing: () -> Unit,
     onWebsite: (String) -> Unit,
     onMenu: (ServersGroupAction) -> Unit
 ) {
@@ -5024,28 +5086,29 @@ private fun ServersGroupHeader(
             // than any other on this page, while the icon beside it refreshed the same group in
             // one. The verb moved to where its sibling already lives; the menu entry is gone, so
             // there is exactly one way to ping a group.
-            val pingLabel = trx("Ping ${group.title}")
+            // MARBLE_PING_CANCEL_V156 — while this group is the batch, its own ping control is
+            // its stop control. One icon, both directions, next to the group it acts on.
+            val pingLabel = trx(if (pinging || cancelling) "Cancel measuring" else "Ping ${group.title}")
             Box(
                 modifier = Modifier
                     .size(34.dp)
                     .clip(RoundedCornerShape(11.dp))
                     .semantics { contentDescription = pingLabel }
                     .kineticClickable(
-                        enabled = !pinging && group.profiles.isNotEmpty(),
+                        enabled = (pinging && !cancelling) || (!pinging && group.profiles.isNotEmpty()),
                         role = Role.Button,
                         boundedShape = RoundedCornerShape(11.dp),
-                        onClick = onPing
+                        onClick = { if (pinging) onCancelPing() else onPing() }
                     ),
                 contentAlignment = Alignment.Center
             ) {
-                if (pinging) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(15.dp),
-                        color = Aether.Emerald,
-                        strokeWidth = 2.dp
+                when {
+                    pinging -> HomeVectorIcon(
+                        HomeIcon.STOP,
+                        if (cancelling) Aether.InkFaint else Aether.Danger,
+                        Modifier.size(14.dp)
                     )
-                } else {
-                    HomeVectorIcon(
+                    else -> HomeVectorIcon(
                         HomeIcon.PING,
                         if (group.profiles.isEmpty()) Aether.InkFaint else Aether.Emerald,
                         Modifier.size(16.dp)
@@ -12646,7 +12709,7 @@ private fun ProbeSettings(repo: AppRepository) {
     )
 
     Text(
-        trx("Real delay and URL test use your selected core. TCP ping checks only the endpoint, not the proxy account or tunnel."),
+        trx("Real delay uses your selected core. URL test is sing-box extended's own delay controller and is offered only while that core is selected. TCP ping checks only the endpoint, not the proxy account or tunnel."),
         color = Aether.InkFaint,
         style = settingsBodyStyle()
     )
@@ -12654,7 +12717,11 @@ private fun ProbeSettings(repo: AppRepository) {
     Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
         ProbeMethod.entries.forEach { candidate ->
             val selected = method == candidate
-            val available = true // All three measurement methods respect the selected core.
+            // MARBLE_URLTEST_SINGBOX_ONLY_V156 — a method the selected core cannot run is dimmed
+            // and refuses the tap instead of being selectable and then reporting a permanent
+            // failure. Switching the engine back re-enables it without touching the choice.
+            val available = candidate.availableOn(s.coreEngine())
+            val unavailable = candidate.unavailableReason(s.coreEngine())
             val tone = when (candidate) {
                 ProbeMethod.REAL_DELAY -> Aether.Emerald
                 ProbeMethod.TCP_PING -> Aether.CyanBright
@@ -12720,6 +12787,15 @@ private fun ProbeSettings(repo: AppRepository) {
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis
                     )
+                    if (unavailable.isNotBlank()) {
+                        Text(
+                            trx(unavailable),
+                            color = Aether.Amber,
+                            style = settingsBodyStyle(),
+                            maxLines = 3,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                 }
                 Box(
                     Modifier

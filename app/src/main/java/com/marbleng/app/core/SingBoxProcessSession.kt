@@ -25,11 +25,9 @@ class SingBoxProcessSession private constructor(
 
     fun delay(url: String, timeoutMs: Int): CoreUrlTestResult {
         if (!isAlive) return CoreUrlTestResult(0, false, "core-exit: ${tail(logFile)}")
-        val target = runCatching { URL(url) }.getOrNull()
-        // The pinned Clash API silently replaces http:// with its own gstatic URL.
-        if (target?.protocol != "https" || target.host.isNullOrBlank()) {
-            return CoreUrlTestResult(0, false, "urltest-url: an HTTPS URL is required")
-        }
+        // One guard for the product's one URL test; see UrlTestTarget for why HTTPS and why no
+        // user info. The pinned Clash API silently replaces http:// with its own gstatic URL.
+        UrlTestTarget.validate(url)?.let { return CoreUrlTestResult(0, false, it) }
         checkInterrupted()
         val budget = timeoutMs.coerceIn(1, 30_000)
         val endpoint = "http://127.0.0.1:$apiPort/proxies/${SingBoxConfigBuilder.PROXY_TAG}/delay" +
@@ -64,9 +62,28 @@ class SingBoxProcessSession private constructor(
     companion object {
         private const val LOG_LIMIT = 512 * 1024L
 
+        /**
+         * MARBLE_REAL_DELAY_SPEED_V156 — [validate] runs `sing-box check` as a separate process
+         * before `run`, and [awaitApi] waits for the Clash controller to answer.
+         *
+         * Both are load-bearing for a *live* session and both are pure overhead for a throwaway
+         * measurement core:
+         *
+         *  - `run` performs the same schema validation `check` does and exits non-zero with the
+         *    same message, which the startup loop below already turns into
+         *    `core-start: exited N: <log>`. A second process spawn per measured server roughly
+         *    doubled the cost of every Real delay and URL test in a sweep.
+         *  - the controller is only needed by [delay]. A Real delay measurement goes through the
+         *    SOCKS inbound, so waiting for the API added the router's full start-up to a
+         *    measurement that never touches it.
+         *
+         * Defaults keep the connect path exactly as strict as it was.
+         */
         fun open(binary: File, config: String, configFile: File, logFile: File,
                  tempDir: File, socksPort: Int, apiPort: Int, secret: String,
-                 startupTimeoutMs: Long = 12_000): SingBoxProcessSession {
+                 startupTimeoutMs: Long = 12_000,
+                 validate: Boolean = true,
+                 awaitApi: Boolean = true): SingBoxProcessSession {
             checkInterrupted()
             val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(startupTimeoutMs)
             fun left(): Long = TimeUnit.NANOSECONDS.toMillis(deadline - System.nanoTime()).coerceAtLeast(0)
@@ -79,17 +96,19 @@ class SingBoxProcessSession private constructor(
             tempDir.mkdirs()
             logFile.parentFile?.mkdirs()
             logFile.writeText("")
-            val diagnostic = File.createTempFile("check-", ".log", tempDir)
-            try {
-                val check = builder(binary, listOf("check", "-c", configFile.absolutePath), configFile.parentFile, tempDir)
-                    .redirectOutput(diagnostic).start()
+            if (validate) {
+                val diagnostic = File.createTempFile("check-", ".log", tempDir)
                 try {
-                    if (!check.waitFor(left().coerceAtMost(8000), TimeUnit.MILLISECONDS)) {
-                        error("core-check-timeout: configuration validation did not finish")
-                    }
-                    check(check.exitValue() == 0) { "core-config: ${tail(diagnostic)}" }
-                } finally { stop(check) }
-            } finally { diagnostic.delete() }
+                    val check = builder(binary, listOf("check", "-c", configFile.absolutePath), configFile.parentFile, tempDir)
+                        .redirectOutput(diagnostic).start()
+                    try {
+                        if (!check.waitFor(left().coerceAtMost(8000), TimeUnit.MILLISECONDS)) {
+                            error("core-check-timeout: configuration validation did not finish")
+                        }
+                        check(check.exitValue() == 0) { "core-config: ${tail(diagnostic)}" }
+                    } finally { stop(check) }
+                } finally { diagnostic.delete() }
+            }
             checkInterrupted()
             check(left() > 0) { "core-start-timeout" }
             val child = builder(binary, listOf("run", "-c", configFile.absolutePath), configFile.parentFile, tempDir).start()
@@ -116,7 +135,7 @@ class SingBoxProcessSession private constructor(
                         pump.join(200)
                         error("core-start: exited ${child.exitValue()}: ${tail(logFile)}")
                     }
-                    if (listening(socksPort, left()) && apiReady(apiPort, secret, left())) return session
+                    if (listening(socksPort, left()) && (!awaitApi || apiReady(apiPort, secret, left()))) return session
                     Thread.sleep(minOf(60, left()).coerceAtLeast(1))
                 }
                 error("core-start-timeout: ${tail(logFile)}")
