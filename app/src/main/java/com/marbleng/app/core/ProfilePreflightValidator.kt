@@ -109,6 +109,15 @@ object ProfilePreflightValidator {
             )
         }
 
+        if (NativeSingBoxConfig.isNative(root)) {
+            return try {
+                NativeSingBoxConfig.outbounds(root)
+                PreflightVerdict(Verdict.VALID, "native-singbox", "The selected core validates protocol capabilities at runtime")
+            } catch (error: Exception) {
+                PreflightVerdict(Verdict.INVALID, "config-unsupported", error.message.orEmpty())
+            }
+        }
+
         val outbounds = try {
             root.optJSONArray("outbounds")
         } catch (_: Exception) {
@@ -130,7 +139,7 @@ object ProfilePreflightValidator {
             }
         }.filter { out ->
             val protocol = out.optString("protocol", "").lowercase()
-            DIALING_PROTOCOLS.contains(protocol) && out.optString("tag", "").isNotBlank()
+            DIALING_PROTOCOLS.contains(protocol)
         }
 
         // A config that only defines routing/free/blackhole outbounds has nothing that can carry
@@ -174,9 +183,9 @@ object ProfilePreflightValidator {
             val stream = dialer.optJSONObject("streamSettings")
             val security = stream?.optString("security", "")?.lowercase()
             if (stream != null && security != null && security in TLS_REQUIRING_SECURITY) {
-                val tlsSettings = stream.optJSONObject("tlsSettings")
+                val tlsSettings = stream.optJSONObject(if (security == "reality") "realitySettings" else "tlsSettings")
                 val serverName = tlsSettings?.optString("serverName", "").orEmpty()
-                if (serverName.isBlank()) {
+                if (serverName.isBlank() && security == "reality") {
                     return PreflightVerdict(
                         Verdict.INVALID,
                         "vless-tls-missing-servername",

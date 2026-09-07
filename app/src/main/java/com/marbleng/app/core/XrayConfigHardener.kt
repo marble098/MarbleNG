@@ -83,7 +83,7 @@ object XrayConfigHardener {
         )
 
         val segments = sources.mapIndexed { segmentIndex, source ->
-            val root = JSONObject(source)
+            val root = XrayConfigAdapter.document(source)
             val imported = root.optJSONArray("outbounds") ?: error("Chain hop ${segmentIndex + 1} has no outbounds")
             val originalTags = linkedMapOf<String, String>()
             val clones = mutableListOf<Pair<String, JSONObject>>()
@@ -175,7 +175,7 @@ object XrayConfigHardener {
         underlayHasIpv6: Boolean = AddressFamilyPolicy.underlayHasIpv6()
     ): String {
         require(socksPort in 1..65535) { "Invalid delay-test SOCKS port" }
-        val root = JSONObject(source)
+        val root = XrayConfigAdapter.document(source)
         val imported = root.optJSONArray("outbounds") ?: error("Xray JSON has no outbounds")
         val byTag = linkedMapOf<String, JSONObject>()
         var selectedTag = ""
@@ -362,7 +362,7 @@ object XrayConfigHardener {
         link: LinkEvidence = LinkEvidence.UNKNOWN,
         underlayHasIpv6: Boolean = AddressFamilyPolicy.underlayHasIpv6()
     ): String {
-        val src = JSONObject(source)
+        val src = XrayConfigAdapter.document(source)
         val old = src.optJSONArray("outbounds") ?: JSONArray()
         val byTag = linkedMapOf<String, JSONObject>()
         var firstTag = ""

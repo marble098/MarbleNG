@@ -116,9 +116,7 @@ object ResolverFailureClassifier {
         "certificate expired",
         "x509: certificate has expired",
         "expired certificate",
-        "certificate not yet valid",
-        "is not valid for this name",
-        "tls: failed to verify certificate"
+        "certificate not yet valid"
     )
 
     private val TLS_MARKERS = listOf(
@@ -155,8 +153,7 @@ object ResolverFailureClassifier {
         "read/write on closed pipe",
         "use of closed network connection",
         "broken pipe",
-        "write: broken pipe",
-        "read: connection reset by peer"
+        "write: broken pipe"
     )
 
     private val CANCELLED_MARKERS = listOf(
@@ -198,9 +195,10 @@ object ResolverFailureClassifier {
 
         if (containsAny(lower, CANCELLED_MARKERS)) return ResolverFailureKind.CANCELLED
         if (containsAny(lower, CERT_EXPIRED_MARKERS)) return ResolverFailureKind.CERT_EXPIRED
-        if (containsAny(lower, TLS_MARKERS)) return ResolverFailureKind.TLS
         if (containsAny(lower, CLOSED_PIPE_MARKERS)) return ResolverFailureKind.CLOSED_PIPE
         if (containsAny(lower, DEADLINE_MARKERS)) return ResolverFailureKind.DEADLINE
+        if (containsAny(lower, TLS_MARKERS) || "failed to verify certificate" in lower || "is not valid for this name" in lower) return ResolverFailureKind.TLS
+        if ("connection reset by peer" in lower) return ResolverFailureKind.OTHER
         if (containsAny(lower, POISON_MARKERS)) return ResolverFailureKind.POISON
         if (containsAny(lower, EOF_MARKERS)) return ResolverFailureKind.EOF
         return null

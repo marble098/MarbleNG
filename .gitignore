@@ -15,3 +15,6 @@ signing.properties
 # Python byte-cache from the dev tools in tools/ and scripts/
 __pycache__/
 *.pyc
+
+.gradle-dist/
+app/src/main/assets/singbox/

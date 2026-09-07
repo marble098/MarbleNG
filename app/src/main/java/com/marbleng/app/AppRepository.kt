@@ -67,7 +67,7 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
      * every connect/disconnect and holds the settings both cores are configured from. The VPN
      * service reaches it through [MarbleApplication] exactly like it reaches [xray].
      */
-    val singBox: SingBoxManager = SingBoxManager(context)
+    val singBox: SingBoxManager = SingBoxManager(context).also { xray.singBox = it }
 
     /**
      * MARBLE_SINGBOX_CORE_V151 — the engine the current settings select, plus the last start
@@ -428,7 +428,11 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         probeFinished = probeFinished + profile.id
         probeCurrentName = profile.name
         probeLastName = profile.name
-        probeLastOutcome = if (result.success > 0) "OK" else "FAILED"
+        probeLastOutcome = when {
+            result.success > 0 -> "OK"
+            CoreFailurePolicy.isLocal(result.failureReason) -> "CORE / CONFIG ERROR"
+            else -> "FAILED"
+        }
         probeLastLatencyMs = if (result.success > 0) {
             LinkQualityEstimator.sanitaryRtt(result.latencyMs.toInt())
         } else 0
@@ -562,18 +566,12 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
             // throwaway core could use a demoted resolver pair that the live session had already
             // replaced.
             val singBoxSettings = intelligence.effectiveSettings(profile, probeSettings)
-            fun testUrl(url: String): SingBoxUrlTestResult = if (
-                settings.coreEngine() == CoreEngine.SINGBOX && singBox.isAlive &&
-                    activeProfileId == profile.id
-            ) {
-                singBox.urlTestLive(SingBoxConfigBuilder.PROXY_TAG, url, timeoutMs)
+            val result = if (activeCoreEngine == CoreEngine.SINGBOX && singBox.isAlive &&
+                activeProfileId == profile.id && state == "CONNECTED") {
+                singBox.urlTestLiveTargets(targets, timeoutMs)
             } else {
-                singBox.urlTestProfile(profile, singBoxSettings, url, timeoutMs)
+                singBox.urlTestProfileTargets(profile, singBoxSettings, targets, timeoutMs)
             }
-            val attempts = targets.map(::testUrl)
-            val result = attempts.firstOrNull { it.ok }
-                ?: attempts.lastOrNull()
-                ?: SingBoxUrlTestResult(0L, false, "urltest-no-target")
             if (result.ok) {
                 RouteProbe.ProbeResult(
                     method = RouteProbe.METHOD_URL_TEST,
@@ -3014,7 +3012,7 @@ private fun postToMain(block: () -> Unit) {
             lossRate = r.lossPercent.coerceIn(0.0, 100.0) / 100.0,
             sessionLifetimeMs = 0L,
             uncertain = r.success <= 0 && r.failureReason.isNotBlank() &&
-                (r.failureReason.contains("inconclusive", true) ||
+                (CoreFailurePolicy.isLocal(r.failureReason) || r.failureReason.contains("inconclusive", true) ||
                     r.failureReason.contains("backoff", true) ||
                     (r.failureReason.contains("timeout", true) &&
                         r.handshakeAttempts < MultiSignalRankScorer.MIN_ATTEMPTS_TO_CONVICT))
@@ -3821,7 +3819,7 @@ private fun postToMain(block: () -> Unit) {
     /** The SOCKS port of a tunnel that is genuinely up, or 0 when there is none to borrow. */
     private fun liveSocksPortOrZero(): Int {
         if (state != "CONNECTED") return 0
-        if (!runCatching { xray.isAlive }.getOrDefault(false)) return 0
+        if (!(if (activeCoreEngine == CoreEngine.SINGBOX) singBox.isAlive else xray.isAlive)) return 0
         return activeProxyPort().takeIf { it in 1..65535 } ?: 0
     }
 

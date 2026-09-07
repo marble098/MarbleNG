@@ -208,18 +208,6 @@ class MarbleVpnService : VpnService() {
      */
     @Volatile private var activeEngine: CoreEngine = CoreEngine.XRAY
 
-    /**
-     * MARBLE_ENGINE_SELF_HEAL_V152 — process-lifetime latch, set the first time the sing-box
-     * engine refuses one of Marble's own configs at `check` ("rejected the config", a removed
-     * outbound, a renamed key). That fault is structural: every node would fail identically, so
-     * while the latch is held the session is carried by the Xray engine and the user connects.
-     * A later successful sing-box start clears it; a process restart re-evaluates it.
-     */
-    @Volatile private var singBoxConfigFaultLatch = false
-
-    /** One engine self-heal retry per session; a loop of them is a bug, not a recovery. */
-    private val sessionEngineSelfHealTried = java.util.concurrent.atomic.AtomicBoolean(false)
-
     private val coreTag: String get() = if (activeEngine == CoreEngine.SINGBOX) "SINGBOX" else "XRAY"
 
     // The `else` arm always names the Xray manager: these three are the engine-agnostic reads,
@@ -477,7 +465,6 @@ class MarbleVpnService : VpnService() {
         optimizerScanRequested.set(false)
         // MARBLE_ENGINE_SELF_HEAL_V152 — a fresh user-initiated connect earns a fresh engine
         // self-heal budget; the config-fault latch itself survives until a start succeeds.
-        sessionEngineSelfHealTried.set(false)
         tuningRequested.set(false)
         lastTuneAt = 0L
         lastTrafficProgressAt = 0L
@@ -619,19 +606,9 @@ class MarbleVpnService : VpnService() {
         // MARBLE_SINGBOX_CORE_V151 — the engine for this session is decided before the first
         // diagnostic is written, so every event on the start path carries the tag of the core
         // that actually ran rather than the one that ran last time.
-        // MARBLE_ENGINE_SELF_HEAL_V152 — unless the self-heal latch is held: a sing-box config
-        // rejection is an engine-level fault no node can outrun, so the session rides Xray and
-        // the log says why instead of replaying the same refusal through every profile.
-        activeEngine = if (singBoxConfigFaultLatch && settings.coreEngine() == CoreEngine.SINGBOX) {
-            diag.event(
-                "SINGBOX", "engine-selfheal-latch-active",
-                "session" to session,
-                "engine" to CoreEngine.XRAY.id
-            )
-            CoreEngine.XRAY
-        } else {
-            settings.coreEngine()
-        }
+        // Explicit engine selection is a contract. A local startup/config fault must never
+        // switch engines behind the user's back or blacklist otherwise healthy servers.
+        activeEngine = settings.coreEngine()
         diag.event(
             coreTag, if (recovering) "recovery-start" else "start-begin",
             "engine" to activeEngine.id,
@@ -680,44 +657,7 @@ class MarbleVpnService : VpnService() {
                 )
                 return
             }
-            // MARBLE_ENGINE_SELF_HEAL_V152 — a config-level rejection is the engine refusing
-            // Marble's JSON, not the node refusing the tunnel: failover would re-run the same
-            // refusal through every remaining profile (the shipped log did, 17 times, ending
-            // BLOCKED each time). One retry per session on the other engine, and the latch
-            // keeps later sessions off the broken path until a start or a restart proves it
-            // healthy again.
-            if (
-                activeEngine == CoreEngine.SINGBOX &&
-                SingBoxConfigDoctor.isEngineLevelFault(coreStartError) &&
-                sessionEngineSelfHealTried.compareAndSet(false, true)
-            ) {
-                singBoxConfigFaultLatch = true
-                singBox.lastSelfHealNotes.forEach { note ->
-                    diag.event(
-                        coreTag, "config-selfheal-note",
-                        "session" to session,
-                        "note" to note
-                    )
-                }
-                diag.event(
-                    coreTag, "engine-selfheal-xray-fallback",
-                    "session" to session,
-                    "reason" to coreStartError.take(300)
-                )
-                app.repo.setRuntimeState(
-                    "CONNECTING",
-                    "Self-heal → Xray engine • " + profile.name
-                )
-                notifier.alert(
-                    SmartNotificationKind.RECOVERY,
-                    "selfheal:$session:${profile.id}",
-                    "Marble Intelligence",
-                    "sing-box rejected the config • continuing on the Xray engine",
-                    settings
-                )
-                startXrayAndForward(profile, session, port, settings, recovering)
-                return
-            }
+            diag.event(coreTag, "core-start-failure-not-a-server-verdict", "reason" to coreStartError.take(300))
             handleFailure(
                 session,
                 coreStartError.ifBlank {
@@ -726,23 +666,15 @@ class MarbleVpnService : VpnService() {
                     } else {
                         "Xray rejected profile or routing policy"
                     }
-                }
+                },
+                allowRecovery = false,
+                recordProfileFailure = false
             )
             return
         }
         if (!isCurrent(session)) {
             coreStop()
             return
-        }
-
-        // MARBLE_ENGINE_SELF_HEAL_V152 — this engine just ran one of Marble's configs cleanly,
-        // so any earlier config-fault latch is stale by definition. Re-arm sing-box selection.
-        if (activeEngine == CoreEngine.SINGBOX && singBoxConfigFaultLatch) {
-            singBoxConfigFaultLatch = false
-            diag.event(
-                coreTag, "engine-selfheal-latch-cleared",
-                "session" to session
-            )
         }
 
         // Synthetic Internet observations are diagnostics, not startup gates. Defer them until the
@@ -2853,7 +2785,9 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
     @Synchronized
     private fun handleFailure(
         session: String,
-        reason: String
+        reason: String,
+        allowRecovery: Boolean = true,
+        recordProfileFailure: Boolean = true
     ) {
         if (
             session.isNotBlank() &&
@@ -2931,7 +2865,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
 
         // Exactly one historical failure update for one connection incident.
         // A damaged/locked history DB must never crash the failure handler itself.
-        runCatching {
+        if (recordProfileFailure) runCatching {
             repo.intelligence.recordConnect(
                 failedId,
                 false,
@@ -2998,6 +2932,19 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                 minIntervalOverrideMs =
                     60_000L
             )
+        }
+
+        if (!allowRecovery) {
+            recoveryScheduled.set(false)
+            tunReadyPublished.set(false)
+            running.set(false)
+            repo.setRuntimeState("BLOCKED", "Core/configuration error • $reason")
+            if (holdTun) promoteForeground("BLOCKED • Core/configuration error • tap Retry", ongoing = true)
+            else {
+                runCatching { stopForeground(STOP_FOREGROUND_REMOVE) }
+                stopSelf()
+            }
+            return
         }
 
         // A startup timeout is terminal for this user attempt. Do not turn one hung connect into

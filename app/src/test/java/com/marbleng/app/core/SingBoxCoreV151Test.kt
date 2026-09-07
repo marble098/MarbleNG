@@ -279,7 +279,7 @@ class SingBoxCoreV151Test {
             val type = server.getString("type")
             // `hosts` and `local` (MARBLE_SINGBOX_DNS_ACTION_V152, the system resolver) have no
             // address of their own; every address-bearing type must use the 1.12 `server` key.
-            if (type == "hosts" || type == "local") continue
+            if (type == "hosts" || type == "local" || type == "fallback") continue
             // sing-box 1.12 renamed the DNS server address key. A server written with `address`
             // parses to nothing and every lookup dies, so this is the single most expensive typo
             // this builder could make.
@@ -287,11 +287,8 @@ class SingBoxCoreV151Test {
             assertTrue("a DNS server must carry `server`", server.getString("server").isNotBlank())
         }
         val direct = dnsServer(config, SingBoxConfigBuilder.DNS_DIRECT_TAG)
-        assertEquals(
-            "the direct resolver must not detour into the tunnel it is establishing",
-            SingBoxConfigBuilder.DIRECT_TAG,
-            direct.getString("detour")
-        )
+        assertEquals("fallback", direct.getString("type"))
+        assertEquals(SingBoxConfigBuilder.DNS_LOCAL_TAG, direct.getJSONArray("servers").getString(0))
     }
 
     @Test
@@ -326,24 +323,16 @@ class SingBoxCoreV151Test {
     }
 
     @Test
-    fun ruleSetsAreFetchedDirectlySoAFreshInstallCanBoot() {
+    fun ruleSetsAreBundledLocallySoAnOfflineFirstInstallCanBoot() {
         val config = JSONObject(build(linkProfile(VLESS_LINK)).json)
         val sets = config.getJSONObject("route").getJSONArray("rule_set")
         assertTrue(sets.length() >= 3)
         for (i in 0 until sets.length()) {
             val set = sets.getJSONObject(i)
-            // MARBLE_SINGBOX_ANDROID_RUNTIME_V155 — the promise is unchanged (rule sets are
-            // fetched outside the tunnel); only its spelling moved from the deprecated
-            // `download_detour` to an `http_client`, which sing-box 1.14 requires.
-            assertFalse(
-                "`download_detour` is deprecated in sing-box 1.14 and conflicts with http_client",
-                set.has("download_detour")
-            )
-            assertEquals(
-                SingBoxConfigBuilder.DIRECT_TAG,
-                set.getJSONObject("http_client").getString("detour")
-            )
-            assertTrue(set.getString("url").startsWith("https://"))
+            assertFalse(set.has("download_detour"))
+            assertFalse(set.has("url"))
+            assertEquals("local", set.getString("type"))
+            assertTrue(set.getString("path").endsWith(".srs"))
             assertEquals("binary", set.getString("format"))
         }
     }
@@ -362,11 +351,8 @@ class SingBoxCoreV151Test {
             it.copy(configJson = root.toString())
         }
         val support = SingBoxConfigBuilder.describe(profile, AppSettings(singBoxPreferParser = false))
-        assertTrue(support.supported)
-        assertTrue(
-            "the pinning limitation must be stated on the node",
-            support.notes.any { note -> note.contains("pin", ignoreCase = true) }
-        )
+        assertFalse("dropping certificate verification is not a supported conversion", support.supported)
+        assertTrue(support.reason, support.reason.contains("pinnedPeerCertSha256"))
     }
 
     @Test
@@ -508,7 +494,7 @@ class SingBoxCoreV151Test {
     }
 
     @Test
-    fun tlsFragmentIsNeverEmittedInsideTheSingBoxTlsObject() {
+    fun tlsFragmentUsesTheSupportedOneFourTlsField() {
         val profile = jsonProfile("vless").let {
             val root = JSONObject(it.configJson)
             root.getJSONArray("outbounds")
@@ -524,7 +510,7 @@ class SingBoxCoreV151Test {
         val proxy = outbound(config, SingBoxConfigBuilder.PROXY_TAG)
         val tls = proxy.optJSONObject("tls")
         if (tls != null) {
-            assertFalse("Xray-only fragment must not appear in a sing-box tls object", tls.has("fragment"))
+            assertTrue("TLS fragment is supported by the pinned 1.14 core", tls.getBoolean("fragment"))
         }
     }
 

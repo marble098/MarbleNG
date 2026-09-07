@@ -184,7 +184,7 @@ class SingBoxSelfHealV152Test {
                 assertFalse("array `network` must be migrated away", outbound.has("network"))
                 val tls = outbound.optJSONObject("tls")
                 if (tls != null) {
-                    assertFalse("Xray-only TLS `fragment` must be removed", tls.has("fragment"))
+                    assertTrue("supported TLS `fragment` must be retained", tls.getBoolean("fragment"))
                 }
             }
         }

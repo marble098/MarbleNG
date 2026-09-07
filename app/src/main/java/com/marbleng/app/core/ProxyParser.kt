@@ -54,6 +54,21 @@ object ProxyParser {
     }
 
     private fun parseJsonObject(value: JSONObject, raw: String, subId: String, subName: String): List<ProxyProfile> {
+        if (NativeSingBoxConfig.isNative(value)) {
+            val root = NativeSingBoxConfig.root(value)
+            val outbound = NativeSingBoxConfig.entry(root)
+            val type = outbound.getString("type")
+            val tls = outbound.optJSONObject("tls")
+            val endpoint = NativeSingBoxConfig.objects(root.optJSONArray("outbounds"))
+                .firstOrNull { it.optString("server").isNotBlank() } ?: outbound
+            val name = root.optString("name").ifBlank { outbound.optString("tag").ifBlank { "$subName ($type)" } }
+            val canonical = root.toString()
+            return listOf(ProxyProfile(id(canonical), name.take(120), type, raw, canonical,
+                endpoint.optString("server"), endpoint.optInt("server_port"),
+                outbound.optJSONObject("transport")?.optString("type").orEmpty(),
+                if (tls?.optJSONObject("reality")?.optBoolean("enabled") == true) "reality"
+                else if (tls?.optBoolean("enabled") == true) "tls" else "none", subId, subName))
+        }
         val root = when {
             value.optJSONArray("outbounds") != null -> JSONObject(value.toString())
             value.optString("protocol").isNotBlank() -> base(JSONObject(value.toString()))

@@ -3,593 +3,189 @@ package com.marbleng.app.core
 import android.content.Context
 import com.marbleng.app.model.AppSettings
 import com.marbleng.app.model.ProxyProfile
-import org.json.JSONObject
+import com.marbleng.app.model.RoutingMode
 import java.io.File
-import java.net.HttpURLConnection
 import java.net.InetSocketAddress
 import java.net.ServerSocket
-import java.net.Socket
-import java.net.URL
-import java.net.URLEncoder
 import java.util.UUID
+import java.util.concurrent.Semaphore
 import java.util.concurrent.TimeUnit
 
-/** One sing-box extended URL test: the delay the core itself measured, or why it could not. */
-data class SingBoxUrlTestResult(
-    val delayMs: Long,
-    val ok: Boolean,
-    val detail: String = "",
-    /** True when the measurement came from the tunnel the user is already connected to. */
-    val live: Boolean = false
-)
+/** Delay measured by the selected native outbound, never a substituted TCP-connect number. */
+data class SingBoxUrlTestResult(val delayMs: Long, val ok: Boolean, val detail: String = "", val live: Boolean = false)
 
-/**
- * MARBLE_SINGBOX_CORE_V151 — lifecycle of the sing-box extended process.
- *
- * Deliberately a sibling of [XrayManager] rather than a base-class sibling: the two cores share
- * nothing but the shape of their contract (write a config, spawn a child, wait for the local
- * listener, kill it on stop), and a shared abstraction would only hide which core a given line of
- * code actually drives. The one thing they must agree on is the local SOCKS endpoint, because
- * hev-socks5-tunnel dials it without knowing or caring which core owns it.
- *
- * On top of the run/stop pair this owns the **URL test**: sing-box extended speaks the Clash API,
- * so `GET /proxies/{tag}/delay?url=…&timeout=…` asks the *core* to measure a real round trip
- * through the selected outbound. That is the honest version of a latency number — no Kotlin socket
- * stands in for the tunnel.
- *
- * MARBLE_SINGBOX_ANDROID_RUNTIME_V155 — every child process this class spawns goes through
- * [spawn], which applies [SingBoxAndroidRuntime]: the config is hardened *before* the core sees
- * it, the `ENABLE_DEPRECATED_*` flags are exported so an impending deprecation cannot become
- * `os.Exit(1)`, and `TMPDIR`/`HOME` point somewhere an Android app UID may actually write. That
- * is what turned `URL test (sing-box extended)` from a permanent `reachable=0` into a
- * measurement: the test never failed at the Clash API, it failed because the core it needed had
- * already died on `create network monitor: netlink socket in Android is banned by Google`.
- */
+/** Both connect and measurements use the same translator, Android DNS bridge, config check and
+ * process runner. Temporary tests are isolated and limited to two children even when the user
+ * requests hundreds of TCP workers. A measurement cannot overwrite or stop the live session. */
 class SingBoxManager(private val context: Context) {
-
-    @Volatile private var process: Process? = null
-
+    @Volatile private var session: SingBoxProcessSession? = null
+    private var liveDns: AndroidDnsBridge.Lease? = null
+    private val bootstrap = AndroidDnsBridge(context)
+    private val rules = SingBoxRuleSetStore(context)
     @Volatile var lastStartError: String = ""
         private set
-
     @Volatile var lastStartPhase: String = "idle"
         private set
-
-    /**
-     * MARBLE_ENGINE_SELF_HEAL_V152 — repairs the last `sing-box check` rejection applied
-     * automatically by [SingBoxConfigDoctor]. Empty when the last config was accepted as
-     * written (the normal case), or when no repair was possible. Surfaced through the VPN
-     * service diagnostics so a self-healed start is visible in the log instead of silent.
-     */
     @Volatile var lastSelfHealNotes: List<String> = emptyList()
         private set
-
-    /** Clash API port of the running instance; 0 when nothing is running. */
     @Volatile var apiPort: Int = 0
         private set
-
-    @Volatile private var apiSecret: String = ""
-
-    /**
-     * MARBLE_SINGBOX_PROTOCOLS_V153 — the resolver evidence brain. It is published by
-     * [AppRepository] after the manager is constructed; without it the config falls back to the
-     * two configured DoH literals exactly as before.
-     */
     @Volatile var intelligence: MarbleIntelligence? = null
-
-    val isAlive: Boolean get() = process?.isAlive == true
-
+    val isAlive: Boolean get() = session?.isAlive == true
     private val bin: File get() = File(context.applicationInfo.nativeLibraryDir, CoreEngineInfo.SINGBOX_BINARY)
-
-    val isInstalled: Boolean get() = bin.isFile && bin.length() > 1024L
-
+    val isInstalled: Boolean get() = bin.isFile && bin.length() > 1024
     val logFile: File get() = File(context.filesDir, "logs/singbox.log")
 
-    private val runtimeConfig: File get() = File(context.filesDir, "runtime-singbox.json")
-
-    private val cacheFile: File get() = File(context.filesDir, "singbox-cache.db")
-
-    /**
-     * Starts the second engine for [profile].
-     *
-     * @param port the local SOCKS/HTTP mixed endpoint hev-socks5-tunnel will dial.
-     */
-    fun start(
-        profile: ProxyProfile,
-        port: Int,
-        settings: AppSettings = AppSettings()
-    ): Boolean {
-        synchronized(this) {
-            stopLocked()
-            lastStartError = ""
-            lastStartPhase = "begin"
-            lastSelfHealNotes = emptyList()
-
-            if (!isInstalled) {
-                return fail("sing-box extended binary is missing from this build")
-            }
-            if (port !in 1..65535) {
-                return fail("Invalid local SOCKS port: $port")
-            }
-
-            val support = SingBoxConfigBuilder.describe(profile, settings)
-            if (!support.supported) return fail(support.reason)
-
-            logFile.parentFile?.mkdirs()
-            val controllerPort = freePort() ?: return fail("No free port for the sing-box controller")
+    @Synchronized fun start(profile: ProxyProfile, port: Int, settings: AppSettings = AppSettings()): Boolean {
+        stop()
+        lastStartError = ""
+        lastSelfHealNotes = emptyList()
+        lastStartPhase = "config"
+        var dns: AndroidDnsBridge.Lease? = null
+        try {
+            check(isInstalled) { "core-install: sing-box extended is missing from this APK" }
+            require(port in 1..65535) { "core-config: Invalid local SOCKS port" }
+            dns = bootstrap.acquire()
+            val controller = freePort(excluding = port)
             val secret = UUID.randomUUID().toString()
-
-            val resolverPool = intelligence?.singBoxResolverPool(settings) ?: emptyList()
-            val built = runCatching {
-                SingBoxConfigBuilder.build(
-                    profile = profile,
-                    settings = settings,
-                    socksPort = port,
-                    apiPort = controllerPort,
-                    apiSecret = secret,
-                    logPath = logFile.absolutePath,
-                    cachePath = cacheFile.absolutePath,
-                    resolverPool = resolverPool
-                )
-            }.getOrElse { return fail("Config: ${it.message ?: it::class.java.simpleName}") }
-
-            lastStartPhase = "write"
-            val config = runtimeConfig
-            // MARBLE_SINGBOX_ANDROID_RUNTIME_V155 — hardening is a *preflight*, not a rescue.
-            // Waiting for `sing-box check` to refuse a config and then guessing the repair from a
-            // Go error string is strictly worse than never writing the option: the netlink FATAL
-            // and the 1.14 impending deprecations are both decidable from the JSON alone. The
-            // pass is idempotent, so a config the builder already writes correctly produces no
-            // notes and no diff.
-            val hardened = SingBoxConfigDoctor.hardenForAndroid(built.json)
-            if (hardened.repaired) lastSelfHealNotes = hardened.notes
-            runCatching { config.writeText(hardened.json) }
-                .onFailure { return fail("Config write failed: ${it.message}") }
-
-            // MARBLE_ENGINE_SELF_HEAL_V152 — a config the core rejects is repaired in place and
-            // re-checked before the attempt is allowed to fail. The shipped log shows what
-            // happens without this: a single removed `dns` outbound refused all 17 profiles and
-            // every session ended BLOCKED. The doctor fixes the known removals (deprecated dns
-            // outbound, pre-1.12 DNS `address` key), and only a config that still fails after
-            // repair is reported as a start error.
-            lastStartPhase = "check"
-            var rejection = checkConfig(config)
-            if (rejection != null) {
-                val repair = SingBoxConfigDoctor.repair(config.readText(), rejection.orEmpty())
-                if (repair.repaired) {
-                    runCatching {
-                        config.writeText(repair.json)
-                        lastSelfHealNotes = hardened.notes + repair.notes
-                    }.onFailure {
-                        lastSelfHealNotes = emptyList()
-                        return fail("Config write failed: ${it.message}")
-                    }
-                    lastStartPhase = "self-heal"
-                    rejection = checkConfig(config)
-                    if (rejection == null) {
-                        lastStartPhase = "check"
-                    }
-                }
-            }
-            rejection?.let { return fail("sing-box rejected the config: ${explain(it)}") }
-
-            lastStartPhase = "spawn"
-            val child = runCatching {
-                spawn(listOf("run", "-c", config.absolutePath))
-                    .redirectOutput(ProcessBuilder.Redirect.appendTo(logFile))
-                    .start()
-            }.getOrElse { return fail("Spawn failed: ${it.message}") }
-
-            process = child
-            apiPort = controllerPort
-            apiSecret = secret
-
-            lastStartPhase = "listener"
-            if (!waitPort(port, 7_000L, child)) {
-                val alive = child.isAlive
-                val exit = if (alive) null else runCatching { child.exitValue() }.getOrNull()
-                stopLocked()
-                return fail(
-                    if (alive) {
-                        "sing-box listener did not open: ${explain(lastLogHint())}"
-                    } else {
-                        "sing-box exited with code ${exit ?: -1}: ${explain(lastLogHint())}"
-                    }
-                )
-            }
-
+            val config = build(profile, settings, port, controller, secret, dns.port, false)
+            lastSelfHealNotes = config.notes
+            lastStartPhase = "check-and-start"
+            val process = SingBoxProcessSession.open(bin, config.json,
+                File(context.filesDir, "runtime-singbox.json"), logFile,
+                File(context.cacheDir, "singbox-tmp"), port, controller, secret)
+            session = process
+            liveDns = dns
+            apiPort = controller
             lastStartPhase = "ready"
             return true
+        } catch (error: Exception) {
+            dns?.close()
+            if (error is InterruptedException) Thread.currentThread().interrupt()
+            lastStartError = explain(error.message ?: error.javaClass.simpleName)
+            lastStartPhase = "failed"
+            return false
         }
     }
 
-    fun stop() {
-        synchronized(this) { stopLocked() }
-    }
-
-    private fun stopLocked() {
-        val child = process
-        process = null
+    @Synchronized fun stop() {
+        val previous = session
+        session = null
         apiPort = 0
-        apiSecret = ""
+        previous?.close()
+        liveDns?.close()
+        liveDns = null
         lastStartPhase = "stopped"
-        if (child == null) return
-        runCatching { child.destroy() }
-        runCatching {
-            if (!child.waitFor(2_500L, TimeUnit.MILLISECONDS)) child.destroyForcibly()
-        }
     }
 
-    private fun fail(reason: String): Boolean {
-        lastStartError = reason
-        lastStartPhase = "failed"
-        return false
+    private fun build(profile: ProxyProfile, settings: AppSettings, port: Int, controller: Int,
+                      secret: String, dnsPort: Int, forTest: Boolean): SingBoxConfigBuilder.Build {
+        val runtimeSettings = if (forTest) measurementSettings(settings) else settings
+        val paths = if (forTest) emptyMap() else try { rules.prepare() } catch (error: Exception) {
+            throw IllegalStateException("core-assets: bundled sing-box rule sets are missing/corrupt; rebuild the APK", error)
+        }
+        val built = SingBoxConfigBuilder.build(profile, runtimeSettings, port, controller, secret,
+            "", File(context.filesDir, "singbox-cache.db").absolutePath,
+            resolverPool = intelligence?.singBoxResolverPool(settings).orEmpty(),
+            ruleSetPaths = paths, bootstrapDnsPort = dnsPort, forTest = forTest)
+        val hardened = SingBoxConfigDoctor.hardenForAndroid(built.json)
+        return built.copy(json = hardened.json, notes = (built.notes + hardened.notes).distinct())
     }
 
-    /** `sing-box check` — the core's own verdict, before the tunnel is trusted with it. */
-    fun checkConfig(config: File): String? {
-        val output = File(context.cacheDir, "singbox-check.log")
-        runCatching { output.delete() }
-        // MARBLE_SINGBOX_ANDROID_RUNTIME_V155 — the config is checked through a diagnostic copy
-        // whose `log.output` is stripped. That single key was hiding the answer: with it set, the
-        // core opens the runtime log file and every deprecation warning, DNS error and fatal exit
-        // is written *there*, while the pipe MarbleNG actually reads gets only the last line the
-        // cobra command prints. The copy is byte-identical apart from the log sink, so the
-        // verdict is still the verdict for the real config.
-        val target = diagnosticCopy(config) ?: config
-        val check = runCatching {
-            spawn(listOf("check", "-c", target.absolutePath))
-                .redirectOutput(ProcessBuilder.Redirect.to(output))
-                .start()
-        }.getOrElse {
-            if (target !== config) runCatching { target.delete() }
-            return it.message ?: it::class.java.simpleName
-        }
+    /** Shared isolated transport for Real Delay, rank, tuner and bootstrap fetches. */
+    fun temporary(profile: ProxyProfile, settings: AppSettings, block: (Int) -> Unit): Boolean =
+        withTemporary(profile, settings) { _, port -> block(port); true }
 
+    private fun <T> withTemporary(profile: ProxyProfile, settings: AppSettings,
+                                  block: (SingBoxProcessSession, Int) -> T): T {
+        SingBoxProcessSession.checkInterrupted()
+        check(isInstalled) { "core-install: sing-box extended is missing from this APK" }
+        // Interruptible queue admission. A cancelled batch must not later start another child.
+        check(testSlots.tryAcquire(30, TimeUnit.SECONDS)) { "core-busy: measurement capacity is occupied" }
+        var directory: File? = null
+        var dns: AndroidDnsBridge.Lease? = null
         try {
-            if (!runCatching { check.waitFor(15, TimeUnit.SECONDS) }.getOrDefault(false)) {
-                runCatching { check.destroyForcibly() }
-                return "check timed out"
+            SingBoxProcessSession.checkInterrupted()
+            directory = File(context.cacheDir, "singbox-test-${UUID.randomUUID()}").apply { check(mkdirs()) }
+            dns = bootstrap.acquire()
+            val socks = freePort()
+            val controller = freePort(excluding = socks)
+            val secret = UUID.randomUUID().toString()
+            val built = build(profile, settings, socks, controller, secret, dns.port, true)
+            SingBoxProcessSession.open(bin, built.json, File(directory, "config.json"),
+                File(directory, "core.log"), directory, socks, controller, secret).use { child ->
+                return block(child, socks)
             }
-            if (check.exitValue() == 0) return null
-            return runCatching {
-                output.useLines { lines ->
-                    lines.filter { it.isNotBlank() }.toList().takeLast(6).joinToString(" | ")
-                }.take(900)
-            }.getOrDefault("check failed")
         } finally {
-            if (target !== config) runCatching { target.delete() }
+            dns?.close()
+            directory?.let { workspace ->
+                // Bug Finder retains bounded evidence, never a test's credentials/config/cache.
+                val tail = SingBoxProcessSession.tail(File(workspace, "core.log"), 32 * 1024)
+                if (tail.isNotBlank()) synchronized(diagnosticLock) {
+                    runCatching { SingBoxProcessSession.atomicWrite(File(context.cacheDir, "singbox-urltest.log"), tail) }
+                }
+                workspace.deleteRecursively()
+            }
+            testSlots.release()
         }
     }
 
-    /**
-     * A copy of [config] with `log.output` removed and the level lowered to `info`, so that
-     * everything the core has to say about the config lands on the pipe this process reads.
-     * Returns null when the config cannot be parsed — the caller then checks the original, and
-     * the core's parser produces the (better) error.
-     */
-    private fun diagnosticCopy(config: File): File? = runCatching {
-        val root = JSONObject(config.readText())
-        val log = root.optJSONObject("log") ?: JSONObject()
-        log.remove("output")
-        log.put("level", "info")
-        log.put("disabled", false)
-        root.put("log", log)
-        val copy = File(context.cacheDir, "singbox-check-config.json")
-        copy.writeText(root.toString())
-        copy
-    }.getOrNull()
-
-    /**
-     * MARBLE_SINGBOX_ANDROID_RUNTIME_V155 — every sing-box child process is built here, so no
-     * call site can forget the Android execution contract: the `ENABLE_DEPRECATED_*` flags that
-     * turn an impending deprecation back into a warning instead of `os.Exit(1)`, and a writable
-     * `TMPDIR`/`HOME` (Go's `os.TempDir()` answers `/tmp`, which does not exist on Android).
-     */
-    private fun spawn(args: List<String>): ProcessBuilder {
-        val builder = ProcessBuilder(listOf(bin.absolutePath) + args).redirectErrorStream(true)
-        return SingBoxAndroidRuntime.prepare(
-            builder,
-            workingDir = context.filesDir,
-            tempDir = File(context.cacheDir, "singbox-tmp")
-        )
-    }
-
-    /**
-     * Appends a human remediation to a core rejection when MarbleNG knows one. The raw Go error
-     * is always kept: the point is to add the sentence the user can act on, never to replace the
-     * evidence with a guess.
-     */
-    private fun explain(reason: String): String = when {
-        SingBoxAndroidRuntime.isNetlinkBan(reason) ->
-            "$reason — ${SingBoxAndroidRuntime.NETLINK_REMEDIATION}"
-        "ENABLE_DEPRECATED_" in reason ->
-            "$reason — this build already exports every ENABLE_DEPRECATED_* flag, so the core " +
-                "is refusing the option itself rather than its deprecation."
-        else -> reason
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────────
-    // URL test
-    // ─────────────────────────────────────────────────────────────────────────────
-
-    /**
-     * Asks the *running* sing-box extended instance to URL-test [tag].
-     *
-     * @return the delay the core measured, or the reason it could not.
-     */
     fun urlTestLive(tag: String, url: String, timeoutMs: Int): SingBoxUrlTestResult {
-        val port = apiPort
-        val secret = apiSecret
-        val child = process ?: return SingBoxUrlTestResult(0L, false, "sing-box extended is not running")
-        if (port <= 0 || !child.isAlive) {
-            return SingBoxUrlTestResult(0L, false, "sing-box extended is not running")
-        }
-        // MARBLE_SINGBOX_PROTOCOLS_V153 — a real connection publishes the SOCKS listener slightly
-        // before the Clash API controller is fully registered. The old live path fired the delay
-        // request immediately and returned a transient 404/empty body right after connect.
-        if (!waitForApi(port, secret, 2_000L, child)) {
-            val immediate = requestDelay(port, secret, tag, url, timeoutMs)
-            if (immediate.ok) return immediate.copy(live = true)
-        }
-        var last = SingBoxUrlTestResult(0L, false, "url test did not run").copy(live = true)
-        for (attempt in 1..2) {
-            last = requestDelay(port, secret, tag, url, timeoutMs)
-            if (last.ok) return last.copy(live = true)
-            last = last.copy(live = true, detail = "attempt $attempt: ${last.detail}")
+        require(tag == SingBoxConfigBuilder.PROXY_TAG) { "Only the selected outbound may be measured" }
+        val active = session ?: return SingBoxUrlTestResult(0, false, "core-unavailable: sing-box is not running")
+        return active.delay(url, timeoutMs).copy(live = true)
+    }
+
+    fun urlTestProfile(profile: ProxyProfile, settings: AppSettings, url: String, timeoutMs: Int): SingBoxUrlTestResult =
+        urlTestProfileTargets(profile, settings, listOf(url), timeoutMs)
+
+    /** One process per profile, short-circuit on success. The old eager targets.map() started and
+     * destroyed a core for EVERY reference URL even after the first one had succeeded. */
+    fun urlTestProfileTargets(profile: ProxyProfile, settings: AppSettings, urls: List<String>, timeoutMs: Int): SingBoxUrlTestResult = try {
+        withTemporary(profile, settings) { child, _ -> testTargets(urls, timeoutMs) { url, budget -> child.delay(url, budget) } }
+    } catch (error: Exception) {
+        if (error is InterruptedException) { Thread.currentThread().interrupt(); throw error }
+        SingBoxUrlTestResult(0, false, explain(error.message ?: error.javaClass.simpleName))
+    }
+
+    fun urlTestLiveTargets(urls: List<String>, timeoutMs: Int): SingBoxUrlTestResult =
+        testTargets(urls, timeoutMs) { url, budget -> urlTestLive(SingBoxConfigBuilder.PROXY_TAG, url, budget) }
+
+    private fun testTargets(urls: List<String>, timeoutMs: Int,
+                            measure: (String, Int) -> SingBoxUrlTestResult): SingBoxUrlTestResult {
+        val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMs.coerceIn(500, 30_000).toLong())
+        var last = SingBoxUrlTestResult(0, false, "urltest-no-target")
+        for (url in urls.distinct().take(3)) {
+            SingBoxProcessSession.checkInterrupted()
+            val left = TimeUnit.NANOSECONDS.toMillis(deadline - System.nanoTime()).toInt()
+            if (left <= 0) break
+            last = measure(url, left)
+            if (last.ok) return last
         }
         return last
     }
 
-    /**
-     * URL-tests a node that is not connected.
-     *
-     * A throwaway sing-box extended instance is started with the node's own outbound and a local
-     * mixed inbound, the core measures the delay through it, and the instance is destroyed. This
-     * is the sing-box equivalent of MarbleNG's Xray real-delay test: the number comes from the
-     * core's transport, never from a Kotlin socket that never saw the tunnel.
-     */
-    fun urlTestProfile(
-        profile: ProxyProfile,
-        settings: AppSettings,
-        url: String,
-        timeoutMs: Int
-    ): SingBoxUrlTestResult {
-        if (!isInstalled) {
-            return SingBoxUrlTestResult(0L, false, "sing-box extended binary is missing")
-        }
-        val support = SingBoxConfigBuilder.describe(profile, settings)
-        if (!support.supported) {
-            return SingBoxUrlTestResult(0L, false, support.reason)
-        }
+    private fun explain(reason: String): String = if (SingBoxAndroidRuntime.isNetlinkBan(reason))
+        "$reason — ${SingBoxAndroidRuntime.NETLINK_REMEDIATION}" else reason
 
-        val socksPort = freePort() ?: return SingBoxUrlTestResult(0L, false, "no free local port")
-        val controllerPort = freePort()
-            ?: return SingBoxUrlTestResult(0L, false, "no free controller port")
-        val secret = UUID.randomUUID().toString()
-        val config = File(context.cacheDir, "singbox-urltest.json")
-        val log = File(context.cacheDir, "singbox-urltest.log")
-        runCatching { log.delete() }
-
-        val resolverPool = intelligence?.singBoxResolverPool(settings) ?: emptyList()
-        val built = runCatching {
-            SingBoxConfigBuilder.build(
-                profile = profile,
-                settings = settings,
-                socksPort = socksPort,
-                apiPort = controllerPort,
-                apiSecret = secret,
-                logPath = log.absolutePath,
-                cachePath = File(context.cacheDir, "singbox-urltest-cache.db").absolutePath,
-                resolverPool = resolverPool
-            )
-        }.getOrElse {
-            return SingBoxUrlTestResult(0L, false, it.message ?: it::class.java.simpleName)
-        }
-
-        // MARBLE_ENGINE_SELF_HEAL_V152 — the throwaway URL-test instance gets the same doctor +
-        // check pass as a real start, so a measurement never dies on a schema the core outgrew.
-        // The previous throwaway path skipped `checkConfig` entirely and only ran the doctor; a
-        // config that still contained a translation bug was therefore measured as a startup
-        // failure with a raw single-line log hint instead of being repaired first.
-        //
-        // MARBLE_SINGBOX_ANDROID_RUNTIME_V155 — and the same *preflight* hardening as a real
-        // start, because a URL test that cannot start the core is exactly the failure the user
-        // sees as `reachable=0`. The measurement path and the connect path now write byte-for-byte
-        // the same class of config; there is no second, weaker writer left to drift.
-        val hardened = SingBoxConfigDoctor.hardenForAndroid(built.json)
-        runCatching { config.writeText(hardened.json) }
-            .onFailure {
-                return SingBoxUrlTestResult(0L, false, "config write failed: ${it.message}")
-            }
-
-        var rejection = checkConfig(config)
-        if (rejection != null) {
-            val healed = SingBoxConfigDoctor.repair(config.readText(), rejection.orEmpty())
-            if (healed.repaired) {
-                runCatching { config.writeText(healed.json) }
-                    .onFailure {
-                        return SingBoxUrlTestResult(0L, false, "config write failed: ${it.message}")
-                    }
-                rejection = checkConfig(config)
-            }
-        }
-        rejection?.let {
-            return SingBoxUrlTestResult(
-                0L, false, "sing-box rejected the URL-test config: ${explain(it)}"
-            )
-        }
-
-        var child: Process? = null
-        return try {
-            child = spawn(listOf("run", "-c", config.absolutePath))
-                .redirectOutput(ProcessBuilder.Redirect.appendTo(log))
-                .start()
-            if (!waitPort(controllerPort, 8_000L, child)) {
-                val hint = runCatching {
-                    log.useLines { lines ->
-                        lines.filter { it.isNotBlank() }.toList().takeLast(4).joinToString(" | ")
-                    }.take(600)
-                }.getOrDefault("")
-                return SingBoxUrlTestResult(0L, false, "core did not start: ${explain(hint)}")
-            }
-            // The controller port can accept a TCP connection slightly before the Clash API
-            // has finished registering the proxy list. A single immediate request then produces
-            // a transient 404/empty response. A short bounded API probe makes the measurement
-            // wait for the surface it actually talks to.
-            if (!waitForApi(controllerPort, secret, 3_000L, child)) {
-                val hint = runCatching {
-                    log.useLines { lines ->
-                        lines.filter { it.isNotBlank() }.toList().takeLast(4).joinToString(" | ")
-                    }.take(600)
-                }.getOrDefault("")
-                return SingBoxUrlTestResult(0L, false, "core Clash API is not ready: $hint")
-            }
-            var last = SingBoxUrlTestResult(0L, false, "url test did not run")
-            for (attempt in 1..2) {
-                last = requestDelay(
-                    controllerPort, secret, SingBoxConfigBuilder.PROXY_TAG, url, timeoutMs
-                )
-                if (last.ok) return last
-                last = last.copy(detail = "attempt $attempt: ${last.detail}")
-            }
-            last
-        } catch (error: Throwable) {
-            SingBoxUrlTestResult(0L, false, error.message ?: error::class.java.simpleName)
-        } finally {
-            child?.let { target ->
-                runCatching { target.destroy() }
-                runCatching {
-                    if (!target.waitFor(2_000L, TimeUnit.MILLISECONDS)) target.destroyForcibly()
+    companion object {
+        private val testSlots = Semaphore(2, true)
+        private val diagnosticLock = Any()
+        private fun freePort(excluding: Int = 0): Int {
+            repeat(8) {
+                ServerSocket().use { server ->
+                    server.bind(InetSocketAddress("127.0.0.1", 0))
+                    if (server.localPort != excluding) return server.localPort
                 }
             }
-            runCatching { config.delete() }
+            error("core-port: unable to allocate distinct loopback ports")
         }
+
+        fun measurementSettings(settings: AppSettings): AppSettings = settings.copy(
+            routingMode = RoutingMode.PROXY_ALL, routeGeoIpTags = "", routeGeoSiteTags = "",
+            routeDirectDomains = "", routeProxyDomains = "", routeBlockDomains = "",
+            routeDirectIps = "", routeBlockIps = "", routeBypassPrivate = false,
+            routeBlockAds = false, routingRulesJson = "[]", iranDomesticDirect = false
+        )
     }
-
-    /**
-     * MARBLE_SINGBOX_PROTOCOLS_V153 — a short Clash-API readiness probe. It is deliberately cheap
-     * (`GET /proxies`, no delay measurement) and is only used by the throwaway URL-test path.
-     */
-    private fun waitForApi(
-        port: Int,
-        secret: String,
-        timeoutMs: Long,
-        child: Process
-    ): Boolean {
-        val deadline = System.currentTimeMillis() + timeoutMs
-        while (System.currentTimeMillis() < deadline) {
-            if (!child.isAlive) return false
-            val connection = runCatching {
-                (URL("http://127.0.0.1:$port/proxies").openConnection() as HttpURLConnection).apply {
-                    requestMethod = "GET"
-                    connectTimeout = 600
-                    readTimeout = 600
-                    instanceFollowRedirects = false
-                    if (secret.isNotBlank()) setRequestProperty("Authorization", "Bearer $secret")
-                }
-            }.getOrNull()
-            val ready = connection?.let { socket ->
-                try {
-                    val status = socket.responseCode
-                    // The API is up when it answers the controller surface at all. A bad secret is
-                    // a real configuration problem, not a startup race; a 404 means the Clash API
-                    // still has not registered its route table.
-                    status in 200..299 || status == 401
-                } catch (_: Throwable) {
-                    false
-                } finally {
-                    runCatching { socket.disconnect() }
-                }
-            } ?: false
-            if (ready) return true
-            runCatching { Thread.sleep(90L) }
-        }
-        return false
-    }
-
-    /**
-     * `GET /proxies/{tag}/delay?url=&timeout=` — the Clash-compatible endpoint sing-box extended
-     * serves from `experimental.clash_api`. It answers `{"delay": ms}` on success and a JSON
-     * `message` on failure; both are surfaced verbatim so the UI never invents a reason.
-     */
-    private fun requestDelay(
-        port: Int,
-        secret: String,
-        tag: String,
-        url: String,
-        timeoutMs: Int
-    ): SingBoxUrlTestResult {
-        val budget = timeoutMs.coerceIn(500, 30_000)
-        val encodedUrl = URLEncoder.encode(url, "UTF-8")
-        val encodedTag = URLEncoder.encode(tag, "UTF-8")
-        val endpoint = "http://127.0.0.1:$port/proxies/$encodedTag/delay" +
-            "?url=$encodedUrl&timeout=${budget.coerceAtMost(30_000)}"
-
-        val connection = runCatching {
-            (URL(endpoint).openConnection() as HttpURLConnection).apply {
-                requestMethod = "GET"
-                connectTimeout = budget + 2_000
-                readTimeout = budget + 2_000
-                instanceFollowRedirects = false
-                if (secret.isNotBlank()) setRequestProperty("Authorization", "Bearer $secret")
-            }
-        }.getOrElse {
-            return SingBoxUrlTestResult(0L, false, it.message ?: it::class.java.simpleName)
-        }
-
-        return try {
-            val status = connection.responseCode
-            val body = runCatching {
-                (if (status in 200..299) connection.inputStream else connection.errorStream)
-                    ?.bufferedReader()?.use { it.readText() }.orEmpty()
-            }.getOrDefault("")
-
-            if (status in 200..299) {
-                val delay = runCatching { JSONObject(body).optLong("delay", -1L) }.getOrDefault(-1L)
-                if (delay > 0) {
-                    SingBoxUrlTestResult(delay, true)
-                } else {
-                    SingBoxUrlTestResult(0L, false, "core returned no delay: $body".take(300))
-                }
-            } else {
-                val message = runCatching { JSONObject(body).optString("message") }
-                    .getOrDefault("")
-                    .ifBlank { "HTTP $status" }
-                SingBoxUrlTestResult(0L, false, message.take(300))
-            }
-        } catch (error: Throwable) {
-            SingBoxUrlTestResult(0L, false, error.message ?: error::class.java.simpleName)
-        } finally {
-            runCatching { connection.disconnect() }
-        }
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────────
-    // Helpers
-    // ─────────────────────────────────────────────────────────────────────────────
-
-    private fun freePort(): Int? = runCatching {
-        ServerSocket(0).use { it.localPort }
-    }.getOrNull()
-
-    private fun waitPort(port: Int, timeoutMs: Long, child: Process): Boolean {
-        val deadline = System.currentTimeMillis() + timeoutMs
-        while (System.currentTimeMillis() < deadline) {
-            if (!child.isAlive) return false
-            runCatching {
-                Socket().use { socket ->
-                    socket.connect(InetSocketAddress("127.0.0.1", port), 400)
-                }
-            }.onSuccess { return true }
-            runCatching { Thread.sleep(90L) }
-        }
-        return false
-    }
-
-    private fun lastLogHint(): String = runCatching {
-        logFile.useLines { lines ->
-            lines.filter { it.isNotBlank() }.toList().takeLast(4).joinToString(" | ")
-        }.take(600)
-    }.getOrDefault("")
 }

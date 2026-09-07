@@ -119,9 +119,8 @@ object SingBoxConfigDoctor {
         // is re-applied here, because `repair` also runs on configs the builder never wrote
         // (a re-check after a partial repair, a config restored from disk).
         harden(root, notes)
-        // …and one migration that only `repair` may make, because it trades a modern spelling for
-        // a deprecated one. It is gated on the core actually having complained about it.
-        if (mentionsHttpClient(rejection)) downgradeHttpClients(root, notes)
+        // A pinned modern core must not be "repaired" back to removed download_detour fields.
+        // Unknown schema remains a visible configuration failure, not a downgrade.
 
         if (notes.isEmpty()) return Repair(json, false, emptyList())
         return Repair(root.toString(), true, notes)
@@ -160,15 +159,6 @@ object SingBoxConfigDoctor {
         migrateRuleSetDownloadDetour(root, notes)
         ensureDefaultDomainResolver(root, notes)
     }
-
-    /** True when the core's rejection blames the rule-set HTTP client plumbing. */
-    private fun mentionsHttpClient(rejection: String): Boolean {
-        val text = rejection.lowercase()
-        return "http_client" in text
-    }
-
-
-
 
     /**
      * Route rules may still point at an outbound that was just removed; a dangling reference is
@@ -420,40 +410,6 @@ object SingBoxConfigDoctor {
     }
 
     /**
-     * Reverses [migrateRuleSetDownloadDetour] and removes the top-level HTTP clients. Only
-     * [repair] reaches this, and only when the core's own rejection names `http_client`: a core
-     * older than 1.14 does not know `http_clients`, and losing the modern spelling is infinitely
-     * better than losing the engine.
-     */
-    private fun downgradeHttpClients(root: JSONObject, notes: MutableList<String>) {
-        val route = root.optJSONObject("route")
-        var changed = false
-        val ruleSets = route?.optJSONArray("rule_set")
-        if (ruleSets != null) {
-            for (i in 0 until ruleSets.length()) {
-                val ruleSet = ruleSets.optJSONObject(i) ?: continue
-                val client = ruleSet.optJSONObject("http_client") ?: continue
-                ruleSet.remove("http_client")
-                val detour = client.optString("detour")
-                if (detour.isNotBlank()) ruleSet.put("download_detour", detour)
-                changed = true
-            }
-        }
-        if (route?.has("default_http_client") == true) {
-            route.remove("default_http_client")
-            changed = true
-        }
-        if (root.has("http_clients")) {
-            root.remove("http_clients")
-            changed = true
-        }
-        if (changed) {
-            notes += "downgraded the rule-set HTTP client plumbing to `download_detour` for a " +
-                "core that predates `http_clients`"
-        }
-    }
-
-    /**
      * sing-box 1.12 introduced `route.default_domain_resolver`; 1.14 schedules the *absence* of
      * it for removal, which on the pinned core means `deprecated.Report` takes the impending
      * branch and calls `os.Exit(1)`:
@@ -532,42 +488,32 @@ object SingBoxConfigDoctor {
      * to the scalar the core expects; for Xray's habitual `["tcp","udp"]` the correct fix is to
      * omit the field entirely (both networks are already the default).
      *
-     * It also removes the Xray-only `fragment` key from `tls`. sing-box's outbound TLS options do
-     * not contain that field, and `fragment` belongs to route-options instead.
+     * TLS fragmentation is valid in the pinned 1.14 schema and is never stripped.
      */
     private fun migrateNetworkAndTlsFields(root: JSONObject, notes: MutableList<String>) {
         val outbounds = root.optJSONArray("outbounds") ?: return
         var networkMigrated = 0
-        var fragmentRemoved = 0
         for (i in 0 until outbounds.length()) {
             val outbound = outbounds.optJSONObject(i) ?: continue
 
             val network = outbound.opt("network")
             if (network is JSONArray) {
                 val values = (0 until network.length()).map { network.optString(it).trim().lowercase() }
-                if (values.all { it == "tcp" || it == "udp" }) {
-                    outbound.remove("network")
-                    networkMigrated++
-                } else {
-                    outbound.remove("network")
+                if (values.isNotEmpty() && values.all { it == "tcp" || it == "udp" }) {
+                    if (values.distinct().size == 1) outbound.put("network", values.first())
+                    else outbound.remove("network")
                     networkMigrated++
                 }
             }
 
-            outbound.optJSONObject("tls")?.let { tls ->
-                if (tls.has("fragment")) {
-                    tls.remove("fragment")
-                    fragmentRemoved++
-                }
-            }
+            // tls.fragment is a supported boolean in 1.14 option/tls.go. Keep it.
+
         }
         if (networkMigrated > 0) {
             notes += "migrated $networkMigrated outbound(s) from the array `network` field to the " +
                 "sing-box scalar form (both networks are the default)"
         }
-        if (fragmentRemoved > 0) {
-            notes += "removed $fragmentRemoved Xray-only TLS `fragment` field(s)"
-        }
+
     }
 
     /**

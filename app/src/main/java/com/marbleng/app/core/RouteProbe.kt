@@ -1398,21 +1398,9 @@ object RouteProbe {
         samples: Int,
         settings: AppSettings = AppSettings()
     ): ProbeResult {
-        val gate = realDelayGate(profile, settings)
-        if (gate != null) {
-            if (gate.latencyMs >= UNREACHABLE) {
-                return ProbeResult(
-                    METHOD_REAL_DELAY, UNREACHABLE, 0, 1,
-                    lossPercent = 100.0, failureReason = "tcp-gate-failed"
-                )
-            }
-            if (tunnelPort <= 0) {
-                return gate.copy(
-                    method = METHOD_REAL_DELAY,
-                    failureReason = "no-tunnel-tcp-gate"
-                )
-            }
-        }
+        // A naked TCP SYN proves neither the account nor the transport. It must not veto
+        // a healthy REALITY/fronted/QUIC route or masquerade as a tunnel delay.
+
 
         if (tunnelPort <= 0) {
             return ProbeResult(
@@ -1435,10 +1423,6 @@ object RouteProbe {
      * Exempt: UDP-first and custom protocols, where a TCP handshake to the endpoint is either
      * meaningless (Hysteria2, WireGuard) or not part of the protocol at all (HTTP/3-only).
      */
-    private fun realDelayGate(profile: ProxyProfile, settings: AppSettings): ProbeResult? {
-        if (!gateApplies(profile)) return null
-        return tcpPing(profile, DelayTest.TCP_GATE_TIMEOUT_MS, samples = 1, settings = settings)
-    }
 
     /**
      * MARBLE_PATTNG_PING_V151 — **TCP ping**, ported from
@@ -1639,7 +1623,6 @@ object RouteProbe {
         // core would fetch, instead of a rotating CDN pool. A measurement whose target changes
         // between two runs cannot be compared, and PattNG's real delay has always been one fixed
         // `generate_204` endpoint for exactly that reason.
-        val target = delayTarget(url)
         val rounds = PingBudget.samples(samples)
         val times = ArrayList<Double>(rounds)
         var injected = false
@@ -1648,12 +1631,9 @@ object RouteProbe {
         for (round in 0 until rounds) {
             if (round > 0 && !pauseBetweenSamples()) break
             val result = runCatching {
-                SocksHttpClient.tunnelRttBatch(
-                    port = socksPort,
-                    host = target.first,
-                    path = target.second,
-                    samples = 1,
-                    timeoutMs = timeoutMs.coerceIn(1_000, 12_000)
+                SocksHttpClient.tunnelRttBatchUrl(
+                    port = socksPort, url = url, samples = 1,
+                    timeoutMs = timeoutMs.coerceIn(500, 30_000)
                 )
             }.getOrNull()
             if (result != null && result.samplesMs.isNotEmpty()) {

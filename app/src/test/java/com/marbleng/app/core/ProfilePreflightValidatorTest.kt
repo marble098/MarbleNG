@@ -53,7 +53,7 @@ class ProfilePreflightValidatorTest {
                             "streamSettings",
                             JSONObject()
                                 .put("security", security)
-                                .apply { if (serverName != null) put("tlsSettings", JSONObject().put("serverName", serverName)) }
+                                .apply { if (serverName != null) put(if (security == "reality") "realitySettings" else "tlsSettings", JSONObject().put("serverName", serverName)) }
                         )
                 )
             )
@@ -110,7 +110,7 @@ class ProfilePreflightValidatorTest {
     }
 
     @Test
-    fun vlessTlsWithoutServerNameIsQuarantined() {
+    fun vlessTlsCanDefaultTheVerificationNameToTheServerAddress() {
         // This is the "Turkey 4-All" family: VLESS/TLS missing its required serverName -> Xray
         // rejects at config-load, so the profile must be quarantined before ranking.
         val config = JSONObject()
@@ -137,8 +137,8 @@ class ProfilePreflightValidatorTest {
             )
             .toString()
         val verdict = ProfilePreflightValidator.validate(profile(config))
-        assertFalse(verdict.valid)
-        assertEquals("vless-tls-missing-servername", verdict.reason)
+        assertTrue(verdict.valid)
+        assertEquals("structurally-valid", verdict.reason)
     }
 
     @Test
@@ -174,7 +174,7 @@ class ProfilePreflightValidatorTest {
     @Test
     fun invalidProfileIsExcludedFromTheRankPool() {
         val valid = profile(vlessConfig("reality", "example.com"), id = "healthy")
-        val broken = profile(vlessConfig("tls", null), id = "turkey-4-all")
+        val broken = profile(vlessConfig("reality", null), id = "turkey-4-all")
 
         val (validPool, invalid) = ProfilePreflightValidator.partition(listOf(valid, broken))
         assertEquals(listOf("healthy"), validPool.map { it.id })

@@ -1410,6 +1410,7 @@ ok "core-lock.json installed into Android assets"
 # to every process spawn - the one cost a connect-time budget cannot afford.
 # ==============================================================================
 
+python3 "$ROOT/scripts/prepare-singbox-rules.py"
 log "[5/5] Installing sing-box extended $SINGBOX_TAG"
 
 [[ "$SINGBOX_TAG" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || {
@@ -1525,6 +1526,12 @@ install_singbox_abi() {
     [[ -s "$archive" ]] || {
         die "Downloaded sing-box archive is empty for $abi"
     }
+
+    local asset="sing-box-${SINGBOX_TAG#v}-android-${arch}.tar.gz"
+    local expected_sha
+    expected_sha="$(jq -er --arg asset "$asset" '.singbox.sha256[$asset]' "$LOCK")" || die "Missing sing-box archive digest: $asset"
+    [[ "$expected_sha" =~ ^[0-9a-f]{64}$ ]] || die "Invalid sing-box archive digest"
+    printf '%s  %s\n' "$expected_sha" "$archive" | sha256sum --check --status || die "sing-box archive checksum mismatch: $abi"
 
     tar -xzf \
         "$archive" \

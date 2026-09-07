@@ -1,0 +1,27 @@
+{
+  "repo": "MetaCubeX/meta-rules-dat",
+  "commit": "2ff436c65b7dd8934ef68a87f03aa2448bfbf4f1",
+  "rules": [
+    {
+      "tag": "geoip-ir",
+      "file": "geoip-ir.srs",
+      "path": "geo/geoip/ir.srs",
+      "sha256": "4bbe52ec3963de14405819faec8801c2b25f04a9f96d4f5aafce6753095576bf",
+      "size": 13983
+    },
+    {
+      "tag": "geosite-ir",
+      "file": "geosite-ir.srs",
+      "path": "geo/geosite/category-ir.srs",
+      "sha256": "5024499471215c3579c8b1b12f406d0b24c02f3c9488e4a5acfa6c6fe09d6e25",
+      "size": 1496
+    },
+    {
+      "tag": "geosite-ads",
+      "file": "geosite-ads.srs",
+      "path": "geo/geosite/category-ads-all.srs",
+      "sha256": "8757ac0121b6f4af473a00e9d764650602d21b8a04ba95b1f11f7a9b46db5098",
+      "size": 7503
+    }
+  ]
+}

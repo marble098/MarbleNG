@@ -58,6 +58,13 @@ class PattRankEngine(
     ): List<BenchmarkResult> {
         val scoped = profiles.distinctBy { it.id }
         if (scoped.isEmpty()) return emptyList()
+        if (settings.coreEngine() == CoreEngine.SINGBOX) {
+            return BenchmarkEngine(xray, intelligence).run(scoped, settings.copy(
+                probeMethod = ProbeMethod.REAL_DELAY, verifiedPerformanceTuning = false,
+                probeSpeedTest = false, udpProbeEnabled = false
+            ), usePrecheck = false, onCandidates = onCandidates, onStart = onStart,
+                onResult = onResult, onProgress = onProgress)
+        }
         onCandidates(scoped)
 
         val profileById = scoped.associateBy { it.id }
@@ -98,7 +105,7 @@ class PattRankEngine(
                 // MARBLE_RANK_SPEED_V78 — aggressive concurrency for fast throughput without
                 // Android ANR risk; more workers = fewer sequential waves = faster overall rank.
                 val workers = settings.tcpWorkers
-                    .coerceIn(16, 128)
+                    .coerceIn(1, 4)
                     .coerceAtMost(jobs.length())
 
                 // Tight per-node timeout so a single unresponsive node can't slow a whole wave.
