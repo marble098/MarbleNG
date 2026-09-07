@@ -7,7 +7,6 @@ import com.marbleng.app.model.RoutingOutbound
 import com.marbleng.app.model.RoutingRuleKind
 import org.json.JSONArray
 import org.json.JSONObject
-import java.net.URLDecoder
 
 /**
  * MARBLE_SINGBOX_CORE_V151 — the sing-box extended configuration writer.
@@ -27,21 +26,6 @@ import java.net.URLDecoder
  * Everything around the proxy hop is written by MarbleNG for both strategies: the local `mixed`
  * inbound that hev-socks5-tunnel dials, the DNS graph, the routing rules, and the Clash API that
  * the native URL test drives.
- *
- * ## MARBLE_SINGBOX_AUTOPARSER_V154 — one refusal can never kill a node
- *
- * A single reader has a single blind spot, and a blind spot is a dead node. [candidateBuilds]
- * therefore returns *every* sing-box config the profile can be expressed as — the core's own
- * `parser` outbound and Marble's own translation of the stored Xray JSON — in preference order
- * (the order flips with `settings.singBoxPreferParser`). [SingBoxManager] walks the candidates
- * through `sing-box check` and the first config the core itself accepts wins; a read that cannot
- * serve the profile is simply not in the list, and its refusal is reported instead of a dead
- * node. The translator itself was widened to the shapes the core's parser does not see: direct
- * vless/vmess forms, field-by-field user resolution, vmess `packetEncoding`, SIP002 `uot`,
- * WireGuard, explicit Hysteria versions with digit-extracted rates and all three obfs sources,
- * TUIC/AnyTLS translated straight from the raw share link, WS `host`, gRPC `multiMode`, honest
- * notes for raw TCP header disguise, TLS version floors/ceilings, ECH, REALITY keys under
- * Marble's `password` spelling, cipher-pin notes, and mux gated to TCP-family protocols.
  */
 object SingBoxConfigBuilder {
 
@@ -78,16 +62,9 @@ object SingBoxConfigBuilder {
         "vless", "vmess", "trojan", "ss", "hysteria", "hy2", "hysteria2", "tuic", "anytls"
     )
 
-    /**
-     * Protocols the JSON translator knows. Anything else is reported, never guessed.
-     *
-     * MARBLE_SINGBOX_AUTOPARSER_V154 — WireGuard joined: the stored `secretKey` + `peers` shape
-     * maps onto sing-box's `private_key`/`server`/`peers` schema, and the endpoint string is
-     * split back into host and port.
-     */
+    /** Protocols the JSON translator knows. Anything else is reported, never guessed. */
     private val TRANSLATABLE_PROTOCOLS = setOf(
-        "vless", "vmess", "trojan", "shadowsocks", "socks", "http", "hysteria2", "hysteria",
-        "wireguard"
+        "vless", "vmess", "trojan", "shadowsocks", "socks", "http", "hysteria2", "hysteria"
     )
 
     data class Support(
@@ -109,18 +86,18 @@ object SingBoxConfigBuilder {
      * This is a *promise the user can read*: the Engine page shows the reason verbatim, and the
      * connect path refuses with the same text instead of letting the core print a schema error
      * nobody can act on. It never throws.
-     *
-     * MARBLE_SINGBOX_AUTOPARSER_V154 — the answer is derived from [candidateBuilds]'s candidate
-     * set: the first reader in preference order is the reported strategy, and a profile with no
-     * candidate at all is reported with the first refusal the walk collected.
      */
     fun describe(profile: ProxyProfile, settings: AppSettings): Support {
-        if (profile.scheme.equals("ssh", ignoreCase = true)) {
-            return Support(false, "", "SSH chains are bridged by the Xray engine.", emptyList())
-        }
+        val notes = mutableListOf<String>()
 
-        val (translation, translationNotes, refusal) = translateProfile(profile, settings)
-        val link = shareLink(profile)
+        if (profile.scheme.equals("ssh", ignoreCase = true)) {
+            return Support(
+                supported = false,
+                strategy = "",
+                reason = "SSH chains are bridged by the Xray engine.",
+                notes = notes
+            )
+        }
 
         // MARBLE_SINGBOX_CORE_V151 — the link parser is preferred, but it is a preference, not a
         // law. With the preference on, a profile that carries a share link is handed to the core's
@@ -128,66 +105,36 @@ object SingBoxConfigBuilder {
         // it off, Marble translates the stored config itself — and the parser still catches every
         // profile that cannot be translated, because refusing a node Marble could have run is
         // worse than running it the other way round.
+        val link = shareLink(profile)
         if (settings.singBoxPreferParser && link != null) {
-            return Support(true, STRATEGY_LINK, "", emptyList())
+            return Support(true, STRATEGY_LINK, "", notes)
         }
-        if (translation != null) {
-            return Support(true, STRATEGY_TRANSLATED, "", translationNotes)
-        }
-        return link?.let {
-            Support(
-                true,
-                STRATEGY_LINK,
-                "",
-                translationNotes + "$refusal The core's link parser runs this node."
-            )
-        } ?: Support(false, "", refusal ?: "The stored config is not in a sing-box-readable shape.", translationNotes)
-    }
-
-    /**
-     * MARBLE_SINGBOX_AUTOPARSER_V154 — Marble's own translation of the stored Xray config.
-     *
-     * Returns `null` when the translator cannot serve the profile at all, and `(hops, notes,
-     * null)` on success or `(null, null, refusal)` on refusal. One pass does both jobs the old
-     * `describe` split: it decides whether the TRANSLATED candidate exists *and* produces the
-     * hop outbounds plus the honest notes the candidate carries.
-     */
-    private fun translateProfile(
-        profile: ProxyProfile,
-        settings: AppSettings
-    ): Triple<List<JSONObject>?, List<String>, String?> {
-        // Link-only sing-box-extended protocols (TUIC / AnyTLS) have no Xray JSON shape at all:
-        // Marble translates the raw share link itself, so the candidate exists exactly when the
-        // link is readable.
-        if (profile.scheme.lowercase() in setOf("tuic", "anytls")) {
-            return linkOutbound(profile, settings)?.let {
-                Triple(listOf(it), emptyList(), null)
-            } ?: Triple(null, emptyList(),
-                "This ${profile.scheme} node carries no readable link and no config to translate.")
+        fun viaParser(why: String): Support? = link?.let {
+            Support(true, STRATEGY_LINK, "", notes + "$why The core's link parser runs this node.")
         }
 
         val root = runCatching { JSONObject(profile.configJson) }.getOrNull()
-            ?: return Triple(null, emptyList(), "The stored config is not readable JSON.")
+            ?: return viaParser("The stored config is not readable JSON.")
+                ?: Support(false, "", "The stored config is not readable JSON.", notes)
 
         val outbounds = root.optJSONArray("outbounds")
-            ?: return Triple(null, emptyList(), "The stored config has no outbounds.")
+            ?: return viaParser("The stored config has no outbounds.")
+                ?: Support(false, "", "The stored config has no outbounds.", notes)
 
         val entry = firstProxyOutbound(outbounds)
-            ?: return Triple(null, emptyList(), "The stored config has no proxy outbound.")
+            ?: return viaParser("The stored config has no proxy outbound.")
+                ?: Support(false, "", "The stored config has no proxy outbound.", notes)
 
         val protocol = entry.optString("protocol").lowercase()
         if (protocol !in TRANSLATABLE_PROTOCOLS) {
-            return Triple(null, emptyList(),
-                "sing-box extended has no $protocol client in this profile's shape. " +
-                    "Use the Xray engine for this node.")
-        }
-
-        // The translator can still fail on a shape it does not understand (no vnext server, no
-        // wireguard peer, …). That is a refusal, not a crash: the parser candidate survives.
-        val notes = mutableListOf<String>()
-        val hops = runCatching { translate(root, settings, notes) }.getOrElse {
-            return Triple(null, notes,
-                "The stored $protocol config is not in a shape Marble can translate.")
+            return viaParser("sing-box extended has no $protocol client in this profile's shape.")
+                ?: Support(
+                    supported = false,
+                    strategy = "",
+                    reason = "sing-box extended has no $protocol client in this profile's shape. " +
+                        "Use the Xray engine for this node.",
+                    notes = notes
+                )
         }
 
         // Xray-only knobs. Reporting them is honest; pretending they were applied is not.
@@ -199,7 +146,8 @@ object SingBoxConfigBuilder {
             notes += "This node pins a peer certificate. sing-box verifies against the system " +
                 "trust store instead; use the Xray engine if pinning is required."
         }
-        return Triple(hops, notes, null)
+
+        return Support(true, STRATEGY_TRANSLATED, "", notes)
     }
 
     // ─────────────────────────────────────────────────────────────────────────────
@@ -225,100 +173,25 @@ object SingBoxConfigBuilder {
          */
         resolverPool: List<String> = emptyList()
     ): Build {
-        val candidates = candidateBuilds(
-            profile, settings, socksPort, apiPort, apiSecret, logPath, cachePath, resolverPool
-        )
         val support = describe(profile, settings)
-        require(candidates.isNotEmpty()) {
-            support.reason.ifBlank { "sing-box cannot run this profile" }
-        }
-        return candidates.first()
-    }
+        require(support.supported) { support.reason.ifBlank { "sing-box cannot run this profile" } }
 
-    /**
-     * MARBLE_SINGBOX_AUTOPARSER_V154 — **every** sing-box config this profile can be expressed
-     * as, in preference order.
-     *
-     * The order follows `settings.singBoxPreferParser`:
-     *  - **true** (default) — [STRATEGY_LINK] first, then [STRATEGY_TRANSLATED]: the core's own
-     *    reader gets the first chance because it understands link syntax Marble does not have to
-     *    be updated for;
-     *  - **false** — [STRATEGY_TRANSLATED] first, then [STRATEGY_LINK]: Marble's own translation
-     *    gets the first chance, and the parser still catches whatever translation cannot.
-     *
-     * A read that cannot serve the profile is simply not in the list: a raw blob that is not a
-     * share link produces no LINK candidate, and a stored config the translator cannot read
-     * produces no TRANSLATED candidate. [SingBoxManager] walks the list, hands each config to
-     * [SingBoxConfigDoctor] and `sing-box check`, and the **first candidate the core itself
-     * accepts** carries the session or the measurement — one refusal can never kill a node.
-     */
-    fun candidateBuilds(
-        profile: ProxyProfile,
-        settings: AppSettings,
-        socksPort: Int,
-        apiPort: Int,
-        apiSecret: String,
-        logPath: String,
-        cachePath: String,
-        resolverPool: List<String> = emptyList()
-    ): List<Build> {
-        if (profile.scheme.equals("ssh", ignoreCase = true)) return emptyList()
+        val notes = support.notes.toMutableList()
+        val outbounds = JSONArray()
 
-        val link = shareLink(profile)
-        val (hops, notes, refusal) = translateProfile(profile, settings)
-
-        val linkBuild = link?.let { raw ->
-            runCatching {
-                val hop = JSONObject()
+        when (support.strategy) {
+            STRATEGY_LINK -> outbounds.put(
+                JSONObject()
                     .put("type", "parser")
                     .put("tag", PROXY_TAG)
-                    .put("link", raw)
+                    .put("link", shareLink(profile) ?: "")
                     .apply { applyDialTuning(this, settings) }
-                fullConfig(
-                    profile, settings, socksPort, apiPort, apiSecret, logPath, cachePath,
-                    resolverPool, listOf(hop), STRATEGY_LINK, emptyList()
-                )
-            }.getOrNull()
+            )
+            else -> {
+                val translated = translate(JSONObject(profile.configJson), settings, notes)
+                translated.forEach { outbounds.put(it) }
+            }
         }
-
-        val translatedBuild = if (refusal == null && hops != null) {
-            runCatching {
-                fullConfig(
-                    profile, settings, socksPort, apiPort, apiSecret, logPath, cachePath,
-                    resolverPool, hops, STRATEGY_TRANSLATED, notes
-                )
-            }.getOrNull()
-        } else {
-            null
-        }
-
-        return when {
-            settings.singBoxPreferParser -> listOfNotNull(linkBuild, translatedBuild)
-            else -> listOfNotNull(translatedBuild, linkBuild)
-        }
-    }
-
-    /**
-     * The full sing-box config around one (or a chain of) proxy outbound(s). Every candidate —
-     * parser or translated — shares this exact envelope, so the URL test, the routing rules and
-     * the DNS graph behave identically no matter which reader carried the profile.
-     */
-    private fun fullConfig(
-        profile: ProxyProfile,
-        settings: AppSettings,
-        socksPort: Int,
-        apiPort: Int,
-        apiSecret: String,
-        logPath: String,
-        cachePath: String,
-        resolverPool: List<String>,
-        proxyOutbounds: List<JSONObject>,
-        strategy: String,
-        notes: List<String>
-    ): Build {
-        val allNotes = notes.toMutableList()
-        val outbounds = JSONArray()
-        proxyOutbounds.forEach { outbounds.put(it) }
 
         // MARBLE_SINGBOX_DNS_ACTION_V152 — no `dns` outbound is written any more. sing-box
         // deprecated it in 1.11.0 and REMOVED it in 1.13.0 ("dns outbound is deprecated in
@@ -354,7 +227,7 @@ object SingBoxConfigBuilder {
                 )
             )
             .put("outbounds", outbounds)
-            .put("route", routeConfig(settings, allNotes))
+            .put("route", routeConfig(settings, notes))
             .put(
                 "experimental",
                 JSONObject()
@@ -385,7 +258,7 @@ object SingBoxConfigBuilder {
                     }
             )
 
-        return Build(root.toString(), strategy, allNotes)
+        return Build(root.toString(), support.strategy, notes)
     }
 
     /**
