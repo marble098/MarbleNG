@@ -434,7 +434,6 @@ object SingBoxConfigBuilder {
                     server?.optString("address"),
                     xraySettings.optString("address")
                 ).firstOrNull { !it.isNullOrBlank() }
-                    ?.takeIf { it.isNotBlank() }
                     ?: error("$protocol outbound has no address")
                 val port = sequenceOf(
                     server?.optInt("port", 0),

@@ -348,7 +348,12 @@ class SingBoxCoreV151Test {
     fun shareLinkIgnoresAnythingThatIsNotALink() {
         assertNull(SingBoxConfigBuilder.shareLink(jsonProfile("vless")))
         assertNull(SingBoxConfigBuilder.shareLink(linkProfile("ftp://example.com")))
-        assertNull(SingBoxConfigBuilder.shareLink(linkProfile("vless://two words")))
+        // MARBLE_SINGBOX_PROTOCOLS_V153 — a single line with spaces in its display-name fragment
+        // is a real link, not a blob; the core parser can read it.
+        assertEquals(
+            "vless://two words",
+            SingBoxConfigBuilder.shareLink(linkProfile("vless://two words"))
+        )
         assertEquals(VLESS_LINK, SingBoxConfigBuilder.shareLink(linkProfile(VLESS_LINK)))
     }
 
