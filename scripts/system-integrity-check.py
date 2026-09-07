@@ -938,7 +938,7 @@ check(
     "the URL-test throwaway path runs the same config check as a real start",
     "var rejection = checkConfig(config)" in files["singBox"]
     and "if (!waitForApi(controllerPort, secret, 3_000L, child))" in files["singBox"]
-    and "dnsCandidatePool(settings)" in files["singBox"]
+    and "singBoxResolverPool(settings)" in files["singBox"]
     and "intelligence.effectiveSettings(profile, probeSettings)" in files["repo"],
 )
 

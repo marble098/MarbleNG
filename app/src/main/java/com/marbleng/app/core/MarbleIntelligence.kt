@@ -1396,6 +1396,26 @@ class MarbleIntelligence(private val context: Context) {
             .filter { it.startsWith("https://") }
             .distinctBy { ResolverEvidencePolicy.normalize(it) }
 
+    /**
+     * MARBLE_SINGBOX_PROTOCOLS_V153 — the ordered encrypted resolver list the sing-box config
+     * writer should emit. This is the second engine's half of the resolver loop: [dnsCandidatePool]
+     * is the full population, [preferredDnsOrder] keeps only the two live winners, and this method
+     * keeps the evidence order for enough independent endpoints for the core's own DNS graph
+     * without releasing the whole stock list into every config. Demoted endpoints stay last (they
+     * are never deleted), and the layout rotates with the network seed like the Xray hardener.
+     */
+    fun singBoxResolverPool(settings: AppSettings, limit: Int = 6): List<String> =
+        if (!settings.adaptiveDnsEnabled) {
+            dnsCandidatePool(settings).take(limit.coerceIn(2, 6))
+        } else {
+            ResolverEvidencePolicy.order(
+                dnsCandidatePool(settings),
+                resolverEvidence(),
+                System.currentTimeMillis(),
+                seed = currentSnapshot().key()
+            ).take(limit.coerceIn(2, 6))
+        }
+
     /** Endpoints of [settings]' resolver pool that are currently demoted on this network. */
     fun resolverDemotedEndpoints(settings: AppSettings): List<String> {
         if (!settings.adaptiveDnsEnabled) return emptyList()

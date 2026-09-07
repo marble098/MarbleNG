@@ -111,7 +111,7 @@ class SingBoxManager(private val context: Context) {
             val controllerPort = freePort() ?: return fail("No free port for the sing-box controller")
             val secret = UUID.randomUUID().toString()
 
-            val resolverPool = intelligence?.dnsCandidatePool(settings) ?: emptyList()
+            val resolverPool = intelligence?.singBoxResolverPool(settings) ?: emptyList()
             val built = runCatching {
                 SingBoxConfigBuilder.build(
                     profile = profile,
@@ -296,7 +296,7 @@ class SingBoxManager(private val context: Context) {
         val log = File(context.cacheDir, "singbox-urltest.log")
         runCatching { log.delete() }
 
-        val resolverPool = intelligence?.dnsCandidatePool(settings) ?: emptyList()
+        val resolverPool = intelligence?.singBoxResolverPool(settings) ?: emptyList()
         val built = runCatching {
             SingBoxConfigBuilder.build(
                 profile = profile,
