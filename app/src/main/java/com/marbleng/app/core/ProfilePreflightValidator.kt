@@ -203,6 +203,9 @@ object ProfilePreflightValidator {
         outbound.optString("address").takeIf { it.isNotBlank() }?.let { return it }
 
         val settingsObject = settings ?: return null
+        listOf("address", "server", "host").firstNotNullOfOrNull { key ->
+            settingsObject.optString(key).takeIf { it.isNotBlank() }
+        }?.let { return it }
         return when (protocol) {
             "vless", "vmess", "trojan", "socks", "http", "shadowsocks", "ss" -> {
                 val vnext = settingsObject.optJSONArray("vnext")
@@ -236,6 +239,8 @@ object ProfilePreflightValidator {
         }
 
         val settingsObject = settings ?: return null
+        settingsObject.optInt("port").takeIf { it in 1..65535 }?.let { return it }
+        settingsObject.optInt("server_port").takeIf { it in 1..65535 }?.let { return it }
         return when (protocol) {
             "vless", "vmess", "trojan", "socks", "http", "shadowsocks", "ss" -> {
                 val vnext = settingsObject.optJSONArray("vnext")

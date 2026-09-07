@@ -152,10 +152,7 @@ object XrayConfigAdapter {
                 options = SingBoxTransportTranslator.map(clean, mapOf("service_name" to "serviceName",
                     "permit_without_stream" to "permit_without_stream"), "transport")
             }
-            "http" -> {
-                key = "httpSettings"
-                options = SingBoxTransportTranslator.map(clean, mapOf("host" to "host", "path" to "path", "headers" to "headers"), "transport")
-            }
+            "http", "quic" -> fail("transport.type", "the pinned Xray removed this legacy transport; select sing-box rather than changing the server's wire protocol")
             "httpupgrade" -> {
                 key = "httpupgradeSettings"
                 options = SingBoxTransportTranslator.map(clean, mapOf("host" to "host", "path" to "path", "headers" to "headers"), "transport")

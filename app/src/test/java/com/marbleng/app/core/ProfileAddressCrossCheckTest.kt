@@ -59,7 +59,7 @@ class ProfileAddressCrossCheckTest {
                             "streamSettings",
                             JSONObject()
                                 .put("security", "reality")
-                                .put("tlsSettings", JSONObject().put("serverName", "example.com"))
+                                .put("realitySettings", JSONObject().put("serverName", "example.com"))
                         )
                 )
             )

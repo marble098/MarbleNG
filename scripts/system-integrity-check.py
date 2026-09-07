@@ -741,12 +741,13 @@ check(
     ),
 )
 check(
-    "the URL test is served by the sing-box core, not a re-implementation",
+    "URL Test uses native sing-box delay or the selected Xray SOCKS tunnel",
     "urlTestHook" in files["probe"]
     and "urlTestHook =" in files["repo"]
     and "urlTestLive(" in files["singBox"]
     and "urlTestProfile(" in files["singBox"]
-    and "METHOD_URL_TEST" in files["probe"],
+    and "METHOD_URL_TEST" in files["probe"]
+    and "SocksUrlTest.measure(" in files["repo"],
 )
 # A legacy stored method must never crash the settings screen or measure something the product no
 # longer offers: every retired name maps onto the honest replacement.

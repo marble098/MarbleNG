@@ -59,11 +59,6 @@ object SingBoxConfigBuilder {
         "vless", "vmess", "trojan", "ss", "hysteria", "hy2", "hysteria2", "tuic", "anytls"
     )
 
-    /** Protocols the JSON translator knows. Anything else is reported, never guessed. */
-    private val TRANSLATABLE_PROTOCOLS = setOf(
-        "vless", "vmess", "trojan", "shadowsocks", "socks", "http", "hysteria2", "hysteria"
-    )
-
     data class Support(
         val supported: Boolean,
         val strategy: String,
@@ -195,11 +190,8 @@ object SingBoxConfigBuilder {
             )
             .put("outbounds", outbounds)
             .put(
-                // MARBLE_SINGBOX_ANDROID_RUNTIME_V155 — one named HTTP client, used by every
-                // remote rule set and by `route.default_http_client`. `download_detour` (the old
-                // spelling) is deprecated in 1.14, and an unnamed default client is deprecated
-                // too; a single explicit client answers both, and keeps the promise that matters:
-                // rule sets are fetched `direct`, never through a tunnel that does not exist yet.
+                // The 1.14 default HTTP client is explicit. Managed rule sets themselves are
+                // offline assets; this client never performs a startup rule download.
                 "http_clients",
                 JSONArray().put(
                     JSONObject()

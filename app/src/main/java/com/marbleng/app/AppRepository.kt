@@ -541,36 +541,27 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         ensureGeoAssetsInBackground()
     }
 
-    /**
-     * MARBLE_PATTNG_PING_V151 — publishes the sing-box extended URL test to [RouteProbe].
-     *
-     * The prober is a context-free object and the core process belongs to this repository, so the
-     * bridge is one closure installed once. It prefers the tunnel the user already has: when the
-     * live engine is sing-box extended and it is running, the core measures through the real
-     * session; otherwise a throwaway instance measures the node on its own.
-     */
+    /** Publish the selected-core URL test. Sing-box uses native Clash delay; Xray uses an
+     * equivalent verified HTTPS HEAD through its live or temporary SOCKS outbound. */
     private fun installUrlTestHook() {
         RouteProbe.urlTestHook = { profile, probeSettings, timeoutMs ->
-            // sing-box extended's delay endpoint throws away a plain-http URL before it ever dials,
-            // which would surface as a failed test on a node that is perfectly reachable. Marble's
-            // own real-delay measurement accepts http; this one does not, so it is forced to the
-            // https default rather than handed a URL the core would silently ignore.
-            // A single public origin is not a valid health oracle: filtering gstatic/google on
-            // one carrier used to paint every otherwise healthy node FAILED. Keep the user's URL
-            // first, then use deterministic independent origins. This is still the same core,
-            // proxy and timeout for every attempt; only the destination is hedged.
             val targets = DelayTest.candidates(probeSettings.delayTestUrl)
-            // MARBLE_SINGBOX_PROTOCOLS_V153 — the URL test now measures from the same effective
-            // settings as a real connection: evidence-guided resolver order, family plan and
-            // protocol-fitness verdict. The old path passed the raw probe settings, so the
-            // throwaway core could use a demoted resolver pair that the live session had already
-            // replaced.
-            val singBoxSettings = intelligence.effectiveSettings(profile, probeSettings)
-            val result = if (activeCoreEngine == CoreEngine.SINGBOX && singBox.isAlive &&
-                activeProfileId == profile.id && state == "CONNECTED") {
-                singBox.urlTestLiveTargets(targets, timeoutMs)
+            val effective = intelligence.effectiveSettings(profile, probeSettings)
+            val sameLiveProfile = activeProfileId == profile.id && state == "CONNECTED"
+            val result = if (effective.coreEngine() == CoreEngine.SINGBOX) {
+                if (activeCoreEngine == CoreEngine.SINGBOX && singBox.isAlive && sameLiveProfile) {
+                    singBox.urlTestLiveTargets(targets, timeoutMs)
+                } else {
+                    singBox.urlTestProfileTargets(profile, effective, targets, timeoutMs)
+                }
             } else {
-                singBox.urlTestProfileTargets(profile, singBoxSettings, targets, timeoutMs)
+                val live = liveSocksPortOrZero().takeIf { sameLiveProfile && activeCoreEngine == CoreEngine.XRAY } ?: 0
+                if (live > 0) SocksUrlTest.measure(live, targets, timeoutMs).copy(live = true)
+                else {
+                    var measured = CoreUrlTestResult(0, false, "xray-start: temporary URL test failed")
+                    xray.temporary(profile, 0, effective) { port -> measured = SocksUrlTest.measure(port, targets, timeoutMs) }
+                    measured
+                }
             }
             if (result.ok) {
                 RouteProbe.ProbeResult(
@@ -1481,17 +1472,13 @@ private fun postToMain(block: () -> Unit) {
      *
      * The engine is the user's choice, and switching it is a real act rather than a flag flip:
      * the other core's process cannot keep the tun, so a live tunnel is closed first and the user
-     * reconnects into the engine they just picked. URL test is a conversation with a running
-     * sing-box core, so leaving that engine leaves that probe method behind too — rather than
-     * storing a selection no measurement could ever satisfy.
+     * reconnects into the engine they just picked. The chosen measurement method is retained;
+     * both Real Delay and URL Test have selected-core implementations.
      */
     fun setCoreEngine(engine: CoreEngine) {
         val previous = parseCoreEngine(settings.coreEngineId)
         if (previous == engine) return
-        var next = settings.copy(coreEngineId = engine.id)
-        if (engine != CoreEngine.SINGBOX && next.probeMethod == ProbeMethod.URL_TEST) {
-            next = next.copy(probeMethod = ProbeMethod.REAL_DELAY)
-        }
+        val next = settings.copy(coreEngineId = engine.id)
         if (state == "CONNECTED" || state == "CONNECTING" || state == "BLOCKED") stopVpn()
         updateSettings(next)
         diagnostics.event("CORE", "engine-switch", "from" to previous.id, "to" to engine.id)

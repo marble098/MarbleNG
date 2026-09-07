@@ -210,4 +210,24 @@ class CoreInteropRegressionTest {
         assertEquals(ResolverFailureKind.DEADLINE, ResolverFailureClassifier.classify("dns: TLS handshake timeout"))
         assertEquals(ResolverFailureKind.OTHER, ResolverFailureClassifier.classify("dns: read: connection reset by peer"))
     }
+    @Test fun urlTestXrayStopsAtTheFirstCompleteResponseAndPreservesTarget() {
+        val visited = mutableListOf<String>()
+        val result = SocksUrlTest.measureTargets(listOf("https://example.com:8443/check?token=kept", "https://unused.invalid"), 2000) { url, _ ->
+            visited += url.toString()
+            HttpProbe(204, byteArrayOf(), 1.5, 0.0)
+        }
+        assertTrue(result.ok)
+        assertEquals(2L, result.delayMs)
+        assertEquals(listOf("https://example.com:8443/check?token=kept"), visited)
+    }
+
+    @Test fun localFaultsAndAbsentTunnelDoNotPretendToMeasureServerHealth() {
+        assertTrue(CoreFailurePolicy.isLocal("core-config: invalid DNS field"))
+        assertTrue(CoreFailurePolicy.isLocal("config-unsupported: tls pin"))
+        assertFalse(CoreFailurePolicy.isLocal("urltest-http-503: protocol handshake failed"))
+        val measured = RouteProbe.realDelay(profile(vless()), 0, 1000, 2, plain)
+        assertEquals(0, measured.successPercent)
+        assertEquals("no-live-tunnel", measured.failureReason)
+    }
+
 }

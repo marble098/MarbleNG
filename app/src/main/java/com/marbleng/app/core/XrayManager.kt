@@ -1117,9 +1117,11 @@ class XrayManager(private val context: Context) {
                     sshBridge?.stop()
                     runCatching { config.delete() }
                 }
-            }.getOrElse {
+            }.getOrElse { error ->
                 sshBridge?.stop()
                 runCatching { config.delete() }
+                if (error is InterruptedException) { Thread.currentThread().interrupt(); throw error }
+                if (error is ConfigTranslationException) throw error
                 false
             }
         } finally {

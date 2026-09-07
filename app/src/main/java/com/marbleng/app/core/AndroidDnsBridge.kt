@@ -62,9 +62,6 @@ class AndroidDnsBridge(context: Context) {
         val socket = DatagramSocket(InetSocketAddress("127.0.0.1", 0))
         private val closed = AtomicBoolean()
         private val callbacks = Executor { command -> command.run() }
-        private val workers = ThreadPoolExecutor(2, 2, 0L, TimeUnit.MILLISECONDS, ArrayBlockingQueue(16),
-            { runnable -> Thread(runnable, "marble-dns-query").apply { isDaemon = true } },
-            ThreadPoolExecutor.AbortPolicy())
         private val receiver = Thread({ receive() }, "marble-dns-bridge").apply { isDaemon = true; start() }
 
         private fun receive() {
@@ -74,10 +71,13 @@ class AndroidDnsBridge(context: Context) {
                     socket.receive(packet)
                     if (!packet.address.isLoopbackAddress) continue
                     val query = packet.data.copyOf(packet.length)
+                    val receivedAt = System.nanoTime()
                     val peer = packet.socketAddress
                     try {
                         workers.execute {
-                            val answer = runCatching { resolve(query) }.getOrNull() ?: DnsBootstrapCodec.error(query, 2)
+                            val expired = closed.get() || System.nanoTime() - receivedAt > TimeUnit.SECONDS.toNanos(3)
+                            val answer = if (expired) DnsBootstrapCodec.error(query, 2)
+                                else runCatching { resolve(query) }.getOrNull() ?: DnsBootstrapCodec.error(query, 2)
                             if (answer != null && !closed.get()) runCatching { socket.send(DatagramPacket(answer, answer.size, peer)) }
                         }
                     } catch (_: java.util.concurrent.RejectedExecutionException) {
@@ -122,8 +122,14 @@ class AndroidDnsBridge(context: Context) {
         override fun close() {
             if (!closed.compareAndSet(false, true)) return
             socket.close() // unblocks receive immediately
-            workers.shutdownNow()
             receiver.interrupt()
         }
+    }
+    companion object {
+        // Global rather than per lease: an API 26 netd stall must not create another pair of
+        // blocked worker threads each time a timed-out measurement opens a new bridge socket.
+        private val workers = ThreadPoolExecutor(2, 2, 0L, TimeUnit.MILLISECONDS, ArrayBlockingQueue(16),
+            { runnable -> Thread(runnable, "marble-dns-query").apply { isDaemon = true } },
+            ThreadPoolExecutor.AbortPolicy())
     }
 }

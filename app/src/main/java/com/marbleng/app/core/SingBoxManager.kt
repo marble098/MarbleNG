@@ -11,9 +11,6 @@ import java.util.UUID
 import java.util.concurrent.Semaphore
 import java.util.concurrent.TimeUnit
 
-/** Delay measured by the selected native outbound, never a substituted TCP-connect number. */
-data class SingBoxUrlTestResult(val delayMs: Long, val ok: Boolean, val detail: String = "", val live: Boolean = false)
-
 /** Both connect and measurements use the same translator, Android DNS bridge, config check and
  * process runner. Temporary tests are isolated and limited to two children even when the user
  * requests hundreds of TCP workers. A measurement cannot overwrite or stop the live session. */
@@ -130,31 +127,31 @@ class SingBoxManager(private val context: Context) {
         }
     }
 
-    fun urlTestLive(tag: String, url: String, timeoutMs: Int): SingBoxUrlTestResult {
+    fun urlTestLive(tag: String, url: String, timeoutMs: Int): CoreUrlTestResult {
         require(tag == SingBoxConfigBuilder.PROXY_TAG) { "Only the selected outbound may be measured" }
-        val active = session ?: return SingBoxUrlTestResult(0, false, "core-unavailable: sing-box is not running")
+        val active = session ?: return CoreUrlTestResult(0, false, "core-unavailable: sing-box is not running")
         return active.delay(url, timeoutMs).copy(live = true)
     }
 
-    fun urlTestProfile(profile: ProxyProfile, settings: AppSettings, url: String, timeoutMs: Int): SingBoxUrlTestResult =
+    fun urlTestProfile(profile: ProxyProfile, settings: AppSettings, url: String, timeoutMs: Int): CoreUrlTestResult =
         urlTestProfileTargets(profile, settings, listOf(url), timeoutMs)
 
     /** One process per profile, short-circuit on success. The old eager targets.map() started and
      * destroyed a core for EVERY reference URL even after the first one had succeeded. */
-    fun urlTestProfileTargets(profile: ProxyProfile, settings: AppSettings, urls: List<String>, timeoutMs: Int): SingBoxUrlTestResult = try {
+    fun urlTestProfileTargets(profile: ProxyProfile, settings: AppSettings, urls: List<String>, timeoutMs: Int): CoreUrlTestResult = try {
         withTemporary(profile, settings) { child, _ -> testTargets(urls, timeoutMs) { url, budget -> child.delay(url, budget) } }
     } catch (error: Exception) {
         if (error is InterruptedException) { Thread.currentThread().interrupt(); throw error }
-        SingBoxUrlTestResult(0, false, explain(error.message ?: error.javaClass.simpleName))
+        CoreUrlTestResult(0, false, explain(error.message ?: error.javaClass.simpleName))
     }
 
-    fun urlTestLiveTargets(urls: List<String>, timeoutMs: Int): SingBoxUrlTestResult =
+    fun urlTestLiveTargets(urls: List<String>, timeoutMs: Int): CoreUrlTestResult =
         testTargets(urls, timeoutMs) { url, budget -> urlTestLive(SingBoxConfigBuilder.PROXY_TAG, url, budget) }
 
     private fun testTargets(urls: List<String>, timeoutMs: Int,
-                            measure: (String, Int) -> SingBoxUrlTestResult): SingBoxUrlTestResult {
+                            measure: (String, Int) -> CoreUrlTestResult): CoreUrlTestResult {
         val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMs.coerceIn(500, 30_000).toLong())
-        var last = SingBoxUrlTestResult(0, false, "urltest-no-target")
+        var last = CoreUrlTestResult(0, false, "urltest-no-target")
         for (url in urls.distinct().take(3)) {
             SingBoxProcessSession.checkInterrupted()
             val left = TimeUnit.NANOSECONDS.toMillis(deadline - System.nanoTime()).toInt()

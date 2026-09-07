@@ -654,13 +654,8 @@ data class AppSettings(
      */
     val singBoxCacheFile: Boolean = true,
 
-    /**
-     * sing-box extended: hand the original share link to the core's own `parser` outbound when
-     * there is one, instead of translating it into an explicit outbound. The parser is the
-     * upstream's own reader, so it follows future link syntax Marble does not know yet; turning
-     * this off forces the explicit translation, which is the answer when a link behaves
-     * differently through the parser.
-     */
+    /** Prefer the Extended link parser for link-only profiles. Stored canonical JSON always
+     * wins: the parser supports fewer XHTTP extras and must not discard edits or chain hops. */
     val singBoxPreferParser: Boolean = true,
 
     val benchMode: BenchMode = BenchMode.BALANCED,

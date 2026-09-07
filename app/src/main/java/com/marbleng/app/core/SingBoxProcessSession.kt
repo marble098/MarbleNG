@@ -23,12 +23,12 @@ class SingBoxProcessSession private constructor(
 ) : Closeable {
     val isAlive: Boolean get() = child.isAlive
 
-    fun delay(url: String, timeoutMs: Int): SingBoxUrlTestResult {
-        if (!isAlive) return SingBoxUrlTestResult(0, false, "core-exit: ${tail(logFile)}")
+    fun delay(url: String, timeoutMs: Int): CoreUrlTestResult {
+        if (!isAlive) return CoreUrlTestResult(0, false, "core-exit: ${tail(logFile)}")
         val target = runCatching { URL(url) }.getOrNull()
         // The pinned Clash API silently replaces http:// with its own gstatic URL.
         if (target?.protocol != "https" || target.host.isNullOrBlank()) {
-            return SingBoxUrlTestResult(0, false, "urltest-url: an HTTPS URL is required")
+            return CoreUrlTestResult(0, false, "urltest-url: an HTTPS URL is required")
         }
         checkInterrupted()
         val budget = timeoutMs.coerceIn(1, 30_000)
@@ -46,11 +46,11 @@ class SingBoxProcessSession private constructor(
                 ?.bufferedReader()?.use { it.readTextLimited(4096) }.orEmpty()
             val json = runCatching { JSONObject(body) }.getOrNull()
             val delay = json?.optLong("delay", -1) ?: -1
-            if (status in 200..299 && delay > 0) SingBoxUrlTestResult(delay, true)
-            else SingBoxUrlTestResult(0, false, "urltest-http-$status: ${json?.optString("message").orEmpty()}".take(300))
+            if (status in 200..299 && delay > 0) CoreUrlTestResult(delay, true)
+            else CoreUrlTestResult(0, false, "urltest-http-$status: ${json?.optString("message").orEmpty()}".take(300))
         } catch (error: Exception) {
             checkInterrupted()
-            SingBoxUrlTestResult(0, false, "urltest-transport: ${error.message ?: error.javaClass.simpleName}".take(300))
+            CoreUrlTestResult(0, false, "urltest-transport: ${error.message ?: error.javaClass.simpleName}".take(300))
         } finally { connection.disconnect() }
     }
 

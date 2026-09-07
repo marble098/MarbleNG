@@ -38,7 +38,7 @@ object DnsBootstrapCodec {
         val bytes = ByteArrayOutputStream()
         DataOutputStream(bytes).use { output ->
             output.write(query, 0, 2)
-            output.writeShort(0x8080 or (query[2].toInt() and 1 shl 8) or (rcode and 15))
+            output.writeShort(0x8080 or ((query[2].toInt() and 1) shl 8) or (rcode and 15))
             output.writeShort(1)
             output.writeShort(usable.size)
             output.writeShort(0)

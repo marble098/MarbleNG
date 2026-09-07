@@ -43,7 +43,7 @@ object SingBoxTransportTranslator {
     )
 
     fun transport(stream: JSONObject, settings: AppSettings, notes: MutableList<String>): JSONObject? {
-        val method = stream.optString("network").ifBlank { stream.optString("method") }.lowercase()
+        val method = stream.optString("method").ifBlank { stream.optString("network") }.lowercase()
         fun options(key: String) = stream.optJSONObject(key) ?: JSONObject()
         return when (method) {
             "", "tcp", "raw" -> {
@@ -123,7 +123,7 @@ object SingBoxTransportTranslator {
         if (!result.has("x_padding_bytes")) result.put("x_padding_bytes", "100-1000")
         merged.optJSONObject("xmux")?.let { result.put("xmux", map(it, xmuxFields, "xhttpSettings.xmux")) }
         merged.optJSONObject("downloadSettings")?.let { download ->
-            val network = download.optString("network").ifBlank { download.optString("method") }
+            val network = download.optString("method").ifBlank { download.optString("network") }
             if (network.isNotBlank() && network !in setOf("xhttp", "splithttp")) {
                 unsupported("xhttpSettings.downloadSettings.network", "download must use XHTTP")
             }
@@ -149,7 +149,7 @@ object SingBoxTransportTranslator {
         if (security !in setOf("tls", "reality")) unsupported("streamSettings.security", "unsupported security '$security'")
         val source = stream.optJSONObject(if (security == "reality") "realitySettings" else "tlsSettings") ?: JSONObject()
         val pins = listOf("pinnedPeerCertSha256", "pinnedPeerCertificateChainSha256", "pinnedPeerCertificatePublicKeySha256")
-        pins.firstOrNull { source.has(it) && source.opt(it).toString().isNotBlank() }?.let {
+        pins.firstOrNull { source.has(it) && source.opt(it)?.toString().orEmpty().isNotBlank() }?.let {
             unsupported("tlsSettings.$it", "certificate and SPKI hashes are not interchangeable; use Xray to retain verification")
         }
         val names = source.optString("verifyPeerCertByName")

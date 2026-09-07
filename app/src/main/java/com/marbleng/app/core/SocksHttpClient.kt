@@ -316,10 +316,32 @@ object SocksHttpClient {
     fun tunnelRttBatchUrl(port: Int, url: String, samples: Int, timeoutMs: Int): TunnelRttBatch {
         val parsed = URL(url)
         require(parsed.protocol == "https" && parsed.host.isNotBlank() && parsed.userInfo == null) { "Real Delay requires an HTTPS URL" }
+        require(samples in 1..8)
         val host = parsed.host.removePrefix("[").removeSuffix("]")
         val path = parsed.file.ifBlank { "/" }
-        return tunnelRttBatch(port, host, path, samples, timeoutMs,
-            targetPort = parsed.port.takeIf { it > 0 } ?: 443)
+        val deadline = System.nanoTime() + java.util.concurrent.TimeUnit.MILLISECONDS.toNanos(timeoutMs.toLong() * samples)
+        val measured = mutableListOf<Double>()
+        var warmup = 0.0
+        while (measured.size < samples) {
+            SingBoxProcessSession.checkInterrupted()
+            val left = java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(deadline - System.nanoTime()).toInt()
+            if (left < 500) break
+            try {
+                val batch = tunnelRttBatch(port, host, path, samples - measured.size,
+                    minOf(timeoutMs, left / (samples - measured.size)).coerceAtLeast(500),
+                    targetPort = parsed.port.takeIf { it > 0 } ?: 443)
+                if (measured.isEmpty()) warmup = batch.warmupMs
+                measured += batch.samplesMs
+            } catch (error: Exception) {
+                SingBoxProcessSession.checkInterrupted()
+                if (measured.isEmpty()) throw error
+                break
+            }
+            // Connection: close is normal origin behavior, not packet loss. If a keep-alive
+            // batch ended early, open a fresh connection for the remaining requested samples.
+        }
+        require(measured.isNotEmpty()) { "No valid real-delay response before the deadline" }
+        return TunnelRttBatch(measured, warmup)
     }
 
     fun tunnelRttBatch(
@@ -472,12 +494,14 @@ object SocksHttpClient {
                         if (colon > 0) headers[line.substring(0, colon).trim().lowercase(Locale.US)] =
                             line.substring(colon + 1).trim()
                     }
-                    consumeBody(status, headers)
                     require(status == 200 || status == 204) { "Delay endpoint returned HTTP $status" }
 
                     val elapsed = (System.nanoTime() - started) / 1e6
                     if (elapsed.isFinite() && elapsed > 0.0) measured += elapsed
-                    if (headers["connection"]?.equals("close", true) == true) break
+                    if (index == samples - 1 || headers["connection"]?.equals("close", true) == true) break
+                    // TTFB/header time is the measurement. Body size/connection-close behavior
+                    // only decides whether reuse is possible; it cannot erase a valid sample.
+                    consumeBody(status, headers)
                 } catch (error: Throwable) {
                     if (measured.isEmpty()) throw error
                     break
@@ -511,6 +535,7 @@ object SocksHttpClient {
 
         val start = System.nanoTime()
         val tcp = Socket()
+        val deadline = ProbeSocketDeadline(tcp, timeoutMs.toLong())
         var ssl: SSLSocket? = null
 
         /*
@@ -643,6 +668,7 @@ object SocksHttpClient {
                 headers = responseHeaders
             )
         } finally {
+            deadline.close()
             runCatching { ssl?.close() }
             runCatching { tcp.close() }
         }

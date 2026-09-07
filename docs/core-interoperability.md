@@ -68,7 +68,9 @@ shape test while changing authentication or transport would be worse than reject
 - Benchmarks, tuner checks, fingerprint verification and temporary subscription fetches share
   the selected-core temporary execution contract. Sing-box rank does not run the integrated
   Xray rank helper. A live sing-box SOCKS listener can be borrowed for subscription fetches.
-- URL Test uses the core's authenticated local Clash controller. It requires HTTPS (the pinned
+- URL Test uses sing-box's authenticated local Clash controller when that engine is selected.
+  On Xray it performs verified HTTPS HEAD through the selected live/temporary SOCKS route;
+  it does not switch to sing-box or remove the user's selected probe method. It requires HTTPS (the pinned
   API otherwise silently substitutes gstatic), a positive delay, and a signed-16-bit-safe timeout.
   It tries reference URLs lazily inside one per-profile process and deadline, not an eager
   `map` that spawns/checks every core after the first success. 401 is not API readiness.
@@ -101,7 +103,10 @@ bash scripts/prepare-native-test-cores.sh
 MARBLE_NATIVE_TESTS_REQUIRED=1 gradle :app:testDebugUnitTest :app:compileDebugKotlin :app:compileReleaseKotlin
 ```
 
-`verify.yml` installs the pinned cores and makes native tests mandatory. Tests validate generated
+The proposed `verify.yml` update installs the pinned cores and makes native tests mandatory.
+It requires the GitHub connection's workflow-write permission (see the PR's validation status).
+Without the two binary paths, native tests explicitly skip; they must not be counted as passes.
+Tests validate generated
 configs **and** run offline loopback traffic through the actual cores: VLESS/XHTTP/REALITY with
 the reported password/extra shape, URL Test, verified TLS Real Delay, wrong-account negative
 control, encrypted DNS fallback, simultaneous sessions and cancelled startup. Shape-only tests

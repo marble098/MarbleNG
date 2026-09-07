@@ -135,7 +135,8 @@ object ResolverFailureClassifier {
         "read tcp: i/o timeout",
         "write tcp: i/o timeout",
         "timed out",
-        "timeout while"
+        "timeout while",
+        "tls handshake timeout"
     )
 
     private val EOF_MARKERS = listOf(

@@ -12605,7 +12605,7 @@ private fun probeMethodDetail(method: ProbeMethod): String = when (method) {
     ProbeMethod.TCP_PING ->
         "TCP handshake to the server port: fastest liveness check, measured without the tunnel"
     ProbeMethod.URL_TEST ->
-        "Asks the running sing-box extended core to delay-test its live outbound and reports what it measured"
+        "HTTPS HEAD through the selected core: native Clash delay on sing-box, verified SOCKS tunnel request on Xray"
 }
 
 private fun probeMethodShortLabel(method: ProbeMethod): String = when (method) {
@@ -12646,7 +12646,7 @@ private fun ProbeSettings(repo: AppRepository) {
     )
 
     Text(
-        trx("Real delay is the honest comparator. TCP ping is the quickest liveness check. URL test reads the delay the running sing-box extended core measured for its own outbound."),
+        trx("Real delay and URL test use your selected core. TCP ping checks only the endpoint, not the proxy account or tunnel."),
         color = Aether.InkFaint,
         style = settingsBodyStyle()
     )
@@ -12654,11 +12654,7 @@ private fun ProbeSettings(repo: AppRepository) {
     Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
         ProbeMethod.entries.forEach { candidate ->
             val selected = method == candidate
-            // URL test is a conversation with a running sing-box core, so it is offered only
-            // while that engine is the one Marble will start. Selecting it on the Xray core would
-            // leave the Servers list showing a permanent "no response" for a reason no row could
-            // explain.
-            val available = candidate != ProbeMethod.URL_TEST || s.coreEngineId == CoreEngine.SINGBOX.id
+            val available = true // All three measurement methods respect the selected core.
             val tone = when (candidate) {
                 ProbeMethod.REAL_DELAY -> Aether.Emerald
                 ProbeMethod.TCP_PING -> Aether.CyanBright
@@ -12715,18 +12711,7 @@ private fun ProbeSettings(repo: AppRepository) {
                                     .padding(horizontal = 6.dp, vertical = 1.dp)
                             )
                         }
-                        if (!available) {
-                            Text(
-                                trx("sing-box extended only"),
-                                color = Aether.InkFaint,
-                                style = MaterialTheme.typography.labelSmall,
-                                maxLines = 1,
-                                modifier = Modifier
-                                    .clip(ServersBadgeShape)
-                                    .background(Aether.Glass.copy(alpha = .6f))
-                                    .padding(horizontal = 6.dp, vertical = 1.dp)
-                            )
-                        }
+
                     }
                     Text(
                         trx(probeMethodDetail(candidate)),
