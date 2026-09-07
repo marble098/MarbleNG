@@ -651,8 +651,10 @@ class BugFinder(private val context: Context, private val xray: XrayManager, pri
         sections += BugSection(
             "SINGBOX EXTENDED CORE + URL TEST",
             buildString {
-                appendLine("singboxLogLength=${if (singboxLog.isNotBlank() && !singboxLog.startsWith("SingBox manager")) singboxLog.length else 0}")
-                appendLine("singboxUrlTestLength=${if (singboxUrlTestLog.isNotBlank() && !singboxUrlTestLog.startsWith("Not available")) singboxUrlTestLog.length else 0}")
+                val logLen = if (singboxLog.isNotBlank() && !singboxLog.startsWith("SingBox manager")) singboxLog.length else 0
+                appendLine("singboxLogLength=$logLen")
+                val urlTestLen = if (singboxUrlTestLog.isNotBlank() && !singboxUrlTestLog.startsWith("Not available")) singboxUrlTestLog.length else 0
+                appendLine("singboxUrlTestLength=$urlTestLen")
                 appendLine("manager=${singbox?.let { it.javaClass.simpleName } ?: "none"}")
                 val nativeLibPresent = File(context.applicationInfo.nativeLibraryDir, "libsingbox.so").exists()
                 appendLine("native-lib=$nativeLibPresent")
@@ -700,7 +702,8 @@ class BugFinder(private val context: Context, private val xray: XrayManager, pri
                 }
                 appendLine("ping-methods=verified-https-cert-check + socks-connect-estimate (legacy) + urlTest native")
                 appendLine("speed-evidence=bounds from BenchmarkEngine (if run) • no synthetic download in BugFinder")
-                appendLine("stability-score=${if (tunnelUptimeMs > 300_000) "high" else if (tunnelUptimeMs > 60_000) "medium" else "low / short"}")
+                val stabilityScore = if (tunnelUptimeMs > 300_000) "high" else if (tunnelUptimeMs > 60_000) "medium" else "low / short"
+                appendLine("stability-score=$stabilityScore")
             }
         )
 
@@ -709,7 +712,8 @@ class BugFinder(private val context: Context, private val xray: XrayManager, pri
             buildString {
                 appendLine("BugFinder policy: PASSIVE OBSERVATION — does NOT generate external probe traffic.")
                 appendLine("Evidence below comes from existing logs / caches produced by BenchmarkEngine / RouteProbe / SingBoxManager.")
-                appendLine("URL-test cache: ${if (singboxUrlTestLog.isNotBlank() && !singboxUrlTestLog.startsWith("Not")) "present (${singboxUrlTestLog.length} chars)" else "missing / not run"}")
+                val urlCacheStatus = if (singboxUrlTestLog.isNotBlank() && !singboxUrlTestLog.startsWith("Not")) "present (${singboxUrlTestLog.length} chars)" else "missing / not run"
+                appendLine("URL-test cache: $urlCacheStatus")
                 appendLine("Ping / RTT markers in runtime: ${allRuntime.lineSequence().count { it.contains("verified-https", true) || it.contains("latencyMs", true) }}")
                 appendLine("BenchmarkEngine evidence: not directly read; check BenchmarkResult persistence if available")
                 appendLine("Recommended active actions: connect → run SingBox URL test → run BenchmarkEngine → re-run BugFinder for full report")
