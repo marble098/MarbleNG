@@ -59,8 +59,10 @@ Two mechanical ways it lied before, both gone:
    configs) — returned `no-live-tunnel` → FAILED, even though one tap connected it. Now
    `RouteProbe.realDelayHook`, installed by the repository, spawns a throwaway core for the
    candidate and times real HTTPS round trips to the delay URL through that tunnel — the same
-   measurement the live session reports, owned by the probe. The hook retries a dead spawn once:
-   a spawn storm is not a dead node.
+   measurement the live session reports, owned by the probe. Profiles Xray cannot run at all
+   (hysteria v1, tuic/anytls link-only nodes) are measured by the sing-box extended autoparser
+   instead, which owns those protocols. A dead spawn is retried once: a spawn storm is not a
+   dead node.
 2. **The gate's clock was one second.** The PattNG liveness gate (`TCP_GATE_TIMEOUT_MS`) is a
    desktop budget; on a congested mobile link an alive endpoint regularly needs 2–3 s for a bare
    handshake, and the gate red-lined nodes that were simply far away. The gate budget now follows

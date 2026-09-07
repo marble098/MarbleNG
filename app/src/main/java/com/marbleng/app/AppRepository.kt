@@ -697,11 +697,11 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
             !profile.scheme.equals("tuic", true) &&
             !profile.scheme.equals("anytls", true) &&
             !profile.scheme.equals("hysteria", true)
-        if (!xrayCanTry) return throughSingBox() ?: dead("no-usable-engine")
+            if (!xrayCanTry) return throughSingBox() ?: dead("no-usable-engine")
 
-        // The throwaway core proves the route and nothing else: proxy-everything routing, no
-        // geo databases, no throughput pass — the same benchmark-mode hardening Rank uses.
-        val measurementSettings = probeSettings.copy(
+            // The throwaway core proves the route and nothing else: proxy-everything routing, no
+            // geo databases, no throughput pass — the same benchmark-mode hardening Rank uses.
+            val measurementSettings = probeSettings.copy(
             routingMode = RoutingMode.PROXY_ALL,
             routeBypassPrivate = false,
             routeBlockAds = false,
@@ -741,15 +741,15 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
             // Xray refused twice: one last honest reader before the verdict can stand.
             throughSingBox()?.let { return it }
         }
-        return measured.copy(
-            method = RouteProbe.METHOD_REAL_DELAY,
-            failureReason = when {
-                measured.latencyMs < RouteProbe.UNREACHABLE -> measured.failureReason
-                started -> measured.failureReason.ifBlank { "delay-url-failed" }
-                else -> "core-start"
-            }
-        )
-    }
+            return measured.copy(
+                method = RouteProbe.METHOD_REAL_DELAY,
+                failureReason = when {
+                    measured.latencyMs < RouteProbe.UNREACHABLE -> measured.failureReason
+                    started -> measured.failureReason.ifBlank { "delay-url-failed" }
+                    else -> "core-start"
+                }
+            )
+        }
 
     /**
      * MARBLE_GEO_READY_GATE_V145 — silent, non-blocking preparation of the routing databases.
