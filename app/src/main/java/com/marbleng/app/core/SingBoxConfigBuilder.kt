@@ -892,9 +892,9 @@ object SingBoxConfigBuilder {
 
         val sni = (params["sni"] ?: params["peer"] ?: params["server_name"]).orEmpty().ifBlank { host }
         val tls = JSONObject().put("enabled", true).put("server_name", sni)
-        params["alpn"]?.split(',')?.mapNotNull { it.trim().takeIf(String::isNotBlank) }
-            ?.takeIf { it.isNotEmpty() }
-            ?.let { tls.put("alpn", JSONArray().apply { it.forEach(::put) }) }
+        params["alpn"]?.split(',')?.mapNotNull { part -> part.trim().takeIf(String::isNotBlank) }
+            ?.takeIf { alpnList -> alpnList.isNotEmpty() }
+            ?.let { alpnValues -> tls.put("alpn", JSONArray().apply { alpnValues.forEach { value -> put(value) } }) }
 
         return when (scheme) {
             "tuic" -> {

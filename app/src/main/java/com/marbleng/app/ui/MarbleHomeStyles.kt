@@ -1192,7 +1192,9 @@ internal fun loopFade(t: Float): Float = sin((t.coerceIn(0f, 1f)) * PI.toFloat()
 // ---------------------------------------------------------------------------------------------
 
 internal enum class HomeGlyph {
-    POWER, CHECK, RESET, COPY, REFRESH, MORE, PULSE, CLOCK, LIBRARY, PLUS, BOLT, PASTE, QR, INFO
+    POWER, CHECK, RESET, COPY, REFRESH, MORE, PULSE, CLOCK, LIBRARY, PLUS, BOLT, PASTE, QR, INFO,
+    // MARBLE_PING_CANCEL_V154 — the filled stop square every sweep control swaps into.
+    STOP
 }
 
 @Composable
@@ -1322,6 +1324,16 @@ internal fun HomeGlyphIcon(glyph: HomeGlyph, color: Color, modifier: Modifier = 
                 drawCircle(color = color, radius = w * .38f, center = Offset(w * .5f, h * .5f), style = line)
                 drawCircle(color = color, radius = stroke * .7f, center = Offset(w * .5f, h * .32f))
                 drawLine(color, Offset(w * .5f, h * .44f), Offset(w * .5f, h * .68f), stroke, StrokeCap.Round)
+            }
+            // MARBLE_PING_CANCEL_V154 — a filled square, not a ring: the affordance is "this
+            // sweep will stop", and a filled stop reads at a glance the way a filled play does.
+            HomeGlyph.STOP -> {
+                drawRoundRect(
+                    color,
+                    topLeft = Offset(w * .30f, h * .30f),
+                    size = Size(w * .40f, h * .40f),
+                    cornerRadius = CornerRadius(w * .10f, h * .10f)
+                )
             }
         }
     }
@@ -1715,7 +1727,7 @@ internal fun IosStatusWideCard(
  * no click target and no semantics: nothing about the layout below it moves because of it.
  */
 @Composable
-internal fun MarbleWordmark(modifier: Modifier = Modifier) {
+internal fun MarbleWordmark(modifier: Modifier = Modifier, compact: Boolean = false) {
     // The palette tokens are theme-aware composable reads, so they are resolved here and the
     // brush is only re-created when one of them actually changes.
     val ice = Aether.CyanBright
@@ -1730,9 +1742,13 @@ internal fun MarbleWordmark(modifier: Modifier = Modifier) {
             1.00f to emerald
         )
     }
+    // MARBLE_HOME_TOPBAR_V154 — the capsule carries wordmark + status line, so it renders the
+    // compact ramp; the standalone presentations keep the full size.
+    val baseStyle = if (compact) MaterialTheme.typography.titleMedium
+    else MaterialTheme.typography.titleLarge
     Text(
         text = "MarbleNG",
-        style = MaterialTheme.typography.titleLarge.copy(
+        style = baseStyle.copy(
             brush = ramp,
             fontWeight = FontWeight.Black,
             letterSpacing = 0.4.sp
@@ -1761,6 +1777,11 @@ internal fun MarbleWordmark(modifier: Modifier = Modifier) {
  * currently shown on the page belongs to, which is the question the Home page is asking ("how is
  * the subscription I am looking at doing?"). The per-route ping of that same server is still one
  * tap away on the status banner.
+ *
+ * MARBLE_HOME_TOPBAR_V154 — the bare cluster above is now a single floating glass capsule:
+ * a 36 dp prism tile (marble orb, rim light = session state), the wordmark (compact) with a
+ * breathing 7 dp status dot + Connected/Standby, and three 38 dp tonal round actions
+ * (Add / Test-or-STOP / IP details) with 1 dp borders. Same four themes, same tokens.
  */
 @Composable
 internal fun HomeTopActionBar(
@@ -1769,24 +1790,57 @@ internal fun HomeTopActionBar(
     repo: AppRepository,
     modifier: Modifier = Modifier
 ) {
+    val t = Tr.now
     var addMenuOpen by remember { mutableStateOf(false) }
     val groupLabel = repo.homeGroupPingLabel()
     val groupBusy = repo.homeGroupPingRunning
+    val sessionTone = homeStateTone(evidence)
+    val live = evidence.connected
+    val capsuleShape = RoundedCornerShape(26.dp)
 
     Row(
-        modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.End,
-        verticalAlignment = Alignment.CenterVertically
+        modifier = modifier
+            .fillMaxWidth()
+            .shadow(7.dp, capsuleShape, spotColor = Aether.GlassBorder.copy(alpha = .55f))
+            .clip(capsuleShape)
+            .background(Aether.BarGlass)
+            .border(1.dp, Aether.BarGlassBorder, capsuleShape)
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        MarbleWordmark(modifier = Modifier.weight(1f))
+        // Left: prism tile → wordmark → status line
+        MarblePrismTile(sessionTone, Modifier.size(36.dp))
+        Column(
+            modifier = Modifier.weight(1f, fill = false),
+            verticalArrangement = Arrangement.spacedBy(1.dp)
+        ) {
+            MarbleWordmark(compact = true)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                CapsuleStatusDot(sessionTone, live)
+                Spacer(Modifier.width(5.dp))
+                Text(
+                    if (live) t.statusConnected else t.statusStandby,
+                    color = Aether.InkMuted,
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontWeight = FontWeight.SemiBold
+                    ),
+                    maxLines = 1,
+                    softWrap = false,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
 
+        // Right: three tonal round actions
         Box {
-            HomeBareAction(
+            HomeCapsuleAction(
                 glyph = HomeGlyph.PLUS,
                 tone = Aether.CyanBright,
-                description = Tr.now.proAddRoute,
+                contentDescription = t.proAddRoute,
                 onClick = { addMenuOpen = true }
             )
+            // MARBLE_HOME_ADD_MENU_V145 — the menu still anchors under the +.
             HomeAddRouteMenu(
                 expanded = addMenuOpen,
                 onDismiss = { addMenuOpen = false },
@@ -1794,18 +1848,40 @@ internal fun HomeTopActionBar(
             )
         }
 
-        HomeBareAction(
-            glyph = HomeGlyph.PULSE,
-            tone = Aether.Emerald,
-            description = "${Tr.now.testPing} • $groupLabel",
-            enabled = !groupBusy,
-            busy = groupBusy,
-            onClick = actions.onPingGroup
-        )
-        HomeBareAction(
+        // MARBLE_PING_CANCEL_V154 — Test vs STOP: while the group sweep is live the pulse swaps
+        // to a filled STOP square (scale-fade), and the tap from the very same spot cancels it.
+        AnimatedContent(
+            targetState = groupBusy,
+            transitionSpec = {
+                (scaleIn(initialScale = .72f, animationSpec = MarbleMotionSpecs.ResponseFloat) +
+                    fadeIn(MarbleMotionSpecs.ResponseFloat)) togetherWith
+                    (scaleOut(targetScale = .72f, animationSpec = MarbleMotionSpecs.ResponseFloat) +
+                        fadeOut(MarbleMotionSpecs.ResponseFloat))
+            },
+            contentAlignment = Alignment.Center,
+            label = "home-topbar-test-stop"
+        ) { busy ->
+            if (busy) {
+                HomeCapsuleAction(
+                    glyph = HomeGlyph.STOP,
+                    tone = Aether.DangerBright,
+                    contentDescription = "${t.stopAction} • $groupLabel",
+                    onClick = { repo.cancelProbes() }
+                )
+            } else {
+                HomeCapsuleAction(
+                    glyph = HomeGlyph.PULSE,
+                    tone = Aether.Emerald,
+                    contentDescription = "${t.testPing} • $groupLabel",
+                    onClick = actions.onPingGroup
+                )
+            }
+        }
+
+        HomeCapsuleAction(
             glyph = HomeGlyph.INFO,
             tone = Aether.AmethystBright,
-            description = Tr.now.ipDetails,
+            contentDescription = t.ipDetails,
             onClick = {
                 if (repo.serverIntel == null) {
                     repo.refreshServerIntel(evidence.profile, force = true)
@@ -1815,6 +1891,118 @@ internal fun HomeTopActionBar(
         )
     }
 }
+
+/**
+ * MARBLE_HOME_TOPBAR_V154 — the 36 dp prism tile that opens the capsule: a rounded square cut
+ * from the signature ramp (ice to cyan to amethyst to emerald, the wordmark's own brush) with a
+ * marble orb inside it. The orb's rim light takes the session's semantic colour, so the tile
+ * carries the same state the rest of the Home instrument carries — green when connected,
+ * amber while the route is closing, red when blocked, slate in standby.
+ */
+@Composable
+private fun MarblePrismTile(sessionTone: Color, modifier: Modifier = Modifier) {
+    val ice = Aether.CyanBright
+    val cyan = Aether.Cyan
+    val amethyst = Aether.AmethystBright
+    val emerald = Aether.Emerald
+    val ramp = remember(ice, cyan, amethyst, emerald) {
+        Brush.linearGradient(
+            0.00f to ice,
+            0.42f to cyan,
+            0.72f to amethyst,
+            1.00f to emerald
+        )
+    }
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(11.dp))
+            .background(ramp)
+            .border(1.dp, Aether.GlassBorder.copy(alpha = .60f), RoundedCornerShape(11.dp)),
+        contentAlignment = Alignment.Center
+    ) {
+        Canvas(Modifier.size(20.dp)) {
+            val r = size.minDimension / 2f
+            val center = Offset(r, r)
+            // Marble orb: a near-white ball with a soft base shadow and a top-left specular.
+            drawCircle(color = Color.Black.copy(alpha = .20f), center = center, radius = r)
+            drawCircle(color = Color.White.copy(alpha = .94f), center = center, radius = r * .94f)
+            drawCircle(
+                color = Color.White,
+                center = Offset(r * .62f, r * .58f),
+                radius = r * .30f
+            )
+            // The rim light: an arc riding the orb's upper-left rim in the session colour.
+            drawArc(
+                color = sessionTone,
+                startAngle = 145f,
+                sweepAngle = 125f,
+                useCenter = false,
+                topLeft = Offset(r * .05f, r * .05f),
+                size = Size(r * 1.90f, r * 1.90f),
+                style = Stroke(width = r * .30f, cap = StrokeCap.Round)
+            )
+        }
+    }
+}
+
+/**
+ * MARBLE_HOME_TOPBAR_V154 — the capsule's 7 dp status dot: it breathes (halo pulse) while the
+ * session is live and sits flat in standby, on the same semantic colour the tile's rim light
+ * uses.
+ */
+@Composable
+private fun CapsuleStatusDot(stateColor: Color, live: Boolean) {
+    val motion = MarbleMotion.current
+    Canvas(Modifier.size(14.dp)) {
+        // The shared clock is read in the draw phase: ambient motion costs zero recompositions.
+        val breathe = motion.breathe(900)
+        val haloAlpha = if (live) 0.22f + 0.20f * breathe else 0.16f
+        drawCircle(color = stateColor.copy(alpha = haloAlpha), radius = size.minDimension * 0.5f)
+        drawCircle(
+            color = stateColor.copy(alpha = if (live) 0.80f + 0.20f * breathe else 1f),
+            radius = size.minDimension * 0.25f
+        )
+    }
+}
+
+/**
+ * MARBLE_HOME_TOPBAR_V154 — one 38 dp tonal round action of the glass capsule. The tone is the
+ * meaning (add = cyan, test = emerald / stop = danger, IP = amethyst); the fill stays faint and
+ * the 1 dp border carries the legibility, so the actions read on the glass at every theme
+ * brightness instead of competing with it.
+ */
+@Composable
+private fun HomeCapsuleAction(
+    glyph: HomeGlyph,
+    tone: Color,
+    contentDescription: String,
+    enabled: Boolean = true,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .size(38.dp)
+            .clip(CircleShape)
+            .background(tone.copy(alpha = .13f))
+            .border(1.dp, tone.copy(alpha = .42f), CircleShape)
+            .kineticClickable(
+                enabled = enabled,
+                role = Role.Button,
+                pressScale = .92f,
+                boundedShape = CircleShape,
+                onClick = onClick
+            )
+            .semantics { contentDescription = contentDescription },
+        contentAlignment = Alignment.Center
+    ) {
+        HomeGlyphIcon(
+            glyph,
+            if (enabled) tone else tone.copy(alpha = .40f),
+            Modifier.size(18.dp)
+        )
+    }
+}
+
 
 /**
  * MARBLE_HOME_ADD_MENU_V145 — the three ways a server reaches MarbleNG, in a menu that hangs
@@ -1940,7 +2128,7 @@ private fun HomeBareAction(
                 boundedShape = CircleShape,
                 onClick = onClick
             )
-            .semantics { contentDescription = description },
+            .semantics { contentDescription = contentDescription },
         contentAlignment = Alignment.Center
     ) {
         if (busy) {
@@ -2903,7 +3091,7 @@ private fun FloatingSplitAction(
             .clip(CircleShape)
             .background(tone)
             .kineticClickable(enabled = enabled, boundedShape = CircleShape, onClick = onClick)
-            .semantics { contentDescription = description },
+            .semantics { contentDescription = contentDescription },
         contentAlignment = Alignment.Center
     ) {
         content()
@@ -3396,7 +3584,7 @@ private fun ModularPingAction(
             .clip(CircleShape)
             .background(Aether.Emerald)
             .kineticClickable(enabled = enabled, boundedShape = CircleShape, onClick = onClick)
-            .semantics { contentDescription = description },
+            .semantics { contentDescription = contentDescription },
         contentAlignment = Alignment.Center
     ) {
         HomeGlyphIcon(HomeGlyph.PULSE, Color.White, Modifier.size(24.dp))

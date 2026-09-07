@@ -34,7 +34,17 @@ object SingBoxConfigDoctor {
      */
     private val REMOVED_OUTBOUND_TYPES = setOf("dns")
 
-    /** Sentence fragments the core prints when it rejects a config rather than a network. */
+    /**
+     * Sentence fragments the core prints when it rejects a config rather than a network.
+     *
+     * MARBLE_SINGBOX_AUTOPARSER_V154 — the parser outbound's own refusal vocabulary is in here
+     * too: when the core's share-link parser cannot read a link (`invalid link`,
+     * `unsupported scheme`, `unknown protocol`) that is a *config-class* rejection, exactly like
+     * a schema fault. The candidate walk already hands the node to the next reader, and the VPN
+     * service must classify the whole walk's failure as engine-level so failover stops marching
+     * the rest of the subscription through the same parser and falls back to the Xray engine
+     * instead.
+     */
     private val CONFIG_FAULT_MARKERS = listOf(
         "rejected the config",
         "deprecated in sing-box",
@@ -48,7 +58,10 @@ object SingBoxConfigDoctor {
         "cannot unmarshal array",
         "json: cannot",
         "wrong type for field",
-        "invalid configuration"
+        "invalid configuration",
+        "invalid link",
+        "unsupported scheme",
+        "unknown protocol"
     )
 
     data class Repair(
