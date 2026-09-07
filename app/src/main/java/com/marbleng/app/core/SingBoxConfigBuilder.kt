@@ -368,61 +368,22 @@ object SingBoxConfigBuilder {
 
         when (protocol) {
             "vless", "vmess" -> {
-                // MARBLE_SINGBOX_AUTOPARSER_V154 — both server shapes. The array form
-                // (`settings.vnext[]`) is what Xray itself writes; the direct form
-                // (`settings.{address, port, id}`) is what every PattNG export and every Marble
-                // share-link import store. The old reader only knew `vnext`, so a direct-form
-                // node died with "no vnext server" — and a refusal there killed the whole node.
-                val vnext = xraySettings.optJSONArray("vnext")?.optJSONObject(0)
-                val direct = xraySettings.takeIf {
-                    it.optString("address").isNotBlank() && it.optInt("port", 0) > 0
-                }
-                val server = vnext ?: direct
+                val server = xraySettings.optJSONArray("vnext")?.optJSONObject(0)
                     ?: error("$protocol outbound has no vnext server")
-                // Field-by-field user resolution: the uuid may live on the users[] entry (array
-                // form) or on the settings object itself (direct form), and the flow/encryption
-                // and security/alterId knobs follow the same split.
-                val user = (vnext?.optJSONArray("users")?.optJSONObject(0))
-                    ?: xraySettings.optJSONArray("users")?.optJSONObject(0)
-                    ?: JSONObject()
-                val uuid = firstNonBlank(
-                    user.optString("id"),
-                    direct?.optString("id").orEmpty()
-                ).orEmpty()
+                val user = server.optJSONArray("users")?.optJSONObject(0) ?: JSONObject()
                 result.put("type", protocol)
                 result.put("server", server.optString("address"))
                 result.put("server_port", server.optInt("port"))
-                result.put("uuid", uuid)
+                result.put("uuid", user.optString("id"))
                 if (protocol == "vless") {
-                    firstNonBlank(
-                        user.optString("flow"),
-                        xraySettings.optString("flow")
-                    )?.let { result.put("flow", it) }
-                    firstNonBlank(
-                        user.optString("encryption"),
-                        xraySettings.optString("encryption")
-                    )?.let { result.put("encryption", it) }
+                    user.optString("flow").takeIf { it.isNotBlank() }?.let { result.put("flow", it) }
+                    user.optString("encryption").takeIf { it.isNotBlank() }
+                        ?.let { result.put("encryption", it) }
                 } else {
-                    result.put("security", firstNonBlank(
-                        user.optString("security"),
-                        xraySettings.optString("security")
-                    ) ?: "auto")
-                    val alterId = maxOf(user.optInt("alterId", 0), xraySettings.optInt("alterId", 0))
+                    result.put("security", user.optString("security").ifBlank { "auto" })
+                    val alterId = user.optInt("alterId", 0)
                     if (alterId > 0) result.put("alter_id", alterId)
-                    if (
-                        user.optBoolean("globalPadding", false) ||
-                        xraySettings.optBoolean("globalPadding", false)
-                    ) {
-                        result.put("global_padding", true)
-                    }
-                    // vmess `packetEncoding` → sing-box `packet_encoding`. Without this mapping
-                    // UDP over the XUDP/packetaddr channel was silently lost: the field dropped,
-                    // and the proxy fell back to plain UDP on a node that spoke the packet
-                    // protocol.
-                    firstNonBlank(
-                        user.optString("packetEncoding"),
-                        xraySettings.optString("packetEncoding")
-                    )?.let { result.put("packet_encoding", it) }
+                    if (user.optBoolean("globalPadding", false)) result.put("global_padding", true)
                 }
             }
 
@@ -441,12 +402,6 @@ object SingBoxConfigBuilder {
                 result.put("server_port", server.optInt("port"))
                 result.put("method", server.optString("method"))
                 result.put("password", server.optString("password"))
-                // MARBLE_SINGBOX_AUTOPARSER_V154 — SIP002 `uot`: Xray wraps UDP in TCP on this
-                // flag, and sing-box spells the same request `udp_over_tcp`. The field was read
-                // nowhere before, so a UOT node silently dropped to unencrypted UDP semantics.
-                if (server.optBoolean("uot", false) || xraySettings.optBoolean("uot", false)) {
-                    result.put("udp_over_tcp", JSONObject().put("enabled", true))
-                }
                 server.optString("plugin").takeIf { it.isNotBlank() }?.let { result.put("plugin", it) }
                 server.optString("plugin_opts").takeIf { it.isNotBlank() }
                     ?.let { result.put("plugin_opts", it) }
@@ -484,21 +439,15 @@ object SingBoxConfigBuilder {
                     server?.optInt("port", 0),
                     xraySettings.optInt("port", 0)
                 ).firstOrNull { it != null && it > 0 } ?: error("$protocol outbound has no port")
-                // MARBLE_SINGBOX_AUTOPARSER_V154 — the explicit `version` wins; the protocol
-                // name is only the tiebreak. Stored hy2 nodes are `protocol: hysteria` +
-                // `version: 2`, so the old name-only rule mistyped them as v1 and the QUIC
-                // handshake died on the first auth check.
-                val hySettings = stream.optJSONObject("hysteriaSettings")
-                val explicitVersion = sequenceOf<Int>(
-                    xraySettings.optInt("version", 0),
-                    server?.optInt("version", 0) ?: 0,
-                    hySettings?.optInt("version", 0) ?: 0
-                ).firstOrNull { it == 1 || it == 2 }
-                val version = explicitVersion ?: if (protocol == "hysteria2") 2 else 1
+                val version = when {
+                    protocol == "hysteria" -> 1
+                    else -> (server?.optInt("version", 0) ?: 0).takeIf { it == 1 || it == 2 } ?: 2
+                }
                 // MARBLE_SINGBOX_PROTOCOLS_V153 — Hysteria v1 and v2 are different sing-box
                 // outbound types. The old writer always typed `hysteria2` and read `password` on
                 // the Xray v1 settings (which use `auth_str`), so a Hysteria v1 node ran as a v2
                 // auth mismatch and died at the first QUIC handshake.
+                val hySettings = stream.optJSONObject("hysteriaSettings")
                 val authSource = server ?: xraySettings
                 if (version == 1) {
                     result.put("type", "hysteria")
@@ -523,112 +472,32 @@ object SingBoxConfigBuilder {
                 }
                 result.put("server", address)
                 result.put("server_port", port)
-                // MARBLE_SINGBOX_AUTOPARSER_V154 — the rate fields arrive as integers, strings,
-                // or human strings ("100 Mbps"): digit-extraction instead of raw `toString`.
-                // The core REQUIRES both rates on v1, so the missing ones get the documented
-                // 10/50 defaults instead of a config `sing-box check` refuses.
-                val up = firstMbps(
-                    optMbps(server, "up_mbps"),
-                    optMbps(hySettings, "up_mbps"),
-                    optMbps(xraySettings, "up_mbps"),
-                    mbpsDigits(hySettings?.optString("up"))
-                )
-                val down = firstMbps(
-                    optMbps(server, "down_mbps"),
-                    optMbps(hySettings, "down_mbps"),
-                    optMbps(xraySettings, "down_mbps"),
-                    mbpsDigits(hySettings?.optString("down"))
-                )
-                result.put("up_mbps", up ?: 10)
-                result.put("down_mbps", down ?: 50)
-                // Obfs, from every source the emitters actually use: the QUIC `finalmask`
-                // (v2), the `settings.obfs` string (v1 share links) and the legacy
-                // `hysteriaSettings.obfs` / server-level object.
-                val finalmask = stream.optJSONObject("finalmask")?.optJSONArray("udp")?.optJSONObject(0)
-                if (version == 1) {
-                    val obfsRaw = firstNonBlank(
-                        xraySettings.optString("obfs"),
-                        hySettings?.optString("obfs"),
-                        server?.optString("obfs"),
-                        finalmask?.optString("type").orEmpty()
-                    )
-                    if (obfsRaw != null && !obfsRaw.equals("none", ignoreCase = true)) {
-                        result.put("obfs", obfsRaw)
-                    }
-                } else {
-                    when {
-                        finalmask != null -> {
-                            val type = finalmask.optString("type").ifBlank { "salamander" }
-                            if (!type.equals("none", ignoreCase = true)) {
-                                val fmSettings = finalmask.optJSONObject("settings") ?: JSONObject()
-                                val password = fmSettings.optJSONObject(type)?.optString("password")
-                                    .ifBlank { fmSettings.optString("password") }
-                                result.put(
-                                    "obfs",
-                                    JSONObject().put("type", type).apply {
-                                        if (password.isNotBlank()) put("password", password)
-                                    }
-                                )
-                            }
-                        }
-                        else -> server?.optJSONObject("obfs")?.let { obfs ->
-                            val obfsPassword = obfs.optString("password").ifBlank { obfs.optString("obfs") }
-                            if (obfsPassword.isNotBlank()) {
-                                result.put(
-                                    "obfs",
-                                    JSONObject()
-                                        .put("type", obfs.optString("type").ifBlank { "salamander" })
-                                        .put("password", obfsPassword)
-                                )
-                            }
+                val up = sequenceOf<Int?>(
+                    server?.optInt("up_mbps", 0)?.takeIf { it > 0 },
+                    hySettings?.optInt("up_mbps", 0)?.takeIf { it > 0 },
+                    hySettings?.optString("up")?.toIntOrNull()?.takeIf { it > 0 }
+                ).firstOrNull { it != null }
+                if (up != null) result.put("up_mbps", up)
+                val down = sequenceOf<Int?>(
+                    server?.optInt("down_mbps", 0)?.takeIf { it > 0 },
+                    hySettings?.optInt("down_mbps", 0)?.takeIf { it > 0 },
+                    hySettings?.optString("down")?.toIntOrNull()?.takeIf { it > 0 }
+                ).firstOrNull { it != null }
+                if (down != null) result.put("down_mbps", down)
+                server?.optJSONObject("obfs")?.let { obfs ->
+                    val obfsPassword = obfs.optString("password").ifBlank { obfs.optString("obfs") }
+                    if (obfsPassword.isNotBlank()) {
+                        if (version == 1) {
+                            result.put("obfs", obfsPassword)
+                        } else {
+                            result.put(
+                                "obfs",
+                                JSONObject()
+                                    .put("type", obfs.optString("type").ifBlank { "salamander" })
+                                    .put("password", obfsPassword)
+                            )
                         }
                     }
-                }
-            }
-
-            // MARBLE_SINGBOX_AUTOPARSER_V154 — WireGuard, translated from Xray's
-            // `secretKey` + `peers` shape onto sing-box's `private_key` + `server`/`peers`
-            // schema. The endpoint string ("host:port") is split back into its parts; the
-            // default allowed IPs are what the Xray documentation shows, so a bare config still
-            // routes all traffic through the tunnel.
-            "wireguard" -> {
-                val privateKey = firstNonBlank(
-                    xraySettings.optString("secretKey"),
-                    xraySettings.optString("privateKey")
-                ) ?: error("wireguard outbound has no client key")
-                val peer = xraySettings.optJSONArray("peers")?.optJSONObject(0)
-                    ?: error("wireguard outbound has no peer")
-                val endpoint = peer.optString("endpoint").ifBlank {
-                    firstNonBlank(
-                        xraySettings.optString("endpoint"),
-                        xraySettings.optString("address")
-                    ).orEmpty()
-                }
-                val parsed = splitEndpoint(endpoint)
-                    ?: error("wireguard outbound has no readable endpoint")
-                val host = parsed.first
-                val port = parsed.second
-                result.put("type", "wireguard")
-                result.put("private_key", privateKey)
-                result.put("server", host)
-                result.put("server_port", port)
-                val peerOut = JSONObject()
-                    .put("public_key", peer.optString("publicKey"))
-                peer.optJSONArray("allowedIPs")?.let { allowed ->
-                    if (allowed.length() > 0) peerOut.put("allowed_ips", allowed)
-                } ?: peerOut.put(
-                    "allowed_ips",
-                    JSONArray().put("0.0.0.0/0").put("::/0")
-                )
-                peer.optString("keepAlive").replace(Regex("[^0-9]"), "")
-                    .toIntOrNull()?.takeIf { it > 0 }
-                    ?.let { peerOut.put("keep_alive", it) }
-                result.put("peers", JSONArray().put(peerOut))
-                xraySettings.optInt("mtu", 0).takeIf { it > 0 }?.let { result.put("mtu", it) }
-                xraySettings.optInt("workers", 0).takeIf { it > 0 }
-                    ?.let { result.put("workers", it) }
-                xraySettings.optJSONArray("reserved")?.let { reserved ->
-                    if (reserved.length() > 0) result.put("reserved", reserved)
                 }
             }
 
@@ -637,8 +506,7 @@ object SingBoxConfigBuilder {
 
         transport(stream, notes)?.let { result.put("transport", it) }
         tls(stream, settings, notes)?.let { result.put("tls", it) }
-        val transportMethod = stream.optString("network").ifBlank { stream.optString("method") }.lowercase()
-        multiplex(outbound, settings, protocol, transportMethod)?.let { result.put("multiplex", it) }
+        multiplex(outbound, settings, protocol)?.let { result.put("multiplex", it) }
         // MARBLE_SINGBOX_PROTOCOLS_V153 — sing-box's `network` field is a single string (`tcp` or
         // `udp`), not an array. Writing `["tcp","udp"]` made `sing-box check` reject every
         // translated config with a decoder error that the old doctor did not know. Omitting the
@@ -661,75 +529,6 @@ object SingBoxConfigBuilder {
         return settings.takeIf { it.optString("address").isNotBlank() && it.optInt("port", 0) > 0 }
     }
 
-    // ─────────────────────────────────────────────────────────────────────────────
-    // MARBLE_SINGBOX_AUTOPARSER_V154 — translator helpers
-    // ─────────────────────────────────────────────────────────────────────────────
-
-    /** The first non-blank of the candidates; `null` when every candidate is blank. */
-    private fun firstNonBlank(vararg values: String): String? =
-        values.firstOrNull { it.isNotBlank() }
-
-    /**
-     * "100", "100 Mbps", "100mbps/s" → 100. Human-emitted rate strings are real on the wire
-     * (Hysteria share links in particular), and `toString()` of a string value is how the old
-     * reader shipped the literal word "Mbps" into a numeric field.
-     */
-    private fun mbpsDigits(text: String?): Int? {
-        if (text == null) return null
-        val digits = text.replace(Regex("[^0-9]"), "")
-        return digits.toIntOrNull()?.takeIf { it > 0 }
-    }
-
-    /** An integer-or-string mbps field: 100 and "100 Mbps" both work. */
-    private fun optMbps(obj: JSONObject?, key: String): Int? {
-        val value = obj?.opt(key) ?: return null
-        return when (value) {
-            is Number -> value.toInt().takeIf { it > 0 }
-            is String -> mbpsDigits(value)
-            else -> null
-        }
-    }
-
-    private fun firstMbps(vararg values: Int?): Int? = values.firstOrNull { it != null && it > 0 }
-
-    /** "host:443", "[2001:db8::1]:8443" → ("host", 443). `null` when not a host:port pair. */
-    private fun splitEndpoint(raw: String): Pair<String, Int>? {
-        val text = raw.trim()
-        if (text.isEmpty()) return null
-        return when {
-            text.startsWith("[") -> {
-                // Bracketed IPv6: [addr]:port
-                val close = text.indexOf(']')
-                if (close < 0) return null
-                val host = text.substring(1, close)
-                if (host.isEmpty()) return null
-                val port = text.substring(close + 1).removePrefix(":").toIntOrNull() ?: return null
-                host to port
-            }
-            text.count { it == ':' } == 1 -> {
-                // host:port — a single colon means no IPv6 literal
-                val host = text.substringBeforeLast(':')
-                val port = text.substringAfterLast(':').toIntOrNull()
-                if (host.isEmpty() || port == null) return null
-                host to port
-            }
-            else -> null
-        }
-    }
-
-    /**
-     * MARBLE_SINGBOX_AUTOPARSER_V154 — the link-only sing-box-extended protocols (TUIC and
-     * AnyTLS) translated from the raw share link by Marble itself.
-     *
-     * Those nodes store a blank `configJson` (there is no Xray JSON shape for them), so handing
-     * them to the core's parser outbound was the only reader — and a stale core reader killed
-     * them. Translating the link here means the TRANSLATED candidate always exists for a
-     * readable link, and the parser candidate is the second chance instead of the only one.
-     *
-     * The parse is deliberately dependency-free (no `Uri`): the share-link grammar here is
-     * `scheme://userInfo@host:port?key=value&…#fragment`, and a pure-Kotlin reader keeps the
-     * unit tests honest on the JVM.
-     */
     private fun putUserPass(result: JSONObject, server: JSONObject) {
         server.optString("user").takeIf { it.isNotBlank() }?.let { result.put("username", it) }
         server.optString("pass").takeIf { it.isNotBlank() }?.let { result.put("password", it) }
@@ -858,6 +657,354 @@ object SingBoxConfigBuilder {
                         }
                 )
             }
+        }
+        // MARBLE_SINGBOX_PROTOCOLS_V153 — Xray's transport-fragment knob is not a TLS option in
+        // sing-box; the only supported place is route-options.tls_fragment. Writing `fragment`
+        // inside `tls` made the core reject the whole config when `fragmentEnabled` was on.
+        if (settings.fragmentEnabled) {
+            notes += "Fragmentation is mapped to sing-box route options, not a TLS fragment field."
+        }
+        return tls
+    }
+
+    private fun multiplex(outbound: JSONObject, settings: AppSettings, protocol: String): JSONObject? {
+        val source = outbound.optJSONObject("muxSettings")
+        val enabled = source?.optBoolean("enabled", false) == true || settings.muxEnabled
+        if (!enabled) return null
+        // Mux is meaningless on a UDP-based protocol and actively harmful there.
+        if (protocol == "hysteria2" || protocol == "hysteria") return null
+        val mux = JSONObject().put("enabled", true)
+        mux.put("protocol", source?.optString("protocol").orEmpty().ifBlank { "smux" })
+        val concurrency = source?.optInt("concurrency", 0) ?: 0
+        if (concurrency > 0) {
+            mux.put("max_connections", concurrency)
+        } else if (settings.muxConcurrency > 0) {
+            mux.put("max_connections", settings.muxConcurrency.coerceIn(1, 128))
+        }
+        if (source?.optBoolean("padding", true) != false) mux.put("padding", true)
+        return mux
+    }
+
+    private fun firstServer(settings: JSONObject): JSONObject? {
+        settings.optJSONArray("servers")?.optJSONObject(0)?.let { return it }
+        return settings.takeIf { it.optString("address").isNotBlank() && it.optInt("port", 0) > 0 }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // MARBLE_SINGBOX_AUTOPARSER_V154 — translator helpers
+    // ─────────────────────────────────────────────────────────────────────────────
+
+    /** The first non-blank of the candidates; `null` when every candidate is blank. */
+    private fun firstNonBlank(vararg values: String): String? =
+        values.firstOrNull { it.isNotBlank() }
+
+    /**
+     * "100", "100 Mbps", "100mbps/s" → 100. Human-emitted rate strings are real on the wire
+     * (Hysteria share links in particular), and `toString()` of a string value is how the old
+     * reader shipped the literal word "Mbps" into a numeric field.
+     */
+    private fun mbpsDigits(text: String?): Int? {
+        if (text == null) return null
+        val digits = text.replace(Regex("[^0-9]"), "")
+        return digits.toIntOrNull()?.takeIf { it > 0 }
+    }
+
+    /** An integer-or-string mbps field: 100 and "100 Mbps" both work. */
+    private fun optMbps(obj: JSONObject?, key: String): Int? {
+        val value = obj?.opt(key) ?: return null
+        return when (value) {
+            is Number -> value.toInt().takeIf { it > 0 }
+            is String -> mbpsDigits(value)
+            else -> null
+        }
+    }
+
+    private fun firstMbps(vararg values: Int?): Int? = values.firstOrNull { it != null && it > 0 }
+
+    /** "host:443", "[2001:db8::1]:8443" → ("host", 443). `null` when not a host:port pair. */
+    private fun splitEndpoint(raw: String): Pair<String, Int>? {
+        val text = raw.trim()
+        if (text.isEmpty()) return null
+        return when {
+            text.startsWith("[") -> {
+                // Bracketed IPv6: [addr]:port
+                val close = text.indexOf(']')
+                if (close < 0) return null
+                val host = text.substring(1, close)
+                if (host.isEmpty()) return null
+                val port = text.substring(close + 1).removePrefix(":").toIntOrNull() ?: return null
+                host to port
+            }
+            text.count { it == ':' } == 1 -> {
+                // host:port — a single colon means no IPv6 literal
+                val host = text.substringBeforeLast(':')
+                val port = text.substringAfterLast(':').toIntOrNull()
+                if (host.isEmpty() || port == null) return null
+                host to port
+            }
+            else -> null
+        }
+    }
+
+    /**
+     * MARBLE_SINGBOX_AUTOPARSER_V154 — the link-only sing-box-extended protocols (TUIC and
+     * AnyTLS) translated from the raw share link by Marble itself.
+     *
+     * Those nodes store a blank `configJson` (there is no Xray JSON shape for them), so handing
+     * them to the core's parser outbound was the only reader — and a stale core reader killed
+     * them. Translating the link here means the TRANSLATED candidate always exists for a
+     * readable link, and the parser candidate is the second chance instead of the only one.
+     *
+     * The parse is deliberately dependency-free (no `Uri`): the share-link grammar here is
+     * `scheme://userInfo@host:port?key=value&…#fragment`, and a pure-Kotlin reader keeps the
+     * unit tests honest on the JVM.
+     */
+    private fun linkOutbound(profile: ProxyProfile, settings: AppSettings): JSONObject? {
+        val raw = profile.raw.trim()
+        if (raw.isEmpty() || raw.length > 4096 || raw.contains('\n')) return null
+        val scheme = raw.substringBefore("://", "").lowercase()
+        if (scheme !in setOf("tuic", "anytls")) return null
+
+        val withoutScheme = raw.substringAfter("://")
+        val queryStart = withoutScheme.indexOf('?')
+        val authorityFragment = (
+            if (queryStart >= 0) withoutScheme.substring(0, queryStart) else withoutScheme
+            ).substringBefore('#')
+        val query = if (queryStart >= 0) {
+            withoutScheme.substring(queryStart + 1).substringBefore('#')
+        } else {
+            ""
+        }
+        val at = authorityFragment.lastIndexOf('@')
+        val userInfo = if (at >= 0) authorityFragment.substring(0, at) else ""
+        val hostPort = if (at >= 0) authorityFragment.substring(at + 1) else authorityFragment
+
+        val parsed = splitEndpoint(hostPort)
+        val host = (parsed?.first ?: profile.host).trim()
+        val port = parsed?.second ?: profile.port
+        if (host.isEmpty() || port !in 1..65535) return null
+
+        val params = query.split('&').mapNotNull { pair ->
+            val key = pair.substringBefore('=')
+            val value = pair.substringAfter('=', "")
+            key.takeIf { it.isNotBlank() }?.let { k ->
+                k.lowercase() to runCatching { URLDecoder.decode(value, "UTF-8") }.getOrDefault(value)
+            }
+        }.toMap()
+
+        val sni = (params["sni"] ?: params["peer"] ?: params["server_name"]).orEmpty().ifBlank { host }
+        val tls = JSONObject().put("enabled", true).put("server_name", sni)
+        params["alpn"]?.split(',')?.mapNotNull { part -> part.trim().takeIf(String::isNotBlank) }
+            ?.takeIf { alpnList -> alpnList.isNotEmpty() }
+            ?.let { alpnValues -> tls.put("alpn", JSONArray().apply { alpnValues.forEach { value -> put(value) } }) }
+
+        return when (scheme) {
+            "tuic" -> {
+                // tuic://uuid:password@host:port
+                val uuid = userInfo.substringBefore(':')
+                val password = if (userInfo.contains(':')) userInfo.substringAfter(':') else ""
+                val hop = JSONObject()
+                    .put("type", "tuic")
+                    .put("server", host)
+                    .put("server_port", port)
+                    .put("uuid", uuid)
+                    .put("password", password)
+                    .put("tls", tls)
+                params["congestion_control"]?.takeIf { it.isNotBlank() }
+                    ?.let { hop.put("congestion_control", it) }
+                params["udp_relay_mode"]?.takeIf { it.isNotBlank() }
+                    ?.let { hop.put("udp_relay_mode", it) }
+                params["reduce_rtt"]?.takeIf { it.isNotBlank() }
+                    ?.let { hop.put("reduce_rtt", it.toBooleanStrictOrNull() ?: false) }
+                hop
+            }
+            else -> {
+                // anytls://password@host:port
+                val hop = JSONObject()
+                    .put("type", "anytls")
+                    .put("server", host)
+                    .put("server_port", port)
+                    .put("password", userInfo)
+                    .put("tls", tls)
+                hop
+            }
+        }.also { hop ->
+            hop.put("tag", PROXY_TAG)
+            applyDialTuning(hop, settings)
+        }
+    }
+
+    private fun putUserPass(result: JSONObject, server: JSONObject) {
+        server.optString("user").takeIf { it.isNotBlank() }?.let { result.put("username", it) }
+        server.optString("pass").takeIf { it.isNotBlank() }?.let { result.put("password", it) }
+    }
+
+    /** Xray `streamSettings` → sing-box `transport`. TCP is the absence of a transport. */
+    private fun transport(stream: JSONObject, notes: MutableList<String>): JSONObject? {
+        val method = stream.optString("network").ifBlank { stream.optString("method") }.lowercase()
+        return when (method) {
+            "", "tcp", "raw" -> {
+                // MARBLE_SINGBOX_AUTOPARSER_V154 — Xray's raw TCP header disguise (`headerType:
+                // srtp / unencrypted / packed` on `streamSettings`) is not a sing-box field. The
+                // old writer silently dropped the disguise and wrote `network: "tcp"` as if
+                // nothing had been lost; the honest result is plain TCP plus a note that says so.
+                val headerType = stream.optString("headerType")
+                if (headerType.isNotBlank() && !headerType.equals("none", ignoreCase = true)) {
+                    notes += "Xray TCP header disguise (\"$headerType\") has no sing-box " +
+                        "equivalent; this node runs plain TCP."
+                }
+                null
+            }
+            "ws" -> {
+                val ws = stream.optJSONObject("wsSettings") ?: JSONObject()
+                // MARBLE_SINGBOX_AUTOPARSER_V154 — the Host header arrives as `headers.Host`
+                // (Xray), `headers.host` (share-link emitters) or flat `host` (Marble's own
+                // emitter). The old reader only saw the first spelling, so a host pinned in the
+                // other two reached the core unpinned.
+                val host = firstNonBlank(
+                    ws.optJSONObject("headers")?.optString("Host").orEmpty(),
+                    ws.optJSONObject("headers")?.optString("host").orEmpty(),
+                    ws.optString("host")
+                )
+                JSONObject()
+                    .put("type", "ws")
+                    .apply {
+                        ws.optString("path").takeIf { it.isNotBlank() }?.let { put("path", it) }
+                        host?.let { put("headers", JSONObject().put("Host", it)) }
+                        ws.optInt("maxEarlyData", 0).takeIf { it > 0 }
+                            ?.let { put("max_early_data", it) }
+                        ws.optString("earlyDataHeaderName").takeIf { it.isNotBlank() }
+                            ?.let { put("early_data_header_name", it) }
+                    }
+            }
+            "grpc" -> {
+                val grpc = stream.optJSONObject("grpcSettings") ?: JSONObject()
+                // MARBLE_SINGBOX_AUTOPARSER_V154 — `multi_mode` (Xray) or `multiMode`
+                // (camelCase emitters) both map onto `permit_without_stream`.
+                val multiMode = grpc.optBoolean("multi_mode", false) ||
+                    grpc.optBoolean("multiMode", false)
+                JSONObject()
+                    .put("type", "grpc")
+                    .apply {
+                        grpc.optString("serviceName").takeIf { it.isNotBlank() }
+                            ?.let { put("service_name", it) }
+                        if (multiMode) put("permit_without_stream", true)
+                    }
+            }
+            "h2", "http" -> {
+                val http = stream.optJSONObject("httpSettings") ?: JSONObject()
+                JSONObject()
+                    .put("type", "http")
+                    .apply {
+                        http.optString("path").takeIf { it.isNotBlank() }?.let { put("path", it) }
+                        http.optJSONArray("host")?.let { hosts ->
+                            if (hosts.length() > 0) put("host", hosts)
+                        }
+                        http.optString("method").takeIf { it.isNotBlank() }
+                            ?.let { put("method", it) }
+                    }
+            }
+            "httpupgrade" -> {
+                val upgrade = stream.optJSONObject("httpupgradeSettings") ?: JSONObject()
+                JSONObject()
+                    .put("type", "httpupgrade")
+                    .apply {
+                        upgrade.optString("host").takeIf { it.isNotBlank() }
+                            ?.let { put("host", it) }
+                        upgrade.optString("path").takeIf { it.isNotBlank() }
+                            ?.let { put("path", it) }
+                    }
+            }
+            "xhttp", "splithttp" -> {
+                val xhttp = stream.optJSONObject("xhttpSettings") ?: JSONObject()
+                JSONObject()
+                    .put("type", "xhttp")
+                    .apply {
+                        xhttp.optString("host").takeIf { it.isNotBlank() }
+                            ?.let { put("host", it) }
+                        xhttp.optString("path").takeIf { it.isNotBlank() }
+                            ?.let { put("path", it) }
+                        xhttp.optString("mode").takeIf { it.isNotBlank() }
+                            ?.let { put("mode", it) }
+                    }
+            }
+            // MARBLE_SINGBOX_PROTOCOLS_V153 — KCP and QUIC are Xray v2ray transports, not
+            // sing-box transports. The old writer invented `type: kcp` / `type: quic`, which
+            // `sing-box check` refuses with "unknown field". sing-box cannot carry those
+            // transports, so the honest result is the core's default transport (TCP) plus a
+            // diagnostic note — not a config the core cannot parse.
+            "kcp", "mkcp" -> {
+                notes += "KCP transport is Xray-only; this node falls back to the sing-box default transport."
+                null
+            }
+            "quic" -> {
+                notes += "QUIC transport is Xray-only; this node falls back to the sing-box default transport."
+                null
+            }
+            else -> null
+        }
+    }
+
+    private fun tls(stream: JSONObject, settings: AppSettings, notes: MutableList<String>): JSONObject? {
+        val security = stream.optString("security").lowercase()
+        if (security == "none" || security.isBlank()) return null
+        val source = if (security == "reality") {
+            stream.optJSONObject("realitySettings") ?: JSONObject()
+        } else {
+            stream.optJSONObject("tlsSettings") ?: JSONObject()
+        }
+
+        val tls = JSONObject().put("enabled", true)
+        source.optString("serverName").takeIf { it.isNotBlank() }
+            ?.let { tls.put("server_name", it) }
+        source.optJSONArray("alpn")?.let { alpn ->
+            if (alpn.length() > 0) tls.put("alpn", alpn)
+        }
+        // `allowInsecure` is a removed feature in Xray, but a legacy profile can still carry it;
+        // sing-box spells the same request `insecure`.
+        if (source.optBoolean("allowInsecure", false)) tls.put("insecure", true)
+        source.optString("fingerprint").takeIf { it.isNotBlank() && it != "unsafe" }
+            ?.let { fingerprint ->
+                tls.put(
+                    "utls",
+                    JSONObject().put("enabled", true).put("fingerprint", fingerprint)
+                )
+            }
+        // MARBLE_SINGBOX_AUTOPARSER_V154 — TLS version floors and ceilings. Xray names them
+        // `minVersion`/`maxVersion`; sing-box reads `min_version`/`max_version`. Dropping them
+        // used to be silent, which matters when a node requires 1.3 or must be capped below.
+        source.optString("minVersion").takeIf { it.isNotBlank() }
+            ?.let { tls.put("min_version", it) }
+        source.optString("maxVersion").takeIf { it.isNotBlank() }
+            ?.let { tls.put("max_version", it) }
+        // Encrypted Client Hello: Xray's `echSettings.config` is the base64 ECHConfig, the same
+        // value sing-box's `ech.config` expects.
+        val echConfig = source.optJSONObject("echSettings")?.optString("config").orEmpty()
+        if (echConfig.isNotBlank()) {
+            tls.put("ech", JSONObject().put("enabled", true).put("config", echConfig))
+        }
+        // A pinned cipher-suite list has no sing-box equivalent: the core negotiates whatever
+        // the platform offers. Say so on the node instead of writing a field the core rejects.
+        if (source.optString("cipherSuites").isNotBlank()) {
+            notes += "This node pins TLS cipher suites. sing-box negotiates them with the " +
+                "platform instead; the pin is reported, not applied."
+        }
+        if (security == "reality") {
+            // MARBLE_SINGBOX_AUTOPARSER_V154 — Marble's own Reality emitter writes the public
+            // key under the `password` spelling, so both spellings are read.
+            firstNonBlank(source.optString("publicKey"), source.optString("password"))
+                ?.let { publicKey ->
+                    tls.put(
+                        "reality",
+                        JSONObject()
+                            .put("enabled", true)
+                            .put("public_key", publicKey)
+                            .apply {
+                                source.optString("shortId").takeIf { it.isNotBlank() }
+                                    ?.let { put("short_id", it) }
+                            }
+                    )
+                }
         }
         // MARBLE_SINGBOX_PROTOCOLS_V153 — Xray's transport-fragment knob is not a TLS option in
         // sing-box; the only supported place is route-options.tls_fragment. Writing `fragment`
