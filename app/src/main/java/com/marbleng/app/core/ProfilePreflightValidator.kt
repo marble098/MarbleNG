@@ -46,6 +46,14 @@ object ProfilePreflightValidator {
         "vless", "vmess", "trojan", "shadowsocks", "ss", "socks", "http", "tuic", "anytls", "hysteria", "hysteria2", "hy2", "wireguard"
     )
 
+    /**
+     * MARBLE_SINGBOX_PROTOCOLS_V153 — protocols whose only Marble representation is a share link
+     * because the extended core's own `parser` outbound runs them and there is no Xray outbound
+     * shape. Only these may pass preflight with an empty `configJson`; every other protocol still
+     * needs real Xray JSON before it may be ranked.
+     */
+    private val SINGBOX_LINK_ONLY_PROTOCOLS = setOf("tuic", "anytls")
+
     /** TLS/REALITY security schemes that require a serverName to be present to validate. */
     private val TLS_REQUIRING_SECURITY = setOf("tls", "reality")
 
@@ -75,7 +83,9 @@ object ProfilePreflightValidator {
             // importer keeps only the share link and an empty config. On the sing-box extended
             // engine the core's own `parser` outbound runs them; quarantining them as "no Xray
             // JSON" hid exactly the nodes the second engine is there for.
-            if (SingBoxConfigBuilder.shareLink(profile) != null) {
+            if (profile.scheme.lowercase() in SINGBOX_LINK_ONLY_PROTOCOLS &&
+                SingBoxConfigBuilder.shareLink(profile) != null
+            ) {
                 return PreflightVerdict(
                     Verdict.VALID,
                     "singbox-parser-link",
