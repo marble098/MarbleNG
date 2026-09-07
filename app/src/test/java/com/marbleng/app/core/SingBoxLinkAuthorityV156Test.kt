@@ -91,6 +91,54 @@ class SingBoxLinkAuthorityV156Test {
             .single { it.optString("tag") == SingBoxConfigBuilder.PROXY_TAG }
     }
 
+    /**
+     * The same node as the link says it is *today* — a port and an SNI the stored copy has since
+     * drifted away from. This is the situation reader 2 exists for: the stored JSON is a cache,
+     * and the cache can be stale.
+     *
+     * The reader is injected because [ProxyParser] parses URIs with `android.net.Uri`, which is a
+     * stub that throws in a plain JVM unit test. What is under test here is the candidate *order*
+     * and the fallback, not the link grammar.
+     */
+    private fun rereadJson(): String = JSONObject()
+        .put(
+            "outbounds",
+            JSONArray().put(
+                JSONObject()
+                    .put("protocol", "vless")
+                    .put("tag", "proxy")
+                    .put(
+                        "settings",
+                        JSONObject()
+                            .put("address", host)
+                            .put("port", 8443)
+                            .put("id", uuid)
+                            .put("encryption", "none")
+                    )
+                    .put(
+                        "streamSettings",
+                        JSONObject()
+                            .put("network", "tcp")
+                            .put("security", "tls")
+                            .put("tlsSettings", JSONObject().put("serverName", "current.example"))
+                    )
+            )
+        )
+        .toString()
+
+    private fun <T> withLinkReader(reader: (String) -> JSONObject?, block: () -> T): T {
+        val previous = SingBoxConfigBuilder.linkJson
+        SingBoxConfigBuilder.linkJson = reader
+        return try {
+            block()
+        } finally {
+            SingBoxConfigBuilder.linkJson = previous
+        }
+    }
+
+    /** Reader 2 as a pure function of the link: today's reading of the same node. */
+    private fun readers(json: String = rereadJson()): (String) -> JSONObject = { JSONObject(json) }
+
     // ───────────────────────────────────────────────────────────────── reader preference
 
     @Test
@@ -110,9 +158,25 @@ class SingBoxLinkAuthorityV156Test {
     }
 
     @Test
-    fun everyReaderIsOfferedSoOneRefusalCannotKillTheNode() {
-        val strategies = candidates(subscriptionProfile()).map { it.strategy }
+    fun readersThatProduceTheSameDocumentAreOfferedOnce() {
+        // De-duplication is a promise, not an accident: offering the identical document twice
+        // would make the manager spend a second core spawn proving the same refusal twice.
+        val profile = subscriptionProfile()
+        val strategies = withLinkReader({ JSONObject(xrayJson()) }) {
+            candidates(profile).map { it.strategy }
+        }
         assertEquals(
+            listOf(SingBoxConfigBuilder.STRATEGY_LINK, SingBoxConfigBuilder.STRATEGY_LINK_TRANSLATED),
+            strategies
+        )
+    }
+
+    @Test
+    fun everyReaderIsOfferedSoOneRefusalCannotKillTheNode() {
+        val profile = subscriptionProfile()
+        val strategies = withLinkReader(readers()) { candidates(profile).map { it.strategy } }
+        assertEquals(
+            "the link, the link re-read and the stored copy are three different documents here",
             listOf(
                 SingBoxConfigBuilder.STRATEGY_LINK,
                 SingBoxConfigBuilder.STRATEGY_LINK_TRANSLATED,
@@ -120,11 +184,18 @@ class SingBoxLinkAuthorityV156Test {
             ),
             strategies
         )
+        // The point of the list: the manager hands them over in order and moves on only when the
+        // core itself refuses one, so a blind spot in any single reader cannot kill the node.
+        val builds = withLinkReader(readers()) { candidates(profile) }
+        assertEquals(8443, proxyOf(builds[1]).getInt("server_port"))
+        assertEquals(443, proxyOf(builds[2]).getInt("server_port"))
     }
 
     @Test
     fun turningTheParserPreferenceOffFlipsTheOrderNotTheCoverage() {
-        val off = candidates(subscriptionProfile(), AppSettings(singBoxPreferParser = false))
+        val off = withLinkReader(readers()) {
+            candidates(subscriptionProfile(), AppSettings(singBoxPreferParser = false))
+        }
         assertEquals(
             "the stored JSON leads when the user asked for translation",
             SingBoxConfigBuilder.STRATEGY_TRANSLATED,
@@ -134,6 +205,7 @@ class SingBoxLinkAuthorityV156Test {
             "the core parser stays available as a fallback either way",
             off.any { it.strategy == SingBoxConfigBuilder.STRATEGY_LINK }
         )
+        assertEquals(3, off.size)
     }
 
     @Test
@@ -141,17 +213,20 @@ class SingBoxLinkAuthorityV156Test {
         // tuic/anytls and any node whose import predates a parser fix land here: no stored JSON,
         // but the link is still readable by Marble.
         val profile = subscriptionProfile(configJson = "")
-        val strategies = candidates(profile).map { it.strategy }
+        val builds = withLinkReader({ JSONObject(xrayJson()) }) {
+            candidates(profile)
+        }
         assertEquals(
             listOf(
                 SingBoxConfigBuilder.STRATEGY_LINK,
                 SingBoxConfigBuilder.STRATEGY_LINK_TRANSLATED
             ),
-            strategies
+            builds.map { it.strategy }
         )
-        val translated = proxyOf(candidates(profile).last())
+        val translated = proxyOf(builds.last())
         assertEquals("vless", translated.getString("type"))
         assertEquals(host, translated.getString("server"))
+        assertEquals(443, translated.getInt("server_port"))
     }
 
     @Test
@@ -199,11 +274,13 @@ class SingBoxLinkAuthorityV156Test {
     fun routingIsIdenticalForEveryReaderOfTheSameNode() {
         // The whole point of one scaffolder: the URL test, the DNS graph and the split rules mean
         // the same thing whichever reader produced the proxy hop.
-        val builds = candidates(
-            subscriptionProfile(),
-            AppSettings(routeDirectDomains = "example.ir", routeBlockDomains = "ads.example")
-        )
-        assertTrue(builds.size > 1)
+        val builds = withLinkReader(readers()) {
+            candidates(
+                subscriptionProfile(),
+                AppSettings(routeDirectDomains = "example.ir", routeBlockDomains = "ads.example")
+            )
+        }
+        assertEquals(3, builds.size)
         val routes = builds.map { JSONObject(it.json).getJSONObject("route").toString() }
         assertEquals(
             "routing must not depend on which reader won",

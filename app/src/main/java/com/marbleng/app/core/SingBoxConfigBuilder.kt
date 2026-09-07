@@ -202,7 +202,7 @@ object SingBoxConfigBuilder {
         // Reader 2 — Marble reads the link itself and translates what it read.
         val linkNotes = mutableListOf<String>()
         val fromLink = link
-            ?.let { xrayJsonFromLink(it) }
+            ?.let { linkJson(it) }
             ?.let { json -> translatedCandidate(STRATEGY_LINK_TRANSLATED, json, settings, linkNotes) }
             ?.getOrNull()
 
@@ -250,6 +250,19 @@ object SingBoxConfigBuilder {
      * blank `configJson`) and a profile whose stored JSON has drifted from its link still be
      * expressed without the fork's parser.
      */
+    /**
+     * How reader 2 turns a share link into the Xray JSON [translate] already understands.
+     *
+     * The production reader is [xrayJsonFromLink] → [ProxyParser], which parses URIs with
+     * `android.net.Uri` and so cannot be called from a plain JVM unit test (the Android stub jar
+     * throws `RuntimeException("Stub!")`, and this file's whole candidate model is unit-tested).
+     * The seam is what keeps the *ordering* — the part this design is about — testable, and it
+     * makes the parser's own syntax coverage a question for the instrumented suite instead of
+     * something the candidate tests silently depend on. Defaults keep production on [ProxyParser].
+     */
+    @Volatile
+    internal var linkJson: (String) -> JSONObject? = ::xrayJsonFromLink
+
     private fun xrayJsonFromLink(link: String): JSONObject? = runCatching {
         ProxyParser.parseInput(link)
             .singleOrNull()
