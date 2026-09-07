@@ -654,7 +654,8 @@ class BugFinder(private val context: Context, private val xray: XrayManager, pri
                 appendLine("singboxLogLength=${if (singboxLog.isNotBlank() && !singboxLog.startsWith("SingBox manager")) singboxLog.length else 0}")
                 appendLine("singboxUrlTestLength=${if (singboxUrlTestLog.isNotBlank() && !singboxUrlTestLog.startsWith("Not available")) singboxUrlTestLog.length else 0}")
                 appendLine("manager=${singbox?.let { it.javaClass.simpleName } ?: "none"}")
-                appendLine("native-lib=${File(context.applicationInfo.nativeLibraryDir, "libsingbox.so").exists()}")
+                val nativeLibPresent = File(context.applicationInfo.nativeLibraryDir, "libsingbox.so").exists()
+                appendLine("native-lib=$nativeLibPresent")
                 appendLine("--- singbox log tail (last 20 lines) ---")
                 val sTail = if (singboxLog.isNotBlank() && !singboxLog.startsWith("SingBox manager")) singboxLog.lineSequence().filter { it.isNotBlank() }.takeLast(20).joinToString("\n") else "N/A"
                 appendLine(sanitize(sTail))
@@ -712,7 +713,8 @@ class BugFinder(private val context: Context, private val xray: XrayManager, pri
                 appendLine("Ping / RTT markers in runtime: ${allRuntime.lineSequence().count { it.contains("verified-https", true) || it.contains("latencyMs", true) }}")
                 appendLine("BenchmarkEngine evidence: not directly read; check BenchmarkResult persistence if available")
                 appendLine("Recommended active actions: connect → run SingBox URL test → run BenchmarkEngine → re-run BugFinder for full report")
-                appendLine("Both cores: Xray=${xray.isAlive} • SingBox native=${File(context.applicationInfo.nativeLibraryDir, "libsingbox.so").exists()} • manager=${singbox != null}")
+                val sbNative = File(context.applicationInfo.nativeLibraryDir, "libsingbox.so").exists()
+                appendLine("Both cores: Xray=${xray.isAlive} • SingBox native=$sbNative • manager=${singbox != null}")
             }
         )
 
