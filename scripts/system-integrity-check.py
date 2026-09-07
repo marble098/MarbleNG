@@ -849,6 +849,14 @@ check(
     and 'dns.shecan.ir' in files["intel"]
     and '1.0.0.1' in files["intel"],
 )
+# MARBLE_SINGBOX_PROTOCOLS_V153 — the second engine consumes Marble Intelligence's own resolver
+# order, not the raw candidate list, so demoted endpoints stay last even when the builder does not
+# run effectiveSettings on the live start path.
+check(
+    "sing-box reads the evidence-ordered resolver pool from Marble Intelligence",
+    "fun singBoxResolverPool(" in files["intel"]
+    and "singBoxResolverPool(settings)" in files["singBox"],
+)
 # MARBLE_PING_AIR_V152 — the latency readouts on Servers and Home dropped their tinted fill: on
 # a stacked subscription row the slab read as a chip fighting the protocol badge, and the
 # glyph/number/unit triad was pressed against its own walls. The measurement stands alone in
