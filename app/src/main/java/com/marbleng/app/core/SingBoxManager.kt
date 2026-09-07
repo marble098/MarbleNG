@@ -56,14 +56,6 @@ class SingBoxManager(private val context: Context) {
     @Volatile var lastSelfHealNotes: List<String> = emptyList()
         private set
 
-    /**
-     * MARBLE_SINGBOX_AUTOPARSER_V154 — which reader produced the config that the last accepted
-     * start ran: [SingBoxConfigBuilder.STRATEGY_LINK] (the core's own `parser` outbound) or
-     * [SingBoxConfigBuilder.STRATEGY_TRANSLATED] (Marble's automatic Xray → sing-box converter).
-     */
-    @Volatile var lastStartStrategy: String = ""
-        private set
-
     /** Clash API port of the running instance; 0 when nothing is running. */
     @Volatile var apiPort: Int = 0
         private set
@@ -120,63 +112,50 @@ class SingBoxManager(private val context: Context) {
             val secret = UUID.randomUUID().toString()
 
             val resolverPool = intelligence?.singBoxResolverPool(settings) ?: emptyList()
+            val built = runCatching {
+                SingBoxConfigBuilder.build(
+                    profile = profile,
+                    settings = settings,
+                    socksPort = port,
+                    apiPort = controllerPort,
+                    apiSecret = secret,
+                    logPath = logFile.absolutePath,
+                    cachePath = cacheFile.absolutePath,
+                    resolverPool = resolverPool
+                )
+            }.getOrElse { return fail("Config: ${it.message ?: it::class.java.simpleName}") }
 
-            // MARBLE_SINGBOX_AUTOPARSER_V154 — automatic parsing, end to end. A node can be
-            // expressed as up to two different sing-box configs (native link `parser` outbound +
-            // Marble's own translation of the stored Xray JSON), and no single reader covers
-            // every node history has shipped. All candidates are written in preference order and
-            // each is offered to the core's own `check`; the FIRST one the core accepts carries
-            // the session. One reader's blind spot is no longer a refused node.
-            lastStartPhase = "candidates"
-            val candidates = SingBoxConfigBuilder.candidateBuilds(
-                profile = profile,
-                settings = settings,
-                socksPort = port,
-                apiPort = controllerPort,
-                apiSecret = secret,
-                logPath = logFile.absolutePath,
-                cachePath = cacheFile.absolutePath,
-                resolverPool = resolverPool
-            )
-            if (candidates.isEmpty()) {
-                return fail(support.reason.ifBlank { "sing-box cannot build a config for this profile" })
-            }
-
-            lastStartPhase = "check"
+            lastStartPhase = "write"
             val config = runtimeConfig
-            var accepted: SingBoxConfigBuilder.Build? = null
-            var lastRejection = ""
-            for (candidate in candidates) {
-                runCatching { config.writeText(candidate.json) }
-                    .onFailure { return fail("Config write failed: ${it.message}") }
-                // MARBLE_ENGINE_SELF_HEAL_V152 — every candidate gets the same doctor pass: known
-                // schema migrations are repaired in place and re-checked before rejection stands.
-                var rejection = checkConfig(config)
-                if (rejection != null) {
-                    val repair = SingBoxConfigDoctor.repair(config.readText())
-                    if (repair.repaired) {
-                        lastSelfHealNotes = lastSelfHealNotes + repair.notes
-                        runCatching { config.writeText(repair.json) }
-                            .onFailure { return fail("Config write failed: ${it.message}") }
-                        rejection = checkConfig(config)
+            runCatching { config.writeText(built.json) }
+                .onFailure { return fail("Config write failed: ${it.message}") }
+
+            // MARBLE_ENGINE_SELF_HEAL_V152 — a config the core rejects is repaired in place and
+            // re-checked before the attempt is allowed to fail. The shipped log shows what
+            // happens without this: a single removed `dns` outbound refused all 17 profiles and
+            // every session ended BLOCKED. The doctor fixes the known removals (deprecated dns
+            // outbound, pre-1.12 DNS `address` key), and only a config that still fails after
+            // repair is reported as a start error.
+            lastStartPhase = "check"
+            var rejection = checkConfig(config)
+            if (rejection != null) {
+                val repair = SingBoxConfigDoctor.repair(config.readText())
+                if (repair.repaired) {
+                    runCatching {
+                        config.writeText(repair.json)
+                        lastSelfHealNotes = repair.notes
+                    }.onFailure {
+                        lastSelfHealNotes = emptyList()
+                        return fail("Config write failed: ${it.message}")
+                    }
+                    lastStartPhase = "self-heal"
+                    rejection = checkConfig(config)
+                    if (rejection == null) {
+                        lastStartPhase = "check"
                     }
                 }
-                if (rejection == null) {
-                    accepted = candidate
-                    break
-                }
-                lastRejection = rejection
             }
-            if (accepted == null) {
-                return fail("sing-box rejected the config: $lastRejection")
-            }
-            lastStartStrategy = accepted.strategy
-            if (accepted.strategy != SingBoxConfigBuilder.STRATEGY_LINK &&
-                candidates.any { it.strategy == SingBoxConfigBuilder.STRATEGY_LINK }
-            ) {
-                lastSelfHealNotes = lastSelfHealNotes +
-                    "the core's link parser refused this node, so Marble's own translation runs it"
-            }
+            rejection?.let { return fail("sing-box rejected the config: $it") }
 
             lastStartPhase = "spawn"
             val child = runCatching {
@@ -318,59 +297,44 @@ class SingBoxManager(private val context: Context) {
         runCatching { log.delete() }
 
         val resolverPool = intelligence?.singBoxResolverPool(settings) ?: emptyList()
+        val built = runCatching {
+            SingBoxConfigBuilder.build(
+                profile = profile,
+                settings = settings,
+                socksPort = socksPort,
+                apiPort = controllerPort,
+                apiSecret = secret,
+                logPath = log.absolutePath,
+                cachePath = File(context.cacheDir, "singbox-urltest-cache.db").absolutePath,
+                resolverPool = resolverPool
+            )
+        }.getOrElse {
+            return SingBoxUrlTestResult(0L, false, it.message ?: it::class.java.simpleName)
+        }
 
-        // MARBLE_SINGBOX_AUTOPARSER_V154 — the URL test spreads the same automatic parser net as
-        // a real connection: every candidate config (core `parser` outbound + Marble's own
-        // translation) is `check`-ed in preference order and the first accepted one is measured.
-        // The old single-shot build meant a node whose link the core parser choked on failed the
-        // test even when Marble's translation was flawless — exactly the "URL test says failed
-        // while the server works through the tunnel" report.
-        val candidates = SingBoxConfigBuilder.candidateBuilds(
-            profile = profile,
-            settings = settings,
-            socksPort = socksPort,
-            apiPort = controllerPort,
-            apiSecret = secret,
-            logPath = log.absolutePath,
-            cachePath = File(context.cacheDir, "singbox-urltest-cache.db").absolutePath,
-            resolverPool = resolverPool
-        )
-        if (candidates.isEmpty()) {
-            return SingBoxUrlTestResult(
-                0L, false, support.reason.ifBlank { "no sing-box config could be built" }
-            )
-        }
-        var accepted = false
-        var lastRejection = ""
-        for (candidate in candidates) {
-            runCatching { config.writeText(candidate.json) }
-                .onFailure {
-                    return SingBoxUrlTestResult(0L, false, "config write failed: ${it.message}")
-                }
-            var rejection = checkConfig(config)
-            if (rejection != null) {
-                val healed = SingBoxConfigDoctor.repair(config.readText())
-                if (healed.repaired) {
-                    runCatching { config.writeText(healed.json) }
-                        .onFailure {
-                            return SingBoxUrlTestResult(
-                                0L, false, "config write failed: ${it.message}"
-                            )
-                        }
-                    rejection = checkConfig(config)
-                }
+        // MARBLE_ENGINE_SELF_HEAL_V152 — the throwaway URL-test instance gets the same doctor +
+        // check pass as a real start, so a measurement never dies on a schema the core outgrew.
+        // The previous throwaway path skipped `checkConfig` entirely and only ran the doctor; a
+        // config that still contained a translation bug was therefore measured as a startup
+        // failure with a raw single-line log hint instead of being repaired first.
+        runCatching { config.writeText(built.json) }
+            .onFailure {
+                return SingBoxUrlTestResult(0L, false, "config write failed: ${it.message}")
             }
-            if (rejection == null) {
-                accepted = true
-                break
+
+        var rejection = checkConfig(config)
+        if (rejection != null) {
+            val healed = SingBoxConfigDoctor.repair(config.readText())
+            if (healed.repaired) {
+                runCatching { config.writeText(healed.json) }
+                    .onFailure {
+                        return SingBoxUrlTestResult(0L, false, "config write failed: ${it.message}")
+                    }
+                rejection = checkConfig(config)
             }
-            lastRejection = rejection
         }
-        if (!accepted) {
-            runCatching { config.delete() }
-            return SingBoxUrlTestResult(
-                0L, false, "sing-box rejected the URL-test config: $lastRejection"
-            )
+        rejection?.let {
+            return SingBoxUrlTestResult(0L, false, "sing-box rejected the URL-test config: $it")
         }
 
         var child: Process? = null

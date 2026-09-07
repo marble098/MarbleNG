@@ -48,14 +48,7 @@ object SingBoxConfigDoctor {
         "cannot unmarshal array",
         "json: cannot",
         "wrong type for field",
-        "invalid configuration",
-        // MARBLE_SINGBOX_AUTOPARSER_V154 — the core's own link `parser` outbound refusing the
-        // share link is a *config* fault (Marble's reader set, not the network), so it must
-        // classify as engine-level: the session falls back to Marble's translation or the Xray
-        // engine instead of walking every remaining profile through the same refusal.
-        "invalid link",
-        "unsupported scheme",
-        "unknown protocol"
+        "invalid configuration"
     )
 
     data class Repair(
