@@ -46,14 +46,7 @@ class BenchmarkEngine(
         onCandidates: (List<ProxyProfile>) -> Unit = {},
         onStart: (ProxyProfile) -> Unit = {},
         onResult: (ProxyProfile, BenchmarkResult) -> Unit = { _, _ -> },
-        onProgress: (Int, Int, String) -> Unit = { _, _, _ -> },
-        /**
-         * MARBLE_PING_CANCEL_V154 — polled at every candidate boundary. When it flips true,
-         * queued candidates are abandoned and in-flight workers unwind through the normal
-         * futures; finished measurements are kept. A cancel stops what never started — it never
-         * erases what was measured. The default never stops.
-         */
-        shouldStop: () -> Boolean = { false }
+        onProgress: (Int, Int, String) -> Unit = { _, _, _ -> }
     ): List<BenchmarkResult> {
         if (profiles.isEmpty()) return emptyList()
         val s = tuned(settings)
@@ -78,15 +71,7 @@ class BenchmarkEngine(
             // user asked. The old `coerceIn(4, 32)` made the Settings value advisory: it could not
             // be lowered to 1 or 2 (which is what a congested mobile link needs before its numbers
             // mean anything) and it could not be raised past 32 on a fast connection.
-            //
-            // MARBLE_SINGBOX_AUTOPARSER_V154 — the URL test is the exception: each measurement
-            // spawns a throwaway sing-box extended core, and the old width (= TCP workers, up to
-            // 20+) was a spawn storm that turned an entire healthy subscription red. The slider
-            // stays authoritative for the pure-socket path (TCP ping); native children cap at 4.
-            directProbe(s) -> {
-                val width = PingBudget.concurrency(s.tcpWorkers)
-                if (s.probeMethod == ProbeMethod.URL_TEST) width.coerceAtMost(4) else width
-            }
+            directProbe(s) -> PingBudget.concurrency(s.tcpWorkers)
             // MarbleNG launches one native Xray child per candidate, unlike v2rayNG's in-process
             // dialer. Four is the safe ceiling here: larger same-host bursts can manufacture
             // Connection reset / TLS timeout failures that disappear when the node is tapped alone.
@@ -101,9 +86,6 @@ class BenchmarkEngine(
         val results = Collections.synchronizedList(mutableListOf<BenchmarkResult>())
         val jobs = candidates.mapIndexed { idx, p ->
             livePool.submit {
-                // MARBLE_PING_CANCEL_V154 — a cancelled batch abandons its queued candidates
-                // before any core is spawned for them.
-                if (shouldStop()) return@submit
                 onStart(p)
                 // Score each measurement as it lands so the caller can publish a finished node
                 // immediately instead of holding every result back until the batch ends.
@@ -141,16 +123,10 @@ class BenchmarkEngine(
         val batchCapMs = (perTaskCapMs * waves + BATCH_WAVE_GRACE_MS)
             .coerceAtMost(BATCH_ABSOLUTE_CAP_MS)
         val batchDeadlineNs = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(batchCapMs)
-        // MARBLE_PING_CANCEL_V154 — the stop flag is polled at every candidate boundary. Once
-        // observed, every not-yet-started job is cancelled (the in-flight ones unwind through
-        // their futures and the pool stop below), and the results gathered SO FAR are returned:
-        // cancel stops what never started, it never erases what was measured.
-        var stopRequested = false
         try {
             jobs.forEach { job ->
-                if (shouldStop()) stopRequested = true
                 val leftMs = TimeUnit.NANOSECONDS.toMillis(batchDeadlineNs - System.nanoTime())
-                if (stopRequested || leftMs <= 0L) {
+                if (leftMs <= 0L) {
                     job.cancel(true)
                 } else {
                     runCatching { job.get(leftMs, TimeUnit.MILLISECONDS) }
@@ -885,23 +861,12 @@ class BenchmarkEngine(
         var udpSuccess = 0
         var failureReason = "xray-start"
 
-        // MARBLE_AUTOPARSER_PING_TRUTH_V154 — a dead spawn is retried once. `temporary` returns
-        // false when the core never bound its port (a spawn-storm symptom: port exhaustion, a
-        // wedged process table, a transient binary hiccup), and publishing `xray-start` for a
-        // burst of simultaneous spawns is how a healthy node got marked dead. The retry costs
-        // milliseconds where it cannot help (a genuinely unbuildable config exits instantly in
-        // both attempts) and saves the measurement where it can.
-        var started = false
-        var spawnAttempt = 0
-        while (!started && spawnAttempt < 2) {
-            spawnAttempt++
-            started = runCatching {
-                // Reachability must be judged with the same runtime-compatible hardening class
-                // used by a real user connection. The old delayTest=true path deliberately
-                // stripped managed runtime pieces; a config could therefore fail Rank yet work
-                // immediately when tapped. v2rayStyleDelay still controls the lightweight HTTP
-                // measurement semantics.
-                xray.temporary(p, port, s, delayTest = false, link = linkEvidence) { livePort ->
+        val started = runCatching {
+            // Reachability must be judged with the same runtime-compatible hardening class
+            // used by a real user connection. The old delayTest=true path deliberately stripped
+            // managed runtime pieces; a config could therefore fail Rank yet work immediately when
+            // tapped. v2rayStyleDelay still controls the lightweight HTTP measurement semantics.
+            xray.temporary(p, port, s, delayTest = false, link = linkEvidence) { livePort ->
                 // MARBLE_IRAN_AWARE_PING_L0_TARGETS — no fixed gstatic/cloudflare reference set
                 // anymore. Both styles now probe the rotating pool (CDN diversity + literal ends)
                 // in the same 10-minute epoch order, so Rank, Home and the tuner all describe the
@@ -984,8 +949,7 @@ class BenchmarkEngine(
                     ) 100 else 0
                 }
             }
-            }.getOrDefault(false)
-        }
+        }.getOrDefault(false)
         if (!started && failureReason.isBlank()) failureReason = "xray-start"
 
         val outcomes = times.map { kotlin.math.round(it).toInt().coerceIn(1, 10_000) }.toMutableList()

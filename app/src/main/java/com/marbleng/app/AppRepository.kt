@@ -394,25 +394,6 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     val probeDone: Int get() = probeFinished.size
     val probeActive: Boolean get() = probeTotal > 0
 
-    // MARBLE_PING_CANCEL_V154 — a "Ping all" across a big subscription can run for minutes, and
-    // starting it by mistake used to have no undo. The flag below is polled by the benchmark
-    // engine at every candidate boundary; the UI state is what every stop control renders.
-    @Volatile
-    private var probeCancelRequested = false
-    var probeCancelling by mutableStateOf(false); private set
-
-    /**
-     * MARBLE_PING_CANCEL_V154 — asks the live ping sweep to stop. Queued candidates are
-     * abandoned, in-flight measurements unwind through the normal futures, and the results
-     * that already landed are kept: cancel stops what never started, it never erases what was
-     * measured. Safe to call at any time — with no sweep live it is a no-op that simply
-     * clears itself with the next batch.
-     */
-    fun cancelProbes() {
-        probeCancelRequested = true
-        postToMain { probeCancelling = true }
-    }
-
     /** True while any card is showing its own progress, so the global bar can stay hidden. */
     val inlineProgressActive: Boolean get() = probeActive || refreshingSources.isNotEmpty()
 
@@ -431,10 +412,6 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         probeLastName = ""
         probeLastOutcome = ""
         probeLastLatencyMs = 0
-        // MARBLE_PING_CANCEL_V154 — a fresh batch starts uncancelled; a stale stop request from
-        // the previous sweep must not abandon the first candidate of this one.
-        probeCancelRequested = false
-        probeCancelling = false
     }
 
     private fun markProbeStart(profile: ProxyProfile) = postToMain {
@@ -464,10 +441,6 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         probeFinished = emptySet()
         probeTotal = 0
         probeCurrentName = ""
-        // MARBLE_PING_CANCEL_V154 — the batch is over (naturally or cancelled), so the stop
-        // request and the "Cancelling…" state both go away with it.
-        probeCancelRequested = false
-        probeCancelling = false
     }
 
     private fun beginRefresh(ids: Collection<String>) = postToMain {
@@ -531,7 +504,6 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     init {
         migrateLocalSourceOwnershipIfNeeded()
         installUrlTestHook()
-        installRealDelayHook()
         RuntimeDiagnostics.setDebugEnabled(context, settings.debugModeEnabled)
         diagnostics.event("APP", "repository-init", "debugMode" to settings.debugModeEnabled)
         notifier.ensureChannels()
@@ -575,7 +547,26 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
      */
     private fun installUrlTestHook() {
         RouteProbe.urlTestHook = { profile, probeSettings, timeoutMs ->
-            val result = runSingBoxUrlTest(profile, probeSettings, timeoutMs)
+            // sing-box extended's delay endpoint throws away a plain-http URL before it ever dials,
+            // which would surface as a failed test on a node that is perfectly reachable. Marble's
+            // own real-delay measurement accepts http; this one does not, so it is forced to the
+            // https default rather than handed a URL the core would silently ignore.
+            val url = DelayTest.url(probeSettings.delayTestUrl)
+                .takeIf { it.startsWith("https://") } ?: DelayTest.URL
+            // MARBLE_SINGBOX_PROTOCOLS_V153 — the URL test now measures from the same effective
+            // settings as a real connection: evidence-guided resolver order, family plan and
+            // protocol-fitness verdict. The old path passed the raw probe settings, so the
+            // throwaway core could use a demoted resolver pair that the live session had already
+            // replaced.
+            val singBoxSettings = intelligence.effectiveSettings(profile, probeSettings)
+            val result = if (
+                settings.coreEngine() == CoreEngine.SINGBOX && singBox.isAlive &&
+                    activeProfileId == profile.id
+            ) {
+                singBox.urlTestLive(SingBoxConfigBuilder.PROXY_TAG, url, timeoutMs)
+            } else {
+                singBox.urlTestProfile(profile, singBoxSettings, url, timeoutMs)
+            }
             if (result.ok) {
                 RouteProbe.ProbeResult(
                     method = RouteProbe.METHOD_URL_TEST,
@@ -595,183 +586,6 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
                 )
             }
         }
-    }
-
-    /**
-     * The one sing-box extended URL test, shared by the URL-test method and the no-tunnel real
-     * delay hook: it prefers the tunnel the user already has (the live sing-box session, when
-     * that is the engine carrying this exact profile) and otherwise measures the node on its
-     * own throwaway instance.
-     */
-    private fun runSingBoxUrlTest(
-        profile: ProxyProfile,
-        probeSettings: AppSettings,
-        timeoutMs: Int
-    ): SingBoxUrlTestResult {
-        // sing-box extended's delay endpoint throws away a plain-http URL before it ever dials,
-        // which would surface as a failed test on a node that is perfectly reachable. Marble's
-        // own real-delay measurement accepts http; this one does not, so it is forced to the
-        // https default rather than handed a URL the core would silently ignore.
-        val url = DelayTest.url(probeSettings.delayTestUrl)
-            .takeIf { it.startsWith("https://") } ?: DelayTest.URL
-        // MARBLE_SINGBOX_PROTOCOLS_V153 — the URL test now measures from the same effective
-        // settings as a real connection: evidence-guided resolver order, family plan and
-        // protocol-fitness verdict. The old path passed the raw probe settings, so the
-        // throwaway core could use a demoted resolver pair that the live session had already
-        // replaced.
-        val singBoxSettings = intelligence.effectiveSettings(profile, probeSettings)
-        return if (
-            settings.coreEngine() == CoreEngine.SINGBOX && singBox.isAlive &&
-                activeProfileId == profile.id
-        ) {
-            singBox.urlTestLive(SingBoxConfigBuilder.PROXY_TAG, url, timeoutMs)
-        } else {
-            singBox.urlTestProfile(profile, singBoxSettings, url, timeoutMs)
-        }
-    }
-
-    /**
-     * MARBLE_AUTOPARSER_PING_TRUTH_V154 — publishes the no-tunnel **real delay** to
-     * [RouteProbe]: "a server that is alive never reports FAILED."
-     *
-     * [RouteProbe] is a process-wide object with no core of its own, so the bridge is one
-     * closure installed at startup. The hook spawns a throwaway core for the candidate and
-     * times real HTTPS round trips to the delay URL through that tunnel — the same measurement
-     * the live session reports. The engine choice follows what each protocol can actually run:
-     *
-     *  - **Xray-runnable profiles** get Xray's temporary tunnel (the same throwaway core Rank
-     *    judges them by). A dead spawn is retried once: a spawn storm is not a dead node.
-     *  - **Profiles Xray cannot run at all** — Hysteria v1, and the TUIC/AnyTLS link-only
-     *    nodes whose `configJson` is blank by construction — are measured by the sing-box
-     *    extended autoparser instead, which owns those protocols.
-     */
-    private fun installRealDelayHook() {
-        RouteProbe.realDelayHook = { profile, probeSettings, timeoutMs, samples ->
-            realDelayForCandidate(profile, probeSettings, timeoutMs, samples)
-        }
-    }
-
-    /** The no-tunnel real delay of one candidate, owned by the probe (see [installRealDelayHook]). */
-    private fun realDelayForCandidate(
-        profile: ProxyProfile,
-        probeSettings: AppSettings,
-        timeoutMs: Int,
-        samples: Int
-    ): RouteProbe.ProbeResult {
-        val effective = intelligence.effectiveSettings(profile, probeSettings)
-        if (xrayCanRunProfile(profile)) {
-            val url = DelayTest.url(effective.delayTestUrl)
-            val link = runCatching {
-                intelligence.linkEvidenceFor(profile.id)
-            }.getOrDefault(LinkEvidence.UNKNOWN)
-            var measured: RouteProbe.ProbeResult? = null
-            // A dead spawn (the core never bound its port) is retried once. The retry is cheap
-            // where it cannot help — an unbuildable config exits instantly in both attempts —
-            // and it is the difference between "failed" and "measured" when a burst of
-            // simultaneous spawns wedges the process table.
-            repeat(2) { attempt ->
-                var blockRan = false
-                val bound = runCatching {
-                    xray.temporary(
-                        profile = profile,
-                        port = 0,
-                        settings = effective,
-                        delayTest = true,
-                        link = link
-                    ) { livePort ->
-                        blockRan = true
-                        val roundTrip = RouteProbe.tunnelHttpsMeasure(
-                            socksPort = livePort,
-                            timeoutMs = timeoutMs,
-                            samples = samples,
-                            url = url
-                        )
-                        measured = roundTrip.copy(
-                            failureReason = if (roundTrip.failureReason.isBlank()) {
-                                "realdelay-throwaway"
-                            } else {
-                                roundTrip.failureReason
-                            }
-                        )
-                    }
-                }.getOrDefault(false)
-                // `temporary` returns true only when the block ran, so a false result with no
-                // measurement is a spawn that never bound its port: retry it once.
-                if (bound || blockRan || attempt == 1) break
-            }
-            return measured ?: RouteProbe.ProbeResult(
-                method = RouteProbe.METHOD_REAL_DELAY,
-                latencyMs = RouteProbe.UNREACHABLE,
-                successPercent = 0,
-                samples = samples,
-                lossPercent = 100.0,
-                failureReason = "throwaway-core-did-not-start"
-            )
-        }
-        // Hysteria v1 / TUIC / AnyTLS link-only: the sing-box extended autoparser owns these
-        // protocols, so the measurement goes through the same throwaway sing-box path the URL
-        // test uses.
-        val result = runSingBoxUrlTest(profile, effective, timeoutMs)
-        return if (result.ok) {
-            RouteProbe.ProbeResult(
-                method = RouteProbe.METHOD_REAL_DELAY,
-                latencyMs = result.delayMs.toDouble(),
-                successPercent = 100,
-                samples = 1,
-                failureReason = if (result.live) "realdelay-singbox-live" else "realdelay-singbox-throwaway"
-            )
-        } else {
-            RouteProbe.ProbeResult(
-                method = RouteProbe.METHOD_REAL_DELAY,
-                latencyMs = RouteProbe.UNREACHABLE,
-                successPercent = 0,
-                samples = 1,
-                lossPercent = 100.0,
-                failureReason = result.detail.ifBlank { "singbox-realdelay-failed" }.take(160)
-            )
-        }
-    }
-
-    /**
-     * MARBLE_AUTOPARSER_PING_TRUTH_V154 — can the Xray engine run this profile's protocol at
-     * all? Hysteria v1 and the TUIC/AnyTLS link-only nodes (blank `configJson` by
-     * construction) cannot: their measurements belong to the sing-box extended autoparser.
-     * Everything else — including SSH, which Xray bridges — is Xray-runnable.
-     */
-    private fun xrayCanRunProfile(profile: ProxyProfile): Boolean {
-        val scheme = profile.scheme.lowercase()
-        if (scheme in setOf("tuic", "anytls")) return profile.configJson.isNotBlank()
-        if (scheme in setOf("hysteria", "hysteria2", "hy2")) {
-            val version = runCatching {
-                val outbounds = JSONObject(profile.configJson).optJSONArray("outbounds")
-                var found: Int? = null
-                for (i in 0 until outbounds?.length() ?: 0) {
-                    val outbound = outbounds?.optJSONObject(i) ?: continue
-                    if (outbound.optString("protocol").lowercase() !in setOf("hysteria", "hysteria2")) {
-                        continue
-                    }
-                    val settings = outbound.optJSONObject("settings") ?: JSONObject()
-                    val explicit = settings.optInt("version", 0)
-                    if (explicit == 1 || explicit == 2) {
-                        found = explicit
-                        break
-                    }
-                    val hy = outbound.optJSONObject("streamSettings")
-                        ?.optJSONObject("hysteriaSettings")
-                    hy?.optInt("version", 0)?.let { v ->
-                        if (v == 1 || v == 2) {
-                            found = v
-                            return@runCatching found
-                        }
-                    }
-                }
-                found
-            }.getOrNull()
-            // The Marble Xray fork runs Hysteria v2 (its `hysteria` protocol is v2-flavoured);
-            // an explicit version-1 setting is the sing-box-extended-only case.
-            return version != 1
-        }
-        return true
     }
 
     /**
@@ -3120,12 +2934,8 @@ private fun postToMain(block: () -> Unit) {
                 selectSettings,
                 onCandidates = ::beginProbeBatch,
                 onStart = ::markProbeStart,
-                onResult = ::markProbeResult,
-                onProgress = { a, b, n -> message = "Tunnel intelligence $a/$b • $n" },
-                // The stop control is page-wide: any running batch can be ended from the
-                // progress strip, so every sweep honours the same flag.
-                shouldStop = { probeCancelRequested }
-            )
+                onResult = ::markProbeResult
+            ) { a, b, n -> message = "Tunnel intelligence $a/$b • $n" }
             mergeBenchmarks(results)
             val best = results.firstOrNull { it.success > 0 }?.let { profile(it.profileId) }
             message = if (best == null) "No working candidate" else "Best: ${best.name}"
@@ -3400,8 +3210,7 @@ private fun postToMain(block: () -> Unit) {
                 settings.copy(benchCandidates = 1),
                 onCandidates = ::beginProbeBatch,
                 onStart = ::markProbeStart,
-                onResult = ::markProbeResult,
-                shouldStop = { probeCancelRequested }
+                onResult = ::markProbeResult
             )
             mergeBenchmarks(result)
             message = result.firstOrNull()?.let {
@@ -3573,14 +3382,11 @@ private fun postToMain(block: () -> Unit) {
                                 result.copy(profileId = member.id, name = member.name)
                             )
                         }
-                    },
-                    onProgress = { done, total, name ->
-                        val unit = if (dedupe) "endpoints" else "servers"
-                        message = "$methodLabel • $scope • $done/$total $unit • $name"
-                    },
-                    // MARBLE_PING_CANCEL_V154 — this is the sweep the four stop controls aim at.
-                    shouldStop = { probeCancelRequested }
-                )
+                    }
+                ) { done, total, name ->
+                    val unit = if (dedupe) "endpoints" else "servers"
+                    message = "$methodLabel • $scope • $done/$total $unit • $name"
+                }
 
             val firstStartedNs = System.nanoTime()
             var representativeResults = runQuickPass()

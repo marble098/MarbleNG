@@ -196,14 +196,7 @@ data class MarbleStrings(
     // MARBLE_MODULAR_CUSTOMIZER_V151 — the customizer's hide switch. `customizeLayout` itself
     // already exists above; only the hide affordance is new.
     val hideCustomizeButton: String,
-    val hideCustomizeButtonHint: String,
-
-    // MARBLE_PING_CANCEL_V154 / MARBLE_HOME_TOPBAR_V154 — the stop control and the new
-    // capsule's status line.
-    val stopAction: String,
-    val cancellingSweep: String,
-    val statusConnected: String,
-    val statusStandby: String
+    val hideCustomizeButtonHint: String
 )
 
 private val EnglishStrings = MarbleStrings(
@@ -351,11 +344,7 @@ private val EnglishStrings = MarbleStrings(
     socksStandby = "Waiting for connection",
     modularStudioTitle = "Modular Studio",
     hideCustomizeButton = "Hide this button",
-    hideCustomizeButtonHint = "Removes the Customize row from Home. Bring it back from Settings → General → Home layout.",
-    stopAction = "Stop",
-    cancellingSweep = "Cancelling…",
-    statusConnected = "Connected",
-    statusStandby = "Standby"
+    hideCustomizeButtonHint = "Removes the Customize row from Home. Bring it back from Settings → General → Home layout."
 )
 
 private val PersianStrings = MarbleStrings(
@@ -505,11 +494,7 @@ private val PersianStrings = MarbleStrings(
     socksStandby = "در انتظار اتصال",
     modularStudioTitle = "استودیوی ماژولار",
     hideCustomizeButton = "پنهان کردن این دکمه",
-    hideCustomizeButtonHint = "ردیف سفارشی‌سازی از خانه حذف می‌شود. برای بازگرداندن آن به تنظیمات ← عمومی ← چیدمان خانه بروید.",
-    stopAction = "توقف",
-    cancellingSweep = "در حال لغو…",
-    statusConnected = "متصل",
-    statusStandby = "آماده‌به‌کار"
+    hideCustomizeButtonHint = "ردیف سفارشی‌سازی از خانه حذف می‌شود. برای بازگرداندن آن به تنظیمات ← عمومی ← چیدمان خانه بروید."
 )
 
 internal val LocalMarbleStrings = staticCompositionLocalOf { EnglishStrings }
