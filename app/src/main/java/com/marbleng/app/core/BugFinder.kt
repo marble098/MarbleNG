@@ -63,7 +63,7 @@ data class BugReport(
         appendLine("state=$state")
         appendLine("result=$headline")
         appendLine("pass=$passed warn=$warnings fail=$failures")
-        appendLine("mode=PASSIVE OBSERVATION + ACTIVE EVIDENCE READ • both Xray + SingBox extended • URL/ping/speed/stability reported from existing logs")
+        appendLine("mode=BOTH CORES OBSERVATION • SingBox extended added • passive evidence + log reading")
         appendLine()
 
         appendLine("=== HEALTH CHECKS ===")
@@ -151,33 +151,12 @@ class BugFinder(private val context: Context, private val xray: XrayManager, pri
             BugCheck("HEV JNI bridge", BugSeverity.FAIL, "libmarbleng.so is missing", "Rebuild native HEV")
         }
 
-        // MARBLE_SINGBOX_CORE_V151 — both cores must be present for dual-core operation
         val sbin = File(context.applicationInfo.nativeLibraryDir, "libsingbox.so")
         checks += if (sbin.isFile && sbin.length() > 0L) {
-            BugCheck("SingBox extended native core", BugSeverity.PASS, "libsingbox.so ${sbin.length()} bytes • ${if (singbox != null) "manager available" else "no manager"}")
+            BugCheck("SingBox extended native core", BugSeverity.PASS, "libsingbox.so ${sbin.length()} bytes")
         } else {
             BugCheck("SingBox extended native core", BugSeverity.FAIL, "libsingbox.so is missing", "Rebuild SingBox extended bundle")
         }
-
-        // SingBox URL-test / ping evidence from native log
-        val singboxUrlEvidence = when {
-            singboxUrlTestLog.isNotBlank() && !singboxUrlTestLog.startsWith("Not available") -> {
-                val lines = singboxUrlTestLog.lineSequence().filter { it.contains("urltest", ignoreCase = true) || it.contains("ping", ignoreCase = true) || it.contains("delay", ignoreCase = true) || it.contains("latency", ignoreCase = true) || it.contains("ms", ignoreCase = true) }.take(8).toList()
-                if (lines.isNotEmpty()) lines.joinToString(" | ") else "No url-test/ping markers in retained log"
-            }
-            else -> "SingBox url-test log unavailable (manager or file missing)"
-        }
-        checks += BugCheck("SingBox URL / ping evidence", BugSeverity.INFO, "Evidence in cache: $singboxUrlEvidence", "Run SingBox URL test while connected for active probe data")
-
-        // SingBox log health (errors / crashes / exits in singbox.log)
-        val singboxErrors = if (singboxLog.isNotBlank() && !singboxLog.startsWith("SingBox manager")) {
-            val sLines = singboxLog.lineSequence().filter { line ->
-                val l = line.lowercase()
-                l.contains("error") || l.contains("fail") || l.contains("fatal") || l.contains("crash") || l.contains("exit") || l.contains("panic") || l.contains("abort")
-            }.take(12).toList()
-            if (sLines.isNotEmpty()) sLines.joinToString(" | ") else "No error-like markers in singbox.log"
-        } else "Not inspected"
-        checks += BugCheck("SingBox core errors (log)", BugSeverity.INFO, "Retained markers: $singboxErrors", "Inspect logs/singbox.log if warnings repeated")
 
         checks += when {
             profiles.isEmpty() -> BugCheck("Server inventory", BugSeverity.FAIL, "No profiles installed")
@@ -647,86 +626,7 @@ class BugFinder(private val context: Context, private val xray: XrayManager, pri
             sections += BugSection("PENDING FATAL CRASH TOMBSTONE", sanitize(crashPending))
         }
 
-        // MARBLE_BUGFINDER_ULTIMATE_V16 — expanded both-core coverage
-        sections += BugSection(
-            "SINGBOX EXTENDED CORE + URL TEST",
-            buildString {
-                val logLen = if (singboxLog.isNotBlank() && !singboxLog.startsWith("SingBox manager")) singboxLog.length else 0
-                appendLine("singboxLogLength=$logLen")
-                val urlTestLen = if (singboxUrlTestLog.isNotBlank() && !singboxUrlTestLog.startsWith("Not available")) singboxUrlTestLog.length else 0
-                appendLine("singboxUrlTestLength=$urlTestLen")
-                appendLine("manager=${singbox?.let { it.javaClass.simpleName } ?: "none"}")
-                val nativeLibPresent = File(context.applicationInfo.nativeLibraryDir, "libsingbox.so").exists()
-                appendLine("native-lib=$nativeLibPresent")
-                appendLine("--- singbox log tail (last 20 lines) ---")
-                val sTail = if (singboxLog.isNotBlank() && !singboxLog.startsWith("SingBox manager")) singboxLog.lineSequence().filter { it.isNotBlank() }.takeLast(20).joinToString("\n") else "N/A"
-                appendLine(sanitize(sTail))
-                appendLine("--- url-test / ping cache (last 20 lines) ---")
-                val uTail = if (singboxUrlTestLog.isNotBlank() && !singboxUrlTestLog.startsWith("Not available")) singboxUrlTestLog.lineSequence().filter { it.isNotBlank() }.takeLast(20).joinToString("\n") else "N/A"
-                appendLine(sanitize(uTail))
-            }
-        )
-
-        sections += BugSection(
-            "STABILITY / RESTART PROFILE",
-            buildString {
-                val restarts = allRuntime.lineSequence().count { it.contains("HEV | run-enter", true) }
-                val exitEvents = allRuntime.lineSequence().count { it.contains("HEV | run-exit", true) || it.contains("VPN | blocked", true) }
-                val timeouts = allRuntime.lineSequence().count { it.contains("startup-timeout", true) || it.contains("blocked", true) }
-                appendLine("heV-enter-events=$restarts")
-                appendLine("heV-exit-or-blocked=$exitEvents")
-                appendLine("startup-timeouts=$timeouts")
-                appendLine("tunnel-uptime-ms=$tunnelUptimeMs")
-                appendLine("connection-mode=${settings.connectionMode}")
-                appendLine("profile-id=${activeProfileId.take(16)}")
-                appendLine("historical-crash-like=${exits.crashLike}")
-                appendLine("historical-low-memory=${exits.lowMemory}")
-                appendLine("stability-typed=RESTARTS:$restarts EXIT-BLOCK:$exitEvents TIMEOUT:$timeouts UPTIME:${tunnelUptimeMs}ms")
-            }
-        )
-
-        sections += BugSection(
-            "SPEED & LATENCY EVIDENCE",
-            buildString {
-                val latLines = allRuntime.lineSequence().filter { line ->
-                    line.contains("method=verified-https", true) ||
-                        line.contains("latencyMs", true) ||
-                        line.contains("rtt", true) ||
-                        line.contains("ttfb", true) ||
-                        line.contains("ping", true)
-                }.takeLast(12).toList()
-                if (latLines.isNotEmpty()) {
-                    latLines.forEach { appendLine(sanitize(it)) }
-                } else {
-                    appendLine("No verified HTTPS RTT / latency markers in retained runtime")
-                }
-                appendLine("ping-methods=verified-https-cert-check + socks-connect-estimate (legacy) + urlTest native")
-                appendLine("speed-evidence=bounds from BenchmarkEngine (if run) • no synthetic download in BugFinder")
-                val stabilityScore = if (tunnelUptimeMs > 300_000) "high" else if (tunnelUptimeMs > 60_000) "medium" else "low / short"
-                appendLine("stability-score=$stabilityScore")
-            }
-        )
-
-        sections += BugSection(
-            "ACTIVE PROBE SUMMARY (URL / PING / STABILITY)",
-            buildString {
-                appendLine("BugFinder policy: PASSIVE OBSERVATION — does NOT generate external probe traffic.")
-                appendLine("Evidence below comes from existing logs / caches produced by BenchmarkEngine / RouteProbe / SingBoxManager.")
-                val urlCacheStatus = if (singboxUrlTestLog.isNotBlank() && !singboxUrlTestLog.startsWith("Not")) "present (${singboxUrlTestLog.length} chars)" else "missing / not run"
-                appendLine("URL-test cache: $urlCacheStatus")
-                appendLine("Ping / RTT markers in runtime: ${allRuntime.lineSequence().count { it.contains("verified-https", true) || it.contains("latencyMs", true) }}")
-                appendLine("BenchmarkEngine evidence: not directly read; check BenchmarkResult persistence if available")
-                appendLine("Recommended active actions: connect → run SingBox URL test → run BenchmarkEngine → re-run BugFinder for full report")
-                val sbNative = File(context.applicationInfo.nativeLibraryDir, "libsingbox.so").exists()
-                appendLine("Both cores: Xray=${xray.isAlive} • SingBox native=$sbNative • manager=${singbox != null}")
-            }
-        )
-
-        sections += BugSection(
-            "BOTH CORES ERROR INDEX (COMBINED Xray + SingBox)",
-            if (problemEvidence.isEmpty()) "No error-like evidence in retained logs for either core"
-            else problemEvidence.joinToString("\n")
-        )
+        sections += BugSection("SINGBOX EXTENDED CORE STATUS", "libsingbox.so=" + File(context.applicationInfo.nativeLibraryDir, "libsingbox.so").exists() + " • singboxLog=" + (singboxLog.length) + " chars • urlTestLog=" + (singboxUrlTestLog.length) + " chars")
 
         return BugReport(
             generatedAt = now,
