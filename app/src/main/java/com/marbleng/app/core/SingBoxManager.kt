@@ -246,8 +246,8 @@ class SingBoxManager(private val context: Context) {
     fun urlTestLive(tag: String, url: String, timeoutMs: Int): SingBoxUrlTestResult {
         val port = apiPort
         val secret = apiSecret
-        val child = process
-        if (port <= 0 || child == null || !child.isAlive) {
+        val child = process ?: return SingBoxUrlTestResult(0L, false, "sing-box extended is not running")
+        if (port <= 0 || !child.isAlive) {
             return SingBoxUrlTestResult(0L, false, "sing-box extended is not running")
         }
         // MARBLE_SINGBOX_PROTOCOLS_V153 — a real connection publishes the SOCKS listener slightly
