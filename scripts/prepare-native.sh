@@ -74,6 +74,14 @@ export GOTOOLCHAIN=auto
 # dead build says what it was doing, not just that it died.
 MILESTONE=""
 
+# Log file of the native compile that is running (or ran last), written by
+# build_xray()/build_singbox(). A compiler writes its real reason into its
+# output, and failure_diagnostics() replays the tail into the step summary and
+# the run annotation - the step log itself is not always reachable when a
+# release build dies (its log host has been unreachable from every diagnostic
+# environment so far), so the reason has to travel in the annotation.
+LAST_BUILD_LOG=""
+
 log() {
     MILESTONE="$*"
     printf '\n\033[1;36m[MarbleNG]\033[0m %s\n' "$*"
@@ -90,6 +98,35 @@ warn() {
 die() {
     printf '\033[1;31m[FAIL]\033[0m %s\n' "$*" >&2
     exit 1
+}
+
+# Emit a GitHub Actions annotation. Annotation commands are single-line: a
+# newline ends the command and truncates the message, so multi-line bodies are
+# %0A-encoded (and percent signs escaped first, or %0A would decode as text).
+annotate_error() {
+    local title="$1"
+    local body="$2"
+
+    body="${body//%/%25}"
+    body="${body//$'\r'/ }"
+    body="${body//$'\n'/%0A}"
+
+    printf '::error title=%s::%s\n' "$title" "$body"
+}
+
+# Replay the tail of a failed command's log so the reason survives the loss of
+# the step log. Kept short: annotations and step summaries are read by humans.
+tail_of_log() {
+    local file="$1"
+    local lines="${2:-40}"
+
+    if [[ -n "$file" && -s "$file" ]]; then
+        echo "----- last $lines lines of $file -----"
+        tail -n "$lines" -- "$file"
+        echo "----- end -----"
+    else
+        echo "(no captured log)"
+    fi
 }
 
 require_command() {
@@ -259,6 +296,19 @@ failure_diagnostics() {
             fi
 
             echo
+            echo "Disk (workspace):"
+            df -h "$ROOT" 2>/dev/null || true
+
+            echo
+            echo "Memory:"
+            free -m 2>/dev/null || true
+
+            echo
+            echo "Last native compile log:"
+            echo
+            tail_of_log "$LAST_BUILD_LOG" 60
+
+            echo
             echo "================================================================"
         } | tee "${report:-/dev/null}"
 
@@ -287,10 +337,23 @@ failure_diagnostics() {
             } >> "${GITHUB_STEP_SUMMARY}"
 
             local annotation_title
-            annotation_title="$(printf '%s' "${MILESTONE:-native preparation}" | sed 's/%/%25/g')"
+            annotation_title="$(printf '%s' "${MILESTONE:-native preparation}" | sed 's/%/%25/g;s/\r/ /g;s/\n/ /g')"
 
-            printf '::error title=MarbleNG-native-ABIs::prepare-native.sh failed at "%s" (exit %s) - full diagnostics in the step summary\n' \
-                "$annotation_title" "$status"
+            # The step log is not always reachable (a dead release build has
+            # already lost it twice), so the annotation carries the compiler's
+            # own last words, not just a pointer to the summary.
+            local annotation_body
+            annotation_body="$(
+                printf 'prepare-native.sh failed at "%s" (exit %s)\n' \
+                    "${MILESTONE:-native preparation}" "$status"
+
+                if [[ -n "$LAST_BUILD_LOG" && -s "$LAST_BUILD_LOG" ]]; then
+                    printf '\nCompiler output (%s):\n' "$(basename "$LAST_BUILD_LOG")"
+                    tail_of_log "$LAST_BUILD_LOG" 30
+                fi
+            )"
+
+            annotate_error "MarbleNG-native-ABIs" "$annotation_body"
         fi
 
         [[ -n "$report" ]] && rm -f "$report"
@@ -734,6 +797,13 @@ build_xray() {
     echo "================================================================"
     echo
 
+    # Captured, not just streamed: the compile's own error text is the only
+    # first-hand account of why it died, and it has to survive the loss of the
+    # step log (see failure_diagnostics()).
+    local build_log="$CORE/xray-build-$abi.log"
+
+    LAST_BUILD_LOG="$build_log"
+
     if [[ -n "$goarm" ]]; then
 
         (
@@ -754,7 +824,7 @@ build_xray() {
                     -ldflags="-X github.com/xtls/xray-core/core.build=${commit_id} -s -w -buildid= -checklinkname=0" \
                     -o "$output" \
                     ./main
-        )
+        ) 2>&1 | tee "$build_log"
 
     else
 
@@ -775,7 +845,7 @@ build_xray() {
                     -ldflags="-X github.com/xtls/xray-core/core.build=${commit_id} -s -w -buildid= -checklinkname=0" \
                     -o "$output" \
                     ./main
-        )
+        ) 2>&1 | tee "$build_log"
 
     fi
 
@@ -1738,8 +1808,22 @@ build_singbox() {
     echo "Version      : $SINGBOX_BUILD_VERSION"
     echo "Crash fix    : MARBLE_SINGBOX_ANDROID_CLI_CRASH_V157"
     echo "Stage output : $output"
+
+    echo -n "Go toolchain : "
+
+    (
+        cd "$SINGBOX_SRC"
+        env GOTOOLCHAIN=auto go version
+    )
+
     echo "================================================================"
     echo
+
+    # Captured, not just streamed: a compiler error here has to survive the
+    # loss of the step log (see failure_diagnostics()).
+    local build_log="$CORE/singbox-build-$abi.log"
+
+    LAST_BUILD_LOG="$build_log"
 
     if [[ -n "$goarm" ]]; then
 
@@ -1762,7 +1846,7 @@ build_singbox() {
                     -ldflags "-X github.com/sagernet/sing-box/constant.Version=${SINGBOX_BUILD_VERSION} -s -w -buildid= -checklinkname=0" \
                     -o "$output" \
                     ./cmd/sing-box
-        )
+        ) 2>&1 | tee "$build_log"
 
     else
 
@@ -1784,7 +1868,7 @@ build_singbox() {
                     -ldflags "-X github.com/sagernet/sing-box/constant.Version=${SINGBOX_BUILD_VERSION} -s -w -buildid= -checklinkname=0" \
                     -o "$output" \
                     ./cmd/sing-box
-        )
+        ) 2>&1 | tee "$build_log"
 
     fi
 
