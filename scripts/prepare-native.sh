@@ -1760,6 +1760,44 @@ ok "sing-box crash backport verified by go test"
 # job after Xray, HEV and the JNI bridge have already been built.
 # ---------------------------------------------------------------------------
 
+# The pinned fork's own tag list (.goreleaser.yaml build id `android`).
+# with_clash_api is load-bearing: the URL test reads the core's Clash
+# controller. Changing this list changes which protocols the product supports.
+#
+# with_admin_panel is deliberately NOT in this list, and it can never be
+# added back without also generating its assets. The fork's
+# service/admin_panel/service.go carries
+#
+#     //go:embed dist
+#     var distFS embed.FS
+#
+# but `service/admin_panel/dist` is neither committed nor committable: it is
+# the Vite bundle the fork builds with `npm run build` + `go run
+# ./cmd/internal/admin_panel_pack` in its own release pipeline, and the
+# repository's .gitignore excludes `dist`. Upstream therefore only compiles
+# because goreleaser runs after that step; a plain source clone always dies
+# with
+#
+#     service/admin_panel/service.go:48:12: pattern dist: no matching files found
+#
+# which is exactly how the first source-built release on main stopped: every
+# native build after PR #130 failed at "Building sing-box for arm64-v8a".
+#
+# MarbleNG is a client and never configures an admin-panel service, and the
+# tag's absence is not silent: the fork's service_stub.go registers the type
+# and answers "Admin panel is not included in this build, rebuild with -tags
+# with_admin_panel" for anyone who does.
+#
+# Defined here, BEFORE the package-graph pre-check below, because the pre-check
+# resolves the graph with these exact tags. Defining it after the pre-check
+# (as it previously was) left SINGBOX_TAGS unset when the pre-check ran under
+# `set -u`, aborting the build at "Resolving the sing-box Android package
+# graph" before a single ABI was compiled.
+SINGBOX_TAGS="with_gvisor,with_quic,with_dhcp,with_wireguard,with_utls,with_acme,with_clash_api,with_tailscale,with_masque,with_mtproxy,with_trusttunnel,with_call,with_sudoku,with_manager,with_profiler,badlinkname,tfogo_checklinkname0"
+
+SINGBOX_VERSION="${SINGBOX_TAG#v}"
+SINGBOX_BUILD_VERSION="${SINGBOX_VERSION}-marble.${SINGBOX_PATCH_LEVEL}"
+
 log "Resolving the sing-box Android package graph"
 
 SINGBOX_GRAPH_LOG="$CORE/singbox-package-graph.log"
@@ -1811,37 +1849,11 @@ ok "sing-box Android package graph resolves for every ABI"
 # sing-box build helper
 # ---------------------------------------------------------------------------
 
-# The pinned fork's own tag list (.goreleaser.yaml build id `android`).
-# with_clash_api is load-bearing: the URL test reads the core's Clash
-# controller. Changing this list changes which protocols the product supports.
-#
-# with_admin_panel is deliberately NOT in this list, and it can never be
-# added back without also generating its assets. The fork's
-# service/admin_panel/service.go carries
-#
-#     //go:embed dist
-#     var distFS embed.FS
-#
-# but `service/admin_panel/dist` is neither committed nor committable: it is
-# the Vite bundle the fork builds with `npm run build` + `go run
-# ./cmd/internal/admin_panel_pack` in its own release pipeline, and the
-# repository's .gitignore excludes `dist`. Upstream therefore only compiles
-# because goreleaser runs after that step; a plain source clone always dies
-# with
-#
-#     service/admin_panel/service.go:48:12: pattern dist: no matching files found
-#
-# which is exactly how the first source-built release on main stopped: every
-# native build after PR #130 failed at "Building sing-box for arm64-v8a".
-#
-# MarbleNG is a client and never configures an admin-panel service, and the
-# tag's absence is not silent: the fork's service_stub.go registers the type
-# and answers "Admin panel is not included in this build, rebuild with -tags
-# with_admin_panel" for anyone who does.
-SINGBOX_TAGS="with_gvisor,with_quic,with_dhcp,with_wireguard,with_utls,with_acme,with_clash_api,with_tailscale,with_masque,with_mtproxy,with_trusttunnel,with_call,with_sudoku,with_manager,with_profiler,badlinkname,tfogo_checklinkname0"
-
-SINGBOX_VERSION="${SINGBOX_TAG#v}"
-SINGBOX_BUILD_VERSION="${SINGBOX_VERSION}-marble.${SINGBOX_PATCH_LEVEL}"
+# SINGBOX_TAGS / SINGBOX_VERSION / SINGBOX_BUILD_VERSION are defined ABOVE,
+# immediately before the "Resolving the sing-box Android package graph"
+# pre-check, so that the pre-check validates the exact tag set the release
+# build compiles with. The tag-list rationale — and why with_admin_panel is
+# deliberately absent from it — is documented there.
 
 # Verify the binary really is the requested Android architecture.
 singbox_assert_machine() {
