@@ -67,14 +67,37 @@ def marbleDiag = tasks.register("marbleDiag") {
             }
             def failures = 0
             xml.each { file ->
-                def text = file.getText().replaceAll(/\s+/, " ")
-                def matcher = (text =~ /(?s)<testcase\b[^>]*>.*?<\/testcase>/)
-                while (matcher.find()) {
-                    def element = matcher.group()
+                def text = file.getText()
+                // Walk <testcase> blocks by hand. Self-closing <testcase/> elements have no
+                // </testcase>, so a regex anchored on </testcase> swallows every passing case
+                // before the failing one and truncates the message that actually matters.
+                int at = 0
+                while (true) {
+                    int start = text.indexOf("<testcase", at)
+                    if (start < 0) break
+                    int next = text.indexOf("<testcase", start + 9)
+                    int close = text.indexOf("</testcase>", start)
+                    int end
+                    if (close >= 0 && (next < 0 || close < next)) {
+                        end = close + 11
+                    } else if (next >= 0) {
+                        end = next
+                    } else {
+                        end = text.length()
+                    }
+                    def element = text.substring(start, end)
+                    at = end
                     if (!element.contains("<failure") && !element.contains("<error")) continue
                     failures += 1
-                    def detail = element.length() > 1000 ? element.substring(0, 1000) : element
-                    println("::error file=app/build.gradle.kts,line=1::marbleDiag " + detail)
+                    def nm = (element =~ /name="([^"]*)"/)
+                    def testName = nm.find() ? nm.group(1) : "?"
+                    def fm = (element =~ /message="([^"]*)"/)
+                    def message = fm.find() ? fm.group(1) : ""
+                    def flat = element.replaceAll(/\s+/, " ")
+                    if (flat.length() > 800) flat = flat.substring(0, 800)
+                    println("::error file=app/build.gradle.kts,line=1::marbleDiag FAILED " +
+                        testName + " :: " + message)
+                    println("::error file=app/build.gradle.kts,line=1::marbleDiag DETAIL " + flat)
                 }
             }
             println("::error file=app/build.gradle.kts,line=1::marbleDiag scanned " + xml.size() +
