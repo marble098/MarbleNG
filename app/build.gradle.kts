@@ -334,8 +334,8 @@ dependencies {
 // already uses for subprocesses, and it skips itself entirely once the main compile succeeds.
 val marbleProbe = tasks.registering(Exec::class) {
     val repoPath = rootProject.projectDir.absolutePath
-    val probePath = java.io.File("/tmp/marble-probe-src").absolutePath
-    val logPath = java.io.File("/tmp/marble-probe.log").absolutePath
+    val probePath = layout.buildDirectory.dir("marble-probe-src").get().asFile.absolutePath
+    val logPath = layout.buildDirectory.file("marble-probe.log").get().asFile.absolutePath
     val mainClasses = layout.buildDirectory.dir("tmp/kotlin-classes/debug")
     onlyIf { !mainClasses.get().asFile.isDirectory }
     commandLine(
@@ -353,10 +353,11 @@ val marbleDiag = tasks.register("marbleDiag") {
     val resultsDir = layout.buildDirectory.dir("test-results/testDebugUnitTest")
     val mainClasses = layout.buildDirectory.dir("tmp/kotlin-classes/debug")
     val testClasses = layout.buildDirectory.dir("tmp/kotlin-classes/debugUnitTest")
+    val probeLog = layout.buildDirectory.file("marble-probe.log")
     dependsOn(marbleProbe)
     doLast {
         runCatching {
-            val log = java.io.File("/tmp/marble-probe.log")
+            val log = probeLog.get().asFile
             if (log.isFile) {
                 val lines = log.readLines()
                 val errors = lines.filter { it.startsWith("e: ") }
