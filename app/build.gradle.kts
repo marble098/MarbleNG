@@ -326,35 +326,39 @@ dependencies {
 // annotations API. When no result files exist at all the failure was a compilation, and which
 // classes directory is missing says whether it was main or test sources.
 // ─────────────────────────────────────────────────────────────────────────────────────────────
+// MARBLE_DIAG_SCAFFOLD_V156 — temporary. Kotlin reports compile diagnostics through the
+// Gradle logger, so they never reach a workflow command and the annotations can only say
+// "compilation failed". This task re-runs the failing compile against a copy of the sources in
+// /tmp, where its output can be redirected to a file, and marbleDiag republishes the compiler's
+// own "e:" lines as annotations. It is an Exec task because that is the task type this script
+// already uses for subprocesses, and it skips itself entirely once the main compile succeeds.
+val marbleProbe = tasks.registering(Exec::class) {
+    val repoPath = rootProject.projectDir.absolutePath
+    val probePath = java.io.File("/tmp/marble-probe-src").absolutePath
+    val logPath = java.io.File("/tmp/marble-probe.log").absolutePath
+    val mainClasses = layout.buildDirectory.dir("tmp/kotlin-classes/debug")
+    onlyIf { !mainClasses.get().asFile.isDirectory }
+    commandLine(
+        "bash", "-c",
+        "rm -rf " + probePath + " && mkdir -p " + probePath +
+            " && cd " + repoPath + " && tar -cf - --exclude=./.git --exclude=build . " +
+            "| (cd " + probePath + " && tar -xf -) && gradle -p " + probePath +
+            " :app:compileDebugKotlin -x marbleDiag -x marbleProbe --no-daemon --console=plain" +
+            " > " + logPath + " 2>&1"
+    )
+    isIgnoreExitValue = true
+}
+
 val marbleDiag = tasks.register("marbleDiag") {
     val resultsDir = layout.buildDirectory.dir("test-results/testDebugUnitTest")
     val mainClasses = layout.buildDirectory.dir("tmp/kotlin-classes/debug")
     val testClasses = layout.buildDirectory.dir("tmp/kotlin-classes/debugUnitTest")
-    // Every path is resolved here, at configuration time. Reaching for the project from inside a
-    // task action is a configuration cache problem, and that fails the build before any task runs.
-    val repoPath = layout.projectDirectory.asFile.parentFile.absolutePath
-    val probePath = java.io.File("/tmp/marble-probe-src").absolutePath
-    val logPath = java.io.File("/tmp/marble-probe.log").absolutePath
+    dependsOn(marbleProbe)
     doLast {
-        /*
-         * Kotlin reports compile diagnostics through the Gradle logger, so they never reach a
-         * workflow command and the annotations can only say "compilation failed". When the main
-         * compile produced no classes, re-run just that compile against a copy of the sources in
-         * /tmp and read the compiler's own "e:" lines out of its redirected output. Excluding the
-         * marbleDiag task keeps this finalizer from recursing into itself.
-         */
         runCatching {
-            if (!mainClasses.get().asFile.isDirectory) {
-                val shell = "rm -rf " + probePath + " && mkdir -p " + probePath +
-                    " && cd " + repoPath + " && tar -cf - --exclude=./.git --exclude=build . " +
-                    "| (cd " + probePath + " && tar -xf -) && gradle -p " + probePath +
-                    " :app:compileDebugKotlin -x marbleDiag --no-daemon --console=plain"
-                val child = ProcessBuilder(listOf("bash", "-c", shell))
-                    .redirectErrorStream(true)
-                    .redirectOutput(java.io.File(logPath))
-                    .start()
-                child.waitFor()
-                val lines = java.io.File(logPath).readLines()
+            val log = java.io.File("/tmp/marble-probe.log")
+            if (log.isFile) {
+                val lines = log.readLines()
                 val errors = lines.filter { it.startsWith("e: ") }
                 errors.take(80).forEach { line ->
                     println("::error file=app/build.gradle.kts,line=1::marbleDiag " + line.take(600))
