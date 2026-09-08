@@ -66,6 +66,33 @@ object SingBoxAndroidRuntime {
     val ANDROID_FORBIDDEN_INBOUND_TYPES: List<String> = listOf("tun", "redirect", "tproxy")
 
     /**
+     * MARBLE_PACKAGES_XML_ROOT_CAUSE_V157 — the process/package matchers as they actually appear
+     * in the wild: as fields on an individual `route.rules[]` object (and on an inbound's
+     * sniff/policy block), not as top-level `route.*` keys. [ANDROID_FORBIDDEN_ROUTE_KEYS] and
+     * [ANDROID_FORBIDDEN_DIAL_KEYS] each carry their own copy of the package/uid/process subset
+     * for their own shape of object; this is the single canonical list for every *per-rule* or
+     * *per-inbound* callsite, so a new caller can no longer hand-copy a partial subset of it and
+     * silently drop one.
+     *
+     * Any one of these on Android forces the core to resolve installed packages through its own
+     * platform `PackageManager` shim, which on a non-rooted app-UID process fails with
+     * `initialize package manager: read packages list: open /data/system/packages.xml:
+     * permission denied` — a fatal the pinned core does not nil-check before using the result,
+     * so the process dies with `panic: runtime error: invalid memory address or nil pointer
+     * dereference` / `SIGSEGV`. There is no code path back from that: the fix is to guarantee the
+     * key never reaches the core at all, on every candidate a rule can appear in.
+     */
+    val ANDROID_FORBIDDEN_RULE_KEYS: List<String> = listOf(
+        "find_process",
+        "find_neighbor",
+        "dhcp_lease_files",
+        "include_package",
+        "exclude_package",
+        "include_uid",
+        "exclude_uid"
+    )
+
+    /**
      * DNS transports that need the banned netlink socket (`dhcp` walks the interface table to
      * find the lease) — the config doctor drops them rather than letting the core die.
      */

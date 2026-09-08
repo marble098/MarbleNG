@@ -461,15 +461,7 @@ private fun sanitizeAndroidCliConfig(
 
                 removeKeys(
                     inbound,
-                    listOf(
-                        "include_package",
-                        "exclude_package",
-                        "include_uid",
-                        "exclude_uid",
-                        "find_process",
-                        "find_neighbor",
-                        "dhcp_lease_files"
-                    ),
+                    SingBoxAndroidRuntime.ANDROID_FORBIDDEN_RULE_KEYS,
                     "inbounds[$index]",
                     notes
                 )
@@ -512,15 +504,17 @@ private fun sanitizeRuleArray(
     for (index in 0 until rules.length()) {
         val rule = rules.optJSONObject(index) ?: continue
 
+        // MARBLE_PACKAGES_XML_ROOT_CAUSE_V157 — this used to hand-copy 5 of the 7 canonical
+        // keys and silently omit `include_uid`/`exclude_uid`. A rule that reached the core with
+        // either survived every candidate — connect *and* the throwaway URL-test/Real-delay
+        // core alike, since both are built through this same sanitizer — and each one crashed
+        // identically on `initialize package manager: read packages list: open
+        // /data/system/packages.xml: permission denied` -> nil-pointer SIGSEGV. Sourcing the
+        // list from SingBoxAndroidRuntime instead of a local literal means a future addition to
+        // the canonical list reaches every callsite for free.
         removeKeys(
             rule,
-            listOf(
-                "find_process",
-                "find_neighbor",
-                "include_package",
-                "exclude_package",
-                "dhcp_lease_files"
-            ),
+            SingBoxAndroidRuntime.ANDROID_FORBIDDEN_RULE_KEYS,
             "route.rules[$index]",
             notes
         )
