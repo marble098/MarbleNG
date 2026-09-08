@@ -45,7 +45,16 @@ object SingBoxConfigBuilder {
      */
     const val HTTP_CLIENT_DIRECT_TAG = "marble-http-direct"
 
+    /** The extended fork's own `parser` outbound reads the original share link itself. */
     const val STRATEGY_LINK = "link-parser"
+
+    /**
+     * MARBLE_SINGBOX_LINK_AUTHORITY_V156 — Marble reads the original share link with its own
+     * [ProxyParser] and translates what it read. This is the second reader for the *same* truth,
+     * so a fork parser that is behind on link syntax cannot kill a node on its own.
+     */
+    const val STRATEGY_LINK_TRANSLATED = "link-translated"
+
     const val STRATEGY_TRANSLATED = "translated"
     const val STRATEGY_NATIVE = "native-singbox"
 
@@ -85,25 +94,183 @@ object SingBoxConfigBuilder {
             return Support(false, "", "SSH profiles using Marble's Java bridge currently require Xray.", notes)
         }
         return try {
-            val root = profile.configJson.takeIf { it.isNotBlank() }?.let(::JSONObject)
-            when {
-                root != null && NativeSingBoxConfig.isNative(root) -> {
-                    NativeSingBoxConfig.outbounds(root) // validate selection and graph before promising support
-                    Support(true, STRATEGY_NATIVE, "", notes)
-                }
-                root != null -> {
-                    // The canonical document is authoritative. The fork's URI parser only reads
-                    // a subset of XHTTP extra fields and can lose a user's edited JSON or chain.
-                    translate(root, settings, notes)
-                    Support(true, STRATEGY_TRANSLATED, "", notes)
-                }
-                shareLink(profile) != null -> Support(true, STRATEGY_LINK, "", notes)
-                else -> Support(false, "", "The stored config is not readable JSON or a supported share link.", notes)
+            val set = candidateSet(profile, settings)
+            val first = set.candidates.firstOrNull()
+            if (first != null) {
+                Support(true, first.strategy, "", set.candidates.flatMap { it.notes }.distinct())
+            } else {
+                Support(false, "", set.refusal, notes)
             }
         } catch (error: Exception) {
             Support(false, "", error.message ?: "Invalid proxy configuration", notes)
         }
     }
+
+    /**
+     * MARBLE_SINGBOX_LINK_AUTHORITY_V156 — every sing-box config this profile can be expressed
+     * as, best first.
+     *
+     * A profile carries two truths: the **share link it was created from** (`vless://…`) and the
+     * **Xray JSON** Marble derived from that link at import time. Until now the writer only ever
+     * looked at the second one, so the extended core ran a translation of a translation and every
+     * parameter Marble's translator does not model was silently dropped from the node the user
+     * actually subscribed to. The link is the authority; the JSON is a cache of it.
+     *
+     * Three readers can serve a link, and one refusal must never kill the node:
+     *
+     *  1. [STRATEGY_LINK] — `{type: parser, link: …}`. The fork's own URI parser owns every
+     *     parameter a link can express, including the ones this file has never heard of.
+     *  2. [STRATEGY_LINK_TRANSLATED] — Marble re-reads the link with [ProxyParser] and translates
+     *     the result, so a core reader that is behind on link syntax cannot kill the node either.
+     *  3. [STRATEGY_TRANSLATED] — the stored Xray JSON, hop by hop. Still the only reader for a
+     *     pasted JSON document and for chains the user built by hand.
+     *
+     * [AppSettings.singBoxPreferParser] chooses which end of that list leads. A pasted native
+     * sing-box document short-circuits all of it: that document *is* the config.
+     *
+     * The manager walks this list and hands each entry to `sing-box check`; the first one the
+     * core itself accepts carries the session.
+     */
+    fun candidateBuilds(
+        profile: ProxyProfile,
+        settings: AppSettings,
+        socksPort: Int,
+        apiPort: Int,
+        apiSecret: String,
+        logPath: String,
+        cachePath: String,
+        resolverPool: List<String> = emptyList(),
+        ruleSetPaths: Map<String, String> = emptyMap(),
+        bootstrapDnsPort: Int = 0,
+        forTest: Boolean = false
+    ): List<Build> {
+        val set = candidateSet(profile, settings)
+        require(set.candidates.isNotEmpty()) {
+            set.refusal.ifBlank { "sing-box cannot run this profile" }
+        }
+        val builds = set.candidates.mapNotNull { candidate ->
+            runCatching {
+                assemble(
+                    candidate = candidate,
+                    profile = profile,
+                    settings = settings,
+                    socksPort = socksPort,
+                    apiPort = apiPort,
+                    apiSecret = apiSecret,
+                    logPath = logPath,
+                    cachePath = cachePath,
+                    resolverPool = resolverPool,
+                    ruleSetPaths = ruleSetPaths,
+                    bootstrapDnsPort = bootstrapDnsPort,
+                    forTest = forTest
+                )
+            }.getOrNull()
+        }.distinctBy { it.json }
+        require(builds.isNotEmpty()) { set.refusal.ifBlank { "sing-box cannot run this profile" } }
+        return builds
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // Readers
+    // ─────────────────────────────────────────────────────────────────────────────
+
+    /** One way of expressing a profile as sing-box outbounds, plus what it had to say. */
+    private data class Candidate(
+        val strategy: String,
+        val outbounds: List<JSONObject>,
+        val notes: List<String>
+    )
+
+    private data class CandidateSet(val candidates: List<Candidate>, val refusal: String)
+
+    private fun candidateSet(profile: ProxyProfile, settings: AppSettings): CandidateSet {
+        val root = profile.configJson.takeIf { it.isNotBlank() }
+            ?.let { runCatching { JSONObject(it) }.getOrNull() }
+        if (root != null && NativeSingBoxConfig.isNative(root)) {
+            return CandidateSet(
+                listOf(Candidate(STRATEGY_NATIVE, NativeSingBoxConfig.outbounds(root), emptyList())),
+                ""
+            )
+        }
+        val link = shareLink(profile)
+
+        // Reader 1 — the core's own parser. Nothing to translate, nothing to lose.
+        val parser = link?.let {
+            Candidate(STRATEGY_LINK, listOf(parserOutbound(it, settings)), emptyList())
+        }
+
+        // Reader 2 — Marble reads the link itself and translates what it read.
+        val linkNotes = mutableListOf<String>()
+        val fromLink = link
+            ?.let { linkJson(it) }
+            ?.let { json -> translatedCandidate(STRATEGY_LINK_TRANSLATED, json, settings, linkNotes) }
+            ?.getOrNull()
+
+        // Reader 3 — the stored Xray JSON. Its failure is the reason a JSON-only node is refused.
+        val storedNotes = mutableListOf<String>()
+        val storedResult = root?.let { translatedCandidate(STRATEGY_TRANSLATED, it, settings, storedNotes) }
+        val stored = storedResult?.getOrNull()
+
+        val ordered = if (settings.singBoxPreferParser) {
+            listOfNotNull(parser, fromLink, stored)
+        } else {
+            listOfNotNull(stored, fromLink, parser)
+        }.distinctBy { candidate -> candidate.outbounds.joinToString("|") { it.toString() } }
+
+        val refusal = when {
+            ordered.isNotEmpty() -> ""
+            storedResult != null -> storedResult.exceptionOrNull()
+                ?.let { it.message ?: it.javaClass.simpleName }
+                ?: "The stored config cannot be expressed as a sing-box outbound."
+            else -> "The stored config is not readable JSON or a supported share link."
+        }
+        return CandidateSet(ordered, refusal)
+    }
+
+    private fun translatedCandidate(
+        strategy: String,
+        root: JSONObject,
+        settings: AppSettings,
+        notes: MutableList<String>
+    ): Result<Candidate> = runCatching {
+        Candidate(strategy, translate(root, settings, notes), notes.toList())
+    }
+
+    /** The `{type: parser}` outbound: the extended fork reads the share link itself. */
+    private fun parserOutbound(link: String, settings: AppSettings): JSONObject =
+        JSONObject()
+            .put("type", "parser")
+            .put("tag", PROXY_TAG)
+            .put("link", link)
+            .apply { applyDialTuning(this, settings) }
+
+    /**
+     * Marble's own reading of a share link, as Xray JSON — the intermediate [translate] already
+     * understands. This is what lets a link-only node (a scheme Marble's importer stores with a
+     * blank `configJson`) and a profile whose stored JSON has drifted from its link still be
+     * expressed without the fork's parser.
+     */
+    /**
+     * How reader 2 turns a share link into the Xray JSON [translate] already understands.
+     *
+     * The production reader is [xrayJsonFromLink] → [ProxyParser], which parses URIs with
+     * `android.net.Uri` and so cannot be called from a plain JVM unit test (the Android stub jar
+     * throws `RuntimeException("Stub!")`, and this file's whole candidate model is unit-tested).
+     * The seam is what keeps the *ordering* — the part this design is about — testable, and it
+     * makes the parser's own syntax coverage a question for the instrumented suite instead of
+     * something the candidate tests silently depend on. Defaults keep production on [ProxyParser].
+     */
+    @Volatile
+    internal var linkJson: (String) -> JSONObject? = { link -> xrayJsonFromLink(link) }
+
+    private fun xrayJsonFromLink(link: String): JSONObject? = runCatching {
+        ProxyParser.parseInput(link)
+            .singleOrNull()
+            ?.configJson
+            ?.takeIf { it.isNotBlank() }
+            ?.let { JSONObject(it) }
+    }.getOrNull()
+
 
     // ─────────────────────────────────────────────────────────────────────────────
     // Configuration
@@ -132,28 +299,43 @@ object SingBoxConfigBuilder {
         /** Android resolver bridge; type:local in the CLI reads /etc/resolv.conf, not netd. */
         bootstrapDnsPort: Int = 0,
         forTest: Boolean = false
+    ): Build = candidateBuilds(
+        profile = profile,
+        settings = settings,
+        socksPort = socksPort,
+        apiPort = apiPort,
+        apiSecret = apiSecret,
+        logPath = logPath,
+        cachePath = cachePath,
+        resolverPool = resolverPool,
+        ruleSetPaths = ruleSetPaths,
+        bootstrapDnsPort = bootstrapDnsPort,
+        forTest = forTest
+    ).first()
+
+    /**
+     * Writes everything around the proxy hop for one reader's outbounds: the local `mixed`
+     * inbound hev-socks5-tunnel dials, the DNS graph, the routing rules and the Clash API the
+     * native URL test drives. Identical for every strategy, which is what makes the URL test,
+     * the routing policy and the measurement path mean the same thing on all of them.
+     */
+    private fun assemble(
+        candidate: Candidate,
+        profile: ProxyProfile,
+        settings: AppSettings,
+        socksPort: Int,
+        apiPort: Int,
+        apiSecret: String,
+        logPath: String,
+        cachePath: String,
+        resolverPool: List<String>,
+        ruleSetPaths: Map<String, String>,
+        bootstrapDnsPort: Int,
+        forTest: Boolean
     ): Build {
-        val support = describe(profile, settings)
-        require(support.supported) { support.reason.ifBlank { "sing-box cannot run this profile" } }
-
-        val notes = support.notes.toMutableList()
+        val notes = candidate.notes.toMutableList()
         val outbounds = JSONArray()
-
-        when (support.strategy) {
-            STRATEGY_LINK -> outbounds.put(
-                JSONObject()
-                    .put("type", "parser")
-                    .put("tag", PROXY_TAG)
-                    .put("link", shareLink(profile) ?: "")
-                    .apply { applyDialTuning(this, settings) }
-            )
-            STRATEGY_NATIVE -> NativeSingBoxConfig.outbounds(JSONObject(profile.configJson))
-                .forEach { outbounds.put(it) }
-            else -> {
-                val translated = translate(JSONObject(profile.configJson), settings, notes)
-                translated.forEach { outbounds.put(it) }
-            }
-        }
+        candidate.outbounds.forEach { outbounds.put(it) }
 
         // MARBLE_SINGBOX_DNS_ACTION_V152 — no `dns` outbound is written any more. sing-box
         // deprecated it in 1.11.0 and REMOVED it in 1.13.0 ("dns outbound is deprecated in
@@ -234,11 +416,11 @@ object SingBoxConfigBuilder {
                     }
             )
 
-        if (support.strategy == STRATEGY_NATIVE) {
+        if (candidate.strategy == STRATEGY_NATIVE) {
             NativeSingBoxConfig.copyResources(JSONObject(profile.configJson), root)
             notes += "Imported proxy graph retained; Marble owns the local inbound, DNS and routing policy."
         }
-        return Build(root.toString(), support.strategy, notes.distinct())
+        return Build(root.toString(), candidate.strategy, notes.distinct())
     }
 
     /**
@@ -713,6 +895,10 @@ object SingBoxConfigBuilder {
                 rules.put(action(JSONObject().put("ip_is_private", true), outbound))
             } else {
                 val mapped = geoTag(ip, tag)
+                if (mapped == null) {
+                    notes += unroutedGeoNote(ip, tag)
+                    return
+                }
                 usedSets += mapped
                 rules.put(action(JSONObject().put("rule_set", JSONArray().put(mapped)), outbound))
             }
@@ -745,6 +931,13 @@ object SingBoxConfigBuilder {
                         rule.put("ip_is_private", true)
                     } else {
                         val mapped = geoTag(user.kind == RoutingRuleKind.GEOIP, user.matcher)
+                        if (mapped == null) {
+                            notes += unroutedGeoNote(
+                                user.kind == RoutingRuleKind.GEOIP,
+                                user.matcher
+                            )
+                            return@forEach
+                        }
                         usedSets += mapped
                         rule.put("rule_set", JSONArray().put(mapped))
                     }
@@ -778,15 +971,44 @@ object SingBoxConfigBuilder {
             .put("default_domain_resolver", DNS_LOCAL_TAG).put("default_http_client", HTTP_CLIENT_DIRECT_TAG)
     }
 
-    internal fun geoTag(ip: Boolean, raw: String): String {
+    /**
+     * The bundled rule set that answers [raw], or `null` when MarbleNG does not ship one.
+     *
+     * MARBLE_ROUTING_BOTH_CORES_V156 — this used to throw, and because routing is written for
+     * every strategy the exception killed the whole config: one `geoip:us` rule in a shared
+     * routing profile made *every* node unconnectable on the sing-box engine while the same
+     * profile worked fine on Xray. A routing rule MarbleNG cannot honour is a rule it must say
+     * it dropped, not a reason the engine will not start. The direction of the mistake is
+     * deliberate: an unmatched destination falls through to `final`, which is the proxy, so
+     * dropping a rule can only ever send traffic through the tunnel rather than leak it.
+     */
+    internal fun geoTag(ip: Boolean, raw: String): String? {
         val tag = raw.trim().lowercase().removePrefix("geoip:").removePrefix("geosite:")
         return when {
+            ip && tag == "private" -> RULE_SET_GEOIP_PRIVATE
             ip && tag == "ir" -> RULE_SET_GEOIP_IR
             !ip && tag in setOf("ir", "category-ir") -> RULE_SET_GEOSITE_IR
             !ip && tag in setOf("ads", "category-ads-all", "geosite-ads", "ads-all") -> RULE_SET_ADS
-            else -> throw ConfigTranslationException("routing.geo", "rule set '$raw' is not bundled for sing-box; choose a bundled ir/private/ads tag or use Xray")
+            else -> null
         }
     }
+
+    /** The note a dropped geo rule leaves behind, so the Engine page can name it. */
+    /**
+     * The note that stands in for a geo rule MarbleNG cannot honour on the sing-box engine.
+     *
+     * MARBLE_ROUTING_BOTH_CORES_V156 — the tag is reported the way the user typed it in
+     * Settings, not the way [RoutingEngine] normalised it on the way here. `routeGeoIpTags =
+     * "geoip:us"` reaches the writer as the bare token `us`, and a note naming only `us` gives
+     * the user nothing to search their settings for, and does not even say whether the rule
+     * that was dropped was a geoip one or a geosite one.
+     */
+    private fun unroutedGeoNote(ip: Boolean, raw: String): String {
+        val typed = if (raw.contains(":")) raw else if (ip) "geoip:$raw" else "geosite:$raw"
+        return "routing: '$typed' has no bundled sing-box rule set, so this one rule is not " +
+            "applied on the sing-box engine (the same profile is routed in full on Xray)."
+    }
+
 
     private fun putPorts(rule: JSONObject, raw: String) {
         val ports = JSONArray()
