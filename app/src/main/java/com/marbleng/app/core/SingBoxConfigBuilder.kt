@@ -417,10 +417,15 @@ object SingBoxConfigBuilder {
             )
 
         if (candidate.strategy == STRATEGY_NATIVE) {
-            NativeSingBoxConfig.copyResources(JSONObject(profile.configJson), root)
-            notes += "Imported proxy graph retained; Marble owns the local inbound, DNS and routing policy."
-        }
-        return Build(root.toString(), candidate.strategy, notes.distinct())
+    NativeSingBoxConfig.copyResources(JSONObject(profile.configJson), root)
+    notes += "Imported proxy graph retained; Marble owns the local inbound, DNS and routing policy."
+}
+
+// <<< ANDROID_FINAL_SANITIZATION_START >>>
+sanitizeAndroidCliConfig(root, notes)
+// <<< ANDROID_FINAL_SANITIZATION_END >>>
+
+return Build(root.toString(), candidate.strategy, notes.distinct())
     }
 
 
