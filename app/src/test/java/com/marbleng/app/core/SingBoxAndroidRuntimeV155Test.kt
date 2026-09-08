@@ -157,6 +157,70 @@ class SingBoxAndroidRuntimeV155Test {
     }
 
     // ─────────────────────────────────────────────────────────────────────────────
+    // 1b — MARBLE_PACKAGES_XML_ROOT_CAUSE_V157: the packages.xml permission-denied panic
+    // ─────────────────────────────────────────────────────────────────────────────
+
+    /** The exact shipped log line: `core-start: exited 2` wrapping the package-manager FATAL and
+     * the nil-pointer SIGSEGV that follows it. */
+    private val packagesXmlPanic =
+        "core-start: exited 2: +0330 2026-09-08 10:30:31 WARN network: initialize package " +
+            "manager: read packages list: open /data/system/packages.xml: permission denied\n" +
+            "panic: runtime error: invalid memory address or nil pointer dereference\n" +
+            "[signal SIGSEGV: segmentation violation code=0x1 addr=0x30 pc=0x5c0a469b6c]"
+
+    @Test
+    fun thePackagesXmlPanicIsRecognisedAsAnEngineFaultNotAPerNodeFailure() {
+        assertTrue(
+            "every candidate for the same profile carries the same rule and crashes " +
+                "identically; without this the engine walks all of them instead of self-healing " +
+                "onto the other engine after the first",
+            SingBoxConfigDoctor.isEngineLevelFault(packagesXmlPanic)
+        )
+    }
+
+    @Test
+    fun hardeningStripsUidAndPackageMatchersFromEveryRouteRule() {
+        // include_uid/exclude_uid were the two canonical keys missing from the old hand-copied
+        // per-rule list: find_process, find_neighbor and include_package/exclude_package were
+        // already stripped, so only a rule shaped like a real "don't loop the VPN app's own
+        // traffic" subscription rule reproduces the crash.
+        val hostile = JSONObject(build().toString()).apply {
+            getJSONObject("route").put(
+                "rules",
+                JSONArray()
+                    .put(JSONObject().put("exclude_uid", JSONArray().put(1000)).put("outbound", "direct"))
+                    .put(
+                        JSONObject().put("type", "logical").put("mode", "and").put(
+                            "rules",
+                            JSONArray().put(JSONObject().put("include_package", JSONArray().put("com.marbleng.app")))
+                        )
+                    )
+            )
+        }
+
+        val healed = SingBoxConfigDoctor.hardenForAndroid(hostile.toString())
+        assertTrue("a config carrying these matchers must be reported as repaired", healed.repaired)
+        val rules = JSONObject(healed.json).getJSONObject("route").getJSONArray("rules")
+        for (i in 0 until rules.length()) {
+            val rule = rules.getJSONObject(i)
+            SingBoxAndroidRuntime.ANDROID_FORBIDDEN_RULE_KEYS.forEach { key ->
+                assertFalse("`$key` must not survive hardening at route.rules[$i]", rule.has(key))
+            }
+            rule.optJSONArray("rules")?.let { nested ->
+                for (j in 0 until nested.length()) {
+                    val child = nested.getJSONObject(j)
+                    SingBoxAndroidRuntime.ANDROID_FORBIDDEN_RULE_KEYS.forEach { key ->
+                        assertFalse(
+                            "`$key` must not survive hardening at route.rules[$i].rules[$j]",
+                            child.has(key)
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────
     // 2 — deprecations that exit the process
     // ─────────────────────────────────────────────────────────────────────────────
 
