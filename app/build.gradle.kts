@@ -330,7 +330,50 @@ val marbleDiag = tasks.register("marbleDiag") {
     val resultsDir = layout.buildDirectory.dir("test-results/testDebugUnitTest")
     val mainClasses = layout.buildDirectory.dir("tmp/kotlin-classes/debug")
     val testClasses = layout.buildDirectory.dir("tmp/kotlin-classes/debugUnitTest")
+    val rootDir = rootProject.layout.projectDirectory.asFile
     doLast {
+        /*
+         * The compile diagnostics are the one thing that never reaches an annotation: KGP reports
+         * them through the Gradle logger, which only the step log sees. So when the main compile
+         * produced no classes, re-run just that compile against a copy of the sources in /tmp and
+         * read the compiler's own `e:` lines out of its redirected output. `-x marbleDiag` stops
+         * the finalizer from recursing into itself.
+         */
+        runCatching {
+            if (mainClasses.get().asFile.isDirectory) return@runCatching
+            if (System.getProperty("marbleDiag.probe") != null) return@runCatching
+            val probeDir = java.io.File("/tmp/marble-probe-src")
+            probeDir.deleteRecursively()
+            probeDir.mkdirs()
+            ProcessBuilder(
+                "bash", "-lc",
+                "cd '${rootDir.absolutePath}' && " +
+                    "tar -cf - --exclude=./.git --exclude=build . | " +
+                    "(cd '${probeDir.absolutePath}' && tar -xf -)"
+            ).redirectErrorStream(true).start()
+                .waitFor(240, java.util.concurrent.TimeUnit.SECONDS)
+            val probeLog = java.io.File("/tmp/marble-probe.log")
+            val finished = ProcessBuilder(
+                "gradle", "-p", probeDir.absolutePath,
+                ":app:compileDebugKotlin",
+                "-x", "marbleDiag",
+                "-DmarbleDiag.probe=1",
+                "--offline", "--no-daemon", "--no-configuration-cache", "--console=plain"
+            ).redirectErrorStream(true).redirectOutput(probeLog).start()
+                .waitFor(900, java.util.concurrent.TimeUnit.SECONDS)
+            val lines = if (probeLog.isFile) probeLog.readLines() else emptyList()
+            val errors = lines.filter { it.startsWith("e: ") }
+            if (errors.isEmpty()) {
+                println(
+                    "::error file=app/build.gradle.kts,line=1::marbleDiag probe found no " +
+                        "'e:' lines (finished=$finished); tail: " +
+                        lines.takeLast(12).joinToString(" | ").take(900)
+                )
+            }
+            errors.take(80).forEach { line ->
+                println("::error file=app/build.gradle.kts,line=1::marbleDiag ${line.take(600)}")
+            }
+        }
         runCatching {
             val results = resultsDir.get().asFile
             val xml = if (results.isDirectory) {
