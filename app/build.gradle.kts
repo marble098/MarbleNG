@@ -332,31 +332,6 @@ val marbleDiag = tasks.register("marbleDiag") {
     val testClasses = layout.buildDirectory.dir("tmp/kotlin-classes/debugUnitTest")
     doLast {
         runCatching {
-            if (!mainClasses.get().asFile.isDirectory) {
-                val repoDir = layout.projectDirectory.asFile.parentFile
-                val probeDir = java.io.File("/tmp/marble-probe-src")
-                val probeLog = java.io.File("/tmp/marble-probe.log")
-                probeDir.deleteRecursively()
-                probeDir.mkdirs()
-                val shell = "cd " + repoDir.absolutePath +
-                    " && tar -cf - --exclude=./.git --exclude=build . | " +
-                    "(cd " + probeDir.absolutePath + " && tar -xf -) && " +
-                    "gradle -p " + probeDir.absolutePath + " :app:compileDebugKotlin " +
-                    "-x marbleDiag --offline --no-daemon --console=plain > /tmp/marble-probe.log 2>&1"
-                val command = listOf("bash", "-c", shell)
-                val child = ProcessBuilder(command).redirectErrorStream(true).start()
-                child.waitFor()
-                val found = probeLog.readLines().filter { it.startsWith("e: ") }
-                found.take(80).forEach { line ->
-                    println("::error file=app/build.gradle.kts,line=1::marbleDiag " + line.take(600))
-                }
-                if (found.isEmpty()) {
-                    val tail = probeLog.readLines().takeLast(12).joinToString(" | ").take(900)
-                    println("::error file=app/build.gradle.kts,line=1::marbleDiag probe tail: " + tail)
-                }
-            }
-        }
-        runCatching {
             val results = resultsDir.get().asFile
             val xml = if (results.isDirectory) {
                 results.listFiles().orEmpty().filter { it.name.endsWith(".xml") }
@@ -364,27 +339,27 @@ val marbleDiag = tasks.register("marbleDiag") {
                 emptyList()
             }
             if (xml.isEmpty()) {
-                val mainPresent = mainClasses.get().asFile.isDirectory
-                val testPresent = testClasses.get().asFile.isDirectory
                 println(
                     "::error file=app/build.gradle.kts,line=1::marbleDiag no JUnit results; " +
-                        "mainClassesPresent=$mainPresent testClassesPresent=$testPresent"
+                        "mainClassesPresent=${mainClasses.get().asFile.isDirectory} " +
+                        "testClassesPresent=${testClasses.get().asFile.isDirectory} " +
+                        "(the build failed during compilation, not during a test)"
                 )
             }
-            val cases = Regex("<testcase[^>]*>.*?</testcase>", RegexOption.DOT_MATCHES_ALL)
+            val cases = Regex("<testcase\\b[^>]*>.*?</testcase>", RegexOption.DOT_MATCHES_ALL)
             var failures = 0
             xml.forEach { file ->
                 cases.findAll(file.readText()).forEach { match ->
                     val element = match.value
                     if (!element.contains("<failure") && !element.contains("<error")) return@forEach
                     failures += 1
-                    val detail = element.replace(Regex("[\r\n\t]+"), " ").take(1000)
+                    val detail = element.replace(Regex("\\s+"), " ").take(1000)
                     println("::error file=app/build.gradle.kts,line=1::marbleDiag $detail")
                 }
             }
             println(
                 "::error file=app/build.gradle.kts,line=1::marbleDiag scanned " +
-                    xml.size + " result files, " + failures + " failing test cases"
+                    "${xml.size} result files, $failures failing test cases"
             )
         }
     }
