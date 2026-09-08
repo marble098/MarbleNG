@@ -261,7 +261,7 @@ object SingBoxConfigBuilder {
      * something the candidate tests silently depend on. Defaults keep production on [ProxyParser].
      */
     @Volatile
-    internal var linkJson: (String) -> JSONObject? = ::xrayJsonFromLink
+    internal var linkJson: (String) -> JSONObject? = { link -> xrayJsonFromLink(link) }
 
     private fun xrayJsonFromLink(link: String): JSONObject? = runCatching {
         ProxyParser.parseInput(link)

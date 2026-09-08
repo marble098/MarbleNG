@@ -316,3 +316,63 @@ dependencies {
         "androidx.compose.ui:ui-tooling"
     )
 }
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+// TEMPORARY CI DIAGNOSTIC — remove once this branch is green.
+//
+// The environment authoring this branch cannot read the Actions log blob, so a red build is
+// otherwise a silent one. This finalizer runs whenever a compile or test task fails and turns the
+// JUnit XML into `::error::` workflow commands, which ARE readable through the check-run
+// annotations API. When no result files exist at all the failure was a compilation, and which
+// classes directory is missing says whether it was main or test sources.
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+val marbleDiag = tasks.register("marbleDiag") {
+    val resultsDir = layout.buildDirectory.dir("test-results/testDebugUnitTest")
+    val mainClasses = layout.buildDirectory.dir("tmp/kotlin-classes/debug")
+    val testClasses = layout.buildDirectory.dir("tmp/kotlin-classes/debugUnitTest")
+    doLast {
+        runCatching {
+            val results = resultsDir.get().asFile
+            val xml = if (results.isDirectory) {
+                results.listFiles().orEmpty().filter { it.name.endsWith(".xml") }
+            } else {
+                emptyList()
+            }
+            if (xml.isEmpty()) {
+                println(
+                    "::error file=app/build.gradle.kts,line=1::marbleDiag no JUnit results; " +
+                        "mainClassesPresent=${mainClasses.get().asFile.isDirectory} " +
+                        "testClassesPresent=${testClasses.get().asFile.isDirectory} " +
+                        "(the build failed during compilation, not during a test)"
+                )
+            }
+            val cases = Regex("<testcase\\b[^>]*>.*?</testcase>", RegexOption.DOT_MATCHES_ALL)
+            var failures = 0
+            xml.forEach { file ->
+                cases.findAll(file.readText()).forEach { match ->
+                    val element = match.value
+                    if (!element.contains("<failure") && !element.contains("<error")) return@forEach
+                    failures += 1
+                    val detail = element.replace(Regex("\\s+"), " ").take(1000)
+                    println("::error file=app/build.gradle.kts,line=1::marbleDiag $detail")
+                }
+            }
+            println(
+                "::error file=app/build.gradle.kts,line=1::marbleDiag scanned " +
+                    "${xml.size} result files, $failures failing test cases"
+            )
+        }
+    }
+}
+
+tasks
+    .matching { task ->
+        task.name in setOf(
+            "compileDebugKotlin",
+            "compileReleaseKotlin",
+            "compileDebugUnitTestKotlin",
+            "testDebugUnitTest",
+        )
+    }.configureEach {
+        finalizedBy(marbleDiag)
+    }
