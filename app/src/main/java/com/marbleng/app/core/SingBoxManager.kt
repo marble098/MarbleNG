@@ -55,13 +55,14 @@ class SingBoxManager(private val context: Context) {
             dns = bootstrap.acquire()
             val controller = freePort(excluding = port)
             val secret = UUID.randomUUID().toString()
-            val candidates = candidates(profile, settings, port, controller, secret, dns.port, false)
+            // Not `candidates`: a local val of that name would shadow the reader function.
+            val builds = candidates(profile, settings, port, controller, secret, dns.port, false)
             lastStartPhase = "check-and-start"
             // A live session gets the strictest start: every candidate is validated with
             // `sing-box check` and its Clash controller is awaited, because the URL test and the
             // Engine page both read that controller while traffic flows.
             val started = openFirst(
-                candidates = candidates,
+                candidates = builds,
                 configFile = File(context.filesDir, "runtime-singbox.json"),
                 logFile = logFile,
                 tempDir = File(context.cacheDir, "singbox-tmp"),

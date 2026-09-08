@@ -326,53 +326,11 @@ dependencies {
 // annotations API. When no result files exist at all the failure was a compilation, and which
 // classes directory is missing says whether it was main or test sources.
 // ─────────────────────────────────────────────────────────────────────────────────────────────
-// MARBLE_DIAG_SCAFFOLD_V156 — temporary. Kotlin reports compile diagnostics through the
-// Gradle logger, so they never reach a workflow command and the annotations can only say
-// "compilation failed". This task re-runs the failing compile against a copy of the sources in
-// /tmp, where its output can be redirected to a file, and marbleDiag republishes the compiler's
-// own "e:" lines as annotations. It is an Exec task because that is the task type this script
-// already uses for subprocesses, and it skips itself entirely once the main compile succeeds.
-val marbleProbe = tasks.registering(Exec::class) {
-    val repoPath = rootProject.projectDir.absolutePath
-    val probePath = layout.buildDirectory.dir("marble-probe-src").get().asFile.absolutePath
-    val logPath = layout.buildDirectory.file("marble-probe.log").get().asFile.absolutePath
-    val mainClasses = layout.buildDirectory.dir("tmp/kotlin-classes/debug")
-    onlyIf { !mainClasses.get().asFile.isDirectory }
-    commandLine(
-        "bash", "-c",
-        "rm -rf " + probePath + " && mkdir -p " + probePath +
-            " && cd " + repoPath + " && tar -cf - --exclude=./.git --exclude=build . " +
-            "| (cd " + probePath + " && tar -xf -) && gradle -p " + probePath +
-            " :app:compileDebugKotlin -x marbleDiag -x marbleProbe --no-daemon --console=plain" +
-            " > " + logPath + " 2>&1"
-    )
-    isIgnoreExitValue = true
-}
-
 val marbleDiag = tasks.register("marbleDiag") {
     val resultsDir = layout.buildDirectory.dir("test-results/testDebugUnitTest")
     val mainClasses = layout.buildDirectory.dir("tmp/kotlin-classes/debug")
     val testClasses = layout.buildDirectory.dir("tmp/kotlin-classes/debugUnitTest")
-    val probeLog = layout.buildDirectory.file("marble-probe.log")
-    dependsOn(marbleProbe)
     doLast {
-        runCatching {
-            val log = probeLog.get().asFile
-            if (log.isFile) {
-                val lines = log.readLines()
-                val errors = lines.filter { it.startsWith("e: ") }
-                errors.take(80).forEach { line ->
-                    println("::error file=app/build.gradle.kts,line=1::marbleDiag " + line.take(600))
-                }
-                if (errors.isEmpty()) {
-                    val tail = lines.takeLast(14).joinToString(" | ").take(900)
-                    println(
-                        "::error file=app/build.gradle.kts,line=1::marbleDiag probe logged no " +
-                            "e: lines; tail: " + tail
-                    )
-                }
-            }
-        }
         runCatching {
             val results = resultsDir.get().asFile
             val xml = if (results.isDirectory) {

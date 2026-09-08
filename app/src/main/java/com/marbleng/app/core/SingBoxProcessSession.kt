@@ -99,14 +99,16 @@ class SingBoxProcessSession private constructor(
             if (validate) {
                 val diagnostic = File.createTempFile("check-", ".log", tempDir)
                 try {
-                    val check = builder(binary, listOf("check", "-c", configFile.absolutePath), configFile.parentFile, tempDir)
+                    // Not `check`: a local val of that name would shadow kotlin.check and the
+                    // assertion below would try to invoke the process instead.
+                    val validator = builder(binary, listOf("check", "-c", configFile.absolutePath), configFile.parentFile, tempDir)
                         .redirectOutput(diagnostic).start()
                     try {
-                        if (!check.waitFor(left().coerceAtMost(8000), TimeUnit.MILLISECONDS)) {
+                        if (!validator.waitFor(left().coerceAtMost(8000), TimeUnit.MILLISECONDS)) {
                             error("core-check-timeout: configuration validation did not finish")
                         }
-                        check(check.exitValue() == 0) { "core-config: ${tail(diagnostic)}" }
-                    } finally { stop(check) }
+                        check(validator.exitValue() == 0) { "core-config: ${tail(diagnostic)}" }
+                    } finally { stop(validator) }
                 } finally { diagnostic.delete() }
             }
             checkInterrupted()
