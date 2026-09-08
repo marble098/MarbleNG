@@ -70,7 +70,12 @@ export GOTOOLCHAIN=auto
 # Logging helpers
 # ==============================================================================
 
+# The last milestone printed by log(). failure_diagnostics() reports it, so a
+# dead build says what it was doing, not just that it died.
+MILESTONE=""
+
 log() {
+    MILESTONE="$*"
     printf '\n\033[1;36m[MarbleNG]\033[0m %s\n' "$*"
 }
 
@@ -91,6 +96,48 @@ require_command() {
     command -v "$1" >/dev/null 2>&1 || {
         die "Missing required command: $1"
     }
+}
+
+# ==============================================================================
+# Transient-failure retry helper
+#
+# GitHub-hosted runners share egress bandwidth: git clones, `go mod download`
+# and GOTOOLCHAIN toolchain fetches occasionally die mid-transfer (curl 56,
+# "unexpected EOF", a reset connection). One attempt turns a one-in-N infra
+# hiccup into a red release build; a few attempts with backoff make it a
+# non-event. A genuinely broken command still fails, on the last attempt.
+#
+# Usage: retry <max_attempts> <base_delay_seconds> <function> [args...]
+# The command is a function (not a raw argv) so it can clean up after itself
+# between attempts - e.g. remove a half-cloned directory that would make the
+# next `git clone` refuse to run at all.
+# ==============================================================================
+
+retry() {
+    local max_attempts="$1"
+    local delay="$2"
+    shift 2
+
+    local attempt=1 status=0
+
+    while :; do
+        status=0
+        "$@" || status=$?
+
+        if (( status == 0 )); then
+            return 0
+        fi
+
+        if (( attempt >= max_attempts )); then
+            warn "$* failed on attempt $attempt of $max_attempts (exit $status); giving up"
+            return "$status"
+        fi
+
+        warn "$* attempt $attempt of $max_attempts failed (exit $status); retrying in ${delay}s"
+        sleep "$delay"
+        delay=$(( delay * 2 ))
+        attempt=$(( attempt + 1 ))
+    done
 }
 
 # ==============================================================================
@@ -158,59 +205,95 @@ failure_diagnostics() {
     local status=$?
 
     if (( status != 0 )); then
-        echo
-        echo "================================================================"
-        echo " MarbleNG native preparation FAILED"
-        echo "================================================================"
-        echo
+        local report
+        report="$(mktemp "${RUNNER_TEMP:-/tmp}/marbleng-native-failure.XXXXXX")" || report=""
 
-        echo "Exit code:"
-        echo "  $status"
+        {
+            echo "Last milestone:"
+            echo "  ${MILESTONE:-<none>}"
 
-        echo
-        echo "Go:"
-        go version 2>/dev/null || true
+            echo
+            echo "Exit code:"
+            echo "  $status"
 
-        echo
-        echo "GOTOOLCHAIN:"
-        echo "  ${GOTOOLCHAIN:-unset}"
+            echo
+            echo "Go:"
+            go version 2>/dev/null || true
 
-        echo
-        echo "ANDROID_NDK_HOME:"
-        echo "  ${ANDROID_NDK_HOME:-unset}"
+            echo
+            echo "GOTOOLCHAIN:"
+            echo "  ${GOTOOLCHAIN:-unset}"
 
-        echo
-        echo "ANDROID_NDK_ROOT:"
-        echo "  ${ANDROID_NDK_ROOT:-unset}"
+            echo
+            echo "ANDROID_NDK_HOME:"
+            echo "  ${ANDROID_NDK_HOME:-unset}"
 
-        echo
-        echo "Existing staged Xray files:"
+            echo
+            echo "ANDROID_NDK_ROOT:"
+            echo "  ${ANDROID_NDK_ROOT:-unset}"
 
-        if [[ -d "$XRAY_STAGE" ]]; then
-            find "$XRAY_STAGE" \
-                -maxdepth 3 \
-                -type f \
-                -printf '%p %s bytes\n' \
-                2>/dev/null || true
-        else
-            echo "  staging directory does not exist"
+            echo
+            echo "Existing staged Xray files:"
+
+            if [[ -d "$XRAY_STAGE" ]]; then
+                find "$XRAY_STAGE" \
+                    -maxdepth 3 \
+                    -type f \
+                    -printf '%p %s bytes\n' \
+                    2>/dev/null || true
+            else
+                echo "  staging directory does not exist"
+            fi
+
+            echo
+            echo "Existing jniLibs:"
+
+            if [[ -d "$JNILIBS" ]]; then
+                find "$JNILIBS" \
+                    -maxdepth 3 \
+                    -type f \
+                    -printf '%p %s bytes\n' \
+                    2>/dev/null || true
+            else
+                echo "  jniLibs directory does not exist"
+            fi
+
+            echo
+            echo "================================================================"
+        } | tee "${report:-/dev/null}"
+
+        # ======================================================================
+        # Make the failure readable without the step log.
+        #
+        # A dead release build must name its cause in the run itself: the step
+        # summary carries the full diagnostics, and one ::error:: annotation
+        # points at it. (Percent signs are not legal unencoded in annotation
+        # parameters; milestone text is ours but escape anyway.)
+        # ======================================================================
+
+        if [[ "${GITHUB_ACTIONS:-}" == "true" && -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+            {
+                echo ""
+                echo "## [FAIL] MarbleNG native preparation"
+                echo ""
+                echo "- Last milestone: \`${MILESTONE:-<none>}\`"
+                echo "- Exit code: \`${status}\`"
+                echo ""
+                echo '```'
+                if [[ -n "$report" && -s "$report" ]]; then
+                    cat "$report"
+                fi
+                echo '```'
+            } >> "${GITHUB_STEP_SUMMARY}"
+
+            local annotation_title
+            annotation_title="$(printf '%s' "${MILESTONE:-native preparation}" | sed 's/%/%25/g')"
+
+            printf '::error title=MarbleNG-native-ABIs::prepare-native.sh failed at "%s" (exit %s) - full diagnostics in the step summary\n' \
+                "$annotation_title" "$status"
         fi
 
-        echo
-        echo "Existing jniLibs:"
-
-        if [[ -d "$JNILIBS" ]]; then
-            find "$JNILIBS" \
-                -maxdepth 3 \
-                -type f \
-                -printf '%p %s bytes\n' \
-                2>/dev/null || true
-        else
-            echo "  jniLibs directory does not exist"
-        fi
-
-        echo
-        echo "================================================================"
+        [[ -n "$report" ]] && rm -f "$report"
     fi
 
     exit "$status"
@@ -404,12 +487,22 @@ ok "Native workspace cleaned"
 
 log "[1/5] Cloning Xray source $XRAY_TAG"
 
-git clone \
-    --quiet \
-    --depth 1 \
-    --branch "$XRAY_TAG" \
-    https://github.com/XTLS/Xray-core.git \
-    "$XRAY_SRC"
+# Retried: a mid-transfer reset used to kill the whole build at step one. The
+# clone target is removed before every attempt because `git clone` refuses to
+# run into a non-empty (half-finished) directory.
+clone_xray_source() {
+    rm -rf "$XRAY_SRC"
+    git clone \
+        --quiet \
+        --depth 1 \
+        --branch "$XRAY_TAG" \
+        https://github.com/XTLS/Xray-core.git \
+        "$XRAY_SRC"
+}
+
+retry 3 5 clone_xray_source || {
+    die "Xray source clone failed after retries: $XRAY_TAG"
+}
 
 [[ -d "$XRAY_SRC/.git" ]] || {
     die "Xray source clone failed"
@@ -519,24 +612,40 @@ log "Preparing Xray Go dependencies"
 
 (
     cd "$XRAY_SRC"
-
     echo "Effective Go toolchain:"
     go version
-
-    echo
-    echo "Downloading modules..."
-
-    go mod download
 )
+
+XRAY_MODULE_LOG="$CORE/xray-module-download.log"
+
+# Retried and logged: a module-graph fetch that dies mid-transfer used to kill
+# the build with a bare non-zero exit and no message. The log file keeps the
+# last attempt's output for the failure diagnostics.
+xray_download_modules() {
+    (
+        cd "$XRAY_SRC"
+        env GOTOOLCHAIN=auto go mod download
+    ) 2>&1 | tee "$XRAY_MODULE_LOG"
+}
+
+log "Downloading Xray Go modules"
+
+retry 4 5 xray_download_modules || {
+    die "Xray go mod download failed after retries: last output in $XRAY_MODULE_LOG"
+}
 
 ok "Xray dependencies prepared"
 
 log "Testing integrated Xray Rank command registration"
 
+XRAY_RANK_TEST_LOG="$CORE/xray-rank-test.log"
+
 (
     cd "$XRAY_SRC"
     env GOTOOLCHAIN=auto go test ./main
-)
+) 2>&1 | tee "$XRAY_RANK_TEST_LOG" || {
+    die "Xray Rank registration test failed: last output in $XRAY_RANK_TEST_LOG"
+}
 
 ok "Integrated Rank command registration test passed"
 
@@ -575,6 +684,8 @@ build_xray() {
     local goarch="$2"
     local cc_name="$3"
     local goarm="${4:-}"
+
+    MILESTONE="Building Xray for $abi"
 
     local out_dir="$XRAY_STAGE/$abi"
     local output="$out_dir/libxray.so"
@@ -1480,12 +1591,20 @@ SINGBOX_STAGE="$CORE/singbox"
 rm -rf "$SINGBOX_SRC" "$SINGBOX_STAGE"
 mkdir -p "$SINGBOX_STAGE"
 
-git clone \
-    --quiet \
-    --depth 1 \
-    --branch "$SINGBOX_TAG" \
-    "https://github.com/${SINGBOX_REPO}.git" \
-    "$SINGBOX_SRC"
+# Retried for the same reason as the Xray clone above.
+clone_singbox_source() {
+    rm -rf "$SINGBOX_SRC"
+    git clone \
+        --quiet \
+        --depth 1 \
+        --branch "$SINGBOX_TAG" \
+        "https://github.com/${SINGBOX_REPO}.git" \
+        "$SINGBOX_SRC"
+}
+
+retry 3 5 clone_singbox_source || {
+    die "sing-box source clone failed after retries: ${SINGBOX_REPO} ${SINGBOX_TAG}"
+}
 
 [[ -f "$SINGBOX_SRC/go.mod" ]] || {
     die "sing-box go.mod missing after clone"
@@ -1515,11 +1634,33 @@ grep -F 'MARBLE_SINGBOX_ANDROID_CLI_CRASH_V157' \
         die "sing-box Android CLI crash fix is missing from protocol/direct/outbound.go"
     }
 
+# The module graph is fetched explicitly (and retried) before the tests run,
+# so a dead module transfer fails as "dependency download failed" instead of
+# masquerading as "regression tests failed".
+log "Downloading sing-box Go modules"
+
+SINGBOX_MODULE_LOG="$CORE/singbox-module-download.log"
+
+singbox_download_modules() {
+    (
+        cd "$SINGBOX_SRC"
+        env GOTOOLCHAIN=auto go mod download
+    ) 2>&1 | tee "$SINGBOX_MODULE_LOG"
+}
+
+retry 4 5 singbox_download_modules || {
+    die "sing-box go mod download failed after retries: last output in $SINGBOX_MODULE_LOG"
+}
+
+ok "sing-box dependencies prepared"
+
 log "Running the injected sing-box regression tests (nil interface monitor)"
 
 # Host architecture, no CGO: these tests recreate the Android condition with a
 # NetworkManager stub whose InterfaceMonitor() is nil, so they pin the guard on
 # a Linux runner where a real monitor would otherwise hide the crash.
+SINGBOX_TEST_LOG="$CORE/singbox-regression-test.log"
+
 (
     cd "$SINGBOX_SRC"
 
@@ -1529,7 +1670,10 @@ log "Running the injected sing-box regression tests (nil interface monitor)"
         go test \
             ./protocol/direct \
             ./route
-) || {
+) 2>&1 | tee "$SINGBOX_TEST_LOG" || {
+    echo
+    echo "Last test output:"
+    tail -n 30 "$SINGBOX_TEST_LOG" >&2 || true
     die "sing-box Android CLI crash regression tests failed"
 }
 
@@ -1563,6 +1707,8 @@ build_singbox() {
     local cc_name="$3"
     local machine="$4"
     local goarm="${5:-}"
+
+    MILESTONE="Building sing-box for $abi"
 
     local out_dir="$SINGBOX_STAGE/$abi"
     local output="$out_dir/libsingbox.so"

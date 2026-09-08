@@ -27,7 +27,7 @@ jobs:
           jq -e '.xray.tag and .xray.repo' core-lock.json
           jq -e '.hev.tag and .hev.repo' core-lock.json
           jq -e '.singbox.tag and .singbox.repo' core-lock.json
-          [[ "$(jq -r '.singbox.channel' core-lock.json) == "beta" ]]
+          [[ "$(jq -r '.singbox.channel' core-lock.json)" == "beta" ]]
           jq -r '"xray \(.xray.tag)  hev \(.hev.tag)  singbox \(.singbox.tag)"' core-lock.json
 
           # MARBLE_SINGBOX_ANDROID_CLI_CRASH_V157 — the Android core is compiled from source, so
