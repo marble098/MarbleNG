@@ -168,6 +168,7 @@ import com.marbleng.app.core.BugSeverity
 import com.marbleng.app.core.CoreEngine
 import com.marbleng.app.core.CoreEngineInfo
 import com.marbleng.app.core.availableOn
+import com.marbleng.app.core.coreEngine
 import com.marbleng.app.core.unavailableReason
 import com.marbleng.app.core.parseCoreEngine
 import com.marbleng.app.core.IranModeState
