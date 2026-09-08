@@ -46,14 +46,17 @@ class BenchmarkEngine(
         onCandidates: (List<ProxyProfile>) -> Unit = {},
         onStart: (ProxyProfile) -> Unit = {},
         onResult: (ProxyProfile, BenchmarkResult) -> Unit = { _, _ -> },
-        onProgress: (Int, Int, String) -> Unit = { _, _, _ -> },
         /**
          * MARBLE_PING_CANCEL_V156 — the caller's cancel flag, polled between candidates and
          * between completions. A sweep across a big subscription can run for minutes and used to
          * have no undo at all. Cancellation is honest about what it means: what never started is
          * abandoned, what was already measured is kept and published, and nothing is erased.
+         *
+         * Declared before [onProgress] on purpose: three call sites pass progress as a trailing
+         * lambda, and a trailing lambda only ever binds to the LAST parameter.
          */
-        shouldStop: () -> Boolean = { false }
+        shouldStop: () -> Boolean = { false },
+        onProgress: (Int, Int, String) -> Unit = { _, _, _ -> }
     ): List<BenchmarkResult> {
         if (profiles.isEmpty()) return emptyList()
         val s = tuned(settings)

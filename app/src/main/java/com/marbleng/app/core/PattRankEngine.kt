@@ -54,13 +54,16 @@ class PattRankEngine(
         onCandidates: (List<ProxyProfile>) -> Unit = {},
         onStart: (ProxyProfile) -> Unit = {},
         onResult: (ProxyProfile, BenchmarkResult) -> Unit = { _, _ -> },
-        onProgress: (Int, Int, String) -> Unit = { _, _, _ -> },
         /**
          * MARBLE_PING_CANCEL_V156 — Rank is a bulk ping like any other sweep, so it obeys the same
          * cancel flag: the sing-box path forwards it to the benchmark pool, and the native path
          * stops queueing candidates at the same boundaries.
+         *
+         * Declared before [onProgress] on purpose: the caller passes progress as a trailing
+         * lambda, and a trailing lambda only ever binds to the LAST parameter.
          */
-        shouldStop: () -> Boolean = { false }
+        shouldStop: () -> Boolean = { false },
+        onProgress: (Int, Int, String) -> Unit = { _, _, _ -> }
     ): List<BenchmarkResult> {
         val scoped = profiles.distinctBy { it.id }
         if (scoped.isEmpty()) return emptyList()
