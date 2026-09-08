@@ -1154,6 +1154,23 @@ check(
     and not re.search(r"sing-box-[^\s\"']*android", files["native"]),
 )
 check(
+    "the source build never enables the admin panel, whose assets are not in the source tree",
+    # The fork's service/admin_panel/service.go embeds `dist`, a Vite bundle it builds with
+    # `npm run build` in its own pipeline and gitignores in its own repository. Enabling the
+    # tag on a source clone is an instant, unconditional
+    # `pattern dist: no matching files found` - which is how every native build on main died
+    # after PR #130. MarbleNG is a client and never configures an admin-panel service.
+    "with_admin_panel" not in re.search(
+        r'^SINGBOX_TAGS="([^"]*)"', files["native"], re.M
+    ).group(1).split(",")
+    # The graph is resolved for every ABI before a single ABI is compiled, so this class of
+    # failure (absent generated asset, unresolvable import) costs seconds, not a full run.
+    and "go list \\" in files["native"]
+    and "./cmd/sing-box" in files["native"]
+    and "sing-box Android package graph does not resolve" in files["native"],
+)
+
+check(
     "the crash backport is anchored to the upstream commit and proven in CI",
     "288411b0b9044c11a00a8ab478000e3ec1133101" in files["injector"]
     and "MARBLE_SINGBOX_ANDROID_CLI_CRASH_V157" in files["injector"]
