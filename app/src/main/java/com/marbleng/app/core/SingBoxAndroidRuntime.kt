@@ -25,18 +25,22 @@ object SingBoxAndroidRuntime {
      *    the Android package manager and netlink; unavailable to an app-UID child process.
      */
     val ANDROID_FORBIDDEN_ROUTE_KEYS: List<String> = listOf(
-        "auto_detect_interface",
-        "default_network_strategy",
-        "default_network_type",
-        "default_fallback_network_type",
-        "default_fallback_delay",
-        "default_interface",
-        "default_mark",
-        "override_android_vpn",
-        "find_process",
-        "find_neighbor",
-        "dhcp_lease_files"
-    )
+    "auto_detect_interface",
+    "default_network_strategy",
+    "default_network_type",
+    "default_fallback_network_type",
+    "default_fallback_delay",
+    "default_interface",
+    "default_mark",
+    "override_android_vpn",
+    "find_process",
+    "find_neighbor",
+    "dhcp_lease_files",
+    "include_package",
+    "exclude_package",
+    "include_uid",
+    "exclude_uid"
+)
 
     /**
      * Dial fields with the same problem one level down: they are resolved through the interface
@@ -44,13 +48,19 @@ object SingBoxAndroidRuntime {
      * socket-protect channel, which a CLI child has no server for.
      */
     val ANDROID_FORBIDDEN_DIAL_KEYS: List<String> = listOf(
-        "bind_interface",
-        "routing_mark",
-        "network_strategy",
-        "network_type",
-        "fallback_network_type",
-        "protect_path"
-    )
+    "bind_interface",
+    "routing_mark",
+    "network_strategy",
+    "network_type",
+    "fallback_network_type",
+    "protect_path",
+    "find_process",
+    "find_neighbor",
+    "include_package",
+    "exclude_package",
+    "include_uid",
+    "exclude_uid"
+)
 
     /** Inbound types the CLI must never be given: Android's `VpnService` owns the TUN. */
     val ANDROID_FORBIDDEN_INBOUND_TYPES: List<String> = listOf("tun", "redirect", "tproxy")
