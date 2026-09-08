@@ -74,6 +74,14 @@ export GOTOOLCHAIN=auto
 # dead build says what it was doing, not just that it died.
 MILESTONE=""
 
+# Log file of the native compile that is running (or ran last), written by
+# build_xray()/build_singbox(). A compiler writes its real reason into its
+# output, and failure_diagnostics() replays the tail into the step summary and
+# the run annotation - the step log itself is not always reachable when a
+# release build dies (its log host has been unreachable from every diagnostic
+# environment so far), so the reason has to travel in the annotation.
+LAST_BUILD_LOG=""
+
 log() {
     MILESTONE="$*"
     printf '\n\033[1;36m[MarbleNG]\033[0m %s\n' "$*"
@@ -90,6 +98,35 @@ warn() {
 die() {
     printf '\033[1;31m[FAIL]\033[0m %s\n' "$*" >&2
     exit 1
+}
+
+# Emit a GitHub Actions annotation. Annotation commands are single-line: a
+# newline ends the command and truncates the message, so multi-line bodies are
+# %0A-encoded (and percent signs escaped first, or %0A would decode as text).
+annotate_error() {
+    local title="$1"
+    local body="$2"
+
+    body="${body//%/%25}"
+    body="${body//$'\r'/ }"
+    body="${body//$'\n'/%0A}"
+
+    printf '::error title=%s::%s\n' "$title" "$body"
+}
+
+# Replay the tail of a failed command's log so the reason survives the loss of
+# the step log. Kept short: annotations and step summaries are read by humans.
+tail_of_log() {
+    local file="$1"
+    local lines="${2:-40}"
+
+    if [[ -n "$file" && -s "$file" ]]; then
+        echo "----- last $lines lines of $file -----"
+        tail -n "$lines" -- "$file"
+        echo "----- end -----"
+    else
+        echo "(no captured log)"
+    fi
 }
 
 require_command() {
@@ -259,6 +296,19 @@ failure_diagnostics() {
             fi
 
             echo
+            echo "Disk (workspace):"
+            df -h "$ROOT" 2>/dev/null || true
+
+            echo
+            echo "Memory:"
+            free -m 2>/dev/null || true
+
+            echo
+            echo "Last native compile log:"
+            echo
+            tail_of_log "$LAST_BUILD_LOG" 60
+
+            echo
             echo "================================================================"
         } | tee "${report:-/dev/null}"
 
@@ -287,10 +337,23 @@ failure_diagnostics() {
             } >> "${GITHUB_STEP_SUMMARY}"
 
             local annotation_title
-            annotation_title="$(printf '%s' "${MILESTONE:-native preparation}" | sed 's/%/%25/g')"
+            annotation_title="$(printf '%s' "${MILESTONE:-native preparation}" | sed 's/%/%25/g;s/\r/ /g;s/\n/ /g')"
 
-            printf '::error title=MarbleNG-native-ABIs::prepare-native.sh failed at "%s" (exit %s) - full diagnostics in the step summary\n' \
-                "$annotation_title" "$status"
+            # The step log is not always reachable (a dead release build has
+            # already lost it twice), so the annotation carries the compiler's
+            # own last words, not just a pointer to the summary.
+            local annotation_body
+            annotation_body="$(
+                printf 'prepare-native.sh failed at "%s" (exit %s)\n' \
+                    "${MILESTONE:-native preparation}" "$status"
+
+                if [[ -n "$LAST_BUILD_LOG" && -s "$LAST_BUILD_LOG" ]]; then
+                    printf '\nCompiler output (%s):\n' "$(basename "$LAST_BUILD_LOG")"
+                    tail_of_log "$LAST_BUILD_LOG" 30
+                fi
+            )"
+
+            annotate_error "MarbleNG-native-ABIs" "$annotation_body"
         fi
 
         [[ -n "$report" ]] && rm -f "$report"
@@ -734,6 +797,13 @@ build_xray() {
     echo "================================================================"
     echo
 
+    # Captured, not just streamed: the compile's own error text is the only
+    # first-hand account of why it died, and it has to survive the loss of the
+    # step log (see failure_diagnostics()).
+    local build_log="$CORE/xray-build-$abi.log"
+
+    LAST_BUILD_LOG="$build_log"
+
     if [[ -n "$goarm" ]]; then
 
         (
@@ -754,7 +824,7 @@ build_xray() {
                     -ldflags="-X github.com/xtls/xray-core/core.build=${commit_id} -s -w -buildid= -checklinkname=0" \
                     -o "$output" \
                     ./main
-        )
+        ) 2>&1 | tee "$build_log"
 
     else
 
@@ -775,7 +845,7 @@ build_xray() {
                     -ldflags="-X github.com/xtls/xray-core/core.build=${commit_id} -s -w -buildid= -checklinkname=0" \
                     -o "$output" \
                     ./main
-        )
+        ) 2>&1 | tee "$build_log"
 
     fi
 
@@ -1680,13 +1750,95 @@ SINGBOX_TEST_LOG="$CORE/singbox-regression-test.log"
 ok "sing-box crash backport verified by go test"
 
 # ---------------------------------------------------------------------------
+# Resolve the Android package graph before a single ABI is compiled
+#
+# The regression tests above run on the host and with no build tags, so they
+# cannot see what the release build sees: `go list -deps` with the real tags
+# and the real GOOS/GOARCH can. A generated-but-absent embedded asset (the
+# admin panel's `dist/`) or any other unresolvable import fails here in
+# seconds with the compiler's own message, instead of ~4 minutes into the
+# job after Xray, HEV and the JNI bridge have already been built.
+# ---------------------------------------------------------------------------
+
+log "Resolving the sing-box Android package graph"
+
+SINGBOX_GRAPH_LOG="$CORE/singbox-package-graph.log"
+
+singbox_resolve_graph() {
+    local goarch="$1"
+    local goarm="${2:-}"
+
+    (
+        cd "$SINGBOX_SRC"
+
+        env \
+            GOTOOLCHAIN=auto \
+            GOOS=android \
+            GOARCH="$goarch" \
+            ${goarm:+GOARM="$goarm"} \
+            CGO_ENABLED=1 \
+            go list \
+                -deps \
+                -tags "$SINGBOX_TAGS" \
+                ./cmd/sing-box \
+                >/dev/null
+    ) 2>&1 | tee "$SINGBOX_GRAPH_LOG"
+}
+
+singbox_resolve_graph "arm64" || {
+    tail -n 20 "$SINGBOX_GRAPH_LOG" >&2 || true
+    die "sing-box Android package graph does not resolve (arm64): see $SINGBOX_GRAPH_LOG"
+}
+
+singbox_resolve_graph "arm" "7" || {
+    tail -n 20 "$SINGBOX_GRAPH_LOG" >&2 || true
+    die "sing-box Android package graph does not resolve (arm): see $SINGBOX_GRAPH_LOG"
+}
+
+singbox_resolve_graph "amd64" || {
+    tail -n 20 "$SINGBOX_GRAPH_LOG" >&2 || true
+    die "sing-box Android package graph does not resolve (amd64): see $SINGBOX_GRAPH_LOG"
+}
+
+singbox_resolve_graph "386" || {
+    tail -n 20 "$SINGBOX_GRAPH_LOG" >&2 || true
+    die "sing-box Android package graph does not resolve (386): see $SINGBOX_GRAPH_LOG"
+}
+
+ok "sing-box Android package graph resolves for every ABI"
+
+# ---------------------------------------------------------------------------
 # sing-box build helper
 # ---------------------------------------------------------------------------
 
 # The pinned fork's own tag list (.goreleaser.yaml build id `android`).
 # with_clash_api is load-bearing: the URL test reads the core's Clash
 # controller. Changing this list changes which protocols the product supports.
-SINGBOX_TAGS="with_gvisor,with_quic,with_dhcp,with_wireguard,with_utls,with_acme,with_clash_api,with_tailscale,with_masque,with_mtproxy,with_trusttunnel,with_call,with_sudoku,with_manager,with_admin_panel,with_profiler,badlinkname,tfogo_checklinkname0"
+#
+# with_admin_panel is deliberately NOT in this list, and it can never be
+# added back without also generating its assets. The fork's
+# service/admin_panel/service.go carries
+#
+#     //go:embed dist
+#     var distFS embed.FS
+#
+# but `service/admin_panel/dist` is neither committed nor committable: it is
+# the Vite bundle the fork builds with `npm run build` + `go run
+# ./cmd/internal/admin_panel_pack` in its own release pipeline, and the
+# repository's .gitignore excludes `dist`. Upstream therefore only compiles
+# because goreleaser runs after that step; a plain source clone always dies
+# with
+#
+#     service/admin_panel/service.go:48:12: pattern dist: no matching files found
+#
+# which is exactly how the first source-built release on main stopped: every
+# native build after PR #130 failed at "Building sing-box for arm64-v8a".
+#
+# MarbleNG is a client and never configures an admin-panel service, and the
+# tag's absence is not silent: the fork's service_stub.go registers the type
+# and answers "Admin panel is not included in this build, rebuild with -tags
+# with_admin_panel" for anyone who does.
+SINGBOX_TAGS="with_gvisor,with_quic,with_dhcp,with_wireguard,with_utls,with_acme,with_clash_api,with_tailscale,with_masque,with_mtproxy,with_trusttunnel,with_call,with_sudoku,with_manager,with_profiler,badlinkname,tfogo_checklinkname0"
 
 SINGBOX_VERSION="${SINGBOX_TAG#v}"
 SINGBOX_BUILD_VERSION="${SINGBOX_VERSION}-marble.${SINGBOX_PATCH_LEVEL}"
@@ -1738,8 +1890,22 @@ build_singbox() {
     echo "Version      : $SINGBOX_BUILD_VERSION"
     echo "Crash fix    : MARBLE_SINGBOX_ANDROID_CLI_CRASH_V157"
     echo "Stage output : $output"
+
+    echo -n "Go toolchain : "
+
+    (
+        cd "$SINGBOX_SRC"
+        env GOTOOLCHAIN=auto go version
+    )
+
     echo "================================================================"
     echo
+
+    # Captured, not just streamed: a compiler error here has to survive the
+    # loss of the step log (see failure_diagnostics()).
+    local build_log="$CORE/singbox-build-$abi.log"
+
+    LAST_BUILD_LOG="$build_log"
 
     if [[ -n "$goarm" ]]; then
 
@@ -1762,7 +1928,7 @@ build_singbox() {
                     -ldflags "-X github.com/sagernet/sing-box/constant.Version=${SINGBOX_BUILD_VERSION} -s -w -buildid= -checklinkname=0" \
                     -o "$output" \
                     ./cmd/sing-box
-        )
+        ) 2>&1 | tee "$build_log"
 
     else
 
@@ -1784,7 +1950,7 @@ build_singbox() {
                     -ldflags "-X github.com/sagernet/sing-box/constant.Version=${SINGBOX_BUILD_VERSION} -s -w -buildid= -checklinkname=0" \
                     -o "$output" \
                     ./cmd/sing-box
-        )
+        ) 2>&1 | tee "$build_log"
 
     fi
 
