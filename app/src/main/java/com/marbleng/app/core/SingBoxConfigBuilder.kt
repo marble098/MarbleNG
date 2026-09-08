@@ -423,6 +423,141 @@ object SingBoxConfigBuilder {
         return Build(root.toString(), candidate.strategy, notes.distinct())
     }
 
+
+    // <<< ADD_AFTER_ASSEMBLE >>>
+private fun sanitizeAndroidCliConfig(
+    root: JSONObject,
+    notes: MutableList<String>
+) {
+    val route = root.optJSONObject("route")
+    if (route != null) {
+        SingBoxAndroidRuntime.ANDROID_FORBIDDEN_ROUTE_KEYS.forEach { key ->
+            if (route.has(key)) {
+                route.remove(key)
+                notes += "android-sanitize: removed route.$key"
+            }
+        }
+
+        // این کلیدها در بعضی نسخه‌ها داخل route.rules نیز دیده می‌شوند.
+        route.optJSONArray("rules")?.let { rules ->
+            sanitizeRuleArray(rules, notes)
+        }
+    }
+
+    root.optJSONArray("inbounds")?.let { inbounds ->
+        for (index in 0 until inbounds.length()) {
+            inbounds.optJSONObject(index)?.let { inbound ->
+                val type = inbound.optString("type").lowercase()
+                if (type in SingBoxAndroidRuntime.ANDROID_FORBIDDEN_INBOUND_TYPES) {
+                    throw IllegalArgumentException(
+                        "android-sanitize: forbidden inbound type '$type'"
+                    )
+                }
+
+                removeKeys(
+                    inbound,
+                    listOf(
+                        "include_package",
+                        "exclude_package",
+                        "include_uid",
+                        "exclude_uid",
+                        "find_process",
+                        "find_neighbor",
+                        "dhcp_lease_files"
+                    ),
+                    "inbounds[$index]",
+                    notes
+                )
+            }
+        }
+    }
+
+    root.optJSONArray("outbounds")?.let { outbounds ->
+        for (index in 0 until outbounds.length()) {
+            outbounds.optJSONObject(index)?.let { outbound ->
+                sanitizeDialObject(
+                    outbound,
+                    "outbounds[$index]",
+                    notes
+                )
+            }
+        }
+    }
+
+    root.optJSONObject("dns")?.let { dns ->
+        dns.optJSONArray("servers")?.let { servers ->
+            for (index in 0 until servers.length()) {
+                servers.optJSONObject(index)?.let { server ->
+                    val type = server.optString("type").lowercase()
+                    if (type in SingBoxAndroidRuntime.ANDROID_FORBIDDEN_DNS_TYPES) {
+                        server.remove("type")
+                        server.put("type", "local")
+                        notes += "android-sanitize: replaced dns.servers[$index].$type with local"
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun sanitizeRuleArray(
+    rules: JSONArray,
+    notes: MutableList<String>
+) {
+    for (index in 0 until rules.length()) {
+        val rule = rules.optJSONObject(index) ?: continue
+
+        removeKeys(
+            rule,
+            listOf(
+                "find_process",
+                "find_neighbor",
+                "include_package",
+                "exclude_package",
+                "dhcp_lease_files"
+            ),
+            "route.rules[$index]",
+            notes
+        )
+
+        rule.optJSONArray("rules")?.let { nested ->
+            sanitizeRuleArray(nested, notes)
+        }
+    }
+}
+
+private fun sanitizeDialObject(
+    json: JSONObject,
+    location: String,
+    notes: MutableList<String>
+) {
+    SingBoxAndroidRuntime.ANDROID_FORBIDDEN_DIAL_KEYS.forEach { key ->
+        if (json.has(key)) {
+            json.remove(key)
+            notes += "android-sanitize: removed $location.$key"
+        }
+    }
+
+    json.optJSONObject("detour")?.let { detour ->
+        sanitizeDialObject(detour, "$location.detour", notes)
+    }
+}
+
+private fun removeKeys(
+    json: JSONObject,
+    keys: List<String>,
+    location: String,
+    notes: MutableList<String>
+) {
+    keys.forEach { key ->
+        if (json.has(key)) {
+            json.remove(key)
+            notes += "android-sanitize: removed $location.$key"
+        }
+    }
+}
+// <<< END_ADD_AFTER_ASSEMBLE >>>
+
     /**
      * The local SOCKS endpoint the URL test measures through, in the same `host:port` form the
      * rest of the product uses for the Xray engine.
