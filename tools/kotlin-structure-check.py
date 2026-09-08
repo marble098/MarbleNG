@@ -5,6 +5,13 @@ It is *not* a Kotlin parser. It tokenizes strings, chars, comments and `${}`
 interpolations well enough to catch the mistakes that actually break a build after a
 large mechanical edit: unterminated literals, unbalanced braces/parens/brackets and
 stray double quotes.
+
+Comments follow Kotlin's own rule — they **nest**. A `/*` inside a comment opens a level
+that the comment's `*/` closes instead of ending the comment, which is why a KDoc that
+mentions something like `android/*` silently deletes the rest of the file for the
+compiler. Such a `/*` is reported as a hard error here: in this codebase it is never
+intentional, and kotlinc's answer to it is a wall of misleading "Unresolved reference"
+errors in files that are perfectly correct.
 """
 
 from pathlib import Path
@@ -90,12 +97,38 @@ def check(path: Path):
             i = n if j < 0 else j
             continue
         if c == "/" and i + 1 < n and text[i + 1] == "*":
-            j = text.find("*/", i + 2)
-            if j < 0:
+            # Kotlin block comments NEST: `/* a /* b */ c */` is ONE comment, so the scanner has
+            # to count levels instead of stopping at the first `*/`. Getting this wrong is not a
+            # cosmetic difference — a KDoc that merely *mentions* `/*` (this branch wrote
+            # `android/*` in prose) opens a level its own `*/` then closes, the KDoc never ends,
+            # and the compiler swallows the rest of the file. kotlinc reports that as one
+            # "Unclosed comment" plus a dozen "Unresolved reference" errors in files that are
+            # perfectly correct, so a nesting-aware scan here is the cheapest place to catch it.
+            depth = 1
+            j = i + 2
+            nested_at = 0
+            while j < n and depth:
+                if text.startswith("/*", j):
+                    depth += 1
+                    if not nested_at:
+                        nested_at = line + text.count("\n", i, j)
+                    j += 2
+                    continue
+                if text.startswith("*/", j):
+                    depth -= 1
+                    j += 2
+                    continue
+                j += 1
+            if depth:
                 problems.append(f"line {line}: unterminated block comment")
                 break
+            if nested_at:
+                problems.append(
+                    f"line {nested_at}: '/*' inside a block comment — Kotlin comments nest, so "
+                    "this one never terminates and swallows the rest of the file"
+                )
             line += text.count("\n", i, j)
-            i = j + 2
+            i = j
             continue
         if c == '"':
             before = line

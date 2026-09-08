@@ -18,9 +18,16 @@ import org.json.JSONObject
  * one of them died on the same line. The doctor is Marble Intelligence's automatic answer. When
  * the core rejects a config, the JSON is repaired against the known removals and renames of the
  * sing-box 1.12/1.13 migration, re-checked, and the session proceeds — the user connects instead
- * of reading a schema error. [isEngineLevelFault] is the companion half: it tells the VPN service
- * that a failure belongs to the engine (so falling over to another *node* is pointless and the
- * Xray engine should carry the session instead).
+ * of reading a schema error. [isEngineLevelFault] is the companion half: it says a failure belongs
+ * to the *engine*, so falling over to another node is pointless, no further candidate of the same
+ * node is worth spawning, and the report has to name the core rather than the server.
+ *
+ * It does not, and deliberately must not, move the session onto the other engine by itself:
+ * MARBLE_SINGBOX_CORE_V151 makes engine selection an explicit user contract (see
+ * `AppRepository.setCoreEngine` — "switching it is a real act rather than a flag flip", and
+ * `MarbleVpnService` — "Explicit engine selection is a contract"). What an engine-level fault buys
+ * is an immediate, correctly attributed stop plus the remediation that tells the user which of
+ * their two engines to pick.
  *
  * Everything here is pure JSON surgery over the exact text [SingBoxManager] wrote, so it is
  * unit-testable without a device and without spawning the core.
@@ -517,12 +524,23 @@ object SingBoxConfigDoctor {
     }
 
     /**
-     * True when [reason] describes the *engine* refusing to run a config, as opposed to a node
-     * or network failure. The VPN service uses this to stop walking failover candidates (every
-     * candidate would fail identically) and to self-heal onto the other engine instead.
+     * True when [reason] describes the *engine* refusing to run, as opposed to a node or network
+     * failure. The VPN service and the manager use it to stop walking failover candidates and
+     * reader candidates, because every one of them would fail identically, and to attribute the
+     * fault to the core in the state, the notification and Bug Finder. Choosing the other engine
+     * stays the user's explicit act (see the class documentation).
+     *
+     * Two kinds of reason land here. A rejected configuration — the markers above — which is what
+     * this predicate was written for; and MARBLE_SINGBOX_ANDROID_CLI_CRASH_V157, a core that
+     * *crashed* while starting, which no configuration and no node could have changed either. The
+     * crash and package-manager markers live in [SingBoxAndroidRuntime] instead of being copied
+     * into [CONFIG_FAULT_MARKERS], because that object is also what decides whether a measurement
+     * batch keeps walking — two lists of panic strings would eventually become two different
+     * opinions about the same log line, and a panic is not a config rejection in any case.
      */
     fun isEngineLevelFault(reason: String): Boolean {
         val text = reason.lowercase()
-        return CONFIG_FAULT_MARKERS.any { marker -> text.contains(marker) }
+        return CONFIG_FAULT_MARKERS.any { marker -> text.contains(marker) } ||
+            SingBoxAndroidRuntime.isUnusableCore(reason)
     }
 }

@@ -78,12 +78,27 @@ class SingBoxProcessSession private constructor(
          *    measurement that never touches it.
          *
          * Defaults keep the connect path exactly as strict as it was.
+         *
+         * MARBLE_SINGBOX_ANDROID_CLI_CRASH_V157 — [settleMs] is the third parameter of the same
+         * kind, and it exists because "the port listened" is not the same statement as "the core
+         * started". `box.Start()` opens the inbounds at `StartStateStart` and only then walks the
+         * outbounds through `StartStatePostStart`, so a core that dies in an outbound's post-start
+         * — which is exactly where the Android nil-interface-monitor crash lived — can publish a
+         * listening SOCKS port microseconds before it panics. A startup loop that returns on the
+         * first successful connect therefore reports success for a process that is already dead.
+         *
+         * The live and measurement paths keep the default of `0`: they observe the child
+         * continuously afterwards and a connect-time grace period would be paid on every server.
+         * The self-test in [SingBoxCoreSelfTest] passes a real window, because its whole job is to
+         * answer "does this binary survive startup on this device?" once, and a false PASS there
+         * is worse than a slow one.
          */
         fun open(binary: File, config: String, configFile: File, logFile: File,
                  tempDir: File, socksPort: Int, apiPort: Int, secret: String,
                  startupTimeoutMs: Long = 12_000,
                  validate: Boolean = true,
-                 awaitApi: Boolean = true): SingBoxProcessSession {
+                 awaitApi: Boolean = true,
+                 settleMs: Long = 0): SingBoxProcessSession {
             checkInterrupted()
             val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(startupTimeoutMs)
             fun left(): Long = TimeUnit.NANOSECONDS.toMillis(deadline - System.nanoTime()).coerceAtLeast(0)
@@ -137,13 +152,37 @@ class SingBoxProcessSession private constructor(
                         pump.join(200)
                         error("core-start: exited ${child.exitValue()}: ${tail(logFile)}")
                     }
-                    if (listening(socksPort, left()) && (!awaitApi || apiReady(apiPort, secret, left()))) return session
+                    if (listening(socksPort, left()) && (!awaitApi || apiReady(apiPort, secret, left()))) {
+                        // A listening port proves the inbound started, not that the whole box
+                        // did. See [settleMs].
+                        settle(child, pump, logFile, settleMs, left())
+                        return session
+                    }
                     Thread.sleep(minOf(60, left()).coerceAtLeast(1))
                 }
                 error("core-start-timeout: ${tail(logFile)}")
             } catch (error: Throwable) {
                 session.close()
                 throw error
+            }
+        }
+
+        /**
+         * Waits out a bounded grace window after the endpoint answered, and turns a child that
+         * dies inside it into the same `core-start: exited N: <log>` failure the startup loop
+         * already produces. Interruptible, and never longer than the startup budget that is left.
+         */
+        private fun settle(child: Process, pump: Thread, logFile: File, settleMs: Long, left: Long) {
+            if (settleMs <= 0) return
+            val deadline = System.nanoTime() +
+                TimeUnit.MILLISECONDS.toNanos(minOf(settleMs, left).coerceAtLeast(0))
+            while (System.nanoTime() < deadline) {
+                checkInterrupted()
+                if (!child.isAlive) {
+                    pump.join(200)
+                    error("core-start: exited ${child.exitValue()}: ${tail(logFile)}")
+                }
+                Thread.sleep(minOf(25, TimeUnit.NANOSECONDS.toMillis(deadline - System.nanoTime()).coerceAtLeast(1)))
             }
         }
 

@@ -37,6 +37,14 @@ class SingBoxManager(private val context: Context) {
     @Volatile var apiPort: Int = 0
         private set
     @Volatile var intelligence: MarbleIntelligence? = null
+
+    /**
+     * MARBLE_SINGBOX_ANDROID_CLI_CRASH_V157 — the last verdict about *this* binary, kept so a
+     * broken core is paid for once instead of once per node, per reader and per retry.
+     */
+    @Volatile var lastSelfTest: SingBoxCoreSelfTest.Verdict? = null
+        private set
+    private val selfTestLock = Any()
     val isAlive: Boolean get() = session?.isAlive == true
     private val bin: File get() = File(context.applicationInfo.nativeLibraryDir, CoreEngineInfo.SINGBOX_BINARY)
     val isInstalled: Boolean get() = bin.isFile && bin.length() > 1024
@@ -51,6 +59,10 @@ class SingBoxManager(private val context: Context) {
         var dns: AndroidDnsBridge.Lease? = null
         try {
             check(isInstalled) { "core-install: sing-box extended is missing from this APK" }
+            // MARBLE_SINGBOX_ANDROID_CLI_CRASH_V157 — whether this binary can start is not a
+            // per-node and not a per-reader question, so the canary answers it once and the
+            // connect stops here instead of after a spawn, a crash and three refusals.
+            requireUsableCore()
             require(port in 1..65535) { "core-config: Invalid local SOCKS port" }
             dns = bootstrap.acquire()
             val controller = freePort(excluding = port)
@@ -181,6 +193,9 @@ class SingBoxManager(private val context: Context) {
                                   block: (SingBoxProcessSession, Int) -> T): T {
         SingBoxProcessSession.checkInterrupted()
         check(isInstalled) { "core-install: sing-box extended is missing from this APK" }
+        // Before the queue, not after it: a core that cannot start must not occupy a measurement
+        // slot while it proves that, and a sweep of N nodes must not spawn N dead children.
+        requireUsableCore()
         // Interruptible queue admission. A cancelled batch must not later start another child.
         check(testSlots.tryAcquire(30, TimeUnit.SECONDS)) { "core-busy: measurement capacity is occupied" }
         var directory: File? = null
@@ -260,8 +275,91 @@ class SingBoxManager(private val context: Context) {
         return last
     }
 
-    private fun explain(reason: String): String = if (SingBoxAndroidRuntime.isNetlinkBan(reason))
-        "$reason — ${SingBoxAndroidRuntime.NETLINK_REMEDIATION}" else reason
+    private fun explain(reason: String): String = SingBoxAndroidRuntime.explain(reason)
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // Core self-test — one canary process per binary, not one crash per node
+    // ─────────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Asks the binary whether it can start on this device, and remembers the answer.
+     *
+     * The canary is [SingBoxCoreSelfTest.canaryConfig]: a local inbound plus a `direct` outbound,
+     * which is exactly the path the Android nil-interface-monitor crash lived on and which touches
+     * no network. Results are cached against the binary's fingerprint, so the cost is one process
+     * per installed core — and one process *per APK*, because a new build changes the fingerprint.
+     *
+     * Returns `null` when the core is not installed or when the probe was cancelled. Callers must
+     * only short-circuit on [SingBoxCoreSelfTest.Verdict.coreFault]; an inconclusive verdict is
+     * reported but never blocks the engine.
+     *
+     * Concurrency: one canary at a time, serialized by [selfTestLock], and callers that arrive
+     * while it runs re-read the cache instead of running a second one. It deliberately does *not*
+     * take a [testSlots] permit — borrowing the measurement pool would let a full sweep stall a
+     * connect for seconds waiting on a diagnostic. The price is one extra short-lived process
+     * beside the pool, once per installed binary, which is the cheaper of the two mistakes.
+     */
+    fun selfTest(force: Boolean = false): SingBoxCoreSelfTest.Verdict? {
+        if (!isInstalled) return null
+        val cache = File(context.filesDir, "singbox-selftest.json")
+        if (!force) SingBoxCoreSelfTest.read(cache, bin)?.let { cached ->
+            lastSelfTest = cached
+            return cached
+        }
+        return synchronized(selfTestLock) {
+            // Re-read: another thread may have finished the same canary while this one waited.
+            if (!force) SingBoxCoreSelfTest.read(cache, bin)?.let { cached ->
+                lastSelfTest = cached
+                return@synchronized cached
+            }
+            var workspace: File? = null
+            try {
+                workspace = File(context.cacheDir, "singbox-selftest").apply { mkdirs() }
+                val verdict = SingBoxCoreSelfTest.probe(
+                    binary = bin,
+                    workspace = workspace,
+                    socksPort = freePort()
+                )
+                lastSelfTest = verdict
+                // Only a definitive answer is worth caching. An inconclusive one — a cancelled
+                // probe, a lost port race, a device that was momentarily out of memory — has to be
+                // asked again, or one unlucky canary would disable the self-test until the next
+                // APK update changed the binary's fingerprint.
+                if (verdict.ok || verdict.coreFault) SingBoxCoreSelfTest.write(cache, verdict)
+                recordSelfTest(verdict)
+                verdict
+            } catch (error: InterruptedException) {
+                Thread.currentThread().interrupt()
+                lastSelfTest
+            } catch (error: Exception) {
+                lastSelfTest
+            } finally {
+                workspace?.deleteRecursively()
+            }
+        }
+    }
+
+    /**
+     * Throws the verdict's reason when the core is provably unusable, so the connect path and the
+     * measurement path both stop *before* they spawn a child that cannot survive start-up.
+     */
+    private fun requireUsableCore() {
+        val verdict = selfTest() ?: return
+        if (verdict.coreFault) error(verdict.asFailureReason())
+    }
+
+    /** The canary's own evidence, retained exactly like a core log: bounded and credential-free. */
+    private fun recordSelfTest(verdict: SingBoxCoreSelfTest.Verdict) {
+        if (verdict.ok) return
+        synchronized(diagnosticLock) {
+            runCatching {
+                SingBoxProcessSession.atomicWrite(
+                    File(context.cacheDir, "singbox-selftest.log"),
+                    if (verdict.reason.isBlank()) "core-selftest: inconclusive" else verdict.reason
+                )
+            }
+        }
+    }
 
     companion object {
         /**
@@ -280,8 +378,18 @@ class SingBoxManager(private val context: Context) {
          * True when the core rejected the *document*, which is the only thing a different reader
          * can fix. Everything else (ports, permissions, memory, a killed child) would fail
          * identically for every candidate, so walking on would only multiply the wait.
+         *
+         * MARBLE_SINGBOX_ANDROID_CLI_CRASH_V157 — a crashed core is the strongest form of that
+         * rule and is excluded explicitly. The Android nil-interface-monitor panic happened after
+         * the document had been accepted and parsed, so all three readers of the same node
+         * produced three identical SIGSEGVs and three identical process spawns; the refusal list
+         * in the Engine page then explained a crash as if it were a schema disagreement. A crash
+         * and the netlink ban are answered once, immediately, and are handed to the engine-level
+         * fault path instead.
          */
         internal fun isConfigRefusal(reason: String): Boolean {
+            if (SingBoxAndroidRuntime.isUnusableCore(reason)) return false
+            if (reason.startsWith("core-crash:")) return false
             val value = reason.lowercase()
             return value.startsWith("core-config:") ||
                 value.startsWith("core-start:") ||

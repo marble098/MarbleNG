@@ -7,7 +7,13 @@ import java.io.File
  * off (route/network.go). DNS is supplied separately by AndroidDnsBridge, NOT type:local.
  *
  * Generated configs must pass the pinned core WITHOUT deprecation escape hatches. Suppressing
- * migration failures made schema regressions look like network outages in previous builds. */
+ * migration failures made schema regressions look like network outages in previous builds.
+ *
+ * MARBLE_SINGBOX_ANDROID_CLI_CRASH_V157 — tolerating the missing monitor is only half of the
+ * contract: the core itself has to survive it. This object also classifies the runtime faults
+ * that no config can fix (a Go panic, the app-UID package-manager probe, the netlink ban) so
+ * the manager, the VPN service, the measurement plane and Bug Finder all answer "the core is
+ * broken" instead of "these 17 servers are dead". */
 object SingBoxAndroidRuntime {
 
     /**
@@ -82,6 +88,142 @@ object SingBoxAndroidRuntime {
     fun isNetlinkBan(reason: String): Boolean {
         val text = reason.lowercase()
         return "netlink socket" in text && ("banned" in text || "android" in text)
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // MARBLE_SINGBOX_ANDROID_CLI_CRASH_V157 — a dead core is not a dead server
+    // ─────────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Signatures of a Go **runtime crash**, which is a fact about the binary and the device and
+     * never a fact about the node being measured.
+     *
+     * The one MarbleNG shipped for three releases looked like this in the retained core log:
+     *
+     * ```
+     * WARN network: initialize package manager: read packages list: open
+     *      /data/system/packages.xml: permission denied
+     * panic: runtime error: invalid memory address or nil pointer dereference
+     * [signal SIGSEGV: segmentation violation code=0x1 addr=0x30 pc=0x5c0a469b6c]
+     * ```
+     *
+     * `protocol/direct/outbound.go` called `InterfaceMonitor().MyInterfaces()` from
+     * `Outbound.Start(StartStatePostStart)`. An app-UID child gets no interface monitor — sing-tun
+     * refuses netlink on `GOOS=android` and `route.NewNetworkManager` tolerates that refusal — so
+     * the call was a method on a nil interface. Every MarbleNG config carries a `direct` outbound
+     * (bypass routing, rule-set downloads, the DNS bootstrap detour), so *every* start died with
+     * exit status 2 — after the local inbound had already opened, which is exactly why a listening
+     * port is not evidence that a core survived start-up (see [SingBoxCoreSelfTest.SETTLE_MS]).
+     *
+     * Upstream fixed it in `288411b0` ("Fix crash when interface monitor is unavailable",
+     * SagerNet/sing-box#4498); `scripts/inject-singbox-android-fix.py` backports that commit onto
+     * the pinned source and `scripts/prepare-native.sh` compiles the core here instead of shipping
+     * the crashing upstream Android artifact. These markers stay: a core that crashes must be
+     * reported as a broken core forever, whatever the next regression turns out to be.
+     */
+    private val CRASH_MARKERS: List<String> = listOf(
+        "panic:",
+        "fatal error:",
+        "sigsegv",
+        "segmentation violation",
+        "invalid memory address or nil pointer dereference",
+        "unexpected fault address",
+        "goroutine 1 [running]",
+        "goroutine stack exceeds",
+        "sigabrt",
+        "runtime error:"
+    )
+
+    /**
+     * The Android package-manager probe the core runs unconditionally when it is a `GOOS=android`
+     * build with no `PlatformInterface` (`route/network.go`:
+     * `if C.IsAndroid && r.platformInterface == nil`). `/data/system/packages.xml` is
+     * `0660 system:system`, so an app UID can only ever get `permission denied`.
+     *
+     * On its own this line is a WARN and is survivable — the core keeps going with a nil package
+     * manager, and process/package rules are not something MarbleNG asks for. It matters because
+     * it is the fingerprint of the process model that also produced the crash above, so a report
+     * that contains it is a report about the core, not about a server.
+     */
+    private val PACKAGE_MANAGER_MARKERS: List<String> = listOf(
+        "/data/system/packages.xml",
+        "initialize package manager",
+        "read packages list",
+        "create package manager",
+        "start package manager"
+    )
+
+    /** True when [reason] contains a Go runtime crash rather than a refused configuration. */
+    fun isCoreCrash(reason: String): Boolean {
+        val text = reason.lowercase()
+        // Exit status 2 is what a Go panic exits with; 1 is `log.Fatal` (a refusal, which the
+        // doctor already owns). A crash is identical for every candidate spelling of the same
+        // node, so it must never be answered by trying the next reader or the next server.
+        return CRASH_MARKERS.any { marker -> marker in text } || "exited 2:" in text
+    }
+
+    /** True when [reason] is the app-UID package-manager probe described above. */
+    fun isPackageManagerFault(reason: String): Boolean {
+        val text = reason.lowercase()
+        return PACKAGE_MANAGER_MARKERS.any { marker -> marker in text }
+    }
+
+    /**
+     * True when the fault is the *core's own* runtime contract with Android, i.e. no node, no
+     * configuration and no network could have changed the outcome. This is the predicate that
+     * decides whether a measurement batch keeps walking: 17 identical local faults are one fault,
+     * not 17 dead servers.
+     *
+     * The package-manager probe is deliberately **not** part of it. That line is printed by every
+     * `GOOS=android` core on every start-up, including the successful ones, because
+     * `route/network.go` initialises the package manager unconditionally and only logs the
+     * `permission denied` it always gets. A reason that contains it therefore says nothing about
+     * why the core stopped — and treating it as fatal would have swallowed real per-node schema
+     * refusals, whose log tail carries the same WARN above the actual `FATAL` line. It is evidence
+     * ([isPackageManagerFault], Bug Finder's WARN, [PACKAGE_MANAGER_REMEDIATION]), not a verdict.
+     */
+    fun isUnusableCore(reason: String): Boolean = isCoreCrash(reason) || isNetlinkBan(reason)
+
+    /**
+     * The one-line explanation attached to a crash. It names the cause, the fix that is in this
+     * build, and the one thing the user can do about a build that predates it — instead of
+     * repeating a Go panic trace that reads like a server problem to everybody who is not inside
+     * this file.
+     */
+    const val CRASH_REMEDIATION: String =
+        "The sing-box core process crashed while starting (a Go panic, not a server refusal): " +
+            "an app-UID child gets no netlink interface monitor on Android, and a core built " +
+            "without MarbleNG's nil-monitor fix dereferences one in its `direct` outbound, so " +
+            "every profile dies identically. MarbleNG compiles the core with that fix " +
+            "(MARBLE_SINGBOX_ANDROID_CLI_CRASH_V157). If this appears, the installed APK predates " +
+            "it: update MarbleNG, or switch Settings → Tunnel core to Xray-core, which is " +
+            "unaffected."
+
+    /** The one-line explanation attached to the package-manager probe. */
+    const val PACKAGE_MANAGER_REMEDIATION: String =
+        "sing-box tried to read Android's package list (/data/system/packages.xml), which an app " +
+            "process may not open. MarbleNG asks for no process/package rule, so this line alone " +
+            "is harmless — but it identifies the core build that also crashed in its `direct` " +
+            "outbound. Update MarbleNG, or switch Settings → Tunnel core to Xray-core."
+
+    /**
+     * The reason the product shows. A raw Go panic or an Android permission line is not an answer
+     * a person can act on, so each recognised runtime fault travels with its remediation; anything
+     * unrecognised is passed through verbatim, because guessing is how a real schema error once
+     * got reported as a network outage.
+     *
+     * Idempotent: a reason is explained on the way out of the process session, again by the
+     * manager that caught it and once more by the surface that prints it, and the same paragraph
+     * three times reads like three separate faults.
+     */
+    fun explain(reason: String): String {
+        val note = when {
+            isNetlinkBan(reason) -> NETLINK_REMEDIATION
+            isCoreCrash(reason) -> CRASH_REMEDIATION
+            isPackageManagerFault(reason) -> PACKAGE_MANAGER_REMEDIATION
+            else -> return reason
+        }
+        return if (reason.contains(note)) reason else "$reason — $note"
     }
 
     /**

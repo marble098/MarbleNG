@@ -485,6 +485,18 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
      */
     var probeCancelling by mutableStateOf(false); private set
     private val probeCancelGate = ProbeCancelGate()
+
+    /**
+     * MARBLE_SINGBOX_ANDROID_CLI_CRASH_V157 — the reason a sweep stopped because the *device*
+     * could no longer measure (a crashed core, a missing binary, no live tunnel), or `""`.
+     *
+     * This is the state that was missing when 17 identical SIGSEGVs were published as
+     * `reachable = 0 of 17`: the number was right and the meaning was wrong. A sweep that stops
+     * here says why, and the surfaces that report a batch read this before they turn a stopped
+     * batch into a verdict about servers.
+     */
+    var probeLocalFault by mutableStateOf(""); private set
+    private val probeLocalFaultGate = ProbeLocalFaultGate()
     var probeCurrentName by mutableStateOf(""); private set
     var probeLastName by mutableStateOf(""); private set
     var probeLastOutcome by mutableStateOf(""); private set
@@ -503,16 +515,26 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         else -> ProbeState.IDLE
     }
 
-    private fun beginProbeBatch(candidates: List<ProxyProfile>) = postToMain {
-        probeBatch = candidates.mapTo(mutableSetOf()) { it.id }
-        probeRunning = emptySet()
-        probeFinished = emptySet()
-        probeTotal = probeBatch.size
-        probeCurrentName = ""
-        probeLastName = ""
-        probeLastOutcome = ""
-        probeLastLatencyMs = 0
-        probeCancelling = false
+    private fun beginProbeBatch(candidates: List<ProxyProfile>) {
+        // A new sweep starts un-stopped: the fault that ended the previous one is evidence about
+        // that batch, not a permanent verdict on the device (the core may have been updated, the
+        // tunnel may be up now). Reset *here* and not in the posted block below — the sweep polls
+        // probeShouldStop immediately after its candidates are announced, and a latch cleared one
+        // main-thread turn later would abort the new sweep at its first node. This is why
+        // [endProbeBatch] resets its latch outside postToMain too.
+        probeLocalFaultGate.reset()
+        postToMain {
+            probeLocalFault = ""
+            probeBatch = candidates.mapTo(mutableSetOf()) { it.id }
+            probeRunning = emptySet()
+            probeFinished = emptySet()
+            probeTotal = probeBatch.size
+            probeCurrentName = ""
+            probeLastName = ""
+            probeLastOutcome = ""
+            probeLastLatencyMs = 0
+            probeCancelling = false
+        }
     }
 
     /**
@@ -555,24 +577,73 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     }
 
     /** Publishes one finished node immediately; the card updates while the batch continues. */
-    private fun markProbeResult(profile: ProxyProfile, result: BenchmarkResult) = postToMain {
-        probeRunning = probeRunning - profile.id
-        probeFinished = probeFinished + profile.id
-        probeCurrentName = profile.name
-        probeLastName = profile.name
-        probeLastOutcome = when {
-            result.success > 0 -> "OK"
-            CoreFailurePolicy.isLocal(result.failureReason) -> "CORE / CONFIG ERROR"
-            else -> "FAILED"
+    private fun markProbeResult(profile: ProxyProfile, result: BenchmarkResult) {
+        // MARBLE_SINGBOX_ANDROID_CLI_CRASH_V157 — observed here, on the worker, *before* anything
+        // is posted to the main thread: a fault that will end the sweep has to end it now. Posting
+        // it first would let the other workers pick up their next candidates while the message is
+        // still queued, which is precisely how one broken core became 17 "dead" servers.
+        if (probeLocalFaultGate.trip(result.failureReason, result.success)) {
+            stopProbesForLocalFault(result.failureReason)
         }
-        probeLastLatencyMs = if (result.success > 0) {
-            LinkQualityEstimator.sanitaryRtt(result.latencyMs.toInt())
-        } else 0
-        mergeBenchmarks(listOf(result))
+        postToMain {
+            probeRunning = probeRunning - profile.id
+            probeFinished = probeFinished + profile.id
+            probeCurrentName = profile.name
+            probeLastName = profile.name
+            probeLastOutcome = when {
+                result.success > 0 -> "OK"
+                CoreFailurePolicy.isLocal(result.failureReason) -> "CORE / CONFIG ERROR"
+                else -> "FAILED"
+            }
+            probeLastLatencyMs = if (result.success > 0) {
+                LinkQualityEstimator.sanitaryRtt(result.latencyMs.toInt())
+            } else 0
+            mergeBenchmarks(listOf(result))
+        }
+    }
+
+    /**
+     * Ends a sweep because the device cannot measure, not because anyone asked it to stop.
+     *
+     * Runs at most once per sweep ([ProbeLocalFaultGate.trip] is idempotent). It publishes the
+     * reason, arms the cancel latch so every engine sees one uniform stop, and interrupts the
+     * worker so a thread blocked in a core spawn or a socket unwinds immediately — the same three
+     * things [cancelProbes] does, because a fault stop and a user stop must not leave the product
+     * in two different states. Measurements already made are kept: they are real, and throwing
+     * them away would make the honest report look like a failure to report.
+     */
+    private fun stopProbesForLocalFault(reason: String) {
+        val summary = ProbeLocalFaultGate.summary(reason)
+        diagnostics.event(
+            "BENCHMARK",
+            "probe-stopped-local-fault",
+            "reason" to ProbeLocalFaultGate.headline(reason),
+            "done" to probeDone,
+            "total" to probeTotal
+        )
+        // Arm first: the engines poll one predicate, and a fault stop must look like a stop to
+        // every sweep implementation, including the ones that only know about cancels.
+        probeCancelGate.arm()
+        postToMain {
+            val left = (probeTotal - probeDone).coerceAtLeast(0)
+            message = if (left > 0) {
+                "Stopped • $summary — the $left queued nodes were not measured " +
+                    "(device fault, not a server verdict)"
+            } else {
+                "Stopped • $summary (device fault, not a server verdict)"
+            }
+            probeCancelling = true
+            probeLocalFault = reason
+        }
+        runCatching { activeTask.get()?.cancel(true) }
     }
 
     private fun endProbeBatch() {
         probeCancelGate.reset()
+        // Both latches belong to the batch. probeLocalFault (the *reason*) is deliberately kept:
+        // it is the last sweep's evidence, exactly like probeLastOutcome, and the surfaces that
+        // report a batch need it to say "stopped by a device fault" instead of "0 reachable".
+        probeLocalFaultGate.reset()
         postToMain {
             probeBatch = emptySet()
             probeRunning = emptySet()
@@ -583,8 +654,38 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         }
     }
 
-    /** The cancel predicate handed to every sweep: true from the tap until the batch ends. */
-    private val probeShouldStop: () -> Boolean = probeCancelGate.shouldStop
+    /**
+     * The stop predicate handed to every sweep. Two latches, one question:
+     *
+     *  - [probeCancelGate] — a person pressed stop;
+     *  - [probeLocalFaultGate] — the device proved it cannot measure anything else (a crashed
+     *    core is the same for every remaining node, so continuing only multiplies the crash
+     *    count and then reports it as a server verdict).
+     *
+     * Both unwind through the same path, and both keep the measurements already made.
+     */
+    private val probeShouldStop: () -> Boolean = {
+        probeCancelGate.isRequested || probeLocalFaultGate.isTripped
+    }
+
+    /**
+     * MARBLE_SINGBOX_ANDROID_CLI_CRASH_V157 — the summary line a finished batch publishes.
+     *
+     * "$passed reachable" is a statement about servers, and it is only true if this device could
+     * measure them. When the sweep stopped itself on a local fault, printing "0 of 17 reachable"
+     * is the exact sentence that made a crashed core look like a dead network: those 17 nodes were
+     * never contacted, so nothing at all was learned about any of them. The counts stay — they are
+     * real, and a stopped batch still shows what it did measure — but the meaning is corrected,
+     * and the full reason is one Bug Finder scan away.
+     *
+     * Reads the gate first and the published state second: the gate is tripped synchronously on
+     * the worker that found the fault, while [probeLocalFault] reaches the UI one main-thread turn
+     * later, and a summary written in between must not lose the reason.
+     */
+    private fun batchSummary(summary: String): String {
+        val fault = probeLocalFaultGate.reason.ifBlank { probeLocalFault }
+        return if (fault.isBlank()) summary else "$summary • stopped: ${ProbeLocalFaultGate.summary(fault)}"
+    }
 
     private fun beginRefresh(ids: Collection<String>) = postToMain {
         refreshingSources = ids.toSet()
@@ -3405,15 +3506,18 @@ private fun postToMain(block: () -> Unit) {
                 "healthy" to healthy,
                 "method" to "TUNNEL",
                 "engine" to "pattng-core-dial-batch-v62",
-                "elapsedMs" to (System.currentTimeMillis() - startedAt)
+                "elapsedMs" to (System.currentTimeMillis() - startedAt),
+                "stoppedByLocalFault" to (probeLocalFaultGate.isTripped || probeLocalFault.isNotBlank())
             )
 
-            message = if (best == null) {
-                "Rank • $scope • ${results.size}/${scoped.size} • 0 reachable"
-            } else {
-                "Rank • $scope • $healthy/${scoped.size} reachable • " +
-                    "${best.name} • ${best.latencyMs.toInt()} ms"
-            }
+            message = batchSummary(
+                if (best == null) {
+                    "Rank • $scope • ${results.size}/${scoped.size} • 0 reachable"
+                } else {
+                    "Rank • $scope • $healthy/${scoped.size} reachable • " +
+                        "${best.name} • ${best.latencyMs.toInt()} ms"
+                }
+            )
     }
 
     fun fullTest(p: ProxyProfile) {
@@ -3653,14 +3757,17 @@ private fun postToMain(block: () -> Unit) {
                 "requested" to scoped.size,
                 "uniqueEndpoints" to representatives.size,
                 "tested" to expanded.size,
-                "reachable" to passed
+                "reachable" to passed,
+                "stoppedByLocalFault" to (probeLocalFaultGate.isTripped || probeLocalFault.isNotBlank())
             )
-            message = if (dedupe) {
-                "$methodLabel • $scope • ${expanded.size} servers / " +
-                    "${representatives.size} endpoints • $passed reachable"
-            } else {
-                "$methodLabel • $scope • ${expanded.size} servers • $passed reachable"
-            }
+            message = batchSummary(
+                if (dedupe) {
+                    "$methodLabel • $scope • ${expanded.size} servers / " +
+                        "${representatives.size} endpoints • $passed reachable"
+                } else {
+                    "$methodLabel • $scope • ${expanded.size} servers • $passed reachable"
+                }
+            )
         }
     }
 
@@ -3820,7 +3927,11 @@ private fun postToMain(block: () -> Unit) {
                     (System.currentTimeMillis() - connectedSinceMs).coerceAtLeast(0L)
                 } else {
                     0L
-                }
+                },
+                // MARBLE_SINGBOX_ANDROID_CLI_CRASH_V157 — why the last sweep stopped, when it
+                // stopped for a reason of its own instead of finishing. Without it the report
+                // shows a batch of failures and no way to tell a dead network from a dead core.
+                lastProbeFault = probeLocalFault
             )
             if (settings.debugModeEnabled) diagnostics.exportReport("bugfinder-auto", report.asText())
             diagnostics.event("BUGFINDER", "scan-finish", "failures" to report.failures, "warnings" to report.warnings, "autoExport" to settings.debugModeEnabled)

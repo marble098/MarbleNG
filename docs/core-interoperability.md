@@ -4,10 +4,23 @@ Reviewed against `shtorm-7/sing-box-extended v1.14.0-extended-2.7.1` and
 `XTLS/Xray-core v26.7.28` on 2026-09-07. Extended's newest release is already the
 version in `core-lock.json`; incrementing a version number would not fix these integration errors.
 
+Updated 2026-09-08 for **MARBLE_SINGBOX_ANDROID_CLI_CRASH_V157**: the Android core is no longer a
+downloaded release artifact. `core-lock.json` pins a source `commit` and a local `patch` level, and
+`scripts/prepare-native.sh` compiles every ABI from that commit with
+`scripts/inject-singbox-android-fix.py` applied, reporting itself as
+`1.14.0-extended-2.7.1-marble.crash-fix.1`. See `docs/SINGBOX_ANDROID_CLI_CRASH_V157.md`.
+
 ## Runtime and DNS
 
 - Android `VpnService` and HEV own TUN. The core owns **one loopback mixed inbound**.
   No auto-route, automatic interface detection or enforced netlink monitor is needed.
+- Avoiding a monitor request is only half of that contract: an app-UID `GOOS=android` child has
+  **no** netlink interface monitor at all, and the core must survive the nil rather than dereference
+  it. `protocol/direct/outbound.go` did exactly that at `StartStatePostStart` for every config
+  MarbleNG writes (all of them carry a `direct` outbound), which is the crash V157 backports the
+  upstream nil-guards for. `/data/system/packages.xml: permission denied` from the unconditional
+  Android package-manager probe is a WARN on the same path, is survivable, and is evidence about the
+  build rather than a fault in its own right.
 - The standalone Android CLI's `type: local` reads `/etc/resolv.conf`. It is not SFA's
   platform DNS callback. Production starts a loopback UDP bridge, backed by
   `DnsResolver.rawQuery(network, ...)` on API 29+, or `Network.getAllByName` on API 26–28.
@@ -83,6 +96,14 @@ shape test while changing authentication or transport would be worse than reject
 - Core installation/configuration/asset failures do not decrement server health, launch a
   failover walk, or silently latch another engine. The kill switch still holds where possible.
   LOW_MEMORY/package replacement/user-requested exit records alone do not establish a memory leak.
+- A core that **cannot start on this device** (a Go panic, the netlink ban) is one fault, not one
+  fault per node. `SingBoxCoreSelfTest` asks the binary once per installed APK with an offline canary
+  — a local `mixed` inbound plus a `direct` outbound, the exact path that crashed — and refuses to
+  spawn further children when the verdict is a core fault. `ProbeLocalFaultGate` stops a sweep on the
+  first such result, keeps the measurements already made, and the batch summary says the device could
+  not measure instead of printing `0 of N reachable`. Per-node refusals, capacity, slowness and every
+  network-shaped reason deliberately do **not** stop a sweep: those are its subject matter. Engine
+  selection is still never switched automatically.
 
 ## Verification
 
@@ -93,7 +114,23 @@ python3 tools/kotlin-structure-check.py
 python3 scripts/system-integrity-check.py
 bash -n scripts/*.sh
 python3 scripts/prepare-singbox-rules.py --verify-only
+python3 -m py_compile scripts/inject-singbox-android-fix.py
 ```
+
+Core-source checks (the Android half of the contract cannot be proven by a Linux artifact):
+
+```sh
+git clone https://github.com/shtorm-7/sing-box-extended && cd sing-box-extended
+git checkout "$(jq -r '.singbox.commit' /path/to/core-lock.json)"
+python3 /path/to/scripts/inject-singbox-android-fix.py .   # idempotent; exits 1 on anchor drift
+CGO_ENABLED=0 go test ./protocol/direct ./route            # the injected nil-monitor regressions
+```
+
+`scripts/prepare-native.sh` runs both before it builds any ABI, and `.github/workflows/verify.yml`
+runs them again on every push as the `sing-box Android CLI crash-fix native smoke` step. The host
+acceptance binaries from `scripts/prepare-native-test-cores.sh` are the **unpatched** `linux-amd64`
+release on purpose: on Linux a real interface monitor exists, so the crash path cannot be exercised
+there — which is exactly why the Go tests stub the monitor instead.
 
 Real-core acceptance (Linux x86-64, JDK 17, Android compile SDK and Gradle installed):
 
@@ -116,6 +153,10 @@ still be distinguished from Linux loopback evidence in release reports.
 ## Authoritative references
 
 - [Pinned Extended release](https://github.com/shtorm-7/sing-box-extended/releases/tag/v1.14.0-extended-2.7.1)
+- [Upstream nil-interface-monitor fix backported by V157](https://github.com/SagerNet/sing-box/commit/288411b0b9044c11a00a8ab478000e3ec1133101)
+- [The crashing call site: `direct` outbound `fetchMyAddresses`](https://github.com/shtorm-7/sing-box-extended/blob/v1.14.0-extended-2.7.1/protocol/direct/outbound.go)
+- [The unconditional Android package-manager probe](https://github.com/shtorm-7/sing-box-extended/blob/v1.14.0-extended-2.7.1/route/network.go)
+- [Identical panic reported against the official Android CLI](https://github.com/SagerNet/sing-box/issues/4498)
 - [Extended transport schema](https://github.com/shtorm-7/sing-box-extended/blob/v1.14.0-extended-2.7.1/option/v2ray_transport.go)
 - [Extended TLS schema](https://github.com/shtorm-7/sing-box-extended/blob/v1.14.0-extended-2.7.1/option/tls.go)
 - [Extended local DNS system configuration](https://github.com/shtorm-7/sing-box-extended/blob/v1.14.0-extended-2.7.1/dns/transport/local/systemconfig/source_resolv.go)

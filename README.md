@@ -41,13 +41,26 @@ It focuses on real proxy verification, fast one-tap connection, fail-closed rout
 
 ## Connection reliability
 
-`docs/ENGINE_SELF_HEAL_AND_PING_AIR_V152.md` is the newest chapter: the shipped 8.0.6 build
+`docs/SINGBOX_ANDROID_CLI_CRASH_V157.md` is the newest chapter: three shipped builds carried an
+Android sing-box artifact that panicked in its own `direct` outbound for **every** profile, because
+an app-UID child gets no netlink interface monitor on Android. The product answered in four
+remote-sounding vocabularies — `reachable = 0 of 17` for both the URL test and Real delay, a BLOCKED
+`Core/configuration error`, and a Bug Finder scan that reported `failures=0` because every core check
+it runs is gated on a connection a crashing core never establishes. MarbleNG now compiles the core
+from the pinned commit with the upstream nil-guards backported
+(`scripts/inject-singbox-android-fix.py`, proven by Go tests in CI before a single ABI is built), asks
+the binary whether it can start before it asks any server (`SingBoxCoreSelfTest`), stops a sweep at the
+first fault that cannot change mid-sweep (`ProbeLocalFaultGate`), and reports a crashed core as a
+crashed core in every app state.
+
+`docs/ENGINE_SELF_HEAL_AND_PING_AIR_V152.md` is the previous sing-box chapter: the shipped 8.0.6 build
 could not connect at all on the sing-box engine because the emitted config still carried the
 `dns` outbound sing-box removed in 1.13.0 — every profile was refused, the session went BLOCKED,
 and failover replayed the same refusal seventeen times. The outbound is gone, the config is
 checked by a **self-healing doctor** (`SingBoxConfigDoctor`) that repairs the known core
-migrations in place, and an engine-level fault now switches the session onto the other engine
-instead of walking dead failover candidates.
+migrations in place, and an engine-level fault now stops the walk at once instead of replaying it
+per candidate: failover to another *node* is pointless when the engine itself refused, and choosing
+the other engine stays the user's explicit act in Settings → Tunnel core.
 
 `docs/CONNECTION_ROOT_CAUSE_V132.md` documents the full trace of the connect path and the five
 defects found in it, including the two that made a healthy server fail in MarbleNG while it

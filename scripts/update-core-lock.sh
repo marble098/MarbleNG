@@ -114,21 +114,77 @@ if [[ -z "$singbox_tag" ]]; then
     exit 1
 fi
 
-# Release archive integrity is part of the pin, not trust-on-first-use at build time.
+# ------------------------------------------------------------------------------
+# MARBLE_SINGBOX_ANDROID_CLI_CRASH_V157 — what the sing-box pin has to carry
+#
+# The Android core is compiled by scripts/prepare-native.sh from the pinned
+# source (with the upstream nil-interface-monitor crash fix backported by
+# scripts/inject-singbox-android-fix.py), so the integrity anchor is the COMMIT
+# the tag resolves to, not an archive digest. A tag can be re-pointed; a commit
+# cannot.
+#
+# One digest is still recorded: the linux-amd64 release archive that
+# scripts/prepare-native-test-cores.sh installs for the host-side acceptance
+# tests. That binary runs on a Linux runner, where a real interface monitor
+# exists, so it needs no patch — it only has to accept the configs the pinned
+# core is asked to accept.
+# ------------------------------------------------------------------------------
+resolve_singbox_commit() {
+    local repo="$1" tag="$2" ref object_type object_sha
+
+    ref="$(curl -fsSL --retry 4 "${GITHUB_API_HEADERS[@]}" \
+        "https://api.github.com/repos/${repo}/git/ref/tags/${tag}")" || {
+        return 0
+    }
+
+    object_type="$(jq -r '.object.type // empty' <<< "$ref")"
+    object_sha="$(jq -r '.object.sha // empty' <<< "$ref")"
+
+    # An annotated tag points at a tag object; dereference it to the commit.
+    if [[ "$object_type" == "tag" && -n "$object_sha" ]]; then
+        object_sha="$(curl -fsSL --retry 4 "${GITHUB_API_HEADERS[@]}" \
+            "https://api.github.com/repos/${repo}/git/tags/${object_sha}" |
+            jq -r '.object.sha // empty')"
+    fi
+
+    # Every refusal path prints nothing and succeeds: the caller turns an empty
+    # answer into one explicit ::error:: instead of dying inside a substitution.
+    [[ "$object_type" == "commit" || "$object_type" == "tag" ]] || return 0
+
+    [[ "$object_sha" =~ ^[0-9a-f]{40}$ ]] || return 0
+
+    printf '%s\n' "$object_sha"
+}
+
+singbox_commit="$(resolve_singbox_commit "$singbox_repo" "$singbox_tag")"
+
+if [[ -z "$singbox_commit" ]]; then
+    echo "::error::Could not resolve the sing-box commit for $singbox_tag" >&2
+    exit 1
+fi
+
 singbox_digests="$(curl -fsSL --retry 4 "${GITHUB_API_HEADERS[@]}" \
     "https://api.github.com/repos/${singbox_repo}/releases/tags/${singbox_tag}" | jq -ce '
-    [.assets[] | select(.name | test("-(android-(386|amd64|arm64|armv7)|linux-amd64)\\.tar\\.gz$"))
+    [.assets[] | select(.name | test("-linux-amd64\\.tar\\.gz$"))
       | select(.digest | startswith("sha256:")) | {key:.name, value:(.digest | sub("^sha256:"; ""))}]
-    | from_entries | select(length == 5)')"
+    | from_entries | select(length == 1)')"
 
-# Preserve the channel settings; update only tags and the timestamp.
+if [[ -z "$singbox_digests" ]]; then
+    echo "::error::No linux-amd64 host-test archive digest for sing-box $singbox_tag" >&2
+    exit 1
+fi
+
+# Preserve the channel settings and MarbleNG's own patch level; update the tags,
+# the resolved source commit and the timestamp.
 jq \
     --arg x "$xray_tag" \
     --arg h "$hev_tag" \
     --arg s "$singbox_tag" \
+    --arg c "$singbox_commit" \
     --argjson sha "$singbox_digests" \
     --arg d "$(date -u +%F)" \
-    '.xray.tag = $x | .hev.tag = $h | .singbox.tag = $s | .singbox.sha256 = $sha | .updated = $d' \
+    '.xray.tag = $x | .hev.tag = $h | .singbox.tag = $s | .singbox.commit = $c
+     | .singbox.sha256 = $sha | .updated = $d' \
     "$LOCK" > "$LOCK.tmp" && mv -f "$LOCK.tmp" "$LOCK"
 
 echo ""
@@ -136,3 +192,8 @@ echo "Resolved:"
 echo "  Xray     = $xray_tag     ($xray_channel)"
 echo "  HEV      = $hev_tag      ($hev_channel)"
 echo "  sing-box = $singbox_tag  ($singbox_channel)"
+echo "             source commit $singbox_commit (compiled locally, crash fix backported)"
+echo ""
+echo "NOTE: a new sing-box tag does not carry MarbleNG's backport. prepare-native.sh"
+echo "      re-applies scripts/inject-singbox-android-fix.py and fails loudly if the"
+echo "      anchors moved; read the pinned core again before forcing the build."
