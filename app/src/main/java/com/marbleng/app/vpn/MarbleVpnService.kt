@@ -35,6 +35,7 @@ import com.marbleng.app.core.SmartNotifier
 import com.marbleng.app.core.TransportTelemetry
 import com.marbleng.app.core.TurboBackoffPolicy
 import com.marbleng.app.core.CoreEngine
+import com.marbleng.app.core.SingBoxAndroidRuntime
 import com.marbleng.app.core.SingBoxConfigDoctor
 import com.marbleng.app.core.SingBoxManager
 import com.marbleng.app.core.XrayManager
@@ -657,7 +658,22 @@ class MarbleVpnService : VpnService() {
                 )
                 return
             }
-            diag.event(coreTag, "core-start-failure-not-a-server-verdict", "reason" to coreStartError.take(300))
+            // MARBLE_SINGBOX_ANDROID_CLI_CRASH_V157 — engine selection stays the user's contract:
+            // see "Explicit engine selection is a contract" above `activeEngine = settings.coreEngine()`.
+            // A core that cannot run on this device is never answered by switching engines behind
+            // the user's back. What changes is the *report*. This is the branch that used to say
+            // "Core/configuration error" for a Go panic in the core's own `direct` outbound, which
+            // sent the user back to the server list to retry 17 healthy nodes; the same fault now
+            // arrives classified, with the remediation the runtime attaches to it, and the state
+            // detail says whose fault it is.
+            val unusableCore = activeEngine == CoreEngine.SINGBOX &&
+                SingBoxAndroidRuntime.isUnusableCore(coreStartError)
+            diag.event(
+                coreTag,
+                if (unusableCore) "core-unusable-on-device" else "core-start-failure-not-a-server-verdict",
+                "reason" to coreStartError.take(300),
+                "selfTest" to (singBox.lastSelfTest?.summary ?: "not run")
+            )
             handleFailure(
                 session,
                 coreStartError.ifBlank {
@@ -668,7 +684,12 @@ class MarbleVpnService : VpnService() {
                     }
                 },
                 allowRecovery = false,
-                recordProfileFailure = false
+                recordProfileFailure = false,
+                faultClass = if (unusableCore) {
+                    "Core cannot run on this device"
+                } else {
+                    "Core/configuration error"
+                }
             )
             return
         }
@@ -2783,11 +2804,19 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
      * remains established. This preserves the kill switch during route changes and core crashes.
      */
     @Synchronized
+    /**
+     * @param faultClass the label the BLOCKED state and the kill-switch notification carry.
+     *   MARBLE_SINGBOX_ANDROID_CLI_CRASH_V157 made this a parameter because "Core/configuration
+     *   error" is a claim about the *profile*, and a core that cannot start on this device is not
+     *   one: it is the same for every profile, every server and every retry. The default keeps
+     *   every other caller's wording exactly as it was.
+     */
     private fun handleFailure(
         session: String,
         reason: String,
         allowRecovery: Boolean = true,
-        recordProfileFailure: Boolean = true
+        recordProfileFailure: Boolean = true,
+        faultClass: String = "Core/configuration error"
     ) {
         if (
             session.isNotBlank() &&
@@ -2938,8 +2967,8 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             recoveryScheduled.set(false)
             tunReadyPublished.set(false)
             running.set(false)
-            repo.setRuntimeState("BLOCKED", "Core/configuration error • $reason")
-            if (holdTun) promoteForeground("BLOCKED • Core/configuration error • tap Retry", ongoing = true)
+            repo.setRuntimeState("BLOCKED", "$faultClass • $reason")
+            if (holdTun) promoteForeground("BLOCKED • $faultClass • tap Retry", ongoing = true)
             else {
                 runCatching { stopForeground(STOP_FOREGROUND_REMOVE) }
                 stopSelf()

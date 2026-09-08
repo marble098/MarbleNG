@@ -27,8 +27,39 @@ jobs:
           jq -e '.xray.tag and .xray.repo' core-lock.json
           jq -e '.hev.tag and .hev.repo' core-lock.json
           jq -e '.singbox.tag and .singbox.repo' core-lock.json
-          [[ "$(jq -r '.singbox.channel' core-lock.json)" == "beta" ]]
+          [[ "$(jq -r '.singbox.channel' core-lock.json) == "beta" ]]
           jq -r '"xray \(.xray.tag)  hev \(.hev.tag)  singbox \(.singbox.tag)"' core-lock.json
+
+          # MARBLE_SINGBOX_ANDROID_CLI_CRASH_V157 — the Android core is compiled from source, so
+          # the lock has to name the commit the tag resolved to, and MarbleNG's backport level has
+          # to survive the rewrite (update-core-lock.sh only touches tags, commit, digest, date).
+          [[ "$(jq -r '.singbox.commit' core-lock.json)" =~ ^[0-9a-f]{40}$ ]]
+          [[ -n "$(jq -r '.singbox.patch // empty' core-lock.json)" ]]
+          jq -e '.singbox.sha256 | length == 1' core-lock.json
+      - name: Prove the Android crash backport still applies
+        shell: bash
+        run: |
+          set -euo pipefail
+          # This job pushes straight to main. A newer sing-box tag whose source moved one of the
+          # backport anchors would make every release build die inside prepare-native.sh, minutes
+          # into a four-ABI compile. Dry-running the injector here turns that into a one-minute
+          # failure in the updater, and keeps the lock honest about what it pins.
+          REPO="$(jq -r '.singbox.repo' core-lock.json)"
+          TAG="$(jq -r '.singbox.tag' core-lock.json)"
+          COMMIT="$(jq -r '.singbox.commit' core-lock.json)"
+          WORK="$(mktemp -d)"
+          trap 'rm -rf "$WORK"' EXIT
+
+          git clone --quiet --depth 1 --branch "$TAG" \
+            "https://github.com/${REPO}.git" "$WORK/singbox"
+
+          test "$(git -C "$WORK/singbox" rev-parse HEAD)" = "$COMMIT"
+
+          python3 scripts/inject-singbox-android-fix.py "$WORK/singbox"
+
+          echo "Backport applies cleanly to $TAG ($COMMIT)."
+          echo "If a future tag already contains upstream 288411b0, the injector reports"
+          echo "'already patched' for those files and the backport can be retired."
       - name: Commit only when tags changed
         run: |
           if git diff --quiet -- core-lock.json; then echo 'No core update.'; exit 0; fi

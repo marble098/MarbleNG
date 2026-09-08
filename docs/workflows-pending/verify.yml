@@ -16,7 +16,10 @@ concurrency:
 jobs:
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    # MARBLE_SINGBOX_ANDROID_CLI_CRASH_V157 — the sing-box crash backport is now proven here too
+    # (clone the pinned source, inject, `go test`), alongside the Xray realtime smoke and the
+    # Gradle unit tests. 25 minutes was already tight with two native smokes in the job.
+    timeout-minutes: 40
 
     steps:
       - name: Checkout
@@ -38,6 +41,17 @@ jobs:
           jq -e '.xray.tag and .xray.repo' core-lock.json
           jq -e '.hev.tag and .hev.repo' core-lock.json
           jq -e '.singbox.tag and .singbox.repo' core-lock.json
+
+          # MARBLE_SINGBOX_ANDROID_CLI_CRASH_V157 — the sing-box core is compiled from source, so
+          # the pin has to name the source: the commit the tag resolves to, and MarbleNG's own
+          # backport level. Without them prepare-native.sh would build whatever the tag happens
+          # to point at on the day, and the version marker in the binary would be meaningless.
+          test "$(jq -r '.singbox.commit' core-lock.json | grep -cE '^[0-9a-f]{40}$')" = "1"
+          test "$(jq -r '.singbox.patch' core-lock.json | grep -cE '^[A-Za-z0-9][A-Za-z0-9._-]*$')" = "1"
+
+          # The one digest that is still an archive: the linux-amd64 host-test core.
+          jq -e '.singbox.sha256 | length == 1' core-lock.json
+          jq -e '.singbox.sha256 | keys[0] | endswith("-linux-amd64.tar.gz")' core-lock.json
 
       - name: Core versions agree everywhere
         shell: bash
@@ -66,6 +80,18 @@ jobs:
           grep -q ".hev.tag" scripts/prepare-native.sh
           grep -q ".singbox.tag" scripts/prepare-native.sh
           grep -q "libsingbox.so" scripts/prepare-native.sh
+
+          # MARBLE_SINGBOX_ANDROID_CLI_CRASH_V157 — the Android sing-box core is compiled from the
+          # pinned source with the upstream crash fix backported. Three things must stay true: the
+          # pin names the commit, the injector runs before any ABI is compiled, and no path in the
+          # script can still install the upstream Android release artifact (which SIGSEGVs in the
+          # `direct` outbound of every config MarbleNG emits).
+          grep -q ".singbox.commit" scripts/prepare-native.sh
+          grep -q "inject-singbox-android-fix.py" scripts/prepare-native.sh
+          grep -q "go test" scripts/prepare-native.sh
+          ! grep -q 'sing-box-.*-android-' scripts/prepare-native.sh
+          grep -q 'build_singbox' scripts/prepare-native.sh
+          test -s scripts/inject-singbox-android-fix.py
 
           # The sing-box pin tracks the extended beta line, which is what the product ships.
           [[ "$(jq -r '.singbox.channel' core-lock.json)" == "beta" ]]
@@ -110,6 +136,55 @@ jobs:
           (
             cd "$XRAY_TMP"
             env GOTOOLCHAIN=auto go test ./transport/internet ./main
+          )
+
+      - name: sing-box Android CLI crash-fix native smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          # MARBLE_SINGBOX_ANDROID_CLI_CRASH_V157
+          #
+          # The shipped Android core used to be the upstream release artifact, and that artifact
+          # SIGSEGVs in `protocol/direct/outbound.go` for every unprivileged Android child:
+          # sing-tun bans netlink there, so the interface monitor is nil, and every MarbleNG
+          # config carries a `direct` outbound. Upstream fixed it in 288411b0 ("Fix crash when
+          # interface monitor is unavailable"), which is newer than the pinned release, so
+          # prepare-native.sh backports it onto the pinned source and compiles the core itself.
+          #
+          # This step proves the backport on every pull request, on a host that has no Android in
+          # it: the injected tests reproduce the device condition with a NetworkManager whose
+          # InterfaceMonitor() is nil. Without the guard they panic; with it they pass.
+          SINGBOX_REPO="$(jq -r '.singbox.repo' core-lock.json)"
+          SINGBOX_TAG="$(jq -r '.singbox.tag' core-lock.json)"
+          SINGBOX_COMMIT="$(jq -r '.singbox.commit' core-lock.json)"
+          SINGBOX_TMP="$RUNNER_TEMP/singbox-android-crash-smoke"
+
+          rm -rf "$SINGBOX_TMP"
+          git clone --quiet --depth 1 --branch "$SINGBOX_TAG" \
+            "https://github.com/${SINGBOX_REPO}.git" "$SINGBOX_TMP"
+
+          # The pin is the commit, not the tag: a re-pointed tag must fail here rather than
+          # quietly compile a different core than the one this backport was read against.
+          test "$(git -C "$SINGBOX_TMP" rev-parse HEAD)" = "$SINGBOX_COMMIT"
+
+          python3 scripts/inject-singbox-android-fix.py "$SINGBOX_TMP"
+
+          for patched in \
+            protocol/direct/outbound.go \
+            route/network.go \
+            dns/transport/dhcp/dhcp.go \
+            route/rule/rule_default_interface_address.go \
+            route/rule/rule_network_interface_address.go
+          do
+            grep -F 'MARBLE_SINGBOX_ANDROID_CLI_CRASH_V157' "$SINGBOX_TMP/$patched" >/dev/null
+          done
+
+          # Idempotent: the release build may resume into an already patched tree.
+          python3 scripts/inject-singbox-android-fix.py "$SINGBOX_TMP"
+
+          (
+            cd "$SINGBOX_TMP"
+            env GOTOOLCHAIN=auto CGO_ENABLED=0 go test ./protocol/direct ./route
           )
 
       - name: Reject malformed Compose function types

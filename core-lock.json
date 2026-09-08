@@ -12,12 +12,10 @@
   "singbox": {
     "repo": "shtorm-7/sing-box-extended",
     "tag": "v1.14.0-extended-2.7.1",
+    "commit": "217f77643f19e915ea38ba2a9ac7e28e22a0cec5",
     "channel": "beta",
+    "patch": "crash-fix.1",
     "sha256": {
-      "sing-box-1.14.0-extended-2.7.1-android-386.tar.gz": "99d3800735af041b2744b7627bb9eaef656b5c7ab8d332988fa84b01cae57e99",
-      "sing-box-1.14.0-extended-2.7.1-android-amd64.tar.gz": "2edcc284a453f69d2c7da64af497a71d61d4556375e3fa927a1f5473a3e1a38e",
-      "sing-box-1.14.0-extended-2.7.1-android-arm64.tar.gz": "bf6570516cbe5e6919323c76ee5b7e97d57667f3d2e0f056ce939e87b69398a5",
-      "sing-box-1.14.0-extended-2.7.1-android-armv7.tar.gz": "7bea81b5f5d931499c3d01852b025be9f325f347ce7ae4164e86323a95eeffcd",
       "sing-box-1.14.0-extended-2.7.1-linux-amd64.tar.gz": "6bae7a6f43f55e229741737b31ea7490757ae20e7b2fddc93674b4d8694951f9"
     }
   },

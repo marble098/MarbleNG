@@ -1,6 +1,16 @@
 #!/usr/bin/env bash
 # Install the EXACT pinned Linux cores for offline loopback acceptance tests. This is not the
 # Android packaging path and never changes core-lock.json. No binary is committed to the repo.
+#
+# MARBLE_SINGBOX_ANDROID_CLI_CRASH_V157 — the sing-box binary installed here is the upstream
+# linux-amd64 release artifact, NOT the Android binary the APK ships. That is deliberate:
+#   * the APK's core is compiled by prepare-native.sh from the pinned source with the upstream
+#     nil-interface-monitor fix backported, because the android/* release build SIGSEGVs in the
+#     `direct` outbound of every config MarbleNG emits;
+#   * this host core runs on a Linux runner, where sing-tun's netlink monitor exists, so the crash
+#     is unreachable and the release artifact is the right thing to test config acceptance against;
+#   * the backport itself is pinned by `go test` (see scripts/inject-singbox-android-fix.py), which
+#     reproduces the missing monitor with a stub on any host.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DEST="${MARBLE_NATIVE_TEST_DIR:-${RUNNER_TEMP:-$ROOT/.cores}/marble-native-tests}"

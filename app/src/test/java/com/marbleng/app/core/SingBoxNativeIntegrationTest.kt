@@ -257,6 +257,72 @@ class SingBoxNativeIntegrationTest {
         return Origin(ssl, pem, server.address.port, paths)
     }
 
+    /**
+     * MARBLE_SINGBOX_ANDROID_CLI_CRASH_V157 — the canary must be a document the pinned core
+     * actually runs, or the self-test would report "the core is broken" on healthy devices, which
+     * is a worse bug than the one it was written for.
+     *
+     * This is the only place the canary is executed against a real binary in CI, and it runs on
+     * the *host* core: on Linux an app-UID-style netlink ban does not exist, so the canary is
+     * expected to pass here and its verdict is expected to be cacheable. The Android-specific half
+     * of the contract — a `direct` outbound surviving a nil interface monitor — is proven by the
+     * Go tests `scripts/inject-singbox-android-fix.py` writes into the core source, which
+     * `.github/workflows/verify.yml` runs before any ABI is built.
+     */
+    @Test fun theCoreSelfTestCanaryStartsThePinnedCoreAndServesItsLocalInbound() {
+        val directory = temporary.newFolder("singbox-selftest-${sequence++}")
+        val verdict = SingBoxCoreSelfTest.probe(singbox, directory, freePort())
+        assertTrue("canary failed against the pinned core: ${verdict.reason}", verdict.ok)
+        assertEquals(SingBoxCoreSelfTest.fingerprint(singbox), verdict.fingerprint)
+        assertFalse(verdict.coreFault)
+
+        // The canary is the production shape in miniature: same inbound type, same `direct`
+        // outbound, same `route.final` — and nothing that can reach a network.
+        val canary = JSONObject(SingBoxCoreSelfTest.canaryConfig(freePort()))
+        val inbound = canary.getJSONArray("inbounds").getJSONObject(0)
+        assertEquals("mixed", inbound.getString("type"))
+        assertEquals(SingBoxConfigBuilder.INBOUND_TAG, inbound.getString("tag"))
+        assertEquals("127.0.0.1", inbound.getString("listen"))
+        val outbound = canary.getJSONArray("outbounds").getJSONObject(0)
+        assertEquals("direct", outbound.getString("type"))
+        assertEquals(SingBoxConfigBuilder.DIRECT_TAG, outbound.getString("tag"))
+        assertEquals(SingBoxConfigBuilder.DIRECT_TAG, canary.getJSONObject("route").getString("final"))
+        assertEquals(1, canary.getJSONArray("inbounds").length())
+        assertEquals(1, canary.getJSONArray("outbounds").length())
+        // No DNS transport, no controller, no cache file: nothing in the canary can reach a
+        // network, so nothing it reports can be an observation about a server.
+        listOf("dns", "experimental", "ntp", "tun").forEach { key ->
+            assertFalse("the canary must stay offline: $key", canary.has(key))
+        }
+        assertFalse(
+            "the canary must not ask for an interface monitor",
+            SingBoxAndroidRuntime.ANDROID_FORBIDDEN_ROUTE_KEYS.any { "\"$it\"" in canary.toString() }
+        )
+
+        // The verdict is cached against the binary's identity, and only against that identity.
+        val cache = File(directory, "verdict.json")
+        SingBoxCoreSelfTest.write(cache, verdict)
+        assertEquals(verdict, SingBoxCoreSelfTest.read(cache, singbox))
+        assertNull(SingBoxCoreSelfTest.read(cache, File(directory, "some-other-binary")))
+    }
+
+    /**
+     * A binary that cannot start must produce a *core fault* verdict, never a silent pass and
+     * never an exception: the whole point of the canary is that the manager can act on the answer.
+     */
+    @Test fun theCoreSelfTestReportsAnUnusableBinaryAsAFaultInsteadOfThrowing() {
+        val directory = temporary.newFolder("singbox-selftest-fault-${sequence++}")
+        val notABinary = File(directory, "libsingbox.so").apply { writeText("#!/bin/sh\nexit 2\n") }
+        val verdict = SingBoxCoreSelfTest.probe(notABinary, directory, freePort())
+        assertFalse(verdict.ok)
+        assertTrue(verdict.reason.startsWith("core-install:"))
+        assertFalse("a too-small file is not a crash verdict", verdict.coreFault)
+
+        val missing = SingBoxCoreSelfTest.probe(File(directory, "absent"), directory, freePort())
+        assertFalse(missing.ok)
+        assertTrue(missing.reason.startsWith("core-install:"))
+    }
+
     private fun decoy(context: SSLContext): Int {
         val server = context.serverSocketFactory.createServerSocket(0, 8, java.net.InetAddress.getByName("127.0.0.1")) as SSLServerSocket
         server.sslParameters = server.sslParameters.apply { applicationProtocols = arrayOf("h2", "http/1.1") }

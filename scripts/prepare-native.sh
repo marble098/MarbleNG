@@ -1391,27 +1391,58 @@ ok "core-lock.json installed into Android assets"
 # ==============================================================================
 # 5/5 - sing-box extended (second engine)
 #
-# sing-box extended already publishes upstream-built Android binaries for
-# exactly the four ABIs MarbleNG ships, so this core is never cross-compiled
-# here: the release artifact IS the payload.
+# MARBLE_SINGBOX_ANDROID_CLI_CRASH_V157 - this core is BUILT HERE. It used to be
+# the upstream Android release artifact, and that artifact cannot survive
+# MarbleNG's process model:
 #
-#   ABI           upstream asset architecture
-#   arm64-v8a     android-arm64
-#   armeabi-v7a   android-armv7
-#   x86_64        android-amd64
-#   x86           android-386
+#   * MarbleNG spawns the core with ProcessBuilder, so the child has an app UID
+#     and no PlatformInterface (only libbox/SFA injects one).
+#   * sing-tun refuses netlink on GOOS=android, so route.NewNetworkManager
+#     tolerates the refusal and leaves the interface monitor nil.
+#   * protocol/direct/outbound.go then calls
+#     InterfaceMonitor().MyInterfaces() from Outbound.Start(StartStatePostStart)
+#     for every `direct` outbound - a method call on a nil interface:
+#
+#       panic: runtime error: invalid memory address or nil pointer dereference
+#       [signal SIGSEGV: segmentation violation code=0x1 addr=0x30 pc=0x...]
+#
+#     Exit status 2, surfaced as `core-start: exited 2: ...`. Every MarbleNG
+#     config carries a `direct` outbound (bypass routing, rule-set downloads,
+#     the DNS bootstrap detour), so every sing-box start died: the session went
+#     BLOCKED, failover replayed the crash once per node, and URL test / Real
+#     delay answered reachable=0 for the whole subscription.
+#
+# No configuration avoids it (`action: "direct"` is parsed by 1.14 but the route
+# router never selects it), so the binary itself has to carry the fix. Upstream
+# agrees: SagerNet/sing-box#4498 is this exact trace from an unprivileged
+# Android CLI, fixed one day later in 288411b0b9044c11a00a8ab478000e3ec1133101
+# ("Fix crash when interface monitor is unavailable") - newer than the pinned
+# release and not merged by the extended fork.
+#
+# scripts/inject-singbox-android-fix.py backports that commit onto the pinned
+# source (anchor-guarded: a moved anchor fails this build instead of silently
+# shipping a crashing core), adds the Go regression tests that reproduce the
+# device condition on any host, and only then are the four ABIs compiled:
+#
+#   ABI           GOOS/GOARCH      NDK compiler
+#   arm64-v8a     android/arm64    aarch64-linux-android<API>-clang
+#   armeabi-v7a   android/arm(7)   armv7a-linux-androideabi<API>-clang
+#   x86_64        android/amd64    x86_64-linux-android<API>-clang
+#   x86           android/386      i686-linux-android<API>-clang
+#
+# Build settings are the pinned fork's own (.goreleaser.yaml build id `android`):
+# CGO=1 against the NDK, the same feature tags, the same -checklinkname=0. The
+# two deliberate differences are the backport and a `-marble.<patch>` version
+# suffix, which makes the patched core identifiable from `sing-box version` and
+# gives this script something to grep for in the finished binary.
 #
 # It is installed as libsingbox.so because Android only extracts files named
 # lib*.so from jniLibs, and the app executes it with ProcessBuilder exactly
 # like libxray.so.
-#
-# The uncompressed asset is used on purpose: the "-compressed" variants are
-# UPX-packed, and a UPX stub adds an extra memory map plus decompression time
-# to every process spawn - the one cost a connect-time budget cannot afford.
 # ==============================================================================
 
 python3 "$ROOT/scripts/prepare-singbox-rules.py"
-log "[5/5] Installing sing-box extended $SINGBOX_TAG"
+log "[5/5] Building sing-box extended $SINGBOX_TAG"
 
 [[ "$SINGBOX_TAG" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || {
     die "Unsafe sing-box release tag in core-lock.json: $SINGBOX_TAG"
@@ -1423,61 +1454,100 @@ SINGBOX_REPO="$(jq -r '.singbox.repo // "shtorm-7/sing-box-extended"' "$LOCK")"
     die "Unsafe sing-box repository in core-lock.json: $SINGBOX_REPO"
 }
 
-SINGBOX_STAGE="$CORE/singbox"
+# Source integrity moved from archive digests to the commit the tag resolves to:
+# the payload is compiled here, so the pin has to be the source, not a tarball.
+SINGBOX_COMMIT="$(jq -r '.singbox.commit // empty' "$LOCK")"
 
-rm -rf "$SINGBOX_STAGE"
-mkdir -p "$SINGBOX_STAGE"
-
-# goreleaser strips a leading "v" from the tag when it renders {{ .Version }},
-# but a tag can also be published without one, so both spellings are tried
-# before the Releases API is consulted at all.
-SINGBOX_VERSION="${SINGBOX_TAG#v}"
-
-# Optional: authenticate the API fallback in CI so a shared runner IP quota
-# cannot turn a public lookup into HTTP 403.
-SINGBOX_API_HEADERS=(-H "Accept: application/vnd.github+json")
-
-if [[ -n "${GH_TOKEN:-}" || -n "${GITHUB_TOKEN:-}" ]]; then
-    SINGBOX_API_HEADERS+=(
-        -H "Authorization: Bearer ${GH_TOKEN:-$GITHUB_TOKEN}"
-        -H "X-GitHub-Api-Version: 2022-11-28"
-    )
+if [[ -n "$SINGBOX_COMMIT" ]]; then
+    [[ "$SINGBOX_COMMIT" =~ ^[0-9a-f]{40}$ ]] || {
+        die "Invalid .singbox.commit in core-lock.json: $SINGBOX_COMMIT"
+    }
 fi
 
-singbox_asset_url() {
-    printf '%s\n' \
-        "https://github.com/${SINGBOX_REPO}/releases/download/${SINGBOX_TAG}/sing-box-${2}-android-${1}.tar.gz"
+SINGBOX_PATCH_LEVEL="$(jq -r '.singbox.patch // empty' "$LOCK")"
+
+[[ -n "$SINGBOX_PATCH_LEVEL" ]] || {
+    die "Missing .singbox.patch in core-lock.json"
 }
 
-# Releases API fallback: resolve the real asset URL for one architecture.
-singbox_api_asset_url() {
-    local arch="$1"
-    local json=""
+[[ "$SINGBOX_PATCH_LEVEL" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || {
+    die "Unsafe .singbox.patch in core-lock.json: $SINGBOX_PATCH_LEVEL"
+}
 
-    json="$(
-        curl \
-            -fsSL \
-            --retry 4 \
-            --retry-delay 3 \
-            --connect-timeout 20 \
-            "${SINGBOX_API_HEADERS[@]}" \
-            "https://api.github.com/repos/${SINGBOX_REPO}/releases/tags/${SINGBOX_TAG}"
-    )" || {
-        printf ''
-        return 0
+SINGBOX_SRC="$CORE/singbox-src"
+SINGBOX_STAGE="$CORE/singbox"
+
+rm -rf "$SINGBOX_SRC" "$SINGBOX_STAGE"
+mkdir -p "$SINGBOX_STAGE"
+
+git clone \
+    --quiet \
+    --depth 1 \
+    --branch "$SINGBOX_TAG" \
+    "https://github.com/${SINGBOX_REPO}.git" \
+    "$SINGBOX_SRC"
+
+[[ -f "$SINGBOX_SRC/go.mod" ]] || {
+    die "sing-box go.mod missing after clone"
+}
+
+SINGBOX_HEAD="$(
+    git -C "$SINGBOX_SRC" \
+        rev-parse \
+        HEAD
+)"
+
+if [[ -n "$SINGBOX_COMMIT" && "$SINGBOX_HEAD" != "$SINGBOX_COMMIT" ]]; then
+    die "sing-box source is not the pinned commit: $SINGBOX_HEAD != $SINGBOX_COMMIT"
+fi
+
+echo "sing-box source : $SINGBOX_REPO $SINGBOX_TAG"
+echo "sing-box commit : $SINGBOX_HEAD"
+
+# ---------------------------------------------------------------------------
+# The crash fix, and the proof that it is in the tree before anything compiles
+# ---------------------------------------------------------------------------
+
+python3 "$ROOT/scripts/inject-singbox-android-fix.py" "$SINGBOX_SRC"
+
+grep -F 'MARBLE_SINGBOX_ANDROID_CLI_CRASH_V157' \
+    "$SINGBOX_SRC/protocol/direct/outbound.go" >/dev/null || {
+        die "sing-box Android CLI crash fix is missing from protocol/direct/outbound.go"
     }
 
-    jq -r \
-        --arg arch "$arch" \
-        '[
-            .assets[]?.browser_download_url
-            | select(test("-compressed\\.tar\\.gz$") | not)
-            | select(test("-android-" + $arch + "\\.tar\\.gz$"))
-        ][0] // empty' <<< "$json"
+log "Running the injected sing-box regression tests (nil interface monitor)"
+
+# Host architecture, no CGO: these tests recreate the Android condition with a
+# NetworkManager stub whose InterfaceMonitor() is nil, so they pin the guard on
+# a Linux runner where a real monitor would otherwise hide the crash.
+(
+    cd "$SINGBOX_SRC"
+
+    env \
+        GOTOOLCHAIN=auto \
+        CGO_ENABLED=0 \
+        go test \
+            ./protocol/direct \
+            ./route
+) || {
+    die "sing-box Android CLI crash regression tests failed"
 }
 
-# Verify the binary really is the requested Android architecture. A wrongly
-# labelled asset must fail the build here, not the user's first connection.
+ok "sing-box crash backport verified by go test"
+
+# ---------------------------------------------------------------------------
+# sing-box build helper
+# ---------------------------------------------------------------------------
+
+# The pinned fork's own tag list (.goreleaser.yaml build id `android`).
+# with_clash_api is load-bearing: the URL test reads the core's Clash
+# controller. Changing this list changes which protocols the product supports.
+SINGBOX_TAGS="with_gvisor,with_quic,with_dhcp,with_wireguard,with_utls,with_acme,with_clash_api,with_tailscale,with_masque,with_mtproxy,with_trusttunnel,with_call,with_sudoku,with_manager,with_admin_panel,with_profiler,badlinkname,tfogo_checklinkname0"
+
+SINGBOX_VERSION="${SINGBOX_TAG#v}"
+SINGBOX_BUILD_VERSION="${SINGBOX_VERSION}-marble.${SINGBOX_PATCH_LEVEL}"
+
+# Verify the binary really is the requested Android architecture.
 singbox_assert_machine() {
     local file="$1" expected="$2"
 
@@ -1487,110 +1557,163 @@ singbox_assert_machine() {
         }
 }
 
-install_singbox_abi() {
-    local abi="$1" arch="$2" machine="$3"
-    local archive="$SINGBOX_STAGE/sing-box-${abi}.tar.gz"
-    local extracted="$SINGBOX_STAGE/$abi"
-    local fetched=0 candidate url binary destination
+build_singbox() {
+    local abi="$1"
+    local goarch="$2"
+    local cc_name="$3"
+    local machine="$4"
+    local goarm="${5:-}"
 
-    rm -rf "$archive" "$extracted"
-    mkdir -p "$extracted"
+    local out_dir="$SINGBOX_STAGE/$abi"
+    local output="$out_dir/libsingbox.so"
+    local cc="$NDK_BIN/$cc_name"
 
-    for candidate in "$SINGBOX_VERSION" "$SINGBOX_TAG"; do
-        if download_file \
-            "$(singbox_asset_url "$arch" "$candidate")" \
-            "$archive" \
-            600
-        then
-            fetched=1
-            break
-        fi
-        rm -f "$archive" "${archive}.part"
-    done
+    mkdir -p "$out_dir"
 
-    if (( fetched == 0 )); then
-        url="$(singbox_api_asset_url "$arch")"
+    [[ -x "$cc" ]] || {
+        die "Android compiler for $abi does not exist: $cc"
+    }
 
-        [[ -n "$url" ]] || {
-            die "No sing-box extended Android asset found for $abi ($arch)"
-        }
+    echo
+    echo "================================================================"
+    echo " Building sing-box extended for Android"
+    echo "================================================================"
+    echo "ABI          : $abi"
+    echo "GOOS         : android"
+    echo "GOARCH       : $goarch"
 
-        echo "sing-box asset resolved through the Releases API:"
-        echo "  $url"
-
-        download_file "$url" "$archive" 600 || {
-            die "sing-box extended download failed for $abi"
-        }
+    if [[ -n "$goarm" ]]; then
+        echo "GOARM        : $goarm"
     fi
 
-    [[ -s "$archive" ]] || {
-        die "Downloaded sing-box archive is empty for $abi"
+    echo "Android API  : $ANDROID_NATIVE_API"
+    echo "CGO          : enabled"
+    echo "Compiler     : $cc"
+    echo "Version      : $SINGBOX_BUILD_VERSION"
+    echo "Crash fix    : MARBLE_SINGBOX_ANDROID_CLI_CRASH_V157"
+    echo "Stage output : $output"
+    echo "================================================================"
+    echo
+
+    if [[ -n "$goarm" ]]; then
+
+        (
+            cd "$SINGBOX_SRC"
+
+            env \
+                GOTOOLCHAIN=auto \
+                GOOS=android \
+                GOARCH="$goarch" \
+                GOARM="$goarm" \
+                CGO_ENABLED=1 \
+                CC="$cc" \
+                CXX="$cc" \
+                go build \
+                    -buildmode=pie \
+                    -trimpath \
+                    -buildvcs=false \
+                    -tags "$SINGBOX_TAGS" \
+                    -ldflags "-X github.com/sagernet/sing-box/constant.Version=${SINGBOX_BUILD_VERSION} -s -w -buildid= -checklinkname=0" \
+                    -o "$output" \
+                    ./cmd/sing-box
+        )
+
+    else
+
+        (
+            cd "$SINGBOX_SRC"
+
+            env \
+                GOTOOLCHAIN=auto \
+                GOOS=android \
+                GOARCH="$goarch" \
+                CGO_ENABLED=1 \
+                CC="$cc" \
+                CXX="$cc" \
+                go build \
+                    -buildmode=pie \
+                    -trimpath \
+                    -buildvcs=false \
+                    -tags "$SINGBOX_TAGS" \
+                    -ldflags "-X github.com/sagernet/sing-box/constant.Version=${SINGBOX_BUILD_VERSION} -s -w -buildid= -checklinkname=0" \
+                    -o "$output" \
+                    ./cmd/sing-box
+        )
+
+    fi
+
+    [[ -s "$output" ]] || {
+        die "sing-box Android build produced no file for $abi"
     }
 
-    local asset="sing-box-${SINGBOX_TAG#v}-android-${arch}.tar.gz"
-    local expected_sha
-    expected_sha="$(jq -er --arg asset "$asset" '.singbox.sha256[$asset]' "$LOCK")" || die "Missing sing-box archive digest: $asset"
-    [[ "$expected_sha" =~ ^[0-9a-f]{64}$ ]] || die "Invalid sing-box archive digest"
-    printf '%s  %s\n' "$expected_sha" "$archive" | sha256sum --check --status || die "sing-box archive checksum mismatch: $abi"
+    chmod 755 "$output"
 
-    tar -xzf \
-        "$archive" \
-        -C "$extracted"
+    # A wrongly labelled or unpatched core must fail the build here, not the
+    # user's first connection.
+    singbox_assert_machine "$output" "$machine"
 
-    # The goreleaser archive wraps its payload in one directory
-    # (wrap_in_directory: true), so the binary is located by name.
-    binary="$(
-        find "$extracted" \
-            -type f \
-            -name 'sing-box' \
-            -print \
-            -quit
+    grep -a -F "$SINGBOX_BUILD_VERSION" "$output" >/dev/null || {
+        die "Patched sing-box version marker missing from the $abi binary"
+    }
+
+    local size
+    local hash
+
+    size="$(
+        wc -c < "$output" |
+        tr -d ' '
     )"
 
-    [[ -n "$binary" && -s "$binary" ]] || {
-        die "sing-box binary missing from the release archive for $abi"
-    }
+    hash="$(
+        sha256sum "$output" |
+        awk '{print $1}'
+    )"
 
-    singbox_assert_machine "$binary" "$machine"
-
-    destination="$JNILIBS/$abi/libsingbox.so"
+    ok "sing-box staged: $abi"
+    echo "     size   : $size bytes"
+    echo "     sha256 : $hash"
 
     mkdir -p "$JNILIBS/$abi"
 
     cp -f \
-        "$binary" \
-        "$destination"
+        "$output" \
+        "$JNILIBS/$abi/libsingbox.so"
 
-    chmod 755 "$destination"
+    chmod 755 "$JNILIBS/$abi/libsingbox.so"
 
-    [[ -s "$destination" ]] || {
+    [[ -s "$JNILIBS/$abi/libsingbox.so" ]] || {
         die "Could not install sing-box into jniLibs for $abi"
     }
 
-    ok "Installed sing-box extended $SINGBOX_TAG -> $abi"
+    ok "Installed sing-box extended $SINGBOX_BUILD_VERSION -> $abi"
 }
 
-install_singbox_abi \
+build_singbox \
     "arm64-v8a" \
     "arm64" \
+    "aarch64-linux-android${ANDROID_NATIVE_API}-clang" \
     "AArch64"
 
-install_singbox_abi \
+build_singbox \
     "armeabi-v7a" \
-    "armv7" \
-    "ARM"
+    "arm" \
+    "armv7a-linux-androideabi${ANDROID_NATIVE_API}-clang" \
+    "ARM" \
+    "7"
 
-install_singbox_abi \
+build_singbox \
     "x86_64" \
     "amd64" \
+    "x86_64-linux-android${ANDROID_NATIVE_API}-clang" \
     "Advanced Micro Devices X86-64"
 
-install_singbox_abi \
+build_singbox \
     "x86" \
     "386" \
+    "i686-linux-android${ANDROID_NATIVE_API}-clang" \
     "Intel 80386"
 
-ok "sing-box extended installed for every ABI"
+ok "sing-box extended built and installed for every ABI"
 
 
 

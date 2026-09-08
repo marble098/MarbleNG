@@ -111,7 +111,14 @@ class BugFinder(private val context: Context, private val xray: XrayManager, pri
         networkLabel: String,
         sentinel: PrivacySentinelState,
         privacy: PrivacyReport?,
-        tunnelUptimeMs: Long = 0L
+        tunnelUptimeMs: Long = 0L,
+        /**
+         * MARBLE_SINGBOX_ANDROID_CLI_CRASH_V157 — the reason the last measurement sweep stopped
+         * itself ([ProbeLocalFaultGate]), or `""` when it finished or was cancelled by the user.
+         * A report that lists 17 failed measurements and cannot say whether the device could
+         * measure at all is the report that made a crashed core look like a dead network.
+         */
+        lastProbeFault: String = ""
     ): BugReport {
         // The diagnostics writer is asynchronous; a short bounded drain avoids freezing Settings
         // for two seconds while still capturing events already queued by the failing operation.
@@ -156,6 +163,56 @@ class BugFinder(private val context: Context, private val xray: XrayManager, pri
             BugCheck("SingBox extended native core", BugSeverity.PASS, "libsingbox.so ${sbin.length()} bytes")
         } else {
             BugCheck("SingBox extended native core", BugSeverity.FAIL, "libsingbox.so is missing", "Rebuild SingBox extended bundle")
+        }
+
+        // MARBLE_SINGBOX_ANDROID_CLI_CRASH_V157 — the one core check that ignores appState.
+        //
+        // Every other core check in this scan is gated on a live route or on a particular state,
+        // so a scan taken while DISCONNECTED — the state a user is in *because* the core crashed —
+        // walked past all of them and printed `scan-finish | failures=0` with a SIGSEGV sitting in
+        // the retained log it printed two sections later. Whether the installed binary can start
+        // is not a property of the connection; it is a property of the APK, and when it is wrong it
+        // is the first thing this report has to say, in any state.
+        //
+        // Evidence is read, never produced: the scan does not spawn a canary of its own. It uses
+        // the verdict [SingBoxManager.selfTest] already recorded (in memory, or cached against the
+        // binary's fingerprint) plus the retained core logs, so a scan stays as fast as it was.
+        val selfTestLog = tail(File(context.cacheDir, "singbox-selftest.log"), 40_000)
+        val coreEvidence = listOf(singboxLog, singboxUrlTestLog, selfTestLog).joinToString("\n")
+        val selfTestVerdict = singbox?.lastSelfTest
+            ?: SingBoxCoreSelfTest.read(File(context.filesDir, "singbox-selftest.json"), sbin)
+        checks += when {
+            SingBoxAndroidRuntime.isCoreCrash(coreEvidence) -> BugCheck(
+                "SingBox core start-up",
+                BugSeverity.FAIL,
+                "The sing-box core crashed while starting: " +
+                    "${ProbeLocalFaultGate.headline(coreEvidence)} — every measurement through it " +
+                    "fails identically, whatever the server says",
+                SingBoxAndroidRuntime.CRASH_REMEDIATION
+            )
+            selfTestVerdict != null && selfTestVerdict.coreFault -> BugCheck(
+                "SingBox core start-up",
+                BugSeverity.FAIL,
+                "The core self-test cannot start this binary: " +
+                    ProbeLocalFaultGate.headline(selfTestVerdict.reason),
+                SingBoxAndroidRuntime.CRASH_REMEDIATION
+            )
+            SingBoxAndroidRuntime.isPackageManagerFault(coreEvidence) -> BugCheck(
+                "SingBox core start-up",
+                BugSeverity.WARN,
+                "The core tried to read Android's package list (/data/system/packages.xml), which " +
+                    "an app process may not open",
+                SingBoxAndroidRuntime.PACKAGE_MANAGER_REMEDIATION
+            )
+            else -> BugCheck(
+                "SingBox core start-up",
+                BugSeverity.PASS,
+                if (selfTestVerdict?.ok == true) {
+                    "self-test passed: the core starts and serves its local inbound"
+                } else {
+                    "no crash signature in the retained sing-box logs"
+                }
+            )
         }
 
         checks += when {
@@ -647,7 +704,21 @@ class BugFinder(private val context: Context, private val xray: XrayManager, pri
                 "\ndeprecation escape hatches exported: " +
                 SingBoxAndroidRuntime.DEPRECATION_ENV.keys.sorted().joinToString(", ") +
                 "\nnetlink ban seen in retained sing-box log: " +
-                SingBoxAndroidRuntime.isNetlinkBan(singboxLog + singboxUrlTestLog)
+                SingBoxAndroidRuntime.isNetlinkBan(singboxLog + singboxUrlTestLog) +
+                // MARBLE_SINGBOX_ANDROID_CLI_CRASH_V157 — the three answers that decide whether a
+                // measurement result describes a server or this device.
+                "\ncrash signature in retained sing-box log: " +
+                SingBoxAndroidRuntime.isCoreCrash(coreEvidence) +
+                "\npackage-manager probe (/data/system/packages.xml) seen: " +
+                SingBoxAndroidRuntime.isPackageManagerFault(coreEvidence) +
+                "\ncore self-test: " + (
+                    selfTestVerdict?.let { verdict ->
+                        "${verdict.summary} • fingerprint=${verdict.fingerprint}" +
+                            if (verdict.reason.isBlank()) "" else " • ${ProbeLocalFaultGate.headline(verdict.reason)}"
+                    } ?: "not run yet — the next connect or measurement runs it once for this binary"
+                    ) +
+                "\nlast sweep stopped by a local fault: " +
+                (if (lastProbeFault.isBlank()) "none" else ProbeLocalFaultGate.summary(lastProbeFault))
         )
 
         return BugReport(

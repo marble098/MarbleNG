@@ -6,6 +6,8 @@
 # structural drift between subsystems before expensive native compilation starts.
 
 from pathlib import Path
+import importlib.util
+import json
 import re
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -18,6 +20,22 @@ def read(path: str) -> str:
     if b"\x00" in raw:
         raise AssertionError(f"NUL byte in source: {path}")
     return raw.decode("utf-8")
+
+def workflow(name: str) -> str:
+    """The workflow as it will run once `docs/workflows-pending/` has been installed.
+
+    The token this branch pushes with cannot write `.github/workflows/*` — GitHub refuses a
+    `workflows`-less App token — so workflow changes are staged under `docs/workflows-pending/`
+    with a replace table in the README there. Invariants read the staged copy when one exists: it
+    is the exact file a maintainer is about to copy into place, and asserting the live file instead
+    would either fail the PR for a change that is already written or silently stop checking it.
+    Every staged copy is a complete file derived from the live one, so invariants about what a
+    workflow already does keep holding against it.
+    """
+    pending = ROOT / "docs" / "workflows-pending" / name
+    if pending.is_file():
+        return read(f"docs/workflows-pending/{name}")
+    return read(f".github/workflows/{name}")
 
 files = {
     "main": read("app/src/main/java/com/marbleng/app/MainActivity.kt"),
@@ -42,6 +60,17 @@ files = {
     "singBoxBuilder": read("app/src/main/java/com/marbleng/app/core/SingBoxConfigBuilder.kt"),
     "singBox": read("app/src/main/java/com/marbleng/app/core/SingBoxManager.kt"),
     "singBoxSession": read("app/src/main/java/com/marbleng/app/core/SingBoxProcessSession.kt"),
+    # MARBLE_SINGBOX_ANDROID_CLI_CRASH_V157 — the Android core crashed for every profile, and the
+    # product reported it as 17 dead servers. These four files are the answer: the runtime
+    # contract that classifies a crash, the canary that asks the binary instead of a server, the
+    # gate that stops a sweep on the first local fault, and the test that pins all three.
+    "androidRuntime": read("app/src/main/java/com/marbleng/app/core/SingBoxAndroidRuntime.kt"),
+    "coreSelfTest": read("app/src/main/java/com/marbleng/app/core/SingBoxCoreSelfTest.kt"),
+    "localFaultGate": read("app/src/main/java/com/marbleng/app/core/ProbeLocalFaultGate.kt"),
+    "coreCrashTest": read("app/src/test/java/com/marbleng/app/core/SingBoxCoreCrashV157Test.kt"),
+    "nativeCoreTest": read("app/src/test/java/com/marbleng/app/core/SingBoxNativeIntegrationTest.kt"),
+    "injector": read("scripts/inject-singbox-android-fix.py"),
+    "coreUpdater": read("scripts/update-core-lock.sh"),
     # MARBLE_ENGINE_SELF_HEAL_V152 — the config doctor is the automatic repair half of the
     # 8.0.6 BLOCKED-root-cause fix, and its unit test pins the shipped failure verbatim.
     "singBoxDoctor": read("app/src/main/java/com/marbleng/app/core/SingBoxConfigDoctor.kt"),
@@ -88,14 +117,19 @@ files = {
     "manifest": read("app/src/main/AndroidManifest.xml"),
     "security": read("app/src/main/res/xml/network_security_config.xml"),
     "native": read("scripts/prepare-native.sh"),
-    "build": read(".github/workflows/build.yml"),
+    "build": workflow("build.yml"),
     "gradle": read("app/build.gradle.kts"),
-    "verify": read(".github/workflows/verify.yml"),
+    "verify": workflow("verify.yml"),
+    "updateCores": workflow("update-cores.yml"),
 }
 
 workflow_sources = "\n".join(
     path.read_text(encoding="utf-8")
     for path in sorted((ROOT / ".github" / "workflows").glob("*.yml"))
+) + "\n" + "\n".join(
+    # Staged copies count too: a workflow that cannot be pushed yet must still pin its actions.
+    path.read_text(encoding="utf-8")
+    for path in sorted((ROOT / "docs" / "workflows-pending").glob("*.yml"))
 )
 
 checks = []
@@ -118,6 +152,34 @@ def integer_constant(text: str, name: str) -> int:
 def action_uses_minimum(text: str, action: str, minimum_major: int) -> bool:
     versions = re.findall(rf"uses:\s*{re.escape(action)}@v([0-9]+)\b", text)
     return bool(versions) and all(int(version) >= minimum_major for version in versions)
+
+def cache_dependency_paths(source: str) -> set:
+    """Every path a `setup-go` cache is keyed on, in either the inline or the block form.
+
+    MARBLE_SINGBOX_ANDROID_CLI_CRASH_V157 made this a parser instead of a substring test: the
+    build now caches two pinned Go modules (Xray and the sing-box source it compiles), which the
+    inline form cannot express. Matching a literal string would have failed the moment the second
+    core was added, and matching a bare filename would have passed even if the cache stopped being
+    keyed on it at all.
+    """
+    lines = source.splitlines()
+    paths = set()
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if not stripped.startswith("cache-dependency-path:"):
+            continue
+        indent = len(line) - len(line.lstrip())
+        inline = stripped.split(":", 1)[1].strip()
+        if inline and inline not in {"|", "|-", ">", ">-"}:
+            paths.update(part for part in re.split(r"[\s,]+", inline) if part)
+            continue
+        for follow in lines[index + 1:]:
+            if not follow.strip():
+                continue
+            if len(follow) - len(follow.lstrip()) <= indent:
+                break
+            paths.add(follow.strip().lstrip("-").strip())
+    return paths
 
 # Lifecycle and application boundaries.
 check(
@@ -1073,6 +1135,119 @@ check(
     and 'intelligence.effectiveSettings(profile, probeSettings)' in files["repo"],
 )
 
+# MARBLE_SINGBOX_ANDROID_CLI_CRASH_V157 — an app-UID child of the *Android* sing-box artifact gets
+# no netlink interface monitor, and a core built without the upstream nil-guards dereferences one
+# in its `direct` outbound: every profile panicked with the same SIGSEGV, and the product reported
+# it as "reachable = 0 of 17", as a BLOCKED "Core/configuration error", and — in a Bug Finder scan
+# taken while DISCONNECTED — as no failure at all. The fix has four parts and each one is pinned
+# here, because every part is the kind of thing a later refactor can silently undo.
+check(
+    "the Android core is compiled from pinned source, never downloaded as an artifact",
+    "scripts/inject-singbox-android-fix.py" in files["native"]
+    and "SINGBOX_COMMIT" in files["native"]
+    # The injected Go regression tests run on the host before a single ABI is built, and a failure
+    # is fatal: a core that panics on Android must never reach jniLibs.
+    and "go test \\" in files["native"]
+    and "./protocol/direct" in files["native"]
+    and 'die "sing-box Android CLI crash regression tests failed"' in files["native"]
+    and "build_singbox" in files["native"]
+    and not re.search(r"sing-box-[^\s\"']*android", files["native"]),
+)
+check(
+    "the crash backport is anchored to the upstream commit and proven in CI",
+    "288411b0b9044c11a00a8ab478000e3ec1133101" in files["injector"]
+    and "MARBLE_SINGBOX_ANDROID_CLI_CRASH_V157" in files["injector"]
+    and "protocol/direct/outbound.go" in files["injector"]
+    and "scripts/inject-singbox-android-fix.py" in files["verify"]
+    and "go test ./protocol/direct ./route" in files["verify"]
+    # The core updater writes main directly, so anchor drift has to kill it *before* it commits a
+    # lock nobody can build.
+    and "scripts/inject-singbox-android-fix.py" in files["updateCores"],
+)
+_pending_workflows = sorted(
+    path.name for path in (ROOT / "docs" / "workflows-pending").glob("*.yml")
+)
+_pending_readme = read("docs/workflows-pending/README.md")
+check(
+    "staged workflow changes are documented for whoever installs them",
+    bool(_pending_workflows)
+    and all(name in _pending_readme for name in _pending_workflows)
+    and all(f".github/workflows/{name}" in _pending_readme for name in _pending_workflows)
+    # Nothing may be staged and then forgotten: a staged workflow has to still be a workflow.
+    and all("jobs:" in workflow(name) for name in _pending_workflows),
+)
+_core_lock = json.loads(files["coreLock"])
+check(
+    "core-lock pins the sing-box source commit and the local patch level",
+    len(_core_lock["singbox"].get("commit", "")) == 40
+    and bool(_core_lock["singbox"].get("patch", ""))
+    # Exactly one digest, and it is the host artifact the Go tests run against. An android/* digest
+    # here would mean a prebuilt Android binary is still being fetched — the thing that shipped the
+    # crash in the first place, and the reason the build now compiles every ABI from source.
+    and len(_core_lock["singbox"].get("sha256", {})) == 1
+    and all("-linux-amd64" in key for key in _core_lock["singbox"]["sha256"])
+    and not any("android" in key for key in _core_lock["singbox"]["sha256"])
+    and "resolve_singbox_commit" in files["coreUpdater"],
+)
+check(
+    "a crashed core is classified as a core fault, never as a config refusal",
+    "fun isCoreCrash(" in files["androidRuntime"]
+    and "fun isUnusableCore(" in files["androidRuntime"]
+    and "fun isPackageManagerFault(" in files["androidRuntime"]
+    and "if (SingBoxAndroidRuntime.isUnusableCore(reason)) return false" in files["singBox"]
+    and "SingBoxAndroidRuntime.isUnusableCore(reason)" in files["singBoxDoctor"]
+    and "theReportedCrashIsClassifiedAsACoreFaultByEveryClassifier" in files["coreCrashTest"]
+    # The package-manager WARN is printed by every healthy Android core too, so it must stay
+    # evidence: counting it as fatal would turn real per-node schema refusals into "broken device".
+    and "aPerNodeRefusalCarryingThePackageManagerWarningStaysPerNode" in files["coreCrashTest"],
+)
+check(
+    "the manager asks the binary whether it can start before it asks any server",
+    "fun selfTest(" in files["singBox"]
+    and files["singBox"].count("requireUsableCore()") >= 3
+    and "SingBoxCoreSelfTest.probe(" in files["singBox"]
+    and "fun canaryConfig(" in files["coreSelfTest"]
+    and '"direct"' in files["coreSelfTest"]
+    and "SingBoxConfigBuilder.DIRECT_TAG" in files["coreSelfTest"]
+    # A listening inbound does not prove the box started: outbounds are started after inbounds, so
+    # the canary waits out a grace window or it can report PASS microseconds before the panic.
+    and "settleMs" in files["singBoxSession"]
+    and "private fun settle(" in files["singBoxSession"]
+    and "settleMs = SETTLE_MS" in files["coreSelfTest"]
+    and "theCoreSelfTestCanaryStartsThePinnedCoreAndServesItsLocalInbound" in files["nativeCoreTest"],
+)
+check(
+    "one local fault stops a sweep instead of becoming seventeen dead servers",
+    "probeLocalFaultGate" in files["repo"]
+    and "probeLocalFaultGate.isTripped" in files["repo"]
+    and "probeLocalFaultGate.trip(result.failureReason, result.success)" in files["repo"]
+    and files["repo"].count("probeLocalFaultGate.reset()") == 2
+    and files["repo"].count("batchSummary(") >= 3
+    and "fun isSweepFatal(" in files["localFaultGate"]
+    # What must NOT stop a sweep is half the contract: per-node refusals, capacity, slowness and
+    # every network-shaped reason are the sweep's subject matter, not a device fault.
+    and '"core-busy:"' in files["localFaultGate"]
+    and '"config-unsupported:"' in files["localFaultGate"]
+    and "theReasonsThatMustNotStopASweepDoNotStopIt" in files["coreCrashTest"],
+)
+check(
+    "Bug Finder reports an unusable core in every app state",
+    "SingBoxAndroidRuntime.isCoreCrash(coreEvidence)" in files["bug"]
+    and '"SingBox core start-up"' in files["bug"]
+    and "lastProbeFault" in files["bug"]
+    and "lastProbeFault = probeLocalFault" in files["repo"],
+)
+check(
+    "the blocked state names the fault's owner without switching engines behind the user's back",
+    "faultClass" in files["vpn"]
+    and '"Core cannot run on this device"' in files["vpn"]
+    and "SingBoxAndroidRuntime.isUnusableCore(coreStartError)" in files["vpn"]
+    # Engine selection stays an explicit user contract (MARBLE_SINGBOX_CORE_V151): a broken core
+    # is reported, never answered by silently running the other binary.
+    and "Explicit engine selection is a contract" in files["vpn"]
+    and "activeEngine = CoreEngine." not in files["vpn"],
+)
+
 # MARBLE_HOME_IP_STRIP_V151 — the "Show complete IP information" caption is gone from Home. The
 # words survive as the glyph's content description, so the strip is still readable out loud.
 check(
@@ -1126,9 +1301,17 @@ check(
     "api.github.com/repos/XTLS/Xray-core/releases/tags" not in files["native"]
     and "releases/download/${XRAY_TAG}/${XRAY_ASSET_NAME}" in files["native"],
 )
+build_go_cache = cache_dependency_paths(files["build"])
 check(
     "Xray Go cache follows the pinned dependency checksum",
-    "cache-dependency-path: .bootstrap/xray/go.sum" in files["build"],
+    ".bootstrap/xray/go.sum" in build_go_cache,
+)
+# The second core is compiled from pinned source in the same job, so its module cache has to be
+# keyed on its own checksum too — otherwise a fork bump reuses a stale dependency tree and the
+# build fails in a way that looks like a network problem.
+check(
+    "sing-box Go cache follows the pinned dependency checksum",
+    ".bootstrap/singbox/go.sum" in build_go_cache,
 )
 check(
     "workflow JavaScript actions use Node 24 generations",
@@ -1275,6 +1458,35 @@ check(
     "V149 regressions are pinned by unit tests",
     "TlsPinningPolicyTest" in files["pinningTest"]
     and "PingMethodTruthV149Test" in files["pingTruthTest"],
+)
+
+# MARBLE_SINGBOX_ANDROID_CLI_CRASH_V157 — Kotlin block comments NEST, so a KDoc that merely
+# *mentions* `/*` never terminates: its own `*/` closes the inner level and the comment swallows
+# the rest of the file. kotlinc then answers with one "Unclosed comment" line and a wall of
+# "Unresolved reference" errors pointing at files that are perfectly correct — which is exactly
+# what this branch's first CI run produced, from `android/*` written as prose in two KDoc lines of
+# SingBoxAndroidRuntime.kt. The gradle step is the most expensive place in the workflow to discover
+# a tokenizing mistake, and it is also the least informative one, so the tokenizer runs here first.
+#
+# It is the same tokenizer a developer runs by hand, loaded from tools/kotlin-structure-check.py
+# rather than reimplemented: two scanners would eventually become two opinions about what a
+# comment is, which is how the mistake got past the local check in the first place.
+_structure_spec = importlib.util.spec_from_file_location(
+    "kotlin_structure_check", ROOT / "tools" / "kotlin-structure-check.py"
+)
+kotlin_structure = importlib.util.module_from_spec(_structure_spec)
+_structure_spec.loader.exec_module(kotlin_structure)
+
+kotlin_scan = [
+    f"{path.relative_to(ROOT)}: {problem}"
+    for path in sorted((ROOT / "app" / "src").rglob("*.kt"))
+    for problem in kotlin_structure.check(path)
+]
+check(
+    "every Kotlin source tokenizes cleanly — comments nest and terminate, literals close, "
+    "braces balance"
+    + (f" [first: {kotlin_scan[0]} • {len(kotlin_scan)} problem(s)]" if kotlin_scan else ""),
+    not kotlin_scan,
 )
 
 # Global concurrency smells.
