@@ -330,7 +330,44 @@ val marbleDiag = tasks.register("marbleDiag") {
     val resultsDir = layout.buildDirectory.dir("test-results/testDebugUnitTest")
     val mainClasses = layout.buildDirectory.dir("tmp/kotlin-classes/debug")
     val testClasses = layout.buildDirectory.dir("tmp/kotlin-classes/debugUnitTest")
+    // Every path is resolved here, at configuration time. Reaching for the project from inside a
+    // task action is a configuration cache problem, and that fails the build before any task runs.
+    val repoPath = layout.projectDirectory.asFile.parentFile.absolutePath
+    val probePath = java.io.File("/tmp/marble-probe-src").absolutePath
+    val logPath = java.io.File("/tmp/marble-probe.log").absolutePath
     doLast {
+        /*
+         * Kotlin reports compile diagnostics through the Gradle logger, so they never reach a
+         * workflow command and the annotations can only say "compilation failed". When the main
+         * compile produced no classes, re-run just that compile against a copy of the sources in
+         * /tmp and read the compiler's own "e:" lines out of its redirected output. Excluding the
+         * marbleDiag task keeps this finalizer from recursing into itself.
+         */
+        runCatching {
+            if (!mainClasses.get().asFile.isDirectory) {
+                val shell = "rm -rf " + probePath + " && mkdir -p " + probePath +
+                    " && cd " + repoPath + " && tar -cf - --exclude=./.git --exclude=build . " +
+                    "| (cd " + probePath + " && tar -xf -) && gradle -p " + probePath +
+                    " :app:compileDebugKotlin -x marbleDiag --no-daemon --console=plain"
+                val child = ProcessBuilder(listOf("bash", "-c", shell))
+                    .redirectErrorStream(true)
+                    .redirectOutput(java.io.File(logPath))
+                    .start()
+                child.waitFor()
+                val lines = java.io.File(logPath).readLines()
+                val errors = lines.filter { it.startsWith("e: ") }
+                errors.take(80).forEach { line ->
+                    println("::error file=app/build.gradle.kts,line=1::marbleDiag " + line.take(600))
+                }
+                if (errors.isEmpty()) {
+                    val tail = lines.takeLast(14).joinToString(" | ").take(900)
+                    println(
+                        "::error file=app/build.gradle.kts,line=1::marbleDiag probe logged no " +
+                            "e: lines; tail: " + tail
+                    )
+                }
+            }
+        }
         runCatching {
             val results = resultsDir.get().asFile
             val xml = if (results.isDirectory) {
