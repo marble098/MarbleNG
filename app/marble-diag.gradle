@@ -1,0 +1,92 @@
+// MARBLE_DIAG_SCAFFOLD_V156 - temporary diagnostic scaffolding, applied from
+// app/build.gradle.kts with `apply(from = "marble-diag.gradle")`. Delete this file and that
+// line once the branch is green.
+//
+// Why this is Groovy and not part of the Kotlin DSL script: six attempts to put this logic in
+// app/build.gradle.kts made the build die in 13-19 seconds with no task output at all, i.e. the
+// Kotlin DSL script itself failed to compile, and every diagnostic was lost with it. Groovy is
+// dynamically typed, so the same code cannot fail that way.
+//
+// Why it is needed: the Kotlin compiler reports diagnostics through the Gradle logger, so they
+// never reach a workflow command and the annotations API can only say "compilation failed".
+// marbleProbe re-runs the failing compile against a copy of the sources where its output can be
+// redirected to a file; marbleDiag then republishes the compiler's own "e:" lines as annotations.
+
+def repoPath = rootProject.projectDir.absolutePath
+def probePath = new File("/tmp/marble-probe-src").absolutePath
+def logPath = new File("/tmp/marble-probe.log").absolutePath
+def buildDirFile = project.layout.buildDirectory.get().asFile
+
+def marbleProbe = tasks.register("marbleProbe", Exec) {
+    def mainClassesDir = new File(buildDirFile, "tmp/kotlin-classes/debug")
+    onlyIf { !mainClassesDir.isDirectory() }
+    def shell = "rm -rf " + probePath + " && mkdir -p " + probePath +
+        " && cd " + repoPath + " && tar -cf - --exclude=./.git --exclude=build . " +
+        "| (cd " + probePath + " && tar -xf -) && gradle -p " + probePath +
+        " :app:compileDebugKotlin -x marbleDiag -x marbleProbe --no-daemon --console=plain" +
+        " > " + logPath + " 2>&1"
+    commandLine("bash", "-c", shell)
+    ignoreExitValue = true
+}
+
+def marbleDiag = tasks.register("marbleDiag") {
+    dependsOn marbleProbe
+    doLast {
+        // 1. The Kotlin compiler's own diagnostics, captured by marbleProbe.
+        try {
+            def log = new File(logPath)
+            if (log.isFile()) {
+                def lines = log.readLines()
+                def errors = lines.findAll { it.startsWith("e: ") }
+                errors.take(80).each { line ->
+                    def shown = line.length() > 600 ? line.substring(0, 600) : line
+                    println("::error file=app/build.gradle.kts,line=1::marbleDiag " + shown)
+                }
+                if (errors.isEmpty()) {
+                    def from = lines.size() > 14 ? lines.size() - 14 : 0
+                    def tail = lines.subList(from, lines.size()).join(" | ")
+                    if (tail.length() > 900) tail = tail.substring(0, 900)
+                    println("::error file=app/build.gradle.kts,line=1::marbleDiag probe logged no" +
+                        " e: lines; tail: " + tail)
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+
+        // 2. Which compile stage failed, and any JUnit failure detail.
+        try {
+            def results = new File(buildDirFile, "test-results/testDebugUnitTest")
+            def xml = results.isDirectory() ?
+                results.listFiles().findAll { it.name.endsWith(".xml") } : []
+            if (xml.isEmpty()) {
+                def mainPresent = new File(buildDirFile, "tmp/kotlin-classes/debug").isDirectory()
+                def testPresent = new File(buildDirFile, "tmp/kotlin-classes/debugUnitTest").isDirectory()
+                println("::error file=app/build.gradle.kts,line=1::marbleDiag no JUnit results;" +
+                    " mainClassesPresent=" + mainPresent + " testClassesPresent=" + testPresent +
+                    " (the build failed during compilation, not during a test)")
+            }
+            def failures = 0
+            xml.each { file ->
+                def text = file.getText().replaceAll(/\s+/, " ")
+                def matcher = (text =~ /(?s)<testcase\b[^>]*>.*?<\/testcase>/)
+                while (matcher.find()) {
+                    def element = matcher.group()
+                    if (!element.contains("<failure") && !element.contains("<error")) continue
+                    failures += 1
+                    def detail = element.length() > 1000 ? element.substring(0, 1000) : element
+                    println("::error file=app/build.gradle.kts,line=1::marbleDiag " + detail)
+                }
+            }
+            println("::error file=app/build.gradle.kts,line=1::marbleDiag scanned " + xml.size() +
+                " result files, " + failures + " failing test cases")
+        } catch (Throwable ignored) {
+        }
+    }
+}
+
+tasks.matching { task ->
+    task.name in ["compileDebugKotlin", "compileReleaseKotlin",
+                  "compileDebugUnitTestKotlin", "testDebugUnitTest"]
+}.configureEach {
+    finalizedBy marbleDiag
+}
