@@ -316,18 +316,3 @@ dependencies {
         "androidx.compose.ui:ui-tooling"
     )
 }
-
-// ─────────────────────────────────────────────────────────────────────────────────────────────
-// TEMPORARY CI DIAGNOSTIC — remove once this branch is green.
-//
-// The environment authoring this branch cannot read the Actions log blob, so a red build is
-// otherwise a silent one. This finalizer runs whenever a compile or test task fails and turns the
-// JUnit XML into `::error::` workflow commands, which ARE readable through the check-run
-// annotations API. When no result files exist at all the failure was a compilation, and which
-// classes directory is missing says whether it was main or test sources.
-// ─────────────────────────────────────────────────────────────────────────────────────────────
-// MARBLE_DIAG_SCAFFOLD_V156 - temporary. The diagnostic tasks live in a Groovy script
-// because every attempt to keep them here made this Kotlin DSL script fail to compile,
-// which killed the build in ~15s with no task output and no diagnostics at all. Delete
-// marble-diag.gradle and this line once the branch is green.
-apply(from = "marble-diag.gradle")
