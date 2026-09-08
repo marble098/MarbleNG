@@ -896,7 +896,7 @@ object SingBoxConfigBuilder {
             } else {
                 val mapped = geoTag(ip, tag)
                 if (mapped == null) {
-                    notes += unroutedGeoNote(tag)
+                    notes += unroutedGeoNote(ip, tag)
                     return
                 }
                 usedSets += mapped
@@ -932,7 +932,10 @@ object SingBoxConfigBuilder {
                     } else {
                         val mapped = geoTag(user.kind == RoutingRuleKind.GEOIP, user.matcher)
                         if (mapped == null) {
-                            notes += unroutedGeoNote(user.matcher)
+                            notes += unroutedGeoNote(
+                                user.kind == RoutingRuleKind.GEOIP,
+                                user.matcher
+                            )
                             return@forEach
                         }
                         usedSets += mapped
@@ -991,9 +994,20 @@ object SingBoxConfigBuilder {
     }
 
     /** The note a dropped geo rule leaves behind, so the Engine page can name it. */
-    private fun unroutedGeoNote(raw: String): String =
-        "routing: '$raw' has no bundled sing-box rule set, so this one rule is not applied on " +
-            "the sing-box engine (the same profile is routed in full on Xray)."
+    /**
+     * The note that stands in for a geo rule MarbleNG cannot honour on the sing-box engine.
+     *
+     * MARBLE_ROUTING_BOTH_CORES_V156 — the tag is reported the way the user typed it in
+     * Settings, not the way [RoutingEngine] normalised it on the way here. `routeGeoIpTags =
+     * "geoip:us"` reaches the writer as the bare token `us`, and a note naming only `us` gives
+     * the user nothing to search their settings for, and does not even say whether the rule
+     * that was dropped was a geoip one or a geosite one.
+     */
+    private fun unroutedGeoNote(ip: Boolean, raw: String): String {
+        val typed = if (raw.contains(":")) raw else if (ip) "geoip:$raw" else "geosite:$raw"
+        return "routing: '$typed' has no bundled sing-box rule set, so this one rule is not " +
+            "applied on the sing-box engine (the same profile is routed in full on Xray)."
+    }
 
 
     private fun putPorts(rule: JSONObject, raw: String) {
