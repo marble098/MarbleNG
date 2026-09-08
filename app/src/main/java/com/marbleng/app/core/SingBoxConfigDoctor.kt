@@ -66,7 +66,18 @@ object SingBoxConfigDoctor {
         "enable_deprecated_",
         "is conflict with",
         "unknown transport type",
-        "only supported on"
+        "only supported on",
+        // MARBLE_PACKAGES_XML_ROOT_CAUSE_V157 — a package/uid/process matcher that survived
+        // sanitization (see [stripAndroidUnsafeRuleFields]) forces the core to open
+        // /data/system/packages.xml, which an app-UID process is denied; the pinned core does
+        // not nil-check that failure before using the result, so it panics and exits 2. Every
+        // candidate for the same profile carries the same rule, so without this marker the
+        // engine walked all 17 endpoints to an identical crash instead of recognising it as one
+        // structural fault and self-healing onto the other engine after the first.
+        "initialize package manager",
+        "read packages list",
+        "packages.xml",
+        "invalid memory address or nil pointer dereference"
     )
 
     data class Repair(
@@ -152,6 +163,7 @@ object SingBoxConfigDoctor {
         migrateDnsOptions(root, notes)
         migrateRouteOptions(root, notes)
         stripAndroidUnsafeRouteOptions(root, notes)
+        stripAndroidUnsafeRuleFields(root, notes)
         stripAndroidUnsafeDialOptions(root, notes)
         stripAndroidUnsafeInbounds(root, notes)
         stripAndroidUnsafeDnsServers(root, notes)
@@ -276,6 +288,49 @@ object SingBoxConfigDoctor {
         if (removed.isNotEmpty()) {
             notes += "removed route option(s) that require an Android-banned netlink interface " +
                 "monitor: ${removed.joinToString(", ")}"
+        }
+    }
+
+    /**
+     * MARBLE_PACKAGES_XML_ROOT_CAUSE_V157 — the per-rule half of [stripAndroidUnsafeRouteOptions].
+     *
+     * `route.NewNetworkManager`'s netlink ban is a top-level `route.*` concern, but the
+     * package/uid/process matchers this repairs are fields of an individual `route.rules[]`
+     * object (and of its nested `type: logical` children), so scanning only the top level never
+     * finds them. [harden] previously relied on [SingBoxConfigBuilder]'s own one-time sanitizer
+     * for this, which is correct for a config this app just assembled — but [harden] also runs
+     * inside [repair], on configs the builder never wrote (a re-check after a partial repair, a
+     * config restored from disk). Doing the same job here, from the same canonical
+     * [SingBoxAndroidRuntime.ANDROID_FORBIDDEN_RULE_KEYS] list, makes the doctor self-sufficient
+     * regardless of how a config reaches it: any survivor is what caused
+     * `initialize package manager: read packages list: open /data/system/packages.xml:
+     * permission denied` -> nil-pointer SIGSEGV on every URL test, Real delay probe and connect
+     * attempt for the affected profile alike.
+     */
+    private fun stripAndroidUnsafeRuleFields(root: JSONObject, notes: MutableList<String>) {
+        val rules = root.optJSONObject("route")?.optJSONArray("rules") ?: return
+        val removedFrom = mutableListOf<String>()
+        stripRuleArray(rules, "route.rules", removedFrom)
+        if (removedFrom.isNotEmpty()) {
+            notes += "removed Android-unsafe package/uid/process matcher(s) from ${removedFrom.size} " +
+                "route rule(s) (would have forced a packages.xml read and crashed the core): " +
+                removedFrom.joinToString(", ")
+        }
+    }
+
+    private fun stripRuleArray(rules: JSONArray, path: String, removedFrom: MutableList<String>) {
+        for (i in 0 until rules.length()) {
+            val rule = rules.optJSONObject(i) ?: continue
+            val here = "$path[$i]"
+            var removedHere = false
+            SingBoxAndroidRuntime.ANDROID_FORBIDDEN_RULE_KEYS.forEach { key ->
+                if (rule.has(key)) {
+                    rule.remove(key)
+                    removedHere = true
+                }
+            }
+            if (removedHere) removedFrom += here
+            rule.optJSONArray("rules")?.let { nested -> stripRuleArray(nested, "$here.rules", removedFrom) }
         }
     }
 
