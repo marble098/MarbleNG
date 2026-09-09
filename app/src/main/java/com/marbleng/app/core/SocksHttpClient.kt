@@ -164,9 +164,7 @@ object SocksHttpClient {
             }
 
             val target = socksTarget(host)
-            output.write(byteArrayOf(5, 1, 0, target.first.toByte()))
-            output.write(target.second)
-            output.write(byteArrayOf((targetPort ushr 8).toByte(), targetPort.toByte()))
+            output.write(buildSocks5Request(target.first, target.second, targetPort))
             output.flush()
 
             val reply = ByteArray(4)
@@ -243,14 +241,7 @@ object SocksHttpClient {
             }
 
             val target = socksTarget(host)
-            output.write(byteArrayOf(5, 1, 0, target.first.toByte()))
-            output.write(target.second)
-            output.write(
-                byteArrayOf(
-                    (targetPort ushr 8).toByte(),
-                    targetPort.toByte()
-                )
-            )
+            output.write(buildSocks5Request(target.first, target.second, targetPort))
             output.flush()
 
             val reply = ByteArray(4)
@@ -378,9 +369,7 @@ object SocksHttpClient {
             require(input.read() == 5 && input.read() == 0) { "SOCKS auth negotiation failed" }
 
             val target = socksTarget(host)
-            output.write(byteArrayOf(5, 1, 0, target.first.toByte()))
-            output.write(target.second)
-            output.write(byteArrayOf((targetPort ushr 8).toByte(), targetPort.toByte()))
+            output.write(buildSocks5Request(target.first, target.second, targetPort))
             output.flush()
 
             val reply = ByteArray(4)
@@ -561,9 +550,7 @@ object SocksHttpClient {
             val target = socksTarget(host)
             // ATYP=1/4 keeps a literal address literal and ATYP=domain keeps ordinary hostnames away
             // from Android/system DNS.
-            output.write(byteArrayOf(5, 1, 0, target.first.toByte()))
-            output.write(target.second)
-            output.write(byteArrayOf((targetPort ushr 8).toByte(), targetPort.toByte()))
+            output.write(buildSocks5Request(target.first, target.second, targetPort))
             output.flush()
 
             val reply = ByteArray(4)
@@ -723,9 +710,7 @@ object SocksHttpClient {
             require(input.read() == 5 && input.read() == 0) { "SOCKS auth negotiation failed" }
 
             val target = socksTarget(host)
-            output.write(byteArrayOf(5, 1, 0, target.first.toByte()))
-            output.write(target.second)
-            output.write(byteArrayOf((443 ushr 8).toByte(), (443 and 0xff).toByte()))
+            output.write(buildSocks5Request(target.first, target.second, 443))
             output.flush()
 
             val reply = ByteArray(4)
@@ -888,13 +873,53 @@ object SocksHttpClient {
      * *hostname* called "2606:…". The proxy tried to resolve that, failed, and every measurement for
      * the node reported it unreachable: IPv6 endpoints looked broken instead of connectable.
      */
-    private fun socksTarget(host: String): Pair<Int, ByteArray> {
+    /**
+     * The SOCKS5 target for a literal IPv4 (ATYP 1), literal IPv6 (ATYP 4) or hostname (ATYP 3).
+     *
+     * Only ATYP 1 and 3 were supported, so an IPv6 node — bare or bracketed — went out as a
+     * *hostname* called "2606:…". The proxy tried to resolve that, failed, and every measurement for
+     * the node reported it unreachable: IPv6 endpoints looked broken instead of connectable.
+     *
+     * MARBLE_SINGBOX_PORT_SOVEREIGNTY_V158 — RFC 1928 wire shape restored: ATYP 1/4 carry
+     * fixed-width addresses, ATYP 3 carries `1 length byte + name`. The length byte was missing,
+     * so the inbound's `ReadSockString` read fqdn-len = name[0]: a desync that ended in
+     * `read fqdn: unexpected EOF` whenever the request tail ran out (the 2026-09-09 02:04
+     * cluster) and in a garbage-hostname resolution failure otherwise — MarbleNG's own
+     * domain-target requests were malformed at the byte level. Internal for the V158 wire tests.
+     */
+    internal fun socksTarget(host: String): Pair<Int, ByteArray> {
         literalIpv4Bytes(host)?.let { return 1 to it }
         literalIpv6Bytes(host)?.let { return 4 to it }
         val name = host.trim().removePrefix("[").removeSuffix("]")
         val hostBytes = name.toByteArray(Charsets.UTF_8)
         require(hostBytes.size in 1..255) { "SOCKS hostname too long" }
-        return 3 to hostBytes
+        return 3 to byteArrayOf(hostBytes.size.toByte()) + hostBytes
+    }
+
+    /**
+     * The SOCKS5 CONNECT request — VER CMD RSV ATYP | DST.addr | DST.port — assembled into one
+     * buffer. Three separate writes let a scheduler flush the header as its own segment, which a
+     * core reading the name would surface as the same `read fqdn: unexpected EOF` family; one
+     * write makes a partial request impossible from this client.
+     */
+    internal fun buildSocks5Request(atyp: Int, addr: ByteArray, port: Int): ByteArray {
+        require(port in 1..65535)
+        val request = ByteArray(4 + addr.size + 2)
+        request[0] = 5
+        request[1] = 1 // CONNECT
+        request[2] = 0 // RSV
+        request[3] = atyp.toByte()
+        addr.copyInto(request, 4)
+        request[request.size - 2] = (port ushr 8).toByte()
+        request[request.size - 1] = (port and 0xff).toByte()
+        return request
+    }
+
+    /** One flushed write of the whole request — the only way this client sends a request. */
+    internal fun writeSocks5Request(output: java.io.OutputStream, host: String, port: Int) {
+        val (atyp, addr) = socksTarget(host)
+        output.write(buildSocks5Request(atyp, addr, port))
+        output.flush()
     }
 
     /** A bracketed or bare IPv6 literal, resolved syntactically — never through DNS. */

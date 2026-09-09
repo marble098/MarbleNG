@@ -815,7 +815,23 @@ class XrayManager(private val context: Context) {
         return runCatching {
             publishStartState(ticket.generation, "port-check")
             if (!portAvailable(port)) {
-                return@runCatching failStart(ticket.generation, "Local port $port is already in use")
+                // MARBLE_SINGBOX_PORT_SOVEREIGNTY_V158 — the old refusal ("Local port $port is
+                // already in use") refused forever: an untracked stale core kept the port, every
+                // retry paid a preflight failure, and nothing ever named the holder. Reap the
+                // same-UID core binaries first, exactly as SingBoxManager.start does for the
+                // sing-box engine; only a holder we correctly did not signal fails the start.
+                val reclaim = CorePortGuard.reclaim(
+                    probe = CorePortGuard.androidProbe(),
+                    port = port,
+                    nativeLibDir = context.applicationInfo.nativeLibraryDir,
+                    coreBinaries = listOf(CoreEngineInfo.XRAY_BINARY, CoreEngineInfo.SINGBOX_BINARY)
+                )
+                if (!reclaim.available) {
+                    return@runCatching failStart(
+                        ticket.generation,
+                        reclaim.evidence.ifBlank { "core-port: Local port $port is already in use" }
+                    )
+                }
             }
             if (!startStillCurrent(ticket.generation)) return@runCatching false
 

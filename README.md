@@ -41,7 +41,22 @@ It focuses on real proxy verification, fast one-tap connection, fail-closed rout
 
 ## Connection reliability
 
-`docs/SINGBOX_ANDROID_CLI_CRASH_V157.md` is the newest chapter: three shipped builds carried an
+`docs/SINGBOX_PORT_SOVEREIGNTY_V158.md` is the newest chapter: one device spent eight minutes
+refused with `bind: address already in use` on `127.0.0.1:10808` while **both engines reported
+`alive=false`** — the socket was held by a core process nothing tracked (an orphan from an earlier
+app process Android had killed), nothing on the connect path ever asked the OS who held the port,
+and the refusal wore the `core-start:` prefix, so every reader candidate was spawned to die on the
+same port before the user was told the profile was "misconfigured". MarbleNG now attributes the
+holder through `/proc/net/tcp{,6}` + `/proc/<pid>/fd` and reaps same-UID core binaries
+(TERM → KILL) before either engine spawns, names and spares foreign holders, classifies a bind
+conflict as the `core-port:` local fault it is (one spawn, no reader walk, `Local port in use` in
+the blocked state), reports the exit verdict of every core `stop()`, fixes the wire defect that
+let MarbleNG's own domain-target SOCKS5 requests arrive without RFC 1928's length prefix (each
+request is now one assembled, single-`write` segment), and counts the
+`read fqdn: unexpected EOF` ERROR lines of local clients aborting their own SOCKS handshake as
+benign evidence instead of Bug Finder failures.
+
+`docs/SINGBOX_ANDROID_CLI_CRASH_V157.md` is the previous chapter: three shipped builds carried an
 Android sing-box artifact that panicked in its own `direct` outbound for **every** profile, because
 an app-UID child gets no netlink interface monitor on Android. The product answered in four
 remote-sounding vocabularies — `reachable = 0 of 17` for both the URL test and Real delay, a BLOCKED

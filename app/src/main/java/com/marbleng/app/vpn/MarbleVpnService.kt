@@ -685,10 +685,13 @@ class MarbleVpnService : VpnService() {
                 },
                 allowRecovery = false,
                 recordProfileFailure = false,
-                faultClass = if (unusableCore) {
-                    "Core cannot run on this device"
-                } else {
-                    "Core/configuration error"
+                faultClass = when {
+                    unusableCore -> "Core cannot run on this device"
+                    // MARBLE_SINGBOX_PORT_SOVEREIGNTY_V158 — the 09:18–09:26 cluster said
+                    // "Core/configuration error" for a port another process held, which reads
+                    // like a verdict about the profile the user just tapped. Name the owner.
+                    SingBoxAndroidRuntime.isPortBindConflict(coreStartError) -> "Local port in use"
+                    else -> "Core/configuration error"
                 }
             )
             return

@@ -683,7 +683,14 @@ class BugFinder(private val context: Context, private val xray: XrayManager, pri
             sections += BugSection("PENDING FATAL CRASH TOMBSTONE", sanitize(crashPending))
         }
 
-        sections += BugSection("SINGBOX EXTENDED CORE STATUS", "libsingbox.so=" + File(context.applicationInfo.nativeLibraryDir, "libsingbox.so").exists() + " • singboxLog=" + (singboxLog.length) + " chars • urlTestLog=" + (singboxUrlTestLog.length) + " chars")
+        val localClientAborts = singboxLog.lineSequence().count { CoreLogNoise.isLocalClientHandshakeAbort(it) }
+        sections += BugSection(
+            "SINGBOX EXTENDED CORE STATUS",
+            "libsingbox.so=" + File(context.applicationInfo.nativeLibraryDir, "libsingbox.so").exists() +
+                " • singboxLog=" + (singboxLog.length) + " chars • urlTestLog=" + (singboxUrlTestLog.length) +
+                " chars • localClientHandshakeAborts=$localClientAborts" +
+                (if (localClientAborts > 0) " (benign: local client(s) closed mid-handshake; not counted as failures)" else "")
+        )
 
         // MARBLE_SINGBOX_ANDROID_RUNTIME_V155 — the two lines a sing-box triage always needs
         // first: does anything still request the netlink interface monitor Android bans, and did
@@ -938,7 +945,17 @@ class BugFinder(private val context: Context, private val xray: XrayManager, pri
                         line.contains("xrayAlive=false", true)
                 val benignNoise =
                     line.contains("proxy/socks: failed to read request > EOF", true) ||
-                        (line.contains("HTTPUpgrade transport", true) && line.contains("deprecated", true))
+                        (line.contains("HTTPUpgrade transport", true) && line.contains("deprecated", true)) ||
+                        // MARBLE_SINGBOX_PORT_SOVEREIGNTY_V158 — a local client that opened the
+                        // SOCKS inbound and closed mid-handshake. sing-box logs the abort at
+                        // ERROR level with the "read fqdn: unexpected EOF" shape (the client sent
+                        // ATYP=domain and died inside the name), which used to match the bare
+                        // "error" keyword and count every one of them as a scan failure. The
+                        // 2026-09-09 window (six of these in six seconds from 127.0.0.1, beside
+                        // ROUTE probe misses on a degraded exit) shows the shape: no core fault
+                        // exists behind the line — the count now travels as benign evidence in
+                        // the SINGBOX EXTENDED CORE STATUS section instead.
+                        CoreLogNoise.isLocalClientHandshakeAbort(line)
                 !cleanHevExit && !benignNoise && keywords.any { line.contains(it, true) }
             }
             .map(::sanitize)
@@ -1029,5 +1046,44 @@ class BugFinder(private val context: Context, private val xray: XrayManager, pri
             while (deque.size > limit) deque.removeFirst()
         }
         return deque.toList()
+    }
+}
+
+/**
+ * MARBLE_SINGBOX_PORT_SOVEREIGNTY_V158 — classification of the sing-box inbound ERROR lines a
+ * *local client* produces by opening a SOCKS5 handshake to the loopback inbound and closing it
+ * before the request is complete.
+ *
+ * The shape is unambiguous in the server's own source (`sing/common/metadata/serializer.go`):
+ * `read fqdn: unexpected EOF` is `ReadSockString` — the client sent `VER CMD RSV ATYP=03` plus
+ * the length byte and then disconnected inside the name. MarbleNG's own probes always send the
+ * complete handshake in one write (SocksHttpClient), hev-socks5-tunnel only ever sends literal
+ * IPs (the address comes from the lwIP PCB), and a bare connect+close aborts at the first byte,
+ * which the mixed inbound logs at DEBUG — invisible at the configured `warn` level. What remains
+ * is exactly one class: some local app using the loopback proxy that aborted its own request.
+ * The line is real evidence about that client and no evidence at all about MarbleNG, so it is
+ * counted as benign noise in the report instead of being matched into scan failures by the bare
+ * "error" keyword in [BugFinder.problems].
+ */
+internal object CoreLogNoise {
+    /** Every member implies "the client died inside its own SOCKS5/HTTP request". */
+    private val clientAbortMarkers = listOf(
+        "read fqdn: unexpected eof",
+        "read fqdn: eof",
+        "read port: unexpected eof",
+        "read port: eof",
+        "read ipv4 address: unexpected eof",
+        "read ipv6 address: unexpected eof",
+        "read version: eof"
+    )
+
+    fun isLocalClientHandshakeAbort(line: String): Boolean {
+        val value = line.lowercase()
+        // The local inbounds only: a remote listener would make the same client abort a
+        // different story, and "process connection from" is the inbound error wrapper.
+        val localInbound = value.contains("inbound/mixed[socks-in]") ||
+            value.contains("inbound/socks[socks-in]")
+        if (!localInbound || !value.contains("process connection from 127.0.0.1:")) return false
+        return clientAbortMarkers.any { it in value } || value.trimEnd().endsWith(": eof")
     }
 }
