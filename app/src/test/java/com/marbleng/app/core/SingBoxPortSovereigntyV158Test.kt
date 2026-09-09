@@ -42,8 +42,10 @@ class SingBoxPortSovereigntyV158Test {
     // Fixtures
     // ─────────────────────────────────────────────────────────────────────────────
 
-    private val MY_UID = 10123
-    private val NATIVE_LIB_DIR = "/data/app/~~abc==/com.marbleng.app-HASH/lib/arm64"
+    private companion object {
+        const val MY_UID = 10123
+        const val NATIVE_LIB_DIR = "/data/app/~~abc==/com.marbleng.app-HASH/lib/arm64"
+    }
 
     /** A synthetic `/proc/net/tcp`-format table: one LISTEN on 10808 (0x2A38) plus decoys. */
     private val procTcp = """
