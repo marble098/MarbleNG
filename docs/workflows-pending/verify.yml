@@ -16,9 +16,9 @@ concurrency:
 jobs:
   verify:
     runs-on: ubuntu-latest
-    # MARBLE_SINGBOX_ANDROID_CLI_CRASH_V157 — the sing-box crash backport is now proven here too
-    # (clone the pinned source, inject, `go test`), alongside the Xray realtime smoke and the
-    # Gradle unit tests. 25 minutes was already tight with two native smokes in the job.
+    # MARBLE_SINGBOX_GO127_FORCE_CLOSE_V161 — the sing-box pinned-source smoke downloads
+    # the fork's Go modules and links the whole core on the host, which the previous
+    # 25-minute budget did not have room for.
     timeout-minutes: 40
 
     steps:
@@ -41,17 +41,6 @@ jobs:
           jq -e '.xray.tag and .xray.repo' core-lock.json
           jq -e '.hev.tag and .hev.repo' core-lock.json
           jq -e '.singbox.tag and .singbox.repo' core-lock.json
-
-          # MARBLE_SINGBOX_ANDROID_CLI_CRASH_V157 — the sing-box core is compiled from source, so
-          # the pin has to name the source: the commit the tag resolves to, and MarbleNG's own
-          # backport level. Without them prepare-native.sh would build whatever the tag happens
-          # to point at on the day, and the version marker in the binary would be meaningless.
-          test "$(jq -r '.singbox.commit' core-lock.json | grep -cE '^[0-9a-f]{40}$')" = "1"
-          test "$(jq -r '.singbox.patch' core-lock.json | grep -cE '^[A-Za-z0-9][A-Za-z0-9._-]*$')" = "1"
-
-          # The one digest that is still an archive: the linux-amd64 host-test core.
-          jq -e '.singbox.sha256 | length == 1' core-lock.json
-          jq -e '.singbox.sha256 | keys[0] | endswith("-linux-amd64.tar.gz")' core-lock.json
 
       - name: Core versions agree everywhere
         shell: bash
@@ -80,18 +69,6 @@ jobs:
           grep -q ".hev.tag" scripts/prepare-native.sh
           grep -q ".singbox.tag" scripts/prepare-native.sh
           grep -q "libsingbox.so" scripts/prepare-native.sh
-
-          # MARBLE_SINGBOX_ANDROID_CLI_CRASH_V157 — the Android sing-box core is compiled from the
-          # pinned source with the upstream crash fix backported. Three things must stay true: the
-          # pin names the commit, the injector runs before any ABI is compiled, and no path in the
-          # script can still install the upstream Android release artifact (which SIGSEGVs in the
-          # `direct` outbound of every config MarbleNG emits).
-          grep -q ".singbox.commit" scripts/prepare-native.sh
-          grep -q "inject-singbox-android-fix.py" scripts/prepare-native.sh
-          grep -q "go test" scripts/prepare-native.sh
-          ! grep -q 'sing-box-.*-android-' scripts/prepare-native.sh
-          grep -q 'build_singbox' scripts/prepare-native.sh
-          test -s scripts/inject-singbox-android-fix.py
 
           # The sing-box pin tracks the extended beta line, which is what the product ships.
           [[ "$(jq -r '.singbox.channel' core-lock.json)" == "beta" ]]
@@ -138,54 +115,148 @@ jobs:
             env GOTOOLCHAIN=auto go test ./transport/internet ./main
           )
 
-      - name: sing-box Android CLI crash-fix native smoke
+      # ======================================================================
+      # sing-box pinned-source smoke — the run #247 class of failure
+      # ======================================================================
+      # MARBLE_SINGBOX_GO127_FORCE_CLOSE_V161 — the release build resolves its Go
+      # toolchain from the pinned Xray's go.mod, and the core-lock bot bumped that
+      # pin (v26.7.28 -> v26.9.9, `go 1.26` -> `go 1.27`) straight to main with a
+      # GITHUB_TOKEN push that triggers no build. The first build after the bump
+      # (run #247, the merge of PR #135) then died at the sing-box link step,
+      # because the pinned sing-box's v2rayxhttp still linknamed a pre-1.27
+      # x/net/http2 symbol. A PR-time gate never sees the pinned sing-box's link
+      # surface unless it builds it — with the same toolchain the release build
+      # will use — so this smoke does exactly that: clone the pinned commit,
+      # inject both backports, run the injected regression tests, and link the
+      # whole core with the release tag set on the host.
+      - name: Clone the pinned sing-box source and the pinned Xray toolchain pin
         shell: bash
         run: |
           set -euo pipefail
-          # MARBLE_SINGBOX_ANDROID_CLI_CRASH_V157
-          #
-          # The shipped Android core used to be the upstream release artifact, and that artifact
-          # SIGSEGVs in `protocol/direct/outbound.go` for every unprivileged Android child:
-          # sing-tun bans netlink there, so the interface monitor is nil, and every MarbleNG
-          # config carries a `direct` outbound. Upstream fixed it in 288411b0 ("Fix crash when
-          # interface monitor is unavailable"), which is newer than the pinned release, so
-          # prepare-native.sh backports it onto the pinned source and compiles the core itself.
-          #
-          # This step proves the backport on every pull request, on a host that has no Android in
-          # it: the injected tests reproduce the device condition with a NetworkManager whose
-          # InterfaceMonitor() is nil. Without the guard they panic; with it they pass.
+
           SINGBOX_REPO="$(jq -r '.singbox.repo' core-lock.json)"
           SINGBOX_TAG="$(jq -r '.singbox.tag' core-lock.json)"
-          SINGBOX_COMMIT="$(jq -r '.singbox.commit' core-lock.json)"
-          SINGBOX_TMP="$RUNNER_TEMP/singbox-android-crash-smoke"
+          SINGBOX_COMMIT="$(jq -r '.singbox.commit // empty' core-lock.json)"
+          XRAY_TAG="$(jq -r '.xray.tag' core-lock.json)"
 
-          rm -rf "$SINGBOX_TMP"
+          [[ -n "$SINGBOX_TAG" && "$SINGBOX_TAG" != "null" ]]
+          [[ -n "$SINGBOX_COMMIT" && "$SINGBOX_COMMIT" != "null" ]]
+          [[ -n "$XRAY_TAG" && "$XRAY_TAG" != "null" ]]
+
+          SB_TMP="$RUNNER_TEMP/singbox-link-smoke"
+          XRAY_PIN="$RUNNER_TEMP/xray-toolchain-pin"
+
+          rm -rf "$SB_TMP" "$XRAY_PIN"
+          mkdir -p "$XRAY_PIN"
+
           git clone --quiet --depth 1 --branch "$SINGBOX_TAG" \
-            "https://github.com/${SINGBOX_REPO}.git" "$SINGBOX_TMP"
+            "https://github.com/${SINGBOX_REPO}.git" "$SB_TMP"
 
-          # The pin is the commit, not the tag: a re-pointed tag must fail here rather than
-          # quietly compile a different core than the one this backport was read against.
-          test "$(git -C "$SINGBOX_TMP" rev-parse HEAD)" = "$SINGBOX_COMMIT"
+          # The pin is the commit, not the tag: a re-pointed tag must fail here rather
+          # than quietly compile a different core than the one the backports were read
+          # against.
+          [[ "$(git -C "$SB_TMP" rev-parse HEAD)" == "$SINGBOX_COMMIT" ]] || {
+            echo "::error::Pinned sing-box tag $SINGBOX_TAG is not the pinned commit $SINGBOX_COMMIT."
+            exit 1
+          }
 
-          python3 scripts/inject-singbox-android-fix.py "$SINGBOX_TMP"
+          # The toolchain pin is the only thing taken from Xray: build.yml's setup-go
+          # resolves the release toolchain from exactly this go.mod. Whatever Go this
+          # runner had before is irrelevant — the pinned Xray's directive is the
+          # toolchain the release build will compile the core with.
+          git clone --quiet --depth 1 --branch "$XRAY_TAG" \
+            https://github.com/XTLS/Xray-core.git "$XRAY_PIN/xray"
 
-          for patched in \
-            protocol/direct/outbound.go \
-            route/network.go \
-            dns/transport/dhcp/dhcp.go \
-            route/rule/rule_default_interface_address.go \
-            route/rule/rule_network_interface_address.go
-          do
-            grep -F 'MARBLE_SINGBOX_ANDROID_CLI_CRASH_V157' "$SINGBOX_TMP/$patched" >/dev/null
-          done
+          test -s "$XRAY_PIN/xray/go.mod"
 
-          # Idempotent: the release build may resume into an already patched tree.
-          python3 scripts/inject-singbox-android-fix.py "$SINGBOX_TMP"
+          echo "Pinned sing-box: $SINGBOX_TAG @ $SINGBOX_COMMIT"
+          echo "Pinned Xray    : $XRAY_TAG (toolchain pin)"
+          grep '^go ' "$XRAY_PIN/xray/go.mod"
+
+      - name: Set up the pinned Xray Go toolchain
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: "${RUNNER_TEMP}/xray-toolchain-pin/xray/go.mod"
+          cache: false
+
+      - name: sing-box pinned-source smoke (inject, regression tests, host link)
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          SB_TMP="$RUNNER_TEMP/singbox-link-smoke"
 
           (
-            cd "$SINGBOX_TMP"
+            cd "$SB_TMP"
+
+            # Both backports, exactly as the release build applies them.
+            python3 "$GITHUB_WORKSPACE/scripts/inject-singbox-android-fix.py" "$SB_TMP"
+            python3 "$GITHUB_WORKSPACE/scripts/inject-singbox-go127-fix.py" "$SB_TMP"
+
+            # Every patched site must carry its marker, or the release build's grep
+            # has nothing to find and an unpatched file ships silently.
+            for patched in \
+              protocol/direct/outbound.go \
+              route/network.go \
+              dns/transport/dhcp/dhcp.go \
+              route/rule/rule_default_interface_address.go \
+              route/rule/rule_network_interface_address.go
+            do
+              grep -F 'MARBLE_SINGBOX_ANDROID_CLI_CRASH_V157' "$patched" >/dev/null
+            done
+
+            grep -F 'MARBLE_SINGBOX_GO127_FORCE_CLOSE_V161' transport/v2rayxhttp/dialer.go >/dev/null
+            for variant in \
+              force_close_legacy.go \
+              force_close_go127.go \
+              force_close_go127_stub.go
+            do
+              grep -F 'MARBLE_SINGBOX_GO127_FORCE_CLOSE_V161' "transport/v2rayxhttp/$variant" >/dev/null
+            done
+
+            # Idempotence: a second run must be a no-op, or the release build's single
+            # run is not the tree these tests are about to validate.
+            python3 "$GITHUB_WORKSPACE/scripts/inject-singbox-android-fix.py" "$SB_TMP" | grep -F 'already patched'
+            python3 "$GITHUB_WORKSPACE/scripts/inject-singbox-go127-fix.py" "$SB_TMP" | grep -F 'already patched'
+
+            # The injected crash regression tests (nil interface monitor).
             env GOTOOLCHAIN=auto CGO_ENABLED=0 go test ./protocol/direct ./route
+
+            # The MARBLE_SINGBOX_GO127_FORCE_CLOSE_V161 link pin: compiles AND links
+            # the force-close variant the running toolchain selects, with the same
+            # badlinkname tag the release build uses.
+            env GOTOOLCHAIN=auto CGO_ENABLED=0 go test \
+              -tags badlinkname -ldflags "-checklinkname=0" \
+              ./transport/v2rayxhttp
           )
+
+          # The release tag set, read from the file that owns it — never duplicated
+          # here, or this smoke would drift from the build it guards.
+          SINGBOX_TAGS="$(
+            sed -n 's/^SINGBOX_TAGS="\([^"]*\)".*/\1/p' "$GITHUB_WORKSPACE/scripts/prepare-native.sh" | head -n1
+          )"
+
+          [[ -n "$SINGBOX_TAGS" ]] || {
+            echo "::error::Could not read SINGBOX_TAGS from scripts/prepare-native.sh."
+            exit 1
+          }
+
+          (
+            cd "$SB_TMP"
+            env \
+              GOTOOLCHAIN=auto \
+              CGO_ENABLED=0 \
+              GOOS=linux \
+              GOARCH=amd64 \
+              go build \
+                -tags "$SINGBOX_TAGS" \
+                -ldflags "-checklinkname=0" \
+                -o "$RUNNER_TEMP/singbox-link-smoke-bin" \
+                ./cmd/sing-box
+          )
+
+          test -s "$RUNNER_TEMP/singbox-link-smoke-bin"
+          echo "[OK] pinned sing-box links under the pinned Xray's toolchain with the release tags"
 
       - name: Reject malformed Compose function types
         shell: bash

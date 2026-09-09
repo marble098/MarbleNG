@@ -1704,6 +1704,34 @@ grep -F 'MARBLE_SINGBOX_ANDROID_CLI_CRASH_V157' \
         die "sing-box Android CLI crash fix is missing from protocol/direct/outbound.go"
     }
 
+# ---------------------------------------------------------------------------
+# The Go 1.27 force-close fix, and the same proof for it.
+#
+# MARBLE_SINGBOX_GO127_FORCE_CLOSE_V161 — the pinned Xray's go.mod decides this
+# build's toolchain (build.yml resolves it from .bootstrap/xray/go.mod), and
+# Xray v26.9.9 moved that directive from `go 1.26` to `go 1.27`. Under Go 1.27,
+# golang.org/x/net v0.57.0 compiles http2 as a wrapper over net/http's internal
+# http2, the unexported (*Transport).connPool symbol the fork's
+# transport/v2rayxhttp/dialer.go pulls by linkname stops existing, and the first
+# ABI dies at link time (build run #247):
+#
+#     ld.lld: error: undefined symbol: golang.org/x/net/http2.(*Transport).connPool
+#     >>> referenced by github.com/sagernet/sing-box/transport/v2rayxhttp.(*DefaultDialerClient).Close
+#
+# The fork fixed its v2rayhttp package for this (force_close_legacy.go /
+# force_close_go127.go / force_close_go127_stub.go) but never gave v2rayxhttp the
+# same split, and its own CI cannot notice because it pins Go 1.26.7 — the legacy
+# file always wins there. The injector below ports the fork's own three-way split
+# to v2rayxhttp before anything compiles.
+# ---------------------------------------------------------------------------
+
+python3 "$ROOT/scripts/inject-singbox-go127-fix.py" "$SINGBOX_SRC"
+
+grep -F 'MARBLE_SINGBOX_GO127_FORCE_CLOSE_V161' \
+    "$SINGBOX_SRC/transport/v2rayxhttp/dialer.go" >/dev/null || {
+        die "sing-box Go 1.27 force-close fix is missing from transport/v2rayxhttp/dialer.go"
+    }
+
 # The module graph is fetched explicitly (and retried) before the tests run,
 # so a dead module transfer fails as "dependency download failed" instead of
 # masquerading as "regression tests failed".
@@ -1729,8 +1757,18 @@ log "Running the injected sing-box regression tests (nil interface monitor)"
 # Host architecture, no CGO: these tests recreate the Android condition with a
 # NetworkManager stub whose InterfaceMonitor() is nil, so they pin the guard on
 # a Linux runner where a real monitor would otherwise hide the crash.
+#
+# The second invocation is the MARBLE_SINGBOX_GO127_FORCE_CLOSE_V161 link pin:
+# `go test -tags badlinkname` compiles AND links transport/v2rayxhttp with the
+# same badlinkname tag the release build uses, so under the Go 1.27 toolchain
+# the pinned Xray go.mod mandates, the force-close variant's linknames must all
+# resolve here — in seconds — instead of dying at the first ABI's link step four
+# minutes into the job the way build run #247 did.
 SINGBOX_TEST_LOG="$CORE/singbox-regression-test.log"
 
+# NOTE: errexit is ignored inside a subshell that is the left side of `||`, so the two
+# invocations are chained with `&&` — a failure of the first must not be masked by a
+# passing second.
 (
     cd "$SINGBOX_SRC"
 
@@ -1739,7 +1777,15 @@ SINGBOX_TEST_LOG="$CORE/singbox-regression-test.log"
         CGO_ENABLED=0 \
         go test \
             ./protocol/direct \
-            ./route
+            ./route &&
+
+    env \
+        GOTOOLCHAIN=auto \
+        CGO_ENABLED=0 \
+        go test \
+            -tags badlinkname \
+            -ldflags "-checklinkname=0" \
+            ./transport/v2rayxhttp
 ) 2>&1 | tee "$SINGBOX_TEST_LOG" || {
     echo
     echo "Last test output:"
@@ -1747,7 +1793,7 @@ SINGBOX_TEST_LOG="$CORE/singbox-regression-test.log"
     die "sing-box Android CLI crash regression tests failed"
 }
 
-ok "sing-box crash backport verified by go test"
+ok "sing-box crash backport and Go 1.27 force-close link pin verified by go test"
 
 # ---------------------------------------------------------------------------
 # Resolve the Android package graph before a single ABI is compiled
@@ -1763,6 +1809,13 @@ ok "sing-box crash backport verified by go test"
 # The pinned fork's own tag list (.goreleaser.yaml build id `android`).
 # with_clash_api is load-bearing: the URL test reads the core's Clash
 # controller. Changing this list changes which protocols the product supports.
+#
+# badlinkname is load-bearing twice over on the Go 1.27 toolchain the pinned
+# Xray go.mod mandates: the fork's own crypto/tls and http2 force-close hooks
+# (common/badtls, common/ktls, transport/v2rayhttp/force_close_go127.go) and
+# MARBLE_SINGBOX_GO127_FORCE_CLOSE_V161's v2rayxhttp variant are all gated on
+# it, and dropping it would silently degrade the http2 pool force-close to
+# CloseIdleConnections (the stub files) on every go1.27 build.
 #
 # with_admin_panel is deliberately NOT in this list, and it can never be
 # added back without also generating its assets. The fork's

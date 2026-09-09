@@ -1,7 +1,7 @@
 # Workflow files that need a manual replace
 
 The CI token used for this branch cannot write `.github/workflows/*` (GitHub refuses a
-`workflows`-less App token), so the workflow changes for **MARBLE_SINGBOX_ANDROID_CLI_CRASH_V157**
+`workflows`-less App token), so the workflow changes for **MARBLE_SINGBOX_GO127_FORCE_CLOSE_V161**
 are staged here instead. Each file below is complete and derived from the current live workflow, so
 replacing is a copy, not a merge.
 
@@ -9,23 +9,27 @@ Copy each file over the one in `.github/workflows/` with the same name:
 
 | File here | Replace | What changed |
 | --- | --- | --- |
-| `build.yml` | `.github/workflows/build.yml` | the signed build now clones the pinned sing-box source into `.bootstrap/singbox` and checks out `.singbox.commit`, because the Android core is compiled rather than downloaded; `setup-go` caches both pinned modules (`cache-dependency-path` lists the Xray and sing-box `go.sum`); the fork's Go requirement is printed before the toolchain is resolved; job timeout 60 → 90 minutes for a job that compiles a second core |
-| `verify.yml` | `.github/workflows/verify.yml` | the lock step also requires `.singbox.commit` (40 hex) and `.singbox.patch`, and requires exactly one digest whose key is the `linux-amd64` host artifact; the source-build invariants assert `prepare-native.sh` injects the backport, runs `go test`, builds via `build_singbox` and no longer names any `sing-box-*-android-*` release asset; a new **sing-box Android CLI crash-fix native smoke** step clones the pinned commit, injects, greps the marker at all five sites, re-injects to prove idempotence and runs `go test ./protocol/direct ./route`; job timeout 25 → 40 minutes |
-| `update-cores.yml` | `.github/workflows/update-cores.yml` | the resolved lock is validated for `.singbox.commit`/`.singbox.patch`/single-digest, and a new pre-push step runs the injector as a dry run so anchor drift kills the updater *before* it commits a lock nobody can build (this job writes `main` directly) |
+| `verify.yml` | `.github/workflows/verify.yml` | a new **sing-box pinned-source smoke** (three steps) clones the pinned sing-box commit from `core-lock.json`, resolves the Go toolchain from the pinned *Xray's* `go.mod` — the exact resolution `build.yml` performs — injects both backports (V157 crash fix and V161 Go 1.27 force-close), checks every marker site, proves injector idempotence, runs the injected regression tests plus the `-tags badlinkname` link pin on `./transport/v2rayxhttp`, and links the whole core on the host with the release `SINGBOX_TAGS` read from `prepare-native.sh`; job timeout 25 → 40 minutes. This is the gate that would have caught build run #247 (the post-merge link failure of PR #135) at PR time: the core-lock bot's `GOTOOLCHAIN`-moving Xray bump lands on main with no build of its own, so a PR gate that never links the pinned sing-box under the pinned toolchain cannot see what the release build will do |
+| `update-cores.yml` | `.github/workflows/update-cores.yml` | the pre-push "Prove the Android crash backport still applies" dry run now also dry-runs `scripts/inject-singbox-go127-fix.py`, so a sing-box tag that moves the force-close anchors — or an Xray bump that moves the toolchain that makes them fatal — kills the one-minute updater before it commits a lock nobody can build. It also requires `.singbox.commit`/`.singbox.patch`/single-digest in the resolved lock (from the earlier V157 batch, kept) |
 
-All three files of this batch are staged, pending installation (the installing token needs
-`workflows` permission, which the branch that authored them did not have). Two notes for whoever
-installs them: `update-cores.yml` carried a bash syntax error — a missing closing quote on the
-`.singbox.channel` assertion, a syntax that would have failed the updater the moment the file went
-live — which is fixed in the staged copy; and after copying, `bash -n` the run blocks of the
-installed files before pushing, because neither GitHub nor the integrity audit syntax-checks
-`run:` blocks.
+Notes for whoever installs them:
 
-Until they are installed the PR gate still runs; it just does not yet assert the sing-box source
-pin, and the signed build still carries the 60-minute budget and no sing-box module cache. That is
-the state `scripts/system-integrity-check.py` reports against: its workflow invariants read the
-staged copy when one exists, so a change that is written but not yet installed is still checked.
+* `build.yml` (still the file to replace `.github/workflows/build.yml` with, but see the
+  caveat) is staged from the earlier V157 batch and is **stale against the live file**: it
+  describes a sing-box clone into `.bootstrap/singbox` that the current
+  `scripts/prepare-native.sh` (which clones into `.cores/singbox-src` itself) never creates, and
+  it predates the live V181/V182 release-publishing changes. It needs re-deriving from the live
+  file before it is installed — or simply deleting from this batch, since the V161 fix needs no
+  `build.yml` change (`prepare-native.sh` does everything). It is kept only because
+  `system-integrity-check.py` still asserts the two-module `setup-go` cache key against the
+  staged copy.
+* After copying, `bash -n` the run blocks of the installed files before pushing — neither
+  GitHub nor the integrity audit syntax-checks `run:` blocks. (The copies here have been
+  YAML-parsed and `bash -n`-checked.)
+* The V161 release-path fix itself (injector + `prepare-native.sh` link pin) does **not** wait
+  for this install: it is live the moment this PR merges, because it lives in `scripts/`.
 
-The previous batch staged here (V151: `.singbox.tag`/`.singbox.repo` in the lock step, **Core
-versions agree everywhere**, and **Validate the resolved lock**) has been installed — both steps are
-present in the live workflows today, and the files above keep them.
+Until they are installed the PR gate still runs; it just does not yet link the pinned sing-box
+under the pinned toolchain, and the core updater only dry-runs the V157 crash backport. The
+`run #247` failure class is closed on main the moment this PR merges (the release build now
+pins the link before the first ABI); the staged files close it at PR time and in the updater.
