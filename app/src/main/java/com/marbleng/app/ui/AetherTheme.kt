@@ -410,7 +410,9 @@ private fun applyNightOutline(
 @Composable
 fun AetherFlowTheme(
     themeId: String = "light",
-    fontId: String = AppFont.VAZIR.id,
+    // MARBLE_GOOGLE_SANS_DEFAULT_V160 — previews and any caller that does not name a face render
+    // with the typeface a fresh install opens with, so a preview never lies about the default.
+    fontId: String = AppFont.DEFAULT.id,
     outlineStyleId: String = DarkOutlineStyle.SUBTLE.id,
     content: @Composable () -> Unit
 ) {

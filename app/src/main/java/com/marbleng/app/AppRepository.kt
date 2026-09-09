@@ -448,7 +448,17 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
             postToMain { messageState = value }
         }
 
-    var benchmarks by mutableStateOf<List<BenchmarkResult>>(emptyList()); private set
+    /**
+     * MARBLE_REMEMBERED_PING_V160 — the last measurement of every server, restored on launch.
+     *
+     * The table used to be pure memory: closing the app (or Android killing the process, which
+     * happens nightly) threw away every ping the user had paid for, and the Servers list came
+     * back blank. The rows are read from disk at construction and written back every time a
+     * measurement lands, so the number next to a node survives restarts, updates and process
+     * death — while a node that no longer exists is dropped on the way in, because a measurement
+     * of a server the library does not have is not a memory, it is clutter.
+     */
+    var benchmarks by mutableStateOf(rememberedBenchmarks()); private set
     var privacy by mutableStateOf<PrivacyReport?>(null); private set
     var bugReport by mutableStateOf<BugReport?>(null); private set
 
@@ -2596,6 +2606,9 @@ private fun postToMain(block: () -> Unit) {
         benchmarks = benchmarks.filterNot {
             it.profileId == current.id || it.profileId == newId
         }
+        // MARBLE_REMEMBERED_PING_V160 — a re-written config is a new node: its old measurement
+        // belongs to a server that no longer exists and must not come back after a restart.
+        persistBenchmarks()
         intelligence.forgetAcceleration(current.id)
         intelligence.forgetAcceleration(newId)
 
@@ -2704,6 +2717,7 @@ private fun postToMain(block: () -> Unit) {
             store.clearLastProfile()
         }
         benchmarks = benchmarks.filterNot { it.profileId in doomedIds }
+        persistBenchmarks()
         store.saveSubscriptions(subscriptions)
         store.saveProfiles(profiles)
         message = "Removed ${sub.name} • ${doomedIds.size} servers deleted"
@@ -2732,6 +2746,7 @@ private fun postToMain(block: () -> Unit) {
 
         if (!sameConfigRemains) {
             benchmarks = benchmarks.filterNot { it.profileId == target.id }
+            persistBenchmarks()
             intelligence.forgetAcceleration(target.id)
         }
 
@@ -2888,6 +2903,7 @@ private fun postToMain(block: () -> Unit) {
         doomedIds.forEach(intelligence::forgetAcceleration)
         profiles.removeAll { it.id in doomedIds }
         benchmarks = benchmarks.filterNot { it.profileId in doomedIds }
+        persistBenchmarks()
         store.saveProfiles(profiles)
 
         diagnostics.event(
@@ -3195,11 +3211,44 @@ private fun postToMain(block: () -> Unit) {
      */
     private fun clearBenchmarks(ids: Set<String>) = postToMain {
         benchmarks = benchmarks.filterNot { it.profileId in ids }
+        persistBenchmarks()
+    }
+
+    /**
+     * MARBLE_REMEMBERED_PING_V160 — the measurements the app opens with.
+     *
+     * A result whose node is gone is dropped rather than shown: a subscription refresh can
+     * renumber every row it owns, and a latency attached to a server the library cannot open is
+     * not a remembered ping, it is a ghost.
+     */
+    private fun rememberedBenchmarks(): List<BenchmarkResult> {
+        val liveIds = profiles.mapTo(mutableSetOf()) { it.id }
+        return runCatching { store.loadBenchmarks() }
+            .getOrDefault(emptyList())
+            .filter { it.profileId in liveIds }
+            .sortedWith(
+                compareByDescending<BenchmarkResult> { it.score }
+                    .thenBy { it.latencyMs }
+            )
+    }
+
+    /**
+     * MARBLE_REMEMBERED_PING_V160 — writes the table back without touching the input thread.
+     *
+     * JSON for a few hundred rows is milliseconds, but this runs after every completed node of a
+     * sweep and the thread it would otherwise block is the one drawing that sweep's progress.
+     */
+    private fun persistBenchmarks() {
+        val snapshot = benchmarks.toList()
+        io.execute { runCatching { store.saveBenchmarks(snapshot) } }
     }
 
     private fun mergeBenchmarks(fresh: List<BenchmarkResult>) {
         if (fresh.isEmpty()) return
-        val incoming = fresh.toList()
+        val stampedAt = System.currentTimeMillis()
+        // The stamp is the moment a measurement becomes history rather than a live reading, so it
+        // is written once here — the single place a result enters the table — and never guessed.
+        val incoming = fresh.map { if (it.measuredAtMs > 0L) it else it.copy(measuredAtMs = stampedAt) }
         postToMain {
             val freshIds = incoming.mapTo(mutableSetOf()) { it.profileId }
             val liveIds = profiles.mapTo(mutableSetOf()) { it.id }
@@ -3210,6 +3259,7 @@ private fun postToMain(block: () -> Unit) {
                     compareByDescending<BenchmarkResult> { it.score }
                         .thenBy { it.latencyMs }
                 )
+            persistBenchmarks()
         }
     }
 

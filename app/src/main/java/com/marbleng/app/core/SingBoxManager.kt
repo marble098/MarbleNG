@@ -55,6 +55,22 @@ class SingBoxManager(private val context: Context) {
         private set
     private val selfTestLock = Any()
     val isAlive: Boolean get() = session?.isAlive == true
+
+    /**
+     * MARBLE_PING_SPEED_V160 — the pool of measurement cores this device was granted.
+     *
+     * Both URL tests and sing-box Real delays spawn one native child per node, so a sweep is
+     * only as fast as the number of children that may run at once. The floor is the pool this
+     * product has always shipped; a device that reports enough cores and heap gets a wider one
+     * (see [MeasurementCoreBudget]), and a device that does not runs exactly what it ran before.
+     */
+    val measurementCoreCeiling: Int get() = measurementCeiling
+
+    // The width is granted here rather than in the companion's own initialiser because it needs
+    // a Context, and a manager has one before any measurement can ask for a slot.
+    init {
+        grantMeasurementSlots(MeasurementCoreBudget.read(context))
+    }
     private val bin: File get() = File(context.applicationInfo.nativeLibraryDir, CoreEngineInfo.SINGBOX_BINARY)
     val isInstalled: Boolean get() = bin.isFile && bin.length() > 1024
     val logFile: File get() = File(context.filesDir, "logs/singbox.log")
@@ -423,6 +439,31 @@ class SingBoxManager(private val context: Context) {
         const val MAX_TEMPORARY_CORES = 4
         private val testSlots = Semaphore(MAX_TEMPORARY_CORES, true)
         private val diagnosticLock = Any()
+        private val slotLock = Any()
+
+        /** The live width of the pool. Starts at [MAX_TEMPORARY_CORES] and only ever widens. */
+        @Volatile private var measurementCeiling = MAX_TEMPORARY_CORES
+
+        /**
+         * MARBLE_PING_SPEED_V160 — widens the measurement pool by [extra] slots, once.
+         *
+         * A `Semaphore` has no "set permits" operation, and the alternative — sizing it eagerly
+         * from a device read in a static initializer — would ask Android about the running
+         * device before the app has a Context. Granting permits at construction keeps the floor
+         * honest: the pool is [MAX_TEMPORARY_CORES] until a manager exists, and the extra slots
+         * are added before the first measurement can ask for one.
+         */
+        private fun grantMeasurementSlots(extra: Int) {
+            if (extra <= 0) return
+            synchronized(slotLock) {
+                val granted = (measurementCeiling + extra).coerceAtMost(MeasurementCoreBudget.MAX)
+                val delta = granted - measurementCeiling
+                if (delta > 0) {
+                    measurementCeiling = granted
+                    testSlots.release(delta)
+                }
+            }
+        }
 
         /**
          * True when the core rejected the *document*, which is the only thing a different reader

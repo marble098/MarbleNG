@@ -8051,12 +8051,21 @@ private fun SettingsHubCard(
  * preview of the thing it controls, and a chevron. The preview is the point — most settings
  * should be recognizable without opening them.
  */
+/**
+ * MARBLE_CORE_NAME_IN_SETTINGS_V160 — [badge] is a short value printed on the title's own line.
+ *
+ * The hub row is the only place a Settings title and its current value are seen together, and a
+ * value small enough to be missed in the faint subtitle line is better read next to the word it
+ * belongs to. Engine identity is the first use: "Tunnel core" now names the core that is running
+ * beside its own title, so the page answers the question before it is opened.
+ */
 @Composable
 private fun SettingsHubRow(
     title: String,
     subtitle: String,
     tone: Color,
     onClick: () -> Unit,
+    badge: String = "",
     preview: @Composable () -> Unit
 ) {
     val shape = RoundedCornerShape(14.dp)
@@ -8078,13 +8087,33 @@ private fun SettingsHubRow(
             modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(2.dp)
         ) {
-            Text(
-                trx(title),
-                color = Aether.Ink,
-                style = settingsRowTitleStyle(),
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Text(
+                    trx(title),
+                    color = Aether.Ink,
+                    style = settingsRowTitleStyle(),
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false)
+                )
+                // MARBLE_CORE_NAME_IN_SETTINGS_V160 — the live value on the title's own line.
+                if (badge.isNotBlank()) {
+                    Text(
+                        trx(badge),
+                        color = tone,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        modifier = Modifier
+                            .clip(ServersBadgeShape)
+                            .background(tone.copy(alpha = .13f))
+                            .padding(horizontal = 6.dp, vertical = 1.dp)
+                    )
+                }
+            }
             Text(
                 trx(subtitle),
                 color = Aether.InkMuted,
@@ -8637,11 +8666,16 @@ private fun SettingsHub(
 
                 // MARBLE_SINGBOX_CORE_V151 — the engine Marble starts is a first-class decision,
                 // so it sits on the hub next to the build identity it belongs to.
+                //
+                // MARBLE_CORE_NAME_IN_SETTINGS_V160 — the row used to answer "which core?" twice
+                // and identically ("Xray core • Xray-core") in a line too faint to notice. The
+                // name now sits on the title's own line as a badge, so the hub answers the
+                // question before the page is opened.
                 SettingsHubRow(
                     title = "Tunnel core",
-                    subtitle = coreEngineTitle(parseCoreEngine(repo.settings.coreEngineId)) +
-                        " • " + CoreEngineInfo.displayName(repo.activeCoreEngine),
+                    subtitle = trx("The engine Marble starts when you connect"),
                     tone = Aether.CyanBright,
+                    badge = CoreEngineInfo.displayName(repo.activeCoreEngine),
                     onClick = { onNavigate(SettingsPages.CORE) }
                 ) { SettingsVersionPreview(Aether.CyanBright) }
             }
@@ -9307,7 +9341,10 @@ private fun SettingsCorePage(
     val engine = parseCoreEngine(s.coreEngineId)
     SettingsSubPage(
         title = trx("Tunnel core"),
-        subtitle = trx("The engine Marble starts when you connect"),
+        // MARBLE_CORE_NAME_IN_SETTINGS_V160 — the page opens with the answer on the title line:
+        // which core this build is actually running right now.
+        subtitle = CoreEngineInfo.displayName(engine) +
+            " • " + trx("The engine Marble starts when you connect"),
         onBack = onBack,
         listState = listState
     ) {

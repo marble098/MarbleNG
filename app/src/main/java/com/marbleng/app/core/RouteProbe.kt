@@ -1674,27 +1674,57 @@ object RouteProbe {
         // `generate_204` endpoint for exactly that reason.
         val rounds = PingBudget.samples(samples)
         val times = ArrayList<Double>(rounds)
-        var injected = false
-        var silent = false
-        var consecutiveFailures = 0
-        for (round in 0 until rounds) {
-            if (round > 0 && !pauseBetweenSamples()) break
-            val result = runCatching {
+        /*
+         * MARBLE_PING_SPEED_V160 — every sample of one server, on ONE session.
+         *
+         * The loop this replaces opened a fresh SOCKS connection and ran a fresh TLS handshake
+         * for every round, so a three-sample Real delay paid the whole cold start of the route
+         * three times over: negotiation, TCP through the tunnel, TLS, one request, close. On a
+         * ~1 s route that is three handshakes and three quiet gaps for three numbers, and the
+         * slowest part of the measurement was setup the user never asked about.
+         *
+         * All rounds now go through the session the first one opened — same tunnel, same
+         * verified TLS state, one more real request and one more real response per sample.
+         * This is not a new measurement: it is the one Rank has always published, because
+         * `BenchmarkEngine.measure` has asked for the whole batch in one session since V156,
+         * and it is v2rayNG's own semantics ("attempt two reuses the same verified session
+         * when the origin permits keep-alive"). What the product gains besides the time is
+         * agreement: the Home ping button and Rank now describe the same number.
+         *
+         * Accuracy is untouched, and deliberately so:
+         *  - the sample count, the per-sample socket budget and the median are identical;
+         *  - the first (cold) sample is still discarded by [summarize] exactly as before;
+         *  - the quiet gap between samples is kept ([PingBudget.SAMPLE_SPACING_MS]), now inside
+         *    the batch, so the samples are never a burst an adaptive filter can learn;
+         *  - an origin that answers `Connection: close` still ends its batch after one sample
+         *    and gets a fresh connection for the rest, which is precisely what the loop did;
+         *  - a target that answers nothing is still retried once, with the same quiet gap
+         *    between the two attempts, so a single lost response can no more fail a healthy
+         *    route now than it could before ([CONSECUTIVE_FAILURES_BEFORE_ABANDON]).
+         */
+        val budget = timeoutMs.coerceIn(500, 30_000)
+        // A one-sample run used to get exactly one attempt, and a dead node in a sweep must not
+        // become twice as expensive now: only a multi-sample run retries a silent target.
+        val attempts = if (rounds > 1) CONSECUTIVE_FAILURES_BEFORE_ABANDON else 1
+        var result: TunnelRttBatch? = null
+        repeat(attempts) { attempt ->
+            if (attempt > 0 && !pauseBetweenSamples()) return@repeat
+            result = runCatching {
                 SocksHttpClient.tunnelRttBatchUrl(
-                    port = socksPort, url = url, samples = 1,
-                    timeoutMs = timeoutMs.coerceIn(500, 30_000)
+                    port = socksPort,
+                    url = url,
+                    samples = rounds,
+                    timeoutMs = budget,
+                    spacingMs = PingBudget.SAMPLE_SPACING_MS
                 )
             }.getOrNull()
-            if (result != null && result.samplesMs.isNotEmpty()) {
-                val value = result.samplesMs.first()
-                if (value.isFinite() && value > 0.0) {
-                    times += value
-                    consecutiveFailures = 0
-                }
-            } else {
-                consecutiveFailures += 1
-                if (times.isEmpty() && consecutiveFailures >= CONSECUTIVE_FAILURES_BEFORE_ABANDON) break
-            }
+            if (result != null) return@repeat
+        }
+        // Read into a val: `result` is captured by the lambda above, so Kotlin will not
+        // smart-cast it, and the only way to get the samples out is a local copy.
+        val measured = result
+        if (measured != null) {
+            times += measured.samplesMs.filter { it.isFinite() && it > 0.0 }
         }
         if (times.isEmpty()) {
             return ProbeResult(
@@ -1709,7 +1739,7 @@ object RouteProbe {
         val summary = summarize("TUNNEL", times, rounds, warmupDiscarded = true)
         return summary.copy(
             firstByteMs = summary.latencyMs,
-            failureReason = if (injected) "injected-reset-suspected" else ""
+            failureReason = ""
         )
     }
 

@@ -63,6 +63,11 @@ files = {
     "probeTransientTest": read(
         "app/src/test/java/com/marbleng/app/core/ProbeTransientTruthV159Test.kt"
     ),
+    # MARBLE_PING_SPEED_V160 — the device-sized measurement pool, the remembered-ping disk form
+    # and the two unit tests that pin both.
+    "coreBudget": read("app/src/main/java/com/marbleng/app/core/MeasurementCoreBudget.kt"),
+    "coreBudgetTest": read("app/src/test/java/com/marbleng/app/core/MeasurementCoreBudgetTest.kt"),
+    "rememberedPingTest": read("app/src/test/java/com/marbleng/app/model/RememberedPingV160Test.kt"),
     "singBoxBuilder": read("app/src/main/java/com/marbleng/app/core/SingBoxConfigBuilder.kt"),
     "singBox": read("app/src/main/java/com/marbleng/app/core/SingBoxManager.kt"),
     "singBoxSession": read("app/src/main/java/com/marbleng/app/core/SingBoxProcessSession.kt"),
@@ -324,14 +329,42 @@ check(
     and "rememberUptimeLabel(" in files["homeStyles"],
 )
 
-# iOS Slider Home presentation is modelled and is the product default
+# MARBLE_HOME_THEME_TWO_DEFAULT_V160 — every presentation is modelled and reachable; the product
+# default is Theme 2 (Floating), and it is named once so the model, the store and the parser
+# cannot disagree about it. The Slider stays a fully supported choice for anyone who picked it.
 check(
-    "iOS Slider Home style is modelled and is the product default",
-    'IOS_SLIDER("ios_slider")' in files["models"]
-    and "homeStyle: String = HomeStyle.IOS_SLIDER.id" in files["models"]
-    and "HomeThemeSlider(" in files["homeStyles"]
+    "Theme 2 (Floating) is modelled and is the product default",
+    'IOS_FLOATING("ios_floating")' in files["models"]
+    and "homeStyle: String = HomeStyle.DEFAULT.id" in files["models"]
+    and "val DEFAULT: HomeStyle get() = IOS_FLOATING" in files["models"]
+    and "HomeStyle.DEFAULT" in files["store"]
+    and "HomeThemeFloating(" in files["homeStyles"]
     and "HomeStyleSurface(" in files["ui"]
     and "HomeStyleSurface(" in files["homeStyles"],
+)
+check(
+    "every presentation including the former default is still modelled and reachable",
+    all(
+        style in files["models"] and implementation in files["homeStyles"]
+        for style, implementation in (
+            ('IOS_SLIDER("ios_slider")', "HomeThemeSlider("),
+            ('IOS_FLOATING("ios_floating")', "HomeThemeFloating("),
+            ('IOS_EMBOSSED("ios_embossed")', "HomeThemeEmbossed("),
+            ('IOS_MODULAR("ios_modular")', "HomeThemeModular("),
+        )
+    ),
+)
+# A first launch opens on the default; an install that chose a presentation keeps the choice, so
+# the store must ask whether a value was ever written instead of handing a default to getString.
+check(
+    "a first launch is the only thing the Home-style default applies to",
+    'prefs.getString("homeStyle", null)' in files["store"]
+    and "HomeStyle.IOS_SLIDER.id) ?: HomeStyle.IOS_SLIDER.id" not in files["store"],
+)
+check(
+    "a first launch is the only thing the typeface default applies to",
+    'prefs.getString("fontFamily", null)' in files["store"]
+    and "AppFont.VAZIR.id) ?: AppFont.VAZIR.id" not in files["store"],
 )
 # MARBLE_SIGNATURE_STUDIO_REMOVED_V143 — the Signature studio product surface is gone from every
 # layer: no UI file, no model type, no persisted setting, no composer wiring, no translation.
@@ -885,6 +918,68 @@ check(
     and "aCancelledSweepStopsBeforeTheNextTarget" in files["probeTransientTest"]
     and "atMostThreeDistinctTargetsAreEverWalked" in files["probeTransientTest"],
 )
+# ───────────────────────────────────────────────────────────────────────────────────────────────
+# MARBLE_PING_SPEED_V160 — Real delay and URL test had to get faster *without* changing what they
+# measure, and the measurement itself had to survive a restart.
+#
+#  - Real delay paid the whole cold start of the route once per sample: SOCKS negotiation, TCP
+#    through the tunnel and a TLS handshake, times the sample count. All samples now run on the
+#    session the first one opened, with the quiet gap kept between them, which is what Rank has
+#    done since V156 and what v2rayNG calls "attempt two reuses the same verified session".
+#  - the URL test's readiness poll napped a flat 60 ms between probes, and the pool that carries
+#    the spawns was a constant four whatever the device was.
+#  - a ping was the only thing the product did not write down, so a restart showed a Servers list
+#    with no latency anywhere.
+# ───────────────────────────────────────────────────────────────────────────────────────────────
+
+check(
+    "Real delay takes every sample on one session and keeps the quiet gap between them",
+    "samples = rounds," in files["probe"]
+    and "spacingMs = PingBudget.SAMPLE_SPACING_MS" in files["probe"]
+    # The old per-round loop, verbatim: one fresh connection and one full handshake per sample.
+    # (The quiet pause between samples still belongs to the other multi-sample methods, so the
+    # assertion names the whole call shape instead of one of its tokens.)
+    and "port = socksPort, url = url, samples = 1," not in files["probe"]
+    # The gap has to exist and has to be interruptible, or a cancelled sweep waits out a nap.
+    and "private fun quietGap(spacingMs: Long): Boolean" in files["socksClient"]
+    and "if (spacingMs > 0L && !quietGap(spacingMs)) break" in files["socksClient"]
+    # A one-sample run must not become twice as expensive on a dead node.
+    and "val attempts = if (rounds > 1) CONSECUTIVE_FAILURES_BEFORE_ABANDON else 1" in files["probe"],
+)
+check(
+    "the URL test stops napping between readiness probes",
+    "var pollDelayMs = 4L" in files["singBoxSession"]
+    and "Thread.sleep(minOf(pollDelayMs, left()).coerceAtLeast(1))" in files["singBoxSession"]
+    and "pollDelayMs = (pollDelayMs * 2L).coerceAtMost(25L)" in files["singBoxSession"]
+    and "Thread.sleep(minOf(60, left())" not in files["singBoxSession"],
+)
+check(
+    "the measurement pool is sized by the device and never below the shipped floor",
+    "object MeasurementCoreBudget" in files["coreBudget"]
+    and "fun ceiling(cpus: Int, memoryClassMb: Int, lowRam: Boolean = false): Int" in files["coreBudget"]
+    and "const val BASE = 4" in files["coreBudget"]
+    and "grantMeasurementSlots(MeasurementCoreBudget.read(context))" in files["singBox"]
+    and "xray.singBox?.measurementCoreCeiling ?: SingBoxManager.MAX_TEMPORARY_CORES" in files["bench"]
+    and "class MeasurementCoreBudgetTest" in files["coreBudgetTest"],
+)
+check(
+    "the last ping of every server survives a restart",
+    "fun loadBenchmarks(): List<BenchmarkResult>" in files["store"]
+    and "fun saveBenchmarks(v: List<BenchmarkResult>)" in files["store"]
+    and "var benchmarks by mutableStateOf(rememberedBenchmarks())" in files["repo"]
+    and "private fun rememberedBenchmarks(): List<BenchmarkResult>" in files["repo"]
+    and "private fun persistBenchmarks()" in files["repo"]
+    and "val measuredAtMs: Long = 0L" in files["models"]
+    and "fun toJson() = JSONObject().apply {" in files["models"]
+    and "class RememberedPingV160Test" in files["rememberedPingTest"],
+)
+check(
+    "Settings names the tunnel core next to its own title",
+    "badge = CoreEngineInfo.displayName(repo.activeCoreEngine)" in files["ui"]
+    and "badge: String = \"\"," in files["ui"]
+    and "CoreEngineInfo.displayName(engine) +" in files["ui"],
+)
+
 # ───────────────────────────────────────────────────────────────────────────────────────────────
 # MARBLE_V156 — the share link is the authority, the URL test belongs to one engine, every bulk
 # measurement can be cancelled, Real delay works with no tunnel up, and the Home header no longer

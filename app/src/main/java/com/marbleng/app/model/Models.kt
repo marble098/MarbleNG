@@ -106,8 +106,90 @@ data class BenchmarkResult(
      */
     val tcpHandshakeSuccessRatio: Double = 0.0,
     /** MARBLE_SMART_RANK_V90: total handshake attempts the probe performed before settling. */
-    val handshakeAttempts: Int = 0
-)
+    val handshakeAttempts: Int = 0,
+    /**
+     * MARBLE_REMEMBERED_PING_V160 — wall-clock stamp of the measurement itself.
+     *
+     * `0` means "older than this field", which is what every in-memory result of a running
+     * session carries until it is written down: the stamp is set where the result is stored,
+     * because that is the moment it becomes history instead of a live reading.
+     */
+    val measuredAtMs: Long = 0L
+) {
+    /**
+     * MARBLE_REMEMBERED_PING_V160 — the compact disk form of one measurement.
+     *
+     * Only the fields a later launch actually reads are written: every number the Library row,
+     * the Servers sort, the Home ping readout and the Quality page consume, and nothing the
+     * product recomputes anyway. `name` is stored because a result can outlive the profile's own
+     * row by one refresh and a nameless measurement is worse than none.
+     */
+    fun toJson() = JSONObject().apply {
+        put("profileId", profileId)
+        put("name", name)
+        put("success", success)
+        put("latencyMs", latencyMs)
+        put("bytesPerSecond", bytesPerSecond)
+        put("score", score)
+        put("udpSuccess", udpSuccess)
+        put("interactiveScore", interactiveScore)
+        put("streamingScore", streamingScore)
+        put("stabilityScore", stabilityScore)
+        put("resilienceScore", resilienceScore)
+        put("usedFragment", usedFragment)
+        put("usedMux", usedMux)
+        put("probeKind", probeKind)
+        put("jitterMs", jitterMs)
+        put("warmupMs", warmupMs)
+        put("sampleCount", sampleCount)
+        put("p90LatencyMs", p90LatencyMs)
+        put("p95LatencyMs", p95LatencyMs)
+        put("medianJitterMs", medianJitterMs)
+        put("p95JitterMs", p95JitterMs)
+        put("madLatencyMs", madLatencyMs)
+        put("lossPercent", lossPercent)
+        put("spikePercent", spikePercent)
+        put("loadedLatencyMs", loadedLatencyMs)
+        put("failureReason", failureReason)
+        put("tcpHandshakeSuccessRatio", tcpHandshakeSuccessRatio)
+        put("handshakeAttempts", handshakeAttempts)
+        put("measuredAtMs", measuredAtMs)
+    }
+
+    companion object {
+        fun fromJson(o: JSONObject) = BenchmarkResult(
+            profileId = o.optString("profileId"),
+            name = o.optString("name"),
+            success = o.optInt("success"),
+            latencyMs = o.optDouble("latencyMs"),
+            bytesPerSecond = o.optDouble("bytesPerSecond"),
+            score = o.optDouble("score"),
+            udpSuccess = o.optInt("udpSuccess"),
+            interactiveScore = o.optDouble("interactiveScore"),
+            streamingScore = o.optDouble("streamingScore"),
+            stabilityScore = o.optDouble("stabilityScore"),
+            resilienceScore = o.optDouble("resilienceScore"),
+            usedFragment = o.optBoolean("usedFragment"),
+            usedMux = o.optBoolean("usedMux"),
+            probeKind = o.optString("probeKind").takeIf { it.isNotBlank() } ?: "TUNNEL",
+            jitterMs = o.optDouble("jitterMs"),
+            warmupMs = o.optDouble("warmupMs"),
+            sampleCount = o.optInt("sampleCount"),
+            p90LatencyMs = o.optDouble("p90LatencyMs"),
+            p95LatencyMs = o.optDouble("p95LatencyMs"),
+            medianJitterMs = o.optDouble("medianJitterMs"),
+            p95JitterMs = o.optDouble("p95JitterMs"),
+            madLatencyMs = o.optDouble("madLatencyMs"),
+            lossPercent = o.optDouble("lossPercent"),
+            spikePercent = o.optDouble("spikePercent"),
+            loadedLatencyMs = o.optDouble("loadedLatencyMs"),
+            failureReason = o.optString("failureReason"),
+            tcpHandshakeSuccessRatio = o.optDouble("tcpHandshakeSuccessRatio"),
+            handshakeAttempts = o.optInt("handshakeAttempts"),
+            measuredAtMs = o.optLong("measuredAtMs")
+        )
+    }
+}
 
 data class ConnectionRecord(val profileId: String, val name: String, val at: Long, val reason: String)
 
@@ -194,6 +276,13 @@ enum class NodeSortMode { DEFAULT, PING, SCORE, NAME, PROTOCOL, SOURCE, COUNTRY 
  *
  * All 4 themes use iOS glass card styling, fixed screen height (no outer page scroll),
  * and inner scrollable components where needed.
+ *
+ * MARBLE_HOME_THEME_TWO_DEFAULT_V160 — a fresh install opens on Theme 2: the floating action
+ * button is the presentation whose primary control is always under the thumb and whose servers
+ * box is the widest of the four, which is what a first-time user needs before they have chosen
+ * anything. An install that already picked a presentation keeps it — [AppStore] only falls back
+ * to the default when no value was ever persisted, so an update never rearranges a Home the
+ * user has already made theirs.
  */
 enum class HomeStyle(val id: String) {
     /** Theme 1: Bottom Slide-to-connect slider, centered sub name with inner scrollable servers list, wide status card at top. */
@@ -206,7 +295,16 @@ enum class HomeStyle(val id: String) {
     IOS_EMBOSSED("ios_embossed"),
 
     /** Theme 4: Modular customizable dashboard allowing user to rearrange widgets and toggle components. */
-    IOS_MODULAR("ios_modular")
+    IOS_MODULAR("ios_modular");
+
+    companion object {
+        /**
+         * The presentation a first launch opens with, and the one an unreadable stored value
+         * resolves to. One name, so the model, the store and the parser can never disagree
+         * about which theme the product defaults to.
+         */
+        val DEFAULT: HomeStyle get() = IOS_FLOATING
+    }
 }
 
 /** How tall and airy modular Home cards render in the modular theme. */
@@ -227,7 +325,9 @@ fun parseHomeStyle(raw: String): HomeStyle = when (raw.trim().lowercase()) {
     "ios_floating", "floating", "theme_2", "cosmic_orbit" -> HomeStyle.IOS_FLOATING
     "ios_embossed", "embossed", "circle", "theme_3", "cosmic_immersion" -> HomeStyle.IOS_EMBOSSED
     "ios_modular", "modular", "custom", "theme_4" -> HomeStyle.IOS_MODULAR
-    else -> HomeStyle.IOS_SLIDER
+    // MARBLE_HOME_THEME_TWO_DEFAULT_V160 — a retired or unreadable id opens on the presentation
+    // a fresh install gets, not on a face the product no longer defaults to.
+    else -> HomeStyle.DEFAULT
 }
 
 /**
@@ -247,21 +347,34 @@ fun parseAppLanguage(raw: String): AppLanguage =
         ?: AppLanguage.SYSTEM
 
 /**
- * User-selectable product typefaces. The default keeps Persian text readable on every device.
+ * User-selectable product typefaces.
  *
- * MARBLE_SYSTEM_FONT_V112: SYSTEM renders with the device's own default typeface; Persian copy
- * still forces the bundled Vazirmatn ramp inside AetherTheme so Persian shaping never degrades.
+ * MARBLE_GOOGLE_SANS_DEFAULT_V160: [GOOGLE_SANS] is the typeface a fresh install opens with —
+ * the product's own geometric sans identity, which is what the brand surfaces were drawn
+ * against. Persian copy still forces the bundled Vazirmatn ramp inside AetherTheme whatever the
+ * Latin choice is, so Persian shaping never degrades: see the `persian` branch of
+ * `aetherTypography`, which is the only place a whole screen switches faces.
+ *
+ * MARBLE_SYSTEM_FONT_V112: SYSTEM renders with the device's own default typeface.
  */
 enum class AppFont(val id: String, val label: String) {
     VAZIR("vazir", "Vazir"),
     SYSTEM("system", "System"),
     GOOGLE_SANS("google_sans", "Google Sans"),
-    TIMES_NEW_ROMAN("times_new_roman", "Times New Roman")
+    TIMES_NEW_ROMAN("times_new_roman", "Times New Roman");
+
+    companion object {
+        /**
+         * The typeface a fresh install opens with. One name, so [AppStore], [parseAppFont] and
+         * the theme's own default can never disagree about what "default font" means.
+         */
+        val DEFAULT: AppFont get() = GOOGLE_SANS
+    }
 }
 
 fun parseAppFont(raw: String): AppFont =
     AppFont.entries.firstOrNull { it.id.equals(raw.trim(), ignoreCase = true) }
-        ?: AppFont.VAZIR
+        ?: AppFont.DEFAULT
 
 /**
  * MARBLE_CONNECT_BUTTON_V121 — the connection-button silhouettes, selectable from Settings.
@@ -898,13 +1011,22 @@ data class AppSettings(
     val workloadProfile: WorkloadProfile = WorkloadProfile.AUTO,
 
     val theme: String = "light",
-    /** Product typeface selected in the standard Settings workspace. */
-    val fontFamily: String = AppFont.VAZIR.id,
+    /**
+     * Product typeface selected in the standard Settings workspace.
+     *
+     * MARBLE_GOOGLE_SANS_DEFAULT_V160 — a fresh install opens with Google Sans. An install that
+     * already wrote this key keeps its own choice: [AppStore.settings] only falls back to the
+     * default when no value was ever persisted.
+     */
+    val fontFamily: String = AppFont.GOOGLE_SANS.id,
 
     /**
      * iOS-styled Home presentations: IOS_SLIDER, IOS_FLOATING, IOS_EMBOSSED, IOS_MODULAR.
+     *
+     * MARBLE_HOME_THEME_TWO_DEFAULT_V160 — Theme 2 (Floating) is what a first launch opens
+     * with. Installs that already wrote this key keep their own choice.
      */
-    val homeStyle: String = HomeStyle.IOS_SLIDER.id,
+    val homeStyle: String = HomeStyle.DEFAULT.id,
 
     // Theme 4: Modular customizable dashboard properties
     val modularCardOrder: String = ModularLayout.DEFAULT_ORDER,

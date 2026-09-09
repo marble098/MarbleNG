@@ -72,8 +72,11 @@ class MarbleHomeStyleTest {
 
     @Test
     fun unknownHomeStyleFallsBackToTheDefaultPresentation() {
-        assertEquals(HomeStyle.IOS_SLIDER, parseHomeStyle(""))
-        assertEquals(HomeStyle.IOS_SLIDER, parseHomeStyle("nebula"))
+        // MARBLE_HOME_THEME_TWO_DEFAULT_V160 — the fallback is the presentation a fresh install
+        // opens with, not a hard-coded face: there is one name for "the default theme".
+        assertEquals(HomeStyle.DEFAULT, parseHomeStyle(""))
+        assertEquals(HomeStyle.DEFAULT, parseHomeStyle("nebula"))
+        assertEquals(HomeStyle.IOS_FLOATING, HomeStyle.DEFAULT)
     }
 
     @Test
@@ -114,7 +117,10 @@ class MarbleHomeStyleTest {
             assertEquals(font, parseAppFont(font.id))
         }
         assertEquals(AppFont.SYSTEM, parseAppFont("system"))
-        assertEquals(AppFont.VAZIR, parseAppFont("unknown-face"))
+        // MARBLE_GOOGLE_SANS_DEFAULT_V160 — an unreadable value resolves to the typeface a fresh
+        // install opens with, not to a hard-coded face: the product default is one name.
+        assertEquals(AppFont.DEFAULT, parseAppFont("unknown-face"))
+        assertEquals(AppFont.GOOGLE_SANS, AppFont.DEFAULT)
     }
 
     @Test
@@ -123,7 +129,7 @@ class MarbleHomeStyleTest {
         listOf("parametric", "bioluminescent", "PARAMETRIC", "BIOLUMINESCENT").forEach { legacy ->
             assertEquals(
                 "retired style $legacy must fall back",
-                HomeStyle.IOS_SLIDER,
+                HomeStyle.DEFAULT,
                 parseHomeStyle(legacy)
             )
         }

@@ -38,10 +38,39 @@ It focuses on real proxy verification, fast one-tap connection, fail-closed rout
 - Font-independent Canvas vector icons for critical actions.
 - Smart GitHub Release update checks.
 - Signed multi-ABI APKs built by GitHub Actions.
+- Remembers the last ping of every server across restarts, updates and process death.
 
-## Connection reliability
+## Speed and memory of a measurement
 
-`docs/PING_FALSE_FAILED_V159.md` is the newest chapter: URL test and Real delay both worked, yet
+`docs/PING_SPEED_AND_REMEMBERED_PING_V160.md` is the newest chapter.
+
+**Real delay is 30–60 % faster with the same number, the same sample budget and the same
+accuracy.** It used to open a fresh SOCKS connection and run a fresh TLS handshake *per sample*,
+so a three-sample ping paid the whole cold start of the route three times over. Every sample now
+runs on the session the first one opened — one handshake, then one real request and one real
+response per sample — which is what the Rank sweep has done since V156 and what v2rayNG calls
+"attempt two reuses the same verified session when the origin permits keep-alive". The quiet gap
+between samples moved into the batch so the samples are never a burst an adaptive filter can
+learn, the cold sample is still discarded, and the Home ping button now publishes the same number
+Rank does.
+
+**URL test is faster too, and the pool that carries it is sized by the device.** The startup loop
+that waits for the core napped a flat 60 ms between readiness probes — up to a minute of pure
+idleness over a hundred-node sweep — and now ramps 4 → 8 → 16 → 25 ms. The measurement pool is no
+longer a constant four: `MeasurementCoreBudget` grants six or eight slots only on devices that
+report the cores and the heap to carry them, and a small device keeps the four it has always run.
+
+**The measurement is no longer the one thing the product forgets.** Every result is written down
+when it lands and read back on the next launch, bounded at 400 rows, pruned after 30 days and
+dropped when its node is deleted — so leaving the app and coming back no longer shows a Servers
+list with no latency anywhere.
+
+**Fresh installs open on Theme 2 (Floating) with Google Sans**, and Settings names the tunnel core
+next to its own title. All three are first-launch or display-only: an install that already chose a
+presentation or a typeface keeps its choice, because the store asks whether a value was ever
+written instead of writing the default back the first time it is read.
+
+`docs/PING_FALSE_FAILED_V159.md` is the previous chapter: URL test and Real delay both worked, yet
 occasionally published a perfectly healthy server as `FAILED`. Two budget defects, not routing
 defects: the URL test shared **one deadline across its fallback targets**, so the coldest request
 of a fresh core (the first, which pays DNS + TCP + TLS + fetch on a ~1 s route) consumed the whole
