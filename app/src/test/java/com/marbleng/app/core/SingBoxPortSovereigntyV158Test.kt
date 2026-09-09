@@ -139,9 +139,11 @@ class SingBoxPortSovereigntyV158Test {
         val inodes = CorePortGuard.parseListenerInodes(procTcp, 10808)
         assertEquals(setOf("1048571"), inodes)
         assertTrue(CorePortGuard.parseListenerInodes(procTcp, 10809).contains("1048572"))
-        // State 01 is ESTABLISHED, never a listener; port 8080 belongs to another uid entirely.
+        // State 01 is ESTABLISHED, never a listener.
         assertFalse(CorePortGuard.parseListenerInodes(procTcp, 10810).isNotEmpty())
-        assertFalse(CorePortGuard.parseListenerInodes(procTcp, 8080).isNotEmpty())
+        // 8080 is a foreign-uid LISTEN — the parser is deliberately uid-agnostic (attribution
+        // first, ownership decided later in reclaim), so it must find inode 1048574.
+        assertEquals(setOf("1048574"), CorePortGuard.parseListenerInodes(procTcp, 8080))
     }
 
     @Test
@@ -229,6 +231,12 @@ class SingBoxPortSovereigntyV158Test {
         assertTrue(CoreFailurePolicy.isLocal(rewritten))
         assertTrue(ProbeLocalFaultGate().isSweepFatal(rewritten, 0))
         assertTrue(SingBoxAndroidRuntime.explain(reason).contains(SingBoxAndroidRuntime.PORT_REMEDIATION))
+        // Precedence pin: the same retained reason also contains the benign packages.xml WARN;
+        // the definitive kernel error must win over the loose package-manager heuristic.
+        assertFalse(
+            SingBoxAndroidRuntime.explain(reason)
+                .contains(SingBoxAndroidRuntime.PACKAGE_MANAGER_REMEDIATION)
+        )
         // …and the crash-class classifiers must not swallow it into a different fault.
         assertFalse(SingBoxAndroidRuntime.isCoreCrash(reason))
     }

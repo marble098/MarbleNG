@@ -278,8 +278,12 @@ object SingBoxAndroidRuntime {
         val note = when {
             isNetlinkBan(reason) -> NETLINK_REMEDIATION
             isCoreCrash(reason) -> CRASH_REMEDIATION
-            isPackageManagerFault(reason) -> PACKAGE_MANAGER_REMEDIATION
+            // Before the package-manager heuristic: the V157 packages.xml WARN is benign
+            // startup evidence and rides along in reasons whose FATAL names a bind conflict
+            // (the retained 09-08 12:48 line carries both). The kernel error is definitive;
+            // the loose pm matcher must not outrank it.
             isPortBindConflict(reason) -> PORT_REMEDIATION
+            isPackageManagerFault(reason) -> PACKAGE_MANAGER_REMEDIATION
             else -> return reason
         }
         return if (reason.contains(note)) reason else "$reason — $note"
