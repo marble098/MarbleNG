@@ -255,7 +255,7 @@ class BugFinder(private val context: Context, private val xray: XrayManager, pri
             !settings.ipv6Enabled -> BugCheck(
                 "IPv6 path",
                 BugSeverity.INFO,
-                "Disabled by policy • Xray blocks ::/0 fail-closed so Android cannot bypass the tunnel"
+                "Disabled by policy • IPv4-only TUN (IPv6 is not captured, so Happy Eyeballs cannot stall)"
             )
             !familyPlan.underlayHasIpv6 -> BugCheck(
                 "IPv6 path",

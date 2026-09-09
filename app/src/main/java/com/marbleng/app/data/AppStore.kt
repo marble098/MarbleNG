@@ -278,6 +278,16 @@ class AppStore(context: Context) {
         singBoxConnectTimeoutSec = prefs.getInt("singBoxConnectTimeoutSec", 10).coerceIn(3, 60),
         singBoxCacheFile = prefs.getBoolean("singBoxCacheFile", true),
         singBoxPreferParser = prefs.getBoolean("singBoxPreferParser", true),
+        xrayLogLevel = prefs.getString("xrayLogLevel", "error") ?: "error",
+        xraySniffingEnabled = prefs.getBoolean("xraySniffingEnabled", true),
+        xraySniffingRouteOnly = prefs.getBoolean("xraySniffingRouteOnly", true),
+        xrayAllowLan = prefs.getBoolean("xrayAllowLan", false),
+        xrayHttpInboundPort = prefs.getInt("xrayHttpInboundPort", 0).coerceIn(0, 65535),
+        singBoxLogLevel = prefs.getString("singBoxLogLevel", "warn") ?: "warn",
+        singBoxSniffEnabled = prefs.getBoolean("singBoxSniffEnabled", true),
+        singBoxResolveDestination = prefs.getBoolean("singBoxResolveDestination", false),
+        singBoxAllowLan = prefs.getBoolean("singBoxAllowLan", false),
+        singBoxHttpInboundPort = prefs.getInt("singBoxHttpInboundPort", 0).coerceIn(0, 65535),
 
         benchMode = enumValue("benchMode", BenchMode.BALANCED),
         benchCandidates = prefs.getInt("benchCandidates", 20),
@@ -490,6 +500,16 @@ class AppStore(context: Context) {
         .putInt("singBoxConnectTimeoutSec", s.singBoxConnectTimeoutSec.coerceIn(3, 60))
         .putBoolean("singBoxCacheFile", s.singBoxCacheFile)
         .putBoolean("singBoxPreferParser", s.singBoxPreferParser)
+        .putString("xrayLogLevel", s.xrayLogLevel)
+        .putBoolean("xraySniffingEnabled", s.xraySniffingEnabled)
+        .putBoolean("xraySniffingRouteOnly", s.xraySniffingRouteOnly)
+        .putBoolean("xrayAllowLan", s.xrayAllowLan)
+        .putInt("xrayHttpInboundPort", s.xrayHttpInboundPort.coerceIn(0, 65535))
+        .putString("singBoxLogLevel", s.singBoxLogLevel)
+        .putBoolean("singBoxSniffEnabled", s.singBoxSniffEnabled)
+        .putBoolean("singBoxResolveDestination", s.singBoxResolveDestination)
+        .putBoolean("singBoxAllowLan", s.singBoxAllowLan)
+        .putInt("singBoxHttpInboundPort", s.singBoxHttpInboundPort.coerceIn(0, 65535))
         .putBoolean("probeSpeedTest", s.probeSpeedTest)
 
         .putString("benchMode", s.benchMode.name)

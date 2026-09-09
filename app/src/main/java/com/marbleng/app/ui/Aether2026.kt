@@ -2834,7 +2834,7 @@ private fun HomeRouteRibbon(repo: AppRepository) {
                     icon=HomeIcon.NETWORK,
                     title="IPv6",
                     subtitle=when {
-                        !repo.settings.ipv6Enabled -> "Blocked fail-closed"
+                        !repo.settings.ipv6Enabled -> "IPv4-only TUN"
                         repo.networkSnapshot.hasIpv6 -> "Preferred on this network"
                         else -> "Ready • no v6 route here"
                     },
@@ -2842,8 +2842,8 @@ private fun HomeRouteRibbon(repo: AppRepository) {
                     enabled=!repo.busy
                 ) { enabled ->
                     // One switch, one promise: IPv6 stays inside the tunnel and the family policy
-                    // dials nodes over IPv6 whenever the network can carry it. Turning it off also
-                    // drops the stricter preference so Xray can block ::/0 fail-closed.
+                    // dials nodes over IPv6 whenever the network can carry it. Turning it off
+                    // omits the v6 TUN address/route so Happy Eyeballs cannot stall on a blackhole.
                     repo.updateSettings(
                         repo.settings.copy(
                             ipv6Enabled = enabled,
@@ -7871,6 +7871,8 @@ private object SettingsPages {
     // MARBLE_SINGBOX_CORE_V151 — the tunnel core has its own page: the engine switch, the pinned
     // versions and the sing-box extended controls.
     const val CORE = "core"
+    const val XRAY_CORE = "xray-core"
+    const val SINGBOX_CORE = "singbox-core"
     const val ROUTING = "routing"
     private const val WORKSPACE = "workspace"
 
@@ -8678,6 +8680,18 @@ private fun SettingsHub(
                     badge = CoreEngineInfo.displayName(repo.activeCoreEngine),
                     onClick = { onNavigate(SettingsPages.CORE) }
                 ) { SettingsVersionPreview(Aether.CyanBright) }
+                SettingsHubRow(
+                    title = "Xray core settings",
+                    subtitle = trx("PattNG options: sniffing, log, LAN, HTTP inbound"),
+                    tone = Aether.Emerald,
+                    onClick = { onNavigate(SettingsPages.XRAY_CORE) }
+                ) { HomeVectorIcon(HomeIcon.SHIELD, Aether.Emerald, Modifier.size(20.dp)) }
+                SettingsHubRow(
+                    title = "sing-box extended",
+                    subtitle = trx("Exclave options: sniff, resolve dest, LAN, timeout"),
+                    tone = Aether.Amethyst,
+                    onClick = { onNavigate(SettingsPages.SINGBOX_CORE) }
+                ) { HomeVectorIcon(HomeIcon.TUNNEL, Aether.Amethyst, Modifier.size(20.dp)) }
             }
         }
     }
@@ -9424,61 +9438,20 @@ private fun SettingsCorePage(
             }
         }
 
-        if (engine == CoreEngine.SINGBOX) {
-            SettingsHubCard(
-                title = trx("sing-box extended"),
-                subtitle = trx("How the extended core is configured"),
-                tone = Aether.Amethyst
-            ) {
-                SettingSwitch(
-                    title = trx("Prefer link parser"),
-                    subtitle = trx("Hand the original vless://, trojan:// or ss:// link to the extended core's own parser instead of translating it. The parser follows link syntax this app has not been updated for; turn this off if a node behaves differently through it. Unreadable links still fall back to the parser either way."),
-                    checked = s.singBoxPreferParser,
-                    onChecked = { repo.updateSettings(repo.settings.copy(singBoxPreferParser = it)) }
-                )
-                SettingSwitch(
-                    title = trx("Unified delay"),
-                    subtitle = trx("Measure a real round trip instead of trusting a cached handshake, so a slow server cannot look fast. Recommended: it is also what makes URL test comparable to Real delay."),
-                    checked = s.singBoxUnifiedDelay,
-                    onChecked = { repo.updateSettings(repo.settings.copy(singBoxUnifiedDelay = it)) }
-                )
-                SettingSwitch(
-                    title = trx("Cache file"),
-                    subtitle = trx("Remember resolved addresses and DNS answers between runs so a reconnect does not repeat every lookup. Turn off to write nothing to disk."),
-                    checked = s.singBoxCacheFile,
-                    onChecked = { repo.updateSettings(repo.settings.copy(singBoxCacheFile = it)) }
-                )
-                NumberSetting(
-                    title = trx("Connect timeout"),
-                    value = s.singBoxConnectTimeoutSec,
-                    range = 3..60,
-                    suffix = "s",
-                    onValue = { repo.updateSettings(repo.settings.copy(singBoxConnectTimeoutSec = it.coerceIn(3, 60))) }
-                )
-                Text(
-                    trx("The core's own control API listens on 127.0.0.1 inside this app on a port it chooses at start. MarbleNG reads it to answer URL test with the delay the core measured for the live outbound; nothing outside the app can reach it."),
-                    color = Aether.InkFaint,
-                    style = settingsBodyStyle()
-                )
-                Text(
-                    trx("The extended core speaks WARP, MASQUE, MTProxy, Mieru, TrustTunnel and the standard protocols, and carries the geo rule sets itself. A node it cannot run is reported on the server with the reason, never silently dropped."),
-                    color = Aether.InkFaint,
-                    style = settingsBodyStyle()
-                )
-            }
-        } else {
-            SettingsHubCard(
-                title = trx("Xray core"),
-                subtitle = trx("How the Xray path is assembled"),
-                tone = Aether.Emerald
-            ) {
-                Text(
-                    trx("Marble builds a full Xray config from the server link or subscription, pins TLS when you asked for it, and hands the SOCKS port to hev-socks5-tunnel, which owns the TUN interface. Every Xray tuning switch in Settings applies to this path."),
-                    color = Aether.InkMuted,
-                    style = settingsBodyStyle()
-                )
-                InformationRow(trx("Fronted by"), "hev-socks5-tunnel ${BuildConfig.HEV_CORE_TAG}", Aether.Amber)
-            }
+        SettingsHubCard(
+            title = trx("Xray core"),
+            subtitle = trx("PattNG options applied when Xray is the running engine"),
+            tone = Aether.Emerald
+        ) {
+            XrayCoreSettings(repo)
+        }
+
+        SettingsHubCard(
+            title = trx("sing-box extended"),
+            subtitle = trx("Exclave options applied when sing-box is the running engine"),
+            tone = Aether.Amethyst
+        ) {
+            SingBoxCoreSettings(repo)
         }
 
         SettingsHubCard(
@@ -9517,6 +9490,219 @@ private fun coreEngineDetail(engine: CoreEngine): String = when (engine) {
         "The engine Marble has always run: Xray core behind hev-socks5-tunnel, with every tuning switch in Settings applied to it"
     CoreEngine.SINGBOX ->
         "The extended core: one process owns the tunnel, adds warp, masque and mieru, ships the geo rule sets, and answers URL test from its own measurements"
+}
+
+@Composable
+private fun SettingsXrayCorePage(
+    repo: AppRepository,
+    onBack: () -> Unit,
+    listState: LazyListState = rememberLazyListState()
+) {
+    SettingsSubPage(
+        title = trx("Xray core settings"),
+        subtitle = trx("PattNG options: sniffing, log, LAN and HTTP inbound"),
+        onBack = onBack,
+        listState = listState
+    ) {
+        SettingsHubCard(
+            title = trx("Xray core"),
+            subtitle = trx("Applied when Tunnel core is Xray"),
+            tone = Aether.Emerald
+        ) {
+            XrayCoreSettings(repo)
+        }
+        SettingsHubCard(
+            title = trx("Fragment & Mux"),
+            subtitle = trx("DPI resilience on the Xray path"),
+            tone = Aether.Amber
+        ) {
+            FragmentMuxSettings(repo)
+        }
+    }
+}
+
+@Composable
+private fun SettingsSingBoxCorePage(
+    repo: AppRepository,
+    onBack: () -> Unit,
+    listState: LazyListState = rememberLazyListState()
+) {
+    SettingsSubPage(
+        title = trx("sing-box extended"),
+        subtitle = trx("Exclave options: sniff, resolve dest, LAN, timeout"),
+        onBack = onBack,
+        listState = listState
+    ) {
+        SettingsHubCard(
+            title = trx("sing-box extended"),
+            subtitle = trx("Applied when Tunnel core is sing-box extended"),
+            tone = Aether.Amethyst
+        ) {
+            SingBoxCoreSettings(repo)
+        }
+        SettingsHubCard(
+            title = trx("Fragment & Mux"),
+            subtitle = trx("TLS ClientHello fragment and mux on the extended core"),
+            tone = Aether.Amber
+        ) {
+            FragmentMuxSettings(repo)
+        }
+    }
+}
+
+@Composable
+private fun XrayCoreSettings(repo: AppRepository) {
+    val s = repo.settings
+    Text(
+        trx("Marble builds a full Xray config from the server link, pins TLS when you asked for it, and hands the SOCKS port to hev-socks5-tunnel. These switches are the PattNG core options."),
+        color = Aether.InkMuted,
+        style = settingsBodyStyle()
+    )
+    InformationRow(trx("Fronted by"), "hev-socks5-tunnel ${BuildConfig.HEV_CORE_TAG}", Aether.Amber)
+
+    Text(trx("Log level"), color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
+    FlowRow(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(7.dp),
+        verticalArrangement = Arrangement.spacedBy(7.dp)
+    ) {
+        listOf("error", "warning", "info", "debug", "none").forEach { level ->
+            CyberChoiceChip(
+                text = level.uppercase(),
+                selected = s.xrayLogLevel.equals(level, ignoreCase = true),
+                color = Aether.Emerald
+            ) { repo.updateSettings(repo.settings.copy(xrayLogLevel = level)) }
+        }
+    }
+
+    SettingSwitch(
+        title = "Sniffing",
+        subtitle = "Read HTTP/TLS/QUIC so routing sees the real host",
+        checked = s.xraySniffingEnabled
+    ) { repo.updateSettings(repo.settings.copy(xraySniffingEnabled = it)) }
+
+    AnimatedVisibility(s.xraySniffingEnabled) {
+        SettingSwitch(
+            title = "Route-only sniffing",
+            subtitle = "Sniff for routing, do not rewrite the destination",
+            checked = s.xraySniffingRouteOnly
+        ) { repo.updateSettings(repo.settings.copy(xraySniffingRouteOnly = it)) }
+    }
+
+    SettingSwitch(
+        title = "Allow LAN inbound",
+        subtitle = "Bind SOCKS/HTTP on 0.0.0.0 so other devices can use this phone",
+        checked = s.xrayAllowLan
+    ) { repo.updateSettings(repo.settings.copy(xrayAllowLan = it)) }
+
+    TinyField(
+        label = if (s.xrayHttpInboundPort == 0) "HTTP inbound port (0 = off)" else "HTTP inbound port",
+        value = s.xrayHttpInboundPort.toString(),
+        modifier = Modifier.fillMaxWidth()
+    ) { raw ->
+        val port = raw.trim().toIntOrNull()?.coerceIn(0, 65535) ?: 0
+        repo.updateSettings(repo.settings.copy(xrayHttpInboundPort = port))
+    }
+
+    SettingSwitch(
+        title = "TCP Fast Open",
+        subtitle = "Send data with the handshake",
+        checked = s.tcpFastOpenEnabled
+    ) { repo.updateSettings(repo.settings.copy(tcpFastOpenEnabled = it)) }
+
+    SettingSwitch(
+        title = "Maximum config compatibility",
+        subtitle = "Verify the final config with Xray before connecting",
+        checked = s.configCompatibilityMode
+    ) { repo.updateSettings(repo.settings.copy(configCompatibilityMode = it)) }
+}
+
+@Composable
+private fun SingBoxCoreSettings(repo: AppRepository) {
+    val s = repo.settings
+    Text(
+        trx("The extended core speaks WARP, MASQUE, MTProxy, Mieru, TrustTunnel and the standard protocols. A node it cannot run is reported on the server with the reason, never silently dropped. These switches are the Exclave core options."),
+        color = Aether.InkMuted,
+        style = settingsBodyStyle()
+    )
+
+    SettingSwitch(
+        title = trx("Prefer link parser"),
+        subtitle = trx("Hand the original vless://, trojan:// or ss:// link to the extended core's own parser. Turn this off if a node behaves differently through it."),
+        checked = s.singBoxPreferParser,
+        onChecked = { repo.updateSettings(repo.settings.copy(singBoxPreferParser = it)) }
+    )
+    SettingSwitch(
+        title = trx("Unified delay"),
+        subtitle = trx("Measure a real round trip instead of trusting a cached handshake. Also what makes URL test comparable to Real delay."),
+        checked = s.singBoxUnifiedDelay,
+        onChecked = { repo.updateSettings(repo.settings.copy(singBoxUnifiedDelay = it)) }
+    )
+    SettingSwitch(
+        title = trx("Cache file"),
+        subtitle = trx("Remember resolved addresses and DNS answers between runs. Turn off to write nothing to disk."),
+        checked = s.singBoxCacheFile,
+        onChecked = { repo.updateSettings(repo.settings.copy(singBoxCacheFile = it)) }
+    )
+    NumberSetting(
+        title = trx("Connect timeout"),
+        value = s.singBoxConnectTimeoutSec,
+        range = 3..60,
+        suffix = "s",
+        onValue = { repo.updateSettings(repo.settings.copy(singBoxConnectTimeoutSec = it.coerceIn(3, 60))) }
+    )
+
+    Text(trx("Log level"), color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
+    FlowRow(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(7.dp),
+        verticalArrangement = Arrangement.spacedBy(7.dp)
+    ) {
+        listOf("trace", "debug", "info", "warn", "error", "fatal").forEach { level ->
+            CyberChoiceChip(
+                text = level.uppercase(),
+                selected = s.singBoxLogLevel.equals(level, ignoreCase = true),
+                color = Aether.Amethyst
+            ) { repo.updateSettings(repo.settings.copy(singBoxLogLevel = level)) }
+        }
+    }
+
+    SettingSwitch(
+        title = "Sniffing",
+        subtitle = "Read HTTP/TLS/QUIC so routing sees the real host",
+        checked = s.singBoxSniffEnabled
+    ) { repo.updateSettings(repo.settings.copy(singBoxSniffEnabled = it)) }
+
+    SettingSwitch(
+        title = "Resolve destination",
+        subtitle = "Resolve the domain to an IP before matching routing rules",
+        checked = s.singBoxResolveDestination
+    ) { repo.updateSettings(repo.settings.copy(singBoxResolveDestination = it)) }
+
+    SettingSwitch(
+        title = "Allow LAN inbound",
+        subtitle = "Bind the mixed inbound on 0.0.0.0 so other devices can use this phone",
+        checked = s.singBoxAllowLan
+    ) { repo.updateSettings(repo.settings.copy(singBoxAllowLan = it)) }
+
+    NumberSetting(
+        title = "HTTP inbound port",
+        value = s.singBoxHttpInboundPort,
+        range = 0..65535,
+        suffix = if (s.singBoxHttpInboundPort == 0) " off" else ""
+    ) { repo.updateSettings(repo.settings.copy(singBoxHttpInboundPort = it.coerceIn(0, 65535))) }
+
+    SettingSwitch(
+        title = "TCP Fast Open",
+        subtitle = "Send data with the handshake",
+        checked = s.tcpFastOpenEnabled
+    ) { repo.updateSettings(repo.settings.copy(tcpFastOpenEnabled = it)) }
+
+    Text(
+        trx("The core's own control API listens on 127.0.0.1 inside this app on a port it chooses at start. MarbleNG reads it to answer URL test; nothing outside the app can reach it."),
+        color = Aether.InkFaint,
+        style = settingsBodyStyle()
+    )
 }
 
 /**
@@ -9745,6 +9931,8 @@ private fun SpatialSettings(
     val languageListState = rememberLazyListState()
     val informationListState = rememberLazyListState()
     val coreListState = rememberLazyListState()
+    val xrayCoreListState = rememberLazyListState()
+    val singBoxCoreListState = rememberLazyListState()
     val routingListState = rememberLazyListState()
     // One scroll state per workspace tab; only the active tab's is shown at a time.
     val workspaceListStates = remember {
@@ -9837,6 +10025,18 @@ private fun SpatialSettings(
             target == SettingsPages.CORE -> SettingsCorePage(
                 repo = repo,
                 listState = coreListState,
+                onBack = { page = SettingsPages.HUB }
+            )
+
+            target == SettingsPages.XRAY_CORE -> SettingsXrayCorePage(
+                repo = repo,
+                listState = xrayCoreListState,
+                onBack = { page = SettingsPages.HUB }
+            )
+
+            target == SettingsPages.SINGBOX_CORE -> SettingsSingBoxCorePage(
+                repo = repo,
+                listState = singBoxCoreListState,
                 onBack = { page = SettingsPages.HUB }
             )
 
@@ -10011,7 +10211,9 @@ private fun settingsSections(
             card("Per-app proxy","Tunnel or bypass per app",HomeIcon.PRIVACY,Aether.Emerald) { SplitTunnelSettings(repo) }
         )
         SettingsWorkspaceTab.ENGINE -> listOf(
-            card("Fragment & Mux","DPI resilience",HomeIcon.SPARK,Aether.Amber) { FragmentMuxSettings(repo) }
+            card("Fragment & Mux","DPI resilience",HomeIcon.SPARK,Aether.Amber) { FragmentMuxSettings(repo) },
+            card("Xray core","PattNG sniffing, log, LAN inbound",HomeIcon.SHIELD,Aether.Emerald) { XrayCoreSettings(repo) },
+            card("sing-box extended","Exclave sniff, resolve dest, timeout",HomeIcon.TUNNEL,Aether.Amethyst) { SingBoxCoreSettings(repo) }
         )
         // MARBLE_BUGFINDER_HOME_V144 — Bug Finder is a runtime-diagnostics instrument, not an
         // alert control, so it no longer lives next to Notifications. It moved to
@@ -11089,7 +11291,9 @@ private fun DnsSettings(repo: AppRepository) {
             )
             Text(
                 "endpoint ${familyPlan.endpointStrategy} • dns ${familyPlan.dnsQueryStrategy} • " +
-                    if (familyPlan.blockIpv6Traffic) "::/0 blocked" else "::/0 through the tunnel",
+                    if (!repo.settings.ipv6Enabled) "IPv4-only TUN"
+                    else if (familyPlan.blockIpv6Traffic) "::/0 blocked"
+                    else "::/0 through the tunnel",
                 color = Aether.InkMuted,
                 style = MaterialTheme.typography.labelSmall.copy(
                     fontFamily = FontFamily.Monospace
@@ -11121,7 +11325,7 @@ private fun DnsSettings(repo: AppRepository) {
 
     SettingSwitch(
         title = "Enable IPv6",
-        subtitle = "IPv6 in the tunnel; off blocks ::/0",
+        subtitle = "IPv6 in the tunnel; off is IPv4-only TUN",
         checked = repo.settings.ipv6Enabled
     ) {
         repo.updateSettings(

@@ -2880,7 +2880,7 @@ class MarbleIntelligence(private val context: Context) {
             ipv4Captured =
                 fullTun && tunUp,
             ipv6Captured =
-                fullTun && tunUp && ipv6RouteCaptured,
+                fullTun && tunUp && (ipv6RouteCaptured || !settings.ipv6Enabled),
             dnsHijack =
                 fullTun &&
                     settings.dnsHijackEnabled,
@@ -3194,8 +3194,9 @@ class MarbleIntelligence(private val context: Context) {
          * censored cellular link), which left the intelligence nothing healthy to promote: every
          * candidate was failing, so the "demote last, promote first" order was a shuffle of dead
          * endpoints. The pool now mirrors the ladder [CensorshipAwareDnsResolver] already races:
-         * AdGuard and Shecan answer on different infrastructure than the big three, and
-         * Cloudflare's 1.0.0.1 sibling survives filters that eat 1.1.1.1. Diversity is the
+         * AdGuard and Quad9's 149.112.112.112 answer on different infrastructure than the big
+         * three, and Cloudflare's 1.0.0.1 sibling survives filters that eat 1.1.1.1. (Shecan's
+         * certificate expired 2026-07-10 and is no longer a candidate.) Diversity is the
          * remedy when an operator disrupts a resolver *set*, not one resolver.
          */
         val STOCK_DOH_RESOLVERS = listOf(
@@ -3203,7 +3204,7 @@ class MarbleIntelligence(private val context: Context) {
             "https://8.8.8.8/dns-query",
             "https://9.9.9.9/dns-query",
             "https://dns.adguard-dns.com/dns-query",
-            "https://dns.shecan.ir/dns-query",
+            "https://149.112.112.112/dns-query",
             "https://1.0.0.1/dns-query"
         )
 

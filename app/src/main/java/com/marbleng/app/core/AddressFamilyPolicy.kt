@@ -463,6 +463,18 @@ object AddressFamilyPolicy {
         }
     }
 
+    /**
+     * Whether Full TUN should capture `::/0`.
+     *
+     * Capturing IPv6 and then black-holing it (the old "IPv6 off" path) is what hung Chrome's
+     * Happy Eyeballs: AAAA answers arrived, the SYN went into the TUN, and the IPv4 fallback
+     * never won. Exclave's contract is the one that actually opens sites: when the user turns
+     * IPv6 off, do not add a v6 address or route to the TUN. DNS already returns IPv4-only
+     * (`UseIPv4` / `ipv4_only`), so apps have nothing to dial on the physical v6 path.
+     */
+    fun shouldCaptureIpv6(ipv6Enabled: Boolean, underlayCanCarryIpv6: Boolean): Boolean =
+        ipv6Enabled && underlayCanCarryIpv6
+
     /** Convenience for the JVM probers: the first usable address under the plan. */
     fun selectAddress(
         addresses: List<InetAddress>,

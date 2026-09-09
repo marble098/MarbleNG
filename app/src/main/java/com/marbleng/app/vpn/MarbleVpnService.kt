@@ -424,11 +424,12 @@ class MarbleVpnService : VpnService() {
             failBeforeTunnel("Profile no longer exists")
             return
         }
-        profileCompatibilityIssue(profile)?.let { issue ->
+        profileCompatibilityIssue(profile, app.repo.settings.coreEngine())?.let { issue ->
             diag.event(
                 "XRAY", "profile-preflight-rejected",
                 "profile" to profile.id.take(12),
                 "scheme" to profile.scheme,
+                "engine" to app.repo.settings.coreEngine().id,
                 "reason" to issue
             )
             failBeforeTunnel(issue)
@@ -863,25 +864,24 @@ class MarbleVpnService : VpnService() {
             return false
         }
 
-        // MARBLE_IPV6_CAPTURE_GATE_V135 — the IPv6 route is captured only when the underlay can
-        // actually carry IPv6.
+        // MARBLE_IPV6_CAPTURE_GATE_V135 / MARBLE_IPV6_USER_OFF_V163 — capture `::/0` only when
+        // the user asked for IPv6 AND the underlay can carry it.
         //
-        // Runtime evidence: a Wi-Fi network with NO global IPv6 still received `::/0` into the TUN
-        // (`ipv6Captured=true`), because `Builder.addRoute("::", 0)` succeeds on almost every
-        // device regardless of what the physical network can route. Every IPv6 attempt on that
-        // network — Android Private DNS dialling `[2606:4700:4700::1111]:853`, any AAAA-derived
-        // destination — was then swallowed by the tunnel and died somewhere on an unreachable
-        // path while the apps waited. That is the "IPv6 leg of the triangle" in the attached log:
-        // the capture looked like protection but behaved like a blackhole.
+        // Runtime evidence: `Builder.addRoute("::", 0)` succeeds on almost every device, so a
+        // Wi-Fi network with NO global IPv6 still received `::/0` into the TUN. Every AAAA
+        // attempt was then swallowed. Worse: with IPv6 / Prefer IPv6 OFF the old path still
+        // captured `::/0` whenever the underlay had v6, and the cores rejected it. Chrome's
+        // Happy Eyeballs raced an instant-fail AAAA into that blackhole and never recovered
+        // onto IPv4 — Full TUN would not open sites. Exclave's contract is the one that works:
+        // omit the v6 address and route when the user turned IPv6 off. DNS is already IPv4-only
+        // on that plan.
         //
-        // The two intelligence sources are UNIONED so the gate fails towards capturing: the
-        // snapshot's link properties OR the direct interface probe may prove IPv6, and only when
-        // NEITHER sees a routable global address does the capture stay off. When it stays off
-        // there is also nothing to leak — an IPv4-only underlay cannot emit IPv6 packets — and the
-        // Identity Guard scope below already treats exactly that case as safe.
+        // The two intelligence sources are UNIONED so the gate fails towards capturing when the
+        // user wants IPv6: the snapshot's link properties OR the direct interface probe.
         val canCarryIpv6 = underlay.hasIpv6 || AddressFamilyPolicy.underlayHasIpv6()
+        val wantIpv6 = AddressFamilyPolicy.shouldCaptureIpv6(settings.ipv6Enabled, canCarryIpv6)
         var ipv6Ok = false
-        if (canCarryIpv6) {
+        if (wantIpv6) {
             runCatching {
                 builder.addAddress("fc00::1", 128).addRoute("::", 0)
             }.onSuccess {
@@ -894,17 +894,16 @@ class MarbleVpnService : VpnService() {
             diag.event(
                 "TUN", "ipv6-capture-skipped",
                 "session" to session,
-                "reason" to "underlay-cannot-carry-ipv6",
+                "reason" to if (!settings.ipv6Enabled) "ipv6-disabled-by-user" else "underlay-cannot-carry-ipv6",
+                "ipv6Enabled" to settings.ipv6Enabled,
                 "snapshotIpv6" to underlay.hasIpv6
             )
         }
         // MARBLE_IDENTITY_IPV6_SCOPE_V132 — Identity Guard is about EXIT stability, not about
-        // capturing IPv6. The old gate failed the connect closed whenever `addRoute("::", 0)`
-        // could not be applied, which meant an IPv4-only underlay — or a ROM that refuses the
-        // v6 route — could never connect at all while Identity Guard (on by default) was
-        // enabled. Guard the case that actually leaks: IPv6 exists on the underlay but the TUN
-        // could not capture it. When there is no IPv6 to capture there is nothing to leak.
-        if (settings.identityGuardEnabled && !ipv6Ok && underlay.hasIpv6) {
+        // capturing IPv6. Fail closed only when the user asked for IPv6, the underlay can carry
+        // it, and the TUN still could not capture `::/0` — that is the leak. A user who turned
+        // IPv6 off is an intentional IPv4-only TUN and must not fail-close.
+        if (settings.identityGuardEnabled && settings.ipv6Enabled && !ipv6Ok && underlay.hasIpv6) {
             diag.event("TUN", "identity-ipv6-fail-closed", "session" to session)
             return false
         }
@@ -1030,24 +1029,27 @@ class MarbleVpnService : VpnService() {
         // socket buffer, and a throttled device stops paying for buffers it cannot fill.
         val datapath = (application as MarbleApplication).repo.intelligence
             .tunnelTuning(profile.id, settings)
-        val cfg = listOf(
-            "tunnel:",
-            "  mtu: $activeMtu",
-            "  ipv4: 198.18.0.1",
-            "  ipv6: 'fc00::1'",
-            "  icmp: 'off'",
-            "socks5:",
-            "  address: '127.0.0.1'",
-            "  port: $socksPort",
-            "  udp: 'udp'",
-            "misc:",
-            "  log-file: '${diag.hevLog.absolutePath}'",
-            "  log-level: error",
-            "  task-stack-size: 86016",
-            "  tcp-buffer-size: ${datapath.tcpBufferBytes}",
-            "  udp-recv-buffer-size: ${datapath.udpBufferBytes}",
-            "  max-session-count: ${datapath.maxSessions}"
-        ).joinToString(separator = "\n", postfix = "\n")
+        val cfg = buildList {
+            add("tunnel:")
+            add("  mtu: $activeMtu")
+            add("  ipv4: 198.18.0.1")
+            // HEV's ipv6 address is optional. Advertising fc00::1 while the TUN did not capture
+            // ::/0 (user turned IPv6 off, or the underlay cannot carry it) is how Happy Eyeballs
+            // packets entered a stack that then had nowhere to send them.
+            if (ipv6RouteCaptured) add("  ipv6: 'fc00::1'")
+            add("  icmp: 'off'")
+            add("socks5:")
+            add("  address: '127.0.0.1'")
+            add("  port: $socksPort")
+            add("  udp: 'udp'")
+            add("misc:")
+            add("  log-file: '${diag.hevLog.absolutePath}'")
+            add("  log-level: error")
+            add("  task-stack-size: 86016")
+            add("  tcp-buffer-size: ${datapath.tcpBufferBytes}")
+            add("  udp-recv-buffer-size: ${datapath.udpBufferBytes}")
+            add("  max-session-count: ${datapath.maxSessions}")
+        }.joinToString(separator = "\n", postfix = "\n")
         if (cfg.contains("\\n") || !cfg.contains('\n')) {
             handleFailure(session, "Internal HEV YAML encoding failure")
             return
@@ -3483,9 +3485,14 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
      * Recent Xray releases reject public VLESS with both stream security=none and
      * encryption=none. Starting Android TUN first used to create a kill-switch hold and then
      * retry the same impossible profile. Private/LAN endpoints remain allowed.
+     *
+     * sing-box extended accepts VLESS without TLS (and every other option the extended core
+     * speaks), so this preflight is Xray-only. It used to run before `effectiveSettingsFor`,
+     * which is why a sing-box session died with `startup-failed-before-tun`.
      */
-    private fun profileCompatibilityIssue(profile: ProxyProfile): String? =
-        runCatching {
+    private fun profileCompatibilityIssue(profile: ProxyProfile, engine: CoreEngine): String? {
+        if (engine != CoreEngine.XRAY) return null
+        return runCatching {
             val root = JSONObject(profile.configJson)
             val outbounds = root.optJSONArray("outbounds") ?: return@runCatching null
 
@@ -3531,6 +3538,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             }
             null
         }.getOrNull()
+    }
 
     private fun isPrivateEndpointHost(raw: String): Boolean {
         val host = raw.trim()

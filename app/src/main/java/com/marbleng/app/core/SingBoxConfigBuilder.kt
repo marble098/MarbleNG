@@ -1,6 +1,7 @@
 package com.marbleng.app.core
 
 import com.marbleng.app.model.AppSettings
+import com.marbleng.app.model.IranModePolicy
 import com.marbleng.app.model.ProxyProfile
 import com.marbleng.app.model.RoutingMode
 import com.marbleng.app.model.RoutingOutbound
@@ -38,6 +39,23 @@ object SingBoxConfigBuilder {
     const val DNS_DIRECT_TAG = "dns-direct"
     const val DNS_LOCAL_TAG = "dns-local"
     const val DNS_HOSTS_TAG = "dns-hosts"
+    /**
+     * Encrypted DoH over DIRECT (IP-literal endpoints), with the system resolver as last resort.
+     * This is the sing-box equivalent of Xray `https+local://`: the node hostname is resolved
+     * without asking the Iranian system resolver, which answers `10.10.34.35/36`.
+     */
+    const val DNS_BOOTSTRAP_TAG = "dns-bootstrap"
+
+    /**
+     * Iranian DNS-injector / null-answer ranges that must never be dialled. Matches the Xray
+     * `IRAN_POISON_BLOCK_IPS` list so both engines fail closed on the same block pages.
+     */
+    val IRAN_POISON_BLOCK_IPS = listOf(
+        "10.10.34.0/24",
+        "2001:4188:2:600::/64",
+        "0.0.0.0",
+        "::"
+    )
 
     /**
      * MARBLE_SINGBOX_ANDROID_RUNTIME_V155 — the single named HTTP client every remote rule-set
@@ -354,22 +372,12 @@ object SingBoxConfigBuilder {
             .put(
                 "log",
                 JSONObject()
-                    .put("level", "warn")
+                    .put("level", singBoxLogLevel(settings))
                     .put("output", logPath)
                     .put("timestamp", true)
             )
             .put("dns", dnsConfig(settings, profile, resolverPool, bootstrapDnsPort))
-            .put(
-                "inbounds",
-                JSONArray().put(
-                    JSONObject()
-                        .put("type", "mixed")
-                        .put("tag", INBOUND_TAG)
-                        .put("listen", "127.0.0.1")
-                        .put("listen_port", socksPort)
-                        .put("tcp_fast_open", settings.tcpFastOpenEnabled)
-                )
-            )
+            .put("inbounds", inboundConfig(settings, socksPort))
             .put("outbounds", outbounds)
             .put(
                 // The 1.14 default HTTP client is explicit. Managed rule sets themselves are
@@ -928,6 +936,19 @@ private fun removeKeys(
             .put("server", "127.0.0.1").put("server_port", bootstrapDnsPort)
             else JSONObject().put("type", "local").put("tag", DNS_LOCAL_TAG))
         servers.put(JSONObject().put("type", "hosts").put("tag", DNS_HOSTS_TAG))
+        // Encrypted bootstrap over DIRECT using IP-literal DoH — Xray's `https+local://` equivalent.
+        // The Iranian system resolver answers 10.10.34.35/36 for node hostnames; asking it first is
+        // why VLESS dials timed out against the injector. Local stays last-resort so a total DoH
+        // outage still bootstraps, the way the previous system-only rule did.
+        val bootstrapPeers = JSONArray()
+        bootstrapDoH(settings).forEachIndexed { index, url ->
+            val tag = "dns-bootstrap-$index"
+            servers.put(encryptedDnsServer(tag, url, DIRECT_TAG))
+            bootstrapPeers.put(tag)
+        }
+        bootstrapPeers.put(DNS_LOCAL_TAG)
+        servers.put(JSONObject().put("type", "fallback").put("tag", DNS_BOOTSTRAP_TAG)
+            .put("servers", bootstrapPeers).put("strategy", "sequential").put("timeout", timeout))
         val remoteTags = JSONArray()
         pool.forEachIndexed { index, url ->
             val tag = "dns-remote-$index"
@@ -942,7 +963,7 @@ private fun removeKeys(
             .put("servers", remoteTags).put("strategy", "sequential").put("timeout", timeout))
         val rules = JSONArray()
         profile.host.takeIf { it.isNotBlank() && !isLiteralAddress(it) }?.let { host ->
-            rules.put(JSONObject().put("domain", JSONArray().put(host)).put("action", "route").put("server", DNS_LOCAL_TAG))
+            rules.put(JSONObject().put("domain", JSONArray().put(host)).put("action", "route").put("server", DNS_BOOTSTRAP_TAG))
         }
         val implicit = RoutingEngine.implicitRules(settings)
         val directSites = implicit.directSiteTags.filter { settings.iranDomesticDirect || it != "ir" }
@@ -980,9 +1001,54 @@ private fun removeKeys(
                     require(parsed.rawQuery == null) { "DNS resolver query parameters are not supported by the core's path field" }
                     put("path", parsed.rawPath?.takeIf { it.isNotBlank() && it != "/" } ?: "/dns-query")
                 }
-                // Direct/bootstrap lookups never depend on the outbound they are building.
-                if (!isLiteralAddress(host)) put("domain_resolver", DNS_LOCAL_TAG)
+                // Hostname DoH (AdGuard, etc.) bootstraps through encrypted-direct, never the
+                // Iranian system resolver. IP-literal servers need no resolver of their own.
+                if (!isLiteralAddress(host)) put("domain_resolver", DNS_BOOTSTRAP_TAG)
             }
+    }
+
+    /**
+     * IP-literal encrypted resolvers that can be dialled on the underlay without asking DNS.
+     * User-configured DoH wins when it is already a literal; otherwise Cloudflare / Google / Quad9.
+     */
+    private fun bootstrapDoH(settings: AppSettings): List<String> {
+        val fromUser = listOf(settings.dnsPrimaryDoH, settings.dnsSecondaryDoH)
+            .map { it.trim() }
+            .filter { url ->
+                val host = runCatching { URI(url).host }.getOrNull()
+                    ?.removePrefix("[")?.removeSuffix("]").orEmpty()
+                host.isNotBlank() && isLiteralAddress(host)
+            }
+        val stock = listOf("https://1.1.1.1/dns-query", "https://8.8.8.8/dns-query", "tls://9.9.9.9")
+        return (fromUser + stock).distinct().take(3)
+    }
+
+    private fun singBoxLogLevel(settings: AppSettings): String {
+        val raw = settings.singBoxLogLevel.trim().lowercase()
+        return if (raw in setOf("trace", "debug", "info", "warn", "error", "fatal", "panic")) raw else "warn"
+    }
+
+    private fun inboundConfig(settings: AppSettings, socksPort: Int): JSONArray {
+        val listen = if (settings.singBoxAllowLan) "0.0.0.0" else "127.0.0.1"
+        val inbounds = JSONArray().put(
+            JSONObject()
+                .put("type", "mixed")
+                .put("tag", INBOUND_TAG)
+                .put("listen", listen)
+                .put("listen_port", socksPort)
+                .put("tcp_fast_open", settings.tcpFastOpenEnabled)
+        )
+        val httpPort = settings.singBoxHttpInboundPort
+        if (httpPort in 1024..65535 && httpPort != socksPort) {
+            inbounds.put(
+                JSONObject()
+                    .put("type", "http")
+                    .put("tag", "http-in")
+                    .put("listen", listen)
+                    .put("listen_port", httpPort)
+            )
+        }
+        return inbounds
     }
 
     private fun dnsStrategy(settings: AppSettings): String = when {
@@ -996,11 +1062,16 @@ private fun removeKeys(
     // ─────────────────────────────────────────────────────────────────────────────
 
     private fun routeConfig(settings: AppSettings, notes: MutableList<String>, ruleSetPaths: Map<String, String>): JSONObject {
-        val rules = JSONArray().put(JSONObject().put("action", "sniff"))
+        val rules = JSONArray()
+        if (settings.singBoxSniffEnabled) rules.put(JSONObject().put("action", "sniff"))
+        if (settings.singBoxResolveDestination) rules.put(JSONObject().put("action", "resolve"))
         if (settings.dnsHijackEnabled) {
             rules.put(JSONObject().put("port", 53).put("action", "hijack-dns"))
         }
         if (!settings.ipv6Enabled) rules.put(JSONObject().put("ip_cidr", JSONArray().put("::/0")).put("action", "reject"))
+        if (settings.iranModePolicy != IranModePolicy.OFF && settings.iranModeCountermeasures) {
+            rules.put(JSONObject().put("ip_cidr", JSONArray(IRAN_POISON_BLOCK_IPS)).put("action", "reject"))
+        }
         val usedSets = linkedSetOf<String>()
         fun action(rule: JSONObject, outbound: RoutingOutbound): JSONObject = rule.apply {
             if (outbound == RoutingOutbound.BLOCK) put("action", "reject")
@@ -1102,7 +1173,7 @@ private fun removeKeys(
                 .put("path", ruleSetPaths[tag] ?: "singbox-rules/$tag.srs"))
         }
         return JSONObject().put("rules", rules).put("rule_set", ruleSets).put("final", PROXY_TAG)
-            .put("default_domain_resolver", DNS_LOCAL_TAG).put("default_http_client", HTTP_CLIENT_DIRECT_TAG)
+            .put("default_domain_resolver", DNS_BOOTSTRAP_TAG).put("default_http_client", HTTP_CLIENT_DIRECT_TAG)
     }
 
     /**

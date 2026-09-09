@@ -752,21 +752,32 @@ object XrayConfigHardener {
         }
         out.put(JSONObject().put("tag", "block").put("protocol", "blackhole"))
 
+        val listen = if (settings.xrayAllowLan) "0.0.0.0" else "127.0.0.1"
+        fun sniffing(): JSONObject = JSONObject()
+            .put("enabled", settings.xraySniffingEnabled)
+            .put("routeOnly", settings.xraySniffingRouteOnly)
+            .put("destOverride", JSONArray(listOf("http", "tls", "quic")))
         val inbound = JSONObject()
             .put("tag", "socks-in")
-            .put("listen", "127.0.0.1")
+            .put("listen", listen)
             .put("port", socksPort)
             .put("protocol", "socks")
             .put("settings", JSONObject().put("udp", true))
-            .put(
-                "sniffing",
+            .put("sniffing", sniffing())
+        val inbounds = JSONArray().put(inbound)
+        val httpPort = settings.xrayHttpInboundPort
+        if (httpPort in 1024..65535 && httpPort != socksPort) {
+            inbounds.put(
                 JSONObject()
-                    .put("enabled", true)
-                    .put("routeOnly", true)
-                    .put("destOverride", JSONArray(listOf("http", "tls", "quic")))
+                    .put("tag", "http-in")
+                    .put("listen", listen)
+                    .put("port", httpPort)
+                    .put("protocol", "http")
+                    .put("settings", JSONObject())
+                    .put("sniffing", sniffing())
             )
-
-        src.put("inbounds", JSONArray().put(inbound))
+        }
+        src.put("inbounds", inbounds)
         src.put("outbounds", out)
 
         // The engine only accepts UseIP / UseIPv4 / UseIPv6 for dns.queryStrategy; anything else is
@@ -1087,7 +1098,10 @@ object XrayConfigHardener {
         // advisories for transports such as HTTPUpgrade/WebSocket even when those transports are
         // still required by the remote server. Marble must not rewrite a client transport without
         // matching server-side support, so keep compatibility and surface only errors here.
-        src.put("log", JSONObject().put("loglevel", "error"))
+        val logLevel = settings.xrayLogLevel.trim().lowercase().let { raw ->
+            if (raw in setOf("none", "error", "warning", "info", "debug")) raw else "error"
+        }
+        src.put("log", JSONObject().put("loglevel", logLevel))
 
         /*
          * Remove unrelated runtime subsystems from imported full JSON configs. They are not needed
