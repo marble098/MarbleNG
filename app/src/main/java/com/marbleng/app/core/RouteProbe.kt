@@ -1410,12 +1410,17 @@ object RouteProbe {
             }
         }
 
-        return tunnelHttpsMeasure(
+        // MARBLE_PING_FALSE_FAILED_V159 — the live-tunnel path used to fetch exactly one URL, the
+        // primary, while the Rank sweep walked every [DelayTest] candidate. One moment of
+        // SNI-throttling on that single origin failed every sample of an otherwise perfect route,
+        // which is precisely the "healthy server, red row" report. The same candidate walk, each
+        // target with the full samples-and-timeout budget, now backs both paths.
+        return tunnelHttpsMeasureTargets(
             socksPort = tunnelPort,
             timeoutMs = timeoutMs,
             samples = samples,
-            url = DelayTest.url(settings.delayTestUrl)
-        ).copy(method = METHOD_REAL_DELAY)
+            urls = DelayTest.candidates(settings.delayTestUrl)
+        )
     }
 
     /**
@@ -1624,6 +1629,30 @@ object RouteProbe {
         val literal = if (host.contains(':') && !host.startsWith("[")) "[$host]" else host
         return "https://$literal:${profile.port}/"
     }
+
+    /**
+     * MARBLE_PING_FALSE_FAILED_V159 — [tunnelHttpsMeasure] over the full candidate list.
+     *
+     * The first target that produces a measurement wins. A target that produces nothing — the
+     * origin is filtered or momentarily throttled on this route, which is a fact about the
+     * origin, not about the node — hands the identical budget to the next candidate, exactly
+     * like the Rank sweep's own target walk. Only when every candidate stayed silent is the
+     * route reported failed, and the failure carries the last target's honest reason.
+     */
+    fun tunnelHttpsMeasureTargets(
+        socksPort: Int,
+        timeoutMs: Int,
+        samples: Int,
+        urls: List<String>
+    ): ProbeResult =
+        ProbeTargetWalk.realDelay(urls) { url ->
+            tunnelHttpsMeasure(
+                socksPort = socksPort,
+                timeoutMs = timeoutMs,
+                samples = samples,
+                url = url
+            )
+        }.copy(method = METHOD_REAL_DELAY)
 
     /**
      * MARBLE_IRAN_AWARE_PING_L1_RTT — latency stage of the Layer-1 verification, measured through

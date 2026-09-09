@@ -57,6 +57,12 @@ files = {
     "rankEngine": read("app/src/main/java/com/marbleng/app/core/PattRankEngine.kt"),
     "linkAuthorityTest": read("app/src/test/java/com/marbleng/app/core/SingBoxLinkAuthorityV156Test.kt"),
     "probeTruthTest": read("app/src/test/java/com/marbleng/app/core/ProbeTruthV156Test.kt"),
+    # MARBLE_PING_FALSE_FAILED_V159 — the shared target walk of the two core-measured pings and
+    # the test that pins its budget contract.
+    "probeTargetWalk": read("app/src/main/java/com/marbleng/app/core/ProbeTargetWalk.kt"),
+    "probeTransientTest": read(
+        "app/src/test/java/com/marbleng/app/core/ProbeTransientTruthV159Test.kt"
+    ),
     "singBoxBuilder": read("app/src/main/java/com/marbleng/app/core/SingBoxConfigBuilder.kt"),
     "singBox": read("app/src/main/java/com/marbleng/app/core/SingBoxManager.kt"),
     "singBoxSession": read("app/src/main/java/com/marbleng/app/core/SingBoxProcessSession.kt"),
@@ -832,6 +838,52 @@ check(
     # The retired Xray substitute must not come back under any name.
     and "SocksUrlTest" not in files["repo"] + files["probe"] + files["bench"]
     and "object SocksUrlTest" not in files["coreUrlTest"],
+)
+# ───────────────────────────────────────────────────────────────────────────────────────────────
+# MARBLE_PING_FALSE_FAILED_V159 — URL test and Real delay both worked, yet occasionally published
+# a healthy server as FAILED. Two budget defects: the URL test shared ONE deadline across its
+# fallback targets (the coldest request ate the whole timeout and the fallbacks starved), and the
+# two Real-delay Home paths fetched a single origin while the Rank sweep walked every DelayTest
+# candidate. ProbeTargetWalk now owns one shared walk with a full budget per target.
+# ───────────────────────────────────────────────────────────────────────────────────────────────
+
+check(
+    "the URL test never shares one deadline across its fallback targets again",
+    "private fun testTargets(" not in files["singBox"]
+    and "val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos" not in files["singBox"]
+    and "ProbeTargetWalk.urlTest(urls, timeoutMs) { url, budget -> child.delay(url, budget) }" in files["singBox"]
+    and "ProbeTargetWalk.urlTest(urls, timeoutMs) { url, budget -> urlTestLive(" in files["singBox"]
+    # The spawn-storm mercy: one retry when the child never came up, never for a measurement that ran.
+    and "repeat(2) {" in files["singBox"]
+    and "fun urlTestProfileTargets(profile: ProxyProfile" in files["singBox"],
+)
+check(
+    "the walk itself is the honest budget: full per target, capped, interruptible",
+    "object ProbeTargetWalk" in files["probeTargetWalk"]
+    and "fun perTargetBudgetMs(timeoutMs: Int): Int" in files["probeTargetWalk"]
+    and "timeoutMs.coerceIn(500, 30_000)" in files["probeTargetWalk"]
+    and "MAX_TARGETS = 3" in files["probeTargetWalk"]
+    and "SingBoxProcessSession.checkInterrupted()" in files["probeTargetWalk"]
+    and "if (last.ok) return last" in files["probeTargetWalk"]
+    and "if (measured.successPercent > 0) return measured" in files["probeTargetWalk"],
+)
+check(
+    "Real delay walks every DelayTest candidate on both Home paths",
+    "fun tunnelHttpsMeasureTargets(" in files["probe"]
+    and "urls = DelayTest.candidates(settings.delayTestUrl)" in files["probe"]
+    and "ProbeTargetWalk.realDelay(urls) { url ->" in files["probe"]
+    and "val targets = DelayTest.candidates(probeSettings.delayTestUrl)" in files["repo"]
+    and "RouteProbe.tunnelHttpsMeasureTargets(" in files["repo"]
+    # One throwaway core walks every candidate; a measurement that ran is never respawned for.
+    and "if (measured == null) attempt()" in files["repo"],
+)
+check(
+    "the V159 transient-failure truth is pinned in unit tests",
+    "class ProbeTransientTruthV159Test" in files["probeTransientTest"]
+    and "aFallbackTargetReceivesTheFullBudgetAfterTheFirstTargetSpentItsOwn" in files["probeTransientTest"]
+    and "realDelayHandsTheNextOriginTheSameBudgetWhenTheFirstIsSilent" in files["probeTransientTest"]
+    and "aCancelledSweepStopsBeforeTheNextTarget" in files["probeTransientTest"]
+    and "atMostThreeDistinctTargetsAreEverWalked" in files["probeTransientTest"],
 )
 # ───────────────────────────────────────────────────────────────────────────────────────────────
 # MARBLE_V156 — the share link is the authority, the URL test belongs to one engine, every bulk
