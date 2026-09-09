@@ -50,7 +50,9 @@ same port before the user was told the profile was "misconfigured". MarbleNG now
 holder through `/proc/net/tcp{,6}` + `/proc/<pid>/fd` and reaps same-UID core binaries
 (TERM → KILL) before either engine spawns, names and spares foreign holders, classifies a bind
 conflict as the `core-port:` local fault it is (one spawn, no reader walk, `Local port in use` in
-the blocked state), reports the exit verdict of every core `stop()`, and counts the
+the blocked state), reports the exit verdict of every core `stop()`, fixes the wire defect that
+let MarbleNG's own domain-target SOCKS5 requests arrive without RFC 1928's length prefix (each
+request is now one assembled, single-`write` segment), and counts the
 `read fqdn: unexpected EOF` ERROR lines of local clients aborting their own SOCKS handshake as
 benign evidence instead of Bug Finder failures.
 

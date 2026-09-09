@@ -48,7 +48,8 @@ Read together:
   handle a superseded start dropped. `SingBoxManager.stop()` and `XrayManager.stop()` can only
   stop processes they remember. For eight minutes, every connect paid the full
   spawn → FATAL → BLOCKED round trip, and Bug Finder recorded `failures=1` for each scan.
-* The `read fqdn: unexpected EOF` lines are **not MarbleNG's** and **not failures** — see §4.
+* The `read fqdn: unexpected EOF` lines are no longer counted as failures — and the byte-level
+  defect that let **MarbleNG's own** requests die this way is fixed — see §4.
 * `ROUTE | probe-failed | count=1` is the advisory latch doing its job on a genuinely degraded
   exit (the same window the fqdn aborts came from): it needs `PROBE_FAILURES_BEFORE_RECOVERY = 4`
   consecutive misses *plus* independent confirmation before it touches the route, and `count`
@@ -135,32 +136,40 @@ V157 used for `core-crash:`.
 `Local port in use`, for both engines. The reason text already carries the holder and the
 remediation (`PORT_REMEDIATION`): change the local SOCKS port, stop the other app, or restart.
 
-## 4. The `read fqdn: unexpected EOF` lines are client noise — now provably classified
+## 4. The `read fqdn: unexpected EOF` family — a real wire defect in MarbleNG, plus a benign class for the rest
 
 The error shape reads through the server's own source: `sing`'s SOCKS5 request reader
 (`common/metadata/serializer.go`) wraps `ReadSockString` as `read fqdn`, and
-`io.ReadFull`'s `unexpected EOF` means the client sent `VER CMD RSV ATYP=03` **plus the length
-byte**, then disconnected inside the name. Every producer on the device rules itself out:
+`io.ReadFull`'s `unexpected EOF` means the inbound read `VER CMD RSV ATYP=03` **plus the length
+byte** and then ran out of bytes inside the name.
 
-| Candidate | Why it is not the client |
+The first draft of this chapter excluded MarbleNG from the producers. Pinning that exclusion
+byte-for-byte **disproved it**: `SocksHttpClient.socksTarget` returned the bare hostname for
+ATYP=3 — without RFC 1928's one-byte length prefix — and every request went out as three
+separate `write` calls. The inbound therefore read fqdn-len = `name[0]`:
+
+| Candidate | Verdict after the byte-level audit |
 | --- | --- |
-| MarbleNG's `SocksHttpClient` | writes greeting and request in one buffered flush; a mid-fqdn death is impossible from its byte stream |
-| hev-socks5-tunnel | the SOCKS address comes from the lwIP PCB — literal IPv4/IPv6 only, never ATYP=domain |
-| connect+close liveness probes (`listening()`, Bug Finder, `waitSocksPort`) | zero-byte connect aborts at the *first* byte, which the mixed inbound logs at **DEBUG** (`E.IsClosedOrCanceled`) — invisible at the configured `warn` level |
-| Xray engine | the log line names `inbound/mixed[socks-in]`, sing-box's tag |
+| MarbleNG's `SocksHttpClient` | **was a producer**: every domain-target request (RouteProbe sends ATYP=domain by design; the tuners and benchmarks do too) was malformed at the wire level — the desync ended in exactly this EOF when the request tail ran out, and in a garbage-hostname resolution failure otherwise. **Fixed**: `socksTarget` now emits `len + name`, and the whole request is assembled into one buffer and sent in one flushed `write` (`buildSocks5Request` / `writeSocks5Request`), so a partial request is impossible from this client |
+| hev-socks5-tunnel | not a producer: the SOCKS address comes from the lwIP PCB — literal IPv4/IPv6 only, never ATYP=domain |
+| connect+close liveness probes (`listening()`, Bug Finder, `waitSocksPort`) | not a producer: a zero-byte connect aborts at the *first* byte, which the mixed inbound logs at **DEBUG** (`E.IsClosedOrCanceled`) — invisible at the configured `warn` level |
+| Xray engine | not the log source: the line names `inbound/mixed[socks-in]`, sing-box's tag |
+| third-party local apps | remain possible producers of the same shape — handled at the measurement layer below |
 
-What remains is exactly one class: **a local app using the loopback proxy that aborted its own
-handshake** — six source ports allocated in one kernel burst (48478→48580) and logged out of
-order, so the clients were concurrent, not MarbleNG's sequential probe loops. The 1.50s and 5.0s
-durations are client-side give-up budgets, not server faults.
+Which of the six reported lines came from MarbleNG's malformed requests and which came from
+another local app cannot be proven after the fact — both leave identical evidence. It no longer
+matters: each class is handled at its own layer. The wire defect is fixed at the source, and
+MarbleNG's measurement bursts (route probes, batch RTT, benchmarks) no longer inflate the core's
+ERROR log with their own aborted handshakes.
 
-The product defect was that `BugFinder.problems()` matches the bare keyword `error`, and sing-box
-logs these lines at ERROR level — so every local client abort counted as a scan failure. Now
-`CoreLogNoise.isLocalClientHandshakeAbort` recognizes the family (loopback source, local inbound
-tag, client-side read failure inside the handshake) and the lines are excluded from failures —
-while the `SINGBOX EXTENDED CORE STATUS` section reports `localClientHandshakeAborts=N (benign…)`
-as evidence, because "some local app is half-using the proxy" is real information. Everything
-else — panic, FATAL, bind conflict, dial refusal — still counts exactly as before.
+The product defect on top was that `BugFinder.problems()` matches the bare keyword `error`, and
+sing-box logs these lines at ERROR level — so every local client abort counted as a scan failure.
+Now `CoreLogNoise.isLocalClientHandshakeAbort` recognizes the family (loopback source, local
+inbound tag, client-side read failure inside the handshake) and the lines are excluded from
+failures — while the `SINGBOX EXTENDED CORE STATUS` section reports
+`localClientHandshakeAborts=N (benign…)` as evidence, because "some local app is half-using the
+proxy" is real information. Everything else — panic, FATAL, bind conflict, dial refusal — still
+counts exactly as before.
 
 ## 5. What this does not claim
 
@@ -172,6 +181,9 @@ else — panic, FATAL, bind conflict, dial refusal — still counts exactly as b
   does.
 * It does not say the fqdn aborts never matter. If a *remote* source produced the same shape, the
   classifier still counts it — the benign path requires `127.0.0.1` and a local inbound tag.
+* It does not claim to identify which local app produced the six reported lines. With the
+  malformed encoder now fixed, MarbleNG's own requests are one proven possible source and a
+  third-party app the other; the wire fix and the benign class each handle their own layer.
 * It does not change the ROUTE probe ladder. `probe-failed | count=1` is the advisory latch
   behaving as designed on a degraded exit.
 * It does not claim the V157 crash class is newly fixed. The SIGSEGVs in this window are a
@@ -191,6 +203,9 @@ else — panic, FATAL, bind conflict, dial refusal — still counts exactly as b
   `PORT_REMEDIATION`, and is not a crash;
 * the six verbatim 02:04–02:05 `read fqdn` lines are benign, while the FATAL bind line, the panic,
   a remote-source abort and a server-side dial refusal all stay counted;
+* the wire shape: `example.com:443` leaves as `05 01 00 03 0B "example.com" 01 BB` — the RFC 1928
+  length prefix present, the request delivered in exactly one `write`, literal targets still
+  fixed-width;
 * `SingBoxProcessSession.stop` proves its verdict on real processes: graceful exit and the
   `trap '' TERM` escalation both end in a dead child and a returned verdict.
 

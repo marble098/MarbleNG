@@ -351,4 +351,75 @@ class SingBoxPortSovereigntyV158Test {
             assertTrue(inodes.isNotEmpty())
         }
     }
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // 4 — MarbleNG's own SOCKS5 requests are well-formed on the wire (read fqdn)
+    // ─────────────────────────────────────────────────────────────────────────────
+
+    /** Counts whole-buffer writes; the request must arrive as exactly one of them. */
+    private class RecordingStream : java.io.OutputStream() {
+        val chunks = mutableListOf<ByteArray>()
+        override fun write(b: Int) {
+            chunks += byteArrayOf(b.toByte())
+        }
+
+        override fun write(b: ByteArray, off: Int, len: Int) {
+            chunks += b.copyOfRange(off, off + len)
+        }
+    }
+
+    @Test
+    fun aDomainTargetCarriesTheRfc1928LengthPrefix() {
+        // The inbound's ReadSockString reads ATYP 3 as len+name. Without the length byte the
+        // desync read fqdn-len = name[0] and died with exactly `read fqdn: unexpected EOF`
+        // whenever the request tail ran out — the 2026-09-09 02:04 cluster.
+        val (atyp, addr) = SocksHttpClient.socksTarget("cp.cloudflare.com")
+        assertEquals(3, atyp)
+        assertEquals(1 + "cp.cloudflare.com".length, addr.size)
+        assertEquals("cp.cloudflare.com".length.toByte(), addr[0])
+        assertEquals("cp.cloudflare.com", addr.copyOfRange(1, addr.size).toString(Charsets.UTF_8))
+    }
+
+    @Test
+    fun theDomainRequestLeavesAsOneWellFormedSegment() {
+        val (atyp, addr) = SocksHttpClient.socksTarget("example.com")
+        val request = SocksHttpClient.buildSocks5Request(atyp, addr, 443)
+        // 05 01 00 03 | 0B "example.com" | 01 BB — 18 bytes, byte-for-byte what the parser wants.
+        assertEquals(18, request.size)
+        assertEquals(5, request[0].toInt())
+        assertEquals(1, request[1].toInt()) // CONNECT
+        assertEquals(0, request[2].toInt())
+        assertEquals(3, request[3].toInt())
+        assertEquals(11, request[4].toInt())
+        assertEquals("example.com", request.copyOfRange(5, 16).toString(Charsets.UTF_8))
+        assertEquals(0x01, request[16].toInt())
+        assertEquals(0xBB, request[17].toInt())
+    }
+
+    @Test
+    fun aLiteralTargetStaysFixedWidthWithoutAnyPrefix() {
+        val (atyp4, addr4) = SocksHttpClient.socksTarget("192.0.2.1")
+        assertEquals(1, atyp4)
+        assertEquals(4, addr4.size)
+        val (atyp6, addr6) = SocksHttpClient.socksTarget("[2001:db8::1]")
+        assertEquals(4, atyp6)
+        assertEquals(16, addr6.size)
+        // …and the port stays big-endian on the tail of the assembled request.
+        val request = SocksHttpClient.buildSocks5Request(atyp4, addr4, 10808)
+        assertEquals(10, request.size)
+        assertEquals(0x2A, request[8].toInt())
+        assertEquals(0x38, request[9].toInt())
+    }
+
+    @Test
+    fun theRequestIsSentInExactlyOneWrite() {
+        val stream = RecordingStream()
+        SocksHttpClient.writeSocks5Request(stream, "example.com", 443)
+        assertEquals("one flushed write, not a header segment plus a name segment", 1, stream.chunks.size)
+        val (atyp, addr) = SocksHttpClient.socksTarget("example.com")
+        assertTrue(
+            "the single chunk is the complete request",
+            stream.chunks.single().contentEquals(SocksHttpClient.buildSocks5Request(atyp, addr, 443))
+        )
+    }
 }

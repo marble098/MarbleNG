@@ -70,6 +70,7 @@ files = {
         "app/src/test/java/com/marbleng/app/core/SingBoxPortSovereigntyV158Test.kt"
     ),
     "portSovereigntyDoc": read("docs/SINGBOX_PORT_SOVEREIGNTY_V158.md"),
+    "socksClient": read("app/src/main/java/com/marbleng/app/core/SocksHttpClient.kt"),
     "coreSelfTest": read("app/src/main/java/com/marbleng/app/core/SingBoxCoreSelfTest.kt"),
     "localFaultGate": read("app/src/main/java/com/marbleng/app/core/ProbeLocalFaultGate.kt"),
     "coreCrashTest": read("app/src/test/java/com/marbleng/app/core/SingBoxCoreCrashV157Test.kt"),
@@ -1320,6 +1321,20 @@ check(
     and "theReportedBindConflictLinesOfClassificationAndWalkExclusion" not in files["portGuardTest"]
     and "aStaleCoreHoldingThePortIsReapedAndTheStartProceeds" in files["portGuardTest"]
     and "aForeignHolderIsNamedButNeverSignalled" in files["portGuardTest"],
+)
+check(
+    "MarbleNG's own SOCKS5 requests are RFC 1928 well-formed and delivered in one write",
+    # The V158 audit disproved the "MarbleNG can't produce read-fqdn EOFs" claim: socksTarget
+    # shipped the domain name without the RFC 1928 length prefix and every request left as
+    # three separate writes. The wire shape and the single-write delivery are pinned.
+    "internal fun socksTarget(" in files["socksClient"]
+    and "return 3 to byteArrayOf(hostBytes.size.toByte()) + hostBytes" in files["socksClient"]
+    and "internal fun buildSocks5Request(" in files["socksClient"]
+    and "internal fun writeSocks5Request(" in files["socksClient"]
+    and "output.write(byteArrayOf(5, 1, 0, target.first.toByte()))" not in files["socksClient"]
+    and "aDomainTargetCarriesTheRfc1928LengthPrefix" in files["portGuardTest"]
+    and "theDomainRequestLeavesAsOneWellFormedSegment" in files["portGuardTest"]
+    and "theRequestIsSentInExactlyOneWrite" in files["portGuardTest"],
 )
 
 
