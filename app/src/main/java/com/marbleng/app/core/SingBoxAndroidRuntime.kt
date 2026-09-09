@@ -283,11 +283,45 @@ object SingBoxAndroidRuntime {
             // (the retained 09-08 12:48 line carries both). The kernel error is definitive;
             // the loose pm matcher must not outrank it.
             isPortBindConflict(reason) -> PORT_REMEDIATION
+            // MARBLE_SINGBOX_STARTUP_GATE_V162 — before the package-manager heuristic, and for
+            // the same reason the bind conflict outranks it: the benign WARN rides above every
+            // Android failure, so a device that merely timed out used to be handed the
+            // "update MarbleNG / switch to Xray" paragraph that belongs to the pre-V157 crash.
+            // A timeout is its own fault with its own evidence.
+            isStartupTimeout(reason) -> STARTUP_TIMEOUT_REMEDIATION
             isPackageManagerFault(reason) -> PACKAGE_MANAGER_REMEDIATION
             else -> return reason
         }
         return if (reason.contains(note)) reason else "$reason — $note"
     }
+
+    /**
+     * MARBLE_SINGBOX_STARTUP_GATE_V162 — True when the core ran out of MarbleNG's start-up window.
+     *
+     * The reason now names the phase that ran out (`the local inbound never answered`, `the
+     * controller never answered`), because those two are different faults: the first is a core
+     * that cannot serve this device, the second is a working tunnel whose diagnostic surface never
+     * bound — and the second is no longer reported as a failure at all.
+     */
+    fun isStartupTimeout(reason: String): Boolean =
+        reason.trim().lowercase().startsWith("core-start-timeout")
+
+    /**
+     * The one-line explanation attached to an exhausted start-up window.
+     *
+     * It deliberately does not name a server, a profile or a config key: the evidence is the
+     * core's own log tail, which for the reported device held exactly one line — the benign
+     * Android package-list warning every `GOOS=android` core prints — and nothing else for the
+     * eleven seconds MarbleNG waited. A tail like that says the core started and then stopped
+     * talking, which is a property of the binary and the device.
+     */
+    const val STARTUP_TIMEOUT_REMEDIATION: String =
+        "the core did not finish starting inside MarbleNG's start-up window, and its own log is " +
+            "the only witness: a tail that holds nothing but the Android package-list warning " +
+            "means the process came up and then neither opened its local inbound nor answered " +
+            "its controller, which no profile and no server can cause. Retry once; if it " +
+            "repeats, switch Settings → Tunnel core to Xray-core (unaffected) and send Bug " +
+            "Finder's SINGBOX section with this report."
 
     /**
      * The one-line explanation shown when [isNetlinkBan] matches. It names the cause (a config

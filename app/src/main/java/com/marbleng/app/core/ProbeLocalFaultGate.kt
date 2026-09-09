@@ -184,11 +184,18 @@ class ProbeLocalFaultGate {
             return if (line.length > 200) line.take(200).trimEnd() + "…" else line
         }
 
-        /** The remediation paragraphs [SingBoxAndroidRuntime.explain] can append to a reason. */
+        /**
+         * The remediation paragraphs [SingBoxAndroidRuntime.explain] can append to a reason.
+         *
+         * MARBLE_SINGBOX_STARTUP_GATE_V162 — the start-up paragraph is here too: a headline that
+         * carried it would be a paragraph, not the one-line evidence a message bar or a scan row
+         * can print.
+         */
         private val REMEDIATIONS = listOf(
             SingBoxAndroidRuntime.CRASH_REMEDIATION,
             SingBoxAndroidRuntime.PACKAGE_MANAGER_REMEDIATION,
-            SingBoxAndroidRuntime.NETLINK_REMEDIATION
+            SingBoxAndroidRuntime.NETLINK_REMEDIATION,
+            SingBoxAndroidRuntime.STARTUP_TIMEOUT_REMEDIATION
         )
     }
 }

@@ -53,6 +53,16 @@ class SingBoxManager(private val context: Context) {
      */
     @Volatile var lastSelfTest: SingBoxCoreSelfTest.Verdict? = null
         private set
+
+    /**
+     * MARBLE_SINGBOX_STARTUP_GATE_V162 — what the last start-up wait observed, kept so Bug Finder
+     * and the diagnostics log can tell a core that never opened its inbound (a core that cannot
+     * serve this device) from one whose tunnel came up and whose controller never answered (a
+     * working route with a missing measurement surface). Those two printed the same sentence
+     * before, and they have opposite remedies.
+     */
+    @Volatile var lastStartReadiness: StartReadiness? = null
+        private set
     private val selfTestLock = Any()
     val isAlive: Boolean get() = session?.isAlive == true
 
@@ -80,6 +90,7 @@ class SingBoxManager(private val context: Context) {
         lastStartError = ""
         lastSelfHealNotes = emptyList()
         lastStartStrategy = ""
+        lastStartReadiness = null
         lastStartPhase = "config"
         var dns: AndroidDnsBridge.Lease? = null
         try {
@@ -115,9 +126,16 @@ class SingBoxManager(private val context: Context) {
             // Not `candidates`: a local val of that name would shadow the reader function.
             val builds = candidates(profile, settings, port, controller, secret, dns.port, false)
             lastStartPhase = "check-and-start"
-            // A live session gets the strictest start: every candidate is validated with
-            // `sing-box check` and its Clash controller is awaited, because the URL test and the
-            // Engine page both read that controller while traffic flows.
+            // A live session gets the strictest *document* start: every candidate is validated
+            // with `sing-box check`, and the child has to survive the V157 settle window.
+            //
+            // MARBLE_SINGBOX_STARTUP_GATE_V162 — what it no longer gets is a controller gate. The
+            // controller is an internal service this core binds in its last start-up stage, after
+            // every outbound's post-start walk; before this it was half of the readiness
+            // condition, so a core that was already carrying traffic was killed and the session
+            // went BLOCKED because a *diagnostic* had not finished binding. The tunnel is the
+            // inbound hev-socks5-tunnel dials, so that is what the wait is for, and a controller
+            // that never answers is recorded as a degraded session instead of a failed connect.
             val started = openFirst(
                 candidates = builds,
                 configFile = File(context.filesDir, "runtime-singbox.json"),
@@ -127,10 +145,22 @@ class SingBoxManager(private val context: Context) {
                 controller = controller,
                 secret = secret,
                 validate = true,
-                awaitApi = true
+                awaitApi = true,
+                requireController = false,
+                settleMs = LIVE_SETTLE_MS
             )
+            val readiness = started.first.readiness
             lastStartStrategy = started.second.strategy
-            lastSelfHealNotes = started.second.notes
+            lastStartReadiness = readiness
+            lastSelfHealNotes = started.second.notes + if (readiness.controllerMissing) {
+                listOf(
+                    "the core is carrying traffic, but its Clash controller never answered " +
+                        "(${SingBoxProcessSession.CONTROLLER_TIMEOUT_MS} ms): Real delay through " +
+                        "the core and the Engine page's live counters are unavailable, the route is not"
+                )
+            } else {
+                emptyList<String>()
+            }
             session = started.first
             liveDns = dns
             apiPort = controller
@@ -207,7 +237,9 @@ class SingBoxManager(private val context: Context) {
         controller: Int,
         secret: String,
         validate: Boolean,
-        awaitApi: Boolean
+        awaitApi: Boolean,
+        requireController: Boolean = awaitApi,
+        settleMs: Long = 0
     ): Pair<SingBoxProcessSession, SingBoxConfigBuilder.Build> {
         check(candidates.isNotEmpty()) { "core-config: no sing-box representation of this profile" }
         val refusals = mutableListOf<String>()
@@ -218,7 +250,8 @@ class SingBoxManager(private val context: Context) {
             if (index > 0) runCatching { logFile.writeText("") }
             try {
                 val session = SingBoxProcessSession.open(bin, candidate.json, configFile, logFile,
-                    tempDir, socksPort, controller, secret, validate = validate, awaitApi = awaitApi)
+                    tempDir, socksPort, controller, secret, validate = validate, awaitApi = awaitApi,
+                    requireController = requireController, settleMs = settleMs)
                 // The losing readers' refusals travel with the winner, so the Engine page can say
                 // why the config that is running is not the one that was tried first.
                 val winner = if (refusals.isEmpty()) candidate else candidate.copy(
@@ -437,6 +470,19 @@ class SingBoxManager(private val context: Context) {
          * process/memory storm a 20-wide pool would cause on a phone.
          */
         const val MAX_TEMPORARY_CORES = 4
+
+        /**
+         * MARBLE_SINGBOX_STARTUP_GATE_V162 — the grace window a live connect pays once, after the
+         * inbound answers and before the session is handed to the TUN.
+         *
+         * It is the same window the canary pays ([SingBoxCoreSelfTest.SETTLE_MS]) for the same
+         * reason: `box.Start()` opens the inbounds before it walks the outbounds' post-start, so a
+         * core that is about to die in an outbound has already published a listening port. The
+         * live path used to pay nothing here and wait for the controller instead — which worked,
+         * but made a diagnostic the gate of the tunnel (see [start]).
+         */
+        const val LIVE_SETTLE_MS: Long = SingBoxCoreSelfTest.SETTLE_MS
+
         private val testSlots = Semaphore(MAX_TEMPORARY_CORES, true)
         private val diagnosticLock = Any()
         private val slotLock = Any()
