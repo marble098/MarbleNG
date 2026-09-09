@@ -293,33 +293,37 @@ class SingBoxManager(private val context: Context) {
     fun urlTestProfile(profile: ProxyProfile, settings: AppSettings, url: String, timeoutMs: Int): CoreUrlTestResult =
         urlTestProfileTargets(profile, settings, listOf(url), timeoutMs)
 
-    /** One process per profile, short-circuit on success. The old eager targets.map() started and
-     * destroyed a core for EVERY reference URL even after the first one had succeeded. */
-    fun urlTestProfileTargets(profile: ProxyProfile, settings: AppSettings, urls: List<String>, timeoutMs: Int): CoreUrlTestResult = try {
-        withTemporary(profile, settings, needsController = true) { child, _ ->
-            testTargets(urls, timeoutMs) { url, budget -> child.delay(url, budget) }
+    /**
+     * MARBLE_PING_FALSE_FAILED_V159 — one process per profile, short-circuit on success, and one
+     * retry when the *child never came up*. The old eager targets.map() started and destroyed a
+     * core for EVERY reference URL even after the first one had succeeded.
+     *
+     * The retry answers a spawn storm (four measurement cores starting at once on a phone), which
+     * is a fact about the device, not a verdict about the node — the same mercy
+     * [RouteProbe.realDelayHook]'s own attempt loop and `BenchmarkEngine.measure` already extend.
+     * A genuinely unbuildable config exits instantly on both attempts, so the retry costs
+     * milliseconds where it is pointless and saves a healthy node where it is not. A measurement
+     * that actually RAN is never retried here: it already walked every fallback target with a
+     * full budget each (see [ProbeTargetWalk]), so repeating it would only double a dead node's
+     * cost.
+     */
+    fun urlTestProfileTargets(profile: ProxyProfile, settings: AppSettings, urls: List<String>, timeoutMs: Int): CoreUrlTestResult {
+        var spawnFailure: CoreUrlTestResult? = null
+        repeat(2) {
+            try {
+                return withTemporary(profile, settings, needsController = true) { child, _ ->
+                    ProbeTargetWalk.urlTest(urls, timeoutMs) { url, budget -> child.delay(url, budget) }
+                }
+            } catch (error: Exception) {
+                if (error is InterruptedException) { Thread.currentThread().interrupt(); throw error }
+                spawnFailure = CoreUrlTestResult(0, false, explain(error.message ?: error.javaClass.simpleName))
+            }
         }
-    } catch (error: Exception) {
-        if (error is InterruptedException) { Thread.currentThread().interrupt(); throw error }
-        CoreUrlTestResult(0, false, explain(error.message ?: error.javaClass.simpleName))
+        return spawnFailure ?: CoreUrlTestResult(0, false, "urltest-no-target")
     }
 
     fun urlTestLiveTargets(urls: List<String>, timeoutMs: Int): CoreUrlTestResult =
-        testTargets(urls, timeoutMs) { url, budget -> urlTestLive(SingBoxConfigBuilder.PROXY_TAG, url, budget) }
-
-    private fun testTargets(urls: List<String>, timeoutMs: Int,
-                            measure: (String, Int) -> CoreUrlTestResult): CoreUrlTestResult {
-        val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMs.coerceIn(500, 30_000).toLong())
-        var last = CoreUrlTestResult(0, false, "urltest-no-target")
-        for (url in urls.distinct().take(3)) {
-            SingBoxProcessSession.checkInterrupted()
-            val left = TimeUnit.NANOSECONDS.toMillis(deadline - System.nanoTime()).toInt()
-            if (left <= 0) break
-            last = measure(url, left)
-            if (last.ok) return last
-        }
-        return last
-    }
+        ProbeTargetWalk.urlTest(urls, timeoutMs) { url, budget -> urlTestLive(SingBoxConfigBuilder.PROXY_TAG, url, budget) }
 
     private fun explain(reason: String): String = SingBoxAndroidRuntime.explain(reason)
 

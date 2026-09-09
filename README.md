@@ -41,7 +41,20 @@ It focuses on real proxy verification, fast one-tap connection, fail-closed rout
 
 ## Connection reliability
 
-`docs/SINGBOX_PORT_SOVEREIGNTY_V158.md` is the newest chapter: one device spent eight minutes
+`docs/PING_FALSE_FAILED_V159.md` is the newest chapter: URL test and Real delay both worked, yet
+occasionally published a perfectly healthy server as `FAILED`. Two budget defects, not routing
+defects: the URL test shared **one deadline across its fallback targets**, so the coldest request
+of a fresh core (the first, which pays DNS + TCP + TLS + fetch on a ~1 s route) consumed the whole
+timeout and left the secondary/CDN fallbacks — warm by then, and built for exactly that moment —
+with a budget of zero; and Real delay's two Home paths (live tunnel, and the throwaway tunnel the
+disconnected ping builds) fetched **one** origin while the Rank sweep already walked every
+`DelayTest` candidate, so one moment of SNI-throttling failed every sample of a perfect route.
+`ProbeTargetWalk` now owns one shared walk — every candidate target gets the full budget, the
+first answer wins, at most three targets, interruptible between them — and a URL-test throwaway
+core that never came up is retried once, because a spawn storm is a fact about the device, not a
+verdict about the node.
+
+`docs/SINGBOX_PORT_SOVEREIGNTY_V158.md` is the previous chapter: one device spent eight minutes
 refused with `bind: address already in use` on `127.0.0.1:10808` while **both engines reported
 `alive=false`** — the socket was held by a core process nothing tracked (an orphan from an earlier
 app process Android had killed), nothing on the connect path ever asked the OS who held the port,

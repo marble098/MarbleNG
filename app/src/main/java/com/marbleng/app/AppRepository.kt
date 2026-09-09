@@ -849,16 +849,21 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     private fun installRealDelayHook() {
         RouteProbe.realDelayHook = { profile, timeoutMs, samples, probeSettings ->
             val effective = intelligence.effectiveSettings(profile, probeSettings)
-            val url = DelayTest.url(probeSettings.delayTestUrl)
+            // MARBLE_PING_FALSE_FAILED_V159 — every DelayTest candidate origin is walked inside
+            // ONE throwaway core (never one core per target). A momentarily filtered primary
+            // used to fail every sample of a healthy route here while the Rank sweep walked on
+            // to the secondary; the walk now hands the next origin the identical budget through
+            // the same tunnel, and only a route silent against every candidate is failed.
+            val targets = DelayTest.candidates(probeSettings.delayTestUrl)
             var measured: RouteProbe.ProbeResult? = null
             fun attempt() {
                 runCatching {
                     xray.temporary(profile, 0, effective) { port ->
-                        measured = RouteProbe.tunnelHttpsMeasure(
+                        measured = RouteProbe.tunnelHttpsMeasureTargets(
                             socksPort = port,
                             timeoutMs = timeoutMs,
                             samples = samples,
-                            url = url
+                            urls = targets
                         )
                     }
                 }.onFailure { error ->
