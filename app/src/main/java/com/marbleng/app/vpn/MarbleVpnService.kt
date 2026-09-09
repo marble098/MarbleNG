@@ -3728,5 +3728,3 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
     private fun safeMessage(t: Throwable): String =
         t.message?.take(180)?.ifBlank { t::class.java.simpleName } ?: t::class.java.simpleName
 }
-essage?.take(180)?.ifBlank { t::class.java.simpleName } ?: t::class.java.simpleName
-}

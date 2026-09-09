@@ -1152,16 +1152,15 @@ check(
     and 'DNS_OUT_TAG' not in files["singBoxBuilder"]
     and '"hijack-dns"' in files["singBoxTest"],
 )
-# MARBLE_SINGBOX_DNS_ACTION_V152 — domain egress must not depend on one public DoH literal being
-# alive: the shipped log demoted 1.1.1.1, 8.8.8.8 and 9.9.9.9 together while literal-IP egress
-# worked (`literalIpHttps=true, domainHttps=false`). The node's own hostname bootstraps through
-# the system resolver instead.
+# MARBLE_SINGBOX_BOOTSTRAP_DOH_V163 — domain egress must not depend on one public DoH literal
+# being alive, and the node's own hostname must not ask the Iranian system resolver (which
+# answers 10.10.34.35/36). Encrypted IP-literal DoH over DIRECT is first; dns-local last-resort.
 check(
-    "the node hostname bootstraps via the sing-box system resolver",
-    '"local"' in files["singBoxBuilder"]
-    and 'DNS_LOCAL_TAG' in files["singBoxBuilder"]
-    and 'isLiteralAddress' in files["singBoxBuilder"]
-    and 'theProxyHostnameBootstrapsThroughTheSystemResolver' in files["singBoxTest"],
+    "the node hostname bootstraps via encrypted-direct DNS",
+    "DNS_BOOTSTRAP_TAG" in files["singBoxBuilder"]
+    and "DNS_LOCAL_TAG" in files["singBoxBuilder"]
+    and "isLiteralAddress" in files["singBoxBuilder"]
+    and "theProxyHostnameBootstrapsThroughEncryptedDirectDns" in files["singBoxTest"],
 )
 # MARBLE_ENGINE_SELF_HEAL_V152 — a config rejection is engine-level, and Marble Intelligence
 # answers it automatically: the doctor repairs the known removals in place and re-checks, and

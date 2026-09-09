@@ -13800,24 +13800,3 @@ private fun IranModeSettings(repo: AppRepository) {
         enabled = !state.scanning
     ) { repo.scanIranMode(force = true, deep = true) }
 }
-Faint,
-            compact = true
-        )
-        if (state.active) {
-            HoloBadge(state.ispLine, Aether.Cyan, compact = true)
-        }
-    }
-
-    Text(
-        state.summary,
-        color = Aether.InkMuted,
-        style = MaterialTheme.typography.bodySmall
-    )
-
-    CyberButton(
-        label = "Re-scan now",
-        color = Aether.Cyan,
-        modifier = Modifier.fillMaxWidth(),
-        enabled = !state.scanning
-    ) { repo.scanIranMode(force = true, deep = true) }
-}

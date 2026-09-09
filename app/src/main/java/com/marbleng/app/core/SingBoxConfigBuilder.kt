@@ -343,7 +343,22 @@ object SingBoxConfigBuilder {
         settings: AppSettings,
         socksPort: Int,
         apiPort: Int,
-        apiSec1.14.x) rejects the whole config for carrying one — which is
+        apiSecret: String,
+        logPath: String,
+        cachePath: String,
+        resolverPool: List<String>,
+        ruleSetPaths: Map<String, String>,
+        bootstrapDnsPort: Int,
+        forTest: Boolean
+    ): Build {
+        val notes = candidate.notes.toMutableList()
+        val outbounds = JSONArray()
+        candidate.outbounds.forEach { outbounds.put(it) }
+
+        // MARBLE_SINGBOX_DNS_ACTION_V152 — no `dns` outbound is written any more. sing-box
+        // deprecated it in 1.11.0 and REMOVED it in 1.13.0 ("dns outbound is deprecated in
+        // sing-box 1.11.0 and removed in sing-box 1.13.0, use rule actions instead"), and the
+        // pinned extended core (v1.14.x) rejects the whole config for carrying one — which is
         // exactly how every profile in the shipped build died at `sing-box check` and pushed the
         // session into BLOCKED. The route's `hijack-dns` rule action written below is the
         // replacement the error message itself names, and it is all DNS interception needs: the
@@ -1211,42 +1226,6 @@ private fun removeKeys(
             } else {
                 val parts = value.replace(':', '-').split('-')
                 require(parts.size == 2 && parts.all { (it.toIntOrNull() ?: -1) in 1..65535 } && parts[0].toInt() <= parts[1].toInt()) { "Invalid route port range" }
-                ranges.put("${parts[0]}:${parts[1]}")
-            }
-        }
-        if (ports.length() > 0) rule.put("port", ports)
-        if (ranges.length() > 0) rule.put("port_range", ranges)
-    }
-
-    private fun splitTokens(raw: String): List<String> = raw.split(',', '|', '\n', ';')
-        .map(String::trim).filter(String::isNotBlank)
-}
-he sing-box engine (the same profile is routed in full on Xray)."
-    }
-
-
-    private fun putPorts(rule: JSONObject, raw: String) {
-        val ports = JSONArray()
-        val ranges = JSONArray()
-        splitTokens(raw).forEach { value ->
-            val port = value.toIntOrNull()
-            if (port != null) {
-                require(port in 1..65535) { "Invalid route port" }
-                ports.put(port)
-            } else {
-                val parts = value.replace(':', '-').split('-')
-                require(parts.size == 2 && parts.all { (it.toIntOrNull() ?: -1) in 1..65535 } && parts[0].toInt() <= parts[1].toInt()) { "Invalid route port range" }
-                ranges.put("${parts[0]}:${parts[1]}")
-            }
-        }
-        if (ports.length() > 0) rule.put("port", ports)
-        if (ranges.length() > 0) rule.put("port_range", ranges)
-    }
-
-    private fun splitTokens(raw: String): List<String> = raw.split(',', '|', '\n', ';')
-        .map(String::trim).filter(String::isNotBlank)
-}
-ange" }
                 ranges.put("${parts[0]}:${parts[1]}")
             }
         }
