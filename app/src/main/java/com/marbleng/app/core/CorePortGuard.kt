@@ -72,6 +72,9 @@ object CorePortGuard {
         /** `/proc/<pid>/fd/<fd>` link target, or null. */
         fun link(pid: Int, fd: String): String?
 
+        /** `/proc/net/<name>` (e.g. `tcp`, `tcp6`) as text, or null when unreadable. */
+        fun netText(name: String): String?
+
         /** Send [signalNumber] (POSIX numbers) to [pid]; true when delivered without error. */
         fun signal(pid: Int, signalNumber: Int): Boolean
 
