@@ -234,6 +234,37 @@ object SingBoxAndroidRuntime {
             "outbound. Update MarbleNG, or switch Settings → Tunnel core to Xray-core."
 
     /**
+     * MARBLE_SINGBOX_PORT_SOVEREIGNTY_V158 — True when the core died because the local SOCKS port
+     * was already bound:
+     *
+     * ```
+     * FATAL start service: start inbound/mixed[socks-in]: listen tcp 127.0.0.1:10808:
+     * bind: address already in use
+     * ```
+     *
+     * This is a fact about *this device's loopback*, not about the profile: every candidate
+     * spelling of the same node binds the same port, so it must never walk the reader list
+     * ([SingBoxManager.isConfigRefusal] excludes it), and it must never be recorded as a server
+     * verdict. The manager reaps stale MarbleNG core processes from the port before start; a
+     * conflict that still reaches the core is a holder we correctly did not signal.
+     */
+    fun isPortBindConflict(reason: String): Boolean {
+        val text = reason.lowercase()
+        // The canonical local-fault prefix both managers write (CorePortGuard's evidence and the
+        // rewrite below), plus the core's own FATAL shape for a conflict that reached the bind.
+        if (text.startsWith("core-port:")) return true
+        return "bind: address already in use" in text ||
+            ("address already in use" in text && "listen" in text)
+    }
+
+    /** The one-line explanation attached to a port the start could not bind. */
+    const val PORT_REMEDIATION: String =
+        "The local SOCKS port is held by another process on this device. MarbleNG reaps stale " +
+            "MarbleNG core processes from the port before every start; a conflict that survives " +
+            "that belongs to a different app — change Settings → local SOCKS port, stop the " +
+            "other app, or restart the device."
+
+    /**
      * The reason the product shows. A raw Go panic or an Android permission line is not an answer
      * a person can act on, so each recognised runtime fault travels with its remediation; anything
      * unrecognised is passed through verbatim, because guessing is how a real schema error once
@@ -248,6 +279,7 @@ object SingBoxAndroidRuntime {
             isNetlinkBan(reason) -> NETLINK_REMEDIATION
             isCoreCrash(reason) -> CRASH_REMEDIATION
             isPackageManagerFault(reason) -> PACKAGE_MANAGER_REMEDIATION
+            isPortBindConflict(reason) -> PORT_REMEDIATION
             else -> return reason
         }
         return if (reason.contains(note)) reason else "$reason — $note"

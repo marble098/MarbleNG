@@ -23,6 +23,16 @@ class SingBoxProcessSession private constructor(
 ) : Closeable {
     val isAlive: Boolean get() = child.isAlive
 
+    /**
+     * MARBLE_SINGBOX_PORT_SOVEREIGNTY_V158 — non-empty when this session's child did not exit
+     * inside [stop]'s budget. The manager carries the note into its own stop evidence, and the
+     * next start's port reclaim ([CorePortGuard.reclaim]) is the layer that finishes the job:
+     * a SIGTERM'd core that ignored it still owns its listening socket, and "stop returned" has
+     * never meant "the port is free".
+     */
+    @Volatile var stopEvidence: String = ""
+        private set
+
     fun delay(url: String, timeoutMs: Int): CoreUrlTestResult {
         if (!isAlive) return CoreUrlTestResult(0, false, "core-exit: ${tail(logFile)}")
         // One guard for the product's one URL test; see UrlTestTarget for why HTTPS and why no
@@ -53,7 +63,11 @@ class SingBoxProcessSession private constructor(
     }
 
     override fun close() {
-        stop(child)
+        val exited = stop(child)
+        if (!exited) {
+            stopEvidence = "the previous core process did not exit within the stop budget " +
+                "(destroy → destroyForcibly → wait); the port reaper owns it now"
+        }
         // A killed process closes the pipe. Do not leave a daemon copying a stale child's log.
         val interrupted = Thread.interrupted()
         try { logPump.join(1000) } finally { if (interrupted) Thread.currentThread().interrupt() }
@@ -208,7 +222,7 @@ class SingBoxProcessSession private constructor(
             } catch (_: Exception) { false } finally { connection.disconnect() }
         }
 
-        internal fun stop(child: Process) {
+        internal fun stop(child: Process): Boolean {
             val interrupted = Thread.interrupted()
             try {
                 child.destroy()
@@ -220,6 +234,10 @@ class SingBoxProcessSession private constructor(
                 child.destroyForcibly()
                 Thread.currentThread().interrupt()
             } finally { if (interrupted) Thread.currentThread().interrupt() }
+            // The contract this used to leave implicit: a stop that returns while the process is
+            // still alive hands a live LISTEN socket to the next start. Returning the verdict
+            // lets the session record it and lets the tests pin the escalation.
+            return !child.isAlive
         }
 
         internal fun checkInterrupted() {

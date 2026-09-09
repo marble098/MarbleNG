@@ -65,6 +65,11 @@ files = {
     # contract that classifies a crash, the canary that asks the binary instead of a server, the
     # gate that stops a sweep on the first local fault, and the test that pins all three.
     "androidRuntime": read("app/src/main/java/com/marbleng/app/core/SingBoxAndroidRuntime.kt"),
+    "portGuard": read("app/src/main/java/com/marbleng/app/core/CorePortGuard.kt"),
+    "portGuardTest": read(
+        "app/src/test/java/com/marbleng/app/core/SingBoxPortSovereigntyV158Test.kt"
+    ),
+    "portSovereigntyDoc": read("docs/SINGBOX_PORT_SOVEREIGNTY_V158.md"),
     "coreSelfTest": read("app/src/main/java/com/marbleng/app/core/SingBoxCoreSelfTest.kt"),
     "localFaultGate": read("app/src/main/java/com/marbleng/app/core/ProbeLocalFaultGate.kt"),
     "coreCrashTest": read("app/src/test/java/com/marbleng/app/core/SingBoxCoreCrashV157Test.kt"),
@@ -1264,6 +1269,59 @@ check(
     and "Explicit engine selection is a contract" in files["vpn"]
     and "activeEngine = CoreEngine." not in files["vpn"],
 )
+
+# MARBLE_SINGBOX_PORT_SOVEREIGNTY_V158 — the 09:18–09:26 incident: four `bind: address already in
+# use` refusals over eight minutes with alive=false on both engines (an untracked orphan core held
+# the port), every refusal walking all three reader candidates, and the blocked state blaming the
+# profile. Each half of that sentence is pinned below.
+check(
+    "the local SOCKS port is attributed and reclaimed before either engine spawns a child",
+    "object CorePortGuard" in files["portGuard"]
+    # The holder is found through the kernel's own tables: LISTEN inode from /proc/net/tcp{,6},
+    # then the socket:[inode] fd link back to a pid. No root, no shell.
+    and "fun parseListenerInodes(" in files["portGuard"]
+    and "fun findHolderPids(" in files["portGuard"]
+    and '"/proc/net/' in files["portGuard"]
+    and "socket:[" in files["portGuard"]
+    # Ownership is checked twice before any signal: our UID AND our core binary path.
+    and "fun isCoreBinary(" in files["portGuard"]
+    and "probe.myUid()" in files["portGuard"]
+    # Escalation is bounded, TERM first.
+    and "SIGTERM" in files["portGuard"]
+    and "SIGKILL" in files["portGuard"]
+    # The failure vocabulary is the local-fault prefix every classifier already speaks.
+    and '"core-port: 127.0.0.1:$port is already in use"' in files["portGuard"]
+    # Both engines go through the same guard; neither spawns into a squatted port.
+    and "CorePortGuard.reclaim(" in files["singBox"]
+    and "CorePortGuard.reclaim(" in files["xray"]
+    and "CorePortGuard.androidProbe()" in files["singBox"]
+    and "CorePortGuard.androidProbe()" in files["xray"]
+    and "CoreEngineInfo.SINGBOX_BINARY" in files["portGuardTest"],
+)
+check(
+    "a bind conflict is a local fault with a named owner, never a config refusal",
+    "fun isPortBindConflict(" in files["androidRuntime"]
+    and "PORT_REMEDIATION" in files["androidRuntime"]
+    and "isPortBindConflict(reason) -> PORT_REMEDIATION" in files["androidRuntime"]
+    and "if (SingBoxAndroidRuntime.isPortBindConflict(reason)) return false" in files["singBox"]
+    and "if (SingBoxAndroidRuntime.isPortBindConflict(reason)) throw error" in files["singBox"]
+    and '"Local port in use"' in files["vpn"]
+    # stop() proves its verdict; the evidence outlives the session.
+    and "internal fun stop(child: Process): Boolean" in files["singBoxSession"]
+    and "lastStopEvidence" in files["singBox"],
+)
+check(
+    "local-client SOCKS handshake aborts are benign evidence, not scan failures",
+    "internal object CoreLogNoise" in files["bug"]
+    and "CoreLogNoise.isLocalClientHandshakeAbort(line)" in files["bug"]
+    and "localClientHandshakeAborts=" in files["bug"]
+    and "theReportedClientAbortLinesAreClassifiedBenign" in files["portGuardTest"]
+    and "realFaultsAreNeverClassifiedAsClientAborts" in files["portGuardTest"]
+    and "theReportedBindConflictLinesOfClassificationAndWalkExclusion" not in files["portGuardTest"]
+    and "aStaleCoreHoldingThePortIsReapedAndTheStartProceeds" in files["portGuardTest"]
+    and "aForeignHolderIsNamedButNeverSignalled" in files["portGuardTest"],
+)
+
 
 # MARBLE_HOME_IP_STRIP_V151 — the "Show complete IP information" caption is gone from Home. The
 # words survive as the glyph's content description, so the strip is still readable out loud.

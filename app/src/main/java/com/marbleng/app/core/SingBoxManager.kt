@@ -39,6 +39,15 @@ class SingBoxManager(private val context: Context) {
     @Volatile var intelligence: MarbleIntelligence? = null
 
     /**
+     * MARBLE_SINGBOX_PORT_SOVEREIGNTY_V158 — what the previous [stop] could not finish, or `""`.
+     * A stop that returns while the child still lives is the event that makes the next start pay
+     * `bind: address already in use`; the note keeps that causal chain visible instead of letting
+     * the next start look like an independent failure.
+     */
+    @Volatile var lastStopEvidence: String = ""
+        private set
+
+    /**
      * MARBLE_SINGBOX_ANDROID_CLI_CRASH_V157 — the last verdict about *this* binary, kept so a
      * broken core is paid for once instead of once per node, per reader and per retry.
      */
@@ -64,6 +73,26 @@ class SingBoxManager(private val context: Context) {
             // connect stops here instead of after a spawn, a crash and three refusals.
             requireUsableCore()
             require(port in 1..65535) { "core-config: Invalid local SOCKS port" }
+            // MARBLE_SINGBOX_PORT_SOVEREIGNTY_V158 — a port held by a process nothing tracks
+            // (an orphaned core from a killed app process, or a child whose handle a superseded
+            // start dropped) used to be paid for as a full spawn → FATAL → BLOCKED round trip,
+            // once per retry, forever: the 09:18–09:26 cluster of `bind: address already in
+            // use` with `alive=false` on both engines. The port is made actually free —
+            // same-UID core binaries are reaped, foreign holders are reported — before the
+            // first child is spawned, and what cannot be freed fails here as a `core-port:`
+            // local fault instead of as three dead readers per candidate node.
+            val reclaim = CorePortGuard.reclaim(
+                probe = CorePortGuard.androidProbe(),
+                port = port,
+                nativeLibDir = context.applicationInfo.nativeLibraryDir,
+                coreBinaries = listOf(CoreEngineInfo.SINGBOX_BINARY, CoreEngineInfo.XRAY_BINARY)
+            )
+            if (reclaim.reaped.isNotEmpty()) {
+                lastSelfHealNotes += reclaim.evidence.ifBlank {
+                    "reclaimed local port $port from a stale core process"
+                }
+            }
+            if (!reclaim.available) error(reclaim.evidence)
             dns = bootstrap.acquire()
             val controller = freePort(excluding = port)
             val secret = UUID.randomUUID().toString()
@@ -94,7 +123,18 @@ class SingBoxManager(private val context: Context) {
         } catch (error: Exception) {
             dns?.close()
             if (error is InterruptedException) Thread.currentThread().interrupt()
-            lastStartError = explain(error.message ?: error.javaClass.simpleName)
+            var message = error.message ?: error.javaClass.simpleName
+            // MARBLE_SINGBOX_PORT_SOVEREIGNTY_V158 — the TOCTOU safety net. The reclaim above
+            // closes the window for tracked and untracked stale cores, but a foreign process can
+            // still bind between reclaim and spawn. When the core's own FATAL names the bind
+            // conflict, the reason is reborn under the `core-port:` prefix: local fault for
+            // CoreFailurePolicy and the sweep gate, never a per-server verdict.
+            if (SingBoxAndroidRuntime.isPortBindConflict(message) &&
+                !message.startsWith("core-port:")
+            ) {
+                message = "core-port: $message"
+            }
+            lastStartError = explain(message)
             lastStartPhase = "failed"
             return false
         }
@@ -105,6 +145,7 @@ class SingBoxManager(private val context: Context) {
         session = null
         apiPort = 0
         previous?.close()
+        lastStopEvidence = previous?.stopEvidence.orEmpty()
         liveDns?.close()
         liveDns = null
         lastStartStrategy = ""
@@ -176,6 +217,11 @@ class SingBoxManager(private val context: Context) {
                     throw error
                 }
                 val reason = error.message ?: error.javaClass.simpleName
+                // MARBLE_SINGBOX_PORT_SOVEREIGNTY_V158 — the docstring above already said it, the
+                // code did not do it: `core-start: exited 1: … bind: address already in use`
+                // matched the `core-start:` refusal prefix, so all three readers spawned a core
+                // to die on the same port. A port fault is identical for every candidate.
+                if (SingBoxAndroidRuntime.isPortBindConflict(reason)) throw error
                 if (!isConfigRefusal(reason) || index == candidates.lastIndex) throw error
                 refusals += "[${candidate.strategy}] $reason".take(400)
             }
@@ -390,6 +436,12 @@ class SingBoxManager(private val context: Context) {
         internal fun isConfigRefusal(reason: String): Boolean {
             if (SingBoxAndroidRuntime.isUnusableCore(reason)) return false
             if (reason.startsWith("core-crash:")) return false
+            // MARBLE_SINGBOX_PORT_SOVEREIGNTY_V158 — a bind conflict arrives wearing the
+            // `core-start:` prefix (the core exited 1), but it is a property of the device's
+            // loopback, not of the document: every reader binds the same port. It also arrives
+            // rewritten to `core-port:` at the catch site; this predicate closes the door on the
+            // raw form as well, so no future call site can walk on it again.
+            if (SingBoxAndroidRuntime.isPortBindConflict(reason)) return false
             val value = reason.lowercase()
             return value.startsWith("core-config:") ||
                 value.startsWith("core-start:") ||
