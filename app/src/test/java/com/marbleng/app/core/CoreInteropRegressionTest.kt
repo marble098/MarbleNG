@@ -135,7 +135,7 @@ class CoreInteropRegressionTest {
         assertEquals(8853, servers.single { it.getString("tag") == "dns-remote-0" }.getInt("server_port"))
         assertEquals("/custom", servers.single { it.getString("tag") == "dns-remote-1" }.getString("path"))
         assertEquals(8443, servers.single { it.getString("tag") == "dns-remote-1" }.getInt("server_port"))
-        assertEquals("dns-local", servers.single { it.getString("tag") == "dns-remote-1" }.getString("domain_resolver"))
+        assertEquals("dns-bootstrap", servers.single { it.getString("tag") == "dns-remote-1" }.getString("domain_resolver"))
         assertEquals("marble-proxy", servers.single { it.getString("tag") == "dns-remote-0" }.getString("detour"))
         assertEquals("udp", servers.single { it.getString("tag") == "dns-local" }.getString("type"))
         assertEquals(53530, servers.single { it.getString("tag") == "dns-local" }.getInt("server_port"))

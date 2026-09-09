@@ -230,9 +230,8 @@ class SingBoxAndroidRuntimeV155Test {
         val route = config.getJSONObject("route")
         val resolver = route.getString("default_domain_resolver")
         assertEquals(
-            "a dial-time lookup must use the system resolver: it can never depend on the tunnel " +
-                "it is helping to build",
-            SingBoxConfigBuilder.DNS_LOCAL_TAG,
+            "a dial-time lookup must use encrypted-direct bootstrap (never the proxy it is building)",
+            SingBoxConfigBuilder.DNS_BOOTSTRAP_TAG,
             resolver
         )
         assertTrue(

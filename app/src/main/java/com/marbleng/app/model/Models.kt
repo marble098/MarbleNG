@@ -771,6 +771,30 @@ data class AppSettings(
      * wins: the parser supports fewer XHTTP extras and must not discard edits or chain hops. */
     val singBoxPreferParser: Boolean = true,
 
+    // ── Xray core (PattNG-style) ──────────────────────────────────────────────
+    /** Xray `log.loglevel`: none / error / warning / info / debug. */
+    val xrayLogLevel: String = "error",
+    /** Sniff HTTP/TLS/QUIC on the local SOCKS inbound so routing sees the real host. */
+    val xraySniffingEnabled: Boolean = true,
+    /** `routeOnly`: sniff for routing, do not rewrite the destination. */
+    val xraySniffingRouteOnly: Boolean = true,
+    /** Bind the local inbounds on 0.0.0.0 so LAN clients can use them. */
+    val xrayAllowLan: Boolean = false,
+    /** Extra HTTP inbound port; 0 leaves it off. */
+    val xrayHttpInboundPort: Int = 0,
+
+    // ── sing-box extended (Exclave-style) ─────────────────────────────────────
+    /** sing-box `log.level`: trace / debug / info / warn / error / fatal / panic. */
+    val singBoxLogLevel: String = "warn",
+    /** Emit the route `sniff` action so protocol/domain routing can see the real host. */
+    val singBoxSniffEnabled: Boolean = true,
+    /** Emit the route `resolve` action (Exclave "Resolve destination"). */
+    val singBoxResolveDestination: Boolean = false,
+    /** Bind the mixed inbound on 0.0.0.0 so LAN clients can use it. */
+    val singBoxAllowLan: Boolean = false,
+    /** Extra HTTP inbound port; 0 leaves it off. */
+    val singBoxHttpInboundPort: Int = 0,
+
     val benchMode: BenchMode = BenchMode.BALANCED,
     val benchCandidates: Int = 20,
     val benchSamples: Int = 3,
@@ -880,7 +904,8 @@ data class AppSettings(
     // user, decides which family actually carries each connection. The decision lives in
     // AddressFamilyPolicy: the underlay must expose a real global IPv6 address, the node's own
     // IPv6 history on this network must be healthy, and an explicit user demand still wins over
-    // both. Turning the master switch off remains fail-closed (::/0 blocked inside the tunnel).
+    // both. Turning the master switch off is an IPv4-only TUN (no ::/0 capture) so Happy
+    // Eyeballs cannot stall on a blackhole; the cores still reject leftover v6 as defence.
     val ipv6Enabled: Boolean = true,
     val preferIpv6: Boolean = true,
 

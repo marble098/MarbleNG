@@ -119,6 +119,24 @@ class NetworkPolicyTest {
         assertFalse("there is nothing to race on a single-family plan", plan.raceEnabled)
     }
 
+    /**
+     * Capturing `::/0` while IPv6 is off is the Full TUN hang: Chrome's Happy Eyeballs races an
+     * instant-fail AAAA into the blackhole and never recovers onto IPv4. The TUN must omit the
+     * v6 address/route whenever the user turned IPv6 off, even if the underlay can carry it.
+     */
+    @Test
+    fun tunDoesNotCaptureIpv6WhenTheUserTurnedItOff() {
+        assertFalse(
+            AddressFamilyPolicy.shouldCaptureIpv6(ipv6Enabled = false, underlayCanCarryIpv6 = true)
+        )
+        assertFalse(
+            AddressFamilyPolicy.shouldCaptureIpv6(ipv6Enabled = true, underlayCanCarryIpv6 = false)
+        )
+        assertTrue(
+            AddressFamilyPolicy.shouldCaptureIpv6(ipv6Enabled = true, underlayCanCarryIpv6 = true)
+        )
+    }
+
     @Test
     fun enablingIpv6OnADualStackLinkActuallyPrefersIt() {
         // The default profile used to write ForceIP with no happyEyeballs block, which Xray reads as

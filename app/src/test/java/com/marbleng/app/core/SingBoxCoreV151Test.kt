@@ -211,47 +211,82 @@ class SingBoxCoreV151Test {
     }
 
     /**
-     * MARBLE_SINGBOX_DNS_ACTION_V152 — the node's own hostname must not depend on a public DoH
-     * literal being alive: the shipped log demoted 1.1.1.1, 8.8.8.8 and 9.9.9.9 together, and
-     * domain egress died while literal-IP egress worked. A `local` (system resolver) server and
-     * a bootstrap rule for the endpoint's hostname close that hole; an endpoint addressed by a
-     * literal IP needs neither.
+     * MARBLE_SINGBOX_BOOTSTRAP_DOH_V163 — the node's own hostname must not ask the Iranian
+     * system resolver, which answers 10.10.34.35/36. Encrypted DoH over DIRECT (IP-literal
+     * endpoints, Xray's `https+local://` equivalent) is the first hop; `dns-local` stays as
+     * last-resort so a total DoH outage still bootstraps. A literal-IP endpoint needs neither.
      */
     @Test
-    fun theProxyHostnameBootstrapsThroughTheSystemResolver() {
+    fun theProxyHostnameBootstrapsThroughEncryptedDirectDns() {
         val literalConfig = JSONObject(build(linkProfile(VLESS_LINK)).json)
         val hostnameProfile = linkProfile(VLESS_LINK).copy(host = "edge.example.com")
         val hostnameConfig = JSONObject(build(hostnameProfile).json)
 
         val servers = hostnameConfig.getJSONObject("dns").getJSONArray("servers")
         var localPresent = false
+        var bootstrapPresent = false
         for (i in 0 until servers.length()) {
             val server = servers.getJSONObject(i)
-            if (SingBoxConfigBuilder.DNS_LOCAL_TAG == server.optString("tag") &&
-                "local" == server.optString("type")
-            ) {
-                localPresent = true
+            if (SingBoxConfigBuilder.DNS_LOCAL_TAG == server.optString("tag")) localPresent = true
+            if (SingBoxConfigBuilder.DNS_BOOTSTRAP_TAG == server.optString("tag")) {
+                bootstrapPresent = true
+                assertEquals("fallback", server.getString("type"))
+                val peers = server.getJSONArray("servers")
+                val peerTags = (0 until peers.length()).map { peers.getString(it) }
+                assertTrue("bootstrap must keep dns-local as last resort: $peerTags", SingBoxConfigBuilder.DNS_LOCAL_TAG in peerTags)
+                assertTrue("bootstrap must try an encrypted peer first: $peerTags", peerTags.first() != SingBoxConfigBuilder.DNS_LOCAL_TAG)
             }
         }
-        assertTrue("a system-resolver (type local) DNS server must exist", localPresent)
+        assertTrue("a system-resolver DNS server must still exist as last resort", localPresent)
+        assertTrue("an encrypted-direct bootstrap resolver must exist", bootstrapPresent)
 
-        fun bootstrapHosts(config: JSONObject): List<String> {
+        fun bootstrapRuleServer(config: JSONObject, host: String): String? {
             val rules = config.getJSONObject("dns").getJSONArray("rules")
-            val hosts = mutableListOf<String>()
             for (i in 0 until rules.length()) {
-                val domains = rules.getJSONObject(i).optJSONArray("domain") ?: continue
-                for (d in 0 until domains.length()) hosts += domains.optString(d)
+                val rule = rules.getJSONObject(i)
+                val domains = rule.optJSONArray("domain") ?: continue
+                for (d in 0 until domains.length()) {
+                    if (domains.optString(d) == host) return rule.optString("server")
+                }
             }
-            return hosts
+            return null
         }
-        assertTrue(
-            "the proxy endpoint's own hostname must resolve via the system resolver",
-            "edge.example.com" in bootstrapHosts(hostnameConfig)
+        assertEquals(
+            "the proxy endpoint's own hostname must resolve via encrypted-direct bootstrap",
+            SingBoxConfigBuilder.DNS_BOOTSTRAP_TAG,
+            bootstrapRuleServer(hostnameConfig, "edge.example.com")
         )
-        assertTrue(
+        assertNull(
             "a literal-IP endpoint needs no DNS bootstrap rule",
-            bootstrapHosts(literalConfig).isEmpty()
+            bootstrapRuleServer(literalConfig, "198.51.100.7")
         )
+        assertEquals(
+            SingBoxConfigBuilder.DNS_BOOTSTRAP_TAG,
+            hostnameConfig.getJSONObject("route").getString("default_domain_resolver")
+        )
+    }
+
+    @Test
+    fun iranModeRejectsThePoisonInjectorRange() {
+        val on = JSONObject(
+            build(
+                linkProfile(VLESS_LINK),
+                AppSettings(
+                    iranModePolicy = com.marbleng.app.model.IranModePolicy.ALWAYS_ON,
+                    iranModeCountermeasures = true
+                )
+            ).json
+        )
+        val off = JSONObject(
+            build(
+                linkProfile(VLESS_LINK),
+                AppSettings(iranModePolicy = com.marbleng.app.model.IranModePolicy.OFF)
+            ).json
+        )
+        val onRules = on.getJSONObject("route").getJSONArray("rules").toString()
+        val offRules = off.getJSONObject("route").getJSONArray("rules").toString()
+        assertTrue("poison injector range blocked", onRules.contains("10.10.34.0/24"))
+        assertFalse("poison injector range must not appear when Iran mode is off", offRules.contains("10.10.34.0/24"))
     }
 
     @Test

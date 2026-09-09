@@ -167,7 +167,7 @@ class DohResolverPool(
             Provider("quad9-doh", "https://9.9.9.9/dns-query"),
             Provider("adguard-doh", "https://dns.adguard-dns.com/dns-query"),
             Provider("cloudflare-fallback", "https://1.0.0.1/dns-query"),
-            Provider("internal-doh", "https://dns.shecan.ir/dns-query", internal = true)
+            Provider("internal-doh", "https://149.112.112.112/dns-query", internal = true)
         )
     }
 

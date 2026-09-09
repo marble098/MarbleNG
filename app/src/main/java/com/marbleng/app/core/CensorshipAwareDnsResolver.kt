@@ -144,7 +144,7 @@ object CensorshipAwareDnsResolver {
     )
 
     private val DEFAULT_FALLBACK_DOH = listOf(
-        Triple("shecan-doh", "https://dns.shecan.ir/dns-query", DnsStage.FALLBACK_DOH),
+        Triple("quad9-doh-ip", "https://149.112.112.112/dns-query", DnsStage.FALLBACK_DOH),
         Triple("quad9-secondary", "https://149.112.112.112/dns-query", DnsStage.FALLBACK_DOH)
     )
 

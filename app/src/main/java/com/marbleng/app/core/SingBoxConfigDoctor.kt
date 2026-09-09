@@ -514,7 +514,8 @@ object SingBoxConfigDoctor {
                 ?.optString("tag")
                 ?.takeIf { it.isNotBlank() }
         }
-        val chosen = tagOfType("local")
+        val chosen = tags.firstOrNull { it == SingBoxConfigBuilder.DNS_BOOTSTRAP_TAG }
+            ?: tagOfType("local")
             ?: tags.firstOrNull { it == SingBoxConfigBuilder.DNS_DIRECT_TAG }
             ?: SingBoxConfigBuilder.DNS_LOCAL_TAG.also { tag ->
                 servers.put(JSONObject().put("type", "local").put("tag", tag))

@@ -1195,7 +1195,7 @@ check(
 check(
     "the stock DoH pool carries diverse fallbacks beyond the big three",
     'dns.adguard-dns.com' in files["intel"]
-    and 'dns.shecan.ir' in files["intel"]
+    and '149.112.112.112' in files["intel"]
     and '1.0.0.1' in files["intel"],
 )
 # MARBLE_SINGBOX_PROTOCOLS_V153 — the second engine consumes Marble Intelligence's own resolver
