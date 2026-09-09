@@ -85,8 +85,17 @@ class BenchmarkEngine(
             // MARBLE_REAL_DELAY_SPEED_V156 — every measurement on the sing-box engine builds its
             // own native child, so the pool is capped at the child ceiling the manager enforces.
             // The old cap of two serialised a whole subscription behind two process spawns.
+            //
+            // MARBLE_PING_SPEED_V160 — the ceiling is the one the *device* was granted, not a
+            // constant: a phone with eight cores and a real heap budget starts eight children
+            // while the first ones wait on the network, so a hundred-node URL test stops running
+            // in twenty-five waves. The four-wide floor is unchanged on a small device, and the
+            // manager's own semaphore stays the authority on how many may exist at once.
             s.probeMethod == ProbeMethod.URL_TEST || s.coreEngine() == CoreEngine.SINGBOX ->
-                s.tcpWorkers.coerceIn(1, SingBoxManager.MAX_TEMPORARY_CORES)
+                s.tcpWorkers.coerceIn(
+                    1,
+                    xray.singBox?.measurementCoreCeiling ?: SingBoxManager.MAX_TEMPORARY_CORES
+                )
             // MarbleNG launches one native Xray child per candidate, unlike v2rayNG's in-process
             // dialer. Four is the safe ceiling here: larger same-host bursts can manufacture
             // Connection reset / TLS timeout failures that disappear when the node is tapped alone.

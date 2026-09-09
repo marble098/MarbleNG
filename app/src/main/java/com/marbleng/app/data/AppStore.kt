@@ -30,6 +30,59 @@ class AppStore(context: Context) {
         JSONObject().put("profileId", it.profileId).put("name", it.name).put("at", it.at).put("reason", it.reason)
     })
 
+    // ───────────────────────────────────────────────────────────────────────────────────────────
+    // MARBLE_REMEMBERED_PING_V160 — the last measurement of every server, across restarts.
+    // ───────────────────────────────────────────────────────────────────────────────────────────
+    //
+    // A ping is work the user paid for — a sweep over a 100-node subscription is minutes of the
+    // device's radio — and until now it lived in the repository's memory and nowhere else, so
+    // leaving the app and coming back showed a list of servers with no latency at all. Everything
+    // else the user did survive a restart (the last route, the sources, the settings); the
+    // measurement was the one thing the product forgot.
+    //
+    // The rule is the same one the connection history follows: the newest measurement of a node
+    // wins, the table is bounded ([benchmarkMemoryLimit]) so a subscription of any size stays
+    // cheap to write, and a stamp older than [benchmarkMemoryMaxAgeMs] is dropped on read —
+    // a number from a month ago describes a network that no longer exists.
+    // ───────────────────────────────────────────────────────────────────────────────────────────
+
+    /** How many measurements are remembered at most, newest first. */
+    val benchmarkMemoryLimit: Int get() = 400
+
+    /** A remembered measurement older than this is no longer evidence about the route. */
+    val benchmarkMemoryMaxAgeMs: Long get() = 30L * 24L * 60L * 60L * 1000L
+
+    /**
+     * Every remembered measurement that has not aged out, newest first.
+     *
+     * Entries whose node no longer exists are *not* dropped here: a refresh rewrites a
+     * subscription's profile ids while the user's measurements are the point of the feature, so
+     * the caller (which owns the live library) does the filtering. An orphan row costs one JSON
+     * object and is pruned the next time its node is gone for good.
+     */
+    fun loadBenchmarks(): List<BenchmarkResult> {
+        val cutoff = System.currentTimeMillis() - benchmarkMemoryMaxAgeMs
+        return parseArray("benchmarks") { BenchmarkResult.fromJson(it) }
+            .asSequence()
+            .filter { it.profileId.isNotBlank() && it.measuredAtMs >= cutoff }
+            .distinctBy { it.profileId }
+            .sortedByDescending { it.measuredAtMs }
+            .take(benchmarkMemoryLimit)
+            .toList()
+    }
+
+    fun saveBenchmarks(v: List<BenchmarkResult>) {
+        val cutoff = System.currentTimeMillis() - benchmarkMemoryMaxAgeMs
+        val kept = v.asSequence()
+            .filter { it.profileId.isNotBlank() && it.measuredAtMs >= cutoff }
+            .distinctBy { it.profileId }
+            .sortedByDescending { it.measuredAtMs }
+            .take(benchmarkMemoryLimit)
+            .map { it.toJson() }
+            .toList()
+        saveArray("benchmarks", kept)
+    }
+
     // MARBLE_EXACT_LAST_PROFILE_V38
     fun lastProfileId(): String = prefs.getString("lastProfileId", "") ?: ""
     fun lastProfileSourceId(): String = prefs.getString("lastProfileSourceId", "") ?: ""
@@ -383,9 +436,9 @@ class AppStore(context: Context) {
         workloadProfile = enumValue("workloadProfile", WorkloadProfile.AUTO),
 
         theme = prefs.getString("theme", "light") ?: "light",
-        fontFamily = parseAppFont(prefs.getString("fontFamily", AppFont.VAZIR.id) ?: AppFont.VAZIR.id).id,
+        fontFamily = storedFontFamily().id,
         // iOS-styled Home presentations: IOS_SLIDER, IOS_FLOATING, IOS_EMBOSSED, IOS_MODULAR
-        homeStyle = parseHomeStyle(prefs.getString("homeStyle", HomeStyle.IOS_SLIDER.id) ?: HomeStyle.IOS_SLIDER.id).id,
+        homeStyle = storedHomeStyle().id,
         appLanguage = parseAppLanguage(prefs.getString("appLanguage", AppLanguage.SYSTEM.id) ?: AppLanguage.SYSTEM.id).id,
 
         // MARBLE_MODULAR_LAYOUT_V145 — a persisted order is repaired on read, so a legacy or
@@ -616,6 +669,37 @@ class AppStore(context: Context) {
         .putBoolean("debugModeEnabled", s.debugModeEnabled)
         .putBoolean("expertMode", s.expertMode)
         .apply()
+
+    /**
+     * MARBLE_GOOGLE_SANS_DEFAULT_V160 — the typeface of a first launch is Google Sans; an install
+     * that already chose one keeps it.
+     *
+     * The old line passed the default *into* `prefs.getString`, which is the same thing as
+     * persisting it: the moment an existing install read its settings, "vazir-on-first-launch"
+     * became an explicit stored value and every later change of the default was invisible to it.
+     * Reading `null` first keeps absence and choice apart, so this default only ever applies to
+     * an app that has never written the key.
+     */
+    private fun storedFontFamily(): AppFont {
+        val raw = prefs.getString("fontFamily", null) ?: return AppFont.DEFAULT
+        return AppFont.entries.firstOrNull { it.id.equals(raw.trim(), ignoreCase = true) }
+            ?: AppFont.DEFAULT
+    }
+
+    /**
+     * MARBLE_HOME_THEME_TWO_DEFAULT_V160 — the presentation a first launch opens with is
+     * Theme 2; an install that already chose one keeps it.
+     *
+     * This reads `null` first for exactly the reason [storedFontFamily] does: a default handed
+     * to `prefs.getString` is written back the first time settings are read, which turns
+     * "whatever the default was on the day you installed" into a permanent explicit choice and
+     * makes the default impossible to change afterwards. Absence and choice stay apart here.
+     */
+    private fun storedHomeStyle(): HomeStyle {
+        val raw = prefs.getString("homeStyle", null) ?: return HomeStyle.DEFAULT
+        return HomeStyle.entries.firstOrNull { it.id.equals(raw.trim(), ignoreCase = true) }
+            ?: HomeStyle.DEFAULT
+    }
 
     /**
      * MARBLE_PATTNG_PING_V151 — the persisted ping method, migrated from the seven-method V148

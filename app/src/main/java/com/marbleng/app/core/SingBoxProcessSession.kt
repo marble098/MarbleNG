@@ -160,6 +160,24 @@ class SingBoxProcessSession private constructor(
             }, "marble-singbox-log").apply { isDaemon = true; start() }
             val session = SingBoxProcessSession(child, pump, apiPort, secret, logFile)
             try {
+                /*
+                 * MARBLE_PING_SPEED_V160 — the readiness poll no longer sleeps a flat 60 ms.
+                 *
+                 * This loop is the last thing standing between "the child is running" and "the
+                 * delay can be asked for", and it runs once per measured server. A flat 60 ms
+                 * nap between probes handed every URL test up to 60 ms of pure idleness — a
+                 * hundred-node subscription gave a whole minute of the sweep to nothing, and the
+                 * core is usually ready a few milliseconds after one of those naps began.
+                 *
+                 * The probes themselves are nearly free on loopback (a port that is not open
+                 * yet is refused immediately), so they are taken quickly at first and only back
+                 * off when a core genuinely takes its time: 4, 8, 16, 25 ms, and 25 ms from then
+                 * on. Nothing about the readiness contract changes — the same two conditions
+                 * (inbound listening, controller answering with this outbound) must still hold,
+                 * the same startup budget still binds, and a slow core is waited for exactly as
+                 * long as it was.
+                 */
+                var pollDelayMs = 4L
                 while (left() > 0) {
                     checkInterrupted()
                     if (!child.isAlive) {
@@ -172,7 +190,8 @@ class SingBoxProcessSession private constructor(
                         settle(child, pump, logFile, settleMs, left())
                         return session
                     }
-                    Thread.sleep(minOf(60, left()).coerceAtLeast(1))
+                    Thread.sleep(minOf(pollDelayMs, left()).coerceAtLeast(1))
+                    pollDelayMs = (pollDelayMs * 2L).coerceAtMost(25L)
                 }
                 error("core-start-timeout: ${tail(logFile)}")
             } catch (error: Throwable) {

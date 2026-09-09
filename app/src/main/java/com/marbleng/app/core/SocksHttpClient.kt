@@ -299,18 +299,49 @@ object SocksHttpClient {
     }
 
     /**
+     * MARBLE_PING_SPEED_V160 — the interruptible quiet gap between two samples.
+     *
+     * `false` means the run was cancelled while the gap was being observed, which is the same
+     * answer the old between-rounds pause gave the caller: stop, keep what was measured.
+     */
+    private fun quietGap(spacingMs: Long): Boolean = try {
+        Thread.sleep(spacingMs.coerceIn(0L, 5_000L))
+        true
+    } catch (_: InterruptedException) {
+        Thread.currentThread().interrupt()
+        false
+    }
+
+    /**
      * Xray real-delay semantics aligned with v2rayNG 2.3.5:
      * two complete HTTPS GET attempts, only 200/204 is healthy, and the caller keeps the minimum.
      * Attempt one includes SOCKS/outbound/TLS setup; attempt two reuses the same verified session
      * when the origin permits keep-alive. A later failure never erases an earlier valid response.
+     *
+     * @param spacingMs MARBLE_PING_SPEED_V160 — the quiet gap kept *between* two samples taken on
+     * one session. Back-to-back requests on a keep-alive connection are the burst signature an
+     * adaptive filter learns, so the gap the product has always inserted between two samples of
+     * one server survives the move onto a single connection; pass 0 only for a caller that
+     * measures something other than a user-visible delay.
      */
-    fun tunnelRttBatchUrl(port: Int, url: String, samples: Int, timeoutMs: Int): TunnelRttBatch {
+    fun tunnelRttBatchUrl(
+        port: Int,
+        url: String,
+        samples: Int,
+        timeoutMs: Int,
+        spacingMs: Long = 0L
+    ): TunnelRttBatch {
         val parsed = URL(url)
         require(parsed.protocol == "https" && parsed.host.isNotBlank() && parsed.userInfo == null) { "Real Delay requires an HTTPS URL" }
         require(samples in 1..8)
         val host = parsed.host.removePrefix("[").removeSuffix("]")
         val path = parsed.file.ifBlank { "/" }
-        val deadline = System.nanoTime() + java.util.concurrent.TimeUnit.MILLISECONDS.toNanos(timeoutMs.toLong() * samples)
+        // The deadline is the honest wall clock of the whole run: every sample keeps its own
+        // socket budget, and the quiet gaps between them are now part of that budget too —
+        // otherwise a run that spends its spacing would be cut off before its last sample.
+        val gap = spacingMs.coerceIn(0L, 5_000L)
+        val windowMs = timeoutMs.toLong() * samples + gap * (samples - 1)
+        val deadline = System.nanoTime() + java.util.concurrent.TimeUnit.MILLISECONDS.toNanos(windowMs)
         val measured = mutableListOf<Double>()
         var warmup = 0.0
         while (measured.size < samples) {
@@ -320,7 +351,8 @@ object SocksHttpClient {
             try {
                 val batch = tunnelRttBatch(port, host, path, samples - measured.size,
                     minOf(timeoutMs, left / (samples - measured.size)).coerceAtLeast(500),
-                    targetPort = parsed.port.takeIf { it > 0 } ?: 443)
+                    targetPort = parsed.port.takeIf { it > 0 } ?: 443,
+                    spacingMs = gap)
                 if (measured.isEmpty()) warmup = batch.warmupMs
                 measured += batch.samplesMs
             } catch (error: Exception) {
@@ -335,6 +367,12 @@ object SocksHttpClient {
         return TunnelRttBatch(measured, warmup)
     }
 
+    /**
+     * @param spacingMs MARBLE_PING_SPEED_V160 — quiet gap between two samples of this session.
+     * See [tunnelRttBatchUrl]: keeping the samples on one connection is the speed win, and
+     * keeping the gap between them is what stops the win from turning into a burst an adaptive
+     * filter throttles.
+     */
     fun tunnelRttBatch(
         port: Int,
         host: String,
@@ -342,6 +380,7 @@ object SocksHttpClient {
         samples: Int = 2,
         timeoutMs: Int = 8_000,
         targetPort: Int = 443,
+        spacingMs: Long = 0L,
         tlsFactory: SSLSocketFactory = SSLSocketFactory.getDefault() as SSLSocketFactory
     ): TunnelRttBatch {
         require(port in 1..65535)
@@ -350,12 +389,13 @@ object SocksHttpClient {
         require(samples in 1..8)
         require(timeoutMs in 500..30_000)
         require(targetPort in 1..65535)
+        require(spacingMs >= 0L && spacingMs <= 5_000L)
         require(!path.contains('\r') && !path.contains('\n'))
         SingBoxProcessSession.checkInterrupted()
 
         val sessionStarted = System.nanoTime()
         val tcp = Socket()
-        val deadline = ProbeSocketDeadline(tcp, timeoutMs.toLong() * samples)
+        val deadline = ProbeSocketDeadline(tcp, timeoutMs.toLong() * samples + spacingMs * (samples - 1))
         var ssl: SSLSocket? = null
         try {
             tcp.soTimeout = timeoutMs
@@ -491,6 +531,12 @@ object SocksHttpClient {
                     // TTFB/header time is the measurement. Body size/connection-close behavior
                     // only decides whether reuse is possible; it cannot erase a valid sample.
                     consumeBody(status, headers)
+                    // MARBLE_PING_SPEED_V160 — the quiet gap between two samples of one server.
+                    // Three requests back-to-back on a live TLS session are a burst, and an
+                    // adaptive filter that throttles bursts would make the second and third
+                    // sample describe the filter instead of the route. Keeping the gap costs
+                    // milliseconds and is the only reason reusing the session is safe.
+                    if (spacingMs > 0L && !quietGap(spacingMs)) break
                 } catch (error: Throwable) {
                     if (measured.isEmpty()) throw error
                     break
