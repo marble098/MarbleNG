@@ -393,7 +393,7 @@ class SingBoxPortSovereigntyV158Test {
         assertEquals(11, request[4].toInt())
         assertEquals("example.com", request.copyOfRange(5, 16).toString(Charsets.UTF_8))
         assertEquals(0x01, request[16].toInt())
-        assertEquals(0xBB, request[17].toInt())
+        assertEquals(0xBB, request[17].toInt() and 0xff)
     }
 
     @Test
