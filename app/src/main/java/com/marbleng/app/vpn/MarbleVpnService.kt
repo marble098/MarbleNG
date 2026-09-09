@@ -636,6 +636,12 @@ class MarbleVpnService : VpnService() {
             CoreEngine.XRAY -> xray.start(profile, port, settings, linkEvidence)
         }
         val coreStartMs = ((System.nanoTime() - coreStartNs) / 1_000_000L).coerceAtLeast(0L)
+        // MARBLE_SINGBOX_STARTUP_GATE_V162 — the two halves of the start-up gate, printed
+        // separately. `core-start-timeout` used to be the only trace either half left, so a report
+        // could not distinguish a core that never opened its inbound from a core whose tunnel was
+        // up and whose controller never answered — the difference between a dead device and a
+        // missing measurement surface.
+        val readiness = if (activeEngine == CoreEngine.SINGBOX) singBox.lastStartReadiness else null
         diag.event(
             coreTag,
             "start-result",
@@ -644,6 +650,8 @@ class MarbleVpnService : VpnService() {
             "elapsedMs" to coreStartMs,
             "phase" to coreStartPhase,
             "alive" to coreAlive,
+            "inbound" to (readiness?.inboundUp ?: coreStarted),
+            "controller" to (readiness?.controllerUp ?: true),
             "reason" to if (coreStarted) "" else coreStartError.take(500)
         )
         if (!coreStarted) {

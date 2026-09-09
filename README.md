@@ -42,7 +42,7 @@ It focuses on real proxy verification, fast one-tap connection, fail-closed rout
 
 ## Speed and memory of a measurement
 
-`docs/PING_SPEED_AND_REMEMBERED_PING_V160.md` is the newest chapter.
+`docs/PING_SPEED_AND_REMEMBERED_PING_V160.md` is the previous chapter.
 
 **Real delay is 30–60 % faster with the same number, the same sample budget and the same
 accuracy.** It used to open a fresh SOCKS connection and run a fresh TLS handshake *per sample*,
@@ -69,6 +69,22 @@ list with no latency anywhere.
 next to its own title. All three are first-launch or display-only: an install that already chose a
 presentation or a typeface keeps its choice, because the store asks whether a value was ever
 written instead of writing the default back the first time it is read.
+
+`docs/SINGBOX_STARTUP_GATE_V162.md` is the newest chapter: a connect on the sing-box engine ended
+in `core-start-timeout` after 12 seconds with the kill switch held, and the only line in the core's
+log was the benign Android package-list warning every `GOOS=android` core prints. The process had
+not died — MarbleNG killed it, because "the core is up" was defined as *the local inbound **and**
+the Clash controller*, and the controller is an internal service this core binds in its **last**
+start-up stage, after every outbound's post-start walk. So the app waited for the entire core
+start-up before it would carry a byte of traffic, and it could not tell the two halves apart in a
+report: a core that never opened its inbound (a core this device cannot run) and a core whose
+tunnel was up and whose controller never answered (a working route with a missing measurement
+surface) printed the same sentence — which also handed the user V157's "update MarbleNG" paragraph
+for a fault that has nothing to do with that crash. The wait is phased now: the inbound is the
+gate, the controller is a bounded 2.5 s phase whose absence is *reported, not fatal*, `sing-box
+check` no longer spends the window the child starts in, and `start-result` prints `inbound=` and
+`controller=` separately so the next device's report can be read without re-deriving the stage
+table.
 
 `docs/PING_FALSE_FAILED_V159.md` is the previous chapter: URL test and Real delay both worked, yet
 occasionally published a perfectly healthy server as `FAILED`. Two budget defects, not routing

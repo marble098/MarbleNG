@@ -85,6 +85,15 @@ files = {
     "coreSelfTest": read("app/src/main/java/com/marbleng/app/core/SingBoxCoreSelfTest.kt"),
     "localFaultGate": read("app/src/main/java/com/marbleng/app/core/ProbeLocalFaultGate.kt"),
     "coreCrashTest": read("app/src/test/java/com/marbleng/app/core/SingBoxCoreCrashV157Test.kt"),
+    # MARBLE_SINGBOX_STARTUP_GATE_V162 — the local inbound is the tunnel, the controller is a
+    # measurement surface. The reported session died at `core-start-timeout` after 12 s with a
+    # core that was still alive, because the readiness condition was "inbound AND controller" and
+    # the controller is the last thing this core starts. The gate, its two witnesses and the test
+    # that proves both on real child processes.
+    "startupGateTest": read(
+        "app/src/test/java/com/marbleng/app/core/SingBoxStartupGateV162Test.kt"
+    ),
+    "startupGateDoc": read("docs/SINGBOX_STARTUP_GATE_V162.md"),
     "nativeCoreTest": read("app/src/test/java/com/marbleng/app/core/SingBoxNativeIntegrationTest.kt"),
     "injector": read("scripts/inject-singbox-android-fix.py"),
     # MARBLE_SINGBOX_GO127_FORCE_CLOSE_V161 — the second sing-box backport: the Go 1.27
@@ -1035,7 +1044,11 @@ check(
     "a measurement core skips only the overhead a measurement does not need",
     "validate: Boolean = true" in files["singBoxSession"]
     and "awaitApi: Boolean = true" in files["singBoxSession"]
-    and "(!awaitApi || apiReady(apiPort, secret, left()))" in files["singBoxSession"]
+    # MARBLE_SINGBOX_STARTUP_GATE_V162 — the controller is now a bounded phase of its own, and
+    # whether it is *required* follows awaitApi, so a caller that never dials it never waits for
+    # it. The measurement contract the rest of this check pins is otherwise untouched.
+    and "requireController: Boolean = awaitApi" in files["singBoxSession"]
+    and "probes.controller(apiPort, secret, remaining)" in files["singBoxSession"]
     and "validate = false" in files["singBox"]
     and "MAX_TEMPORARY_CORES" in files["singBox"]
     and "SingBoxManager.MAX_TEMPORARY_CORES" in files["bench"],
@@ -1527,6 +1540,63 @@ check(
     and "theRequestIsSentInExactlyOneWrite" in files["portGuardTest"],
 )
 
+
+# MARBLE_SINGBOX_STARTUP_GATE_V162 — the reported session: `core-start-timeout` after 12119 ms,
+# `alive=false`, kill switch held, and a retained core log whose entire content was the benign
+# Android package-list WARN. Two defects, both reproducible without a device: the readiness
+# condition waited for the Clash controller, which this core binds in its LAST start-up stage, so
+# a delay that carried no traffic was paid as a failed connect; and `sing-box check` shared the
+# child's start-up budget, so a slow validation could leave it a fraction of its window.
+check(
+    "the local inbound is the readiness gate of a live connect; the controller is a phase",
+    "data class StartReadiness(" in files["singBoxSession"]
+    # Three phases, named, so a report can say which half of the wait ran out.
+    and "interface ReadinessProbes" in files["singBoxSession"]
+    and "requireController: Boolean = awaitApi" in files["singBoxSession"]
+    and "controllerTimeoutMs: Long = CONTROLLER_TIMEOUT_MS" in files["singBoxSession"]
+    and "const val CONTROLLER_TIMEOUT_MS: Long = 2_500L" in files["singBoxSession"]
+    and "the local inbound never answered in " in files["singBoxSession"]
+    and "the controller never answered in " in files["singBoxSession"]
+    # The live connect is the caller that may carry traffic without a controller.
+    and "requireController = false" in files["singBox"]
+    and "settleMs = LIVE_SETTLE_MS" in files["singBox"]
+    and "const val LIVE_SETTLE_MS: Long = SingBoxCoreSelfTest.SETTLE_MS" in files["singBox"]
+    and "lastStartReadiness" in files["singBox"]
+    # …and the two halves are printed separately, because one sentence for both is what made
+    # the reported log unreadable.
+    and '"inbound" to (readiness?.inboundUp ?: coreStarted)' in files["vpn"]
+    and '"controller" to (readiness?.controllerUp ?: true)' in files["vpn"]
+    and "last start-up: inbound=" in files["bug"]
+    and "aTunnelWhoseControllerNeverAnswersStillCarriesTraffic" in files["startupGateTest"]
+    and "aControllerTheMeasurementActuallyDialsIsStillRequired" in files["startupGateTest"]
+    and "anInboundThatNeverOpensIsTheOtherFailureAndSaysWhichOneItWas" in files["startupGateTest"]
+    and "aCoreThatDiesAfterItsInboundOpensIsStillReportedAsACrash" in files["startupGateTest"],
+)
+check(
+    "the validation spawn no longer spends the window the child starts in",
+    "validateTimeoutMs: Long = VALIDATE_TIMEOUT_MS" in files["singBoxSession"]
+    and "const val VALIDATE_TIMEOUT_MS: Long = 8_000L" in files["singBoxSession"]
+    and "validator.waitFor(validateTimeoutMs, TimeUnit.MILLISECONDS)" in files["singBoxSession"]
+    # Both halves of the fix, not one: the validator may no longer be cut short by the child's
+    # clock, and the child's clock may no longer start before the validator has finished.
+    and "val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(startupTimeoutMs)" in files["singBoxSession"]
+    and "check(left() > 0) { \"core-start-timeout\" }" in files["singBoxSession"]
+    and "aSlowValidationNoLongerShrinksTheWindowTheChildStartsIn" in files["startupGateTest"]
+    and "aChildThatNeedsLongerThanTheLeftoversStillStarts" in files["startupGateTest"],
+)
+check(
+    "an exhausted start-up window is explained as an exhausted start-up window",
+    # The benign package-list WARN rides above every Android failure, so a device that merely
+    # timed out was handed the pre-V157 "update MarbleNG / switch to Xray" paragraph.
+    "fun isStartupTimeout(" in files["androidRuntime"]
+    and "const val STARTUP_TIMEOUT_REMEDIATION: String =" in files["androidRuntime"]
+    and "isStartupTimeout(reason) -> STARTUP_TIMEOUT_REMEDIATION" in files["androidRuntime"]
+    and "SingBoxAndroidRuntime.STARTUP_TIMEOUT_REMEDIATION" in files["localFaultGate"]
+    and "isStartupTimeout(reason) -> STARTUP_TIMEOUT_REMEDIATION" in files["androidRuntime"]
+    and "aStartUpTimeoutIsNoLongerExplainedAsThePackageManagerWarning" in files["startupGateTest"]
+    and "theTwoHalvesOfTheWaitAreStillNotVerdictsAboutAServer" in files["startupGateTest"]
+    and "MARBLE_SINGBOX_STARTUP_GATE_V162" in files["startupGateDoc"],
+)
 
 # MARBLE_HOME_IP_STRIP_V151 — the "Show complete IP information" caption is gone from Home. The
 # words survive as the glyph's content description, so the strip is still readable out loud.

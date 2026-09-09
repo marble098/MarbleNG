@@ -197,6 +197,19 @@ class BugFinder(private val context: Context, private val xray: XrayManager, pri
                     ProbeLocalFaultGate.headline(selfTestVerdict.reason),
                 SingBoxAndroidRuntime.CRASH_REMEDIATION
             )
+            // MARBLE_SINGBOX_STARTUP_GATE_V162 — a tunnel that is up with a controller that is
+            // not. It outranks the package-manager WARN below it because that one is printed by
+            // every healthy Android core, while this one is a real degradation of the URL test
+            // and the Engine page that the user can otherwise only guess at.
+            singbox?.lastStartReadiness?.controllerMissing == true -> BugCheck(
+                "SingBox core start-up",
+                BugSeverity.WARN,
+                "The core is carrying traffic, but its Clash controller never answered " +
+                    "(waited ${SingBoxProcessSession.CONTROLLER_TIMEOUT_MS} ms after the local " +
+                    "inbound was up): Real delay through the core and the Engine page's live " +
+                    "counters read nothing, while the route itself is unaffected",
+                SingBoxAndroidRuntime.STARTUP_TIMEOUT_REMEDIATION
+            )
             SingBoxAndroidRuntime.isPackageManagerFault(coreEvidence) -> BugCheck(
                 "SingBox core start-up",
                 BugSeverity.WARN,
@@ -718,6 +731,15 @@ class BugFinder(private val context: Context, private val xray: XrayManager, pri
                 SingBoxAndroidRuntime.isCoreCrash(coreEvidence) +
                 "\npackage-manager probe (/data/system/packages.xml) seen: " +
                 SingBoxAndroidRuntime.isPackageManagerFault(coreEvidence) +
+                // MARBLE_SINGBOX_STARTUP_GATE_V162 — the two halves of the last start-up wait.
+                // `core-start-timeout` alone could not tell them apart, and they have opposite
+                // remedies: an inbound that never opened is a core this device cannot run, a
+                // controller that never answered is a working route with a missing measurement
+                // surface.
+                "\nlast start-up: inbound=" + (singbox?.lastStartReadiness?.inboundUp ?: false) +
+                " controller=" + (singbox?.lastStartReadiness?.controllerUp ?: false) +
+                " phase=" + (singbox?.lastStartReadiness?.phase ?: "not run") +
+                " elapsedMs=" + (singbox?.lastStartReadiness?.elapsedMs ?: 0L) +
                 "\ncore self-test: " + (
                     selfTestVerdict?.let { verdict ->
                         "${verdict.summary} • fingerprint=${verdict.fingerprint}" +
