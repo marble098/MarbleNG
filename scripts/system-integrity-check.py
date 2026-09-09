@@ -87,6 +87,12 @@ files = {
     "coreCrashTest": read("app/src/test/java/com/marbleng/app/core/SingBoxCoreCrashV157Test.kt"),
     "nativeCoreTest": read("app/src/test/java/com/marbleng/app/core/SingBoxNativeIntegrationTest.kt"),
     "injector": read("scripts/inject-singbox-android-fix.py"),
+    # MARBLE_SINGBOX_GO127_FORCE_CLOSE_V161 — the second sing-box backport: the Go 1.27
+    # toolchain (mandated by the pinned Xray's go.mod) made the fork's stale
+    # v2rayxhttp linkname an undefined symbol at link time. Its injector, its chapter
+    # and the PR-time smoke that should have caught run #247 are pinned together.
+    "injectorGo127": read("scripts/inject-singbox-go127-fix.py"),
+    "go127Doc": read("docs/SINGBOX_GO127_FORCE_CLOSE_V161.md"),
     "coreUpdater": read("scripts/update-core-lock.sh"),
     # MARBLE_ENGINE_SELF_HEAL_V152 — the config doctor is the automatic repair half of the
     # 8.0.6 BLOCKED-root-cause fix, and its unit test pins the shipped failure verbatim.
@@ -1333,6 +1339,43 @@ check(
     # The core updater writes main directly, so anchor drift has to kill it *before* it commits a
     # lock nobody can build.
     and "scripts/inject-singbox-android-fix.py" in files["updateCores"],
+)
+
+# ── MARBLE_SINGBOX_GO127_FORCE_CLOSE_V161 ────────────────────────────────────────────
+# Build run #247 died at "Building sing-box for arm64-v8a": the pinned Xray's go.mod had
+# quietly moved the release toolchain from Go 1.26 to Go 1.27, and under Go 1.27 the
+# pinned sing-box's v2rayxhttp linknamed a symbol x/net http2 no longer compiles in.
+# The fix is a build-time backport with its own injector, and these checks pin every
+# piece of it so the failure class cannot come back unnoticed:
+#   * the injector is wired into the release build AND the PR gate AND the core updater;
+#   * the toolchain-sensitive variant is linked with the same badlinkname tag the release
+#     build compiles with, at PR time — the one gate that would have caught run #247
+#     before the merge;
+#   * the release tag set keeps the tags the force-close (and the fork's own hooks) need.
+_release_tags = (
+    re.search(r'^SINGBOX_TAGS="([^"]*)"', files["native"], re.M) or re.search(r"$^", "")
+).group(1).split(",")
+check(
+    "the Go 1.27 force-close backport is anchored to the failed run and proven in CI",
+    "MARBLE_SINGBOX_GO127_FORCE_CLOSE_V161" in files["injectorGo127"]
+    and "transport/v2rayxhttp/dialer.go" in files["injectorGo127"]
+    # the exact link error of run #247, recorded so a future reader can diff cause and fix
+    and "golang.org/x/net/http2.(*Transport).connPool" in files["injectorGo127"]
+    and "force_close_go127.go" in files["injectorGo127"]
+    and "force_close_go127_stub.go" in files["injectorGo127"]
+    and "force_close_legacy.go" in files["injectorGo127"]
+    and "scripts/inject-singbox-go127-fix.py" in files["native"]
+    and "scripts/inject-singbox-go127-fix.py" in files["verify"]
+    and "scripts/inject-singbox-go127-fix.py" in files["updateCores"]
+    and "go-version-file" in files["verify"],
+)
+check(
+    "the sing-box force-close link pin runs with the release build's badlinkname tag",
+    "-tags badlinkname" in files["native"]
+    and "-tags badlinkname" in files["verify"]
+    and "badlinkname" in _release_tags
+    and "tfogo_checklinkname0" in _release_tags
+    and "MARBLE_SINGBOX_GO127_FORCE_CLOSE_V161" in files["go127Doc"],
 )
 _pending_workflows = sorted(
     path.name for path in (ROOT / "docs" / "workflows-pending").glob("*.yml")

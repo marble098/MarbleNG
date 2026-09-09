@@ -44,6 +44,12 @@ jobs:
           # backport anchors would make every release build die inside prepare-native.sh, minutes
           # into a four-ABI compile. Dry-running the injector here turns that into a one-minute
           # failure in the updater, and keeps the lock honest about what it pins.
+          #
+          # MARBLE_SINGBOX_GO127_FORCE_CLOSE_V161: the Go 1.27 force-close injector is dry-run
+          # here for the same reason. Its anchors are the ones a newer fork tag is most likely to
+          # move (it deletes a linkname block out of v2rayxhttp/dialer.go), and the Xray pin this
+          # same job resolves decides the toolchain that makes that block fatal — a bump of either
+          # pin can break the release build, so both injectors have to keep applying.
           REPO="$(jq -r '.singbox.repo' core-lock.json)"
           TAG="$(jq -r '.singbox.tag' core-lock.json)"
           COMMIT="$(jq -r '.singbox.commit' core-lock.json)"
@@ -56,10 +62,11 @@ jobs:
           test "$(git -C "$WORK/singbox" rev-parse HEAD)" = "$COMMIT"
 
           python3 scripts/inject-singbox-android-fix.py "$WORK/singbox"
+          python3 scripts/inject-singbox-go127-fix.py "$WORK/singbox"
 
-          echo "Backport applies cleanly to $TAG ($COMMIT)."
-          echo "If a future tag already contains upstream 288411b0, the injector reports"
-          echo "'already patched' for those files and the backport can be retired."
+          echo "Backports apply cleanly to $TAG ($COMMIT)."
+          echo "If a future tag already carries the fork's own v2rayxhttp go1.27 split,"
+          echo "inject-singbox-go127-fix.py reports 'already patched' and can be retired."
       - name: Commit only when tags changed
         run: |
           if git diff --quiet -- core-lock.json; then echo 'No core update.'; exit 0; fi
