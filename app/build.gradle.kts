@@ -249,27 +249,8 @@ tasks.configureEach {
 tasks.withType<Test>().configureEach {
     testLogging {
         exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
-        showStandardStreams = true
-        events("passed", "skipped", "failed")
-    }
-    doFirst {
-        println("::error::DEBUG: Test task ${name} is about to run")
     }
 }
-
-tasks.register("reportTestFailures") {
-    doLast {
-        println("::error::DEBUG: reportTestFailures task ran")
-        throw GradleException("DEBUG: reportTestFailures task ran - this is to test if finalizedBy works")
-    }
-}
-
-afterEvaluate {
-    tasks.named("testDebugUnitTest") {
-        finalizedBy("reportTestFailures")
-    }
-}
-
 
 val prepareSingBoxRules by tasks.registering(Exec::class) {
     workingDir(rootProject.projectDir)
