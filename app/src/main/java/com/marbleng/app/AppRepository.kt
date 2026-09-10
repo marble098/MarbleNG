@@ -830,55 +830,14 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
                     failureReason = if (result.live) "urltest-live" else "urltest-throwaway"
                 )
             } else {
-                // MARBLE_PINNED_PING_PARITY_V164 — a pinned profile (pcs/vcn) is refused for live
-                // sing-box tunnel with "Use Xray core" but must still be measurable. The throwaway
-                // path now translates it with insecure for ping, but if that still fails with
-                // config-unsupported pinned refusal (e.g. old core, or live controller path that
-                // cannot be downgraded), fall back to Xray's real tunnel measurement so URL test
-                // returns the same reachability as Real delay (15/19 vs 4/19 parity).
-                val isPinnedRefusal = result.detail.contains("pinnedPeerCertSha256", ignoreCase = true) ||
-                    result.detail.contains("pinnedPeerCertificate", ignoreCase = true) ||
-                    result.detail.contains("verifyPeerCertByName", ignoreCase = true) ||
-                    result.detail.contains("PINNED_PEER_REFUSAL", ignoreCase = true) ||
-                    result.detail.contains("config-unsupported", ignoreCase = true)
-                if (effective.coreEngine() == CoreEngine.SINGBOX && isPinnedRefusal) {
-                    var fallback: RouteProbe.ProbeResult? = null
-                    runCatching {
-                        xray.temporary(profile, 0, effective) { port ->
-                            fallback = RouteProbe.tunnelHttpsMeasureTargets(
-                                socksPort = port,
-                                timeoutMs = timeoutMs,
-                                samples = 1,
-                                urls = targets
-                            )
-                        }
-                    }
-                    val fb = fallback
-                    if (fb != null && fb.latencyMs < RouteProbe.UNREACHABLE) {
-                        fb.copy(
-                            method = RouteProbe.METHOD_URL_TEST,
-                            failureReason = (fb.failureReason + "+xray-pinned-fallback").take(160)
-                        )
-                    } else {
-                        RouteProbe.ProbeResult(
-                            method = RouteProbe.METHOD_URL_TEST,
-                            latencyMs = RouteProbe.UNREACHABLE,
-                            successPercent = 0,
-                            samples = 1,
-                            lossPercent = 100.0,
-                            failureReason = result.detail.ifBlank { "urltest-failed" }.take(160)
-                        )
-                    }
-                } else {
-                    RouteProbe.ProbeResult(
-                        method = RouteProbe.METHOD_URL_TEST,
-                        latencyMs = RouteProbe.UNREACHABLE,
-                        successPercent = 0,
-                        samples = 1,
-                        lossPercent = 100.0,
-                        failureReason = result.detail.ifBlank { "urltest-failed" }.take(160)
-                    )
-                }
+                RouteProbe.ProbeResult(
+                    method = RouteProbe.METHOD_URL_TEST,
+                    latencyMs = RouteProbe.UNREACHABLE,
+                    successPercent = 0,
+                    samples = 1,
+                    lossPercent = 100.0,
+                    failureReason = result.detail.ifBlank { "urltest-failed" }.take(160)
+                )
             }
         }
     }
