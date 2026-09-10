@@ -212,10 +212,9 @@ class BugFinder(private val context: Context, private val xray: XrayManager, pri
             )
             SingBoxAndroidRuntime.isPackageManagerFault(coreEvidence) -> BugCheck(
                 "SingBox core start-up",
-                BugSeverity.INFO,
+                BugSeverity.WARN,
                 "The core tried to read Android's package list (/data/system/packages.xml), which " +
-                    "an app process may not open — this WARN is expected on Android and is harmless on its own; " +
-                    "it only matters as fingerprint of the pre-V157 crashing build",
+                    "an app process may not open",
                 SingBoxAndroidRuntime.PACKAGE_MANAGER_REMEDIATION
             )
             else -> BugCheck(
