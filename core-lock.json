@@ -14,7 +14,7 @@
     "tag": "v1.14.0-extended-2.7.1",
     "commit": "217f77643f19e915ea38ba2a9ac7e28e22a0cec5",
     "channel": "beta",
-    "patch": "crash-fix.1",
+    "patch": "crash-fix.2-pinning.1",
     "sha256": {
       "sing-box-1.14.0-extended-2.7.1-linux-amd64.tar.gz": "6bae7a6f43f55e229741737b31ea7490757ae20e7b2fddc93674b4d8694951f9"
     }

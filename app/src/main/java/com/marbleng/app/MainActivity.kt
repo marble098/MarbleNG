@@ -7,8 +7,6 @@ import android.content.pm.PackageManager
 import android.net.VpnService
 import android.os.Build
 import android.os.Bundle
-import android.os.PowerManager
-import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -65,12 +63,6 @@ class MainActivity : ComponentActivity() {
         completePermissionStep(granted || notificationsGranted())
     }
 
-    private val batterySettings = registerForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) {
-        completePermissionStep(batteryExemptionGranted())
-    }
-
     private val openFile = registerForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri ->
@@ -103,21 +95,15 @@ class MainActivity : ComponentActivity() {
                 Manifest.permission.POST_NOTIFICATIONS
             ) == PackageManager.PERMISSION_GRANTED
 
-    private fun batteryExemptionGranted(): Boolean {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return true
-        val power = getSystemService(PowerManager::class.java)
-        return power?.isIgnoringBatteryOptimizations(packageName) == true
-    }
-
     /**
-     * Permission order is deterministic so the explanation always precedes the Android prompt.
-     * The first connection arms the complete protected-connection access set in one contextual
-     * sequence, including Local Proxy mode; subsequent connections skip already-granted access.
+     * MARBLE_NO_BATTERY_PERMISSION_V165 — the exemption request is gone. The connection asks only
+     * for the two access rights it actually requires; the tunnel's foreground service is what
+     * keeps it alive while the screen is off, and no Doze exclusion prompt is needed for that.
+     * Order stays deterministic so the explanation always precedes the Android prompt.
      */
     private fun missingConnectionPermissions(): List<ConnectionPermissionStep> = buildList {
         if (!vpnConsentGranted()) add(ConnectionPermissionStep.VPN)
         if (!notificationsGranted()) add(ConnectionPermissionStep.NOTIFICATIONS)
-        if (!batteryExemptionGranted()) add(ConnectionPermissionStep.BATTERY)
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -263,28 +249,6 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
-            ConnectionPermissionStep.BATTERY -> {
-                if (batteryExemptionGranted()) {
-                    completePermissionStep(true)
-                } else {
-                    val direct = Intent(
-                        Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS
-                    ).apply {
-                        data = android.net.Uri.parse("package:$packageName")
-                    }
-                    runCatching { batterySettings.launch(direct) }
-                        .onFailure {
-                            runCatching {
-                                batterySettings.launch(
-                                    Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
-                                )
-                            }.onFailure { error ->
-                                permissionError = "Could not open battery settings: " +
-                                    (error.message ?: error::class.java.simpleName)
-                            }
-                        }
-                }
-            }
             null -> Unit
         }
     }
@@ -294,7 +258,6 @@ class MainActivity : ComponentActivity() {
             permissionError = when (permissionStep) {
                 ConnectionPermissionStep.VPN -> "VPN access is required before MarbleNG can start a protected connection."
                 ConnectionPermissionStep.NOTIFICATIONS -> "Notifications are required to keep the active tunnel visible."
-                ConnectionPermissionStep.BATTERY -> "Background access is required to keep the tunnel stable when idle."
                 null -> "Access was not granted."
             }
             return

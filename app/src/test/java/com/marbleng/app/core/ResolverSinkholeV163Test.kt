@@ -13,9 +13,10 @@ import org.junit.Test
 
 /**
  * MARBLE_RESOLVER_SINKHOLE_V163 / MARBLE_SINGBOX_PINNED_PEER_V163 /
- * MARBLE_FREEDOM_SOCKOPT_STRATEGY_V163 — the runtime log that motivated this release, in tests.
+ * MARBLE_SINGBOX_PINNED_PEER_V164 / MARBLE_FREEDOM_SOCKOPT_STRATEGY_V163 — the runtime logs
+ * that motivated these releases, in tests.
  *
- * The log carried, side by side:
+ * The logs carried, side by side:
  *
  *  - `The "freedom.domainStrategy" setting is deprecated and will be removed … migrated to
  *    "sockopt.domainStrategy"` on every start — the hardener wrote the alias the core is about
@@ -25,7 +26,9 @@ import org.junit.Test
  *    resolver, sitting in the user's primary slot, being asked *through the tunnel* and failing a
  *    full handshake on every lookup;
  *  - a VLESS/TCP/TLS node with `pcs=` and `vcn=` that "connected" on sing-box extended and moved
- *    no traffic, because the fork's parser drops both keys and verifies the fronted SNI.
+ *    no traffic, because the fork's parser dropped both keys and verified the fronted SNI. V164
+ *    fixes it at the core: the pinned sing-box now implements the Xray pin contract, and these
+ *    tests assert the pin survives every candidate instead of being refused.
  */
 class ResolverSinkholeV163Test {
 
@@ -208,27 +211,26 @@ class ResolverSinkholeV163Test {
     )
 
     @Test
-    fun `a pcs or vcn share link is refused for sing-box before the parser can accept it`() {
+    fun `a pcs or vcn share link runs on sing-box with the pin translated`() {
         assertTrue(SingBoxConfigBuilder.linkCarriesPin(pinnedLink))
         assertFalse(SingBoxConfigBuilder.linkCarriesPin(PLAIN_LINK))
-        val refusal = SingBoxConfigBuilder.pinnedPeerRefusal(linkProfile(pinnedLink))
-        assertNotNull(refusal)
-        assertTrue(refusal!!.startsWith("config-unsupported:"))
-        assertTrue(refusal.contains("pinnedPeerCertSha256"))
-        assertTrue("the user must be told which engine can honour the pin", refusal.contains("Xray"))
+        assertFalse(SingBoxConfigBuilder.linkCarriesChainPin(pinnedLink))
+        // pcs/vcn is no longer a refusal — only the whole-chain pin remains one.
+        assertNull(SingBoxConfigBuilder.pinnedPeerRefusal(linkProfile(pinnedLink)))
         assertNull(SingBoxConfigBuilder.pinnedPeerRefusal(linkProfile(PLAIN_LINK)))
-
-        // The parser-first default must not become a candidate: "connected, no Internet".
-        val support = SingBoxConfigBuilder.describe(linkProfile(pinnedLink), AppSettings(singBoxPreferParser = true))
-        assertFalse(support.supported)
-        assertEquals(refusal, support.reason)
         assertNull(
             SingBoxConfigBuilder.pinnedPeerRefusal(linkProfile("vless://x@h:1?security=tls&pcs=&vcn="))
         )
+
+        // The parser-first default is a full citizen again: the fork's parser reads pcs/vcn
+        // itself, and every candidate must carry the pin rather than silently dropping it.
+        val support = SingBoxConfigBuilder.describe(linkProfile(pinnedLink), AppSettings(singBoxPreferParser = true))
+        assertTrue(support.supported)
+        assertEquals("link-parser", support.strategy)
     }
 
     @Test
-    fun `a pinned stored json is refused the same way`() {
+    fun `a pinned stored json is translated to the patched core options`() {
         val json = JSONObject().put(
             "outbounds",
             JSONArray().put(
@@ -243,7 +245,37 @@ class ResolverSinkholeV163Test {
             )
         ).toString()
         val profile = ProxyProfile(id = "p", name = "p", scheme = "vless", raw = "", configJson = json)
-        assertEquals(SingBoxConfigBuilder.PINNED_PEER_REFUSAL, SingBoxConfigBuilder.pinnedPeerRefusal(profile))
+        assertNull(SingBoxConfigBuilder.pinnedPeerRefusal(profile))
+        val built = JSONObject(SingBoxConfigBuilder.build(profile, AppSettings(), 10808, 39090, "s", "", "").json)
+        val tls = built.getJSONArray("outbounds").getJSONObject(0).getJSONObject("tls")
+        assertEquals("spotify.com", tls.getString("server_name"))
+        assertEquals(listOf("vps1.example.org"), tls.getJSONArray("verify_peer_cert_by_name").toList())
+    }
+
+    @Test
+    fun `a whole-chain pin is still refused with the engine to use instead`() {
+        val chainLink = "vless://x@h:1?security=tls&pinnedPeerCertificateChainSha256=" + "ab".repeat(32)
+        assertTrue(SingBoxConfigBuilder.linkCarriesChainPin(chainLink))
+        val refusal = SingBoxConfigBuilder.pinnedPeerRefusal(linkProfile(chainLink))
+        assertNotNull(refusal)
+        assertTrue(refusal!!.startsWith("config-unsupported:"))
+        assertTrue(refusal.contains("Xray"))
+
+        val json = JSONObject().put(
+            "outbounds",
+            JSONArray().put(
+                JSONObject().put("protocol", "vless").put("tag", "proxy")
+                    .put("settings", JSONObject().put("vnext", JSONArray().put(
+                        JSONObject().put("address", "h").put("port", 1)
+                            .put("users", JSONArray().put(JSONObject().put("id", "x")))
+                    )))
+                    .put("streamSettings", JSONObject().put("security", "tls")
+                        .put("tlsSettings", JSONObject().put("serverName", "h")
+                            .put("pinnedPeerCertificateChainSha256", "ab".repeat(32))))
+            )
+        ).toString()
+        val profile = ProxyProfile(id = "c", name = "c", scheme = "vless", raw = "", configJson = json)
+        assertEquals(SingBoxConfigBuilder.CHAIN_PIN_REFUSAL, SingBoxConfigBuilder.pinnedPeerRefusal(profile))
     }
 
     // ------------------------------------------------------------------ sing-box resolver graph

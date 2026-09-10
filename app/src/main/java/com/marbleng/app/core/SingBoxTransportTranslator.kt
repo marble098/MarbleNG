@@ -148,30 +148,36 @@ object SingBoxTransportTranslator {
         if (security.isBlank() || security == "none") return null
         if (security !in setOf("tls", "reality")) unsupported("streamSettings.security", "unsupported security '$security'")
         val source = stream.optJSONObject(if (security == "reality") "realitySettings" else "tlsSettings") ?: JSONObject()
-        val pins = listOf("pinnedPeerCertSha256", "pinnedPeerCertificateChainSha256", "pinnedPeerCertificatePublicKeySha256")
-        val pinnedKey = pins.firstOrNull { source.has(it) && source.opt(it)?.toString().orEmpty().isNotBlank() }
-        var downgradedForTest = false
-        if (pinnedKey != null) {
-            if (forTest) {
-                downgradedForTest = true
-                notes += "measurement: $pinnedKey downgraded to insecure for ping — live tunnel still uses Xray for verified pin"
-            } else {
-                unsupported("tlsSettings.$pinnedKey", "certificate and SPKI hashes are not interchangeable; use Xray to retain verification")
-            }
+        // MARBLE_SINGBOX_PINNED_PEER_V164 — the pinned sing-box core now speaks Xray's pinning
+        // vocabulary, so certificate pins are translated instead of refused:
+        //   `pcs` pinnedPeerCertSha256               → pinned_peer_cert_sha256 (hex SHA-256 of DER)
+        //   `vcn` verifyPeerCertByName               → verify_peer_cert_by_name (DNS names)
+        //   pinnedPeerCertificatePublicKeySha256     → certificate_public_key_sha256 (base64 SPKI)
+        // The core's patched verifier mirrors Xray's verifyPeerCert/verifyChain semantics, so a
+        // pinning server behind a fronted SNI connects — with the pin enforced — on both engines.
+        val chainPin = source.optString("pinnedPeerCertificateChainSha256").trim()
+        if (chainPin.isNotBlank()) {
+            unsupported(
+                "tlsSettings.pinnedPeerCertificateChainSha256",
+                "whole-chain pins are not expressible in sing-box; keep Xray for this profile"
+            )
         }
-        val names = source.optString("verifyPeerCertByName")
+        val certPins = pinList(source.optString("pinnedPeerCertSha256")) { token ->
+            TlsPinningPolicy.normalizeOneFingerprint(token)
+                ?: unsupported("tlsSettings.pinnedPeerCertSha256", "pin '$token' is not a valid SHA-256 fingerprint")
+        }
+        val verifyNames = source.optString("verifyPeerCertByName")
+            .split(',')
+            .map(String::trim)
+            .filter(String::isNotBlank)
+            .distinct()
+        val spkiPins = pinList(source.optString("pinnedPeerCertificatePublicKeySha256")) { token ->
+            TlsPinningPolicy.normalizeOneFingerprint(token)
+                ?: unsupported("tlsSettings.pinnedPeerCertificatePublicKeySha256", "pin '$token' is not a valid SHA-256 fingerprint")
+        }
         val serverName = source.optString("serverName")
-        var effectiveServerName = serverName
-        if (names.isNotBlank() && names != serverName) {
-            if (forTest) {
-                effectiveServerName = names
-                notes += "measurement: verifyPeerCertByName differs from SNI — using $names as server_name for ping (fronting lost for this measurement)"
-            } else {
-                unsupported("tlsSettings.verifyPeerCertByName", "verification names different from SNI cannot be preserved")
-            }
-        }
         val result = JSONObject().put("enabled", true)
-        if (effectiveServerName.isNotBlank()) result.put("server_name", effectiveServerName)
+        if (serverName.isNotBlank()) result.put("server_name", serverName)
         listOf("alpn", "minVersion", "maxVersion", "cipherSuites").forEach { key ->
             if (source.has(key)) {
                 val mapped = mapOf("alpn" to "alpn", "minVersion" to "min_version", "maxVersion" to "max_version", "cipherSuites" to "cipher_suites").getValue(key)
@@ -180,7 +186,23 @@ object SingBoxTransportTranslator {
                 } else result.put(mapped, source.get(key))
             }
         }
-        if (source.optBoolean("allowInsecure", false) || downgradedForTest) result.put("insecure", true)
+        // The pinning keys replace chain verification in the core, so the legacy insecure flag is
+        // only written when the user actually asked for it — never as a silent downgrade.
+        if (source.optBoolean("allowInsecure", false)) result.put("insecure", true)
+        if (certPins.isNotEmpty()) result.put("pinned_peer_cert_sha256", JSONArray(certPins))
+        if (verifyNames.isNotEmpty()) result.put("verify_peer_cert_by_name", JSONArray(verifyNames))
+        if (spkiPins.isNotEmpty()) {
+            // Xray stores the SPKI hash as hex; sing-box expects the base64 SubjectPublicKeyInfo
+            // digest. The 32-byte digest is identical — only its spelling changes.
+            val converted = JSONArray()
+            spkiPins.forEach { hex ->
+                val bytes = ByteArray(32) { index ->
+                    hex.substring(index * 2, index * 2 + 2).toInt(16).toByte()
+                }
+                converted.put(java.util.Base64.getEncoder().encodeToString(bytes))
+            }
+            result.put("certificate_public_key_sha256", converted)
+        }
         val fingerprint = source.optString("fingerprint")
         if (fingerprint.isNotBlank() && fingerprint != "unsafe") {
             result.put("utls", JSONObject().put("enabled", true).put("fingerprint", fingerprint))
@@ -229,7 +251,6 @@ object SingBoxTransportTranslator {
             "enableSessionResumption", "show", "spiderX", "publicKey", "password", "shortId", "mldsa65Verify",
             "pinnedPeerCertSha256", "pinnedPeerCertificateChainSha256", "pinnedPeerCertificatePublicKeySha256")
         source.keys().forEach { key ->
-            if (key in pins && forTest) return@forEach
             if (key !in allowed && !source.isNull(key)) unsupported("tlsSettings.$key", "no lossless mapping is implemented")
         }
         if (source.optBoolean("disableSystemRoot", false) && !result.has("certificate")) {
@@ -248,6 +269,21 @@ object SingBoxTransportTranslator {
         }
         return result
     }
+
+    /**
+     * Splits a comma/whitespace-separated pin field the way the rest of the product does
+     * ([TlsPinningPolicy] tolerates colons, base64 and OpenSSL spacing), normalising every
+     * element through [normalize]. A malformed element is a refusal, not a silent drop: a pin
+     * that is not exactly 32 bytes would otherwise vanish from the emitted config.
+     */
+    private fun pinList(raw: String, normalize: (String) -> String): List<String> =
+        raw.split(',', ';', '\n', '\r', ' ', '\t')
+            .asSequence()
+            .map(String::trim)
+            .filter(String::isNotBlank)
+            .map(normalize)
+            .distinct()
+            .toList()
 
     internal fun unsupported(path: String, reason: String): Nothing = throw ConfigTranslationException(path, reason)
 }

@@ -2303,7 +2303,11 @@ private fun postToMain(block: () -> Unit) {
         draft: ManualConfigDraft,
         targetSubscriptionId: String = "manual"
     ): Boolean {
-        if (busy) {
+        // MARBLE_PING_DOES_NOT_BLOCK_SELECTION_V165 — a probe sweep no longer blocks adding a
+        // manual server. A ping owns a snapshot of its scope and merges its results by profile
+        // id, so a node added mid-sweep simply joins the library without a fresh measurement.
+        // Only genuinely conflicting tasks (refresh/import) still wait for the sweep to finish.
+        if (busy && !probeActive) {
             message = "Wait for the current task before adding a manual config"
             return false
         }
@@ -2944,6 +2948,10 @@ private fun postToMain(block: () -> Unit) {
      * MARBLE_SELECT_IS_NOT_CONNECT_V121 — remember the user's chosen server without touching the
      * tunnel. The choice is persisted with the same key a successful connection writes, so Home,
      * Quick Tile and the next app start all agree on which server the connect button will use.
+     *
+     * MARBLE_HOME_SELECTION_SYNC_V165 — connecting also lands here first: the user's choice is
+     * recorded the moment the handshake starts, not only when it succeeds, so a connection that
+     * fails still leaves Home and the Servers page showing exactly the server the user picked.
      */
     fun selectProfile(p: ProxyProfile) {
         diagnostics.event("APP", "select-server", "profile" to p.id.take(12), "name" to p.name.take(80))
@@ -3106,6 +3114,9 @@ private fun postToMain(block: () -> Unit) {
     fun startVpn(p: ProxyProfile) {
         privacy = null
         runCatching { scanIranMode() }
+        // MARBLE_HOME_SELECTION_SYNC_V165 — connecting is itself a selection (see selectProfile):
+        // even if this handshake later fails, the chosen server stays what Home shows.
+        selectProfile(p)
         setRuntimeState("CONNECTING", p.name)
         val intent = Intent(context, MarbleVpnService::class.java)
             .setAction(MarbleVpnService.ACTION_START)
@@ -3118,6 +3129,7 @@ private fun postToMain(block: () -> Unit) {
     fun startLocalProxy(p: ProxyProfile) {
         privacy = null
         runCatching { scanIranMode() }
+        selectProfile(p)
         setRuntimeState("CONNECTING", p.name)
         val intent = Intent(context, MarbleVpnService::class.java)
             .setAction(MarbleVpnService.ACTION_START)
@@ -3615,11 +3627,7 @@ private fun postToMain(block: () -> Unit) {
      */
     fun pingHomeGroup() {
         val route = homeRoute()
-        val sourceId = when {
-            route == null -> "manual"
-            route.subscriptionId.isBlank() -> "manual"
-            else -> route.subscriptionId
-        }
+        val sourceId = HomePingScope.sourceIdFor(route)
         // Unknown ids fail closed inside libraryScopeSnapshot (empty set), never a full sweep.
         testSource(sourceId)
     }
@@ -3634,11 +3642,8 @@ private fun postToMain(block: () -> Unit) {
             ?: lastProfile()
 
     /** Human-readable name of the group [pingHomeGroup] would measure. */
-    fun homeGroupPingLabel(): String {
-        val route = homeRoute()
-        val sourceId = route?.subscriptionId?.takeIf { it.isNotBlank() } ?: "manual"
-        return libraryScopeLabel(sourceId)
-    }
+    fun homeGroupPingLabel(): String =
+        libraryScopeLabel(HomePingScope.sourceIdFor(homeRoute()))
 
     /** True while a ping sweep covering the current Home group is running. */
     val homeGroupPingRunning: Boolean

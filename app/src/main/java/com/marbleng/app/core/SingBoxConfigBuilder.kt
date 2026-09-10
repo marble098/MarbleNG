@@ -202,36 +202,41 @@ object SingBoxConfigBuilder {
     private data class CandidateSet(val candidates: List<Candidate>, val refusal: String)
 
     /**
-     * MARBLE_SINGBOX_PINNED_PEER_V163 — why a certificate-pinning profile cannot run on the
-     * extended core, or null when it can.
+     * MARBLE_SINGBOX_PINNED_PEER_V164 — why a certificate-pinning profile now RUNS on the
+     * extended core, and what is still refused.
      *
      * The "connects on sing-box but no Internet" report was a VLESS/TCP/TLS node whose link
-     * carried `pcs=<sha256>,…` (Xray `pinnedPeerCertSha256`, hex hash of the WHOLE leaf
-     * certificate) and `vcn=<host>` (Xray `verifyPeerCertByName`) behind a fronted
-     * `sni=spotify.com`. Xray honours those by skipping chain validation and matching the leaf
-     * hash — the server is self-signed by design. The fork's `parser` outbound reads the same link,
-     * silently ignores both keys, and verifies the certificate against the SNI with the system CA
-     * store, so every handshake fails after the SOCKS inbound is already "up": the core is alive,
-     * the tunnel is established, nothing ever completes. The two Marble translators already refuse
-     * the JSON form (the fork only knows `certificate_public_key_sha256`, an SPKI hash that is not
-     * derivable from a certificate hash, and `insecure: true` would discard the user's pin), but
-     * the parser candidate ran first and *looked* like a success.
+     * carried `pcs=<sha256>,…` (Xray `pinnedPeerCertSha256`, hex hash of the leaf certificate)
+     * and `vcn=<host>` (Xray `verifyPeerCertByName`) behind a fronted `sni=spotify.com`. The
+     * fork's parser silently ignored both keys and verified the certificate against the SNI
+     * with the system CA store, so every handshake failed while the core stayed "up".
      *
-     * The pin is a security promise the user made; it is never silently downgraded. The profile
-     * is refused before the tunnel with the engine to use instead, and the same text reaches the
-     * Engine page through [describe].
+     * The pinned core now implements the same contract natively
+     * (scripts/inject-singbox-tls-pinning.py):
+     *
+     *  - `pinned_peer_cert_sha256`  — Xray `pcs`: a hash on the leaf accepts the peer; a hash
+     *    on a CA in the chain anchors the name check (Xray verifyChain semantics);
+     *  - `verify_peer_cert_by_name` — Xray `vcn`: names the leaf must verify against;
+     *  - `certificate_public_key_sha256` — the native SPKI pin, fed from Xray's hex form.
+     *
+     * So pcs/vcn profiles are translated and the fork's own parser reads the same keys — the
+     * pin is preserved on every candidate, live tunnel and measurement alike. The one pin the
+     * core still cannot express is Xray's whole-chain hash
+     * (`pinnedPeerCertificateChainSha256`); that profile is refused before the tunnel with
+     * the engine to use instead, and the same text reaches the Engine page through [describe].
      */
     fun pinnedPeerRefusal(profile: ProxyProfile): String? {
-        val pinnedJson = profile.configJson.isNotBlank() && TlsPinningPolicy.configIsPinned(profile.configJson)
-        val pinnedLink = shareLink(profile)?.let { linkCarriesPin(it) } == true
-        if (!pinnedJson && !pinnedLink) return null
-        return PINNED_PEER_REFUSAL
+        val chainPinnedJson = profile.configJson.isNotBlank() &&
+            runCatching { jsonHasChainPin(JSONObject(profile.configJson)) }.getOrDefault(false)
+        val chainPinnedLink = shareLink(profile)?.let { linkCarriesChainPin(it) } == true
+        if (!chainPinnedJson && !chainPinnedLink) return null
+        return CHAIN_PIN_REFUSAL
     }
 
-    const val PINNED_PEER_REFUSAL =
-        "config-unsupported: tlsSettings.pinnedPeerCertSha256/verifyPeerCertByName: this server pins " +
-            "its TLS certificate (pcs/vcn). sing-box extended cannot verify a certificate hash or a " +
-            "name other than the SNI, so it would connect without Internet. Use the Xray core for it."
+    const val CHAIN_PIN_REFUSAL =
+        "config-unsupported: tlsSettings.pinnedPeerCertificateChainSha256: this server pins its " +
+            "whole TLS certificate chain, which sing-box extended cannot verify. Use the Xray " +
+            "core for it. (Leaf pins — pcs/vcn — run on both engines.)"
 
     /** True when the share-link query carries any `pcs` / `vcn` style verification key. */
     internal fun linkCarriesPin(link: String): Boolean {
@@ -246,6 +251,45 @@ object SingBoxConfigBuilder {
         }
     }
 
+    /** Query keys that carry Xray's whole-chain pin, which no sing-box option can express. */
+    private val CHAIN_SHA256_KEYS = setOf(
+        "pinnedpeercertificatechainsha256",
+        "pinned_peer_certificate_chain_sha256",
+        "chainpin",
+        "chainsha256"
+    )
+
+    /** True when the share-link query carries a whole-chain pin key with a non-blank value. */
+    internal fun linkCarriesChainPin(link: String): Boolean {
+        val query = link.substringAfter('?', "").substringBefore('#')
+        if (query.isBlank()) return false
+        return query.split('&').any { pair ->
+            pair.substringBefore('=').trim().lowercase() in CHAIN_SHA256_KEYS &&
+                pair.substringAfter('=', "").trim().isNotBlank()
+        }
+    }
+
+    /** True when any `tlsSettings` in the stored config carries a non-blank chain pin. */
+    private fun jsonHasChainPin(value: Any?): Boolean {
+        when (value) {
+            is JSONObject -> {
+                if (value.has("tlsSettings") && value.optJSONObject("tlsSettings")
+                        ?.optString("pinnedPeerCertificateChainSha256").orEmpty().isNotBlank()) {
+                    return true
+                }
+                value.keys().asSequence().toList().forEach { key ->
+                    if (jsonHasChainPin(value.opt(key))) return true
+                }
+            }
+            is JSONArray -> {
+                for (index in 0 until value.length()) {
+                    if (jsonHasChainPin(value.opt(index))) return true
+                }
+            }
+        }
+        return false
+    }
+
     private fun candidateSet(profile: ProxyProfile, settings: AppSettings, forTest: Boolean = false): CandidateSet {
         val root = profile.configJson.takeIf { it.isNotBlank() }
             ?.let { runCatching { JSONObject(it) }.getOrNull() }
@@ -255,22 +299,18 @@ object SingBoxConfigBuilder {
                 ""
             )
         }
-        // MARBLE_SINGBOX_PINNED_PEER_V163 — decided before any reader runs, so the fork's parser
-        // (which would happily accept the link and drop the pin) never becomes a candidate.
-        // For measurements (forTest=true) we allow a downgraded insecure translation so ping
-        // reachability matches Xray, but we still exclude the parser which would silently drop
-        // the pin and fail with no Internet.
-        val pinned = pinnedPeerRefusal(profile)
-        if (pinned != null && !forTest) {
-            return CandidateSet(emptyList(), pinned)
+        // MARBLE_SINGBOX_PINNED_PEER_V164 — decided before any reader runs: the only pin the
+        // core cannot express is the whole-chain hash. pcs/vcn/SPKI profiles now translate
+        // AND the fork's parser reads the same keys, so the parser is a full citizen again —
+        // it can no longer silently drop a pin and "connect without Internet".
+        val chainPinRefusal = pinnedPeerRefusal(profile)
+        if (chainPinRefusal != null) {
+            return CandidateSet(emptyList(), chainPinRefusal)
         }
-        val isPinnedForTest = pinned != null && forTest
         val link = shareLink(profile)
 
         // Reader 1 — the core's own parser. Nothing to translate, nothing to lose.
-        // For pinned nodes under test we exclude parser because it ignores pcs/vcn and would
-        // connect without Internet, producing FAILED instead of a real measurement.
-        val parser = if (isPinnedForTest) null else link?.let {
+        val parser = link?.let {
             Candidate(STRATEGY_LINK, listOf(parserOutbound(it, settings)), emptyList())
         }
 
@@ -674,13 +714,6 @@ private fun removeKeys(
             if (candidate.optString("tag") == tag) return candidate
         }
         return null
-    }
-
-    private fun hasCertificatePinning(outbound: JSONObject): Boolean {
-        val tls = outbound.optJSONObject("streamSettings")?.optJSONObject("tlsSettings")
-            ?: return false
-        return tls.optString("pinnedPeerCertSha256").isNotBlank() ||
-            tls.optString("verifyPeerCertByName").isNotBlank()
     }
 
     /**

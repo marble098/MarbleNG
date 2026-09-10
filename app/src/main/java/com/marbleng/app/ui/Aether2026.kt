@@ -5448,7 +5448,10 @@ private fun ServersNodeCard(
 
     SwipeToDismissBox(
         state = swipeState,
-        enableDismissFromStartToEnd = !repo.busy,
+        // MARBLE_PING_DOES_NOT_BLOCK_SELECTION_V165 — editing used to freeze while any task
+        // (a ping sweep included) was running. Renaming is instant local state, so a sweep in
+        // progress must not disable it.
+        enableDismissFromStartToEnd = true,
         enableDismissFromEndToStart = false,
         backgroundContent = {
             val tone = Aether.Amethyst
@@ -5485,7 +5488,11 @@ private fun ServersNodeCard(
                     color = Aether.GlassBorderSoft
                 )
                 .kineticClickable(
-                    enabled = !repo.busy && !active,
+                    // MARBLE_PING_DOES_NOT_BLOCK_SELECTION_V165 — a ping sweep must never
+                    // freeze the list: selection is instant local state and the user has to be
+                    // able to pick (or switch to) a server while the sweep is still running.
+                    // The only row that stays inert is the one already carrying traffic.
+                    enabled = !active,
                     role = Role.Button,
                     boundedShape = rowShape,
                     onClick = onConnect
@@ -6918,7 +6925,9 @@ private fun ServersAddNodeForm(
             color = if (missing == null && targetName != null) Aether.Emerald else Aether.InkMuted,
             variant = PrismButtonVariant.Primary,
             modifier = Modifier.fillMaxWidth(),
-            enabled = !repo.busy && targetName != null && missing == null
+            // MARBLE_PING_DOES_NOT_BLOCK_SELECTION_V165 — creating a server stays available
+            // while a ping sweep runs (see AppRepository.addManualProfile for the same rule).
+            enabled = (!repo.busy || repo.probeActive) && targetName != null && missing == null
         ) {
             onSave(draft, target)
         }

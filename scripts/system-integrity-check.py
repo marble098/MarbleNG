@@ -71,7 +71,12 @@ files = {
     "singBoxBuilder": read("app/src/main/java/com/marbleng/app/core/SingBoxConfigBuilder.kt"),
     "sinkholeTest": read("app/src/test/java/com/marbleng/app/core/ResolverSinkholeV163Test.kt"),
     "sinkholeDoc": read("docs/RESOLVER_SINKHOLE_V163.md"),
-    "pinnedPeerDoc": read("docs/SINGBOX_PINNED_PEER_V163.md"),
+    "homePingScope": read("app/src/main/java/com/marbleng/app/core/HomePingScope.kt"),
+    "homePingScopeTest": read("app/src/test/java/com/marbleng/app/model/HomePingScopeTest.kt"),
+    "pinnedPeerDoc": read("docs/SINGBOX_PINNED_PEER_V164.md"),
+    "pinnedPeerTest": read("app/src/test/java/com/marbleng/app/core/SingBoxPinnedPeerV164Test.kt"),
+    "injectorPinning": read("scripts/inject-singbox-tls-pinning.py"),
+    "pinningVerifier": read("native/singboxpatch/tls/pin_verify.go"),
     "singBox": read("app/src/main/java/com/marbleng/app/core/SingBoxManager.kt"),
     "singBoxSession": read("app/src/main/java/com/marbleng/app/core/SingBoxProcessSession.kt"),
     # MARBLE_SINGBOX_ANDROID_CLI_CRASH_V157 — the Android core crashed for every profile, and the
@@ -254,7 +259,9 @@ check(
     "connection access is contextual and ordered",
     "missingConnectionPermissions" in files["main"]
     and "ConnectionPermissionDialog" in files["main"]
-    and all(step in files["permissions"] for step in ("VPN", "NOTIFICATIONS", "BATTERY"))
+    and all(step in files["permissions"] for step in ("VPN", "NOTIFICATIONS"))
+    and "MARBLE_NO_BATTERY_PERMISSION_V165" in files["permissions"]
+    and "REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" not in files["manifest"]
 )
 check(
     "font choices persist and reach the theme",
@@ -1845,25 +1852,40 @@ check(
     and "class ResolverSinkholeV163Test" in files["sinkholeTest"],
 )
 
-# MARBLE_SINGBOX_PINNED_PEER_V163 — a pcs/vcn (pinnedPeerCertSha256 / verifyPeerCertByName)
-# profile is refused for sing-box extended BEFORE the fork's parser can accept the link and drop
-# the pin: that is the "connected on sing-box, no Internet" report. The refusal names Xray.
+# MARBLE_SINGBOX_PINNED_PEER_V164 — the pinned sing-box core now implements Xray's pinning
+# contract (pinned_peer_cert_sha256 / verify_peer_cert_by_name), so a pcs/vcn profile runs on
+# either engine with its pin verified. The one pin no sing-box option can express — Xray's
+# whole-chain hash — is still refused before the tunnel, and the reason names Xray.
 check(
-    "a certificate-pinning profile is refused for sing-box before the tunnel, naming Xray",
+    "a whole-chain pin is refused for sing-box before the tunnel, naming Xray",
     "fun pinnedPeerRefusal(profile: ProxyProfile): String?" in files["singBoxBuilder"]
     and "internal fun linkCarriesPin(link: String): Boolean" in files["singBoxBuilder"]
-    and (
-        "pinnedPeerRefusal(profile)?.let { return CandidateSet(emptyList(), it) }" in files["singBoxBuilder"]
-        or (
-            "pinnedPeerRefusal(profile)" in files["singBoxBuilder"]
-            and "CandidateSet(emptyList()" in files["singBoxBuilder"]
-            and "!forTest" in files["singBoxBuilder"]
-            and "forTest" in files["singBoxBuilder"]
-        )
-    )
+    and "internal fun linkCarriesChainPin(link: String): Boolean" in files["singBoxBuilder"]
+    and "const val CHAIN_PIN_REFUSAL" in files["singBoxBuilder"]
     and "if (engine == CoreEngine.SINGBOX) return SingBoxConfigBuilder.pinnedPeerRefusal(profile)" in files["vpn"]
-    and "MARBLE_SINGBOX_PINNED_PEER_V163" in files["pinnedPeerDoc"]
-    and "MARBLE_SINGBOX_PINNED_PEER_V163" in files["sinkholeTest"],
+    and "MARBLE_SINGBOX_PINNED_PEER_V164" in files["pinnedPeerDoc"]
+    and "MARBLE_SINGBOX_PINNED_PEER_V164" in files["sinkholeTest"],
+)
+
+# MARBLE_SINGBOX_PINNED_PEER_V164 — the pinning backport must survive a core update exactly like
+# the two earlier backports: the injector carries the verifier and the option/parser patches, the
+# release build applies it before compile and fails loudly if the marker moved, and the patch
+# level in core-lock.json records that this source no longer matches upstream.
+check(
+    "the sing-box certificate-pinning backport is wired into the release build",
+    "MARBLE_SINGBOX_PINNED_PEER_V164" in files["injectorPinning"]
+    and "option/tls.go" in files["injectorPinning"]
+    and "common/tls/std_client.go" in files["injectorPinning"]
+    and "common/tls/utls_client.go" in files["injectorPinning"]
+    and "parser/link/vless.go" in files["injectorPinning"]
+    and "parser/link/trojan.go" in files["injectorPinning"]
+    and "MARBLE_SINGBOX_PINNED_PEER_V164" in files["pinningVerifier"]
+    and "scripts/inject-singbox-tls-pinning.py" in files["native"]
+    and "grep -F 'MARBLE_SINGBOX_PINNED_PEER_V164'" in files["native"]
+    and "scripts/inject-singbox-tls-pinning.py" in files["verify"]
+    and "native/singboxpatch" in files["verify"]
+    and '"patch": "crash-fix.2-pinning.1"' in files["coreLock"]
+    and "class SingBoxPinnedPeerV164Test" in files["pinnedPeerTest"],
 )
 
 # MARBLE_REMEMBERED_PING_KEEP_V163 / MARBLE_SETTINGS_HUB_TRIM_V163 — the benchmark table is no
@@ -1876,6 +1898,74 @@ check(
     and 'MarbleCompactTopBar(title = "Settings")' in files["ui"]
     and "MARBLE_SETTINGS_HUB_TRIM_V163" in files["ui"]
     and files["ui"].count("SettingsVersionPreview(") == 2,
+)
+
+# ─────────────────────────────────────────────────────────────────────────────────────────────
+# The 2026-09 product batch: Home ping scope, ping never blocking selection, no background
+# permission, a minimal status box, and Home/Servers selection sync.
+# ─────────────────────────────────────────────────────────────────────────────────────────────
+
+# Req 2 — MARBLE_HOME_PING_ROUTE_GROUP_V146 — the Home pulse icon measures the subscription of
+# the route shown on the page, never the whole library. The resolution rule is pure so the
+# contract is unit-testable, and the repository is its only caller.
+check(
+    "the Home ping measures the route's own subscription, never all sources",
+    "object HomePingScope" in files["homePingScope"]
+    and "HomePingScope.sourceIdFor(route)" in files["repo"]
+    and "HomePingScope.sourceIdFor(homeRoute())" in files["repo"]
+    and "class HomePingScopeTest" in files["homePingScopeTest"]
+    and "aManualRoutePingsTheManualBucket" in files["homePingScopeTest"]
+    and "noRouteNeverDegradesIntoAFullSweep" in files["homePingScopeTest"],
+)
+
+# Req 3 — MARBLE_PING_DOES_NOT_BLOCK_SELECTION_V165 — a running ping sweep must not freeze the
+# Servers page: tapping a row selects it, swipe-to-edit stays armed, and creating a manual
+# server is allowed because a sweep owns a snapshot and merges results by profile id.
+check(
+    "a ping sweep never blocks selecting, editing or creating a server",
+    "MARBLE_PING_DOES_NOT_BLOCK_SELECTION_V165" in files["ui"]
+    and "enableDismissFromStartToEnd = true" in files["ui"]
+    and "enabled = !active," in files["ui"]
+    and "if (busy && !probeActive) {" in files["repo"]
+    and "enabled = (!repo.busy || repo.probeActive) && targetName != null" in files["ui"],
+)
+
+# Req 4 — MARBLE_NO_BATTERY_PERMISSION_V165 — the battery-optimization exemption step, its
+# launcher, its queue entry, its error string and its manifest permission are all gone; the
+# connection flow asks only for VPN consent and the notification the tunnel must show.
+check(
+    "the connection flow asks only for VPN and notification access",
+    "MARBLE_NO_BATTERY_PERMISSION_V165" in files["permissions"]
+    and "ConnectionPermissionStep.BATTERY" not in files["permissions"]
+    and "batteryExemptionGranted" not in files["main"]
+    and "batterySettings" not in files["main"]
+    and "ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" not in files["main"]
+    and "REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" not in files["manifest"],
+)
+
+# Req 5 — MARBLE_HOME_STATUS_MINIMAL_V165 — the status box is two quiet rows: route identity
+# with the one-tap ping readout, and a folded status + IP line. The flag tile, the protocol/
+# source caption and the boxed IP strip are gone, so the card is visibly smaller in every theme.
+check(
+    "the Home status box is minimal: two rows, no flag tile, no boxed IP strip",
+    "MARBLE_HOME_STATUS_MINIMAL_V165" in files["homeStyles"]
+    and "IosStatusWideCard(" in files["homeStyles"]
+    and "Row 1: status pip + route identity" in files["homeStyles"]
+    and "Row 2: folded status + IP identity" in files["homeStyles"]
+    and ".size(40.dp)" not in _fun_body(files["homeStyles"], "fun IosStatusWideCard")
+    and "evidence.profile?.scheme" not in _fun_body(files["homeStyles"], "fun IosStatusWideCard"),
+)
+
+# Req 6 — MARBLE_HOME_SELECTION_SYNC_V165 — connecting is itself a selection: startVpn and
+# startLocalProxy record the chosen server the moment the handshake starts, so Home, the Servers
+# page and the next app start all show exactly the server the user picked — even when the
+# handshake later fails.
+check(
+    "connecting a server selects it, so Home shows exactly what the user chose",
+    "MARBLE_HOME_SELECTION_SYNC_V165" in files["repo"]
+    and "selectProfile(p)" in _fun_body(files["repo"], "fun startVpn")
+    and "selectProfile(p)" in _fun_body(files["repo"], "fun startLocalProxy")
+    and "MARBLE_HOME_SELECTION_SYNC_V165" in _fun_body(files["repo"], "fun selectProfile"),
 )
 
 # MARBLE_SINGBOX_ANDROID_CLI_CRASH_V157 — Kotlin block comments NEST, so a KDoc that merely
