@@ -831,8 +831,11 @@ object XrayConfigHardener {
         }.distinct().take(MAX_BOOTSTRAP_DNS_IPS)
 
         val stockCloudflareDoh = "https://1.1.1.1/dns-query"
+        val stockCloudflareAltDoh = "https://1.0.0.1/dns-query"
         val stockGoogleDoh = "https://8.8.8.8/dns-query"
+        val stockGoogleAltDoh = "https://8.8.4.4/dns-query"
         val stockQuad9Doh = "https://9.9.9.9/dns-query"
+        val stockQuad9AltDoh = "https://149.112.112.112/dns-query"
         // MARBLE_RESOLVER_SINKHOLE_V163 — two classes of endpoint never enter the tunnel's
         // resolver graph, whatever rank they would have held:
         //  - a domestic anti-sanction resolver (dns.shecan.ir & co.) — asking it through the exit
@@ -889,7 +892,7 @@ object XrayConfigHardener {
 
         val remoteDoh = if (settings.adaptiveDnsEnabled) {
             demoteLast(
-                (configuredRemoteDoh + listOf(stockCloudflareDoh, stockGoogleDoh, stockQuad9Doh))
+                (configuredRemoteDoh + listOf(stockCloudflareDoh, stockCloudflareAltDoh, stockGoogleDoh, stockGoogleAltDoh, stockQuad9Doh, stockQuad9AltDoh))
                     .filter(::resolverAllowed)
                     .distinctBy { it.lowercase() }
             ).take(3)

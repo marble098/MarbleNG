@@ -42,7 +42,7 @@ object SingBoxTransportTranslator {
         "seed" to "seed"
     )
 
-    fun transport(stream: JSONObject, settings: AppSettings, notes: MutableList<String>): JSONObject? {
+    fun transport(stream: JSONObject, settings: AppSettings, notes: MutableList<String>, forTest: Boolean = false): JSONObject? {
         val method = stream.optString("method").ifBlank { stream.optString("network") }.lowercase()
         fun options(key: String) = stream.optJSONObject(key) ?: JSONObject()
         return when (method) {
@@ -77,7 +77,7 @@ object SingBoxTransportTranslator {
                 "host" to "host", "path" to "path", "headers" to "headers"
             ), "httpupgradeSettings").put("type", "httpupgrade")
             "xhttp", "splithttp" -> xhttp(
-                stream.optJSONObject("xhttpSettings") ?: options("splithttpSettings"), settings, notes
+                stream.optJSONObject("xhttpSettings") ?: options("splithttpSettings"), settings, notes, forTest
             ).put("type", "xhttp")
             "kcp", "mkcp" -> {
                 val kcp = options("kcpSettings")
@@ -100,7 +100,7 @@ object SingBoxTransportTranslator {
         }
     }
 
-    private fun xhttp(source: JSONObject, settings: AppSettings, notes: MutableList<String>): JSONObject {
+    private fun xhttp(source: JSONObject, settings: AppSettings, notes: MutableList<String>, forTest: Boolean = false): JSONObject {
         val merged = JSONObject(source.toString())
         val extra = when (val raw = merged.remove("extra")) {
             null, JSONObject.NULL -> null
@@ -127,13 +127,13 @@ object SingBoxTransportTranslator {
             if (network.isNotBlank() && network !in setOf("xhttp", "splithttp")) {
                 unsupported("xhttpSettings.downloadSettings.network", "download must use XHTTP")
             }
-            val transport = xhttp(download.optJSONObject("xhttpSettings") ?: JSONObject(), settings, notes)
+            val transport = xhttp(download.optJSONObject("xhttpSettings") ?: JSONObject(), settings, notes, forTest)
             transport.remove("mode")
             transport.remove("download")
             val address = download.optString("address")
             if (address.isNotBlank()) transport.put("server", address)
             if (download.has("port")) transport.put("server_port", download.get("port"))
-            tls(download, settings, notes)?.let { transport.put("tls", it) }
+            tls(download, settings, notes, forTest)?.let { transport.put("tls", it) }
             val sockopt = download.optJSONObject("sockopt")
             if (sockopt != null && sockopt.length() > 0) {
                 unsupported("xhttpSettings.downloadSettings.sockopt", "download dial options require an explicitly translated detour")
@@ -143,22 +143,35 @@ object SingBoxTransportTranslator {
         return result
     }
 
-    fun tls(stream: JSONObject, settings: AppSettings, notes: MutableList<String>): JSONObject? {
+    fun tls(stream: JSONObject, settings: AppSettings, notes: MutableList<String>, forTest: Boolean = false): JSONObject? {
         val security = stream.optString("security").lowercase()
         if (security.isBlank() || security == "none") return null
         if (security !in setOf("tls", "reality")) unsupported("streamSettings.security", "unsupported security '$security'")
         val source = stream.optJSONObject(if (security == "reality") "realitySettings" else "tlsSettings") ?: JSONObject()
         val pins = listOf("pinnedPeerCertSha256", "pinnedPeerCertificateChainSha256", "pinnedPeerCertificatePublicKeySha256")
-        pins.firstOrNull { source.has(it) && source.opt(it)?.toString().orEmpty().isNotBlank() }?.let {
-            unsupported("tlsSettings.$it", "certificate and SPKI hashes are not interchangeable; use Xray to retain verification")
+        val pinnedKey = pins.firstOrNull { source.has(it) && source.opt(it)?.toString().orEmpty().isNotBlank() }
+        var downgradedForTest = false
+        if (pinnedKey != null) {
+            if (forTest) {
+                downgradedForTest = true
+                notes += "measurement: $pinnedKey downgraded to insecure for ping — live tunnel still uses Xray for verified pin"
+            } else {
+                unsupported("tlsSettings.$pinnedKey", "certificate and SPKI hashes are not interchangeable; use Xray to retain verification")
+            }
         }
         val names = source.optString("verifyPeerCertByName")
         val serverName = source.optString("serverName")
+        var effectiveServerName = serverName
         if (names.isNotBlank() && names != serverName) {
-            unsupported("tlsSettings.verifyPeerCertByName", "verification names different from SNI cannot be preserved")
+            if (forTest) {
+                effectiveServerName = names
+                notes += "measurement: verifyPeerCertByName differs from SNI — using $names as server_name for ping (fronting lost for this measurement)"
+            } else {
+                unsupported("tlsSettings.verifyPeerCertByName", "verification names different from SNI cannot be preserved")
+            }
         }
         val result = JSONObject().put("enabled", true)
-        if (serverName.isNotBlank()) result.put("server_name", serverName)
+        if (effectiveServerName.isNotBlank()) result.put("server_name", effectiveServerName)
         listOf("alpn", "minVersion", "maxVersion", "cipherSuites").forEach { key ->
             if (source.has(key)) {
                 val mapped = mapOf("alpn" to "alpn", "minVersion" to "min_version", "maxVersion" to "max_version", "cipherSuites" to "cipher_suites").getValue(key)
@@ -167,7 +180,7 @@ object SingBoxTransportTranslator {
                 } else result.put(mapped, source.get(key))
             }
         }
-        if (source.optBoolean("allowInsecure", false)) result.put("insecure", true)
+        if (source.optBoolean("allowInsecure", false) || downgradedForTest) result.put("insecure", true)
         val fingerprint = source.optString("fingerprint")
         if (fingerprint.isNotBlank() && fingerprint != "unsafe") {
             result.put("utls", JSONObject().put("enabled", true).put("fingerprint", fingerprint))
@@ -213,8 +226,10 @@ object SingBoxTransportTranslator {
         }
         val allowed = setOf("serverName", "fingerprint", "alpn", "minVersion", "maxVersion", "cipherSuites",
             "allowInsecure", "verifyPeerCertByName", "certificates", "disableSystemRoot", "echConfigList",
-            "enableSessionResumption", "show", "spiderX", "publicKey", "password", "shortId", "mldsa65Verify")
+            "enableSessionResumption", "show", "spiderX", "publicKey", "password", "shortId", "mldsa65Verify",
+            "pinnedPeerCertSha256", "pinnedPeerCertificateChainSha256", "pinnedPeerCertificatePublicKeySha256")
         source.keys().forEach { key ->
+            if (key in pins && forTest) return@forEach
             if (key !in allowed && !source.isNull(key)) unsupported("tlsSettings.$key", "no lossless mapping is implemented")
         }
         if (source.optBoolean("disableSystemRoot", false) && !result.has("certificate")) {
