@@ -252,6 +252,9 @@ tasks.withType<Test>().configureEach {
         showStandardStreams = true
         events("passed", "skipped", "failed")
     }
+    doFirst {
+        println("::error::DEBUG: Test task ${name} is about to run")
+    }
 }
 
 tasks.register("reportTestFailures") {
