@@ -162,7 +162,7 @@ object SingBoxConfigBuilder {
         bootstrapDnsPort: Int = 0,
         forTest: Boolean = false
     ): List<Build> {
-        val set = candidateSet(profile, settings)
+        val set = candidateSet(profile, settings, forTest)
         require(set.candidates.isNotEmpty()) {
             set.refusal.ifBlank { "sing-box cannot run this profile" }
         }
@@ -246,7 +246,7 @@ object SingBoxConfigBuilder {
         }
     }
 
-    private fun candidateSet(profile: ProxyProfile, settings: AppSettings): CandidateSet {
+    private fun candidateSet(profile: ProxyProfile, settings: AppSettings, forTest: Boolean = false): CandidateSet {
         val root = profile.configJson.takeIf { it.isNotBlank() }
             ?.let { runCatching { JSONObject(it) }.getOrNull() }
         if (root != null && NativeSingBoxConfig.isNative(root)) {
@@ -257,11 +257,20 @@ object SingBoxConfigBuilder {
         }
         // MARBLE_SINGBOX_PINNED_PEER_V163 — decided before any reader runs, so the fork's parser
         // (which would happily accept the link and drop the pin) never becomes a candidate.
-        pinnedPeerRefusal(profile)?.let { return CandidateSet(emptyList(), it) }
+        // For measurements (forTest=true) we allow a downgraded insecure translation so ping
+        // reachability matches Xray, but we still exclude the parser which would silently drop
+        // the pin and fail with no Internet.
+        val pinned = pinnedPeerRefusal(profile)
+        if (pinned != null && !forTest) {
+            return CandidateSet(emptyList(), pinned)
+        }
+        val isPinnedForTest = pinned != null && forTest
         val link = shareLink(profile)
 
         // Reader 1 — the core's own parser. Nothing to translate, nothing to lose.
-        val parser = link?.let {
+        // For pinned nodes under test we exclude parser because it ignores pcs/vcn and would
+        // connect without Internet, producing FAILED instead of a real measurement.
+        val parser = if (isPinnedForTest) null else link?.let {
             Candidate(STRATEGY_LINK, listOf(parserOutbound(it, settings)), emptyList())
         }
 
@@ -269,12 +278,12 @@ object SingBoxConfigBuilder {
         val linkNotes = mutableListOf<String>()
         val fromLink = link
             ?.let { linkJson(it) }
-            ?.let { json -> translatedCandidate(STRATEGY_LINK_TRANSLATED, json, settings, linkNotes) }
+            ?.let { json -> translatedCandidate(STRATEGY_LINK_TRANSLATED, json, settings, linkNotes, forTest) }
             ?.getOrNull()
 
         // Reader 3 — the stored Xray JSON. Its failure is the reason a JSON-only node is refused.
         val storedNotes = mutableListOf<String>()
-        val storedResult = root?.let { translatedCandidate(STRATEGY_TRANSLATED, it, settings, storedNotes) }
+        val storedResult = root?.let { translatedCandidate(STRATEGY_TRANSLATED, it, settings, storedNotes, forTest) }
         val stored = storedResult?.getOrNull()
 
         val ordered = if (settings.singBoxPreferParser) {
@@ -297,9 +306,10 @@ object SingBoxConfigBuilder {
         strategy: String,
         root: JSONObject,
         settings: AppSettings,
-        notes: MutableList<String>
+        notes: MutableList<String>,
+        forTest: Boolean = false
     ): Result<Candidate> = runCatching {
-        Candidate(strategy, translate(root, settings, notes), notes.toList())
+        Candidate(strategy, translate(root, settings, notes, forTest), notes.toList())
     }
 
     /** The `{type: parser}` outbound: the extended fork reads the share link itself. */
@@ -677,7 +687,7 @@ private fun removeKeys(
      * Walks the Xray chain (`dialerProxy` / `proxySettings`) from the entry hop outwards and
      * returns the equivalent sing-box outbounds, each one detouring into the next.
      */
-    private fun translate(root: JSONObject, settings: AppSettings, notes: MutableList<String>): List<JSONObject> {
+    private fun translate(root: JSONObject, settings: AppSettings, notes: MutableList<String>, forTest: Boolean = false): List<JSONObject> {
         val outbounds = root.getJSONArray("outbounds")
         val entry = firstProxyOutbound(outbounds) ?: error("no proxy outbound")
 
@@ -700,7 +710,7 @@ private fun removeKeys(
             val tag = if (index == 0) PROXY_TAG else "marble-hop-$index"
             // Entry dials THROUGH hop 1, hop 1 through hop 2. Never reverse this edge.
             val detour = if (index < chain.lastIndex) "marble-hop-${index + 1}" else null
-            translateHop(hop, tag, detour, settings, notes)
+            translateHop(hop, tag, detour, settings, notes, forTest)
         }
     }
 
@@ -709,7 +719,8 @@ private fun removeKeys(
         tag: String,
         detour: String?,
         settings: AppSettings,
-        notes: MutableList<String>
+        notes: MutableList<String>,
+        forTest: Boolean = false
     ): JSONObject {
         val protocol = outbound.optString("protocol").lowercase()
         val xraySettings = outbound.optJSONObject("settings") ?: JSONObject()
