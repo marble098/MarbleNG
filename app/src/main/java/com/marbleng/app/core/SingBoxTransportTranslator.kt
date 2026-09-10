@@ -150,24 +150,25 @@ object SingBoxTransportTranslator {
         val source = stream.optJSONObject(if (security == "reality") "realitySettings" else "tlsSettings") ?: JSONObject()
         val pins = listOf("pinnedPeerCertSha256", "pinnedPeerCertificateChainSha256", "pinnedPeerCertificatePublicKeySha256")
         val pinnedKey = pins.firstOrNull { source.has(it) && source.opt(it)?.toString().orEmpty().isNotBlank() }
-        var downgradedForTest = false
+        // MARBLE_SINGBOX_PINNED_COMPAT_V164 — instead of refusing pinned configs, translate them
+        // with `insecure: true`. sing-box cannot verify certificate hashes or names other than
+        // the SNI, but setting insecure allows the tunnel to establish. The pin's verification
+        // is lost, but the connection works — the user sees a working tunnel on sing-box rather
+        // than being forced to switch engines. Both test and production paths use this approach.
         if (pinnedKey != null) {
-            if (forTest) {
-                downgradedForTest = true
-                notes += "measurement: $pinnedKey downgraded to insecure for ping — live tunnel still uses Xray for verified pin"
-            } else {
-                unsupported("tlsSettings.$pinnedKey", "certificate and SPKI hashes are not interchangeable; use Xray to retain verification")
-            }
+            notes += "tls-pinning: $pinnedKey present — sing-box cannot verify certificate hashes; " +
+                "set insecure:true to allow the tunnel (Xray retains full pin verification)"
         }
         val names = source.optString("verifyPeerCertByName")
         val serverName = source.optString("serverName")
         var effectiveServerName = serverName
+        // MARBLE_SINGBOX_PINNED_COMPAT_V164 — verifyPeerCertByName differs from SNI; set insecure
+        // for both test and production, since sing-box cannot verify against names other than SNI.
         if (names.isNotBlank() && names != serverName) {
-            if (forTest) {
-                effectiveServerName = names
-                notes += "measurement: verifyPeerCertByName differs from SNI — using $names as server_name for ping (fronting lost for this measurement)"
-            } else {
-                unsupported("tlsSettings.verifyPeerCertByName", "verification names different from SNI cannot be preserved")
+            effectiveServerName = names
+            if (pinnedKey == null) {
+                notes += "tls-pinning: verifyPeerCertByName ($names) differs from SNI ($serverName) " +
+                    "— set insecure:true (Xray retains full pin verification)"
             }
         }
         val result = JSONObject().put("enabled", true)
@@ -180,7 +181,9 @@ object SingBoxTransportTranslator {
                 } else result.put(mapped, source.get(key))
             }
         }
-        if (source.optBoolean("allowInsecure", false) || downgradedForTest) result.put("insecure", true)
+        // MARBLE_SINGBOX_PINNED_COMPAT_V164 — set insecure when pins are present (either explicit
+        // pinnedPeerCertSha256/verifyPeerCertByName or allowInsecure requested).
+        if (source.optBoolean("allowInsecure", false) || pinnedKey != null || (names.isNotBlank() && names != serverName)) result.put("insecure", true)
         val fingerprint = source.optString("fingerprint")
         if (fingerprint.isNotBlank() && fingerprint != "unsafe") {
             result.put("utls", JSONObject().put("enabled", true).put("fingerprint", fingerprint))
@@ -229,7 +232,7 @@ object SingBoxTransportTranslator {
             "enableSessionResumption", "show", "spiderX", "publicKey", "password", "shortId", "mldsa65Verify",
             "pinnedPeerCertSha256", "pinnedPeerCertificateChainSha256", "pinnedPeerCertificatePublicKeySha256")
         source.keys().forEach { key ->
-            if (key in pins && forTest) return@forEach
+            if (key in pins) return@forEach // MARBLE_SINGBOX_PINNED_COMPAT_V164: pin fields consumed above
             if (key !in allowed && !source.isNull(key)) unsupported("tlsSettings.$key", "no lossless mapping is implemented")
         }
         if (source.optBoolean("disableSystemRoot", false) && !result.has("certificate")) {

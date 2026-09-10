@@ -372,8 +372,14 @@ class SingBoxCoreV151Test {
         }
     }
 
+    /**
+     * MARBLE_SINGBOX_PINNED_COMPAT_V164 — pinned configs are now supported via the translated
+     * path with `tls.insecure: true`. The pin verification is lost, but the tunnel works.
+     */
     @Test
-    fun certificatePinningIsReportedNotPretended() {
+    fun certificatePinningIsTranslatedWithInsecureRatherThanRefused() {
+        // 32-byte SHA-256 as 64-char lowercase hex — exactly what Xray parses.
+        val validSha256Hex = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         val profile = jsonProfile("vless").let {
             val root = JSONObject(it.configJson)
             root.getJSONArray("outbounds")
@@ -381,13 +387,23 @@ class SingBoxCoreV151Test {
                 .getJSONObject("streamSettings")
                 .put(
                     "tlsSettings",
-                    JSONObject().put("pinnedPeerCertSha256", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
+                    JSONObject().put("pinnedPeerCertSha256", validSha256Hex)
                 )
             it.copy(configJson = root.toString())
         }
         val support = SingBoxConfigBuilder.describe(profile, AppSettings(singBoxPreferParser = false))
-        assertFalse("dropping certificate verification is not a supported conversion", support.supported)
-        assertTrue(support.reason, support.reason.contains("pinnedPeerCertSha256"))
+        assertTrue("pinned configs must be supported via insecure translation", support.supported)
+        assertEquals(SingBoxConfigBuilder.STRATEGY_TRANSLATED, support.strategy)
+        assertTrue(support.notes.any { it.contains("tls-pinning") })
+
+        // The translated config must carry insecure:true
+        val config = JSONObject(
+            SingBoxConfigBuilder.build(profile, AppSettings(singBoxPreferParser = false),
+                10808, 39090, "secret", "", "cache.db").json
+        )
+        val proxy = outbound(config, SingBoxConfigBuilder.PROXY_TAG)
+        assertTrue("pinned TLS must translate to insecure:true",
+            proxy.getJSONObject("tls").getBoolean("insecure"))
     }
 
     @Test
