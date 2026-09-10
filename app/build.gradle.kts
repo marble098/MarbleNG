@@ -256,50 +256,8 @@ tasks.withType<Test>().configureEach {
 
 tasks.register("reportTestFailures") {
     doLast {
-        val resultsDir = file("build/test-results")
-        val reportFile = file("build/test-report.txt")
-        reportFile.parentFile.mkdirs()
-        reportFile.writeText("")
-        fun append(text: String) {
-            println(text)
-            reportFile.appendText(text + "\n")
-        }
-        var hasFailures = false
-        var failureDetails = ""
-        if (resultsDir.exists()) {
-            resultsDir.walkTopDown().filter { it.isFile && it.extension == "xml" }.forEach { f ->
-                val content = f.readText()
-                if (!content.contains("failures="0"") || !content.contains("errors="0"")) {
-                    hasFailures = true
-                    failureDetails += content.take(5000) + "\n"
-                }
-                append("=== ${f.path} ===")
-                append(content.take(20000))
-            }
-        }
-        if (hasFailures) {
-            println("::error::Unit test failures: " + failureDetails.take(2000).replace("\n", "%0A"))
-            try {
-                val token = System.getenv("GITHUB_TOKEN") ?: ""
-                if (token.isNotBlank()) {
-                    val body = reportFile.readText().take(50000).replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "")
-                    val json = "{\"body\": \"Test failures:\\n${'$'}{body.take(50000)}\"}"
-                    val proc = ProcessBuilder(
-                        "curl", "-s", "-X", "POST",
-                        "-H", "Authorization: Bearer $token",
-                        "-H", "Accept: application/vnd.github.v3+json",
-                        "https://api.github.com/repos/marble098/MarbleNG/issues/140/comments",
-                        "-d", json
-                    ).redirectErrorStream(true).start()
-                    proc.waitFor()
-                    val out = proc.inputStream.bufferedReader().readText()
-                    println("curl output: $out")
-                }
-            } catch (e: Exception) {
-                println("curl failed: ${e.message}")
-            }
-            throw GradleException("Unit test failures:\n" + reportFile.readText().take(10000))
-        }
+        println("::error::DEBUG: reportTestFailures task ran")
+        throw GradleException("DEBUG: reportTestFailures task ran - this is to test if finalizedBy works")
     }
 }
 
