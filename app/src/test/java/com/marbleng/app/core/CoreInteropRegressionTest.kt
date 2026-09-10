@@ -305,10 +305,21 @@ class CoreInteropRegressionTest {
      * and use the translated strategy instead.
      */
     @Test fun pinnedConfigUsesTranslatedStrategyNotParser() {
+        // Build a profile that carries both a raw link (for parser exclusion test) and a stored
+        // configJson (for the translated path to work in JVM unit tests where Uri.parse is a stub).
+        val sha256Hex = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        val storedOutbound = vless()
+            .put("settings", JSONObject()
+                .put("address", "198.51.100.7").put("port", 443)
+                .put("id", uuid).put("encryption", "none").put("flow", "xtls-rprx-vision"))
+            .put("streamSettings", JSONObject()
+                .put("method", "raw").put("security", "tls")
+                .put("tlsSettings", JSONObject()
+                    .put("serverName", "spotify.com").put("fingerprint", "chrome")
+                    .put("pinnedPeerCertSha256", sha256Hex)))
         val raw = "vless://$uuid@198.51.100.7:443?security=tls&type=tcp&sni=spotify.com" +
-            "&fp=chrome&flow=xtls-rprx-vision&pcs=${"aa".repeat(32)}&vcn=198.51.100.7#Pinned"
-        val p = ProxyProfile("pin-test", "Pinned", "vless", raw,
-            "", "198.51.100.7", 443, "tcp", "tls")
+            "&fp=chrome&flow=xtls-rprx-vision&pcs=$sha256Hex#Pinned"
+        val p = profile(storedOutbound).copy(raw = raw)
         val support = SingBoxConfigBuilder.describe(p, AppSettings())
         assertTrue("pinned link must be supported: ${support.reason}", support.supported)
         assertTrue("pinned link must NOT use parser (it ignores pcs/vcn)",
