@@ -69,6 +69,7 @@ files = {
     "coreBudgetTest": read("app/src/test/java/com/marbleng/app/core/MeasurementCoreBudgetTest.kt"),
     "rememberedPingTest": read("app/src/test/java/com/marbleng/app/model/RememberedPingV160Test.kt"),
     "singBoxBuilder": read("app/src/main/java/com/marbleng/app/core/SingBoxConfigBuilder.kt"),
+    "singBoxTransport": read("app/src/main/java/com/marbleng/app/core/SingBoxTransportTranslator.kt"),
     "sinkholeTest": read("app/src/test/java/com/marbleng/app/core/ResolverSinkholeV163Test.kt"),
     "sinkholeDoc": read("docs/RESOLVER_SINKHOLE_V163.md"),
     "pinnedPeerDoc": read("docs/SINGBOX_PINNED_PEER_V163.md"),
@@ -1845,22 +1846,18 @@ check(
     and "class ResolverSinkholeV163Test" in files["sinkholeTest"],
 )
 
-# MARBLE_SINGBOX_PINNED_PEER_V163 — a pcs/vcn (pinnedPeerCertSha256 / verifyPeerCertByName)
-# profile is refused for sing-box extended BEFORE the fork's parser can accept the link and drop
-# the pin: that is the "connected on sing-box, no Internet" report. The refusal names Xray.
+# MARBLE_SINGBOX_PINNED_PEER_V163 / MARBLE_SINGBOX_PINNED_COMPAT_V164 — a pcs/vcn
+# (pinnedPeerCertSha256 / verifyPeerCertByName) profile was originally refused for sing-box
+# extended before the fork's parser could accept the link and drop the pin (V163). Now (V164)
+# pinned configs are allowed through the translated path with `tls.insecure: true`, and the
+# parser candidate is excluded for pinned configs since it silently ignores pcs/vcn.
 check(
-    "a certificate-pinning profile is refused for sing-box before the tunnel, naming Xray",
+    "a certificate-pinning profile is translated with insecure for sing-box, not silently dropped",
     "fun pinnedPeerRefusal(profile: ProxyProfile): String?" in files["singBoxBuilder"]
     and "internal fun linkCarriesPin(link: String): Boolean" in files["singBoxBuilder"]
-    and (
-        "pinnedPeerRefusal(profile)?.let { return CandidateSet(emptyList(), it) }" in files["singBoxBuilder"]
-        or (
-            "pinnedPeerRefusal(profile)" in files["singBoxBuilder"]
-            and "CandidateSet(emptyList()" in files["singBoxBuilder"]
-            and "!forTest" in files["singBoxBuilder"]
-            and "forTest" in files["singBoxBuilder"]
-        )
-    )
+    and "MARBLE_SINGBOX_PINNED_COMPAT_V164" in files["singBoxBuilder"]
+    and "if (isPinned) null" in files["singBoxBuilder"]
+    and "tls-pinning" in files["singBoxTransport"]
     and "if (engine == CoreEngine.SINGBOX) return SingBoxConfigBuilder.pinnedPeerRefusal(profile)" in files["vpn"]
     and "MARBLE_SINGBOX_PINNED_PEER_V163" in files["pinnedPeerDoc"]
     and "MARBLE_SINGBOX_PINNED_PEER_V163" in files["sinkholeTest"],
