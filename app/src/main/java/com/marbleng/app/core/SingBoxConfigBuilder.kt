@@ -162,7 +162,7 @@ object SingBoxConfigBuilder {
         bootstrapDnsPort: Int = 0,
         forTest: Boolean = false
     ): List<Build> {
-        val set = candidateSet(profile, settings, forTest)
+        val set = candidateSet(profile, settings)
         require(set.candidates.isNotEmpty()) {
             set.refusal.ifBlank { "sing-box cannot run this profile" }
         }
@@ -246,7 +246,7 @@ object SingBoxConfigBuilder {
         }
     }
 
-    private fun candidateSet(profile: ProxyProfile, settings: AppSettings, forTest: Boolean = false): CandidateSet {
+    private fun candidateSet(profile: ProxyProfile, settings: AppSettings): CandidateSet {
         val root = profile.configJson.takeIf { it.isNotBlank() }
             ?.let { runCatching { JSONObject(it) }.getOrNull() }
         if (root != null && NativeSingBoxConfig.isNative(root)) {
@@ -257,20 +257,11 @@ object SingBoxConfigBuilder {
         }
         // MARBLE_SINGBOX_PINNED_PEER_V163 — decided before any reader runs, so the fork's parser
         // (which would happily accept the link and drop the pin) never becomes a candidate.
-        // For measurements (forTest=true) we allow a downgraded insecure translation so ping
-        // reachability matches Xray, but we still exclude the parser which would silently drop
-        // the pin and fail with no Internet.
-        val pinned = pinnedPeerRefusal(profile)
-        if (pinned != null && !forTest) {
-            return CandidateSet(emptyList(), pinned)
-        }
-        val isPinnedForTest = pinned != null && forTest
+        pinnedPeerRefusal(profile)?.let { return CandidateSet(emptyList(), it) }
         val link = shareLink(profile)
 
         // Reader 1 — the core's own parser. Nothing to translate, nothing to lose.
-        // For pinned nodes under test we exclude parser because it ignores pcs/vcn and would
-        // connect without Internet, producing FAILED instead of a real measurement.
-        val parser = if (isPinnedForTest) null else link?.let {
+        val parser = link?.let {
             Candidate(STRATEGY_LINK, listOf(parserOutbound(it, settings)), emptyList())
         }
 
@@ -278,12 +269,12 @@ object SingBoxConfigBuilder {
         val linkNotes = mutableListOf<String>()
         val fromLink = link
             ?.let { linkJson(it) }
-            ?.let { json -> translatedCandidate(STRATEGY_LINK_TRANSLATED, json, settings, linkNotes, forTest) }
+            ?.let { json -> translatedCandidate(STRATEGY_LINK_TRANSLATED, json, settings, linkNotes) }
             ?.getOrNull()
 
         // Reader 3 — the stored Xray JSON. Its failure is the reason a JSON-only node is refused.
         val storedNotes = mutableListOf<String>()
-        val storedResult = root?.let { translatedCandidate(STRATEGY_TRANSLATED, it, settings, storedNotes, forTest) }
+        val storedResult = root?.let { translatedCandidate(STRATEGY_TRANSLATED, it, settings, storedNotes) }
         val stored = storedResult?.getOrNull()
 
         val ordered = if (settings.singBoxPreferParser) {
@@ -306,10 +297,9 @@ object SingBoxConfigBuilder {
         strategy: String,
         root: JSONObject,
         settings: AppSettings,
-        notes: MutableList<String>,
-        forTest: Boolean = false
+        notes: MutableList<String>
     ): Result<Candidate> = runCatching {
-        Candidate(strategy, translate(root, settings, notes, forTest), notes.toList())
+        Candidate(strategy, translate(root, settings, notes), notes.toList())
     }
 
     /** The `{type: parser}` outbound: the extended fork reads the share link itself. */
@@ -687,7 +677,7 @@ private fun removeKeys(
      * Walks the Xray chain (`dialerProxy` / `proxySettings`) from the entry hop outwards and
      * returns the equivalent sing-box outbounds, each one detouring into the next.
      */
-    private fun translate(root: JSONObject, settings: AppSettings, notes: MutableList<String>, forTest: Boolean = false): List<JSONObject> {
+    private fun translate(root: JSONObject, settings: AppSettings, notes: MutableList<String>): List<JSONObject> {
         val outbounds = root.getJSONArray("outbounds")
         val entry = firstProxyOutbound(outbounds) ?: error("no proxy outbound")
 
@@ -710,7 +700,7 @@ private fun removeKeys(
             val tag = if (index == 0) PROXY_TAG else "marble-hop-$index"
             // Entry dials THROUGH hop 1, hop 1 through hop 2. Never reverse this edge.
             val detour = if (index < chain.lastIndex) "marble-hop-${index + 1}" else null
-            translateHop(hop, tag, detour, settings, notes, forTest)
+            translateHop(hop, tag, detour, settings, notes)
         }
     }
 
@@ -719,8 +709,7 @@ private fun removeKeys(
         tag: String,
         detour: String?,
         settings: AppSettings,
-        notes: MutableList<String>,
-        forTest: Boolean = false
+        notes: MutableList<String>
     ): JSONObject {
         val protocol = outbound.optString("protocol").lowercase()
         val xraySettings = outbound.optJSONObject("settings") ?: JSONObject()
@@ -910,8 +899,8 @@ private fun removeKeys(
             else -> throw ConfigTranslationException("outbounds.protocol", "'$protocol' is not translatable to the pinned extended core")
         }
 
-        SingBoxTransportTranslator.transport(stream, settings, notes, forTest)?.let { result.put("transport", it) }
-        SingBoxTransportTranslator.tls(stream, settings, notes, forTest)?.let { tls ->
+        SingBoxTransportTranslator.transport(stream, settings, notes)?.let { result.put("transport", it) }
+        SingBoxTransportTranslator.tls(stream, settings, notes)?.let { tls ->
             if (result.optString("type") in setOf("hysteria", "hysteria2") || result.optJSONObject("transport")?.optString("type") == "quic") {
                 if (tls.has("reality")) throw ConfigTranslationException("realitySettings", "REALITY cannot be applied to a QUIC transport")
                 tls.remove("utls") // Xray also ignores uTLS fingerprints on QUIC; sing-box rejects them.
@@ -997,17 +986,8 @@ private fun removeKeys(
         val filtered = candidates.map(String::trim).filter(String::isNotBlank).filter(::allowed).distinct()
         // The intelligence pool is emitted as given (its order is the evidence); the stock trio
         // only fills in when exclusion would otherwise leave the graph without a healthy peer.
-        // MARBLE_DNS_RESILIENCE_V164 — expanded fallback covers same diversity as Xray hardener
-        // so filtered pool never leaves sing-box without encrypted resolver.
         val pool = filtered.ifEmpty {
-            listOf(
-                "https://1.1.1.1/dns-query",
-                "https://1.0.0.1/dns-query",
-                "https://8.8.8.8/dns-query",
-                "https://8.8.4.4/dns-query",
-                "https://9.9.9.9/dns-query",
-                "https://149.112.112.112/dns-query"
-            ).filter(::allowed)
+            listOf("https://1.1.1.1/dns-query", "https://8.8.8.8/dns-query", "tls://9.9.9.9").filter(::allowed)
         }.take(3)
         require(pool.isNotEmpty()) { "No encrypted DNS resolver configured" }
         // type:local in the Android CLI does NOT call Android's resolver. The production
@@ -1027,12 +1007,8 @@ private fun removeKeys(
             bootstrapPeers.put(tag)
         }
         bootstrapPeers.put(DNS_LOCAL_TAG)
-        // MARBLE_DNS_RESILIENCE_V164 — bootstrap also races when storm active, same as remote.
-        // Previously sequential bootstrap paid full deadline for each blocked anycast before
-        // trying the next, which is exactly the DoH deadline storm in Bug Finder logs.
-        val bootstrapStrategy = if (settings.adaptiveDnsEnabled && settings.measuredDnsParallel) "parallel" else "sequential"
         servers.put(JSONObject().put("type", "fallback").put("tag", DNS_BOOTSTRAP_TAG)
-            .put("servers", bootstrapPeers).put("strategy", bootstrapStrategy).put("timeout", timeout))
+            .put("servers", bootstrapPeers).put("strategy", "sequential").put("timeout", timeout))
         val remoteTags = JSONArray()
         pool.forEachIndexed { index, url ->
             val tag = "dns-remote-$index"
@@ -1101,30 +1077,18 @@ private fun removeKeys(
      * User-configured DoH wins when it is already a literal; otherwise Cloudflare / Google / Quad9.
      */
     private fun bootstrapDoH(settings: AppSettings): List<String> {
-        val excluded = settings.measuredDnsExcludedEndpoints.split(',')
-            .map { it.trim().lowercase() }.filter { it.isNotBlank() }.toSet()
-        fun allowed(url: String) = !ResolverEvidencePolicy.isDomesticResolver(url) && url.lowercase() !in excluded
         val fromUser = listOf(settings.dnsPrimaryDoH, settings.dnsSecondaryDoH)
             .map { it.trim() }
             .filter { url ->
                 val host = runCatching { URI(url).host }.getOrNull()
-                    ?.removePrefix("[")?.removeSuffix("]")?.orEmpty()
-                host.isNotBlank() && isLiteralAddress(host) && allowed(url)
+                    ?.removePrefix("[")?.removeSuffix("]").orEmpty()
+                host.isNotBlank() && isLiteralAddress(host) &&
+                    // MARBLE_RESOLVER_SINKHOLE_V163 — the node hostname is never asked of a
+                    // domestic resolver: that is the injector answer the bootstrap exists to avoid.
+                    !ResolverEvidencePolicy.isDomesticResolver(url)
             }
-        // MARBLE_DNS_RESILIENCE_V164 — same IP-literal diversity as Xray hardener and
-        // MarbleIntelligence STOCK_DOH_RESOLVERS, so one blocked anycast does not kill bootstrap.
-        // Keep only IP literals here; hostname DoH would need another resolver to bootstrap itself.
-        val stock = listOf(
-            "https://1.1.1.1/dns-query",
-            "https://1.0.0.1/dns-query",
-            "https://8.8.8.8/dns-query",
-            "https://8.8.4.4/dns-query",
-            "https://9.9.9.9/dns-query",
-            "https://149.112.112.112/dns-query"
-        ).filter(::allowed)
-        // Take 4 for resilience: previously 3 left only Cloudflare/Google/Quad9 and all three
-        // could be deadline-stormed together on a censored link, as seen in Bug Finder logs.
-        return (fromUser + stock).distinct().take(4)
+        val stock = listOf("https://1.1.1.1/dns-query", "https://8.8.8.8/dns-query", "tls://9.9.9.9")
+        return (fromUser + stock).distinct().take(3)
     }
 
     private fun singBoxLogLevel(settings: AppSettings): String {
