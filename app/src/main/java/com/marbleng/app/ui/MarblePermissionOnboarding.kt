@@ -24,11 +24,16 @@ import androidx.compose.ui.unit.dp
  * Access is deliberately requested at the moment a user starts a connection, not at first launch.
  * Keeping the flow as a modal also makes the reason for each Android prompt visible immediately
  * before the operating system owns the next screen.
+ *
+ * MARBLE_NO_BATTERY_PERMISSION_V165 — the battery-optimization exemption step is gone. The
+ * foreground-service tunnel already keeps the connection alive while the screen is off, and
+ * asking to be excluded from Doze read as "MarbleNG wants unrestricted background access".
+ * The flow now asks only for the two access rights a protected connection actually requires:
+ * VPN consent and the notification the tunnel must show.
  */
 enum class ConnectionPermissionStep {
     VPN,
-    NOTIFICATIONS,
-    BATTERY
+    NOTIFICATIONS
 }
 
 private data class PermissionCopy(
@@ -53,13 +58,6 @@ private fun permissionCopy(step: ConnectionPermissionStep): PermissionCopy = whe
             "and to tell you when a connection changes while the app is in the background.",
         detail = "Keeps tunnel status visible",
         tone = Aether.Amethyst
-    )
-    ConnectionPermissionStep.BATTERY -> PermissionCopy(
-        title = "Allow background connection",
-        reason = "Battery optimization can suspend a VPN when the screen turns off. MarbleNG asks to " +
-            "be excluded so the connection remains stable; this does not disable battery saving for other apps.",
-        detail = "Keeps the route alive when idle",
-        tone = Aether.Amber
     )
 }
 
@@ -92,7 +90,6 @@ fun ConnectionPermissionDialog(
                         when (step) {
                             ConnectionPermissionStep.VPN -> "VPN"
                             ConnectionPermissionStep.NOTIFICATIONS -> "•••"
-                            ConnectionPermissionStep.BATTERY -> "↯"
                         },
                         color = copy.tone,
                         style = MaterialTheme.typography.labelLarge

@@ -1517,25 +1517,76 @@ internal fun IosStatusWideCard(
         label = "status-color"
     )
 
-    // MARBLE_HOME_CLOUD_V141 — the canonical cloud card: one opaque white box, exactly the size
-    // of the card, one hairline, one shallow shadow. Nothing translucent, nothing nested.
-    HomeCloudCard(modifier = modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp)) {
+    // MARBLE_HOME_STATUS_MINIMAL_V165 — the status box was a three-slot banner (status line,
+    // route identity with a 40 dp flag tile, boxed IP strip). It is now two quiet rows: route
+    // identity with the one-tap ping readout, and a folded status + IP line. The protocol and
+    // subscription caption moved off the card (both live on the Servers page), and the IP strip
+    // lost its inset box so the whole card reads as one compact, minimal unit — the status the
+    // user glances at, nothing more. Every affordance the Home page needs survives: status pip
+    // and uptime, the IP with one-tap full report, and the ping result itself.
+    HomeCloudCard(modifier = modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp)) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            // ── Slot 1 (fixed height): status line. The top action cluster lives outside the
-            // banner as a separate transparent cluster (MARBLE_HOME_BANNER_V143).
+            // ── Row 1: status pip + route identity, ping readout pinned right ──────────────
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(min = 32.dp),
+                    .heightIn(min = 26.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 StatusDot(stateColor = stateColor, busy = evidence.connecting)
                 Spacer(Modifier.width(8.dp))
+                Text(
+                    text = evidence.nodeName.ifBlank { t.chooseRoute },
+                    color = Aether.Ink,
+                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+
+                // Inline Ping Result — reserved width, so digits appearing never re-flow the row.
+                val pingVal = homePingLabel(evidence)
+                val pingT = homePingTone(evidence, Aether.Cyan)
+                Row(
+                    modifier = Modifier
+                        .widthIn(min = 54.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(pingT.copy(alpha = 0.14f))
+                        .border(1.dp, pingT.copy(alpha = 0.35f), RoundedCornerShape(8.dp))
+                        .clickable(enabled = homePingTappable(evidence)) { actions.onTestPing() }
+                        .padding(horizontal = 8.dp, vertical = 3.dp),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = pingVal,
+                        color = pingT,
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace
+                        ),
+                        maxLines = 1,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
+
+            // ── Row 2: folded status + IP identity, one tap opens the full report ─────────
+            // MARBLE_HOME_IP_STRIP_V144 — the address stays at the strip's own quiet scale, in
+            // its monospace face and one ellipsized line; V151 dropped the nine-word caption,
+            // and V165 dropped the inset box as well, so the card is one unbroken surface.
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 20.dp)
+                    .clickable { actions.onIpDetails() },
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 Text(
                     text = when {
                         evidence.connected -> t.statusProtected
@@ -1561,164 +1612,37 @@ internal fun IosStatusWideCard(
                         maxLines = 1
                     )
                 }
-            }
-
-            HorizontalDivider(color = homeCloudDivider())
-
-            // ── Slot 2 (fixed height): route identity + ping readout ───────────────────
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 40.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(
-                    modifier = Modifier.weight(1f),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    // Flag inside a flat tile so emoji flags of different drawing heights can
-                    // never wobble the baseline of the row.
-                    Box(
-                        modifier = Modifier
-                            .size(40.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(homeCloudInsetFill())
-                            .border(1.dp, homeCloudInsetBorder(), RoundedCornerShape(12.dp)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = if (evidence.flag.isNotBlank()) evidence.flag else "🌐",
-                            fontSize = 18.sp
-                        )
-                    }
-                    Spacer(Modifier.width(10.dp))
-                    Column {
-                        Text(
-                            text = evidence.nodeName.ifBlank { t.chooseRoute },
-                            color = Aether.Ink,
-                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            val proto = evidence.profile?.scheme?.uppercase() ?: "PROXY"
-                            Text(
-                                text = proto,
-                                color = Aether.CyanBright,
-                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold)
-                            )
-                            if (evidence.sourceName.isNotBlank()) {
-                                Text("•", color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
-                                Text(
-                                    text = evidence.sourceName,
-                                    color = Aether.InkMuted,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                        }
-                    }
-                }
-
-                // Inline Ping Result — reserved width, so digits appearing never re-flow the row.
-                val pingVal = homePingLabel(evidence)
-                val pingT = homePingTone(evidence, Aether.Cyan)
-                Row(
-                    modifier = Modifier
-                        .widthIn(min = 58.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(pingT.copy(alpha = 0.14f))
-                        .border(1.dp, pingT.copy(alpha = 0.35f), RoundedCornerShape(10.dp))
-                        .clickable(enabled = homePingTappable(evidence)) { actions.onTestPing() }
-                        .padding(horizontal = 9.dp, vertical = 5.dp),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
+                Spacer(Modifier.weight(1f))
+                Text(
+                    text = if (evidence.ip.isNotBlank()) evidence.ip else "127.0.0.1",
+                    color = Aether.InkMuted,
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.SemiBold
+                    ),
+                    maxLines = 1,
+                    softWrap = false,
+                    overflow = TextOverflow.Ellipsis
+                )
+                if (evidence.countryCode.isNotBlank()) {
+                    Spacer(Modifier.width(6.dp))
                     Text(
-                        text = pingVal,
-                        color = pingT,
-                        style = MaterialTheme.typography.labelSmall.copy(
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = FontFamily.Monospace
-                        ),
+                        "(${evidence.countryCode})",
+                        color = Aether.InkFaint,
+                        style = MaterialTheme.typography.labelSmall,
                         maxLines = 1,
-                        textAlign = TextAlign.Center
+                        softWrap = false
                     )
                 }
-            }
-
-            // ── Slot 3 (fixed height): IP identity strip ───────────────────────────────
-            // MARBLE_HOME_IP_STRIP_V144 — the address used to be the only bodySmall (12sp) ink
-            // in a strip of labelSmall (10.5sp) copy, so one full step larger than its own tag,
-            // country and details link it visually shouted over the node name above it. The whole
-            // strip now speaks the same quiet size: the address keeps its monospace face and a
-            // semibold cut so it stays scrutable, but at the strip's own scale and in one
-            // ellipsized line, so long hostnames can never stretch the banner.
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 32.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(homeCloudInsetFill())
-                    .border(1.dp, homeCloudInsetBorder(), RoundedCornerShape(12.dp))
-                    .clickable { actions.onIpDetails() }
-                    .padding(horizontal = 10.dp, vertical = 5.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text(
-                        "IP",
-                        color = HomeCloud.Accent,
-                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold)
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        text = if (evidence.ip.isNotBlank()) evidence.ip else "127.0.0.1",
-                        color = Aether.InkMuted,
-                        style = MaterialTheme.typography.labelSmall.copy(
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.SemiBold
-                        ),
-                        maxLines = 1,
-                        softWrap = false,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    if (evidence.countryCode.isNotBlank()) {
-                        Spacer(Modifier.width(6.dp))
-                        Text(
-                            "(${evidence.countryCode})",
-                            color = Aether.InkFaint,
-                            style = MaterialTheme.typography.labelSmall,
-                            maxLines = 1,
-                            softWrap = false
-                        )
-                    }
-                }
-                // MARBLE_HOME_IP_STRIP_V151 — the "Show complete IP information" caption is gone.
-                //
-                // The strip already opens the full report on tap, and the caption repeated the
-                // action in nine words under a 32 dp row that only had room to ellipsize it. The
-                // INFO glyph stays as the affordance; the words survive as its content
-                // description, where a screen reader can still read them and a sighted user never
-                // has to.
+                Spacer(Modifier.width(4.dp))
                 HomeGlyphIcon(
                     glyph = HomeGlyph.INFO,
                     color = HomeCloud.Accent,
                     modifier = Modifier
-                        .size(12.dp)
+                        .size(10.dp)
                         .semantics { contentDescription = t.ipDetails }
                 )
             }
-
         }
     }
 }
