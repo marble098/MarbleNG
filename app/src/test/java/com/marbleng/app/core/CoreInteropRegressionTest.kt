@@ -290,7 +290,9 @@ class CoreInteropRegressionTest {
         assertEquals(8443, proxy.getInt("server_port"))
         val tls = proxy.getJSONObject("tls")
         assertTrue("pinned TLS must set insecure", tls.getBoolean("insecure"))
-        assertEquals("spotify.com", tls.getString("server_name"))
+        // verifyPeerCertByName ("198.51.100.7") differs from SNI ("spotify.com"), so the
+        // translator uses verifyPeerCertByName as the effective server_name.
+        assertEquals("198.51.100.7", tls.getString("server_name"))
         assertTrue(tls.has("utls"))
         val alpn = tls.getJSONArray("alpn")
         assertEquals(2, alpn.length())
