@@ -843,8 +843,10 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
                     result.detail.contains("config-unsupported", ignoreCase = true)
                 if (effective.coreEngine() == CoreEngine.SINGBOX && isPinnedRefusal) {
                     var fallback: RouteProbe.ProbeResult? = null
+                    // Force Xray for fallback: effective is SINGBOX and would delegate back to sing-box.
+                    val xrayEffective = effective.copy(coreEngineId = "xray")
                     runCatching {
-                        xray.temporary(profile, 0, effective) { port ->
+                        xray.temporary(profile, 0, xrayEffective) { port ->
                             fallback = RouteProbe.tunnelHttpsMeasureTargets(
                                 socksPort = port,
                                 timeoutMs = timeoutMs,
