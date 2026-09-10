@@ -1705,25 +1705,6 @@ grep -F 'MARBLE_SINGBOX_ANDROID_CLI_CRASH_V157' \
     }
 
 # ---------------------------------------------------------------------------
-# The Xray-compatible certificate pinning backport, and the same proof for it.
-#
-# MARBLE_SINGBOX_PINNED_PEER_V164 — `pcs`/`vcn` nodes (Xray pinnedPeerCertSha256 /
-# verifyPeerCertByName) used to be refused on this engine because the fork's parser
-# drops both keys and the std/uTLS clients cannot express a certificate hash. The
-# injector teaches the pinned source Xray's pin vocabulary (option fields, both TLS
-# client builders, both link parsers) and copies the stdlib-only verifier this repo
-# unit-tests in native/singboxpatch/tls. Without it a pinned node "connects" while
-# every handshake fails against the fronted SNI — connected, no Internet.
-# ---------------------------------------------------------------------------
-
-python3 "$ROOT/scripts/inject-singbox-tls-pinning.py" "$SINGBOX_SRC"
-
-grep -F 'MARBLE_SINGBOX_PINNED_PEER_V164' \
-    "$SINGBOX_SRC/option/tls.go" >/dev/null || {
-        die "sing-box TLS pinning options are missing from option/tls.go"
-    }
-
-# ---------------------------------------------------------------------------
 # The Go 1.27 force-close fix, and the same proof for it.
 #
 # MARBLE_SINGBOX_GO127_FORCE_CLOSE_V161 — the pinned Xray's go.mod decides this

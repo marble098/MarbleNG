@@ -74,28 +74,13 @@ class CoreInteropRegressionTest {
         listOf(
             JSONObject().put("network", "unknown-wire-protocol"),
             JSONObject().put("network", "xhttp").put("xhttpSettings", JSONObject().put("extra", JSONObject().put("unknownWireField", true))),
-            JSONObject().put("security", "tls").put("tlsSettings", JSONObject().put("pinnedPeerCertificateChainSha256", "ab".repeat(32))),
+            JSONObject().put("security", "tls").put("tlsSettings", JSONObject().put("pinnedPeerCertSha256", "ab".repeat(32))),
             JSONObject().put("security", "reality").put("realitySettings", JSONObject().put("serverName", "example.com"))
         ).forEach { stream ->
             val support = SingBoxConfigBuilder.describe(profile(vless().put("streamSettings", stream)), plain)
             assertFalse(support.toString(), support.supported)
             assertTrue(support.reason, support.reason.startsWith("config-unsupported:"))
         }
-    }
-
-    @Test fun pinnedPeerCertSha256SurvivesTranslationOnThePinnedCore() {
-        // MARBLE_SINGBOX_PINNED_PEER_V164 — `pcs` is a first-class sing-box option now, so a
-        // pinned profile describes as supported and the emitted outbound carries the pin.
-        val stream = JSONObject().put("security", "tls").put("tlsSettings", JSONObject()
-            .put("serverName", "spotify.com").put("pinnedPeerCertSha256", "ab".repeat(32))
-            .put("verifyPeerCertByName", "vps1.example.org"))
-        val support = SingBoxConfigBuilder.describe(profile(vless().put("streamSettings", stream)), plain)
-        assertTrue(support.toString(), support.supported)
-        val result = proxy(build(profile(vless().put("streamSettings", stream))))
-        val tls = result.getJSONObject("tls")
-        assertEquals(listOf("ab".repeat(32)), tls.getJSONArray("pinned_peer_cert_sha256").toList())
-        assertEquals(listOf("vps1.example.org"), tls.getJSONArray("verify_peer_cert_by_name").toList())
-        assertFalse("the pin must never be silently downgraded", tls.optBoolean("insecure", false))
     }
 
     @Test fun xrayChainEdgesPointFromEntryTowardTheOuterHop() {

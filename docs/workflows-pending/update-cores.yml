@@ -63,11 +63,6 @@ jobs:
 
           python3 scripts/inject-singbox-android-fix.py "$WORK/singbox"
           python3 scripts/inject-singbox-go127-fix.py "$WORK/singbox"
-          # MARBLE_SINGBOX_PINNED_PEER_V164 — the certificate-pinning backport is the third
-          # patch of the pinned source: its anchors (the TLS option block, both client builders,
-          # both link parsers) are exactly what a newer fork tag is likely to move, and the
-          # verifier is a whole new file. A tag this injector cannot patch must not be pushed.
-          python3 scripts/inject-singbox-tls-pinning.py "$WORK/singbox"
 
           echo "Backports apply cleanly to $TAG ($COMMIT)."
           echo "If a future tag already carries the fork's own v2rayxhttp go1.27 split,"

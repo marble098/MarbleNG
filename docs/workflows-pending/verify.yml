@@ -116,8 +116,7 @@ jobs:
           )
 
       # ======================================================================
-      # sing-box pinned-source smoke — the run #247 class of failure, plus the
-      # certificate-pinning backport
+      # sing-box pinned-source smoke — the run #247 class of failure
       # ======================================================================
       # MARBLE_SINGBOX_GO127_FORCE_CLOSE_V161 — the release build resolves its Go
       # toolchain from the pinned Xray's go.mod, and the core-lock bot bumped that
@@ -128,15 +127,8 @@ jobs:
       # x/net/http2 symbol. A PR-time gate never sees the pinned sing-box's link
       # surface unless it builds it — with the same toolchain the release build
       # will use — so this smoke does exactly that: clone the pinned commit,
-      # inject all three backports, run the injected regression tests, and link
-      # the whole core with the release tag set on the host.
-      #
-      # MARBLE_SINGBOX_PINNED_PEER_V164 — the third backport teaches the pinned
-      # core Xray's certificate pinning (pcs/vcn). The smoke applies its injector,
-      # checks every marker site, proves idempotence, and unit-tests the
-      # stdlib-only verifier (native/singboxpatch) on the pinned toolchain; the
-      # whole-core link below compiles the patched std/uTLS clients and link
-      # parsers with the release tags — including with_utls.
+      # inject both backports, run the injected regression tests, and link the
+      # whole core with the release tag set on the host.
       - name: Clone the pinned sing-box source and the pinned Xray toolchain pin
         shell: bash
         run: |
@@ -197,10 +189,9 @@ jobs:
           (
             cd "$SB_TMP"
 
-            # All three backports, exactly as the release build applies them.
+            # Both backports, exactly as the release build applies them.
             python3 "$GITHUB_WORKSPACE/scripts/inject-singbox-android-fix.py" "$SB_TMP"
             python3 "$GITHUB_WORKSPACE/scripts/inject-singbox-go127-fix.py" "$SB_TMP"
-            python3 "$GITHUB_WORKSPACE/scripts/inject-singbox-tls-pinning.py" "$SB_TMP"
 
             # Every patched site must carry its marker, or the release build's grep
             # has nothing to find and an unpatched file ships silently.
@@ -223,18 +214,10 @@ jobs:
               grep -F 'MARBLE_SINGBOX_GO127_FORCE_CLOSE_V161' "transport/v2rayxhttp/$variant" >/dev/null
             done
 
-            # The pinning backport's marker sites: the option fields (which the release
-            # build greps), the copied verifier, and the pcs/vcn cases in both link parsers.
-            grep -F 'MARBLE_SINGBOX_PINNED_PEER_V164' option/tls.go >/dev/null
-            grep -F 'MARBLE_SINGBOX_PINNED_PEER_V164' common/tls/pin_verify.go >/dev/null
-            grep -F '"pcs", "pinnedPeerCertSha256", "pinned_peer_cert_sha256":' parser/link/vless.go >/dev/null
-            grep -F '"pcs", "pinnedPeerCertSha256", "pinned_peer_cert_sha256":' parser/link/trojan.go >/dev/null
-
             # Idempotence: a second run must be a no-op, or the release build's single
             # run is not the tree these tests are about to validate.
             python3 "$GITHUB_WORKSPACE/scripts/inject-singbox-android-fix.py" "$SB_TMP" | grep -F 'already patched'
             python3 "$GITHUB_WORKSPACE/scripts/inject-singbox-go127-fix.py" "$SB_TMP" | grep -F 'already patched'
-            python3 "$GITHUB_WORKSPACE/scripts/inject-singbox-tls-pinning.py" "$SB_TMP" | grep -F 'already patched'
 
             # The injected crash regression tests (nil interface monitor).
             env GOTOOLCHAIN=auto CGO_ENABLED=0 go test ./protocol/direct ./route
@@ -274,14 +257,6 @@ jobs:
 
           test -s "$RUNNER_TEMP/singbox-link-smoke-bin"
           echo "[OK] pinned sing-box links under the pinned Xray's toolchain with the release tags"
-
-          # The pinning verifier is stdlib-only, so it is unit-tested standalone — an
-          # in-memory CA + leaf reproducing the pinning server's certificate shape —
-          # on the pinned toolchain, against the pristine source, before any ABI.
-          (
-            cd "$GITHUB_WORKSPACE/native/singboxpatch"
-            env GOTOOLCHAIN=auto CGO_ENABLED=0 go test ./...
-          )
 
       - name: Reject malformed Compose function types
         shell: bash

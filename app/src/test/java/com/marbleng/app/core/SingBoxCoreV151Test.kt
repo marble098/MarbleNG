@@ -373,11 +373,7 @@ class SingBoxCoreV151Test {
     }
 
     @Test
-    fun certificatePinningIsTranslatedNotPretended() {
-        // MARBLE_SINGBOX_PINNED_PEER_V164 — the pinned core speaks Xray's pinning vocabulary, so
-        // a pcs profile is now translated with the pin intact. The promise this test guards is
-        // unchanged: the pin must never be dropped or downgraded into `insecure` behind the
-        // user's back. The base64 spelling below is normalised to hex on the way in.
+    fun certificatePinningIsReportedNotPretended() {
         val profile = jsonProfile("vless").let {
             val root = JSONObject(it.configJson)
             root.getJSONArray("outbounds")
@@ -390,15 +386,8 @@ class SingBoxCoreV151Test {
             it.copy(configJson = root.toString())
         }
         val support = SingBoxConfigBuilder.describe(profile, AppSettings(singBoxPreferParser = false))
-        assertTrue("pcs/vcn runs on the patched core: $support", support.supported)
-        val built = JSONObject(
-            SingBoxConfigBuilder.build(profile, AppSettings(), 10808, 39090, "s", "", "").json
-        )
-        val tls = NativeSingBoxConfig.objects(built.getJSONArray("outbounds"))
-            .single { it.optString("tag") == SingBoxConfigBuilder.PROXY_TAG }
-            .getJSONObject("tls")
-        assertEquals(listOf("00".repeat(32)), tls.getJSONArray("pinned_peer_cert_sha256").toList())
-        assertFalse("dropping certificate verification is not a supported conversion", tls.optBoolean("insecure", false))
+        assertFalse("dropping certificate verification is not a supported conversion", support.supported)
+        assertTrue(support.reason, support.reason.contains("pinnedPeerCertSha256"))
     }
 
     @Test
