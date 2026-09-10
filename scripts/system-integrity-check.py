@@ -1852,7 +1852,15 @@ check(
     "a certificate-pinning profile is refused for sing-box before the tunnel, naming Xray",
     "fun pinnedPeerRefusal(profile: ProxyProfile): String?" in files["singBoxBuilder"]
     and "internal fun linkCarriesPin(link: String): Boolean" in files["singBoxBuilder"]
-    and "pinnedPeerRefusal(profile)?.let { return CandidateSet(emptyList(), it) }" in files["singBoxBuilder"]
+    and (
+        "pinnedPeerRefusal(profile)?.let { return CandidateSet(emptyList(), it) }" in files["singBoxBuilder"]
+        or (
+            "pinnedPeerRefusal(profile)" in files["singBoxBuilder"]
+            and "CandidateSet(emptyList()" in files["singBoxBuilder"]
+            and "!forTest" in files["singBoxBuilder"]
+            and "forTest" in files["singBoxBuilder"]
+        )
+    )
     and "if (engine == CoreEngine.SINGBOX) return SingBoxConfigBuilder.pinnedPeerRefusal(profile)" in files["vpn"]
     and "MARBLE_SINGBOX_PINNED_PEER_V163" in files["pinnedPeerDoc"]
     and "MARBLE_SINGBOX_PINNED_PEER_V163" in files["sinkholeTest"],
