@@ -232,10 +232,7 @@ object XrayConfigHardener {
                         underlayHasIpv6 = underlayHasIpv6,
                         tcpTransport = true
                     )
-                    val settingsObject = outbound.optJSONObject("settings")
-                        ?: JSONObject().also { outbound.put("settings", it) }
-                    settingsObject.put("domainStrategy", plan.endpointStrategy)
-                    settingsObject.put("targetStrategy", plan.endpointStrategy)
+                    writeFreedomResolveStrategy(outbound, plan.endpointStrategy)
                 } else if (endpointDomains(outbound).isNotEmpty()) {
                     applyAddressFamily(outbound, settings, underlayHasIpv6)
                 }
@@ -612,6 +609,20 @@ object XrayConfigHardener {
                 // resolution can be controlled by sockopt and Happy Eyeballs.
                 outbound.remove("targetStrategy")
                 outbound.remove("sendThrough")
+                // MARBLE_FREEDOM_SOCKOPT_STRATEGY_V163 — an imported freedom hop that still
+                // carries the deprecated `settings.domainStrategy`/`targetStrategy` alias is
+                // migrated here exactly as the core would (alias → sockopt, sockopt wins when
+                // both exist), so the emitted document never trips the deprecation warning.
+                if (outbound.optString("protocol").lowercase() in setOf("freedom", "direct")) {
+                    val legacy = outbound.optJSONObject("settings")
+                    val imported = outbound.optJSONObject("streamSettings")?.optJSONObject("sockopt")
+                        ?.optString("domainStrategy").orEmpty()
+                        .ifBlank { legacy?.optString("targetStrategy").orEmpty() }
+                        .ifBlank { legacy?.optString("domainStrategy").orEmpty() }
+                    if (legacy?.has("domainStrategy") == true || legacy?.has("targetStrategy") == true) {
+                        writeFreedomResolveStrategy(outbound, imported)
+                    }
+                }
 
                 if (endpointDomains(outbound).isNotEmpty()) {
                     applyAddressFamily(outbound, settings, underlayHasIpv6)
@@ -688,10 +699,9 @@ object XrayConfigHardener {
                     ?.optString("dialerProxy")
                     ?.isNotBlank() == true
             if (chained) return@forEach
-            // UDP dials use the outbound-level targetStrategy/domainStrategy; TCP uses
-            // sockopt.domainStrategy + Happy Eyeballs. The official XTLS config writes
-            // targetStrategy: ForceIPv6v4 on udp-noises, so the two paths must be planned
-            // differently instead of pretending a UDP PacketWriter can race.
+            // A UDP PacketWriter cannot race, so a noise-only hop gets a deterministic order
+            // while a TCP hop may arm Happy Eyeballs; both are expressed through the same
+            // sockopt.domainStrategy field (see writeFreedomResolveStrategy).
             val hopPlan = if (isNoiseOnly) {
                 AddressFamilyPolicy.plan(
                     settings = settings,
@@ -701,13 +711,15 @@ object XrayConfigHardener {
             } else {
                 applyAddressFamily(outbound, settings, underlayHasIpv6)
             }
-            // UDP packets are resolved by the hop's native PacketWriter, which reads the
-            // outbound-level (settings) strategy rather than sockopt. Write both, as the
-            // GFW-knocker config does, so TCP and UDP agree on the same plan.
-            val settingsObject = outbound.optJSONObject("settings")
-                ?: JSONObject().also { outbound.put("settings", it) }
-            settingsObject.put("domainStrategy", hopPlan.endpointStrategy)
-            settingsObject.put("targetStrategy", hopPlan.endpointStrategy)
+            // MARBLE_FREEDOM_SOCKOPT_STRATEGY_V163 — the pinned core reads ONE field for both the
+            // TCP dial and the UDP PacketWriter: `streamSettings.sockopt.domainStrategy`
+            // (proxy/freedom/freedom.go: `h.resolveStrategy = streamSettings.SocketSettings
+            // .DomainStrategy`, consulted by both `Process` and `PacketWriter`). The old
+            // `settings.domainStrategy` / `settings.targetStrategy` pair is migrated by the core
+            // with a WARNING on every start ("freedom.domainStrategy is deprecated and will be
+            // removed") and will stop working when the shim is dropped — so the plan is written
+            // once, where the engine reads it.
+            writeFreedomResolveStrategy(outbound, hopPlan.endpointStrategy)
         }
 
         if (tlsFragmentOutbound != null) out.put(tlsFragmentOutbound)
@@ -722,12 +734,8 @@ object XrayConfigHardener {
                 JSONObject()
                     .put("tag", "direct")
                     .put("protocol", "freedom")
-                    .put(
-                        "settings",
-                        JSONObject()
-                            .put("domainStrategy", dnsPlan.endpointStrategy)
-                            .put("targetStrategy", dnsPlan.endpointStrategy)
-                    )
+                    .put("settings", JSONObject())
+                    .also { writeFreedomResolveStrategy(it, dnsPlan.endpointStrategy) }
             )
         }
 
@@ -825,9 +833,28 @@ object XrayConfigHardener {
         val stockCloudflareDoh = "https://1.1.1.1/dns-query"
         val stockGoogleDoh = "https://8.8.8.8/dns-query"
         val stockQuad9Doh = "https://9.9.9.9/dns-query"
+        // MARBLE_RESOLVER_SINKHOLE_V163 — two classes of endpoint never enter the tunnel's
+        // resolver graph, whatever rank they would have held:
+        //  - a domestic anti-sanction resolver (dns.shecan.ir & co.) — asking it through the exit
+        //    hands every browsing target to an Iranian operator and gets that operator's proxies
+        //    back: a DNS leak by construction;
+        //  - an endpoint whose certificate is measured expired on this network — it fails after a
+        //    full handshake on every lookup until somebody renews it.
+        // The runtime log had both on the same primary slot: `Post "https://dns.shecan.ir/
+        // dns-query": x509: certificate has expired`. Demoting it to last still cost a handshake
+        // per query under parallel racing; it is excluded here instead.
+        val excludedResolvers = ResolverEvidencePolicy.normalize(settings.measuredDnsExcludedEndpoints)
+            .split(',')
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .toSet()
+        fun resolverAllowed(url: String): Boolean =
+            !ResolverEvidencePolicy.isDomesticResolver(url) &&
+                ResolverEvidencePolicy.normalize(url) !in excludedResolvers
         val genericDoh = listOf(settings.dnsPrimaryDoH, settings.dnsSecondaryDoH)
             .map { it.trim() }
             .filter { it.startsWith("https://") }
+            .filter(::resolverAllowed)
             .distinct()
         val configuredRemoteDoh = genericDoh.ifEmpty {
             listOf(
@@ -863,6 +890,7 @@ object XrayConfigHardener {
         val remoteDoh = if (settings.adaptiveDnsEnabled) {
             demoteLast(
                 (configuredRemoteDoh + listOf(stockCloudflareDoh, stockGoogleDoh, stockQuad9Doh))
+                    .filter(::resolverAllowed)
                     .distinctBy { it.lowercase() }
             ).take(3)
         } else {
@@ -1255,6 +1283,32 @@ object XrayConfigHardener {
         "::"
     )
 
+    /**
+     * MARBLE_FREEDOM_SOCKOPT_STRATEGY_V163 — the single supported home of a freedom/direct hop's
+     * resolve strategy. `sockopt.domainStrategy` is what the pinned Xray core actually reads for
+     * both TCP dials and UDP packets; `settings.domainStrategy` and `settings.targetStrategy` are
+     * a deprecated alias that the core migrates with a start-up warning today and rejects
+     * tomorrow. A hand-imported config that still carries the alias is cleaned here too, so the
+     * emitted document never triggers the migration path. When the plan is `AsIs` nothing is
+     * written and any imported alias is dropped, exactly as the core would migrate it.
+     */
+    internal fun writeFreedomResolveStrategy(outbound: JSONObject, strategy: String) {
+        outbound.optJSONObject("settings")?.let { settingsObject ->
+            settingsObject.remove("domainStrategy")
+            settingsObject.remove("targetStrategy")
+        }
+        outbound.remove("targetStrategy")
+        val streamObject = outbound.optJSONObject("streamSettings")
+            ?: JSONObject().also { outbound.put("streamSettings", it) }
+        val sockoptObject = streamObject.optJSONObject("sockopt")
+            ?: JSONObject().also { streamObject.put("sockopt", it) }
+        if (strategy.isBlank() || strategy.equals("AsIs", true)) {
+            sockoptObject.remove("domainStrategy")
+        } else {
+            sockoptObject.put("domainStrategy", strategy)
+        }
+    }
+
     private fun hasNoises(outbound: JSONObject): Boolean {
         val noises = outbound.optJSONObject("settings")?.optJSONArray("noises") ?: return false
         return noises.length() > 0
@@ -1534,6 +1588,20 @@ object XrayConfigHardener {
         }
         for (index in 0 until outs.length()) {
             val outbound = outs.optJSONObject(index) ?: continue
+            // MARBLE_FREEDOM_SOCKOPT_STRATEGY_V163 — a freedom hop that the hardener planned must
+            // carry its strategy only in sockopt; the deprecated alias would make the core log a
+            // migration warning on every start and is the first thing to break on a core bump.
+            if (outbound.optString("protocol").lowercase() in setOf("freedom", "direct")) {
+                val legacy = outbound.optJSONObject("settings")
+                val hasAlias = legacy?.has("domainStrategy") == true ||
+                    legacy?.has("targetStrategy") == true ||
+                    outbound.has("targetStrategy")
+                val planned = outbound.optJSONObject("streamSettings")?.optJSONObject("sockopt")
+                    ?.has("domainStrategy") == true
+                require(!(hasAlias && planned)) {
+                    "Deprecated freedom.domainStrategy alias written next to sockopt.domainStrategy for ${outbound.optString("tag")}"
+                }
+            }
             // Only hostname endpoints resolve a family at dial time; a config that already carries a
             // literal address is left exactly as its author wrote it.
             if (endpointDomains(outbound).isEmpty()) continue

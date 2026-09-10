@@ -35,6 +35,7 @@ import com.marbleng.app.core.SmartNotifier
 import com.marbleng.app.core.TransportTelemetry
 import com.marbleng.app.core.TurboBackoffPolicy
 import com.marbleng.app.core.CoreEngine
+import com.marbleng.app.core.SingBoxConfigBuilder
 import com.marbleng.app.core.SingBoxAndroidRuntime
 import com.marbleng.app.core.SingBoxConfigDoctor
 import com.marbleng.app.core.SingBoxManager
@@ -3491,6 +3492,11 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
      * which is why a sing-box session died with `startup-failed-before-tun`.
      */
     private fun profileCompatibilityIssue(profile: ProxyProfile, engine: CoreEngine): String? {
+        // MARBLE_SINGBOX_PINNED_PEER_V163 — a pinned-certificate node (pcs / vcn) is the one
+        // shape the extended core accepts and then cannot use: its parser drops the pin, every
+        // TLS handshake fails against the fronted SNI, and the user sees "connected, no
+        // Internet". Refuse before the TUN with the engine that can honour the pin.
+        if (engine == CoreEngine.SINGBOX) return SingBoxConfigBuilder.pinnedPeerRefusal(profile)
         if (engine != CoreEngine.XRAY) return null
         return runCatching {
             val root = JSONObject(profile.configJson)

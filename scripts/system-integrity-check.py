@@ -69,6 +69,9 @@ files = {
     "coreBudgetTest": read("app/src/test/java/com/marbleng/app/core/MeasurementCoreBudgetTest.kt"),
     "rememberedPingTest": read("app/src/test/java/com/marbleng/app/model/RememberedPingV160Test.kt"),
     "singBoxBuilder": read("app/src/main/java/com/marbleng/app/core/SingBoxConfigBuilder.kt"),
+    "sinkholeTest": read("app/src/test/java/com/marbleng/app/core/ResolverSinkholeV163Test.kt"),
+    "sinkholeDoc": read("docs/RESOLVER_SINKHOLE_V163.md"),
+    "pinnedPeerDoc": read("docs/SINGBOX_PINNED_PEER_V163.md"),
     "singBox": read("app/src/main/java/com/marbleng/app/core/SingBoxManager.kt"),
     "singBoxSession": read("app/src/main/java/com/marbleng/app/core/SingBoxProcessSession.kt"),
     # MARBLE_SINGBOX_ANDROID_CLI_CRASH_V157 — the Android core crashed for every profile, and the
@@ -1807,6 +1810,64 @@ check(
     "V149 regressions are pinned by unit tests",
     "TlsPinningPolicyTest" in files["pinningTest"]
     and "PingMethodTruthV149Test" in files["pingTruthTest"],
+)
+
+# MARBLE_FREEDOM_SOCKOPT_STRATEGY_V163 — the pinned Xray core reads a freedom hop's resolve
+# strategy from `streamSettings.sockopt.domainStrategy` only; the `settings.domainStrategy` /
+# `targetStrategy` alias is migrated with a start-up WARNING today and removed tomorrow. The
+# hardener must therefore never write the alias and must migrate an imported one.
+check(
+    "freedom hops carry their resolve strategy in sockopt only, never the deprecated alias",
+    "internal fun writeFreedomResolveStrategy(outbound: JSONObject, strategy: String)" in files["hardener"]
+    and 'settingsObject.put("targetStrategy"' not in files["hardener"]
+    and 'Deprecated freedom.domainStrategy alias written next to sockopt.domainStrategy' in files["hardener"]
+    and "MARBLE_FREEDOM_SOCKOPT_STRATEGY_V163" in files["hardener"]
+    and "MARBLE_FREEDOM_SOCKOPT_STRATEGY_V163" in files["sinkholeTest"],
+)
+
+# MARBLE_RESOLVER_SINKHOLE_V163 — a domestic anti-sanction resolver (dns.shecan.ir …) and an
+# endpoint measured with an expired certificate are *excluded* from every emitted resolver graph,
+# not merely demoted; the sing-box remote fallback races when the evidence says a peer is failing.
+check(
+    "domestic and cert-broken resolvers are excluded from both engines' resolver graphs",
+    "fun isDomesticResolver(endpoint: String): Boolean" in files["resolverPolicy"]
+    and "fun excluded(" in files["resolverPolicy"]
+    and "fun withoutExcluded(" in files["resolverPolicy"]
+    and "const val CERT_BROKEN_TTL_MS" in files["resolverPolicy"]
+    and "val measuredDnsExcludedEndpoints: String" in files["models"]
+    and "measuredDnsExcludedEndpoints = dnsExcluded.joinToString" in files["intel"]
+    and "ResolverEvidencePolicy.withoutExcluded(candidates, evidence, now)" in files["intel"]
+    and "settings.measuredDnsExcludedEndpoints" in files["hardener"]
+    and "ResolverEvidencePolicy.isDomesticResolver(url)" in files["hardener"]
+    and "ResolverEvidencePolicy.isDomesticResolver(url)" in files["singBoxBuilder"]
+    and 'settings.measuredDnsParallel) "parallel" else "sequential"' in files["singBoxBuilder"]
+    and "MARBLE_RESOLVER_SINKHOLE_V163" in files["sinkholeDoc"]
+    and "class ResolverSinkholeV163Test" in files["sinkholeTest"],
+)
+
+# MARBLE_SINGBOX_PINNED_PEER_V163 — a pcs/vcn (pinnedPeerCertSha256 / verifyPeerCertByName)
+# profile is refused for sing-box extended BEFORE the fork's parser can accept the link and drop
+# the pin: that is the "connected on sing-box, no Internet" report. The refusal names Xray.
+check(
+    "a certificate-pinning profile is refused for sing-box before the tunnel, naming Xray",
+    "fun pinnedPeerRefusal(profile: ProxyProfile): String?" in files["singBoxBuilder"]
+    and "internal fun linkCarriesPin(link: String): Boolean" in files["singBoxBuilder"]
+    and "pinnedPeerRefusal(profile)?.let { return CandidateSet(emptyList(), it) }" in files["singBoxBuilder"]
+    and "if (engine == CoreEngine.SINGBOX) return SingBoxConfigBuilder.pinnedPeerRefusal(profile)" in files["vpn"]
+    and "MARBLE_SINGBOX_PINNED_PEER_V163" in files["pinnedPeerDoc"]
+    and "MARBLE_SINGBOX_PINNED_PEER_V163" in files["sinkholeTest"],
+)
+
+# MARBLE_REMEMBERED_PING_KEEP_V163 / MARBLE_SETTINGS_HUB_TRIM_V163 — the benchmark table is no
+# longer trimmed by a TRIM_MEMORY callback (which then got persisted over the remembered pings),
+# and the Settings hub shows a bare title with no version stamp on the Tunnel core row.
+check(
+    "remembered pings survive memory pressure and the settings hub is trimmed",
+    "MARBLE_REMEMBERED_PING_KEEP_V163" in files["repo"]
+    and "benchmarks.filter { it.profileId == active }.take(1)" not in files["repo"]
+    and 'MarbleCompactTopBar(title = "Settings")' in files["ui"]
+    and "MARBLE_SETTINGS_HUB_TRIM_V163" in files["ui"]
+    and files["ui"].count("SettingsVersionPreview(") == 2,
 )
 
 # MARBLE_SINGBOX_ANDROID_CLI_CRASH_V157 — Kotlin block comments NEST, so a KDoc that merely

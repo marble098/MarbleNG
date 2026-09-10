@@ -88,11 +88,14 @@ class LeakGuard {
         "194.150.76."    // Rightel DNS
     )
 
-    // Known encrypted resolver providers
+    // Known encrypted resolver providers.
+    // MARBLE_RESOLVER_SINKHOLE_V163 — "shecan" is deliberately NOT on this list any more: it is
+    // an Iranian anti-sanction resolver, and a session whose lookups reach it is a DNS leak to
+    // a domestic operator, not a verified-encrypted session.
     private val ENCRYPTED_PROVIDERS = setOf(
         "cloudflare", "google", "quad9", "adguard",
         "nextdns", "opendns", "mullvad", "control d",
-        "shecan", "yandex", "cleanbrowsing"
+        "yandex", "cleanbrowsing"
     )
 
     // Configuration

@@ -355,6 +355,92 @@ object ResolverEvidencePolicy {
     ): List<String> =
         order(candidates, evidence = evidence, nowMs = nowMs, seed = "")
 
+    /**
+     * MARBLE_RESOLVER_SINKHOLE_V163 — endpoints that must be *left out* of an emitted resolver
+     * list, not merely moved to its end.
+     *
+     * Demotion (last rank) is the right answer for a deadline burst: the endpoint may come back
+     * mid-session and a serial failover will reach it eventually. It is the wrong answer for two
+     * failure classes the attached runtime log showed side by side:
+     *
+     *  - **an expired certificate** (`x509: certificate has expired or is not yet valid: current
+     *    time … is after 2026-07-10`). The endpoint cannot answer until somebody renews the
+     *    certificate; every query that reaches it fails only after a full TLS handshake, and when
+     *    the core races the pool the broken endpoint still burns a connection on every lookup.
+     *  - **a domestic "anti-sanction" resolver** such as `dns.shecan.ir` (see [isDomesticResolver]).
+     *    Asking it *through the tunnel* sends the user's browsing targets to an Iranian operator
+     *    from the exit IP and receives answers that point at that operator's own proxies — a DNS
+     *    leak by construction, whichever rank it holds.
+     *
+     * The result is always a strict subset of [candidates]; callers keep the original list when
+     * excluding would leave nothing to emit, because an empty resolver list is a hard config error.
+     */
+    fun excluded(
+        candidates: List<String>,
+        evidence: List<EndpointEvidence>,
+        nowMs: Long
+    ): List<String> = candidates
+        .map { it.trim() }
+        .filter { it.isNotBlank() }
+        .distinctBy { normalize(it) }
+        .filter { candidate ->
+            isDomesticResolver(candidate) || run {
+                val record = evidenceFor(candidate, evidence) ?: return@run false
+                record.certBroken &&
+                    record.lastFailureAtMs > 0L &&
+                    nowMs - record.lastFailureAtMs <= CERT_BROKEN_TTL_MS &&
+                    !(record.lastSuccessAtMs > 0L && record.lastSuccessAtMs >= record.lastFailureAtMs)
+            }
+        }
+
+    /**
+     * Drop [excluded] endpoints from [candidates] unless that would empty the list. Order is
+     * preserved so a caller can still apply [order] afterwards.
+     */
+    fun withoutExcluded(
+        candidates: List<String>,
+        evidence: List<EndpointEvidence>,
+        nowMs: Long
+    ): List<String> {
+        val out = excluded(candidates, evidence, nowMs).map { normalize(it) }.toSet()
+        if (out.isEmpty()) return candidates
+        val kept = candidates.filter { normalize(it) !in out }
+        // A domestic resolver is a leak even when it is the only entry: never keep it. A merely
+        // cert-broken one is kept as the last resort rather than emitting nothing at all.
+        if (kept.isNotEmpty()) return kept
+        return candidates.filter { !isDomesticResolver(it) }
+    }
+
+    /**
+     * True when [endpoint] is an Iranian domestic resolver: an IP from
+     * [IranNetworkRegistry.DOMESTIC_RESOLVERS], one of the known anti-sanction DoH hostnames, or
+     * any host under the `.ir` ccTLD. Such resolvers are probe targets for locality detection and
+     * direct-routing exceptions only; they never carry the tunnel's lookups.
+     */
+    fun isDomesticResolver(endpoint: String): Boolean {
+        val host = endpoint.trim()
+            .substringAfter("://", endpoint.trim())
+            .substringBefore('/')
+            .substringBefore('?')
+            .removePrefix("[").substringBefore(']')
+            .substringBefore(':')
+            .trim()
+            .lowercase()
+            .trimEnd('.')
+        if (host.isBlank()) return false
+        if (host in IranNetworkRegistry.DOMESTIC_RESOLVERS) return true
+        if (host == "ir" || host.endsWith(".ir")) return true
+        return DOMESTIC_RESOLVER_HOSTS.any { host == it || host.endsWith(".$it") }
+    }
+
+    /** Anti-sanction DoH/DoT hostnames that do not sit under `.ir`. */
+    private val DOMESTIC_RESOLVER_HOSTS = listOf(
+        "shecan.ir", "electrotm.org", "begzar.ir", "403.online", "radar.game", "pishgaman.net"
+    )
+
+    /** An expired certificate keeps its endpoint out of the emitted list for this long. */
+    const val CERT_BROKEN_TTL_MS = 6L * 60L * 60_000L
+
     /** Endpoints of [candidates] that are currently demoted, for diagnostics and the config writer. */
     fun demoted(
         candidates: List<String>,

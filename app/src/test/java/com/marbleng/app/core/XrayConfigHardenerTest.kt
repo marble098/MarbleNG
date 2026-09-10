@@ -137,13 +137,17 @@ class XrayConfigHardenerTest {
         val inner = outbound(hardened, "full-fragment")
         assertEquals("freedom", inner.optString("protocol"))
         val innerSettings = inner.optJSONObject("settings")
-        assertTrue("settings.domainStrategy must be written", innerSettings?.has("domainStrategy") == true)
-        assertTrue(
-            "settings.domainStrategy must be a plan value",
-            innerSettings!!.optString("domainStrategy") in AddressFamilyPolicy.ENDPOINT_STRATEGIES
-        )
+        // MARBLE_FREEDOM_SOCKOPT_STRATEGY_V163 — the deprecated freedom.domainStrategy /
+        // targetStrategy alias must never be written: the core migrates it with a warning today
+        // and drops it tomorrow. The plan lives in sockopt only.
+        assertFalse("settings.domainStrategy is deprecated", innerSettings?.has("domainStrategy") == true)
+        assertFalse("settings.targetStrategy is deprecated", innerSettings?.has("targetStrategy") == true)
         val innerSockopt = inner.optJSONObject("streamSettings")?.optJSONObject("sockopt")
         assertTrue("sockopt.domainStrategy must be written", innerSockopt?.has("domainStrategy") == true)
+        assertTrue(
+            "sockopt.domainStrategy must be a plan value",
+            innerSockopt!!.optString("domainStrategy") in AddressFamilyPolicy.ENDPOINT_STRATEGIES
+        )
 
         // Only the hop that opens the real socket resolves; the dialer hops just bridge.
         val outerSockopt = outbound(hardened, "proxy")
@@ -155,12 +159,14 @@ class XrayConfigHardenerTest {
         val noise = outbound(hardened, "udp-noises")
         assertTrue((noise.optJSONObject("settings")?.optJSONArray("noises")?.length() ?: 0) > 0)
         val noiseSettings = noise.optJSONObject("settings")
-        assertTrue(noiseSettings?.has("domainStrategy") == true)
-        // Official XTLS gives the dedicated UDP path targetStrategy (ForceIPv6v4). Marble must
-        // emit the same outbound-level field so the PacketWriter resolves through Xray DNS.
-        assertTrue(noiseSettings?.has("targetStrategy") == true)
+        assertFalse(noiseSettings?.has("domainStrategy") == true)
+        assertFalse(noiseSettings?.has("targetStrategy") == true)
+        // The UDP PacketWriter reads the very same sockopt.domainStrategy as the TCP dial
+        // (proxy/freedom/freedom.go resolveStrategy), so one field covers both paths.
+        val noiseSockopt = noise.optJSONObject("streamSettings")?.optJSONObject("sockopt")
+        assertTrue(noiseSockopt?.has("domainStrategy") == true)
         assertTrue(
-            noiseSettings!!.optString("targetStrategy") in AddressFamilyPolicy.ENDPOINT_STRATEGIES
+            noiseSockopt!!.optString("domainStrategy") in AddressFamilyPolicy.ENDPOINT_STRATEGIES
         )
     }
 
@@ -171,7 +177,7 @@ class XrayConfigHardenerTest {
 
         val innerSettings = outbound(hardened, "full-fragment")
             .optJSONObject("settings")
-        assertTrue(innerSettings?.optString("domainStrategy")?.equals("ForceIPv4", true) == true)
+        assertFalse(innerSettings?.has("domainStrategy") == true)
         val innerSockopt = outbound(hardened, "full-fragment")
             .optJSONObject("streamSettings")?.optJSONObject("sockopt")
         assertTrue(innerSockopt?.optString("domainStrategy")?.equals("ForceIPv4", true) == true)
@@ -435,7 +441,13 @@ class XrayConfigHardenerTest {
         assertEquals("freedom", outbound(hardened, "proxy").optString("protocol"))
         assertEquals("blackhole", outbound(hardened, "block").optString("protocol"))
         val proxySettings = outbound(hardened, "proxy").optJSONObject("settings")
-        assertTrue(proxySettings?.has("targetStrategy") == true)
-        assertTrue(proxySettings!!.optString("targetStrategy") in AddressFamilyPolicy.ENDPOINT_STRATEGIES)
+        // MARBLE_FREEDOM_SOCKOPT_STRATEGY_V163 — the imported deprecated alias is migrated into
+        // sockopt by the hardener, so the core never logs the "freedom.domainStrategy is
+        // deprecated" warning for a hand-imported exit either.
+        assertFalse(proxySettings?.has("targetStrategy") == true)
+        assertFalse(proxySettings?.has("domainStrategy") == true)
+        val proxySockopt = outbound(hardened, "proxy").optJSONObject("streamSettings")?.optJSONObject("sockopt")
+        assertTrue(proxySockopt?.has("domainStrategy") == true)
+        assertTrue(proxySockopt!!.optString("domainStrategy") in AddressFamilyPolicy.ENDPOINT_STRATEGIES)
     }
 }

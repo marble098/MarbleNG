@@ -1397,11 +1397,13 @@ fun resetTelemetry() {
                 // Server intel (exit IP / flag / geo) is rebuilt by the next refresh cycle.
                 serverIntel = null
             }
-            if (level >= 40 && !probeActive && probeRunning.isEmpty()) {
-                val active = activeProfileId
-                benchmarks = if (active.isBlank()) emptyList()
-                else benchmarks.filter { it.profileId == active }.take(1)
-            }
+            // MARBLE_REMEMBERED_PING_KEEP_V163 — the benchmark table is NOT trimmed under memory
+            // pressure any more. It is at most 400 small rows (a few tens of KB), and trimming
+            // it to the active node was the reason "last ping" vanished at random: the next
+            // completed probe merged its one result into the trimmed table and persisted THAT,
+            // so the remembered pings of every other server were overwritten on disk by a
+            // TRIM_MEMORY callback the user never saw. The large caches above (privacy report,
+            // bug report, server intel) are what a trim is for.
         }
     }
 
