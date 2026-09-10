@@ -946,6 +946,16 @@ data class AppSettings(
      */
     val measuredDnsParallel: Boolean = false,
 
+    /**
+     * MARBLE_RESOLVER_SINKHOLE_V163 — *transient*, never persisted. Comma-separated encrypted
+     * resolver endpoints that must be left out of the emitted resolver graph for this session:
+     * an endpoint whose certificate was measured expired on this physical network cannot answer
+     * at any rank, and demoting it to last still cost a full TLS handshake per lookup whenever the
+     * pool was raced. Domestic anti-sanction resolvers are excluded structurally by the writers
+     * and never need to appear here.
+     */
+    val measuredDnsExcludedEndpoints: String = "",
+
     // Realtime transport adaptation. MARBLE_REALTIME_ENGINE_V70
     val adaptiveHappyEyeballsEnabled: Boolean = true,
     val happyEyeballsTryDelayMs: Int = 60,

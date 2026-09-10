@@ -8518,10 +8518,10 @@ private fun SettingsHub(
         verticalArrangement = Arrangement.spacedBy(11.dp)
     ) {
         item(key = "hub-header") {
-            MarbleCompactTopBar(
-                title = "Settings",
-                subtitle = "${t.settingsSubtitle} • ${BuildConfig.VERSION_NAME}"
-            )
+            // MARBLE_SETTINGS_HUB_TRIM_V163 — the title stands alone. The "Everything in one
+            // page" line and the version stamp under it were removed on request; the version
+            // still lives on the Information page where it belongs.
+            MarbleCompactTopBar(title = "Settings")
         }
 
         // The decisions people touch every day stay here and apply instantly.
@@ -8679,7 +8679,10 @@ private fun SettingsHub(
                     tone = Aether.CyanBright,
                     badge = CoreEngineInfo.displayName(repo.activeCoreEngine),
                     onClick = { onNavigate(SettingsPages.CORE) }
-                ) { SettingsVersionPreview(Aether.CyanBright) }
+                    // MARBLE_SETTINGS_HUB_TRIM_V163 — no app-version stamp on this row: the app
+                    // version is not the core version, and the three pinned core tags are
+                    // listed on the engine page itself.
+                ) { HomeVectorIcon(HomeIcon.TUNNEL, Aether.CyanBright, Modifier.size(20.dp)) }
                 SettingsHubRow(
                     title = "Xray core settings",
                     subtitle = trx("PattNG options: sniffing, log, LAN, HTTP inbound"),

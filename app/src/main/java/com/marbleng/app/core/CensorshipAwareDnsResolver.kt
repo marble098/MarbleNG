@@ -245,13 +245,20 @@ object CensorshipAwareDnsResolver {
             resolvers += ResolverHealth(id, stage, endpoint)
         }
 
-        if (settings.dnsPrimaryDoH.isNotBlank()) {
+        // MARBLE_RESOLVER_SINKHOLE_V163 — a domestic anti-sanction resolver (dns.shecan.ir …) is
+        // never raced for a tunnel-endpoint lookup: it answers node hostnames with the operator's
+        // own injector addresses. It stays a locality probe target, nothing more.
+        if (settings.dnsPrimaryDoH.isNotBlank() &&
+            !ResolverEvidencePolicy.isDomesticResolver(settings.dnsPrimaryDoH)
+        ) {
             val existing = resolvers.any { it.endpoint == settings.dnsPrimaryDoH }
             if (!existing) {
                 resolvers += ResolverHealth("user-primary", DnsStage.DOH, settings.dnsPrimaryDoH)
             }
         }
-        if (settings.dnsSecondaryDoH.isNotBlank()) {
+        if (settings.dnsSecondaryDoH.isNotBlank() &&
+            !ResolverEvidencePolicy.isDomesticResolver(settings.dnsSecondaryDoH)
+        ) {
             val existing = resolvers.any { it.endpoint == settings.dnsSecondaryDoH }
             if (!existing) {
                 resolvers += ResolverHealth("user-secondary", DnsStage.DOH, settings.dnsSecondaryDoH)

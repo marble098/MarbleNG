@@ -1415,14 +1415,21 @@ class MarbleIntelligence(private val context: Context) {
     fun singBoxResolverPool(settings: AppSettings, limit: Int = 3): List<String> {
         val candidates = (listOf(settings.dnsPrimaryDoH, settings.dnsSecondaryDoH) + STOCK_DOH_RESOLVERS + "tls://9.9.9.9")
             .map(String::trim).filter { it.startsWith("https://") || it.startsWith("tls://") || it.startsWith("quic://") || it.startsWith("h3://") }.distinct()
-        if (!settings.adaptiveDnsEnabled) return candidates.take(limit.coerceIn(1, 3))
+        if (!settings.adaptiveDnsEnabled) {
+            return candidates.filterNot { ResolverEvidencePolicy.isDomesticResolver(it) }
+                .ifEmpty { candidates }.take(limit.coerceIn(1, 3))
+        }
         val now = System.currentTimeMillis()
         val evidence = resolverEvidence()
-        val demoted = ResolverEvidencePolicy.demoted(candidates, evidence, now).toSet()
-        val eligible = candidates.filter { it !in demoted }
+        // MARBLE_RESOLVER_SINKHOLE_V163 — expired-certificate and domestic endpoints are not
+        // "demoted", they are out: the extended core's fallback server would otherwise still
+        // handshake against them on every lookup that reaches that rank.
+        val survivors = ResolverEvidencePolicy.withoutExcluded(candidates, evidence, now)
+        val demoted = ResolverEvidencePolicy.demoted(survivors, evidence, now).toSet()
+        val eligible = survivors.filter { it !in demoted }
         // If all peers have underlay failures, keep a bounded evidence-ordered set for tunneled
         // attempts. Underlay censorship is not proof that the same resolver fails via the proxy.
-        return ResolverEvidencePolicy.order(eligible.ifEmpty { candidates }, evidence, now,
+        return ResolverEvidencePolicy.order(eligible.ifEmpty { survivors }, evidence, now,
             seed = currentSnapshot().key()).take(limit.coerceIn(1, 3))
     }
 
@@ -1793,6 +1800,13 @@ class MarbleIntelligence(private val context: Context) {
         } else {
             emptyList()
         }
+        // MARBLE_RESOLVER_SINKHOLE_V163 — cert-broken / domestic endpoints leave the graph
+        // entirely; see ResolverEvidencePolicy.excluded. Measured per physical network.
+        val dnsExcluded = if (base.adaptiveDnsEnabled) {
+            ResolverEvidencePolicy.excluded(resolverPool, endpointEvidence, nowMs)
+        } else {
+            emptyList()
+        }
         val dnsParallel = base.adaptiveDnsEnabled && (
             storm ||
                 ResolverEvidencePolicy.parallelQueryJustified(
@@ -1847,6 +1861,7 @@ class MarbleIntelligence(private val context: Context) {
             // history said IPv6 was unhealthy.
             measuredIpv6Unhealthy = measuredV6Healthy == false,
             measuredDnsDemotedEndpoints = dnsDemoted.joinToString(","),
+            measuredDnsExcludedEndpoints = dnsExcluded.joinToString(","),
             measuredDnsParallel = dnsParallel
         )
 
@@ -3119,7 +3134,7 @@ class MarbleIntelligence(private val context: Context) {
         // key as seed) so no single resolver signature is stable enough to be fingerprinted, while
         // demoted endpoints still always stay last.
         val ordered = ResolverEvidencePolicy.order(
-            dnsCandidatePool(settings),
+            ResolverEvidencePolicy.withoutExcluded(dnsCandidatePool(settings), evidence, nowMs),
             evidence,
             nowMs,
             seed = key

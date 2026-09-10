@@ -201,6 +201,51 @@ object SingBoxConfigBuilder {
 
     private data class CandidateSet(val candidates: List<Candidate>, val refusal: String)
 
+    /**
+     * MARBLE_SINGBOX_PINNED_PEER_V163 — why a certificate-pinning profile cannot run on the
+     * extended core, or null when it can.
+     *
+     * The "connects on sing-box but no Internet" report was a VLESS/TCP/TLS node whose link
+     * carried `pcs=<sha256>,…` (Xray `pinnedPeerCertSha256`, hex hash of the WHOLE leaf
+     * certificate) and `vcn=<host>` (Xray `verifyPeerCertByName`) behind a fronted
+     * `sni=spotify.com`. Xray honours those by skipping chain validation and matching the leaf
+     * hash — the server is self-signed by design. The fork's `parser` outbound reads the same link,
+     * silently ignores both keys, and verifies the certificate against the SNI with the system CA
+     * store, so every handshake fails after the SOCKS inbound is already "up": the core is alive,
+     * the tunnel is established, nothing ever completes. The two Marble translators already refuse
+     * the JSON form (the fork only knows `certificate_public_key_sha256`, an SPKI hash that is not
+     * derivable from a certificate hash, and `insecure: true` would discard the user's pin), but
+     * the parser candidate ran first and *looked* like a success.
+     *
+     * The pin is a security promise the user made; it is never silently downgraded. The profile
+     * is refused before the tunnel with the engine to use instead, and the same text reaches the
+     * Engine page through [describe].
+     */
+    fun pinnedPeerRefusal(profile: ProxyProfile): String? {
+        val pinnedJson = profile.configJson.isNotBlank() && TlsPinningPolicy.configIsPinned(profile.configJson)
+        val pinnedLink = shareLink(profile)?.let { linkCarriesPin(it) } == true
+        if (!pinnedJson && !pinnedLink) return null
+        return PINNED_PEER_REFUSAL
+    }
+
+    const val PINNED_PEER_REFUSAL =
+        "config-unsupported: tlsSettings.pinnedPeerCertSha256/verifyPeerCertByName: this server pins " +
+            "its TLS certificate (pcs/vcn). sing-box extended cannot verify a certificate hash or a " +
+            "name other than the SNI, so it would connect without Internet. Use the Xray core for it."
+
+    /** True when the share-link query carries any `pcs` / `vcn` style verification key. */
+    internal fun linkCarriesPin(link: String): Boolean {
+        val query = link.substringAfter('?', "").substringBefore('#')
+        if (query.isBlank()) return false
+        val keys = (TlsPinningPolicy.PINNED_SHA256_KEYS + TlsPinningPolicy.VERIFY_BY_NAME_KEYS)
+            .map { it.lowercase() }.toSet()
+        return query.split('&').any { pair ->
+            val key = pair.substringBefore('=').trim().lowercase()
+            val value = pair.substringAfter('=', "").trim()
+            key in keys && value.isNotBlank()
+        }
+    }
+
     private fun candidateSet(profile: ProxyProfile, settings: AppSettings): CandidateSet {
         val root = profile.configJson.takeIf { it.isNotBlank() }
             ?.let { runCatching { JSONObject(it) }.getOrNull() }
@@ -210,6 +255,9 @@ object SingBoxConfigBuilder {
                 ""
             )
         }
+        // MARBLE_SINGBOX_PINNED_PEER_V163 — decided before any reader runs, so the fork's parser
+        // (which would happily accept the link and drop the pin) never becomes a candidate.
+        pinnedPeerRefusal(profile)?.let { return CandidateSet(emptyList(), it) }
         val link = shareLink(profile)
 
         // Reader 1 — the core's own parser. Nothing to translate, nothing to lose.
@@ -928,7 +976,19 @@ private fun removeKeys(
             settings.dnsSecondaryDoH.ifBlank { "https://8.8.8.8/dns-query" },
             "tls://9.9.9.9"
         )
-        val pool = candidates.map(String::trim).filter(String::isNotBlank).distinct().take(3)
+        // MARBLE_RESOLVER_SINKHOLE_V163 — a domestic anti-sanction resolver (dns.shecan.ir …)
+        // behind the PROXY detour is a DNS leak to an Iranian operator from the exit IP, and an
+        // endpoint measured with an expired certificate cannot answer at any rank. Neither is
+        // ever written; the stock pool covers the gap.
+        val excluded = settings.measuredDnsExcludedEndpoints.split(',')
+            .map { it.trim().lowercase() }.filter { it.isNotBlank() }.toSet()
+        fun allowed(url: String) = !ResolverEvidencePolicy.isDomesticResolver(url) && url.lowercase() !in excluded
+        val filtered = candidates.map(String::trim).filter(String::isNotBlank).filter(::allowed).distinct()
+        // The intelligence pool is emitted as given (its order is the evidence); the stock trio
+        // only fills in when exclusion would otherwise leave the graph without a healthy peer.
+        val pool = filtered.ifEmpty {
+            listOf("https://1.1.1.1/dns-query", "https://8.8.8.8/dns-query", "tls://9.9.9.9").filter(::allowed)
+        }.take(3)
         require(pool.isNotEmpty()) { "No encrypted DNS resolver configured" }
         // type:local in the Android CLI does NOT call Android's resolver. The production
         // manager supplies a loopback bridge backed by ConnectivityManager / DnsResolver.
@@ -959,8 +1019,13 @@ private fun removeKeys(
             .put("servers", JSONArray().put(DNS_LOCAL_TAG)).put("strategy", "sequential").put("timeout", timeout))
         // Bounded sequential fallback divides the overall timeout among at most three peers.
         // General browsing DNS can NEVER fall through to the direct/system resolver.
+        // MARBLE_RESOLVER_SINKHOLE_V163 — when this network has measured a decisively failing
+        // endpoint in the pool, the peers race (`parallel`) exactly as the Xray hardener arms
+        // `enableParallelQuery`: a sequential walk would otherwise pay the failing peer's whole
+        // slice on every cold lookup before a healthy peer is even asked.
+        val remoteStrategy = if (settings.adaptiveDnsEnabled && settings.measuredDnsParallel) "parallel" else "sequential"
         servers.put(JSONObject().put("type", "fallback").put("tag", DNS_REMOTE_TAG)
-            .put("servers", remoteTags).put("strategy", "sequential").put("timeout", timeout))
+            .put("servers", remoteTags).put("strategy", remoteStrategy).put("timeout", timeout))
         val rules = JSONArray()
         profile.host.takeIf { it.isNotBlank() && !isLiteralAddress(it) }?.let { host ->
             rules.put(JSONObject().put("domain", JSONArray().put(host)).put("action", "route").put("server", DNS_BOOTSTRAP_TAG))
@@ -1017,7 +1082,10 @@ private fun removeKeys(
             .filter { url ->
                 val host = runCatching { URI(url).host }.getOrNull()
                     ?.removePrefix("[")?.removeSuffix("]").orEmpty()
-                host.isNotBlank() && isLiteralAddress(host)
+                host.isNotBlank() && isLiteralAddress(host) &&
+                    // MARBLE_RESOLVER_SINKHOLE_V163 — the node hostname is never asked of a
+                    // domestic resolver: that is the injector answer the bootstrap exists to avoid.
+                    !ResolverEvidencePolicy.isDomesticResolver(url)
             }
         val stock = listOf("https://1.1.1.1/dns-query", "https://8.8.8.8/dns-query", "tls://9.9.9.9")
         return (fromUser + stock).distinct().take(3)
