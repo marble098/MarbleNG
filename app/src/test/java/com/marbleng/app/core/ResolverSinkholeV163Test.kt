@@ -208,27 +208,46 @@ class ResolverSinkholeV163Test {
     )
 
     @Test
-    fun `a pcs or vcn share link is refused for sing-box before the parser can accept it`() {
+    fun `a pcs or vcn share link is detected and translated with insecure for sing-box`() {
         assertTrue(SingBoxConfigBuilder.linkCarriesPin(pinnedLink))
         assertFalse(SingBoxConfigBuilder.linkCarriesPin(PLAIN_LINK))
-        val refusal = SingBoxConfigBuilder.pinnedPeerRefusal(linkProfile(pinnedLink))
-        assertNotNull(refusal)
-        assertTrue(refusal!!.startsWith("config-unsupported:"))
-        assertTrue(refusal.contains("pinnedPeerCertSha256"))
-        assertTrue("the user must be told which engine can honour the pin", refusal.contains("Xray"))
+        // MARBLE_SINGBOX_PINNED_COMPAT_V164 — pinned configs are no longer refused; the
+        // translator handles them with tls.insecure: true. pinnedPeerRefusal() always returns
+        // null, letting the normal candidate-selection flow handle pinning.
+        assertNull(SingBoxConfigBuilder.pinnedPeerRefusal(linkProfile(pinnedLink)))
         assertNull(SingBoxConfigBuilder.pinnedPeerRefusal(linkProfile(PLAIN_LINK)))
 
-        // The parser-first default must not become a candidate: "connected, no Internet".
-        val support = SingBoxConfigBuilder.describe(linkProfile(pinnedLink), AppSettings(singBoxPreferParser = true))
-        assertFalse(support.supported)
-        assertEquals(refusal, support.reason)
+        // A pinned stored JSON is now supported via the translated path with insecure:true.
+        val storedJson = JSONObject().put(
+            "outbounds",
+            JSONArray().put(
+                JSONObject().put("protocol", "vless").put("tag", "proxy")
+                    .put("settings", JSONObject().put("vnext", JSONArray().put(
+                        JSONObject().put("address", "vps1.example.org").put("port", 8443)
+                            .put("users", JSONArray().put(JSONObject().put("id", "x")
+                                .put("flow", "xtls-rprx-vision")))
+                    )))
+                    .put("streamSettings", JSONObject().put("network", "tcp").put("security", "tls")
+                        .put("tlsSettings", JSONObject().put("serverName", "spotify.com")
+                            .put("verifyPeerCertByName", "vps1.example.org")
+                            .put("pinnedPeerCertSha256", "ab".repeat(32))))
+            )
+        ).toString()
+        val pinnedProfile = ProxyProfile(
+            id = "solid", name = "SOLIDVPS", scheme = "vless", raw = pinnedLink,
+            configJson = storedJson, host = "vps1.example.org", port = 8443
+        )
+        val support = SingBoxConfigBuilder.describe(pinnedProfile, AppSettings(singBoxPreferParser = true))
+        assertTrue("pinned config must be supported via translated strategy", support.supported)
+        assertTrue("tls-pinning note must be present", support.notes.any { it.contains("tls-pinning") })
+
         assertNull(
             SingBoxConfigBuilder.pinnedPeerRefusal(linkProfile("vless://x@h:1?security=tls&pcs=&vcn="))
         )
     }
 
     @Test
-    fun `a pinned stored json is refused the same way`() {
+    fun `a pinned stored json is supported with translated strategy and insecure`() {
         val json = JSONObject().put(
             "outbounds",
             JSONArray().put(
@@ -243,7 +262,12 @@ class ResolverSinkholeV163Test {
             )
         ).toString()
         val profile = ProxyProfile(id = "p", name = "p", scheme = "vless", raw = "", configJson = json)
-        assertEquals(SingBoxConfigBuilder.PINNED_PEER_REFUSAL, SingBoxConfigBuilder.pinnedPeerRefusal(profile))
+        // MARBLE_SINGBOX_PINNED_COMPAT_V164 — pinned configs are no longer refused; the
+        // translator handles them with tls.insecure: true.
+        assertNull(SingBoxConfigBuilder.pinnedPeerRefusal(profile))
+        val support = SingBoxConfigBuilder.describe(profile, AppSettings())
+        assertTrue("pinned stored json must be supported via translated strategy", support.supported)
+        assertTrue("tls-pinning note must be present", support.notes.any { it.contains("tls-pinning") })
     }
 
     // ------------------------------------------------------------------ sing-box resolver graph
