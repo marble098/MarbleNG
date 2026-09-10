@@ -74,7 +74,6 @@ class CoreInteropRegressionTest {
         listOf(
             JSONObject().put("network", "unknown-wire-protocol"),
             JSONObject().put("network", "xhttp").put("xhttpSettings", JSONObject().put("extra", JSONObject().put("unknownWireField", true))),
-            JSONObject().put("security", "tls").put("tlsSettings", JSONObject().put("pinnedPeerCertSha256", "ab".repeat(32))),
             JSONObject().put("security", "reality").put("realitySettings", JSONObject().put("serverName", "example.com"))
         ).forEach { stream ->
             val support = SingBoxConfigBuilder.describe(profile(vless().put("streamSettings", stream)), plain)
@@ -253,6 +252,100 @@ class CoreInteropRegressionTest {
         val measured = RouteProbe.realDelay(profile(vless()), 0, 1000, 2, plain)
         assertEquals(0, measured.successPercent)
         assertEquals("no-live-tunnel", measured.failureReason)
+    }
+
+    // ── MARBLE_SINGBOX_PINNED_COMPAT_V164 ────────────────────────────────────
+    // Pinned VLESS/VMess nodes with pcs/vcn must now be translatable to sing-box
+    // with insecure:true instead of being refused.
+
+    /**
+     * A VLESS/TCP/TLS node with certificate pinning (pcs + vcn) — the exact shape the user
+     * reported — must build a sing-box config with flow, ALPN, SNI and insecure all present.
+     */
+    @Test fun pinnedVlessWithFlowAndAlpnTranslatesToSingBoxWithInsecure() {
+        val sha256Hex = "c88234050d72a3e9430ec7738636806deaf85c3708fee0fd9202ebd917e2c843"
+        val pinnedOutbound = vless()
+            .put("settings", JSONObject()
+                .put("address", "198.51.100.7").put("port", 8443)
+                .put("id", uuid).put("encryption", "none").put("flow", "xtls-rprx-vision"))
+            .put("streamSettings", JSONObject()
+                .put("method", "raw").put("security", "tls")
+                .put("tlsSettings", JSONObject()
+                    .put("serverName", "spotify.com").put("fingerprint", "chrome")
+                    .put("alpn", JSONArray().put("h2").put("http/1.1"))
+                    .put("pinnedPeerCertSha256", sha256Hex)
+                    .put("verifyPeerCertByName", "198.51.100.7")))
+        val p = profile(pinnedOutbound)
+        val support = SingBoxConfigBuilder.describe(p, plain)
+        assertTrue("pinned VLESS must be supported: ${support.reason}", support.supported)
+        val build = SingBoxConfigBuilder.build(p, plain, 10808, 39090, "secret", "", "cache.db")
+        val config = JSONObject(build.json)
+        val proxy = config.getJSONArray("outbounds").let { outs ->
+            (0 until outs.length()).map { outs.getJSONObject(it) }
+                .first { it.optString("tag") == SingBoxConfigBuilder.PROXY_TAG }
+        }
+        assertEquals("vless", proxy.getString("type"))
+        assertEquals("xtls-rprx-vision", proxy.getString("flow"))
+        assertEquals("198.51.100.7", proxy.getString("server"))
+        assertEquals(8443, proxy.getInt("server_port"))
+        val tls = proxy.getJSONObject("tls")
+        assertTrue("pinned TLS must set insecure", tls.getBoolean("insecure"))
+        assertEquals("spotify.com", tls.getString("server_name"))
+        assertTrue(tls.has("utls"))
+        val alpn = tls.getJSONArray("alpn")
+        assertEquals(2, alpn.length())
+        assertEquals("h2", alpn.getString(0))
+        assertTrue("build notes must mention pinning", build.notes.any { it.contains("tls-pinning") })
+    }
+
+    /**
+     * Pinned configs must be excluded from the parser candidate (it silently ignores pins)
+     * and use the translated strategy instead.
+     */
+    @Test fun pinnedConfigUsesTranslatedStrategyNotParser() {
+        val raw = "vless://$uuid@198.51.100.7:443?security=tls&type=tcp&sni=spotify.com" +
+            "&fp=chrome&flow=xtls-rprx-vision&pcs=${"aa".repeat(32)}&vcn=198.51.100.7#Pinned"
+        val p = ProxyProfile("pin-test", "Pinned", "vless", raw,
+            "", "198.51.100.7", 443, "tcp", "tls")
+        val support = SingBoxConfigBuilder.describe(p, AppSettings())
+        assertTrue("pinned link must be supported: ${support.reason}", support.supported)
+        assertTrue("pinned link must NOT use parser (it ignores pcs/vcn)",
+            support.strategy != SingBoxConfigBuilder.STRATEGY_LINK)
+    }
+
+    /**
+     * A non-pinned VLESS node must still work normally — the pinning path must not affect
+     * regular profiles.
+     */
+    @Test fun nonPinnedVlessStillUsesParserWhenAvailable() {
+        val raw = "vless://$uuid@198.51.100.7:443?security=tls&type=tcp&sni=example.com#Normal"
+        val p = ProxyProfile("normal", "Normal", "vless", raw,
+            "", "198.51.100.7", 443, "tcp", "tls")
+        val support = SingBoxConfigBuilder.describe(p, AppSettings())
+        assertTrue(support.supported)
+        assertEquals(SingBoxConfigBuilder.STRATEGY_LINK, support.strategy)
+    }
+
+    /**
+     * Multiple pinned SHA-256 fingerprints (comma-separated) must all be accepted and the
+     * config must still build successfully with insecure.
+     */
+    @Test fun multiplePinnedFingerprintsAllAccepted() {
+        val pins = "${"aa".repeat(32)},${"bb".repeat(32)},${"cc".repeat(32)}"
+        val pinnedOutbound = vless()
+            .put("settings", JSONObject().put("address", "198.51.100.7").put("port", 8443)
+                .put("id", uuid).put("encryption", "none"))
+            .put("streamSettings", JSONObject().put("method", "raw").put("security", "tls")
+                .put("tlsSettings", JSONObject().put("serverName", "example.com")
+                    .put("fingerprint", "chrome").put("pinnedPeerCertSha256", pins)))
+        val build = SingBoxConfigBuilder.build(profile(pinnedOutbound), plain,
+            10808, 39090, "secret", "", "cache.db")
+        val config = JSONObject(build.json)
+        val proxy = config.getJSONArray("outbounds").let { outs ->
+            (0 until outs.length()).map { outs.getJSONObject(it) }
+                .first { it.optString("tag") == SingBoxConfigBuilder.PROXY_TAG }
+        }
+        assertTrue(proxy.getJSONObject("tls").getBoolean("insecure"))
     }
 
 }

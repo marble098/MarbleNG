@@ -221,17 +221,34 @@ object SingBoxConfigBuilder {
      * is refused before the tunnel with the engine to use instead, and the same text reaches the
      * Engine page through [describe].
      */
+    /**
+     * MARBLE_SINGBOX_PINNED_COMPAT_V164 — pinned configs are no longer hard-refused. The
+     * translator converts them to `tls.insecure: true` with a note explaining the downgrade.
+     * The parser candidate is excluded (it silently ignores pins). This returns null for
+     * all configs, letting the normal candidate-selection flow handle pinning through the
+     * translation path.
+     */
     fun pinnedPeerRefusal(profile: ProxyProfile): String? {
-        val pinnedJson = profile.configJson.isNotBlank() && TlsPinningPolicy.configIsPinned(profile.configJson)
-        val pinnedLink = shareLink(profile)?.let { linkCarriesPin(it) } == true
-        if (!pinnedJson && !pinnedLink) return null
-        return PINNED_PEER_REFUSAL
+        // Pinned configs are now allowed: the translator handles them with insecure:true.
+        return null
     }
 
     const val PINNED_PEER_REFUSAL =
         "config-unsupported: tlsSettings.pinnedPeerCertSha256/verifyPeerCertByName: this server pins " +
             "its TLS certificate (pcs/vcn). sing-box extended cannot verify a certificate hash or a " +
             "name other than the SNI, so it would connect without Internet. Use the Xray core for it."
+
+    /**
+     * MARBLE_SINGBOX_PINNED_COMPAT_V164 — VLESS/VMess nodes with TLS certificate pinning
+     * (`pcs`/`vcn`) are now translated to sing-box with `tls.insecure: true` and a note.
+     *
+     * sing-box extended cannot verify certificate hashes (`pinnedPeerCertSha256`) or names other
+     * than the SNI (`verifyPeerCertByName`), but refusing pinned configs entirely forced users to
+     * switch engines for a common real-world config. The translated path sets `insecure: true`
+     * which accepts any certificate — losing the pin's verification but establishing a working
+     * tunnel. The parser candidate is excluded because it silently ignores pins.
+     */
+    fun linkHasPins(link: String): Boolean = linkCarriesPin(link)
 
     /** True when the share-link query carries any `pcs` / `vcn` style verification key. */
     internal fun linkCarriesPin(link: String): Boolean {
@@ -255,22 +272,19 @@ object SingBoxConfigBuilder {
                 ""
             )
         }
-        // MARBLE_SINGBOX_PINNED_PEER_V163 — decided before any reader runs, so the fork's parser
-        // (which would happily accept the link and drop the pin) never becomes a candidate.
-        // For measurements (forTest=true) we allow a downgraded insecure translation so ping
-        // reachability matches Xray, but we still exclude the parser which would silently drop
-        // the pin and fail with no Internet.
-        val pinned = pinnedPeerRefusal(profile)
-        if (pinned != null && !forTest) {
-            return CandidateSet(emptyList(), pinned)
-        }
-        val isPinnedForTest = pinned != null && forTest
+        // MARBLE_SINGBOX_PINNED_COMPAT_V164 — pinned configs are no longer refused; the translator
+        // handles them with `tls.insecure: true`. The parser candidate is excluded for pinned
+        // configs because sing-box's parser silently ignores pcs/vcn and would fail TLS
+        // verification with no Internet.
         val link = shareLink(profile)
+        val isPinned = link?.let { linkCarriesPin(it) } == true ||
+            (profile.configJson.isNotBlank() && TlsPinningPolicy.configIsPinned(profile.configJson))
 
-        // Reader 1 — the core's own parser. Nothing to translate, nothing to lose.
-        // For pinned nodes under test we exclude parser because it ignores pcs/vcn and would
-        // connect without Internet, producing FAILED instead of a real measurement.
-        val parser = if (isPinnedForTest) null else link?.let {
+        // MARBLE_SINGBOX_PINNED_PEER_V163 / MARBLE_SINGBOX_PINNED_COMPAT_V164 — the parser
+        // candidate is excluded for pinned configs: sing-box's parser silently ignores pcs/vcn,
+        // so the TLS handshake fails with no Internet. The translated path handles pins with
+        // `tls.insecure: true` instead.
+        val parser = if (isPinned) null else link?.let {
             Candidate(STRATEGY_LINK, listOf(parserOutbound(it, settings)), emptyList())
         }
 
