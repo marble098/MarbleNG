@@ -113,3 +113,46 @@ fun ProbeMethod.unavailableReason(engine: CoreEngine): String = when {
         "sing-box extended to use it."
 }
 
+// ───────────────────────────────────────────────────────────────────────────────────────────────
+// MARBLE_ENGINE_AWARE_BUGFINDER_V164 — which core's liveness describes the live session
+// ───────────────────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Engine-aware snapshot of the core that carries the current session.
+ *
+ * The Bug Finder used to ask only `xray.isAlive`, which is false by construction on a sing-box
+ * session: [MarbleVpnService] stops *both* cores when an engine takes over, so a healthy sing-box
+ * tunnel reported `xrayStartPhase=stopped`, `xrayPid=-1` and `xrayAlive=false` — and the scan
+ * printed "UI says CONNECTED but Xray is dead" for a route that was carrying traffic. The honest
+ * question is "is the core the settings selected alive?", and it is answered once here so every
+ * reader (Bug Finder, the current-connection block, the SOCKS-listener check) agrees.
+ */
+data class ActiveCoreState(
+    val engine: CoreEngine,
+    val alive: Boolean,
+    val pid: Long,
+    val phase: String,
+    val error: String
+) {
+    val id: String get() = engine.id
+    val label: String get() = CoreEngineInfo.displayName(engine)
+}
+
+/**
+ * Selects the liveness evidence that matches [engine]. `pid` is only meaningful for Xray (the
+ * sing-box session does not expose a child PID to the diagnostic plane), so it is `-1` there.
+ */
+fun resolveActiveCoreState(
+    engine: CoreEngine,
+    xrayAlive: Boolean,
+    xrayPid: Long,
+    xrayPhase: String,
+    xrayError: String,
+    singboxAlive: Boolean,
+    singboxPhase: String,
+    singboxError: String
+): ActiveCoreState = when (engine) {
+    CoreEngine.XRAY -> ActiveCoreState(engine, xrayAlive, xrayPid, xrayPhase, xrayError)
+    CoreEngine.SINGBOX -> ActiveCoreState(engine, singboxAlive, -1L, singboxPhase, singboxError)
+}
+
