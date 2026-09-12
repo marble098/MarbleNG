@@ -117,7 +117,6 @@ class MainActivity : ComponentActivity() {
     private fun missingConnectionPermissions(): List<ConnectionPermissionStep> = buildList {
         if (!vpnConsentGranted()) add(ConnectionPermissionStep.VPN)
         if (!notificationsGranted()) add(ConnectionPermissionStep.NOTIFICATIONS)
-        if (!batteryExemptionGranted()) add(ConnectionPermissionStep.BATTERY)
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -263,28 +262,6 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
-            ConnectionPermissionStep.BATTERY -> {
-                if (batteryExemptionGranted()) {
-                    completePermissionStep(true)
-                } else {
-                    val direct = Intent(
-                        Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS
-                    ).apply {
-                        data = android.net.Uri.parse("package:$packageName")
-                    }
-                    runCatching { batterySettings.launch(direct) }
-                        .onFailure {
-                            runCatching {
-                                batterySettings.launch(
-                                    Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
-                                )
-                            }.onFailure { error ->
-                                permissionError = "Could not open battery settings: " +
-                                    (error.message ?: error::class.java.simpleName)
-                            }
-                        }
-                }
-            }
             null -> Unit
         }
     }
@@ -294,7 +271,6 @@ class MainActivity : ComponentActivity() {
             permissionError = when (permissionStep) {
                 ConnectionPermissionStep.VPN -> "VPN access is required before MarbleNG can start a protected connection."
                 ConnectionPermissionStep.NOTIFICATIONS -> "Notifications are required to keep the active tunnel visible."
-                ConnectionPermissionStep.BATTERY -> "Background access is required to keep the tunnel stable when idle."
                 null -> "Access was not granted."
             }
             return

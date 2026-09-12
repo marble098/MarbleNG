@@ -255,7 +255,8 @@ check(
     "connection access is contextual and ordered",
     "missingConnectionPermissions" in files["main"]
     and "ConnectionPermissionDialog" in files["main"]
-    and all(step in files["permissions"] for step in ("VPN", "NOTIFICATIONS", "BATTERY"))
+    and all(step in files["permissions"] for step in ("VPN", "NOTIFICATIONS"))
+    and "BATTERY" not in files["permissions"]
 )
 check(
     "font choices persist and reach the theme",
