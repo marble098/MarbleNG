@@ -3986,7 +3986,9 @@ private fun CyberLibrary(
                         // a tunnel is already up (switching route is an explicit re-connect) or is
                         // being established, so browsing the list can never open a connection.
                         onConnect = {
-                            if (repo.state == "CONNECTED" || repo.state == "CONNECTING") {
+                            if (repo.probeActive || repo.probeCancelling) {
+                                repo.setRuntimeMessage("Wait until ping finishes before changing server")
+                            } else if (repo.state == "CONNECTED" || repo.state == "CONNECTING") {
                                 onConnect(profile)
                             } else {
                                 repo.selectProfile(profile)

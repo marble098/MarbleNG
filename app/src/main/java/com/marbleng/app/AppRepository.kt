@@ -2948,6 +2948,7 @@ private fun postToMain(block: () -> Unit) {
     fun selectProfile(p: ProxyProfile) {
         diagnostics.event("APP", "select-server", "profile" to p.id.take(12), "name" to p.name.take(80))
         val changed = selectedProfileId != p.id || selectedProfileSourceId != p.subscriptionId
+        if (p.subscriptionId.isNotBlank()) selectLibrarySource(p.subscriptionId)
         postToMain {
             selectedProfileId = p.id
             selectedProfileSourceId = p.subscriptionId
@@ -3614,24 +3615,31 @@ private fun postToMain(block: () -> Unit) {
      * group-chip ping remains available on the Servers page, so neither question lost its answer.
      */
     fun pingHomeGroup() {
-        val route = homeRoute()
-        val sourceId = when {
-            route == null -> "manual"
-            route.subscriptionId.isBlank() -> "manual"
-            else -> route.subscriptionId
+        // Home pulse measures the subscription currently selected on Servers, never "all".
+        val selectedSource = librarySourceFilter.takeIf { it.isNotBlank() && it != "all" }
+        val sourceId = selectedSource ?: run {
+            val route = homeRoute()
+            when {
+                route == null -> "manual"
+                route.subscriptionId.isBlank() -> "manual"
+                else -> route.subscriptionId
+            }
         }
-        // Unknown ids fail closed inside libraryScopeSnapshot (empty set), never a full sweep.
         testSource(sourceId)
     }
 
     /**
      * The route the Home page is currently showing — the deck's own resolution, in one place.
-     * Active (carrying traffic), else selected (the connect button's target), else remembered.
+     * While connected: the live tunnel. Otherwise: the exact server selected on Servers.
      */
-    fun homeRoute(): ProxyProfile? =
-        profile(activeProfileId, activeProfileSourceId)
-            ?: profile(selectedProfileId, selectedProfileSourceId)
+    fun homeRoute(): ProxyProfile? {
+        if (state == "CONNECTED") {
+            profile(activeProfileId, activeProfileSourceId)?.let { return it }
+        }
+        return profile(selectedProfileId, selectedProfileSourceId)
+            ?: profile(selectedProfileId)
             ?: lastProfile()
+    }
 
     /** Human-readable name of the group [pingHomeGroup] would measure. */
     fun homeGroupPingLabel(): String {

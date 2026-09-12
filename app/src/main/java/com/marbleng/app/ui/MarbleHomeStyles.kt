@@ -1519,12 +1519,12 @@ internal fun IosStatusWideCard(
 
     // MARBLE_HOME_CLOUD_V141 — the canonical cloud card: one opaque white box, exactly the size
     // of the card, one hairline, one shallow shadow. Nothing translucent, nothing nested.
-    HomeCloudCard(modifier = modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp)) {
+    HomeCloudCard(modifier = modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+                .padding(horizontal = 10.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             // ── Slot 1 (fixed height): status line. The top action cluster lives outside the
             // banner as a separate transparent cluster (MARBLE_HOME_BANNER_V143).
@@ -3940,6 +3940,16 @@ internal fun HomeStyleSurface(
 /** Clipboard helper shared by every style so "copy" behaves identically across presentations. */
 @Composable
 internal fun rememberCopyIpAction(repo: AppRepository, ip: String): () -> Unit {
+    val clipboard = LocalClipboardManager.current
+    val copied = Tr.now.ipCopied
+    return {
+        if (ip.isNotBlank()) {
+            clipboard.setText(AnnotatedString(ip))
+            repo.setRuntimeMessage(copied)
+        }
+    }
+}
+y, ip: String): () -> Unit {
     val clipboard = LocalClipboardManager.current
     val copied = Tr.now.ipCopied
     return {
