@@ -2224,9 +2224,13 @@ internal fun IosServerListBox(
                                 isConnected = isConnected,
                                 testing = repo.probeStateOf(server.id) == ProbeState.TESTING,
                                 onClick = {
-                                    repo.selectProfile(server)
-                                    if (evidence.connected) {
-                                        actions.onConnectProfile(server)
+                                    if (repo.probeActive || repo.probeCancelling) {
+                                        repo.setRuntimeMessage("Wait until ping finishes before changing server")
+                                    } else {
+                                        repo.selectProfile(server)
+                                        if (evidence.connected) {
+                                            actions.onConnectProfile(server)
+                                        }
                                     }
                                 }
                             )
@@ -3940,16 +3944,6 @@ internal fun HomeStyleSurface(
 /** Clipboard helper shared by every style so "copy" behaves identically across presentations. */
 @Composable
 internal fun rememberCopyIpAction(repo: AppRepository, ip: String): () -> Unit {
-    val clipboard = LocalClipboardManager.current
-    val copied = Tr.now.ipCopied
-    return {
-        if (ip.isNotBlank()) {
-            clipboard.setText(AnnotatedString(ip))
-            repo.setRuntimeMessage(copied)
-        }
-    }
-}
-y, ip: String): () -> Unit {
     val clipboard = LocalClipboardManager.current
     val copied = Tr.now.ipCopied
     return {
