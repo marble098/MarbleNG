@@ -280,18 +280,48 @@ class BugFinder(private val context: Context, private val xray: XrayManager, pri
             )
         }
 
-        val alive = xray.isAlive
-        val xrayPid = xray.processPid
+        // MARBLE_ENGINE_AWARE_BUGFINDER_V164 — ask about the core the settings selected, not the
+        // Xray manager that a sing-box session stops on purpose. A healthy sing-box tunnel used to
+        // read as "UI says CONNECTED but Xray is dead" because `xray.isAlive` is false by design
+        // whenever the other engine carries the route.
+        val coreState = resolveActiveCoreState(
+            engine = settings.coreEngine(),
+            xrayAlive = xray.isAlive,
+            xrayPid = xray.processPid,
+            xrayPhase = xray.lastStartPhase,
+            xrayError = xray.lastStartError,
+            singboxAlive = singbox?.isAlive ?: false,
+            singboxPhase = singbox?.lastStartPhase.orEmpty(),
+            singboxError = singbox?.lastStartError.orEmpty()
+        )
+        val alive = coreState.alive
+        val xrayPid = coreState.pid
         checks += when {
-            connected && !alive -> BugCheck("Xray process", BugSeverity.FAIL, "UI says CONNECTED but Xray is dead", "Safe runtime reset")
-            alive -> BugCheck("Xray process", BugSeverity.PASS, "alive=true • pid=${xrayPid.takeIf { it > 0 } ?: "unknown"}")
-            else -> BugCheck("Xray process", BugSeverity.INFO, "Xray stopped while app is $appState")
+            connected && !alive -> BugCheck(
+                "${coreState.label} process",
+                BugSeverity.FAIL,
+                "UI says CONNECTED but ${coreState.label} is dead (phase=${coreState.phase.ifBlank { "stopped" }})",
+                "Safe runtime reset"
+            )
+            alive -> BugCheck(
+                "${coreState.label} process",
+                BugSeverity.PASS,
+                "alive=true • pid=${xrayPid.takeIf { it > 0 } ?: "unknown"} • phase=${coreState.phase.ifBlank { "running" }}"
+            )
+            else -> BugCheck(
+                "${coreState.label} process",
+                BugSeverity.INFO,
+                "${coreState.label} stopped while app is $appState"
+            )
         }
 
         val latestStartCommand = allRuntime.lastIndexOf("VPN | command | action=com.marbleng.START")
         val latestConnectRequest = allRuntime.lastIndexOf("VPN | connect-request")
         val latestStartupTimeout = allRuntime.lastIndexOf("VPN | startup-timeout")
-        val latestSocksReady = allRuntime.lastIndexOf("XRAY | socks-ready")
+        val latestSocksReady = maxOf(
+            allRuntime.lastIndexOf("XRAY | socks-ready"),
+            allRuntime.lastIndexOf("SINGBOX | socks-ready")
+        )
         val latestHevReady = allRuntime.lastIndexOf("HEV | ready")
         val latestReady = maxOf(latestSocksReady, latestHevReady)
         val latestVerifiedLatencySample = allRuntime.lastIndexOf(
@@ -334,7 +364,7 @@ class BugFinder(private val context: Context, private val xray: XrayManager, pri
             appState == "CONNECTING" && !alive -> BugCheck(
                 "Startup progression",
                 BugSeverity.WARN,
-                "CONNECTING while Xray is not alive yet; no newer ready event is retained",
+                "CONNECTING while ${coreState.label} is not alive yet; no newer ready event is retained",
                 "Re-run Bug Finder if this state persists"
             )
             else -> BugCheck(
@@ -347,8 +377,8 @@ class BugFinder(private val context: Context, private val xray: XrayManager, pri
         val listener = alive && listenerBoundWithoutTraffic(port)
         checks += when {
             listener -> BugCheck("Local SOCKS listener", BugSeverity.PASS, "127.0.0.1:$port is bound • checked without opening a SOCKS connection")
-            alive -> BugCheck("Local SOCKS listener", BugSeverity.FAIL, "Xray is alive but port $port is not bound", "Restart route")
-            else -> BugCheck("Local SOCKS listener", BugSeverity.INFO, "Skipped because Xray is stopped")
+            alive -> BugCheck("Local SOCKS listener", BugSeverity.FAIL, "${coreState.label} is alive but port $port is not bound", "Restart route")
+            else -> BugCheck("Local SOCKS listener", BugSeverity.INFO, "Skipped because ${coreState.label} is stopped")
         }
 
         checks += BugCheck(
@@ -632,6 +662,11 @@ class BugFinder(private val context: Context, private val xray: XrayManager, pri
                     appendLine("endpoint=${sanitize(active.host)}:${active.port}")
                     appendLine("configFingerprint=${diag.sha256(active.configJson)}")
                 }
+                appendLine("engine=${coreState.id}")
+                appendLine("coreAlive=${coreState.alive}")
+                appendLine("corePid=${coreState.pid}")
+                appendLine("coreStartPhase=${sanitize(coreState.phase)}")
+                appendLine("coreStartError=${sanitize(coreState.error)}")
                 appendLine("xrayAlive=${xray.isAlive}")
                 appendLine("xrayPid=${xray.processPid}")
                 appendLine("xrayStartPhase=${sanitize(xray.lastStartPhase)}")
@@ -940,7 +975,7 @@ class BugFinder(private val context: Context, private val xray: XrayManager, pri
     private fun connectionTimeline(text: String): String {
         if (text.isBlank()) return "No retained runtime timeline"
         val tags = listOf(
-            "APP |", "VPN |", "TUN |", "HEV |", "XRAY |", "EGRESS |", "DNS |",
+            "APP |", "VPN |", "TUN |", "HEV |", "XRAY |", "SINGBOX |", "EGRESS |", "DNS |",
             "IDENTITY |", "TURBO |", "AUTOPILOT |", "PRIVACY |", "NETWORK |"
         )
         val lines = text.lineSequence()
