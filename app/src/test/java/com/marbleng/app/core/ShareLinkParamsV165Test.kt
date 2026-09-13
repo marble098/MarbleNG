@@ -105,9 +105,9 @@ class ShareLinkParamsV165Test {
         assertEquals(ShareLinkParams.EMPTY, ShareLinkParams.of("&&"))
         assertEquals(ShareLinkParams.EMPTY, ShareLinkParams.ofRawLink("vless://id@1.2.3.4:443#Name"))
         assertEquals(ShareLinkParams.EMPTY, ShareLinkParams.ofRawLink(""))
-        assertEquals(emptySet<String>(), EMPTY.keys())
-        assertEquals("", EMPTY.get("type"))
-        assertEquals("tcp", EMPTY.get("type", "tcp"))
+        assertEquals(emptySet<String>(), ShareLinkParams.EMPTY.keys())
+        assertEquals("", ShareLinkParams.EMPTY.get("type"))
+        assertEquals("tcp", ShareLinkParams.EMPTY.get("type", "tcp"))
     }
 
     @Test

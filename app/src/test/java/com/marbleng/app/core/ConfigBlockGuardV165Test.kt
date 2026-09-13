@@ -37,17 +37,17 @@ class ConfigBlockGuardV165Test {
     fun repeatsOfTheSameRefusalFoldIntoTheOneThatReported() {
         val reason = "Unsupported VLESS • pick a server with TLS/REALITY"
         assertTrue(guard.observe("p1", reason).report)
-        var previous = 0
-        repeat(9) {
-            val decision = guard.observe("p1", reason)
-            assertFalse("repeat ${it + 2} must not report", decision.report)
-            assertTrue(decision.suppressedBefore > previous)
-            previous = decision.suppressedBefore
-            clock += 200
+        val folded = List(9) {
+            guard.observe("p1", reason).also { clock += 200 }
         }
-        assertEquals(10, guard.observe("p1", reason).let { it.attempts })
-        // The fold is visible: the guard knows how many it swallowed, so the first row can say so.
-        assertEquals(10, guard.summary().let { val m = Regex("observations=(\\d+)").find(it)!!.groupValues[1].toInt(); m })
+        folded.forEachIndexed { index, decision ->
+            assertFalse("repeat ${index + 2} must not report", decision.report)
+        }
+        // Ten observations, nine of them folded into the row that reported.
+        assertEquals(10, folded.last().attempts)
+        assertEquals(9, folded.last().suppressedBefore)
+        val observations = Regex("observations=(\\d+)").find(guard.summary())!!.groupValues[1].toInt()
+        assertEquals(10, observations)
     }
 
     @Test

@@ -466,21 +466,30 @@ object CoreConfigSuperset {
  */
 object CorePrivateEndpoint {
 
+    /**
+     * A CIDR base written the way the core's `geodata/consts.go` spells it — four octets — and
+     * packed into an Int. Packing is done here rather than with a 0x80000000-and-above hex literal
+     * because such a literal has no Int value in Kotlin's inference and turns the table into a
+     * `Number` mixture.
+     */
+    private fun v4(first: Int, second: Int, third: Int, fourth: Int): Int =
+        (first shl 24) or (second shl 16) or (third shl 8) or fourth
+
     private val PRIVATE_V4: List<Pair<Int, Int>> = listOf(
-        0x00000000 to 8,    // 0.0.0.0/8
-        0x0A000000 to 8,    // 10.0.0.0/8
-        0x64400000 to 10,   // 100.64.0.0/10
-        0x7F000000 to 8,    // 127.0.0.0/8
-        0xA9FE0000 to 16,   // 169.254.0.0/16
-        0xAC100000 to 12,   // 172.16.0.0/12
-        0xC0000000 to 24,   // 192.0.0.0/24
-        0xC0000200 to 24,   // 192.0.2.0/24
-        0xC0586300 to 24,   // 192.88.99.0/24
-        0xC0A80000 to 16,   // 192.168.0.0/16
-        0xC6120000 to 15,   // 198.18.0.0/15
-        0xC6336400 to 24,   // 198.51.100.0/24
-        0xCB007100 to 24,   // 203.0.113.0/24
-        0xE0000000 to 3     // 224.0.0.0/3 — multicast and reserved space
+        v4(0, 0, 0, 0) to 8,        // 0.0.0.0/8
+        v4(10, 0, 0, 0) to 8,       // 10.0.0.0/8
+        v4(100, 64, 0, 0) to 10,    // 100.64.0.0/10
+        v4(127, 0, 0, 0) to 8,      // 127.0.0.0/8
+        v4(169, 254, 0, 0) to 16,   // 169.254.0.0/16
+        v4(172, 16, 0, 0) to 12,    // 172.16.0.0/12
+        v4(192, 0, 0, 0) to 24,     // 192.0.0.0/24
+        v4(192, 0, 2, 0) to 24,     // 192.0.2.0/24
+        v4(192, 88, 99, 0) to 24,   // 192.88.99.0/24
+        v4(192, 168, 0, 0) to 16,   // 192.168.0.0/16
+        v4(198, 18, 0, 0) to 15,    // 198.18.0.0/15
+        v4(198, 51, 100, 0) to 24,  // 198.51.100.0/24
+        v4(203, 0, 113, 0) to 24,   // 203.0.113.0/24
+        v4(224, 0, 0, 0) to 3       // 224.0.0.0/3 — multicast and reserved space
     )
 
     private val PRIVATE_DOMAIN_SUFFIXES = setOf(
@@ -604,8 +613,28 @@ object CorePrivateEndpoint {
         if ((bytes[0].toInt() and 0xFF) == 0xFE && (bytes[1].toInt() and 0xC0) == 0x80) return true
         // ff00::/8 — multicast.
         if ((bytes[0].toInt() and 0xFF) == 0xFF) return true
+        // ::ffff:0:0/96 — an IPv4-mapped literal is judged as the v4 address it carries, which is how
+        // the core answers it too: the geodata matcher runs on `netip.Addr` after `Unmap()`, so
+        // `::ffff:10.0.0.1` is private and `::ffff:8.8.8.8` is not. Without this branch the app would
+        // call a VPN-supplied, mapped private address public and refuse the node the core accepts.
+        if (isIpv4Mapped(bytes)) {
+            return isPrivateIpv4Octets(
+                intArrayOf(
+                    bytes[12].toInt() and 0xFF,
+                    bytes[13].toInt() and 0xFF,
+                    bytes[14].toInt() and 0xFF,
+                    bytes[15].toInt() and 0xFF
+                )
+            )
+        }
         return false
     }
+
+    /** `::ffff:0:0/96`, checked on the bytes rather than on the text, so every spelling lands here. */
+    private fun isIpv4Mapped(bytes: ByteArray): Boolean =
+        (0 until 10).all { bytes[it].toInt() == 0 } &&
+            (bytes[10].toInt() and 0xFF) == 0xFF &&
+            (bytes[11].toInt() and 0xFF) == 0xFF
 
     /** The core's domain half: `Domain_Domain` suffix rules plus the dotless regexp. */
     fun isPrivateDomainName(host: String): Boolean {
