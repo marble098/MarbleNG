@@ -127,6 +127,26 @@ files = {
     "intel": read("app/src/main/java/com/marbleng/app/core/MarbleIntelligence.kt"),
     "manual": read("app/src/main/java/com/marbleng/app/core/ManualConfigBuilder.kt"),
     "parser": read("app/src/main/java/com/marbleng/app/core/ProxyParser.kt"),
+    # MARBLE_CORE_CONFIG_SUPERSET_V165 — the "can the selected core load this?" boundary, the lossless
+    # repair pass, the alias-aware share-link reader, the refusal-storm guard, and the ONE policy patch
+    # this app applies to its own core. They are pinned together deliberately: the app may relax only
+    # what the core patch actually relaxes, and both must keep agreeing with the pinned source.
+    "configSuperset": read("app/src/main/java/com/marbleng/app/core/CoreConfigSuperset.kt"),
+    "configRepairs": read("app/src/main/java/com/marbleng/app/core/XrayConfigRepairs.kt"),
+    "linkParams": read("app/src/main/java/com/marbleng/app/core/ShareLinkParams.kt"),
+    "blockGuard": read("app/src/main/java/com/marbleng/app/core/ConfigBlockGuard.kt"),
+    "preflight": read("app/src/main/java/com/marbleng/app/core/ProfilePreflightValidator.kt"),
+    "auditor": read("app/src/main/java/com/marbleng/app/core/ProfileSecurityAuditor.kt"),
+    "supersetInjector": read("scripts/inject-xray-config-superset.py"),
+    "supersetPolicy": read("native/xraypatch/marble_outbound_policy.go"),
+    "supersetPolicyTest": read("native/xraypatch/marble_outbound_policy_test.go"),
+    "persianLexicon": read("app/src/main/java/com/marbleng/app/ui/MarblePersianLexicon.kt"),
+    "supersetDoc": read("docs/CORE_CONFIG_SUPERSET_V165.md"),
+    "interopDoc": read("docs/core-interoperability.md"),
+    "supersetTest": read("app/src/test/java/com/marbleng/app/core/CoreConfigSupersetV165Test.kt"),
+    "repairsTest": read("app/src/test/java/com/marbleng/app/core/XrayConfigRepairsV165Test.kt"),
+    "linkParamsTest": read("app/src/test/java/com/marbleng/app/core/ShareLinkParamsV165Test.kt"),
+    "blockGuardTest": read("app/src/test/java/com/marbleng/app/core/ConfigBlockGuardV165Test.kt"),
     "tlsPinning": read("app/src/main/java/com/marbleng/app/core/TlsPinningPolicy.kt"),
     "reachability": read("app/src/main/java/com/marbleng/app/core/MultiVectorReachability.kt"),
     "probe": read("app/src/main/java/com/marbleng/app/core/RouteProbe.kt"),
@@ -1906,6 +1926,140 @@ check(
 )
 
 # Global concurrency smells.
+# ══════════════════════════════════════════════════════════════════════════════
+# MARBLE_CORE_CONFIG_SUPERSET_V165 — one authority decides whether a config is
+# usable, and it agrees with the pinned core instead of with a copy of it.
+#
+# The reported outage was three independent vetoes over one fact: a VLESS node
+# without TLS. The VPN preflight refused it (a hand-written copy of Xray's rule
+# plus a shorter private-address list), the rank gate hid it as
+# "censorship-unsafe", and the core itself was refusing it for the reason the
+# first two were imitating. All three are now the same code, and the core's rule
+# is delegated to the application by one patched function — which is only
+# acceptable because the app asks for the same consent the patch waives.
+# ══════════════════════════════════════════════════════════════════════════════
+check(
+    "plaintext consent is one name, shared by the manager, the patch and the docs",
+    'const val PLAINTEXT_POLICY_ENV = "MARBLE_ALLOW_UNENCRYPTED_PUBLIC_OUTBOUND"' in files["configSuperset"]
+    and "environment()[CoreConfigSuperset.PLAINTEXT_POLICY_ENV] = \"1\"" in files["xray"]
+    and 'marblePlaintextOutboundEnv = "MARBLE_ALLOW_UNENCRYPTED_PUBLIC_OUTBOUND"' in files["supersetPolicy"]
+    and "MARBLE_ALLOW_UNENCRYPTED_PUBLIC_OUTBOUND" in files["supersetDoc"],
+)
+
+check(
+    "the core patch is one early return, in the function that owns the rule",
+    "func requiresTransportSecurity(address *Address) bool {" in files["supersetInjector"]
+    and "marbleAllowsUnencryptedOutbound() {" in files["supersetInjector"]
+    and "func marbleAllowsUnencryptedOutbound() bool" in files["supersetPolicy"]
+    and "PrintRemovedFeatureError" not in files["supersetPolicy"]
+    and "GetPrivateIPMatcher" not in files["supersetPolicy"],
+)
+
+check(
+    "the pinned-source CI smoke proves the patch and runs its Go tests",
+    'python3 "$ROOT/scripts/inject-xray-config-superset.py" "$XRAY_SRC"' in files["native"]
+    and "marble_outbound_policy_test.go" in files["native"]
+    and "MarbleNG plaintext-outbound consent hook missing from infra/conf/xray.go" in files["native"]
+    and files["verify"].count("inject-xray-config-superset.py") >= 1
+    and "go test -run 'TestMarble' ./infra/conf" in files["verify"]
+    and "TestMarblePlaintextOutboundConsentOverridesPublicAddress" in files["supersetPolicyTest"]
+    and "TestMarblePlaintextOutboundConsentParsing" in files["supersetPolicyTest"],
+)
+
+check(
+    "no app-level VLESS veto survives: preflight, rank and connect ask one authority",
+    "private fun isPrivateEndpointHost(" not in files["vpn"]
+    and "fun verdict(profile: ProxyProfile, engine: CoreEngine, settings: AppSettings): Verdict"
+    in files["configSuperset"]
+    and "CoreConfigSuperset.verdict(profile, engine, settings)" in files["vpn"]
+    and "CoreConfigSuperset.verdict(profile, engine, settings)" in files["preflight"]
+    and "CoreConfigSuperset.verdict(profile, engine, settings)" in files["auditor"]
+    and 'if (security == "none"' not in files["vpn"]
+    and "verdict.runnable" in files["preflight"]
+    and "verdict.note.isNotEmpty()" in files["auditor"],
+)
+
+check(
+    "the refusal the users and translators know is still the refusal, and only consent reaches it",
+    'const val PLAINTEXT_REFUSAL = "Unsupported VLESS • pick a server with TLS/REALITY"'
+    in files["configSuperset"]
+    and "CoreConfigSuperset.PLAINTEXT_REFUSAL" in files["vpn"]
+    and '"Unsupported VLESS • pick a server with TLS/REALITY"' in files["persianLexicon"]
+    and "Unsupported VLESS • pick a server with TLS/REALITY" in files["ui"],
+)
+
+check(
+    "a cleartext node is labelled, and consent is a stored setting with a UI control",
+    "val allowUnencryptedPublicOutbound: Boolean = true" in files["models"]
+    and 'putBoolean("allowUnencryptedPublicOutbound", s.allowUnencryptedPublicOutbound)' in files["store"]
+    and 'getBoolean("allowUnencryptedPublicOutbound", true)' in files["store"]
+    and "checked = s.allowUnencryptedPublicOutbound" in files["ui"]
+    and "PLAINTEXT_PUBLIC_NOTE" in files["configSuperset"]
+    and "Dial unencrypted nodes" in files["persianLexicon"],
+)
+
+check(
+    "the config repair pass is lossless and runs before every consumer of a config",
+    'internal const val REMOVED_CHAIN_FIELD = "proxySettings"' in files["configRepairs"]
+    and "fun apply(source: String): Report" in files["configRepairs"]
+    and "return Report(source, emptyList())" in files["configRepairs"]
+    and files["hardener"].count("XrayConfigRepairs.apply(") >= 3
+    and "sockopt.put(\"dialerProxy\", segments[index - 1].primaryTag)" in files["hardener"]
+    and '.put(\n                "proxySettings",\n' not in files["hardener"]
+    and "transportLayer\", true)" not in files["hardener"]
+    and "NativeSingBoxConfig.isNative(root)) return Report(source, emptyList())" in files["configRepairs"],
+)
+
+check(
+    "Marble never manufactures transport security for a node that did not ask for it",
+    'put("security", "tls")' not in files["configRepairs"]
+    and 'put("security", "reality")' not in files["configRepairs"]
+    and "security-inferred-from-" in files["configRepairs"]
+    and "repairs.isEmpty()) return Report(source, emptyList())" in files["configRepairs"],
+)
+
+check(
+    "share links are read by one alias-aware, Uri-free reader",
+    "private fun params(uri: Uri): ShareLinkParams" in files["parser"]
+    and files["parser"].count("getQueryParameter(") == 0
+    and "fun ofRawLink(raw: String): ShareLinkParams" in files["linkParams"]
+    and "fun first(vararg keys: String, default: String = \"\")" in files["linkParams"]
+    and "XHTTP_LINK_FIELDS" in files["parser"]
+    and '"serviceName", "service"' in files["parser"]
+    and "mlkem768x25519plus" in files["parser"],
+)
+
+check(
+    "a repeated config refusal costs one event, and never a skipped reconnect",
+    "configBlockGuard.observe(profile.id, issue)" in files["vpn"]
+    and "private fun failBeforeTunnel(reason: String, loud: Boolean = true)" in files["vpn"]
+    and "const val MAX_QUIET_MS = 600_000L" in files["blockGuard"]
+    and "Pure with respect to the caller's control flow" in files["blockGuard"]
+    and "class ConfigBlockGuard(\n    private val now: () -> Long" in files["blockGuard"],
+)
+
+check(
+    "the second core is never judged by the first core's shape rules",
+    "engine == CoreEngine.SINGBOX && profile.raw.isNotBlank()" in files["preflight"]
+    and "singbox-parser-link" in files["preflight"]
+    and '"core-gap"' in files["preflight"]
+    and "CORE_GAP_TRANSPORT_REMOVED" in files["configSuperset"]
+    and "CORE_GAP_KCP_CAMOUFLAGE" in files["configSuperset"]
+    and "CORE_GAP_KCP_CAMOUFLAGE" in files["persianLexicon"],
+)
+
+check(
+    "V165 behaviour is covered by named tests and a chapter that explains the boundary",
+    "class CoreConfigSupersetV165Test" in files["supersetTest"]
+    and "class XrayConfigRepairsV165Test" in files["repairsTest"]
+    and "class ShareLinkParamsV165Test" in files["linkParamsTest"]
+    and "class ConfigBlockGuardV165Test" in files["blockGuardTest"]
+    and "MARBLE_CORE_CONFIG_SUPERSET_V165" in files["supersetDoc"]
+    and "MARBLE_CORE_CONFIG_SUPERSET_V165" in files["interopDoc"]
+    and "requiresTransportSecurity" in files["supersetDoc"]
+    and "CoreConfigSuperset" in files["interopDoc"],
+)
+
 production = "\n".join(
     value for key, value in files.items()
     if key not in {"build", "verify", "native"}

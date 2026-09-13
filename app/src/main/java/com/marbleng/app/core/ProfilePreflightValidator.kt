@@ -1,5 +1,6 @@
 package com.marbleng.app.core
 
+import com.marbleng.app.model.AppSettings
 import com.marbleng.app.model.ProxyProfile
 import org.json.JSONArray
 import org.json.JSONObject
@@ -21,6 +22,16 @@ import org.json.JSONObject
  * The validator is intentionally conservative about what it *allows*: it only rejects clearly
  * broken configs and never second-guesses legitimate transport choices, so it cannot flag healthy
  * censorship-resistant profiles (VLESS + REALITY, etc.).
+ *
+ * MARBLE_CORE_CONFIG_SUPERSET_V165 — the validator learned which core it is validating for.
+ *
+ * It used to answer the same way no matter which engine the user selected, which quarantined nodes
+ * that the *other* core runs natively (sing-box extended reads `tuic`, AnyTLS, h2/h3, QUIC, and
+ * cleartext VLESS). The verdict now takes the engine and the app's own consent policy through
+ * [CoreConfigSuperset], the same authority the connect path asks. A node that the selected core can
+ * dial is rankable, including an unencrypted one: it is labelled, not hidden. A node that the
+ * selected core *cannot* load is quarantined with the reason that names the other engine — which is
+ * actionable ("switch core") instead of a probe that burns a slot and dies.
  */
 object ProfilePreflightValidator {
 
@@ -71,10 +82,15 @@ object ProfilePreflightValidator {
     /**
      * Validate a single profile with fresh-subscription evidence available for address
      * cross-checking.
+     *
+     * [engine] and [settings] default to the historical behaviour (validate as if Xray were the
+     * core, with the shipped default consent), so every existing caller keeps its exact answer.
      */
     fun validate(
         profile: ProxyProfile,
-        sources: ProfileAddressCrossCheck.CrossCheckSources
+        sources: ProfileAddressCrossCheck.CrossCheckSources = ProfileAddressCrossCheck.CrossCheckSources(),
+        engine: CoreEngine = CoreEngine.XRAY,
+        settings: AppSettings = AppSettings()
     ): PreflightVerdict {
         // SS/SSR hostname-only profiles may carry no emitted JSON yet; allow them through so the
         // engine (XrayManager) is the judge, but flag them for re-check.
@@ -86,6 +102,23 @@ object ProfilePreflightValidator {
             if (profile.scheme.lowercase() in SINGBOX_LINK_ONLY_PROTOCOLS &&
                 SingBoxConfigBuilder.shareLink(profile) != null
             ) {
+                return PreflightVerdict(
+                    Verdict.VALID,
+                    "singbox-parser-link",
+                    "sing-box extended's parser runs the stored share link; no Xray JSON needed"
+                )
+            }
+            // MARBLE_CORE_CONFIG_SUPERSET_V165 — a link-only profile is not a broken profile when
+            // the selected core parses links itself. sing-box extended's `parser` outbound accepts a
+            // share link of any protocol it implements, so on that engine a blank config is only
+            // blank *for Xray*; refusing it is what made 42/42 nodes look dead.
+            val link = SingBoxConfigBuilder.shareLink(profile)
+            // The builder's own exclusion, mirrored here rather than invented: sing-box's `parser`
+            // silently ignores a certificate pin, so a pinned link-only profile has exactly one
+            // candidate, and preflight must not promise what that candidate cannot deliver.
+            val linkOnly = engine == CoreEngine.SINGBOX && profile.raw.isNotBlank() &&
+                link != null && !SingBoxConfigBuilder.linkCarriesPin(link)
+            if (linkOnly) {
                 return PreflightVerdict(
                     Verdict.VALID,
                     "singbox-parser-link",
@@ -195,7 +228,23 @@ object ProfilePreflightValidator {
             }
         }
 
-        return PreflightVerdict(Verdict.VALID, "structurally-valid")
+        // MARBLE_CORE_CONFIG_SUPERSET_V165 — two engine-aware questions, asked only after the
+        // structural checks pass, so a config that is broken for every core keeps its old reason.
+        CoreConfigSuperset.coreGapIssue(profile, engine)?.let { gap ->
+            return PreflightVerdict(Verdict.INVALID, "core-gap", gap)
+        }
+        val verdict = CoreConfigSuperset.verdict(profile, engine, settings)
+        if (!verdict.runnable) {
+            return PreflightVerdict(Verdict.INVALID, verdict.reason, verdict.detail)
+        }
+        // An unencrypted node that the user has allowed is VALID and stays rankable. The note is
+        // what travels with it, so the label on the Servers row and in Bug Finder cannot drift from
+        // the fact about the wire.
+        return PreflightVerdict(
+            Verdict.VALID,
+            if (verdict.note.isEmpty()) "structurally-valid" else "structurally-valid-unencrypted",
+            if (verdict.note.isEmpty()) "structurally-valid" else verdict.note
+        )
     }
 
     private fun resolveAddress(protocol: String, outbound: JSONObject, settings: JSONObject?): String? {
@@ -262,26 +311,40 @@ object ProfilePreflightValidator {
     fun partition(profiles: List<ProxyProfile>): Pair<List<ProxyProfile>, List<Pair<ProxyProfile, PreflightVerdict>>> =
         partition(profiles, ProfileAddressCrossCheck.CrossCheckSources())
 
+    /** Engine-aware partition: the same rules the connect path applies. */
+    fun partition(
+        profiles: List<ProxyProfile>,
+        engine: CoreEngine,
+        settings: AppSettings
+    ): Pair<List<ProxyProfile>, List<Pair<ProxyProfile, PreflightVerdict>>> =
+        partition(profiles, ProfileAddressCrossCheck.CrossCheckSources(), engine, settings)
+
     /**
      * Split a candidate list into valid and quarantined (invalid) profiles, cross-checking each
      * missing-address candidate against [sources] (local cache + fresh subscription).
      */
     fun partition(
         profiles: List<ProxyProfile>,
-        sources: ProfileAddressCrossCheck.CrossCheckSources
+        sources: ProfileAddressCrossCheck.CrossCheckSources,
+        engine: CoreEngine = CoreEngine.XRAY,
+        settings: AppSettings = AppSettings()
     ): Pair<List<ProxyProfile>, List<Pair<ProxyProfile, PreflightVerdict>>> {
         val valid = mutableListOf<ProxyProfile>()
         val invalid = mutableListOf<Pair<ProxyProfile, PreflightVerdict>>()
         profiles.forEach { profile ->
-            val verdict = validate(profile, sources)
+            val verdict = validate(profile, sources, engine, settings)
             if (verdict.valid) valid += profile else invalid += profile to verdict
         }
         return valid to invalid
     }
 
     /** Validate many profiles, returning a map of profileId -> verdict for diagnostics. */
-    fun validateAll(profiles: List<ProxyProfile>): Map<String, PreflightVerdict> =
-        profiles.associate { it.id to validate(it) }
+    fun validateAll(
+        profiles: List<ProxyProfile>,
+        engine: CoreEngine = CoreEngine.XRAY,
+        settings: AppSettings = AppSettings()
+    ): Map<String, PreflightVerdict> =
+        profiles.associate { it.id to validate(it, ProfileAddressCrossCheck.CrossCheckSources(), engine, settings) }
 
     /** Render a machine-readable preflight block for diagnostics. */
     fun renderMachineReadable(verdicts: Map<String, PreflightVerdict>): String {

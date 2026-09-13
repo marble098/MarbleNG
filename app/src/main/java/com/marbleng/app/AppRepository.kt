@@ -3391,7 +3391,14 @@ private fun postToMain(block: () -> Unit) {
 
         // MARBLE_SMART_RANK_V90: remove censorship-unsafe nodes (VLESS without TLS/REALITY, VMess
         // without forward secrecy) before they can fail a benchmark.
-        val (securitySafe, deprecated) = ProfileSecurityAuditor.partitionForRank(candidates)
+        //
+        // MARBLE_CORE_CONFIG_SUPERSET_V165 — the gate now asks the *selected core* rather than
+        // repeating a rule the app once invented for it. On the reported account that difference was
+        // the entire outage: 42 imported nodes, all cleartext VLESS, all removed from the rank pool by
+        // this line, and the log said only `rank-deprecated-hidden`. A node the chosen core can dial is
+        // rankable — labelled, but rankable — and a node it cannot load is hidden with the reason that
+        // names the other core.
+        val (securitySafe, deprecated) = ProfileSecurityAuditor.partitionForRank(candidates, settings)
         if (deprecated.isNotEmpty()) {
             diagnostics.event(
                 "BENCHMARK", "rank-deprecated-hidden",
@@ -3406,8 +3413,12 @@ private fun postToMain(block: () -> Unit) {
         // quarantine is no longer a hard gate — every node gets the real tunnel probe and its
         // result is shown; broken/unsafe nodes are only pinned to the bottom of the selection
         // ordering. This is what measures ALL nodes in one parallel wave, with no strict gate.
-        val (_, invalidCandidates) =
-            ProfilePreflightValidator.partition(securitySafe, crossCheckSources)
+        val (_, invalidCandidates) = ProfilePreflightValidator.partition(
+            securitySafe,
+            crossCheckSources,
+            settings.coreEngine(),
+            settings
+        )
         if (invalidCandidates.isNotEmpty()) {
                 diagnostics.event(
                     "BENCHMARK", "rank-preflight-quarantine",
@@ -3419,8 +3430,9 @@ private fun postToMain(block: () -> Unit) {
                 diagnostics.event(
                     "BENCHMARK", "rank-preflight-report",
                     "block" to ProfilePreflightValidator.renderMachineReadable(
-                        ProfilePreflightValidator.validateAll(candidates)
-                    )
+                        ProfilePreflightValidator.validateAll(candidates, settings.coreEngine(), settings)
+                    ),
+                    "repairs" to XrayConfigRepairs.lastSummary().ifBlank { "none" }
                 )
                 message = "Rank • $scope • preflight flagged ${invalidCandidates.size} • testing all servers"
             }

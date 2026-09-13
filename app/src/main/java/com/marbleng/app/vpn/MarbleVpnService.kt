@@ -18,6 +18,8 @@ import com.marbleng.app.core.ConnectionTuner
 import com.marbleng.app.core.ContinuousRouteOptimizer
 import com.marbleng.app.core.ConnectivityDiagnosticsObserver
 import com.marbleng.app.core.DataStallGuard
+import com.marbleng.app.core.ConfigBlockGuard
+import com.marbleng.app.core.CoreConfigSuperset
 import com.marbleng.app.core.EgressObservationPolicy
 import com.marbleng.app.core.JitterControlPolicy
 import com.marbleng.app.core.LinkDeadlinePolicy
@@ -51,7 +53,6 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
-import org.json.JSONObject
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -241,6 +242,17 @@ class MarbleVpnService : VpnService() {
     private var connectivityDiagnostics: Closeable? = null
     private val dataStallGuard = DataStallGuard()
 
+    /**
+     * MARBLE_CORE_CONFIG_SUPERSET_V165 — a config-level refusal is a state, not an event.
+     *
+     * The reported session logged 31 `profile-preflight-rejected` lines for two profiles in ten
+     * seconds: every auto-reconnect handed the same profile back, and every hand-off ran the whole
+     * start sequence again to reach the same sentence. The guard reports the first refusal of a
+     * (profile, reason) pair, folds the repeats into it, and doubles the quiet window per repeat —
+     * while a *different* reason for the same profile still reports at once.
+     */
+    private val configBlockGuard = ConfigBlockGuard()
+
     @Volatile private var activeSession = ""
     @Volatile private var activeMode = MODE_TUN
     @Volatile private var activeProfileId = ""
@@ -425,15 +437,26 @@ class MarbleVpnService : VpnService() {
             failBeforeTunnel("Profile no longer exists")
             return
         }
-        profileCompatibilityIssue(profile, app.repo.settings.coreEngine())?.let { issue ->
-            diag.event(
-                "XRAY", "profile-preflight-rejected",
-                "profile" to profile.id.take(12),
-                "scheme" to profile.scheme,
-                "engine" to app.repo.settings.coreEngine().id,
-                "reason" to issue
-            )
-            failBeforeTunnel(issue)
+        val preflightEngine = app.repo.settings.coreEngine()
+        profileCompatibilityIssue(profile, preflightEngine)?.let { issue ->
+            // The refusal is final for this (profile, reason) pair until something the user can see
+            // changes: a settings flip, a subscription refresh, or a disconnect. Suppressing the
+            // *repeat* costs nothing — the state line already says exactly this — while the event
+            // storm it replaces buried the one line that explains why the tunnel never opened.
+            val decision = configBlockGuard.observe(profile.id, issue)
+            val rejectionTag = if (preflightEngine == CoreEngine.SINGBOX) "SINGBOX" else "XRAY"
+            if (decision.report) {
+                diag.event(
+                    rejectionTag, "profile-preflight-rejected",
+                    "profile" to profile.id.take(12),
+                    "scheme" to profile.scheme,
+                    "engine" to preflightEngine.id,
+                    "reason" to issue,
+                    "wire" to CoreConfigSuperset.wire(profile).name,
+                    "foldedRepeats" to decision.suppressedBefore
+                )
+            }
+            failBeforeTunnel(issue, loud = decision.report)
             return
         }
 
@@ -3481,116 +3504,58 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
     }
 
     /**
-     * Fail fast for a configuration Xray itself treats as permanently invalid.
+     * Fail fast only for a configuration the *selected core itself* cannot run — and never for a
+     * reason the app invented.
      *
-     * Recent Xray releases reject public VLESS with both stream security=none and
-     * encryption=none. Starting Android TUN first used to create a kill-switch hold and then
-     * retry the same impossible profile. Private/LAN endpoints remain allowed.
+     * MARBLE_CORE_CONFIG_SUPERSET_V165 rewrote this function. It used to hold a private copy of
+     * Xray's plaintext-VLESS rule plus a private copy of what counts as a private address, and it
+     * ran before the settings were even resolved, which is how a `security=none` subscription ended
+     * up 42-of-42 unusable: refused before the TUN, quarantined from Smart Rank by a second copy of
+     * the rule, and hidden from the rank pool by a third. All three copies disagreed with the core
+     * they were mirroring — and the second engine in the same APK had never refused any of it.
      *
-     * sing-box extended accepts VLESS without TLS (and every other option the extended core
-     * speaks), so this preflight is Xray-only. It used to run before `effectiveSettingsFor`,
-     * which is why a sing-box session died with `startup-failed-before-tun`.
+     * Now there is one authority, [CoreConfigSuperset], and this function only adapts it to the
+     * "return a sentence or nothing" shape the connect path wants:
+     *
+     *  · sing-box extended keeps its own preflight ([SingBoxConfigBuilder.pinnedPeerRefusal]): a
+     *    pinned-certificate node is the one shape that core's parser accepts and then cannot use;
+     *  · Xray is refused only for shapes its own source proves it cannot load
+     *    ([CoreConfigSuperset.coreGapIssue]) and for a cleartext public node when the user has
+     *    switched consent off in Settings → Engine;
+     *  · a cleartext node the user *has* consented to is dialled, and the consent is visible: the
+     *    note goes into the diagnostic bundle instead of into a refusal.
+     *
+     * It still runs before the session's settings are resolved, so it reads
+     * `activeSettings ?: repo.settings` rather than a half-built copy: starting the TUN first used to
+     * arm the kill switch and then retry the same impossible profile, and that ordering is the only
+     * reason this check exists at all.
      */
     private fun profileCompatibilityIssue(profile: ProxyProfile, engine: CoreEngine): String? {
-        // MARBLE_SINGBOX_PINNED_PEER_V163 — a pinned-certificate node (pcs / vcn) is the one
-        // shape the extended core accepts and then cannot use: its parser drops the pin, every
-        // TLS handshake fails against the fronted SNI, and the user sees "connected, no
-        // Internet". Refuse before the TUN with the engine that can honour the pin.
+        // The consent switch means the same thing on both cores: switched off, Marble hands no
+        // cleartext public node to *any* core — including sing-box extended, whose parser would
+        // otherwise accept it. A user's "no plaintext" cannot be engine-dependent.
+        val settings = activeSettings ?: (application as MarbleApplication).repo.settings
+        if (!CoreConfigSuperset.dialsPlaintextPublicNodes(settings) &&
+            CoreConfigSuperset.wire(profile) == CoreConfigSuperset.Wire.PLAINTEXT_PUBLIC
+        ) {
+            return CoreConfigSuperset.PLAINTEXT_REFUSAL
+        }
         if (engine == CoreEngine.SINGBOX) return SingBoxConfigBuilder.pinnedPeerRefusal(profile)
         if (engine != CoreEngine.XRAY) return null
-        return runCatching {
-            val root = JSONObject(profile.configJson)
-            val outbounds = root.optJSONArray("outbounds") ?: return@runCatching null
-
-            for (index in 0 until outbounds.length()) {
-                val outbound = outbounds.optJSONObject(index) ?: continue
-                if (!outbound.optString("protocol").equals("vless", ignoreCase = true)) continue
-
-                val settings = outbound.optJSONObject("settings") ?: JSONObject()
-                val stream = outbound.optJSONObject("streamSettings") ?: JSONObject()
-                val security = stream.optString("security", "none")
-                    .ifBlank { "none" }
-                    .lowercase()
-
-                val legacyUser = settings
-                    .optJSONArray("vnext")
-                    ?.optJSONObject(0)
-                    ?.optJSONArray("users")
-                    ?.optJSONObject(0)
-
-                val encryption = settings.optString("encryption")
-                    .ifBlank { legacyUser?.optString("encryption").orEmpty() }
-                    .ifBlank { "none" }
-                    .lowercase()
-
-                val host = settings.optString("address")
-                    .ifBlank {
-                        settings.optJSONArray("vnext")
-                            ?.optJSONObject(0)
-                            ?.optString("address")
-                            .orEmpty()
-                    }
-                    .trim()
-
-                if (
-                    security == "none" &&
-                    encryption == "none" &&
-                    !isPrivateEndpointHost(host)
-                ) {
-                    return@runCatching (
-                        "Unsupported VLESS • pick a server with TLS/REALITY"
-                    )
-                }
-            }
-            null
-        }.getOrNull()
-    }
-
-    private fun isPrivateEndpointHost(raw: String): Boolean {
-        val host = raw.trim()
-            .removePrefix("[")
-            .removeSuffix("]")
-            .lowercase()
-        if (host.isBlank()) return false
-
-        if (
-            host == "localhost" ||
-            host.endsWith(".localhost") ||
-            host.endsWith(".local") ||
-            host.endsWith(".lan") ||
-            host.endsWith(".home.arpa")
-        ) return true
-
-        // Single-label DNS names are normally private search-domain hosts.
-        if (!host.contains('.') && !host.contains(':')) return true
-
-        if (
-            host == "::1" ||
-            host.startsWith("fc") ||
-            host.startsWith("fd") ||
-            host.startsWith("fe8") ||
-            host.startsWith("fe9") ||
-            host.startsWith("fea") ||
-            host.startsWith("feb")
-        ) return true
-
-        val ipv4 = host.removePrefix("::ffff:")
-        val parts = ipv4.split('.')
-        if (parts.size != 4) return false
-        val octets = parts.map { it.toIntOrNull() ?: return false }
-        if (octets.any { it !in 0..255 }) return false
-
-        val a = octets[0]
-        val b = octets[1]
-        return when {
-            a == 10 -> true
-            a == 127 -> true
-            a == 169 && b == 254 -> true
-            a == 172 && b in 16..31 -> true
-            a == 192 && b == 168 -> true
-            a == 100 && b in 64..127 -> true
-            else -> false
+        CoreConfigSuperset.coreGapIssue(profile, engine)?.let { return it }
+        val verdict = CoreConfigSuperset.verdict(profile, engine, settings)
+        if (verdict.refused) return CoreConfigSuperset.PLAINTEXT_REFUSAL
+        if (verdict.note.isNotEmpty()) {
+            configBlockGuard.reset(profile.id)
+            diag.event(
+                if (engine == CoreEngine.SINGBOX) "SINGBOX" else "XRAY", "profile-wire-note",
+                "profile" to profile.id.take(12),
+                "wire" to verdict.wire.name,
+                "reason" to verdict.reason,
+                "note" to verdict.note
+            )
         }
+        return null
     }
 
     private fun conciseFailure(raw: String): String {
@@ -3608,13 +3573,18 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         }
     }
 
-    private fun failBeforeTunnel(reason: String) {
+    private fun failBeforeTunnel(reason: String, loud: Boolean = true) {
         running.set(false)
         val concise = conciseFailure(reason)
         val repo = (application as MarbleApplication).repo
-        repo.setRuntimeState("DISCONNECTED", concise)
-        repo.setRuntimeMessage(concise)
-        diag.event("VPN", "startup-failed-before-tun", "reason" to concise)
+        if (loud) {
+            repo.setRuntimeState("DISCONNECTED", concise)
+            repo.setRuntimeMessage(concise)
+            diag.event("VPN", "startup-failed-before-tun", "reason" to concise)
+        } else {
+            // Same refusal, already on screen: only the teardown is repeated, never the report.
+            diag.event("VPN", "startup-failed-folded", "reason" to concise)
+        }
         runCatching { stopForeground(STOP_FOREGROUND_REMOVE) }
         stopSelf()
     }
@@ -3645,7 +3615,14 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         pinnedExitV4 = ""
         pinnedExitV6 = ""
         ipv6RouteCaptured = false
-        if (setDisconnected) repo.setRuntimeState("DISCONNECTED", "User disconnected")
+        if (setDisconnected) {
+            repo.setRuntimeState("DISCONNECTED", "User disconnected")
+            // MARBLE_CORE_CONFIG_SUPERSET_V165 — a folded config refusal must never outlive the act
+            // of pressing Stop. Someone who disconnects and taps Connect again is asking a new
+            // question, and the answer belongs in the log even when it is the same sentence: the
+            // quiet window exists to silence an automatic retry loop, not a user.
+            configBlockGuard.reset()
+        }
         repo.updateSentinel(
             repo.sentinel.copy(
                 coverage = "OFFLINE",

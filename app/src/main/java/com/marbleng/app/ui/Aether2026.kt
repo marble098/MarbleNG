@@ -9620,6 +9620,24 @@ private fun XrayCoreSettings(repo: AppRepository) {
         subtitle = "Verify the final config with Xray before connecting",
         checked = s.configCompatibilityMode
     ) { repo.updateSettings(repo.settings.copy(configCompatibilityMode = it)) }
+
+    // MARBLE_CORE_CONFIG_SUPERSET_V165 — the consent switch for a cleartext public node. The core
+    // policy patch (`scripts/inject-xray-config-superset.py`) asks the application this one question,
+    // and this is the control that answers it. Switching it off restores fail-closed behaviour
+    // exactly; leaving it on is what makes a plaintext subscription usable instead of "0/42".
+    SettingSwitch(
+        title = trx("Dial unencrypted nodes"),
+        subtitle = trx("Plaintext VLESS/Trojan nodes stay usable; switching off refuses them"),
+        checked = s.allowUnencryptedPublicOutbound
+    ) { repo.updateSettings(repo.settings.copy(allowUnencryptedPublicOutbound = it)) }
+    Text(
+        trx(
+            "Unencrypted traffic is readable by your ISP. Marble labels it on the server row " +
+                "and never rewrites your node."
+        ),
+        color = Aether.InkMuted,
+        style = settingsBodyStyle()
+    )
 }
 
 @Composable

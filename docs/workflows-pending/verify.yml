@@ -94,6 +94,14 @@ jobs:
           cp native/rankhelper/main.go "$XRAY_TMP/main/marble_rank.go"
           python3 scripts/inject-xray-realtime.py "$XRAY_TMP"
 
+          # MARBLE_CORE_CONFIG_SUPERSET_V165 — the one policy patch MarbleNG applies to its core must
+          # be proven against the pinned tag, in CI, before an APK is ever built: if upstream renames
+          # `requiresTransportSecurity` the injector fails with an anchor message instead of shipping
+          # a core that refuses every plaintext node.
+          python3 scripts/inject-xray-config-superset.py "$XRAY_TMP"
+          cp native/xraypatch/marble_outbound_policy_test.go "$XRAY_TMP/infra/conf/marble_outbound_policy_test.go"
+          grep -F 'if marbleAllowsUnencryptedOutbound() {' "$XRAY_TMP/infra/conf/xray.go" >/dev/null
+
           python3 - "$XRAY_TMP/main/main.go" <<'PYXRAY'
           from pathlib import Path
           import sys
@@ -113,6 +121,10 @@ jobs:
           (
             cd "$XRAY_TMP"
             env GOTOOLCHAIN=auto go test ./transport/internet ./main
+            # Only MarbleNG's own cases in `infra/conf`: compiling the package is the point (it
+            # proves the patch is syntactically and type-wise sound at the pinned tag), while
+            # upstream's own suite in that package is not MarbleNG's to keep green here.
+            env GOTOOLCHAIN=auto go test -run 'TestMarble' ./infra/conf
           )
 
       # ======================================================================

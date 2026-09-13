@@ -590,6 +590,24 @@ python3 "$ROOT/scripts/inject-xray-realtime.py" "$XRAY_SRC"
 grep -F 'marbleTrackSocket(fd, network, address)' "$XRAY_SRC/transport/internet/sockopt_linux.go" >/dev/null || die "Realtime Xray socket hook missing"
 grep -F 'MARBLE_REALTIME_ENGINE_V70' "$XRAY_SRC/transport/internet/marble_telemetry_linux.go" >/dev/null || die "Realtime Xray telemetry source missing"
 
+# MARBLE_CORE_CONFIG_SUPERSET_V165 — one policy deviation, and it is the one that decided whether
+# this app could use a plaintext subscription at all. Upstream Xray refuses to LOAD a
+# vless/trojan outbound that reaches a public address without TLS
+# (`infra/conf: vless without TLS or other encryption is prohibited unless the server address is a
+# private IP or domain`); MarbleNG delegates that decision to its own policy layer
+# (`core/CoreConfigSuperset.kt` + Settings → Engine → "Dial unencrypted nodes") instead of refusing
+# before the tunnel, because the alternative — rewriting the node to add TLS, or switching core
+# behind the user's back — is what `docs/core-interoperability.md` forbids.
+#
+# The hook is set for every process XrayManager starts, so the live tunnel, `xray run -test` and the
+# throwaway Rank/Turbo children all agree about which configs are loadable. A missing or half-applied
+# patch is fatal here on purpose: that is exactly how "42 nodes, 0 usable" survived a release.
+python3 "$ROOT/scripts/inject-xray-config-superset.py" "$XRAY_SRC"
+cp -f "$ROOT/native/xraypatch/marble_outbound_policy_test.go" "$XRAY_SRC/infra/conf/marble_outbound_policy_test.go"
+grep -F 'if marbleAllowsUnencryptedOutbound() {' "$XRAY_SRC/infra/conf/xray.go" >/dev/null || die "MarbleNG plaintext-outbound consent hook missing from infra/conf/xray.go"
+grep -F 'MARBLE_CORE_CONFIG_SUPERSET_V165' "$XRAY_SRC/infra/conf/marble_outbound_policy.go" >/dev/null || die "MarbleNG outbound policy source missing"
+grep -F 'TestMarblePlaintextOutboundConsentOverridesPublicAddress' "$XRAY_SRC/infra/conf/marble_outbound_policy_test.go" >/dev/null || die "MarbleNG outbound policy test missing"
+
 python3 - "$XRAY_SRC/main/main.go" <<'PYRANKMAIN'
 from pathlib import Path
 import sys
