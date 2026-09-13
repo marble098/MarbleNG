@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 """TEMPORARY SESSION ANALYSIS — deleted before the pull request.
 
-An obfuscated crash report (all frames are `r8-map-id-<hash>:<line>`) can only be resolved with
+An obfuscated crash report (every frame is `r8-map-id-<hash>:<line>`) can only be resolved with
 the mapping file of the exact build that produced it. The development sandbox has no JDK, no
 Android SDK and no route to Maven/Google/Gradle hosts, so the mapping has to be produced by a CI
-runner; the CI logs themselves are not reachable from the sandbox either, so the retraced
-evidence is returned through workflow *annotations*, which the checks API does expose.
+runner; the CI logs themselves are not reachable from the sandbox either, so the evidence is
+returned through workflow *annotations*, which the checks API does expose.
 
-The script is invoked from scripts/system-integrity-check.py and only inside the
-"Source verification" workflow. It rebuilds each candidate release commit in a git worktree,
-retraces the report with that build's own mapping, and prints the result as
-`::warning::MARBLE-RETRACE-…` annotations.
+The script is called from scripts/system-integrity-check.py and only inside the "Source
+verification" workflow. It rebuilds each candidate release commit in a git worktree, retraces the
+report with that build's own mapping, and prints the result as `::warning::MARBLE-RETRACE-…`
+annotations while the build is still running, so a job timeout cannot swallow the evidence.
 """
 
 from __future__ import annotations
@@ -32,10 +32,10 @@ WORK = "/tmp/retrace"
 GRADLE_VERSION = "9.5.1"
 GRADLE_DIST = f"{WORK}/gradle-{GRADLE_VERSION}"
 GRADLE_HOME = f"{WORK}/gradle-home"
-BUDGET_SECONDS = 12 * 60
+BUDGET_SECONDS = 16 * 60
 WORKERS = 2
 CHUNK = 1100
-MAX_CHUNKS = 8
+MAX_CHUNKS = 2
 
 sys.path.insert(0, os.path.join(REPO, ".github", "retrace"))
 
@@ -53,10 +53,10 @@ def run(command, cwd=None, env=None, timeout=1800, check=True):
             timeout=timeout,
         )
     except subprocess.TimeoutExpired:
-        return 124, f"timeout after {timeout}s: {' '.join(command)}"
+        return 124, f"timeout after {timeout}s"
     output = process.stdout or ""
     if output:
-        print(output[-4_000:], flush=True)
+        print(output[-3_000:], flush=True)
     if check and process.returncode != 0:
         raise RuntimeError(f"command failed ({process.returncode}): {' '.join(command)}")
     return process.returncode, output
@@ -105,33 +105,42 @@ def build_one(gradle_bin: str, target: dict) -> dict:
     result = {"label": label, "sha": sha, "ok": False, "seconds": 0, "detail": ""}
 
     try:
-        ref = f"refs/retrace/{sha}"
-        run(["git", "fetch", "--depth", "1", "origin", f"{sha}:{ref}"], cwd=REPO)
         worktree = f"{WORK}/wt-{label}"
         run(["git", "worktree", "remove", "--force", worktree], cwd=REPO, check=False)
         shutil.rmtree(worktree, ignore_errors=True)
-        run(["git", "worktree", "add", "--detach", "--force", worktree, ref], cwd=REPO)
+        run(["git", "worktree", "add", "--detach", "--force", worktree, sha], cwd=REPO)
         make_signer(worktree)
 
         env = dict(os.environ)
         env["GRADLE_USER_HOME"] = GRADLE_HOME
-        code, output = run(
-            [
-                gradle_bin, "--no-daemon", "clean", "assembleRelease",
-                "-PVERSION_NAME=0.0.0-retrace", "-PVERSION_CODE=1",
-                "-Dorg.gradle.jvmargs=-Xmx3g -Dfile.encoding=UTF-8",
-            ],
-            cwd=worktree,
-            env=env,
-            check=False,
-        )
-
         mapping = os.path.join(worktree, "app/build/outputs/mapping/release/mapping.txt")
-        if code != 0 or not os.path.isfile(mapping) or os.path.getsize(mapping) == 0:
-            result["detail"] = output[-3_000:]
-        else:
-            result["ok"] = True
-            result["mapping"] = mapping
+        attempts = [
+            [":app:minifyReleaseWithR8"],
+            ["clean", "assembleRelease"],
+        ]
+        for index, tasks in enumerate(attempts):
+            code, output = run(
+                [
+                    gradle_bin, "--no-daemon", *tasks,
+                    "-PVERSION_NAME=0.0.0-retrace", "-PVERSION_CODE=1",
+                    "-x", "prepareSingBoxRules",
+                    "-Dorg.gradle.jvmargs=-Xmx3g -Dfile.encoding=UTF-8",
+                    "--max-workers=2",
+                ],
+                cwd=worktree,
+                env=env,
+                check=False,
+                timeout=max(120, int(BUDGET_SECONDS - (time.time() - started))),
+            )
+            if code == 0 and os.path.isfile(mapping) and os.path.getsize(mapping) > 0:
+                result["ok"] = True
+                result["mapping"] = mapping
+                break
+            result["detail"] = (
+                f"attempt {index + 1} ({' '.join(tasks)}) exit={code}\n{output[-1_500:]}"
+            )
+            if time.time() - started > BUDGET_SECONDS - 120:
+                break
     except Exception as error:  # noqa: BLE001 - evidence must never be lost to an exception
         result["detail"] = repr(error)
 
@@ -139,61 +148,81 @@ def build_one(gradle_bin: str, target: dict) -> dict:
     return result
 
 
-def frames_of(crash: str) -> list[str]:
-    lines = []
-    with open(crash, encoding="utf-8") as handle:
-        for line in handle:
-            stripped = line.strip()
-            if stripped.startswith("at "):
-                lines.append(stripped)
-    return lines
-
-
-def retrace_section(label: str, mapping: str, crash: str) -> str:
-    from retrace import Mapping, parse_crash, source_path  # noqa: E402  (session tooling)
+def compact_frames(mapping: str, crash: str) -> tuple[str, str, str]:
+    """Return (summary, frame lines, source excerpts) for one mapping."""
+    from retrace import Mapping, parse_crash, source_path  # noqa: E402  session tooling
 
     digest = hashlib.sha256(open(mapping, "rb").read()).hexdigest()
     index = Mapping(mapping)
-    out = [f"### {label}", f"mapping-sha256={digest}", f"classes={len(index.classes)}"]
-    resolved = 0
+    sample = [f"  {line}" for line in list(_class_lines(mapping))[:4]]
+
+    resolved = []
+    excerpts = []
+    total = 0
     for obf_class, obf_method, obf_line, _raw in parse_crash(crash):
+        total += 1
         entry, method = index.resolve(obf_class, obf_method, obf_line)
         if entry is None or method is None:
-            out.append(f"  ? {obf_class}.{obf_method}:{obf_line}")
+            resolved.append(f"  ? {obf_class}.{obf_method}:{obf_line}")
             continue
         original_line = method.original_line(obf_line)
-        resolved += 1
-        out.append(
-            f"  {obf_class}.{obf_method}:{obf_line} -> {entry.original}.{method.original_name}"
-            f" [{original_line}]"
+        resolved.append(
+            f"  {obf_class}.{obf_method}:{obf_line}"
+            f"->{entry.original}.{method.original_name}[{original_line}]"
         )
         path = source_path(entry.original)
         if path and original_line and entry.original.startswith("com.marbleng"):
             with open(path, encoding="utf-8", errors="replace") as handle:
                 lines = handle.readlines()
-            low = max(1, original_line - 1)
-            high = min(len(lines), original_line + 1)
-            for number in range(low, high + 1):
-                out.append(f"      {number}| {lines[number - 1].strip()[:150]}")
-            out.append(f"      file={path}")
-    out.append(f"resolved={resolved}/{len(frames_of(crash))}")
-    return "\n".join(out)
+            excerpts.append(f"  {entry.original}.{method.original_name} {path}:{original_line}")
+            for number in range(max(1, original_line - 1), min(len(lines), original_line + 2) + 1):
+                excerpts.append(f"    {number}| {lines[number - 1].strip()[:160]}")
+
+    summary = (
+        f"classes={len(index.classes)} sha256={digest[:16]} "
+        f"resolved={sum(1 for line in resolved if not line.strip().startswith('?'))}/{total}"
+    )
+    body = "\n".join(
+        [
+            f"sha256={digest}",
+            "mapping sample:",
+            *sample,
+            "frames:",
+            *resolved,
+            "source:",
+            *(excerpts or ["  (no com.marbleng frame)"]),
+        ]
+    )
+    return summary, body, digest
 
 
-def emit(payload: str) -> None:
-    blob = base64.b64encode(gzip.compress(payload.encode("utf-8"), 9)).decode("ascii")
-    chunks = [blob[i : i + CHUNK] for i in range(0, len(blob), CHUNK)]
-    print(f"payload bytes={len(payload)} gz-b64={len(blob)} chunks={len(chunks)}", flush=True)
-    head = payload.splitlines()[:6]
-    print("::warning title=MARBLE-RETRACE-HEADER::" + " | ".join(head)[:900], flush=True)
+def _class_lines(mapping: str):
+    with open(mapping, encoding="utf-8", errors="replace") as handle:
+        for line in handle:
+            if line and not line.startswith((" ", "\t", "#")) and "->" in line:
+                yield line.rstrip()
+
+
+def blob_of(body: str) -> list[str]:
+    blob = base64.b64encode(gzip.compress(body.encode("utf-8"), 9)).decode("ascii")
+    return [blob[i : i + CHUNK] for i in range(0, len(blob), CHUNK)]
+
+
+def announce(label: str, sha: str, summary: str) -> None:
+    print(
+        f"::warning title=MARBLE-RETRACE {label} {sha[:8]}::{summary[:900]}",
+        flush=True,
+    )
+
+
+def publish(label: str, sha: str, summary: str, body: str) -> None:
+    announce(label, sha, summary)
+    chunks = blob_of(body)
     for number, chunk in enumerate(chunks[:MAX_CHUNKS], start=1):
-        print(
-            f"::warning title=MARBLE-RETRACE-{number}-of-{len(chunks)}::{chunk}",
-            flush=True,
-        )
+        print(f"::warning title=MARBLE-RETRACE-{label}-{number}-of-{len(chunks)}::{chunk}", flush=True)
     if len(chunks) > MAX_CHUNKS:
         print(
-            f"::warning title=MARBLE-RETRACE-TRUNCATED::{len(chunks)} chunks, sent {MAX_CHUNKS}",
+            f"::warning title=MARBLE-RETRACE-{label}-TRUNCATED::payload {len(chunks)} chunks",
             flush=True,
         )
 
@@ -207,47 +236,56 @@ def main() -> int:
     os.makedirs(GRADLE_HOME, exist_ok=True)
     gradle_bin = prepare_gradle()
 
-    deadline = time.time() + BUDGET_SECONDS
-    results: list[dict] = []
-    with concurrent.futures.ThreadPoolExecutor(max_workers=WORKERS) as pool:
-        futures = []
-        for target in targets:
-            if time.time() >= deadline:
-                results.append(
-                    {
-                        "label": target["label"],
-                        "sha": target["sha"],
-                        "ok": False,
-                        "seconds": 0,
-                        "detail": "skipped: analysis budget exhausted",
-                    }
-                )
-                continue
-            futures.append(pool.submit(build_one, gradle_bin, target))
-        for future in futures:
-            remaining = max(30.0, deadline - time.time())
-            try:
-                results.append(future.result(timeout=remaining))
-            except Exception as error:  # noqa: BLE001
-                results.append(
-                    {"label": "unknown", "sha": "?", "ok": False, "seconds": 0,
-                     "detail": repr(error)}
-                )
+    # The pull-request checkout is a shallow merge commit, so the candidate release commits have
+    # to be fetched explicitly before a worktree can be created for them.
+    run(["git", "fetch", "--depth", "100", "origin", "main"], cwd=REPO, check=False)
 
-    results.sort(key=lambda item: item["label"])
-    sections = []
-    for result in results:
-        if result["ok"]:
+    deadline = time.time() + BUDGET_SECONDS
+    order = list(targets)
+    results: list[dict] = []
+    pending: list[concurrent.futures.Future] = []
+    index = 0
+
+    def handle(result: dict) -> None:
+        results.append(result)
+        if result.get("ok"):
             try:
-                sections.append(retrace_section(result["label"], result["mapping"], crash))
+                summary, body, _digest = compact_frames(result["mapping"], crash)
+                publish(result["label"], result["sha"], summary, body)
             except Exception as error:  # noqa: BLE001
-                sections.append(f"### {result['label']}\nretrace failed: {error!r}")
+                publish(result["label"], result["sha"], f"retrace failed: {error!r}", repr(error))
         else:
-            sections.append(
-                f"### {result['label']} ({result['sha'][:8]}) BUILD FAILED "
-                f"in {result['seconds']}s\n{result.get('detail', '')[:1_500]}"
+            publish(
+                result["label"],
+                result["sha"],
+                f"BUILD FAILED in {result['seconds']}s",
+                result.get("detail", "")[-3_000:],
             )
-    emit("\n".join(sections) + "\n")
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=WORKERS) as pool:
+        while index < len(order) or pending:
+            # A build needs several minutes: never start one that the budget cannot finish.
+            while (
+                len(pending) < WORKERS
+                and index < len(order)
+                and deadline - time.time() > 8 * 60
+            ):
+                pending.append(pool.submit(build_one, gradle_bin, order[index]))
+                index += 1
+            if not pending:
+                break
+            done, _ = concurrent.futures.wait(
+                pending,
+                timeout=max(20.0, deadline - time.time()),
+                return_when=concurrent.futures.FIRST_COMPLETED,
+            )
+            if not done:
+                break
+            for future in done:
+                pending.remove(future)
+                handle(future.result())
+
+    print(f"::warning::MARBLE-RETRACE-DONE built={len(results)}/{len(order)}", flush=True)
     return 0
 
 

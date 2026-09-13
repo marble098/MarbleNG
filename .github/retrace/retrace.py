@@ -64,7 +64,22 @@ class ClassEntry:
 class Mapping:
     def __init__(self, path: str) -> None:
         self.classes: dict[str, ClassEntry] = {}
+        # R8 may repackage classes (AGP passes -repackageclasses for optimizing builds), in which
+        # case `a.b.C -> ko0` is written in the mapping while the device frames carry `ko0`. The
+        # simple-name index keeps that form resolvable; a frame can also carry the repackaged
+        # `a.b.ko0` form, so both directions are supported.
+        self.simple: dict[str, list[ClassEntry]] = {}
         self._parse(path)
+
+    def find(self, obf_class: str) -> ClassEntry | None:
+        entry = self.classes.get(obf_class)
+        if entry is not None:
+            return entry
+        simple = obf_class.replace("/", ".").split(".")[-1]
+        candidates = self.simple.get(simple)
+        if not candidates:
+            return None
+        return candidates[0] if len(candidates) == 1 else None
 
     def _parse(self, path: str) -> None:
         current: ClassEntry | None = None
@@ -80,6 +95,8 @@ class Mapping:
                         original, obf = match.group(1), match.group(2)
                         entry = ClassEntry(original=original)
                         self.classes[obf] = entry
+                        simple = obf.replace("/", ".").split(".")[-1]
+                        self.simple.setdefault(simple, []).append(entry)
                         current = entry
                     else:
                         current = None
@@ -122,7 +139,7 @@ class Mapping:
                         current.fields.append((obf_name, left))
 
     def resolve(self, obf_class: str, obf_method: str, obf_line: int | None):
-        entry = self.classes.get(obf_class)
+        entry = self.find(obf_class)
         if entry is None:
             return None, None
         candidates = [m for m in entry.methods if m.obf_name == obf_method]
