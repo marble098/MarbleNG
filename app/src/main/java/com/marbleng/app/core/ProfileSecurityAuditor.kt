@@ -1,5 +1,6 @@
 package com.marbleng.app.core
 
+import com.marbleng.app.model.AppSettings
 import com.marbleng.app.model.ProxyProfile
 
 /**
@@ -331,10 +332,31 @@ object ProfileSecurityAuditor {
      *  - legacy VMess (alterId > 0) is already flagged deprecated by [assess].
      *
      */
-    fun rankEligibility(profile: ProxyProfile): Eligibility {
+    fun rankEligibility(
+        profile: ProxyProfile,
+        settings: AppSettings = AppSettings()
+    ): Eligibility {
         val scheme = profile.scheme.lowercase()
         val security = effectiveSecurity(profile)
         val assessment = assess(profile)
+        // MARBLE_CORE_CONFIG_SUPERSET_V165 — the rank pool used to apply its own copy of "VLESS
+        // without TLS is deprecated", which hid every node of a plaintext subscription from Smart
+        // Rank *on top of* the connect path refusing them: 42 profiles, 0 rankable, no sentence
+        // anywhere saying why. There is now one authority for both questions:
+        //
+        //  · a shape the selected core cannot load at all stays out (the probe would only burn its
+        //    timeout on a config the core rejects before it starts);
+        //  · a cleartext node the user has consented to is ACTIVE — it dials, so it can be measured,
+        //    and hiding it from ranking is what "no fast node found" really meant;
+        //  · a cleartext node the user has *not* consented to is DEPRECATED with the refusal as its
+        //    reason, so the Servers row explains it instead of showing a stale delay.
+        val engine = settings.coreEngine()
+        CoreConfigSuperset.coreGapIssue(profile, engine)?.let {
+            return Eligibility(RankEligibility.DEPRECATED, "core-gap")
+        }
+        val verdict = CoreConfigSuperset.verdict(profile, engine, settings)
+        if (!verdict.runnable) return Eligibility(RankEligibility.DEPRECATED, verdict.reason)
+        if (verdict.note.isNotEmpty()) return Eligibility(RankEligibility.ACTIVE, "unencrypted-outbound")
         return when {
             scheme == "vless" && security !in setOf("tls", "reality") ->
                 Eligibility(RankEligibility.DEPRECATED, "vless-without-tls-reality")
@@ -352,12 +374,13 @@ object ProfileSecurityAuditor {
      * censorship-unsafe node can never fail a benchmark (MARBLE_SMART_RANK_V90).
      */
     fun partitionForRank(
-        profiles: List<ProxyProfile>
+        profiles: List<ProxyProfile>,
+        settings: AppSettings = AppSettings()
     ): Pair<List<ProxyProfile>, List<Pair<ProxyProfile, String>>> {
         val active = mutableListOf<ProxyProfile>()
         val deprecated = mutableListOf<Pair<ProxyProfile, String>>()
         profiles.forEach { profile ->
-            val eligibility = rankEligibility(profile)
+            val eligibility = rankEligibility(profile, settings)
             if (eligibility.active) active += profile
             else deprecated += profile to eligibility.reason
         }

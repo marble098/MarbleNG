@@ -405,6 +405,9 @@ class AppStore(context: Context) {
 
         intelligenceEnabled = true,
         configCompatibilityMode = prefs.getBoolean("configCompatibilityMode", true),
+        // MARBLE_CORE_CONFIG_SUPERSET_V165 — on by default: the product's own core carries the
+        // matching policy patch, and refusing a whole subscription is not a safety feature.
+        allowUnencryptedPublicOutbound = prefs.getBoolean("allowUnencryptedPublicOutbound", true),
         verifiedPerformanceTuning = prefs.getBoolean("verifiedPerformanceTuning", true),
         connectTuningEnabled = prefs.getBoolean("connectTuningEnabled", false),
         connectTuningBudgetSec = prefs.getInt("connectTuningBudgetSec", 5).coerceIn(0, 20),
@@ -619,6 +622,7 @@ class AppStore(context: Context) {
 
         .putBoolean("intelligenceEnabled", s.intelligenceEnabled)
         .putBoolean("configCompatibilityMode", s.configCompatibilityMode)
+        .putBoolean("allowUnencryptedPublicOutbound", s.allowUnencryptedPublicOutbound)
         .putBoolean("verifiedPerformanceTuning", s.verifiedPerformanceTuning)
         .putBoolean("connectTuningEnabled", s.connectTuningEnabled)
         .putInt("connectTuningBudgetSec", s.connectTuningBudgetSec.coerceIn(0, 20))

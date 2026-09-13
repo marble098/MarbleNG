@@ -996,6 +996,22 @@ data class AppSettings(
     val configCompatibilityMode: Boolean = true,
     val verifiedPerformanceTuning: Boolean = true,
 
+    /**
+     * MARBLE_CORE_CONFIG_SUPERSET_V165 — dial a node whose payload reaches the public Internet
+     * without TLS/REALITY (`vless://…&security=none`) instead of refusing it before the tunnel.
+     *
+     * The pinned Xray core refuses such an outbound at config load (`vless without TLS or other
+     * encryption is prohibited unless the server address is a private IP or domain`), so MarbleNG
+     * ships its core with the matching policy patch (`scripts/inject-xray-config-superset.py`) and
+     * this setting is the consent the patch delegates to. It defaults to on because a subscription
+     * of 42 such nodes is not 42 broken nodes: refusing them produced a client that could not
+     * connect *at all*, while every other client on the market dials them.
+     *
+     * Turning it off restores the exact fail-closed behaviour, and both paths say what the wire
+     * looks like: a plaintext session is labelled on Home, on the Servers row and in Bug Finder.
+     */
+    val allowUnencryptedPublicOutbound: Boolean = true,
+
     // Marble Turbo. On connect, the engine executes real transport methods against the selected
     // node (fragmentation shapes, Mux reuse, endpoint address family), measures ping and speed for
     // each, and keeps the winner. The exit node never changes, so this stays Identity-Guard safe.

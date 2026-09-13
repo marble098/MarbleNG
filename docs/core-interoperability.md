@@ -4,6 +4,13 @@ Reviewed against `shtorm-7/sing-box-extended v1.14.0-extended-2.7.1` and
 `XTLS/Xray-core v26.7.28` on 2026-09-07. Extended's newest release is already the
 version in `core-lock.json`; incrementing a version number would not fix these integration errors.
 
+Updated 2026-09-12 for **MARBLE_CORE_CONFIG_SUPERSET_V165**: the app-level veto that refused
+`vless … security=none` is gone, the question it was imitating is answered in one place
+(`core/CoreConfigSuperset.kt`) for both engines, share links are read by one alias-aware reader that
+keeps the transport fields the pinned core implements, and the one policy function Xray consults for
+a cleartext public outbound is delegated to the app by `scripts/inject-xray-config-superset.py`.
+See `docs/CORE_CONFIG_SUPERSET_V165.md`.
+
 Updated 2026-09-08 for **MARBLE_SINGBOX_ANDROID_CLI_CRASH_V157**: the Android core is no longer a
 downloaded release artifact. `core-lock.json` pins a source `commit` and a local `patch` level, and
 `scripts/prepare-native.sh` compiles every ABI from that commit with
@@ -61,8 +68,11 @@ The Xray hardener invokes it for connect, temporary tests and integrated rank.
 - Xray full-certificate pins cannot be relabelled as sing-box SPKI pins or dropped.
 - Xray Mux.Cool is not smux/h2mux/yamux. Optional imported Xray mux is disabled with a note;
   it is never replaced by an incompatible server protocol.
-- Xray gRPC multi-mode, legacy encrypted QUIC camouflage, freedom fragment/noise detours,
-  unsupported ECH/verification options, SIP003 plugins and unknown wire fields are not guessed.
+- Legacy encrypted QUIC camouflage, freedom fragment/noise detours, unsupported ECH/verification
+  options, SIP003 plugins and unknown wire fields are not guessed. Xray gRPC multi-mode **is**
+  translated when the link states it (`MARBLE_CORE_CONFIG_SUPERSET_V165`): a share link spells the
+  switch `mode=multi`, the core spells it `multiMode`, and carrying one into the other is reading a
+  field, not inventing one.
 - Core-exclusive native endpoints, selectors, TLS policies or protocols without an exact Xray
   implementation report `config-unsupported`, with the field path, when Xray is selected.
 - REALITY authentication is preserved, but Xray's `spiderX` crawling has no implementation in
@@ -73,6 +83,29 @@ The Xray hardener invokes it for connect, temporary tests and integrated rank.
 
 These are actionable compatibility errors. Silently producing a JSON document that passes a
 shape test while changing authentication or transport would be worse than rejecting it.
+
+**Two corollaries of that sentence, both from `MARBLE_CORE_CONFIG_SUPERSET_V165`.** (1) A rule the
+core itself no longer applies may not survive as a copy in the app. Xray refuses to *load* a
+`vless`/`trojan` outbound that reaches a public address without TLS; MarbleNG's build delegates that
+one decision to the application (`MARBLE_ALLOW_UNENCRYPTED_PUBLIC_OUTBOUND`, set by
+`XrayManager.createProcessBuilder`, answered by `CoreConfigSuperset.verdict` + the Settings → Engine
+consent switch), so the preflight, the rank pool and the auditor all ask the *same* question and
+never re-implement the matcher — `CorePrivateEndpoint` transcribes the core's private IP/domain lists
+instead of shortening them. The refusal text users and translations already knew is kept verbatim for
+the case where consent is off. (2) Repairing what a document already says is not a translation.
+`core/XrayConfigRepairs.kt`, applied at the head of `harden`, `hardenForDelayTest` and every
+`composeChain` hop, moves `proxySettings{tag}` onto `streamSettings.sockopt.dialerProxy`, defaults an
+absent VLESS `encryption` to `none`, mirrors a single-member `vnext[0]` into the simplified form the
+core reads first (keeping `vnext`), lifts a one-member trojan `servers[]` password, names a `security`
+the document only implied with a `tlsSettings`/`realitySettings` block, and un-quotes numeric
+`port`/`alterId`/`level`. It never adds transport security, never renames a protocol, never drops a
+field it does not understand, and returns the original bytes untouched when nothing applies.
+
+Where a shape is genuinely outside the *selected* core — `h2`/`h3`/`http`/`quic` transports, which the
+pinned Xray removed outright, and mKCP header camouflage, which it parses and then ignores — the node
+is refused before the tunnel with the reason that names the other engine. That is the only permitted way
+for a "not supported" message to exist in this product: a fact about the core, plus the switch the user
+can actually make.
 
 ## Measurement truth and resource ownership
 
@@ -124,6 +157,12 @@ git clone https://github.com/shtorm-7/sing-box-extended && cd sing-box-extended
 git checkout "$(jq -r '.singbox.commit' /path/to/core-lock.json)"
 python3 /path/to/scripts/inject-singbox-android-fix.py .   # idempotent; exits 1 on anchor drift
 CGO_ENABLED=0 go test ./protocol/direct ./route            # the injected nil-monitor regressions
+
+git clone https://github.com/XTLS/Xray-core && cd Xray-core
+git checkout "$(jq -r '.xray.tag' /path/to/core-lock.json)"
+python3 /path/to/scripts/inject-xray-config-superset.py .   # idempotent; exits 1 on anchor drift
+cp /path/to/native/xraypatch/marble_outbound_policy_test.go infra/conf/
+env GOTOOLCHAIN=auto go test -run 'TestMarble' ./infra/conf  # consent parse + the public/private answers
 ```
 
 `scripts/prepare-native.sh` runs both before it builds any ABI, and `.github/workflows/verify.yml`

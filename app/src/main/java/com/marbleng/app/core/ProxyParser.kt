@@ -28,6 +28,53 @@ object ProxyParser {
     )
     private val infraProtocols = setOf("freedom", "blackhole", "dns", "loopback")
 
+    /**
+     * MARBLE_CORE_CONFIG_SUPERSET_V165 — share-link parameter → `xhttpSettings` field, using the
+     * names the pinned core's `SplitHTTPConfig` declares. Every value is copied verbatim: the core
+     * accepts a range as a string (`"100-200"`) exactly as it accepts a number, so no parsing here
+     * can turn a valid link into an invalid config.
+     */
+    private val XHTTP_LINK_FIELDS = mapOf(
+        "xpaddingbytes" to "xPaddingBytes",
+        "xpaddingkey" to "xPaddingKey",
+        "xpaddingheader" to "xPaddingHeader",
+        "xpaddingplacement" to "xPaddingPlacement",
+        "xpaddingmethod" to "xPaddingMethod",
+        "uplinkhttpmethod" to "uplinkHTTPMethod",
+        "sessionidplacement" to "sessionIDPlacement",
+        "sessionidkey" to "sessionIDKey",
+        "sessionidtable" to "sessionIDTable",
+        "sessionidlength" to "sessionIDLength",
+        "seqplacement" to "seqPlacement",
+        "seqkey" to "seqKey",
+        "uplinkdataplacement" to "uplinkDataPlacement",
+        "uplinkdatakey" to "uplinkDataKey",
+        "uplinkchunksize" to "uplinkChunkSize",
+        "scmaxeachpostbytes" to "scMaxEachPostBytes",
+        "scminpostsintervalms" to "scMinPostsIntervalMs",
+        "scstreamupserversecs" to "scStreamUpServerSecs"
+    )
+
+    /**
+     * The two xhttp fields the core types as plain integers rather than as `Int32Range`
+     * (`ScMaxBufferedPosts int64`, `ServerMaxHeaderBytes int32`). `Int32Range.UnmarshalJSON` accepts
+     * a string, so everything in [XHTTP_LINK_FIELDS] can be copied verbatim — including a `"100-200"`
+     * range, which is the whole point of that type — but a *quoted* integer in one of these two is a
+     * fatal `json: cannot unmarshal string into Go value of type int64`. They are written as numbers,
+     * or not at all.
+     */
+    private val XHTTP_LINK_NUMBERS = mapOf(
+        "scmaxbufferedposts" to "scMaxBufferedPosts",
+        "servermaxheaderbytes" to "serverMaxHeaderBytes"
+    )
+
+    /** The boolean half of the same table. */
+    private val XHTTP_LINK_FLAGS = mapOf(
+        "xpaddingobfsmode" to "xPaddingObfsMode",
+        "nogrpcheader" to "noGRPCHeader",
+        "nossheader" to "noSSEHeader"
+    )
+
     fun parseInput(input: String, subId: String = "manual", subName: String = "Manual"): List<ProxyProfile> {
         val text = decodeSubscription(input.trim())
         val trimmed = text.trimStart()
@@ -230,14 +277,25 @@ object ProxyParser {
         )
     }
 
-    private fun q(uri: Uri, key: String, default: String = "") = uri.getQueryParameter(key) ?: default
-    private fun qa(uri: Uri, vararg keys: String, default: String = ""): String {
-        for (key in keys) uri.getQueryParameter(key)?.takeIf { it.isNotBlank() }?.let { return it }
-        return default
+    /**
+     * MARBLE_CORE_CONFIG_SUPERSET_V165 — every parameter read in this file goes through
+     * [ShareLinkParams]: case-insensitive keys, declared aliases, `%XX` decoding that keeps UTF-8
+     * node names intact, and a fallback that finds the parameters when a link writes its name
+     * before them (`vless://id@host:443#Germany 1?type=xhttp`). `Uri.getQueryParameter` matched one
+     * exact spelling, and a panel that writes `Security=reality` used to import as plaintext.
+     */
+    private fun params(uri: Uri): ShareLinkParams {
+        val query = ShareLinkParams.of(uri.encodedQuery)
+        return if (query.keys().isEmpty()) ShareLinkParams.ofRawLink(uri.toString()) else query
     }
 
+    private fun q(uri: Uri, key: String, default: String = ""): String = params(uri).get(key, default)
+    private fun qa(uri: Uri, vararg keys: String, default: String = ""): String =
+        params(uri).first(*keys, default = default)
+
     private fun stream(uri: Uri, host: String): JSONObject {
-        val requested = q(uri, "type", "tcp").lowercase()
+        val p = params(uri)
+        val requested = p.first("type", "network", "net", default = "tcp").lowercase()
         val method = when (requested) {
             "tcp", "raw" -> "raw"
             "ws", "websocket" -> "websocket"
@@ -246,8 +304,9 @@ object ProxyParser {
             else -> requested
         }
         val stream = JSONObject()
-        val path = q(uri, "path", "/")
-        val headerHost = q(uri, "host")
+        val path = p.get("path", "/")
+        val headerHost = p.get("host")
+        val headerMap = p.get("headers").takeIf { it.trimStart().startsWith("{") }
 
         if (requested in setOf("http", "h2")) {
             stream.put("network", "http")
@@ -261,42 +320,76 @@ object ProxyParser {
             when (method) {
                 "xhttp" -> stream.put("xhttpSettings", JSONObject().put("path", path).apply {
                     if (headerHost.isNotBlank()) put("host", headerHost)
-                    q(uri, "mode").takeIf { it.isNotBlank() }?.let { put("mode", it) }
-                    q(uri, "extra").takeIf { it.trimStart().startsWith("{") }?.let { extra ->
+                    p.get("mode").takeIf { it.isNotBlank() }?.let { put("mode", it) }
+                    headerMapOf(headerMap)?.let { put("headers", it) }
+                    p.get("extra").takeIf { it.trimStart().startsWith("{") }?.let { extra ->
                         runCatching { put("extra", JSONObject(extra)) }
                     }
+                    writeXhttpTuning(p, this)
                 })
                 "websocket" -> stream.put("wsSettings", JSONObject().put("path", path).apply {
                     if (headerHost.isNotBlank()) put("host", headerHost)
+                    p.get("heartbeatPeriod").toLongOrNull()?.takeIf { it > 0 }
+                        ?.let { put("heartbeatPeriod", it) }
+                    headerMapOf(headerMap)?.let { put("headers", it) }
                 })
                 "httpupgrade" -> stream.put("httpupgradeSettings", JSONObject().put("path", path).apply {
                     if (headerHost.isNotBlank()) put("host", headerHost)
+                    headerMapOf(headerMap)?.let { put("headers", it) }
                 })
                 "grpc" -> stream.put("grpcSettings", JSONObject().apply {
-                    qa(uri, "serviceName", "service", default = q(uri, "path")).trimStart('/')
+                    p.first("serviceName", "service", default = path).trimStart('/')
                         .takeIf { it.isNotBlank() }?.let { put("serviceName", it) }
-                    q(uri, "authority").takeIf { it.isNotBlank() }?.let { put("authority", it) }
+                    p.get("authority").takeIf { it.isNotBlank() }?.let { put("authority", it) }
+                    p.get("user_agent").takeIf { it.isNotBlank() }?.let { put("user_agent", it) }
+                    // A gRPC link spells the streaming mode `mode=multi`; the core spells the same
+                    // switch `multiMode`. Without it every gRPC node ran in one-stream mode, which
+                    // is the mode Xray itself deprecates, and the link's own claim was dropped.
+                    if (p.isTruthy("multiMode") || p.get("mode").equals("multi", ignoreCase = true)) {
+                        put("multiMode", true)
+                    }
+                    p.get("idle_timeout").toLongOrNull()?.let { put("idle_timeout", it) }
+                    p.get("health_check_timeout").toLongOrNull()?.let { put("health_check_timeout", it) }
+                    p.get("initial_windows_size").toLongOrNull()?.let { put("initial_windows_size", it) }
+                    if (p.isTruthy("permit_without_stream")) put("permit_without_stream", true)
                 })
                 "raw" -> stream.put("rawSettings", JSONObject().put(
-                    "header", JSONObject().put("type", q(uri, "headerType", "none"))
+                    "header", JSONObject().put("type", p.first("headerType", "header", default = "none"))
                 ))
-                "mkcp" -> stream.put("kcpSettings", JSONObject())
+                "mkcp" -> stream.put("kcpSettings", JSONObject().apply {
+                    // `mtu`/`tti`/capacity are the fields this core reads; its `header` and `seed`
+                    // fields are parsed and then ignored, which is why a camouflaged mkcp node is
+                    // reported as a core gap instead of being emitted with camouflage silently off.
+                    p.get("mtu").toLongOrNull()?.takeIf { it >= 21 }?.let { put("mtu", it) }
+                    p.get("tti").toLongOrNull()?.takeIf { it in 10..1000 }?.let { put("tti", it) }
+                    p.get("uplinkCapacity").toLongOrNull()?.takeIf { it >= 0 }?.let { put("uplinkCapacity", it) }
+                    p.get("downlinkCapacity").toLongOrNull()?.takeIf { it >= 0 }?.let { put("downlinkCapacity", it) }
+                })
             }
         }
 
-        var security = q(uri, "security", "none").lowercase()
-        if (security == "xtls") security = "tls"
+        var security = p.first("security", "sec", default = "none").lowercase()
+        if (security == "xtls" || security == "1" || security == "true") security = "tls"
+        if (security.isEmpty() || security == "none") {
+            // A REALITY public key exists for exactly one reason. Naming the security a link already
+            // proves is not a guess about the server: `pbk` is only ever written by REALITY links, and
+            // importing such a node as plaintext is what produced "Unsupported VLESS" for servers that
+            // do speak TLS.
+            if (p.first("pbk", "publicKey", "realityPublicKey").isNotBlank()) security = "reality"
+        }
         stream.put("security", security)
-        val serverName = qa(uri, "sni", "serverName", default = host)
-        val fingerprint = qa(uri, "fp", "fingerprint", default = "chrome")
+        val serverName = p.first("sni", "serverName", "peer", default = host)
+        val fingerprint = p.first("fp", "fingerprint", default = "chrome")
 
         if (security == "tls") stream.put("tlsSettings", JSONObject()
             .put("serverName", serverName).put("fingerprint", fingerprint).apply {
-                q(uri, "alpn").takeIf { it.isNotBlank() }?.let { put("alpn", JSONArray(it.split(','))) }
+                p.get("alpn").takeIf { it.isNotBlank() }?.let { put("alpn", JSONArray(it.split(','))) }
                 // PattNG share-link extension: `cs` carries Xray's colon-separated cipherSuites.
-                qa(uri, "cs", "cipherSuites").takeIf { it.isNotBlank() }
+                p.first("cs", "cipherSuites").takeIf { it.isNotBlank() }
                     ?.let { put("cipherSuites", it) }
-                q(uri, "echConfigList").takeIf { it.isNotBlank() }?.let { put("echConfigList", it) }
+                p.first("echConfigList", "ech").takeIf { it.isNotBlank() }?.let { put("echConfigList", it) }
+                p.get("minVersion").takeIf { it.isNotBlank() }?.let { put("minVersion", it) }
+                p.get("maxVersion").takeIf { it.isNotBlank() }?.let { put("maxVersion", it) }
                 // MARBLE_TLS_PINNING_V149 — the two peer-verification options are first-class
                 // Xray fields and MUST reach `tlsSettings`, in Xray's own formats:
                 //   `vcn` → verifyPeerCertByName (comma-separated names)
@@ -319,16 +412,59 @@ object ProxyParser {
 
         if (security == "reality") stream.put("realitySettings", JSONObject()
             .put("serverName", serverName).put("fingerprint", fingerprint)
-            .put("password", qa(uri, "pbk", "publicKey", "password"))
-            .put("shortId", qa(uri, "sid", "shortId")).apply {
-                qa(uri, "spx", "spiderX").takeIf { it.isNotBlank() }?.let { put("spiderX", it) }
-                qa(uri, "pqv", "mldsa65Verify").takeIf { it.isNotBlank() }?.let { put("mldsa65Verify", it) }
+            .put("password", p.first("pbk", "publicKey", "password"))
+            .put("shortId", p.first("sid", "shortId")).apply {
+                p.first("spx", "spiderX").takeIf { it.isNotBlank() }?.let { put("spiderX", it) }
+                p.first("pqv", "mldsa65Verify").takeIf { it.isNotBlank() }?.let { put("mldsa65Verify", it) }
             })
 
-        q(uri, "fm").takeIf { it.trimStart().startsWith("{") }?.let { fm ->
+        p.first("fm", "finalmask").takeIf { it.trimStart().startsWith("{") }?.let { fm ->
             runCatching { stream.put("finalmask", JSONObject(fm)) }
         }
         return stream
+    }
+
+    /**
+     * XHTTP is the transport every new panel ships, and the core models a long list of knobs for it
+     * — padding, session-id placement, stream-up intervals, xmux. A link that carries them used to
+     * have them dropped on the floor, so the node connected with the server's defaults and the
+     * operator's own obfuscation settings were silently off. Only keys the link actually states are
+     * written, with the core's own field names.
+     */
+    private fun writeXhttpTuning(p: ShareLinkParams, target: JSONObject) {
+        XHTTP_LINK_FIELDS.forEach { (linkKey, configKey) ->
+            p.get(linkKey).takeIf { it.isNotBlank() }?.let { target.put(configKey, it) }
+        }
+        XHTTP_LINK_NUMBERS.forEach { (linkKey, configKey) ->
+            p.get(linkKey).toLongOrNull()?.let { target.put(configKey, it) }
+        }
+        XHTTP_LINK_FLAGS.forEach { (linkKey, configKey) ->
+            if (p.isTruthy(linkKey)) target.put(configKey, true)
+        }
+        p.get("xmux").takeIf { it.trimStart().startsWith("{") }?.let { raw ->
+            runCatching { target.put("xmux", JSONObject(raw)) }
+        }
+    }
+
+    /**
+     * `headers` on a share link is a JSON object, and the core types it as `map[string]string`. A
+     * value that is not a scalar (an array of header values, a nested object) would turn the whole
+     * config into a load error, so each entry is flattened to its string form and a non-scalar is
+     * dropped rather than guessed at — the key is a header name, and header names are what the
+     * `host` field already carries for the common case.
+     */
+    private fun headerMapOf(raw: String?): JSONObject? {
+        val text = raw?.trim()?.takeIf { it.startsWith("{") } ?: return null
+        val parsed = runCatching { JSONObject(text) }.getOrNull() ?: return null
+        val out = JSONObject()
+        parsed.keys().forEach { key ->
+            when (val value = parsed.opt(key)) {
+                is String -> out.put(key, value)
+                is Number, is Boolean -> out.put(key, value.toString())
+                else -> Unit
+            }
+        }
+        return out.takeIf { it.length() > 0 }
     }
 
     private fun base(outbound: JSONObject) = JSONObject()
@@ -339,10 +475,37 @@ object ProxyParser {
 
     private fun parseVless(raw: String, sid: String, sname: String): ProxyProfile {
         val u = Uri.parse(raw); val host = u.host ?: error("host"); val port = u.port.takeIf { it > 0 } ?: error("port")
+        val p = params(u)
+        val stream = stream(u, host)
         val out = JSONObject().put("tag", "proxy").put("protocol", "vless").put("settings", JSONObject()
-            .put("address", host).put("port", port).put("id", dec(u.userInfo)).put("encryption", q(u, "encryption", "none"))
-            .apply { q(u, "flow").takeIf { it.isNotBlank() }?.let { put("flow", it) } }).put("streamSettings", stream(u, host))
-        return prof(raw, u.fragment ?: "VLESS $host", "vless", host, port, q(u, "type", "tcp"), q(u, "security", "none"), base(out), sid, sname)
+            .put("address", host).put("port", port).put("id", dec(u.userInfo)).put("encryption", vlessEncryption(p))
+            .apply { p.first("flow").takeIf { it.isNotBlank() }?.let { put("flow", it) } }).put("streamSettings", stream)
+        // `security` is taken from the document that was just emitted, never re-read from the link,
+        // so the profile's label and the core's config can no longer disagree about what protects
+        // this node — the disagreement that made a REALITY node look like plaintext.
+        return prof(
+            raw, u.fragment ?: "VLESS $host", "vless", host, port,
+            p.first("type", "network", "net", default = "tcp"),
+            stream.optString("security", "none"), base(out), sid, sname
+        )
+    }
+
+    /**
+     * VLESS payload encryption as the pinned core understands it: `none`, or a
+     * `mlkem768x25519plus.*` post-quantum string. Anything else is a fatal
+     * `VLESS users: unsupported encryption` load error.
+     *
+     * `auto`/`aes-128-gcm`/`chacha20-poly1305` are VMess vocabulary that panels keep copying into
+     * VLESS links. On VLESS those words can only mean "the account carries no payload cipher", which
+     * is `none`; reading them any other way kills a node that connects everywhere else. The
+     * post-quantum form is passed through **un-lowercased**, because its tail is key material.
+     */
+    private fun vlessEncryption(p: ShareLinkParams): String {
+        val raw = p.first("encryption", "enc", default = "none").trim()
+        return when (raw.lowercase()) {
+            "", "none", "auto", "aes-128-gcm", "chacha20-poly1305", "zero", "plain", "none/none" -> "none"
+            else -> raw
+        }
     }
 
     private fun parseVmess(raw: String, sid: String, sname: String): ProxyProfile {
@@ -360,10 +523,15 @@ object ProxyParser {
             return prof(raw, o.optString("ps", "VMess $host"), "vmess", host, port, net, sec, base(out), sid, sname)
         }
         val u = Uri.parse(raw); val host = u.host ?: error("host"); val port = u.port.takeIf { it > 0 } ?: error("port")
+        val stream = stream(u, host)
         val out = JSONObject().put("tag", "proxy").put("protocol", "vmess").put("settings", JSONObject()
             .put("address", host).put("port", port).put("id", dec(u.userInfo)).put("security", q(u, "encryption", "auto")))
-            .put("streamSettings", stream(u, host))
-        return prof(raw, u.fragment ?: "VMess $host", "vmess", host, port, q(u, "type", "tcp"), q(u, "security", "none"), base(out), sid, sname)
+            .put("streamSettings", stream)
+        return prof(
+            raw, u.fragment ?: "VMess $host", "vmess", host, port,
+            params(u).first("type", "network", "net", default = "tcp"),
+            stream.optString("security", "none"), base(out), sid, sname
+        )
     }
 
     private fun parseTrojan(raw: String, sid: String, sname: String): ProxyProfile {
@@ -375,10 +543,15 @@ object ProxyParser {
         } else {
             u
         }
+        val stream = stream(rebuilt, host)
         val out = JSONObject().put("tag", "proxy").put("protocol", "trojan")
             .put("settings", JSONObject().put("address", host).put("port", port).put("password", dec(u.userInfo)))
-            .put("streamSettings", stream(rebuilt, host))
-        return prof(raw, u.fragment ?: "Trojan $host", "trojan", host, port, q(u, "type", "tcp"), q(rebuilt, "security", "tls"), base(out), sid, sname)
+            .put("streamSettings", stream)
+        return prof(
+            raw, u.fragment ?: "Trojan $host", "trojan", host, port,
+            params(u).first("type", "network", "net", default = "tcp"),
+            stream.optString("security", "tls"), base(out), sid, sname
+        )
     }
 
     private fun parseSs(raw: String, sid: String, sname: String): ProxyProfile {

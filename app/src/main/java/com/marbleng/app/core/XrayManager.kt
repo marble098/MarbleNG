@@ -707,6 +707,22 @@ class XrayManager(private val context: Context) {
         return ProcessBuilder(command).apply {
             redirectErrorStream(true)
             environment()["XRAY_LOCATION_ASSET"] = assetsDir.absolutePath
+            // MARBLE_CORE_CONFIG_SUPERSET_V165 — "this is a MarbleNG process, and MarbleNG has
+            // already applied its own consent policy to every config it writes".
+            //
+            // The pinned Xray core refuses `vless`/`trojan` outbounds that reach a *public* address
+            // without TLS (`infra/conf: vless without TLS or other encryption is prohibited unless
+            // the server address is a private IP or domain`). MarbleNG ships that core with a
+            // one-function patch (`scripts/inject-xray-config-superset.py`) that lets the application
+            // delegate the decision, and this variable is the delegation. It is set here — for the
+            // live tunnel, the `run -test` verifier and every throwaway Rank/Turbo child alike —
+            // because the policy it defers to is the *same* for all three
+            // ([CoreConfigSuperset.verdict], consulted by the connect path, the rank pool and the
+            // security auditor): a node that may be dialled may also be measured, and a node that may
+            // not is refused before a process is ever spawned.
+            //
+            // The standalone binary keeps upstream's default-deny: the variable is set by no one else.
+            environment()[CoreConfigSuperset.PLAINTEXT_POLICY_ENV] = "1"
         }
     }
 

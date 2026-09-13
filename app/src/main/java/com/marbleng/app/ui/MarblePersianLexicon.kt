@@ -11,6 +11,7 @@ package com.marbleng.app.ui
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
+import com.marbleng.app.core.CoreConfigSuperset
 
 /** Translate an arbitrary UI literal when Persian is the active product language. */
 @Composable
@@ -1156,7 +1157,19 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Unsupported VLESS • pick a server with TLS/REALITY" to
         "VLESS پشتیبانی‌نشده • سروری با TLS/REALITY انتخاب کنید",
     "DNS resolver timed out • Marble is switching to a fallback path" to
-        "حل‌کننده DNS زمان را رد کرد • ماربل به مسیر جایگزین می‌رود"
+        "حل‌کننده DNS زمان را رد کرد • ماربل به مسیر جایگزین می‌رود",
+    // MARBLE_CORE_CONFIG_SUPERSET_V165 — the two engine-gap sentences [CoreConfigSuperset.coreGapIssue]
+    // returns, plus the consent switch. They are whole literals in the source for exactly this
+    // reason: the lookup is an exact match, so a template could never be translated.
+    CoreConfigSuperset.CORE_GAP_TRANSPORT_REMOVED to
+        "هسته Xray ترنسپورت‌های HTTP/QUIC این سرور را حذف کرده • sing-box extended آن‌ها را اجرا می‌کند (تنظیمات ← هسته تونل)",
+    CoreConfigSuperset.CORE_GAP_KCP_CAMOUFLAGE to
+        "استتار هدر mKCP در هسته Xray پیاده‌سازی نشده • sing-box extended آن را اجرا می‌کند (تنظیمات ← هسته تونل)",
+    "Dial unencrypted nodes" to "اتصال به سرورهای بدون رمزنگاری",
+    "Plaintext VLESS/Trojan nodes stay usable; switching off refuses them" to
+        "سرورهای VLESS/Trojan بدون رمزنگاری قابل استفاده می‌مانند؛ با خاموش‌کردن این کلید رد می‌شوند",
+    "Unencrypted traffic is readable by your ISP. Marble labels it on the server row and never rewrites your node." to
+        "ترافیک بدون رمزنگاری برای ISP قابل خواندن است. ماربل آن را روی ردیف سرور برچسب می‌زند و هرگز کانفیگ شما را بازنویسی نمی‌کند."
 )
 
 /** Lowercased view of the lexicon so `UPPERCASE` renders of the same keys still match. */

@@ -83,7 +83,12 @@ object XrayConfigHardener {
         )
 
         val segments = sources.mapIndexed { segmentIndex, source ->
-            val root = XrayConfigAdapter.document(source)
+            // MARBLE_CORE_CONFIG_SUPERSET_V165 — repair the hop before composing it: an imported
+            // hop that carried `proxySettings` used to survive into the composed document, and the
+            // pinned core answers that field with a fatal load error.
+            val hopRepairs = XrayConfigRepairs.apply(source)
+            if (hopRepairs.changed) XrayConfigRepairs.record(hopRepairs.repairs)
+            val root = XrayConfigAdapter.document(if (hopRepairs.changed) hopRepairs.document else source)
             val imported = root.optJSONArray("outbounds") ?: error("Chain hop ${segmentIndex + 1} has no outbounds")
             val originalTags = linkedMapOf<String, String>()
             val clones = mutableListOf<Pair<String, JSONObject>>()
@@ -105,9 +110,8 @@ object XrayConfigHardener {
             clones.forEach { (oldTag, outbound) ->
                 val newTag = originalTags.getValue(oldTag)
                 outbound.put("tag", newTag)
-                outbound.optJSONObject("proxySettings")?.let { proxy ->
-                    originalTags[proxy.optString("tag")]?.let { proxy.put("tag", it) }
-                }
+                // The repair pass has already moved any imported `proxySettings` onto
+                // `sockopt.dialerProxy`, so the chain has exactly one reference form to remap here.
                 outbound.optJSONObject("streamSettings")?.optJSONObject("sockopt")?.let { sockopt ->
                     originalTags[sockopt.optString("dialerProxy")]?.let { sockopt.put("dialerProxy", it) }
                 }
@@ -121,20 +125,26 @@ object XrayConfigHardener {
             val visited = mutableSetOf<String>()
             while (visited.add(tag)) {
                 val outbound = segment.byTag[tag] ?: break
-                val next = outbound.optJSONObject("proxySettings")?.optString("tag").orEmpty()
+                val next = outbound.optJSONObject("streamSettings")
+                    ?.optJSONObject("sockopt")
+                    ?.optString("dialerProxy")
+                    .orEmpty()
                 if (next.isBlank() || next !in segment.byTag) return outbound
                 tag = next
             }
-            error("Chain hop contains a proxySettings cycle")
+            error("Chain hop contains a dialerProxy cycle")
         }
 
         for (index in 1 until segments.size) {
-            tail(segments[index]).put(
-                "proxySettings",
-                JSONObject()
-                    .put("tag", segments[index - 1].primaryTag)
-                    .put("transportLayer", true)
-            )
+            // `streamSettings.sockopt.dialerProxy` is what the pinned core reads now: Xray removed
+            // `proxySettings` (and with it `transportLayer`, which this core never modelled), and its
+            // own error message names this field as the migration.
+            val hop = tail(segments[index])
+            val stream = hop.optJSONObject("streamSettings")
+                ?: JSONObject().also { hop.put("streamSettings", it) }
+            val sockopt = stream.optJSONObject("sockopt")
+                ?: JSONObject().also { stream.put("sockopt", it) }
+            sockopt.put("dialerProxy", segments[index - 1].primaryTag)
         }
 
         val exit = segments.last()
@@ -142,9 +152,6 @@ object XrayConfigHardener {
         val remappedExitTag = exit.primaryTag
         segments.forEach { segment ->
             segment.byTag.values.forEach { outbound ->
-                outbound.optJSONObject("proxySettings")?.let { proxy ->
-                    if (proxy.optString("tag") == remappedExitTag) proxy.put("tag", "proxy")
-                }
                 outbound.optJSONObject("streamSettings")?.optJSONObject("sockopt")?.let { sockopt ->
                     if (sockopt.optString("dialerProxy") == remappedExitTag) sockopt.put("dialerProxy", "proxy")
                 }
@@ -175,7 +182,12 @@ object XrayConfigHardener {
         underlayHasIpv6: Boolean = AddressFamilyPolicy.underlayHasIpv6()
     ): String {
         require(socksPort in 1..65535) { "Invalid delay-test SOCKS port" }
-        val root = XrayConfigAdapter.document(source)
+        // MARBLE_CORE_CONFIG_SUPERSET_V165 — the delay test measures the config the tunnel will
+        // actually run, so it has to receive the same repaired document. A test that passed against
+        // the raw import while the core rejected it is how "ping is green, connect fails" happened.
+        val delayRepairs = XrayConfigRepairs.apply(source)
+        if (delayRepairs.changed) XrayConfigRepairs.record(delayRepairs.repairs)
+        val root = XrayConfigAdapter.document(if (delayRepairs.changed) delayRepairs.document else source)
         val imported = root.optJSONArray("outbounds") ?: error("Xray JSON has no outbounds")
         val byTag = linkedMapOf<String, JSONObject>()
         var selectedTag = ""
@@ -359,7 +371,14 @@ object XrayConfigHardener {
         link: LinkEvidence = LinkEvidence.UNKNOWN,
         underlayHasIpv6: Boolean = AddressFamilyPolicy.underlayHasIpv6()
     ): String {
-        val src = XrayConfigAdapter.document(source)
+        // MARBLE_CORE_CONFIG_SUPERSET_V165 — rewrite the shapes the pinned core cannot *load*
+        // (`proxySettings`, a VLESS user with no `encryption`, a quoted port, a TLS block whose
+        // `security` was never named) before anything else reads the document. Every consumer of a
+        // hardened config — connect, delay test, native rank, Turbo — goes through here, so one pass
+        // covers all of them and the three can never disagree about which config was measured.
+        val repairs = XrayConfigRepairs.apply(source)
+        if (repairs.changed) XrayConfigRepairs.record(repairs.repairs)
+        val src = XrayConfigAdapter.document(if (repairs.changed) repairs.document else source)
         val old = src.optJSONArray("outbounds") ?: JSONArray()
         val byTag = linkedMapOf<String, JSONObject>()
         var firstTag = ""
@@ -637,9 +656,14 @@ object XrayConfigHardener {
                     ) {
                         val method = streamObject.optString("method").lowercase()
                         val tcpTransport = method !in setOf("hysteria", "mkcp")
+                        // MARBLE_CORE_CONFIG_SUPERSET_V165 — `dialerProxy` is the field the pinned
+                        // core reads (it removed `proxySettings`), so it is also the field Marble has
+                        // to ask about. Checking only the removed name meant a chained hop got the
+                        // un-chained keep-alive profile.
                         val chained = outbound.optJSONObject("proxySettings")
                             ?.optString("tag")
-                            ?.isNotBlank() == true
+                            ?.isNotBlank() == true ||
+                            sockoptObject.optString("dialerProxy").isNotBlank()
                         if (tcpTransport) {
                             // MARBLE_IRAN_LIVENESS_V146 — the Iran-tuned liveness profile was
                             // designed (longer keep-alive and user-timeout for Iran's high-RTT,
@@ -1215,9 +1239,12 @@ object XrayConfigHardener {
         val protocol = outbound.optString("protocol").lowercase()
         val stream = outbound.optJSONObject("streamSettings")
         val sockopt = stream?.optJSONObject("sockopt")
+        // The chain reference lives in `sockopt.dialerProxy` on this core; `proxySettings` is only
+        // kept readable for documents that never went through XrayConfigRepairs.
         val chained = outbound.optJSONObject("proxySettings")
             ?.optString("tag")
-            ?.isNotBlank() == true
+            ?.isNotBlank() == true ||
+            sockopt?.optString("dialerProxy").orEmpty().isNotBlank()
         val method = stream?.optString("method").orEmpty().lowercase()
         // WireGuard is UDP-only, and a v6-only plan has a single family to dial, so neither can use
         // Xray's TCP race; they get a deterministic address order instead.
