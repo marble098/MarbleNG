@@ -145,7 +145,15 @@ class CoreConfigSupersetV165Test {
         assertFalse(CoreConfigSuperset.isPostQuantumEncryption("mlkem768x25519plus"))
         assertFalse(CoreConfigSuperset.isPostQuantumEncryption("mlkem768x25519plus.xorpub.0rtt"))
         assertFalse(CoreConfigSuperset.isPostQuantumEncryption("mlkem768x25519plus.native.2rtt.pad"))
-        assertFalse(CoreConfigSuperset.isPostQuantumEncryption("mlkem768x25519plus.native.1rtt.not*base64!"))
+        // The core's own loop is `for _, r := range s[3:] { if len(r) < 20 { padding += …; continue }
+        // if b, _ := base64.RawURLEncoding.DecodeString(r); len(b) != 32 && len(b) != 1184 { return
+        // false } }` (infra/conf/vless.go, both the account and the decryption halves): a short
+        // trailing segment is *padding* and is never base64-checked, while a long one must decode to
+        // exactly key material. Marble recognises the shape the core recognises — no stricter, no
+        // looser, because either direction is a node refused or a config that cannot load.
+        assertTrue(CoreConfigSuperset.isPostQuantumEncryption("mlkem768x25519plus.native.1rtt.pad"))
+        assertFalse(CoreConfigSuperset.isPostQuantumEncryption("mlkem768x25519plus.native.1rtt." + "A".repeat(40)))
+        assertTrue(CoreConfigSuperset.isPostQuantumEncryption("mlkem768x25519plus.native.1rtt." + "A".repeat(43)))
         assertFalse(CoreConfigSuperset.isPostQuantumEncryption("auto"))
     }
 

@@ -60,7 +60,9 @@ class ShareLinkParamsV165Test {
 
     @Test
     fun percentDecodingKeepsUtf8AndLeavesPlusAlone() {
-        val params = ShareLinkParams.of("sni=%77%77%2Eexample%2Ecom&name=%D9%86%D8%A7%D9%85&host=example.com%2Fa%2Bb")
+        val params = ShareLinkParams.of(
+            "sni=%77%77%77%2Eexample%2Ecom&name=%D9%86%D8%A7%D9%85&host=example.com%2Fa%2Bb"
+        )
         assertEquals("www.example.com", params.get("sni"))
         assertEquals("نام", params.get("name"))
         // `+` is data inside base64 material (`pbk`, `mldsa65Verify`), never a space.

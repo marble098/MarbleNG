@@ -382,6 +382,13 @@ object XrayConfigHardener {
         val old = src.optJSONArray("outbounds") ?: JSONArray()
         val byTag = linkedMapOf<String, JSONObject>()
         var firstTag = ""
+        // MARBLE_CORE_CONFIG_SUPERSET_V165 — which hops arrived as a chain hop, recorded from the
+        // document as imported. Both the V146 liveness profile and the freedom resolution plan below
+        // ask "is this hop's socket owned by another hop", and the answer must be the user's: the
+        // fragment pass further down writes `sockopt.dialerProxy` of Marble's own onto the proxy hop,
+        // so reading the live field would retune every fragment user's keep-alives and strip the
+        // innermost hop's `domainStrategy` — two silent behaviour changes hiding inside a compat fix.
+        val importedChainHops = mutableSetOf<String>()
 
         for (i in 0 until old.length()) {
             val orig = old.optJSONObject(i) ?: continue
@@ -393,6 +400,12 @@ object XrayConfigHardener {
             clone.put("tag", tag)
             byTag[tag] = clone
             if (isSelectableProxy(clone) && firstTag.isBlank()) firstTag = tag
+            if (orig.optJSONObject("proxySettings")?.optString("tag").orEmpty().isNotBlank() ||
+                orig.optJSONObject("streamSettings")?.optJSONObject("sockopt")
+                    ?.optString("dialerProxy").orEmpty().isNotBlank()
+            ) {
+                importedChainHops += tag
+            }
         }
         // A hand-imported serverless-style config can intentionally emit a plain freedom/direct
         // outbound as its only exit. Xray accepts that as a valid exit; the generic
@@ -644,7 +657,12 @@ object XrayConfigHardener {
                 }
 
                 if (endpointDomains(outbound).isNotEmpty()) {
-                    applyAddressFamily(outbound, settings, underlayHasIpv6)
+                    applyAddressFamily(
+                        outbound,
+                        settings,
+                        underlayHasIpv6,
+                        chainedFromImport = tag in importedChainHops
+                    )
 
                     // Liveness tuning belongs to the long-lived tunnel only: a throwaway delay test
                     // never keeps a socket open long enough for keep-alives to matter.
@@ -657,13 +675,12 @@ object XrayConfigHardener {
                         val method = streamObject.optString("method").lowercase()
                         val tcpTransport = method !in setOf("hysteria", "mkcp")
                         // MARBLE_CORE_CONFIG_SUPERSET_V165 — `dialerProxy` is the field the pinned
-                        // core reads (it removed `proxySettings`), so it is also the field Marble has
-                        // to ask about. Checking only the removed name meant a chained hop got the
-                        // un-chained keep-alive profile.
-                        val chained = outbound.optJSONObject("proxySettings")
-                            ?.optString("tag")
-                            ?.isNotBlank() == true ||
-                            sockoptObject.optString("dialerProxy").isNotBlank()
+                        // core reads (it removed `proxySettings`), so a chain hop is only visible
+                        // under that name now: asking the live field alone meant every repaired
+                        // `proxySettings` document lost its V146 keep-alive profile, and asking it
+                        // *after* the fragment pass would hand that profile to nodes nobody chained.
+                        // The snapshot taken on import is the one question with one right answer.
+                        val chained = outbound.optString("tag") in importedChainHops
                         if (tcpTransport) {
                             // MARBLE_IRAN_LIVENESS_V146 — the Iran-tuned liveness profile was
                             // designed (longer keep-alive and user-timeout for Iran's high-RTT,
@@ -715,14 +732,7 @@ object XrayConfigHardener {
                 tag == firstTag &&
                 protocol in setOf("freedom", "direct")
             if (!hasFragment(outbound) && !isNoiseOnly && !isPlainServerlessExit) return@forEach
-            val chained = outbound.optJSONObject("proxySettings")
-                ?.optString("tag")
-                ?.isNotBlank() == true ||
-                outbound.optJSONObject("streamSettings")
-                    ?.optJSONObject("sockopt")
-                    ?.optString("dialerProxy")
-                    ?.isNotBlank() == true
-            if (chained) return@forEach
+            if (tag in importedChainHops) return@forEach
             // A UDP PacketWriter cannot race, so a noise-only hop gets a deterministic order
             // while a TCP hop may arm Happy Eyeballs; both are expressed through the same
             // sockopt.domainStrategy field (see writeFreedomResolveStrategy).
@@ -1234,17 +1244,22 @@ object XrayConfigHardener {
     private fun applyAddressFamily(
         outbound: JSONObject,
         settings: AppSettings,
-        underlayHasIpv6: Boolean
+        underlayHasIpv6: Boolean,
+        chainedFromImport: Boolean? = null
     ): IpFamilyPlan {
         val protocol = outbound.optString("protocol").lowercase()
         val stream = outbound.optJSONObject("streamSettings")
         val sockopt = stream?.optJSONObject("sockopt")
         // The chain reference lives in `sockopt.dialerProxy` on this core; `proxySettings` is only
-        // kept readable for documents that never went through XrayConfigRepairs.
-        val chained = outbound.optJSONObject("proxySettings")
-            ?.optString("tag")
-            ?.isNotBlank() == true ||
-            sockopt?.optString("dialerProxy").orEmpty().isNotBlank()
+        // kept readable for documents that never went through XrayConfigRepairs. A caller that knows
+        // what the document arrived with (`harden` does, and must not let its own fragment plumbing
+        // count as a user chain) passes it in.
+        val chained = chainedFromImport ?: (
+            outbound.optJSONObject("proxySettings")
+                ?.optString("tag")
+                ?.isNotBlank() == true ||
+                sockopt?.optString("dialerProxy").orEmpty().isNotBlank()
+            )
         val method = stream?.optString("method").orEmpty().lowercase()
         // WireGuard is UDP-only, and a v6-only plan has a single family to dial, so neither can use
         // Xray's TCP race; they get a deterministic address order instead.
