@@ -47,6 +47,27 @@ data class DohTransportResult(
 class HttpUrlConnectionDohTransport : DohTransport {
 
     override fun query(endpoint: String, wire: ByteArray, timeoutMs: Long): DohTransportResult {
+        val attempts = 2
+        var lastResult: DohTransportResult? = null
+        for (attempt in 0 until attempts) {
+            val result = queryOnce(endpoint, wire, timeoutMs, attempt)
+            if (result.success) return result
+            val retryable = result.failureKind == ResolverFailureKind.CLOSED_PIPE ||
+                result.failureKind == ResolverFailureKind.EOF ||
+                result.detail.contains("reset", ignoreCase = true) ||
+                result.detail.contains("closed pipe", ignoreCase = true) ||
+                result.detail.contains("broken pipe", ignoreCase = true)
+            if (!retryable || attempt == attempts - 1) return result
+            lastResult = result
+            try { Thread.sleep(80L * (attempt + 1)) } catch (_: InterruptedException) { Thread.currentThread().interrupt(); return result }
+        }
+        return lastResult ?: DohTransportResult(
+            body = ByteArray(0), success = false,
+            failureKind = ResolverFailureKind.OTHER, detail = "retry-exhausted"
+        )
+    }
+
+    private fun queryOnce(endpoint: String, wire: ByteArray, timeoutMs: Long, attempt: Int): DohTransportResult {
         val start = System.currentTimeMillis()
         val url = java.net.URL(endpoint)
         var conn: javax.net.ssl.HttpsURLConnection? = null
@@ -56,9 +77,8 @@ class HttpUrlConnectionDohTransport : DohTransport {
             conn.setRequestProperty("Content-Type", "application/dns-message")
             conn.setRequestProperty("Accept", "application/dns-message")
             conn.setRequestProperty("Host", url.host)
-            // Keep-alive lets this dedicated DoH pool reuse sockets instead of re-handshaking
-            // every lookup — the general management pool is intentionally not shared here.
-            conn.setRequestProperty("Connection", "keep-alive")
+            val useKeepAlive = attempt == 0
+            conn.setRequestProperty("Connection", if (useKeepAlive) "keep-alive" else "close")
             conn.connectTimeout = (timeoutMs / 2).coerceIn(1_000, 3_000).toInt()
             conn.readTimeout = timeoutMs.coerceAtMost(3_000).toInt()
             conn.doOutput = true
@@ -74,8 +94,6 @@ class HttpUrlConnectionDohTransport : DohTransport {
                     detail = "doh-http-$responseCode"
                 )
             } else {
-                // Drain the entire response BEFORE disconnect: a partially-read body is the classic
-                // trigger for "io: read/write on closed pipe" when the pool recycles the socket.
                 val body = conn.inputStream.use { it.readBytes() }
                 if (body.size < 12) {
                     DohTransportResult(
