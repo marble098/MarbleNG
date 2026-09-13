@@ -1,0 +1,9 @@
+{
+  "note": "Candidate builds an obfuscated MarbleNG crash report may have come from, in likelihood order. Each entry is rebuilt with R8 and its mapping.txt is used to retrace that report.",
+  "targets": [
+    { "sha": "fccda22a2f4bd4ed1aa679f10561d6d91dfdb0cc", "label": "release-8.2.8" },
+    { "sha": "44ec888efa561bc5113cda68e09568dbb39ab8f0", "label": "release-9.0.0-draft" },
+    { "sha": "f83f5064b834633d46ba25dde7d330d1d5529303", "label": "release-8.2.9-draft" },
+    { "sha": "4e1ceaf3570d3b71c407dadc799d6609aba0caa8", "label": "main-after-146" }
+  ]
+}
