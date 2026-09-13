@@ -1,0 +1,10 @@
+{
+  "note": "Temporary analysis config: the crash report's own class descriptors are looked for inside the DEX of each published release APK to identify the build the report came from; that build is then re-created by R8 and retraced. Deleted before the pull request.",
+  "crash_map_id": "e1a496adca832d5b4f903fff022dac8f011fa793dfc668a828dc42dc966927ad",
+  "releases": [
+    { "tag": "v9.0.1", "asset": "MarbleNG-9.0.1-arm64-v8a-release.apk", "sha": "4e1ceaf3570d3b71c407dadc799d6609aba0caa8" },
+    { "tag": "v9.0.0", "asset": "MarbleNG-9.0.0-arm64-v8a-release.apk", "sha": "44ec888efa561bc5113cda68e09568dbb39ab8f0" },
+    { "tag": "v8.2.9", "asset": "MarbleNG-8.2.9-arm64-v8a-release.apk", "sha": "f83f5064b834633d46ba25dde7d330d1d5529303" },
+    { "tag": "v8.2.8", "asset": "MarbleNG-8.2.8-arm64-v8a-release.apk", "sha": "fccda22a2f4bd4ed1aa679f10561d6d91dfdb0cc" }
+  ]
+}
