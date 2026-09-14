@@ -1484,22 +1484,32 @@ internal fun HomeSessionStats(
 // ---------------------------------------------------------------------------------------------
 
 /**
- * The iOS-styled comprehensive Wide Status Bar.
+ * The iOS-styled Wide Status Bar — one shared card for all four Home presentations.
  *
- * Includes:
- * 1. Connection status (Connected / Disconnected / Connecting) with glowing dot & Uptime
- * 2. Connected server name, country flag & protocol tag
- * 3. One-shot ping check button (with auto-ping on first connect & inline non-shifting readout)
- * 4. Information icon (popup IP details dialog + animated opening IP badge + user IP when disconnected)
- * 5. Quick Add button (+ icon): auto-paste from clipboard and auto-connect
- * 6. SOCKS proxy display with one-tap copy button
+ * It carries, in two rows:
+ * 1. the connection state (Connected / Connecting / Closing / Stopped) with its dot and the
+ *    session's uptime;
+ * 2. the route: its flag, its name, the exit address with its country code, the wire scheme and
+ *    the source it came from, the route's own remembered ping, and the one-tap copy of the
+ *    address. The identity row itself opens the full IP report.
  *
- * MARBLE_HOME_STABLE_GEOMETRY_V141 — every strip in this card is a permanent, fixed-height slot.
- * The SOCKS strip used to be composed only while connected, so the instant the tunnel came up
- * the card grew a whole row and shoved the server deck and the connect control down the page —
- * the exact "connecting pushes everything below" defect. The strip now always exists: it says
- * "waiting for connection" before the tunnel is up and the live address afterwards, and only its
- * colour changes. No AnimatedVisibility, no height animation, no layout change — ever.
+ * MARBLE_PING_USER_TAPPED_ONLY_V143 — this card never arms a measurement. The ping it prints was
+ * taken when the user asked for one, from the Home ping action or the pulse page.
+ *
+ * MARBLE_HOME_STABLE_GEOMETRY_V141 — every element keeps its reserved place. Nothing is composed
+ * only while connected, so the instant a tunnel comes up the card cannot grow a row and shove the
+ * server deck and the connect control down the page. No AnimatedVisibility, no height animation,
+ * no layout change — ever.
+ *
+ * MARBLE_HOME_COMPACT_BANNER_V167 — the card is two rows and a hairline, where it used to be three
+ * stacked strips with three fixed 32/40/32 dp floors, a divider between each pair, 16 dp of
+ * vertical padding and a 40 dp flag tile: ~139 dp of the top of every Home page repeating five
+ * facts. The same five facts now fit in ~73 dp — a 20 dp status line, a 28 dp flag tile, one quiet
+ * monospace meta run for the address and the wire, and a ping readout with its own reserved width
+ * at the trailing edge, so a measurement landing in it can never re-flow the row it lands in.
+ *
+ * Everything that was fixed-height stays fixed-height: no strip appears or disappears. Only the
+ * vocabulary is smaller.
  */
 @Composable
 internal fun IosStatusWideCard(
@@ -1523,31 +1533,24 @@ internal fun IosStatusWideCard(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 10.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
+                .padding(horizontal = 10.dp, vertical = 7.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            // ── Slot 1 (fixed height): status line. The top action cluster lives outside the
-            // banner as a separate transparent cluster (MARBLE_HOME_BANNER_V143).
+            // ── Row 1: the state word, its dot and the session's uptime. ───────────────────────
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(min = 32.dp),
+                    .heightIn(min = 18.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                StatusDot(stateColor = stateColor, busy = evidence.connecting)
-                Spacer(Modifier.width(8.dp))
+                StatusDot(stateColor = stateColor, busy = evidence.connecting, size = 13.dp)
+                Spacer(Modifier.width(6.dp))
                 Text(
-                    text = when {
-                        evidence.connected -> t.statusProtected
-                        evidence.connecting -> t.securingRoute
-                        evidence.disconnecting -> t.closingRoute
-                        evidence.blocked -> t.connectionStopped
-                        else -> t.socksStandby
-                    }.uppercase(),
+                    text = homeStatusText(evidence).uppercase(),
                     color = stateColor,
                     style = MaterialTheme.typography.labelSmall.copy(
                         fontWeight = FontWeight.Bold,
-                        letterSpacing = 1.1.sp
+                        letterSpacing = 1.0.sp
                     ),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -1565,64 +1568,58 @@ internal fun IosStatusWideCard(
 
             HorizontalDivider(color = homeCloudDivider())
 
-            // ── Slot 2 (fixed height): route identity + ping readout ───────────────────
+            // ── Row 2: the route, its address, and the live ping. The whole row is the IP
+            // report's affordance; the copy control sits inside it as its own target. ─────────
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(min = 40.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                    .heightIn(min = 30.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .clickable { actions.onIpDetails() }
+                    .semantics { contentDescription = t.ipDetails },
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Row(
-                    modifier = Modifier.weight(1f),
-                    verticalAlignment = Alignment.CenterVertically
+                // Flag inside a flat tile so emoji flags of different drawing heights can never
+                // wobble the baseline of the row.
+                Box(
+                    modifier = Modifier
+                        .size(28.dp)
+                        .clip(RoundedCornerShape(9.dp))
+                        .background(homeCloudInsetFill())
+                        .border(1.dp, homeCloudInsetBorder(), RoundedCornerShape(9.dp)),
+                    contentAlignment = Alignment.Center
                 ) {
-                    // Flag inside a flat tile so emoji flags of different drawing heights can
-                    // never wobble the baseline of the row.
-                    Box(
-                        modifier = Modifier
-                            .size(40.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(homeCloudInsetFill())
-                            .border(1.dp, homeCloudInsetBorder(), RoundedCornerShape(12.dp)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = if (evidence.flag.isNotBlank()) evidence.flag else "🌐",
-                            fontSize = 18.sp
-                        )
-                    }
-                    Spacer(Modifier.width(10.dp))
-                    Column {
-                        Text(
-                            text = evidence.nodeName.ifBlank { t.chooseRoute },
-                            color = Aether.Ink,
-                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            val proto = evidence.profile?.scheme?.uppercase() ?: "PROXY"
-                            Text(
-                                text = proto,
-                                color = Aether.CyanBright,
-                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold)
-                            )
-                            if (evidence.sourceName.isNotBlank()) {
-                                Text("•", color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
-                                Text(
-                                    text = evidence.sourceName,
-                                    color = Aether.InkMuted,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                        }
-                    }
+                    Text(
+                        text = if (evidence.flag.isNotBlank()) evidence.flag else "🌐",
+                        fontSize = 14.sp,
+                        maxLines = 1
+                    )
+                }
+
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        text = evidence.nodeName.ifBlank { t.chooseRoute },
+                        color = Aether.Ink,
+                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = listOfNotNull(
+                            evidence.ip.takeIf { it.isNotBlank() },
+                            evidence.countryCode.takeIf { it.isNotBlank() }?.let { "($it)" },
+                            evidence.profile?.scheme?.uppercase()?.takeIf { it.isNotBlank() },
+                            evidence.sourceName.takeIf { it.isNotBlank() }
+                        ).joinToString(" • "),
+                        color = Aether.InkMuted,
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontFamily = FontFamily.Monospace
+                        ),
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
 
                 // Inline Ping Result — reserved width, so digits appearing never re-flow the row.
@@ -1630,12 +1627,12 @@ internal fun IosStatusWideCard(
                 val pingT = homePingTone(evidence, Aether.Cyan)
                 Row(
                     modifier = Modifier
-                        .widthIn(min = 58.dp)
-                        .clip(RoundedCornerShape(10.dp))
+                        .widthIn(min = 52.dp)
+                        .clip(RoundedCornerShape(9.dp))
                         .background(pingT.copy(alpha = 0.14f))
-                        .border(1.dp, pingT.copy(alpha = 0.35f), RoundedCornerShape(10.dp))
+                        .border(1.dp, pingT.copy(alpha = 0.35f), RoundedCornerShape(9.dp))
                         .clickable(enabled = homePingTappable(evidence)) { actions.onTestPing() }
-                        .padding(horizontal = 9.dp, vertical = 5.dp),
+                        .padding(horizontal = 8.dp, vertical = 3.dp),
                     horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -1650,75 +1647,25 @@ internal fun IosStatusWideCard(
                         textAlign = TextAlign.Center
                     )
                 }
-            }
 
-            // ── Slot 3 (fixed height): IP identity strip ───────────────────────────────
-            // MARBLE_HOME_IP_STRIP_V144 — the address used to be the only bodySmall (12sp) ink
-            // in a strip of labelSmall (10.5sp) copy, so one full step larger than its own tag,
-            // country and details link it visually shouted over the node name above it. The whole
-            // strip now speaks the same quiet size: the address keeps its monospace face and a
-            // semibold cut so it stays scrutable, but at the strip's own scale and in one
-            // ellipsized line, so long hostnames can never stretch the banner.
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 32.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(homeCloudInsetFill())
-                    .border(1.dp, homeCloudInsetBorder(), RoundedCornerShape(12.dp))
-                    .clickable { actions.onIpDetails() }
-                    .padding(horizontal = 10.dp, vertical = 5.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.weight(1f)
+                // MARBLE_HOME_IP_STRIP_V151 — the "Show complete IP information" caption is gone;
+                // the words survive as the row's content description above, and the glyph below is
+                // the sighted affordance. The copy action stays one tap away, as it always was.
+                Box(
+                    modifier = Modifier
+                        .size(22.dp)
+                        .clip(CircleShape)
+                        .clickable(onClick = actions.onCopyIp),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Text(
-                        "IP",
-                        color = HomeCloud.Accent,
-                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold)
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        text = if (evidence.ip.isNotBlank()) evidence.ip else "127.0.0.1",
-                        color = Aether.InkMuted,
-                        style = MaterialTheme.typography.labelSmall.copy(
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.SemiBold
-                        ),
-                        maxLines = 1,
-                        softWrap = false,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    if (evidence.countryCode.isNotBlank()) {
-                        Spacer(Modifier.width(6.dp))
-                        Text(
-                            "(${evidence.countryCode})",
-                            color = Aether.InkFaint,
-                            style = MaterialTheme.typography.labelSmall,
-                            maxLines = 1,
-                            softWrap = false
-                        )
-                    }
+                    HomeGlyphIcon(HomeGlyph.COPY, HomeCloud.Accent, Modifier.size(12.dp))
                 }
-                // MARBLE_HOME_IP_STRIP_V151 — the "Show complete IP information" caption is gone.
-                //
-                // The strip already opens the full report on tap, and the caption repeated the
-                // action in nine words under a 32 dp row that only had room to ellipsize it. The
-                // INFO glyph stays as the affordance; the words survive as its content
-                // description, where a screen reader can still read them and a sighted user never
-                // has to.
                 HomeGlyphIcon(
                     glyph = HomeGlyph.INFO,
                     color = HomeCloud.Accent,
-                    modifier = Modifier
-                        .size(12.dp)
-                        .semantics { contentDescription = t.ipDetails }
+                    modifier = Modifier.size(11.dp)
                 )
             }
-
         }
     }
 }
@@ -2008,16 +1955,19 @@ internal fun homeStateTone(evidence: HomeEvidence): Color = when {
 
 /** Flat status pip with a soft halo; breathes only while a handshake is actually running. */
 @Composable
-private fun StatusDot(stateColor: Color, busy: Boolean) {
+private fun StatusDot(stateColor: Color, busy: Boolean, size: Dp = 18.dp) {
     val motion = MarbleMotion.current
-    Canvas(modifier = Modifier.size(18.dp)) {
+    Canvas(modifier = Modifier.size(size)) {
+        // MARBLE_HOME_COMPACT_BANNER_V167 — the diameter is now a parameter, and a parameter named
+        // `size` shadows DrawScope's own metric, so the pip's geometry reads it as a length.
+        val diameter = size.toPx()
         // The shared clock is read in the draw phase: ambient motion costs zero recompositions.
         val breathe = motion.breathe(900)
         val haloAlpha = if (busy) 0.22f + 0.20f * breathe else 0.16f
-        drawCircle(color = stateColor.copy(alpha = haloAlpha), radius = size.minDimension * 0.5f)
+        drawCircle(color = stateColor.copy(alpha = haloAlpha), radius = diameter * 0.5f)
         drawCircle(
             color = stateColor.copy(alpha = if (busy) 0.75f + 0.25f * breathe else 1f),
-            radius = size.minDimension * 0.28f
+            radius = diameter * 0.28f
         )
     }
 }

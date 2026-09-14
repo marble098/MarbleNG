@@ -201,19 +201,129 @@ import kotlin.math.sin
 private enum class SpatialTab(val label: String) {
     DECK("Home"),
     LIBRARY("Servers"),
-    SETTINGS("Settings")
+    SETTINGS("Settings"),
+
+    /**
+     * MARBLE_DOCK_SLOT_V167 — the fourth slot: the tab the user fills with the thing they reach
+     * for most (one subscription, one config, or the live pulse of the route). Its caption and
+     * glyph come from Settings, and the enum label is only the last-resort fallback.
+     */
+    CUSTOM("Custom")
 }
 
-/** MARBLE_BILINGUAL_V110 — the dock renders translated tab names, never the enum label. */
+/**
+ * MARBLE_BILINGUAL_V110 — the dock renders translated tab names, never the enum label.
+ *
+ * MARBLE_DOCK_SLOT_V167 — the fourth slot renders the caption the user configured for it, or the
+ * name of what it opens; [customCaption] is resolved once, above the bar.
+ */
 @Composable
-private fun spatialTabLabel(tab: SpatialTab): String = when (tab) {
+private fun spatialTabLabel(tab: SpatialTab, customCaption: String = ""): String = when (tab) {
     SpatialTab.DECK -> Tr.now.tabHome
     SpatialTab.LIBRARY -> Tr.now.tabLibrary
     SpatialTab.SETTINGS -> Tr.now.tabSettings
+    SpatialTab.CUSTOM -> customCaption.ifBlank { trx(tab.label) }
 }
 
 private fun rememberedSpatialTab(name: String): SpatialTab =
     runCatching { SpatialTab.valueOf(name) }.getOrDefault(SpatialTab.DECK)
+
+/**
+ * MARBLE_DOCK_SLOT_V167 — everything the fourth slot's chrome needs, resolved once per composition:
+ * whether the bar carries it at all, the caption it draws, and the glyph it draws it with.
+ */
+private data class DockSlotChrome(
+    val enabled: Boolean,
+    val caption: String,
+    val icon: DockSlotIcon
+)
+
+/**
+ * MARBLE_DOCK_SLOT_V167 — what the fourth slot currently points at, resolved against the library.
+ *
+ * The slot stores ids; the library stores the truth. Both the caption and the page read this one
+ * resolution, so a tab can never be labelled with a subscription it no longer shows, and a node
+ * deleted from the Library leaves an honestly empty target instead of a stale name.
+ */
+private class DockSlotTarget(
+    val kind: DockSlotKind,
+    /** The source id (SOURCE) or the profile id (CONFIG) the slot points at. */
+    val id: String,
+    /** The profile's own source id, so a repeated node id resolves to the exact row. */
+    val sourceId: String,
+    /** The target's own name, English; the UI decides whether a caption shows it. */
+    val displayName: String,
+    /** The source's servers (SOURCE) or the one pinned config (CONFIG); empty means "gone". */
+    val profiles: List<ProxyProfile>
+) {
+    val isEmpty: Boolean get() = kind != DockSlotKind.PULSE && profiles.isEmpty()
+}
+
+/** The English default names of the two permanent Library sources. */
+private const val DOCK_SLOT_ALL_SOURCES = "All servers"
+
+/**
+ * The caption the fourth slot draws when the user wrote none.
+ *
+ * A subscription can legitimately be called "Manual" or "Custom", so the target's own name is
+ * carried through verbatim; only the product's two own constants are translated, and they are
+ * translated as constants rather than as sentences.
+ */
+@Composable
+private fun dockSlotCaptionText(kind: DockSlotKind, targetName: String): String {
+    val resolved = dockSlotDefaultCaption(kind, targetName)
+    val isProductConstant =
+        resolved == DOCK_SLOT_CAPTION_PULSE || resolved == DOCK_SLOT_CAPTION_FALLBACK
+    return if (isProductConstant) trx(resolved) else resolved
+}
+
+/** How many configs the fourth slot's picker renders at once; the search box narrows the rest. */
+private const val DOCK_SLOT_PICKER_CAP = 60
+
+private fun dockSlotTarget(repo: AppRepository, kind: DockSlotKind): DockSlotTarget {
+    val settings = repo.settings
+    val library = repo.libraryProfiles
+    return when (kind) {
+        // The pulse is about the route, not about a source, so its scope is the whole library.
+        DockSlotKind.PULSE -> DockSlotTarget(
+            kind = kind,
+            id = "pulse",
+            sourceId = "all",
+            displayName = "",
+            profiles = library
+        )
+
+        DockSlotKind.SOURCE -> {
+            val id = settings.dockSlotSourceId.trim().ifBlank { "all" }
+            val name = when (id) {
+                "all" -> DOCK_SLOT_ALL_SOURCES
+                "manual" -> "Manual"
+                else -> repo.subscriptions.firstOrNull { it.id == id }?.name.orEmpty()
+            }
+            DockSlotTarget(
+                kind = kind,
+                id = id,
+                sourceId = id,
+                displayName = name,
+                profiles = if (id == "all") library else library.filter { it.subscriptionId == id }
+            )
+        }
+
+        DockSlotKind.CONFIG -> {
+            val pinned = repo.profile(
+                settings.dockSlotProfileId,
+                settings.dockSlotProfileSourceId.takeIf { it.isNotBlank() }
+            )
+            DockSlotTarget(
+                kind = kind,
+                id = pinned?.id.orEmpty(),
+                sourceId = pinned?.subscriptionId.orEmpty(),
+                displayName = pinned?.let { stripLeadingFlag(it.name) }.orEmpty(),
+                profiles = listOfNotNull(pinned)
+            )
+        }
+    }
+}
 
 private data class InstalledApp(val label: String, val packageName: String)
 
@@ -226,8 +336,8 @@ fun Aether2026App(
     onImportFile: () -> Unit,
     onContentScrollChanged: (Boolean) -> Unit = {}
 ) {
-    val tabs = SpatialTab.entries
-    val initialIndex = rememberedSpatialTab(repo.lastAppTab).ordinal
+    val tabs = dockSlots(SpatialTab.entries, SpatialTab.CUSTOM, repo.settings.dockSlotEnabled)
+    val initialIndex = dockSlotIndex(tabs, rememberedSpatialTab(repo.lastAppTab))
     val pagerState = rememberPagerState(initialPage = initialIndex) { tabs.size }
     var dialog by remember { mutableStateOf<String?>(null) }
     var settingsFocus by remember { mutableStateOf<String?>(null) }
@@ -242,6 +352,10 @@ fun Aether2026App(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
+    // MARBLE_DOCK_SLOT_V167 — a tab's page is its position in the bar that is on screen, never its
+    // enum ordinal: the optional fourth slot rewrites that mapping the moment it is switched off.
+    val pageOf: (SpatialTab) -> Int = { tab -> tabs.indexOf(tab).coerceAtLeast(0) }
+
     // One suspension-safe page turn: the marker always clears — even when the animation is
     // cancelled by a finger grab — so the dock can never get stuck translucent.
     val goToTab: (Int) -> Unit = { page ->
@@ -255,13 +369,24 @@ fun Aether2026App(
         }
     }
 
+    // MARBLE_DOCK_SLOT_V167 — the page the pager is actually on, repaired against the list the bar
+    // is drawing. Turning the fourth slot off shrinks the bar to three tabs while the pager may
+    // still be holding page 4; reading the tab through this accessor means no surface can ever ask
+    // for a page that does not exist.
+    val currentTab = tabs.getOrElse(pagerState.currentPage) { tabs.first() }
+
+    // A hidden fourth slot is not a page any more, so the pager is walked back onto the bar it has.
+    LaunchedEffect(tabs.size) {
+        if (pagerState.currentPage > tabs.lastIndex) pagerState.scrollToPage(tabs.lastIndex)
+    }
+
     // Sync pager → tab name for persistence and reset the dock to its resting skin when
     // switching pages. Each scrollable page reports its own motion below.
-    LaunchedEffect(pagerState.currentPage) {
+    LaunchedEffect(currentTab) {
         tabTurn = false
         contentScrolling = false
         onContentScrollChanged(false)
-        repo.rememberAppTab(tabs[pagerState.currentPage].name)
+        repo.rememberAppTab(currentTab.name)
     }
 
     // Whichever coroutine owns the turn, any settled pager clears the marker, so a fast
@@ -275,10 +400,11 @@ fun Aether2026App(
         onContentScrollChanged(scrolling)
     }
 
-    // Routing focus from Home: jump to Settings tab
+    // Routing focus from Home, and the fourth slot's own Customize entry: both are deep links
+    // into a Settings page, so both turn the pager to Settings.
     LaunchedEffect(settingsFocus) {
-        if (settingsFocus == "Routing") {
-            goToTab(SpatialTab.SETTINGS.ordinal)
+        if (settingsFocus == "Routing" || settingsFocus == SettingsPages.DOCK_SLOT) {
+            goToTab(pageOf(SpatialTab.SETTINGS))
         }
     }
 
@@ -340,11 +466,11 @@ fun Aether2026App(
         onTestPing = {
             repo.measureHomePing()
         },
-        onLibrary = { goToTab(SpatialTab.LIBRARY.ordinal) },
+        onLibrary = { goToTab(pageOf(SpatialTab.LIBRARY)) },
         onConnectProfile = { profile -> onConnect(profile) },
         // MARBLE_HOME_ADD_MENU_V145 — `+` opens a dropdown anchored under the icon itself
         // (see HomeTopActionBar); this entry is its "browse the Servers page" destination.
-        onAddRoute = { goToTab(SpatialTab.LIBRARY.ordinal) },
+        onAddRoute = { goToTab(pageOf(SpatialTab.LIBRARY)) },
         onRank = { repo.smartRank() },
         onPrivacy = {
             repo.audit()
@@ -352,9 +478,9 @@ fun Aether2026App(
         },
         onRouting = {
             settingsFocus = "Routing"
-            goToTab(SpatialTab.SETTINGS.ordinal)
+            goToTab(pageOf(SpatialTab.SETTINGS))
         },
-        onTests = { goToTab(SpatialTab.SETTINGS.ordinal) },
+        onTests = { goToTab(pageOf(SpatialTab.SETTINGS)) },
         onPasteImport = {
             val pasted = deckClipboard.getText()?.text.orEmpty()
             if (pasted.isBlank()) {
@@ -370,6 +496,19 @@ fun Aether2026App(
         onPingGroup = {
             repo.pingHomeGroup()
         }
+    )
+
+    // MARBLE_DOCK_SLOT_V167 — what the fourth tab is, resolved once and read by both the bar and
+    // the page behind it: the kind it opens, the name of what it opens (for a caption the user did
+    // not write) and the glyph it draws. The two can never disagree, because there is one value.
+    val slotKind = parseDockSlotKind(repo.settings.dockSlotKind)
+    val slotTarget = dockSlotTarget(repo, slotKind)
+    val slotChrome = DockSlotChrome(
+        enabled = repo.settings.dockSlotEnabled,
+        caption = dockSlotCaption(repo.settings.dockSlotLabel).ifBlank {
+            dockSlotCaptionText(slotKind, slotTarget.displayName)
+        },
+        icon = parseDockSlotIcon(repo.settings.dockSlotIcon)
     )
 
     // MARBLE_DOCK_CUSTOM_V145 — the dock's chosen footprint is published once, so the bar and
@@ -411,7 +550,10 @@ fun Aether2026App(
                             .widthIn(max = 820.dp)
                             .fillMaxWidth()
                     ) {
-                        when (tabs[pageIndex]) {
+                        // MARBLE_DOCK_SLOT_V167 — the page is looked up rather than indexed: a
+                        // bar that lost its fourth slot can never hand the pager a page it does
+                        // not have, not even for the frame the shrink settles on.
+                        when (tabs.getOrNull(pageIndex) ?: SpatialTab.DECK) {
                     SpatialTab.DECK -> CyberDeck(
                         repo = repo,
                         deck = deck,
@@ -429,6 +571,19 @@ fun Aether2026App(
                         repo = repo,
                         onDialog = { dialog = it },
                         focusSection = settingsFocus,
+                        onContentScrollChanged = reportContentScroll
+                    )
+                    // The fourth slot: whatever the user made of it.
+                    SpatialTab.CUSTOM -> CustomDockPage(
+                        repo = repo,
+                        deck = deck,
+                        actions = deckActions,
+                        target = slotTarget,
+                        chrome = slotChrome,
+                        onConnect = onConnect,
+                        onDetails = { detailProfile = it },
+                        onDialog = { dialog = it },
+                        onCustomize = { settingsFocus = SettingsPages.DOCK_SLOT },
                         onContentScrollChanged = reportContentScroll
                     )
                         }
@@ -488,12 +643,13 @@ fun Aether2026App(
             // whole tap animation; content scroll and finger-dragged turns still fade it.
             val glass = contentScrolling || pagerState.isScrollInProgress
             FloatingSpatialDock(
-                selected = tabs[pagerState.currentPage],
+                selected = currentTab,
+                slot = slotChrome,
                 glass = glass && !tabTurn,
                 onSelect = { next ->
                     detailProfile = null
                     settingsFocus = null
-                    goToTab(next.ordinal)
+                    goToTab(pageOf(next))
                 }
             )
 
@@ -602,6 +758,10 @@ fun Aether2026App(
                             "History" -> repo.history.takeLast(80).asReversed().joinToString("\n") {
                                 "${DateFormat.getDateTimeInstance().format(Date(it.at))} • ${it.name} • ${it.reason}"
                             }
+                            // MARBLE_DOCK_SLOT_V167 — the fourth slot's own tools surface. The
+                            // report is read through the repository's accessor, so this dialog and
+                            // the saved report file can never disagree about what was found.
+                            "Bug Finder" -> repo.bugFinderReportText()
                             else -> "MarbleNG"
                         }
                     }.getOrElse { "Could not read $what • ${it::class.java.simpleName}" }
@@ -973,6 +1133,7 @@ private fun dockClearance(): Dp =
 @Composable
 private fun FloatingSpatialDock(
     selected: SpatialTab,
+    slot: DockSlotChrome,
     glass: Boolean,
     onSelect: (SpatialTab) -> Unit
 ) {
@@ -1067,6 +1228,11 @@ private fun FloatingSpatialDock(
             verticalAlignment = Alignment.CenterVertically
         ) {
             SpatialTab.entries.forEach { item ->
+                // MARBLE_DOCK_SLOT_V167 — the fourth slot is a preference: when it is off, the bar
+                // draws the three tabs it was built on and the remaining weights share the row
+                // exactly as before. The iteration itself stays over every modelled tab, so the
+                // bar, the pager and persistence can never disagree about what a tab is.
+                if (item == SpatialTab.CUSTOM && !slot.enabled) return@forEach
                 val active = item == selected
                 val glassShape = RoundedCornerShape(20.dp)
 
@@ -1104,7 +1270,11 @@ private fun FloatingSpatialDock(
                         ) { onSelect(item) }
                         .semantics {
                             this.selected = active
-                            contentDescription = "${item.label} tab"
+                            // MARBLE_DOCK_SLOT_V167 — a slot named by its reader is announced
+                            // with that name: "Pulse tab", not "Custom tab".
+                            contentDescription = "${
+                                if (item == SpatialTab.CUSTOM) slot.caption else item.label
+                            } tab"
                             stateDescription = if (active) "Selected" else "Not selected"
                         },
                     horizontalArrangement = Arrangement.Center,
@@ -1115,6 +1285,7 @@ private fun FloatingSpatialDock(
                             tab = item,
                             color = inkTone,
                             active = active,
+                            slotIcon = slot.icon,
                             modifier = Modifier.size(metrics.iconSize)
                         )
                     }
@@ -1123,7 +1294,7 @@ private fun FloatingSpatialDock(
                     }
                     if (metrics.showLabels) {
                         Text(
-                            spatialTabLabel(item),
+                            spatialTabLabel(item, slot.caption),
                             color = inkTone,
                             style = when (metrics.size) {
                                 DockSize.SMALL -> MaterialTheme.typography.labelSmall
@@ -1148,6 +1319,7 @@ private fun MarbleTabIcon(
     tab: SpatialTab,
     color: Color,
     active: Boolean,
+    slotIcon: DockSlotIcon = DockSlotIcon.DEFAULT,
     modifier: Modifier = Modifier
 ) {
     Canvas(modifier) {
@@ -1211,6 +1383,63 @@ private fun MarbleTabIcon(
                         center=Offset(w*knobX,h*y),
                         style=Stroke(width=stroke,cap=StrokeCap.Round)
                     )
+                }
+            }
+
+            // MARBLE_DOCK_SLOT_V167 — the fourth slot's four silhouettes, drawn by the same
+            // Canvas and the same stroke weight as the three fixed tabs, so a user-chosen glyph
+            // never reads as a foreign icon glued onto the bar.
+            SpatialTab.CUSTOM -> when(slotIcon) {
+                DockSlotIcon.PULSE -> {
+                    val trace=Path().apply {
+                        moveTo(w*.14f,h*.52f)
+                        lineTo(w*.32f,h*.52f)
+                        lineTo(w*.42f,h*.26f)
+                        lineTo(w*.56f,h*.76f)
+                        lineTo(w*.66f,h*.44f)
+                        lineTo(w*.86f,h*.44f)
+                    }
+                    drawPath(trace,color,style=line)
+                }
+
+                DockSlotIcon.SPARK -> {
+                    val bolt=Path().apply {
+                        moveTo(w*.58f,h*.12f)
+                        lineTo(w*.28f,h*.54f)
+                        lineTo(w*.48f,h*.54f)
+                        lineTo(w*.40f,h*.88f)
+                        lineTo(w*.72f,h*.44f)
+                        lineTo(w*.52f,h*.44f)
+                        close()
+                    }
+                    drawPath(bolt,color,style=line)
+                }
+
+                DockSlotIcon.LAYERS -> {
+                    // Three chevron-less slabs: a stack, the shape of "more than one of them".
+                    listOf(.30f,.50f,.70f).forEachIndexed { index,y ->
+                        val inset=if(index==1) .16f else .22f
+                        drawLine(
+                            color=color,
+                            start=Offset(w*inset,h*y),
+                            end=Offset(w*(1f-inset),h*y),
+                            strokeWidth=stroke,
+                            cap=StrokeCap.Round
+                        )
+                    }
+                    drawCircle(color,radius=w*.055f,center=Offset(w*.5f,h*.50f))
+                }
+
+                DockSlotIcon.BEARING -> {
+                    drawCircle(
+                        color=color,
+                        radius=w*.32f,
+                        center=Offset(w*.5f,h*.5f),
+                        style=Stroke(width=stroke,cap=StrokeCap.Round)
+                    )
+                    // Needle: the only two lines that make a compass read as a bearing.
+                    drawLine(color,Offset(w*.5f,h*.5f),Offset(w*.70f,h*.30f),stroke,StrokeCap.Round)
+                    drawLine(color,Offset(w*.5f,h*.5f),Offset(w*.38f,h*.62f),stroke,StrokeCap.Round)
                 }
             }
         }
@@ -7776,6 +8005,795 @@ private fun LibrarySortChoice(
 
 
 // =================================================================================================
+// MARBLE_DOCK_SLOT_V167 — THE FOURTH TAB
+// =================================================================================================
+//
+// The bar has four slots, and the fourth one belongs to the user: a whole subscription, one exact
+// config, or the live pulse of the running route together with the tools that act on the library.
+//
+// The three surfaces below are real pages built from the same evidence every other page reads —
+// `repo.probeStateOf`, the remembered measurements, `isSelectedProfile`/`isActiveProfile`, the
+// user's own sort order — so a node chosen here is chosen everywhere, a ping measured here is
+// remembered like any other ping, and no two surfaces can disagree about which server is live.
+// Nothing here invents a second source of truth for a state that already has one.
+
+/** The one-line explanation under the fourth slot's page title. */
+private fun dockSlotSubtitle(target: DockSlotTarget): String = when (target.kind) {
+    DockSlotKind.PULSE -> "The live route, and the tools that act on the library"
+    DockSlotKind.SOURCE -> when {
+        target.isEmpty -> "This source has no servers"
+        else -> "${target.profiles.size} servers • ${target.displayName}"
+    }
+    DockSlotKind.CONFIG -> when {
+        target.isEmpty -> "No config chosen yet"
+        else -> "${target.profiles.first().subscriptionName} • ${ServersQuery.address(target.profiles.first())}"
+    }
+}
+
+/** The flag tile every fourth-slot surface uses for one node: flat, inset, one glyph. */
+@Composable
+private fun DockFlagTile(profile: ProxyProfile?, size: Dp = 38.dp) {
+    val flag = profile?.name?.let(::leadingFlagGlyph)
+        ?: profile?.host?.let(::countryGlyph)?.takeIf { it.isNotBlank() && it != "◈" }
+    val shape = RoundedCornerShape(size / 3)
+    Box(
+        modifier = Modifier
+            .size(size)
+            .clip(shape)
+            .background(homeCloudInsetFill())
+            .border(1.dp, homeCloudInsetBorder(), shape),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = flag
+                ?: profile?.scheme?.trim()?.take(1)?.uppercase()?.ifBlank { "M" }
+                ?: "🌐",
+            fontSize = (size.value * .42f).sp,
+            maxLines = 1
+        )
+    }
+}
+
+/** One card surface, in the same language as the Servers page's own cards. */
+@Composable
+private fun DockSlotCard(
+    tone: Color,
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(ServersCardShape)
+            .background(Aether.VoidElevated)
+            .border(1.dp, tone.copy(alpha = .22f), ServersCardShape)
+            .padding(13.dp),
+        verticalArrangement = Arrangement.spacedBy(9.dp),
+        content = content
+    )
+}
+
+/**
+ * The fourth tab's page. One composed surface per slot kind, and the page's own header carries the
+ * way back into the customizer — the slot is the user's, so the door to change it is on the page
+ * it names, never only in Settings.
+ */
+@Composable
+private fun CustomDockPage(
+    repo: AppRepository,
+    deck: DeckEvidence,
+    actions: HomeActions,
+    target: DockSlotTarget,
+    chrome: DockSlotChrome,
+    onConnect: (ProxyProfile) -> Unit,
+    onDetails: (ProxyProfile) -> Unit,
+    onDialog: (String) -> Unit,
+    onCustomize: () -> Unit,
+    onContentScrollChanged: (Boolean) -> Unit
+) {
+    val listState = rememberLazyListState()
+    LaunchedEffect(listState.isScrollInProgress) {
+        onContentScrollChanged(listState.isScrollInProgress)
+    }
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        state = listState,
+        contentPadding = PaddingValues(
+            start = 16.dp,
+            end = 16.dp,
+            top = 6.dp,
+            bottom = dockClearance() + 20.dp
+        ),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        item(key = "dock-slot-header") {
+            MarbleCompactTopBar(
+                title = chrome.caption,
+                subtitle = dockSlotSubtitle(target),
+                actionLabel = "Customize",
+                actionIcon = HomeIcon.MODE,
+                onAction = onCustomize
+            )
+        }
+
+        when (target.kind) {
+            DockSlotKind.PULSE -> {
+                item(key = "dock-slot-pulse-live") { DockPulseLiveCard(repo, deck, actions) }
+                item(key = "dock-slot-pulse-metrics") { DockPulseMetricsCard(repo, deck) }
+                item(key = "dock-slot-pulse-tools") { DockPulseToolsCard(repo, actions, onDialog) }
+            }
+
+            DockSlotKind.SOURCE -> {
+                item(key = "dock-slot-source-head") { DockSourceHeaderCard(repo, target) }
+                if (target.isEmpty) {
+                    item(key = "dock-slot-source-empty") {
+                        DockSlotEmptyCard(
+                            icon = HomeIcon.LIBRARY,
+                            title = "This source has no servers",
+                            detail = "Everything it publishes was removed, or it was never filled. " +
+                                "Pick another source, or add servers from the Servers page.",
+                            actionLabel = "Pick another source",
+                            onAction = onCustomize
+                        )
+                    }
+                } else {
+                    // The user's own order, exactly as the Servers page would draw it. Their hide
+                    // filters are deliberately *not* applied: a page that promises "one
+                    // subscription" has to show the whole subscription.
+                    val ordered = ServersQuery.sort(
+                        profiles = target.profiles,
+                        mode = repo.settings.nodeSortMode,
+                        reverse = repo.settings.nodeSortReverse,
+                        benchmarks = repo.benchmarks.associateBy { it.profileId }
+                    )
+                    // One batch lookup for the whole list, then one row per server that reads it.
+                    val measurements = repo.benchmarks.associateBy { it.profileId }
+                    items(ordered, key = { "dock-slot-src-${it.id}-${it.subscriptionId}" }) { profile ->
+                        DockNodeRow(
+                            profile = profile,
+                            result = measurements[profile.id],
+                            probeState = repo.probeStateOf(profile.id),
+                            active = repo.isActiveProfile(profile),
+                            selected = repo.isSelectedProfile(profile),
+                            onSelect = {
+                                if (repo.probeActive || repo.probeCancelling) {
+                                    repo.setRuntimeMessage("Wait until ping finishes before changing server")
+                                } else if (repo.state == "CONNECTED" || repo.state == "CONNECTING") {
+                                    onConnect(profile)
+                                } else {
+                                    repo.selectProfile(profile)
+                                }
+                            },
+                            onDetails = { onDetails(profile) }
+                        )
+                    }
+                }
+            }
+
+            DockSlotKind.CONFIG -> {
+                item(key = "dock-slot-config-head") {
+                    DockConfigCard(
+                        repo = repo,
+                        target = target,
+                        onConnect = onConnect,
+                        onDetails = onDetails,
+                        onCustomize = onCustomize
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** One empty state, shared by the slot's surfaces: what is missing, and the way to fix it. */
+@Composable
+private fun DockSlotEmptyCard(
+    icon: HomeIcon,
+    title: String,
+    detail: String,
+    actionLabel: String,
+    onAction: () -> Unit
+) {
+    DockSlotCard(tone = Aether.Cyan) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(9.dp)
+        ) {
+            HomeVectorIcon(icon, Aether.Cyan, Modifier.size(18.dp))
+            Text(
+                trx(title),
+                color = Aether.Ink,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.weight(1f)
+            )
+        }
+        Text(trx(detail), color = Aether.InkMuted, style = MaterialTheme.typography.labelSmall)
+        CyberButton(
+            label = actionLabel,
+            color = Aether.Cyan,
+            icon = HomeIcon.MODE,
+            variant = PrismButtonVariant.Primary,
+            compact = true,
+            modifier = Modifier.fillMaxWidth(),
+            onClick = onAction
+        )
+    }
+}
+
+/**
+ * The live half of the pulse slot: which route is carrying traffic, for how long, at what quality.
+ *
+ * It reads the shared deck evidence, so the state word, the uptime and the score are the same facts
+ * Home shows, and the score is only printed when a real score exists — an unmeasured route says so
+ * instead of printing a zero.
+ */
+@Composable
+private fun DockPulseLiveCard(
+    repo: AppRepository,
+    deck: DeckEvidence,
+    actions: HomeActions
+) {
+    val evidence = deck.evidence
+    val tone = homeStateTone(evidence)
+    val uptime = rememberUptimeLabel(evidence.connectedSinceMs)
+
+    DockSlotCard(tone = tone) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(9.dp)
+                    .clip(CircleShape)
+                    .background(tone)
+            )
+            Text(
+                homeStatusText(evidence),
+                color = tone,
+                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                maxLines = 1,
+                modifier = Modifier.weight(1f)
+            )
+            if (repo.liveRouteScore >= 0) {
+                Text(
+                    "${repo.liveRouteScore}%",
+                    color = tone,
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold
+                    )
+                )
+            }
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(9.dp)
+        ) {
+            DockFlagTile(evidence.profile, size = 36.dp)
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                Text(
+                    evidence.nodeName.ifBlank { Tr.now.chooseRoute },
+                    color = Aether.Ink,
+                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    listOfNotNull(
+                        evidence.profile?.let { ServersQuery.badge(it) },
+                        evidence.sourceName.takeIf { it.isNotBlank() },
+                        uptime.takeIf { evidence.connected }
+                    ).joinToString(" • "),
+                    color = Aether.InkMuted,
+                    style = MaterialTheme.typography.labelSmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            Row(
+                modifier = Modifier
+                    .clip(ServersPillShape)
+                    .border(1.dp, tone.copy(alpha = .34f), ServersPillShape)
+                    .kineticClickable(
+                        role = Role.Button,
+                        boundedShape = ServersPillShape,
+                        onClick = { actions.onTestPing() }
+                    )
+                    .padding(horizontal = 11.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(5.dp)
+            ) {
+                HomeVectorIcon(HomeIcon.PING, tone, Modifier.size(13.dp))
+                Text(
+                    trx("Ping"),
+                    color = tone,
+                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold)
+                )
+            }
+        }
+    }
+}
+
+/** Four live numbers of the running route: what it moves, how fast it answers, how steady it is. */
+@Composable
+private fun DockPulseMetricsCard(repo: AppRepository, deck: DeckEvidence) {
+    val evidence = deck.evidence
+    val measured = evidence.pingState == ConnectionPingState.MEASURED
+
+    DockSlotCard(tone = Aether.Cyan) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            MiniMetric(
+                label = "Down",
+                value = compactRate(evidence.downBps),
+                unit = "/s",
+                modifier = Modifier.weight(1f),
+                accent = Aether.Emerald,
+                icon = HomeIcon.DOWNLOAD
+            )
+            MiniMetric(
+                label = "Up",
+                value = compactRate(evidence.upBps),
+                unit = "/s",
+                modifier = Modifier.weight(1f),
+                accent = Aether.Cyan,
+                icon = HomeIcon.UPLOAD
+            )
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            MiniMetric(
+                label = "Ping",
+                value = if (measured && evidence.pingMs > 0) "${evidence.pingMs}" else "—",
+                unit = if (measured && evidence.pingMs > 0) "ms" else "",
+                modifier = Modifier.weight(1f),
+                accent = homePingTone(evidence, Aether.CyanBright),
+                icon = HomeIcon.PING
+            )
+            MiniMetric(
+                label = "Jitter",
+                value = if (repo.liveJitterMs > 0) "${repo.liveJitterMs}" else "—",
+                unit = if (repo.liveJitterMs > 0) "ms" else "",
+                modifier = Modifier.weight(1f),
+                accent = Aether.Amethyst,
+                icon = HomeIcon.JITTER
+            )
+        }
+        Text(
+            trx("Measured by the same engine as the Home ping, and remembered like any other result."),
+            color = Aether.InkFaint,
+            style = MaterialTheme.typography.labelSmall
+        )
+    }
+}
+
+/**
+ * The tools half of the pulse slot: the five things a user reaches for while looking at a live
+ * route, each one a real engine entry point rather than a link somewhere else.
+ *
+ * A running sweep is reported by the Servers page's own progress strip, so the control that started
+ * a measurement stays the control that can cancel it, exactly as it is everywhere else.
+ */
+@Composable
+private fun DockPulseToolsCard(
+    repo: AppRepository,
+    actions: HomeActions,
+    onDialog: (String) -> Unit
+) {
+    val report = repo.bugReport
+
+    DockSlotCard(tone = Aether.Amethyst) {
+        Text(
+            trx("Tools"),
+            color = Aether.Ink,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.Bold
+        )
+        if (repo.inlineProgressActive) {
+            ServersProbeStrip(repo)
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            CyberButton(
+                label = "Rank everything",
+                color = Aether.Amethyst,
+                icon = HomeIcon.RANK,
+                variant = PrismButtonVariant.Primary,
+                compact = true,
+                modifier = Modifier.weight(1f),
+                onClick = { repo.smartRank() }
+            )
+            CyberButton(
+                label = "Ping everything",
+                color = Aether.Cyan,
+                icon = HomeIcon.PING,
+                compact = true,
+                modifier = Modifier.weight(1f),
+                onClick = { repo.testAll() }
+            )
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            CyberButton(
+                label = "Refresh sources",
+                color = Aether.Emerald,
+                icon = HomeIcon.DOWNLOAD,
+                compact = true,
+                modifier = Modifier.weight(1f),
+                onClick = { repo.refreshAll() }
+            )
+            CyberButton(
+                label = if (report == null) "Run Bug Finder" else "Bug report",
+                color = Aether.Amber,
+                icon = HomeIcon.SHIELD,
+                compact = true,
+                modifier = Modifier.weight(1f),
+                onClick = {
+                    // An existing report is read; a missing one is produced first, so the button
+                    // can never open an empty dialog on the first tap.
+                    if (report == null) repo.runBugFinder() else onDialog("Bug Finder")
+                }
+            )
+        }
+        if (report != null) {
+            Text(
+                report.headline,
+                color = Aether.InkMuted,
+                style = MaterialTheme.typography.labelSmall
+            )
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            CyberButton(
+                label = "Privacy audit",
+                color = Aether.CyanBright,
+                icon = HomeIcon.PRIVACY,
+                compact = true,
+                modifier = Modifier.weight(1f),
+                onClick = {
+                    repo.audit()
+                    onDialog("Privacy")
+                }
+            )
+            CyberButton(
+                label = "IP details",
+                color = Aether.SlateBright,
+                icon = HomeIcon.INFO,
+                compact = true,
+                modifier = Modifier.weight(1f),
+                onClick = { actions.onIpDetails() }
+            )
+        }
+    }
+}
+
+/**
+ * The head of a source slot: what the source is, what it costs the account, and the verbs the
+ * Servers page gives that same source — ping and rank always, refresh wherever there is something
+ * remote to fetch — all scoped to it.
+ */
+@Composable
+private fun DockSourceHeaderCard(repo: AppRepository, target: DockSlotTarget) {
+    val subscription = repo.subscriptions.firstOrNull { it.id == target.id }
+    // "All servers" refreshes every source and a subscription refreshes itself; the local Manual
+    // bucket is the one scope with nothing remote to fetch, so it is the one without the verb.
+    val refreshable = target.id != "manual"
+
+    DockSlotCard(tone = Aether.Emerald) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(9.dp)
+        ) {
+            HomeVectorIcon(HomeIcon.NODES, Aether.Emerald, Modifier.size(17.dp))
+            Text(
+                target.displayName,
+                color = Aether.Ink,
+                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
+            )
+            Text(
+                "${target.profiles.size}",
+                color = Aether.Emerald,
+                style = MaterialTheme.typography.labelMedium.copy(
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold
+                )
+            )
+        }
+
+        if (subscription != null) {
+            Text(
+                "${trx("Used")} ${subscriptionUsageText(subscription)} • ${trx("Expires")} ${
+                    subscriptionExpiryText(subscription)
+                }",
+                color = Aether.InkMuted,
+                style = MaterialTheme.typography.labelSmall,
+                maxLines = 2
+            )
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            CyberButton(
+                label = "Ping this source",
+                color = Aether.Cyan,
+                icon = HomeIcon.PING,
+                compact = true,
+                modifier = Modifier.weight(1f),
+                onClick = { repo.testSource(target.id) }
+            )
+            CyberButton(
+                label = "Rank this source",
+                color = Aether.Amethyst,
+                icon = HomeIcon.RANK,
+                compact = true,
+                modifier = Modifier.weight(1f),
+                onClick = { repo.smartRankSource(target.id) }
+            )
+        }
+        if (refreshable) {
+            CyberButton(
+                label = "Refresh this source",
+                color = Aether.Emerald,
+                icon = HomeIcon.DOWNLOAD,
+                compact = true,
+                modifier = Modifier.fillMaxWidth(),
+                onClick = { repo.refreshLibrarySource(target.id) }
+            )
+        }
+    }
+}
+
+/**
+ * One node of a custom slot's list. It is the Servers page's own row grammar — flag, name, wire
+ * badge, address, the remembered latency — at the compact scale of a page inside the bar, and it
+ * answers a tap with the same rule as every other list: select, and reconnect only when a tunnel is
+ * already up.
+ */
+@Composable
+private fun DockNodeRow(
+    profile: ProxyProfile,
+    result: BenchmarkResult?,
+    probeState: ProbeState,
+    active: Boolean,
+    selected: Boolean,
+    onSelect: () -> Unit,
+    onDetails: () -> Unit
+) {
+    val measured = result?.takeIf { it.success > 0 && it.latencyMs >= 20 }
+    val shape = RoundedCornerShape(15.dp)
+    val tone = when {
+        active -> Aether.Emerald
+        selected -> Aether.Cyan
+        else -> Color.Transparent
+    }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(if (tone == Color.Transparent) Aether.VoidElevated else tone.copy(alpha = .08f))
+            .border(
+                1.dp,
+                if (tone == Color.Transparent) Aether.GlassBorderSoft.copy(alpha = .55f) else tone.copy(alpha = .38f),
+                shape
+            )
+            .clickable(onClick = onSelect)
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(9.dp)
+    ) {
+        DockFlagTile(profile, size = 32.dp)
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+            Text(
+                stripLeadingFlag(profile.name),
+                color = Aether.Ink,
+                style = MaterialTheme.typography.labelMedium.copy(
+                    fontWeight = if (selected || active) FontWeight.Bold else FontWeight.Medium
+                ),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                listOf(ServersQuery.badge(profile), ServersQuery.address(profile))
+                    .filter { it.isNotBlank() }
+                    .joinToString(" • "),
+                color = Aether.InkFaint,
+                style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        ServersPingCapsule(
+            latencyMs = measured?.latencyMs?.toInt() ?: 0,
+            measured = measured != null,
+            testing = probeState == ProbeState.TESTING,
+            attempted = result != null && measured == null
+        )
+        Box(
+            modifier = Modifier
+                .size(24.dp)
+                .clip(CircleShape)
+                .kineticClickable(
+                    role = Role.Button,
+                    boundedShape = CircleShape,
+                    onClick = onDetails
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            HomeGlyphIcon(HomeGlyph.INFO, Aether.InkMuted, Modifier.size(13.dp))
+        }
+    }
+}
+
+/**
+ * The head of a config slot: one exact node, the product's own connect control for the route it is,
+ * its own ping, and the two places a user can go from here.
+ *
+ * "Use this config" is a real selection of that exact row — the same call the Servers list makes —
+ * so the fourth slot can never connect to something other than what it names.
+ */
+@Composable
+private fun DockConfigCard(
+    repo: AppRepository,
+    target: DockSlotTarget,
+    onConnect: (ProxyProfile) -> Unit,
+    onDetails: (ProxyProfile) -> Unit,
+    onCustomize: () -> Unit
+) {
+    val pinned = target.profiles.firstOrNull()
+    if (pinned == null) {
+        DockSlotEmptyCard(
+            icon = HomeIcon.SERVER,
+            title = "No config chosen yet",
+            detail = "Pick one saved config for this slot, and it will be one tap away from the bar " +
+                "for as long as you keep it there.",
+            actionLabel = "Choose a config",
+            onAction = onCustomize
+        )
+        return
+    }
+
+    val benchmarks = repo.benchmarks.associateBy { it.profileId }
+    val result = benchmarks[pinned.id]
+    val measured = result?.takeIf { it.success > 0 && it.latencyMs >= 20 }
+    val selected = repo.isSelectedProfile(pinned)
+    val active = repo.isActiveProfile(pinned)
+    val tone = when {
+        active -> Aether.Emerald
+        selected -> Aether.Cyan
+        else -> Aether.SlateBright
+    }
+
+    DockSlotCard(tone = tone) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            DockFlagTile(pinned, size = 40.dp)
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                Text(
+                    stripLeadingFlag(pinned.name),
+                    color = Aether.Ink,
+                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    listOf(ServersQuery.badge(pinned), ServersQuery.address(pinned))
+                        .filter { it.isNotBlank() }
+                        .joinToString(" • "),
+                    color = Aether.InkMuted,
+                    style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    pinned.subscriptionName,
+                    color = Aether.InkFaint,
+                    style = MaterialTheme.typography.labelSmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            ServersPingCapsule(
+                latencyMs = measured?.latencyMs?.toInt() ?: 0,
+                measured = measured != null,
+                testing = repo.probeStateOf(pinned.id) == ProbeState.TESTING,
+                attempted = result != null && measured == null
+            )
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            CyberButton(
+                label = when {
+                    active -> "Disconnect"
+                    selected -> "Connect this config"
+                    else -> "Use this config"
+                },
+                color = if (active) Aether.Danger else Aether.Emerald,
+                icon = if (active) HomeIcon.POWER else HomeIcon.CHECK,
+                variant = PrismButtonVariant.Primary,
+                compact = true,
+                modifier = Modifier.weight(1f),
+                onClick = {
+                    when {
+                        active -> repo.stopVpn()
+                        selected -> onConnect(pinned)
+                        else -> repo.selectProfile(pinned)
+                    }
+                }
+            )
+            CyberButton(
+                label = "Ping",
+                color = Aether.Cyan,
+                icon = HomeIcon.PING,
+                compact = true,
+                modifier = Modifier.weight(1f),
+                onClick = {
+                    repo.pingProfiles(
+                        profiles = listOf(pinned),
+                        scopeLabel = stripLeadingFlag(pinned.name),
+                        scopeId = pinned.subscriptionId
+                    )
+                }
+            )
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            CyberButton(
+                label = "Details",
+                color = Aether.Amethyst,
+                icon = HomeIcon.DETAILS,
+                compact = true,
+                modifier = Modifier.weight(1f),
+                onClick = { onDetails(pinned) }
+            )
+            CyberButton(
+                label = "Change config",
+                color = Aether.SlateBright,
+                icon = HomeIcon.MODE,
+                compact = true,
+                modifier = Modifier.weight(1f),
+                onClick = onCustomize
+            )
+        }
+        if (selected && !active) {
+            Text(
+                trx("Selected: the connect button on Home and the dock's own Connect act on this config."),
+                color = Aether.InkFaint,
+                style = MaterialTheme.typography.labelSmall
+            )
+        }
+    }
+}
+
+// =================================================================================================
 // SETTINGS / SWIPEABLE WORKSPACES
 // =================================================================================================
 
@@ -7876,6 +8894,13 @@ private object SettingsPages {
     const val XRAY_CORE = "xray-core"
     const val SINGBOX_CORE = "singbox-core"
     const val ROUTING = "routing"
+
+    /**
+     * MARBLE_DOCK_SLOT_V167 — the fourth tab's own customization page. It is a page rather than a
+     * row of switches because the slot has a subject (which source, which config), a name its user
+     * writes, and a glyph its user picks: that is a workspace, not a toggle.
+     */
+    const val DOCK_SLOT = "dock-slot"
     private const val WORKSPACE = "workspace"
 
     fun workspace(tab: SettingsWorkspaceTab, focus: String? = null): String =
@@ -8417,6 +9442,75 @@ private fun SettingsStyleMotif(style: HomeStyle, tone: Color, modifier: Modifier
     }
 }
 
+/**
+ * MARBLE_DOCK_SLOT_V167 — the hub's miniature of the bar: three quiet slots, then the fourth in the
+ * user's own colour, dimmed when the slot is switched off. It answers "is my tab on the bar?" with
+ * a picture instead of a sentence.
+ */
+@Composable
+private fun SettingsDockSlotPreview(icon: DockSlotIcon, enabled: Boolean, tone: Color) {
+    // Aether is a composition-local palette, so the mark's own ink is read here, in the composable
+    // body, and never inside the draw lambda — which is not a composable scope.
+    val mark = Aether.Void
+    Canvas(Modifier.size(width = 34.dp, height = 20.dp)) {
+        val w = size.width
+        val h = size.height
+        val slot = (w - 3 * 3.dp.toPx()) / 4f
+        val shape = CornerRadius(3.dp.toPx(), 3.dp.toPx())
+        repeat(3) { index ->
+            drawRoundRect(
+                color = tone.copy(alpha = .28f),
+                topLeft = Offset(index * (slot + 3.dp.toPx()), h * .30f),
+                size = Size(slot, h * .40f),
+                cornerRadius = shape
+            )
+        }
+        drawRoundRect(
+            color = tone.copy(alpha = if (enabled) .85f else .16f),
+            topLeft = Offset(3 * (slot + 3.dp.toPx()), h * .20f),
+            size = Size(slot, h * .60f),
+            cornerRadius = shape
+        )
+        if (enabled) {
+            // One legible mark inside the lit slot. At 34 × 20 dp a full glyph is mush, and a mark
+            // that reads beats a shape that does not; the four glyphs themselves are previewed at
+            // their real size on the customization page.
+            val cx = 3 * (slot + 3.dp.toPx()) + slot / 2f
+            val cy = h * .50f
+            val stroke = 1.4.dp.toPx()
+            when (icon) {
+                DockSlotIcon.PULSE -> drawLine(
+                    mark,
+                    Offset(cx - slot * .22f, cy),
+                    Offset(cx + slot * .22f, cy),
+                    stroke,
+                    StrokeCap.Round
+                )
+
+                DockSlotIcon.SPARK -> drawCircle(
+                    mark,
+                    radius = stroke * .9f,
+                    center = Offset(cx, cy)
+                )
+
+                DockSlotIcon.LAYERS -> {
+                    val gap = stroke * 1.6f
+                    drawLine(mark, Offset(cx - slot * .22f, cy - gap), Offset(cx + slot * .22f, cy - gap), stroke, StrokeCap.Round)
+                    drawLine(mark, Offset(cx - slot * .22f, cy + gap), Offset(cx + slot * .22f, cy + gap), stroke, StrokeCap.Round)
+                }
+
+                DockSlotIcon.BEARING -> drawLine(
+                    mark,
+                    Offset(cx - slot * .18f, cy + slot * .18f),
+                    Offset(cx + slot * .18f, cy - slot * .18f),
+                    stroke,
+                    StrokeCap.Round
+                )
+            }
+        }
+    }
+}
+
 /** "Aa" in the candidate face — the cheapest honest preview of a typeface. */
 @Composable
 private fun SettingsTypefacePreview(fontId: String, tone: Color) {
@@ -8613,6 +9707,23 @@ private fun SettingsHub(
                     tone = Aether.Cyan,
                     onClick = { onNavigate(SettingsPages.HOME_STYLE) }
                 ) { SettingsStyleMotif(activeStyle, Aether.Cyan, Modifier.size(width = 34.dp, height = 20.dp)) }
+                // MARBLE_DOCK_SLOT_V167 — the fourth tab of the bar is the user's, so the hub
+                // answers "what is in it right now?" before the page is even opened.
+                SettingsHubRow(
+                    title = "Fourth tab",
+                    subtitle = dockSlotSettingsSubtitle(
+                        settings,
+                        dockSlotTarget(repo, parseDockSlotKind(settings.dockSlotKind))
+                    ),
+                    tone = Aether.CyanBright,
+                    onClick = { onNavigate(SettingsPages.DOCK_SLOT) }
+                ) {
+                    SettingsDockSlotPreview(
+                        icon = parseDockSlotIcon(settings.dockSlotIcon),
+                        enabled = settings.dockSlotEnabled,
+                        tone = Aether.CyanBright
+                    )
+                }
                 SettingsHubRow(
                     title = "Typeface",
                     subtitle = activeFont.label,
@@ -9957,6 +11068,8 @@ private fun SpatialSettings(
     val xrayCoreListState = rememberLazyListState()
     val singBoxCoreListState = rememberLazyListState()
     val routingListState = rememberLazyListState()
+    // MARBLE_DOCK_SLOT_V167
+    val dockSlotListState = rememberLazyListState()
     // One scroll state per workspace tab; only the active tab's is shown at a time.
     val workspaceListStates = remember {
         SettingsWorkspaceTab.entries.associateWith { LazyListState() }
@@ -9969,10 +11082,15 @@ private fun SpatialSettings(
         repo.rememberSettingsPage(page)
     }
 
-    // A deep link from Home ("Routing") lands directly on the dedicated Routing page.
+    // A deep link from Home ("Routing") lands directly on the dedicated Routing page, and the
+    // fourth tab's own Customize entry lands on its customization page.
     LaunchedEffect(focusSection) {
         if (focusSection == "Routing") {
             page = SettingsPages.ROUTING
+        } else if (focusSection == SettingsPages.DOCK_SLOT) {
+            // MARBLE_DOCK_SLOT_V167 — the fourth tab's Customize entry is a focus value too, and
+            // it lands on the slot's own page rather than the hub.
+            page = SettingsPages.DOCK_SLOT
         }
     }
 
@@ -10042,6 +11160,14 @@ private fun SpatialSettings(
                 SettingsRoutingPage(
                     repo = repo,
                     listState = routingListState,
+                    onBack = { page = SettingsPages.HUB }
+                )
+
+            // MARBLE_DOCK_SLOT_V167 — the fourth tab's customization workspace.
+            target == SettingsPages.DOCK_SLOT ->
+                SettingsDockSlotPage(
+                    repo = repo,
+                    listState = dockSlotListState,
                     onBack = { page = SettingsPages.HUB }
                 )
 
@@ -10181,6 +11307,32 @@ private fun settingsSections(
                 HomeIcon.SERVER,
                 Aether.Emerald
             ) { DockSettings(repo) },
+            // MARBLE_DOCK_SLOT_V167 — the fourth tab lives next to the bar it belongs to: the
+            // switch that shows it, what it opens right now, and the door to its own page.
+            card(
+                "Fourth tab",
+                dockSlotSettingsSubtitle(
+                    repo.settings,
+                    dockSlotTarget(repo, parseDockSlotKind(repo.settings.dockSlotKind))
+                ),
+                HomeIcon.PLUS,
+                Aether.CyanBright
+            ) {
+                SettingSwitch(
+                    title = "Show the fourth tab",
+                    subtitle = "Off leaves the three-tab bar this product shipped with; nothing else changes.",
+                    checked = repo.settings.dockSlotEnabled
+                ) { repo.updateSettings(repo.settings.copy(dockSlotEnabled = it)) }
+                CyberButton(
+                    label = "Customize the fourth tab",
+                    color = Aether.CyanBright,
+                    icon = HomeIcon.MODE,
+                    variant = PrismButtonVariant.Primary,
+                    compact = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = { onNavigate(SettingsPages.DOCK_SLOT) }
+                )
+            },
             card("Subscriptions","Refresh & sources",HomeIcon.LIBRARY,Aether.Amethyst) { SubscriptionSettings(repo) },
             // MARBLE_MODULAR_CUSTOMIZER_V151 — Home style 4 can hide its Customize affordance.
             // The switch that hides it lives in the customizer itself, so the way back has to live
@@ -13334,6 +14486,638 @@ private fun DockSettings(repo: AppRepository) {
                 dockShowLabels = if (!enabled) true else repo.settings.dockShowLabels
             )
         )
+    }
+}
+
+// =================================================================================================
+// MARBLE_DOCK_SLOT_V167 — Settings › Fourth tab
+// =================================================================================================
+//
+// One page owns the whole slot: whether the bar carries it, what it opens, what it is called and
+// which glyph it draws. Everything on this page changes the bar immediately — there is no Save,
+// because the bar is on screen behind the page and a preview that lies about the result is worse
+// than no preview at all.
+
+/** The readable name of a slot kind, shown on the segments and the hub row. */
+private fun dockSlotKindLabel(kind: DockSlotKind): String = when (kind) {
+    DockSlotKind.PULSE -> "Live pulse"
+    DockSlotKind.SOURCE -> "One subscription"
+    DockSlotKind.CONFIG -> "One config"
+}
+
+/** The one-line explanation under a slot kind's segment. */
+private fun dockSlotKindDetail(kind: DockSlotKind): String = when (kind) {
+    DockSlotKind.PULSE -> "State, rates and tools"
+    DockSlotKind.SOURCE -> "Every server of one source"
+    DockSlotKind.CONFIG -> "One saved config, one tap"
+}
+
+@Composable
+private fun dockSlotKindTone(kind: DockSlotKind): Color = when (kind) {
+    DockSlotKind.PULSE -> Aether.Cyan
+    DockSlotKind.SOURCE -> Aether.Emerald
+    DockSlotKind.CONFIG -> Aether.Amethyst
+}
+
+/** The hub row's subtitle: what the slot currently is, or that it is not on the bar. */
+private fun dockSlotSettingsSubtitle(settings: AppSettings, target: DockSlotTarget): String {
+    if (!settings.dockSlotEnabled) return "Hidden • the bar keeps three tabs"
+    val caption = dockSlotCaption(settings.dockSlotLabel)
+    return listOf(dockSlotKindLabel(target.kind), caption.ifBlank { target.displayName })
+        .filter { it.isNotBlank() }
+        .joinToString(" • ")
+}
+
+/**
+ * The master switch, the kind, the subject, the name and the glyph — in that order, because that is
+ * the order the questions come in: is it there, what does it do, what does it act on, what does it
+ * say, what does it look like.
+ */
+@Composable
+private fun SettingsDockSlotPage(
+    repo: AppRepository,
+    onBack: () -> Unit,
+    listState: LazyListState = rememberLazyListState()
+) {
+    val settings = repo.settings
+    val kind = parseDockSlotKind(settings.dockSlotKind)
+    val target = dockSlotTarget(repo, kind)
+    val icon = parseDockSlotIcon(settings.dockSlotIcon)
+    val effectiveCaption = dockSlotCaption(settings.dockSlotLabel).ifBlank {
+        dockSlotCaptionText(kind, target.displayName)
+    }
+
+    SettingsSubPage(
+        title = "Fourth tab",
+        subtitle = "What the fourth slot of the bottom bar opens, what it is called and how it looks",
+        onBack = onBack,
+        listState = listState
+    ) {
+        // The bar itself, at the size the user chose: four slots, the fourth one live.
+        DockSlotBarPreview(
+            caption = effectiveCaption,
+            icon = icon,
+            enabled = settings.dockSlotEnabled,
+            active = true
+        )
+
+        SettingSwitch(
+            title = "Show the fourth tab",
+            subtitle = "Off leaves the three-tab bar this product shipped with; nothing else changes.",
+            checked = settings.dockSlotEnabled
+        ) { repo.updateSettings(repo.settings.copy(dockSlotEnabled = it)) }
+
+        Text(
+            trx("What it opens"),
+            color = Aether.Ink,
+            style = settingsRowTitleStyle()
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            DockSlotKind.entries.forEach { candidate ->
+                CyberSegment(
+                    label = dockSlotKindLabel(candidate),
+                    detail = dockSlotKindDetail(candidate),
+                    selected = kind == candidate,
+                    color = dockSlotKindTone(candidate),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    repo.updateSettings(repo.settings.copy(dockSlotKind = candidate.id))
+                }
+            }
+        }
+
+        when (kind) {
+            DockSlotKind.PULSE -> Text(
+                trx("The pulse needs no subject: it always shows the route that is carrying traffic, " +
+                    "and the tools act on the whole library."),
+                color = Aether.InkMuted,
+                style = settingsBodyStyle()
+            )
+
+            DockSlotKind.SOURCE -> DockSlotSourcePicker(repo)
+
+            DockSlotKind.CONFIG -> DockSlotConfigPicker(repo, target)
+        }
+
+        DockSlotCaptionField(repo)
+
+        Text(
+            trx("Tab icon"),
+            color = Aether.Ink,
+            style = settingsRowTitleStyle()
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            DockSlotIcon.entries.forEach { candidate ->
+                DockSlotIconChoice(
+                    icon = candidate,
+                    selected = icon == candidate,
+                    tone = dockSlotKindTone(kind),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    repo.updateSettings(repo.settings.copy(dockSlotIcon = candidate.id))
+                }
+            }
+        }
+    }
+}
+
+/**
+ * A live miniature of the dock: the three fixed slots, then the fourth drawn exactly as the bar
+ * draws it — the user's caption, the user's glyph. It is the only honest answer to "what did I just
+ * change?" that does not require leaving the page.
+ */
+@Composable
+private fun DockSlotBarPreview(
+    caption: String,
+    icon: DockSlotIcon,
+    enabled: Boolean,
+    active: Boolean
+) {
+    val dim = if (enabled) 1f else .38f
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(Aether.VoidElevated)
+            .border(1.dp, Aether.GlassBorderSoft.copy(alpha = .55f), RoundedCornerShape(18.dp))
+            .padding(horizontal = 8.dp, vertical = 9.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        listOf(
+            Tr.now.tabHome to HomeIcon.MODE,
+            Tr.now.tabLibrary to HomeIcon.LIBRARY,
+            Tr.now.tabSettings to HomeIcon.STATUS
+        ).forEach { (label, glyph) ->
+            Row(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(14.dp))
+                    .padding(vertical = 5.dp),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                HomeVectorIcon(glyph, Aether.InkFaint, Modifier.size(13.dp))
+                Spacer(Modifier.width(5.dp))
+                Text(
+                    label,
+                    color = Aether.InkFaint,
+                    style = MaterialTheme.typography.labelSmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+        Row(
+            modifier = Modifier
+                .weight(1f)
+                .alpha(dim)
+                .clip(RoundedCornerShape(14.dp))
+                .background(if (active) Aether.Cyan.copy(alpha = .16f) else Color.Transparent)
+                .border(
+                    1.dp,
+                    if (active) Aether.Cyan.copy(alpha = .34f) else Color.Transparent,
+                    RoundedCornerShape(14.dp)
+                )
+                .padding(vertical = 5.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Aether is a composition-local palette: the glyph ink is read here, in the composable
+            // body, and never inside the draw lambda below.
+            val glyphInk = Aether.Cyan
+            Canvas(Modifier.size(14.dp)) {
+                val w = size.width
+                val h = size.height
+                val stroke = 1.6.dp.toPx()
+                val line = Stroke(width = stroke, cap = StrokeCap.Round)
+                when (icon) {
+                    DockSlotIcon.PULSE -> drawPath(
+                        Path().apply {
+                            moveTo(w * .14f, h * .52f)
+                            lineTo(w * .32f, h * .52f)
+                            lineTo(w * .42f, h * .26f)
+                            lineTo(w * .56f, h * .76f)
+                            lineTo(w * .66f, h * .44f)
+                            lineTo(w * .86f, h * .44f)
+                        },
+                        glyphInk,
+                        style = line
+                    )
+
+                    DockSlotIcon.SPARK -> drawPath(
+                        Path().apply {
+                            moveTo(w * .58f, h * .12f)
+                            lineTo(w * .28f, h * .54f)
+                            lineTo(w * .48f, h * .54f)
+                            lineTo(w * .40f, h * .88f)
+                            lineTo(w * .72f, h * .44f)
+                            lineTo(w * .52f, h * .44f)
+                            close()
+                        },
+                        glyphInk,
+                        style = line
+                    )
+
+                    DockSlotIcon.LAYERS -> listOf(.30f, .50f, .70f).forEachIndexed { index, y ->
+                        val inset = if (index == 1) .16f else .22f
+                        drawLine(
+                            glyphInk,
+                            Offset(w * inset, h * y),
+                            Offset(w * (1f - inset), h * y),
+                            stroke,
+                            StrokeCap.Round
+                        )
+                    }
+
+                    DockSlotIcon.BEARING -> {
+                        drawCircle(
+                            glyphInk,
+                            radius = w * .32f,
+                            center = Offset(w * .5f, h * .5f),
+                            style = Stroke(width = stroke, cap = StrokeCap.Round)
+                        )
+                        drawLine(glyphInk, Offset(w * .5f, h * .5f), Offset(w * .70f, h * .30f), stroke, StrokeCap.Round)
+                        drawLine(glyphInk, Offset(w * .5f, h * .5f), Offset(w * .38f, h * .62f), stroke, StrokeCap.Round)
+                    }
+                }
+            }
+            Spacer(Modifier.width(5.dp))
+            Text(
+                caption,
+                color = if (active) Aether.Cyan else Aether.InkFaint,
+                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+    if (!enabled) {
+        Text(
+            trx("The fourth slot is off, so the bar draws three tabs."),
+            color = Aether.InkFaint,
+            style = settingsBodyStyle()
+        )
+    }
+}
+
+/** One tappable icon choice: the exact glyph the bar would draw, on the slot's own tone. */
+@Composable
+private fun DockSlotIconChoice(
+    icon: DockSlotIcon,
+    selected: Boolean,
+    tone: Color,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    val shape = RoundedCornerShape(14.dp)
+    // The chosen glyph draws on its own tone and an unchosen one on the muted ink; both are read
+    // here, in the composable body, because the Canvas below is not a composable scope.
+    val glyphInk = if (selected) tone else Aether.InkMuted
+    Box(
+        modifier = modifier
+            .heightIn(min = 48.dp)
+            .clip(shape)
+            .background(if (selected) tone.copy(alpha = .14f) else homeCloudInsetFill())
+            .border(
+                1.dp,
+                if (selected) tone.copy(alpha = .48f) else homeCloudInsetBorder(),
+                shape
+            )
+            .kineticClickable(role = Role.RadioButton, boundedShape = shape, onClick = onClick)
+            .semantics { this.selected = selected },
+        contentAlignment = Alignment.Center
+    ) {
+        Canvas(Modifier.size(20.dp)) {
+            val w = size.width
+            val h = size.height
+            val stroke = 1.9.dp.toPx()
+            val line = Stroke(width = stroke, cap = StrokeCap.Round)
+            val ink = glyphInk
+            when (icon) {
+                DockSlotIcon.PULSE -> drawPath(
+                    Path().apply {
+                        moveTo(w * .14f, h * .52f)
+                        lineTo(w * .32f, h * .52f)
+                        lineTo(w * .42f, h * .26f)
+                        lineTo(w * .56f, h * .76f)
+                        lineTo(w * .66f, h * .44f)
+                        lineTo(w * .86f, h * .44f)
+                    },
+                    ink,
+                    style = line
+                )
+
+                DockSlotIcon.SPARK -> drawPath(
+                    Path().apply {
+                        moveTo(w * .58f, h * .12f)
+                        lineTo(w * .28f, h * .54f)
+                        lineTo(w * .48f, h * .54f)
+                        lineTo(w * .40f, h * .88f)
+                        lineTo(w * .72f, h * .44f)
+                        lineTo(w * .52f, h * .44f)
+                        close()
+                    },
+                    ink,
+                    style = line
+                )
+
+                DockSlotIcon.LAYERS -> listOf(.30f, .50f, .70f).forEachIndexed { index, y ->
+                    val inset = if (index == 1) .16f else .22f
+                    drawLine(
+                        ink,
+                        Offset(w * inset, h * y),
+                        Offset(w * (1f - inset), h * y),
+                        stroke,
+                        StrokeCap.Round
+                    )
+                }
+
+                DockSlotIcon.BEARING -> {
+                    drawCircle(
+                        ink,
+                        radius = w * .32f,
+                        center = Offset(w * .5f, h * .5f),
+                        style = Stroke(width = stroke, cap = StrokeCap.Round)
+                    )
+                    drawLine(ink, Offset(w * .5f, h * .5f), Offset(w * .70f, h * .30f), stroke, StrokeCap.Round)
+                    drawLine(ink, Offset(w * .5f, h * .5f), Offset(w * .38f, h * .62f), stroke, StrokeCap.Round)
+                }
+            }
+        }
+    }
+}
+
+/** One row of a picker: a title, one quiet line, and a trailing count or state. */
+@Composable
+private fun DockSlotPickerRow(
+    title: String,
+    detail: String,
+    trailing: String,
+    selected: Boolean,
+    tone: Color,
+    onClick: () -> Unit
+) {
+    val shape = RoundedCornerShape(14.dp)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(if (selected) tone.copy(alpha = .12f) else homeCloudInsetFill())
+            .border(
+                1.dp,
+                if (selected) tone.copy(alpha = .42f) else homeCloudInsetBorder(),
+                shape
+            )
+            .kineticClickable(role = Role.RadioButton, boundedShape = shape, onClick = onClick)
+            .semantics { this.selected = selected }
+            .padding(horizontal = 11.dp, vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(9.dp)
+    ) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+            Text(
+                title,
+                color = Aether.Ink,
+                style = MaterialTheme.typography.labelMedium.copy(
+                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium
+                ),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            if (detail.isNotBlank()) {
+                Text(
+                    detail,
+                    color = Aether.InkFaint,
+                    style = MaterialTheme.typography.labelSmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+        if (trailing.isNotBlank()) {
+            Text(
+                trailing,
+                color = if (selected) tone else Aether.InkMuted,
+                style = MaterialTheme.typography.labelSmall.copy(
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold
+                ),
+                maxLines = 1
+            )
+        }
+        if (selected) {
+            Box(
+                modifier = Modifier
+                    .size(18.dp)
+                    .clip(CircleShape)
+                    .background(tone),
+                contentAlignment = Alignment.Center
+            ) {
+                HomeGlyphIcon(HomeGlyph.CHECK, Color.White, Modifier.size(10.dp))
+            }
+        } else {
+            Spacer(Modifier.size(18.dp))
+        }
+    }
+}
+
+/** The subject picker of a subscription slot: All, Manual, or one subscription. */
+@Composable
+private fun DockSlotSourcePicker(repo: AppRepository) {
+    val settings = repo.settings
+    val pinned = settings.dockSlotSourceId.trim().ifBlank { "all" }
+    val library = repo.libraryProfiles
+
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(
+            trx("Which source"),
+            color = Aether.Ink,
+            style = settingsRowTitleStyle()
+        )
+        DockSlotPickerRow(
+            title = trx(DOCK_SLOT_ALL_SOURCES),
+            detail = trx("Every server in the library"),
+            trailing = "${library.size}",
+            selected = pinned == "all",
+            tone = Aether.Emerald
+        ) { repo.updateSettings(repo.settings.copy(dockSlotSourceId = "all")) }
+
+        DockSlotPickerRow(
+            title = trx("Manual"),
+            detail = trx("Servers you added yourself"),
+            trailing = "${library.count { it.subscriptionId == "manual" }}",
+            selected = pinned == "manual",
+            tone = Aether.Emerald
+        ) { repo.updateSettings(repo.settings.copy(dockSlotSourceId = "manual")) }
+
+        repo.subscriptions.forEach { sub ->
+            DockSlotPickerRow(
+                title = sub.name,
+                detail = if (sub.url.isBlank()) trx("Local source") else trx("Subscription"),
+                trailing = "${library.count { it.subscriptionId == sub.id }}",
+                selected = pinned == sub.id,
+                tone = Aether.Emerald
+            ) { repo.updateSettings(repo.settings.copy(dockSlotSourceId = sub.id)) }
+        }
+
+        if (repo.subscriptions.isEmpty()) {
+            Text(
+                trx("No subscriptions yet. Add one from the Servers page and it appears here."),
+                color = Aether.InkFaint,
+                style = settingsBodyStyle()
+            )
+        }
+    }
+}
+
+/**
+ * The subject picker of a config slot: the whole library, searchable, one row per config.
+ *
+ * The list is a bounded scroll of its own — a page inside a page — so a 500-node library can be
+ * searched here without the settings page growing a second, competing scroll of its own.
+ */
+@Composable
+private fun DockSlotConfigPicker(repo: AppRepository, target: DockSlotTarget) {
+    var search by remember { mutableStateOf("") }
+    val benchmarks = repo.benchmarks.associateBy { it.profileId }
+    val pinned = target.profiles.firstOrNull()
+    val matches = ServersQuery.sort(
+        profiles = ServersQuery.visible(
+            profiles = repo.libraryProfiles,
+            filter = ServersFilter(query = search),
+            benchmarks = benchmarks
+        ),
+        mode = NodeSortMode.DEFAULT,
+        reverse = false,
+        benchmarks = benchmarks
+    ).take(DOCK_SLOT_PICKER_CAP)
+
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(
+            trx("Which config"),
+            color = Aether.Ink,
+            style = settingsRowTitleStyle()
+        )
+        if (pinned != null) {
+            Text(
+                "${trx("Pinned")}: ${stripLeadingFlag(pinned.name)}",
+                color = Aether.Amethyst,
+                style = settingsBodyStyle()
+            )
+        }
+        ServersSearchField(
+            value = search,
+            onValueChange = { search = it },
+            onClear = { search = "" }
+        )
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 280.dp)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            if (matches.isEmpty()) {
+                Text(
+                    if (repo.libraryProfiles.isEmpty()) {
+                        trx("The library is empty. Add a config from the Servers page first.")
+                    } else {
+                        trx("No config matches this search.")
+                    },
+                    color = Aether.InkFaint,
+                    style = settingsBodyStyle()
+                )
+            }
+            matches.forEach { profile ->
+                val isPinned = pinned?.id == profile.id && pinned.subscriptionId == profile.subscriptionId
+                DockSlotPickerRow(
+                    title = stripLeadingFlag(profile.name),
+                    detail = listOf(ServersQuery.badge(profile), ServersQuery.address(profile))
+                        .filter { it.isNotBlank() }
+                        .joinToString(" • "),
+                    trailing = ServersQuery.measuredMs(profile, benchmarks)
+                        .takeIf { it > 0 }?.let { "$it ms" }
+                        ?: "",
+                    selected = isPinned,
+                    tone = Aether.Amethyst
+                ) {
+                    repo.updateSettings(
+                        repo.settings.copy(
+                            dockSlotProfileId = profile.id,
+                            dockSlotProfileSourceId = profile.subscriptionId
+                        )
+                    )
+                }
+            }
+            if (matches.size >= DOCK_SLOT_PICKER_CAP) {
+                Text(
+                    trx("Showing the first $DOCK_SLOT_PICKER_CAP configs — search to narrow them down."),
+                    color = Aether.InkFaint,
+                    style = settingsBodyStyle()
+                )
+            }
+        }
+    }
+}
+
+/** The caption field: the user's own words, or the target's name when they wrote none. */
+@Composable
+private fun DockSlotCaptionField(repo: AppRepository) {
+    val settings = repo.settings
+    var draft by remember { mutableStateOf(settings.dockSlotLabel) }
+    val kind = parseDockSlotKind(settings.dockSlotKind)
+    val target = dockSlotTarget(repo, kind)
+    val fallback = dockSlotCaptionText(kind, target.displayName)
+
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(
+            trx("Tab name"),
+            color = Aether.Ink,
+            style = settingsRowTitleStyle()
+        )
+        OutlinedTextField(
+            value = draft,
+            onValueChange = { raw ->
+                // The bar divides one row between four tabs, so the caption is bounded at the
+                // model level: what is typed here is what the bar can actually draw.
+                val bounded = raw.take(DOCK_SLOT_CAPTION_MAX * 2)
+                draft = bounded
+                val stored = dockSlotCaption(bounded)
+                if (stored != repo.settings.dockSlotLabel) {
+                    repo.updateSettings(repo.settings.copy(dockSlotLabel = stored))
+                }
+            },
+            label = { Text(trx("Shown under the icon")) },
+            singleLine = true,
+            shape = ServersCardShape,
+            modifier = Modifier.fillMaxWidth(),
+            colors = marbleOutlinedTextFieldColors()
+        )
+        Text(
+            "${trx("Blank uses")} $fallback",
+            color = Aether.InkFaint,
+            style = settingsBodyStyle()
+        )
+        if (settings.dockSlotLabel.isNotBlank()) {
+            CyberButton(
+                label = "Use the target name",
+                color = Aether.Cyan,
+                icon = HomeIcon.RESET,
+                compact = true,
+                modifier = Modifier.fillMaxWidth(),
+                onClick = {
+                    draft = ""
+                    repo.updateSettings(repo.settings.copy(dockSlotLabel = ""))
+                }
+            )
+        }
     }
 }
 

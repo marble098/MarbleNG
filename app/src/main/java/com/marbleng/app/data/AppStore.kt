@@ -485,6 +485,16 @@ class AppStore(context: Context) {
         dockShowIcons = prefs.getBoolean("dockShowIcons", true),
         dockSize = parseDockSize(prefs.getString("dockSize", DockSize.MEDIUM.id) ?: DockSize.MEDIUM.id).id,
 
+        // MARBLE_DOCK_SLOT_V167 — the fourth tab. Every field is normalised on read, so a value
+        // written by an older build (or hand-edited) can never leave the slot blank or undefined.
+        dockSlotEnabled = prefs.getBoolean("dockSlotEnabled", true),
+        dockSlotKind = parseDockSlotKind(prefs.getString("dockSlotKind", DockSlotKind.DEFAULT.id) ?: DockSlotKind.DEFAULT.id).id,
+        dockSlotSourceId = prefs.getString("dockSlotSourceId", "all") ?: "all",
+        dockSlotProfileId = prefs.getString("dockSlotProfileId", "") ?: "",
+        dockSlotProfileSourceId = prefs.getString("dockSlotProfileSourceId", "") ?: "",
+        dockSlotLabel = dockSlotCaption(prefs.getString("dockSlotLabel", "") ?: ""),
+        dockSlotIcon = parseDockSlotIcon(prefs.getString("dockSlotIcon", DockSlotIcon.DEFAULT.id) ?: DockSlotIcon.DEFAULT.id).id,
+
         debugModeEnabled = prefs.getBoolean("debugModeEnabled", false),
         expertMode = prefs.getBoolean("expertMode", false)
         )
@@ -689,6 +699,15 @@ class AppStore(context: Context) {
         .putBoolean("dockShowLabels", s.dockShowLabels)
         .putBoolean("dockShowIcons", s.dockShowIcons)
         .putString("dockSize", parseDockSize(s.dockSize).id)
+
+        // MARBLE_DOCK_SLOT_V167
+        .putBoolean("dockSlotEnabled", s.dockSlotEnabled)
+        .putString("dockSlotKind", parseDockSlotKind(s.dockSlotKind).id)
+        .putString("dockSlotSourceId", s.dockSlotSourceId.trim())
+        .putString("dockSlotProfileId", s.dockSlotProfileId.trim())
+        .putString("dockSlotProfileSourceId", s.dockSlotProfileSourceId.trim())
+        .putString("dockSlotLabel", dockSlotCaption(s.dockSlotLabel))
+        .putString("dockSlotIcon", parseDockSlotIcon(s.dockSlotIcon).id)
 
         .putBoolean("debugModeEnabled", s.debugModeEnabled)
         .putBoolean("expertMode", s.expertMode)
