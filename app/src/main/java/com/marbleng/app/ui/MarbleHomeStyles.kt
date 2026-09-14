@@ -1958,13 +1958,16 @@ internal fun homeStateTone(evidence: HomeEvidence): Color = when {
 private fun StatusDot(stateColor: Color, busy: Boolean, size: Dp = 18.dp) {
     val motion = MarbleMotion.current
     Canvas(modifier = Modifier.size(size)) {
+        // MARBLE_HOME_COMPACT_BANNER_V167 — the diameter is now a parameter, and a parameter named
+        // `size` shadows DrawScope's own metric, so the pip's geometry reads it as a length.
+        val diameter = size.toPx()
         // The shared clock is read in the draw phase: ambient motion costs zero recompositions.
         val breathe = motion.breathe(900)
         val haloAlpha = if (busy) 0.22f + 0.20f * breathe else 0.16f
-        drawCircle(color = stateColor.copy(alpha = haloAlpha), radius = size.minDimension * 0.5f)
+        drawCircle(color = stateColor.copy(alpha = haloAlpha), radius = diameter * 0.5f)
         drawCircle(
             color = stateColor.copy(alpha = if (busy) 0.75f + 0.25f * breathe else 1f),
-            radius = size.minDimension * 0.28f
+            radius = diameter * 0.28f
         )
     }
 }

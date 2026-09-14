@@ -9449,6 +9449,9 @@ private fun SettingsStyleMotif(style: HomeStyle, tone: Color, modifier: Modifier
  */
 @Composable
 private fun SettingsDockSlotPreview(icon: DockSlotIcon, enabled: Boolean, tone: Color) {
+    // Aether is a composition-local palette, so the mark's own ink is read here, in the composable
+    // body, and never inside the draw lambda — which is not a composable scope.
+    val mark = Aether.Void
     Canvas(Modifier.size(width = 34.dp, height = 20.dp)) {
         val w = size.width
         val h = size.height
@@ -9477,7 +9480,7 @@ private fun SettingsDockSlotPreview(icon: DockSlotIcon, enabled: Boolean, tone: 
             val stroke = 1.4.dp.toPx()
             when (icon) {
                 DockSlotIcon.PULSE -> drawLine(
-                    Aether.Void,
+                    mark,
                     Offset(cx - slot * .22f, cy),
                     Offset(cx + slot * .22f, cy),
                     stroke,
@@ -9485,19 +9488,19 @@ private fun SettingsDockSlotPreview(icon: DockSlotIcon, enabled: Boolean, tone: 
                 )
 
                 DockSlotIcon.SPARK -> drawCircle(
-                    Aether.Void,
+                    mark,
                     radius = stroke * .9f,
                     center = Offset(cx, cy)
                 )
 
                 DockSlotIcon.LAYERS -> {
                     val gap = stroke * 1.6f
-                    drawLine(Aether.Void, Offset(cx - slot * .22f, cy - gap), Offset(cx + slot * .22f, cy - gap), stroke, StrokeCap.Round)
-                    drawLine(Aether.Void, Offset(cx - slot * .22f, cy + gap), Offset(cx + slot * .22f, cy + gap), stroke, StrokeCap.Round)
+                    drawLine(mark, Offset(cx - slot * .22f, cy - gap), Offset(cx + slot * .22f, cy - gap), stroke, StrokeCap.Round)
+                    drawLine(mark, Offset(cx - slot * .22f, cy + gap), Offset(cx + slot * .22f, cy + gap), stroke, StrokeCap.Round)
                 }
 
                 DockSlotIcon.BEARING -> drawLine(
-                    Aether.Void,
+                    mark,
                     Offset(cx - slot * .18f, cy + slot * .18f),
                     Offset(cx + slot * .18f, cy - slot * .18f),
                     stroke,
@@ -14509,6 +14512,7 @@ private fun dockSlotKindDetail(kind: DockSlotKind): String = when (kind) {
     DockSlotKind.CONFIG -> "One saved config, one tap"
 }
 
+@Composable
 private fun dockSlotKindTone(kind: DockSlotKind): Color = when (kind) {
     DockSlotKind.PULSE -> Aether.Cyan
     DockSlotKind.SOURCE -> Aether.Emerald
@@ -14685,6 +14689,9 @@ private fun DockSlotBarPreview(
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically
         ) {
+            // Aether is a composition-local palette: the glyph ink is read here, in the composable
+            // body, and never inside the draw lambda below.
+            val glyphInk = Aether.Cyan
             Canvas(Modifier.size(14.dp)) {
                 val w = size.width
                 val h = size.height
@@ -14700,7 +14707,7 @@ private fun DockSlotBarPreview(
                             lineTo(w * .66f, h * .44f)
                             lineTo(w * .86f, h * .44f)
                         },
-                        Aether.Cyan,
+                        glyphInk,
                         style = line
                     )
 
@@ -14714,14 +14721,14 @@ private fun DockSlotBarPreview(
                             lineTo(w * .52f, h * .44f)
                             close()
                         },
-                        Aether.Cyan,
+                        glyphInk,
                         style = line
                     )
 
                     DockSlotIcon.LAYERS -> listOf(.30f, .50f, .70f).forEachIndexed { index, y ->
                         val inset = if (index == 1) .16f else .22f
                         drawLine(
-                            Aether.Cyan,
+                            glyphInk,
                             Offset(w * inset, h * y),
                             Offset(w * (1f - inset), h * y),
                             stroke,
@@ -14731,13 +14738,13 @@ private fun DockSlotBarPreview(
 
                     DockSlotIcon.BEARING -> {
                         drawCircle(
-                            Aether.Cyan,
+                            glyphInk,
                             radius = w * .32f,
                             center = Offset(w * .5f, h * .5f),
                             style = Stroke(width = stroke, cap = StrokeCap.Round)
                         )
-                        drawLine(Aether.Cyan, Offset(w * .5f, h * .5f), Offset(w * .70f, h * .30f), stroke, StrokeCap.Round)
-                        drawLine(Aether.Cyan, Offset(w * .5f, h * .5f), Offset(w * .38f, h * .62f), stroke, StrokeCap.Round)
+                        drawLine(glyphInk, Offset(w * .5f, h * .5f), Offset(w * .70f, h * .30f), stroke, StrokeCap.Round)
+                        drawLine(glyphInk, Offset(w * .5f, h * .5f), Offset(w * .38f, h * .62f), stroke, StrokeCap.Round)
                     }
                 }
             }
@@ -14770,6 +14777,9 @@ private fun DockSlotIconChoice(
     onClick: () -> Unit
 ) {
     val shape = RoundedCornerShape(14.dp)
+    // The chosen glyph draws on its own tone and an unchosen one on the muted ink; both are read
+    // here, in the composable body, because the Canvas below is not a composable scope.
+    val glyphInk = if (selected) tone else Aether.InkMuted
     Box(
         modifier = modifier
             .heightIn(min = 48.dp)
@@ -14789,7 +14799,7 @@ private fun DockSlotIconChoice(
             val h = size.height
             val stroke = 1.9.dp.toPx()
             val line = Stroke(width = stroke, cap = StrokeCap.Round)
-            val ink = if (selected) tone else Aether.InkMuted
+            val ink = glyphInk
             when (icon) {
                 DockSlotIcon.PULSE -> drawPath(
                     Path().apply {
