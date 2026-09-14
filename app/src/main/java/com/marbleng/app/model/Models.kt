@@ -488,14 +488,37 @@ enum class ProbeMethod {
 /**
  * MARBLE_PATTNG_PING_V151 — the URL a real-delay / URL-test measurement fetches.
  *
- * PattNG's own constants, byte for byte: `DELAY_TEST_URL` is the primary and `DELAY_TEST_URL2`
- * the retry. A `generate_204` endpoint is the right target because the answer is empty, so the
- * measurement is a round trip and not a download. The user can override the primary from
- * Settings → Tests.
+ * The primary stays PattNG's `DELAY_TEST_URL` and a `generate_204` endpoint remains the right
+ * shape of target: the answer is empty, so the measurement is a round trip and not a download.
+ * The user can override the primary from Settings → Tests.
+ *
+ * MARBLE_CENSORSHIP_REACH_TARGETS_V166 moved the two fallbacks off PattNG's second Google
+ * spelling and onto two different operators (Cloudflare, Firefox), because on a network that
+ * filters Google a same-operator fallback is dead code — see [DelayTest.URL_SECONDARY].
  */
 object DelayTest {
     const val URL = "https://www.gstatic.com/generate_204"
-    const val URL_SECONDARY = "https://www.google.com/generate_204"
+
+    /**
+     * MARBLE_CENSORSHIP_REACH_TARGETS_V166 — the fallback origins are three different network
+     * operators, never two spellings of the same one.
+     *
+     * The old pair was gstatic and then google.com — one operator twice. On a network that
+     * filters Google (the documented national-filter behaviour; see the IRAN_AWARE_PING
+     * target-pool note in RouteProbe) the "fallback" died with the primary, so every config on
+     * BOTH cores measured unreachable even when the tunnel itself was healthy: Xray's real
+     * delay walks exactly these candidates through its SOCKS inbound, and sing-box's URL test
+     * hands the same list to the core's delay endpoint. Restricted internet therefore did not
+     * just hide the number, it declared every server dead.
+     *
+     * The two replacements pick operators a national filter costs more to block: Cloudflare's
+     * own generate_204 (an empty 204 on a globally anycast CDN fleet) and Firefox's captive
+     * portal marker (a tiny 200 that networks deliberately keep open so hotspot detection
+     * works). Both are HTTPS with no user info, so the URL-test contract (UrlTestTarget)
+     * accepts them unchanged.
+     */
+    const val URL_SECONDARY = "https://cp.cloudflare.com/generate_204"
+    const val URL_TERTIARY = "https://detectportal.firefox.com/success.txt"
 
     /** The raw TCP liveness gate PattNG runs before it spends a core on a node. */
     const val TCP_GATE_TIMEOUT_MS = 1_000
@@ -515,11 +538,20 @@ object DelayTest {
             }.getOrNull()
         } ?: URL
 
-    /** Deterministic fallbacks for networks that filter one public generate_204 origin. */
+    /**
+     * Deterministic fallbacks for networks that filter one public generate_204 origin.
+     *
+     * MARBLE_CENSORSHIP_REACH_TARGETS_V166 — the shared walk contract (ProbeTargetWalk.MAX_TARGETS)
+     * bounds one server at three distinct origins, so the pool stays at exactly three and every
+     * entry belongs to a different operator: the configured primary, then the two censorship-
+     * resilient origins above. Both cores consume this one list — Xray real delay through its
+     * SOCKS inbound and sing-box through its own delay endpoint — which is what makes the pool
+     * the measurement plane the product's ping promises.
+     */
     fun candidates(configured: String): List<String> = buildList {
         add(url(configured))
         add(URL_SECONDARY)
-        add("https://www.cloudflare.com/cdn-cgi/trace")
+        add(URL_TERTIARY)
     }.distinct()
 }
 

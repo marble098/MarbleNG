@@ -2207,23 +2207,28 @@ private fun postToMain(block: () -> Unit) {
                 "No supported profiles returned; previous servers were kept"
             }
 
-            val refreshedCount = replaceManagedProfilesForSource(sub, parsed)
-
             val meta = parseSubscriptionUserInfo(payload.userInfo)
-            val index = subscriptions.indexOfFirst { it.id == sub.id }
-            if (index >= 0) {
-                val current = subscriptions[index]
-                subscriptions[index] = current.copy(
-                    updatedAt = System.currentTimeMillis(),
-                    uploadBytes = meta?.upload ?: current.uploadBytes,
-                    downloadBytes = meta?.download ?: current.downloadBytes,
-                    totalBytes = meta?.total ?: current.totalBytes,
-                    expireAt = meta?.expireAt ?: current.expireAt
-                )
+            // MARBLE_SUBSCRIPTION_THREAD_TRUTH_V166 — fetch and parse stay on the worker; the
+            // structural mutations apply on the main looper through the gate, and persistence
+            // writes the immutable snapshot the gate returns (see applyStateOnMainThread).
+            val (refreshedCount, subsSnapshot, profilesSnapshot) = applyStateOnMainThread {
+                val count = replaceManagedProfilesForSource(sub, parsed)
+                val index = subscriptions.indexOfFirst { it.id == sub.id }
+                if (index >= 0) {
+                    val current = subscriptions[index]
+                    subscriptions[index] = current.copy(
+                        updatedAt = System.currentTimeMillis(),
+                        uploadBytes = meta?.upload ?: current.uploadBytes,
+                        downloadBytes = meta?.download ?: current.downloadBytes,
+                        totalBytes = meta?.total ?: current.totalBytes,
+                        expireAt = meta?.expireAt ?: current.expireAt
+                    )
+                }
+                Triple(count, subscriptions.toList(), profiles.toList())
             }
 
-            store.saveSubscriptions(subscriptions)
-            store.saveProfiles(profiles)
+            store.saveSubscriptions(subsSnapshot)
+            store.saveProfiles(profilesSnapshot)
             notifier.alert(
                 SmartNotificationKind.SUBSCRIPTION,
                 "subscription:${sub.id}",
@@ -2256,20 +2261,24 @@ private fun postToMain(block: () -> Unit) {
                     val payload = httpSubscription(sub.url)
                     val parsed = ProxyParser.parseInput(payload.text, sub.id, sub.name)
                     require(parsed.isNotEmpty()) { "No supported profiles returned; previous servers were kept" }
-                    val refreshedCount = replaceManagedProfilesForSource(sub, parsed)
                     val meta = parseSubscriptionUserInfo(payload.userInfo)
-                    val index = subscriptions.indexOfFirst { it.id == sub.id }
-                    if (index >= 0) {
-                        val current = subscriptions[index]
-                        subscriptions[index] = current.copy(
-                            updatedAt = System.currentTimeMillis(),
-                            uploadBytes = meta?.upload ?: current.uploadBytes,
-                            downloadBytes = meta?.download ?: current.downloadBytes,
-                            totalBytes = meta?.total ?: current.totalBytes,
-                            expireAt = meta?.expireAt ?: current.expireAt
-                        )
+                    // MARBLE_SUBSCRIPTION_THREAD_TRUTH_V166 — network and parse on the worker,
+                    // the structural mutations on the main looper where Compose iterates.
+                    applyStateOnMainThread {
+                        val refreshedCount = replaceManagedProfilesForSource(sub, parsed)
+                        val index = subscriptions.indexOfFirst { it.id == sub.id }
+                        if (index >= 0) {
+                            val current = subscriptions[index]
+                            subscriptions[index] = current.copy(
+                                updatedAt = System.currentTimeMillis(),
+                                uploadBytes = meta?.upload ?: current.uploadBytes,
+                                downloadBytes = meta?.download ?: current.downloadBytes,
+                                totalBytes = meta?.total ?: current.totalBytes,
+                                expireAt = meta?.expireAt ?: current.expireAt
+                            )
+                        }
+                        refreshedCount
                     }
-                    refreshedCount
                 }
                 endRefresh(sub.id)
                 result.onSuccess { count ->
@@ -2279,8 +2288,14 @@ private fun postToMain(block: () -> Unit) {
                     failed += "${sub.name}: ${error.message ?: error::class.java.simpleName}"
                 }
             }
-            store.saveSubscriptions(subscriptions)
-            store.saveProfiles(profiles)
+            // MARBLE_SUBSCRIPTION_THREAD_TRUTH_V166 — persistence writes the snapshot captured
+            // on the main looper after the last source landed, never the live list from a pool
+            // thread (serialising a SnapshotStateList while Compose draws is the same race).
+            val (subsSnapshot, profilesSnapshot) = applyStateOnMainThread {
+                subscriptions.toList() to profiles.toList()
+            }
+            store.saveSubscriptions(subsSnapshot)
+            store.saveProfiles(profilesSnapshot)
             val summary = when {
                 failed.isEmpty() -> "$refreshed sources refreshed • $nodeCount servers"
                 refreshed == 0 -> "Refresh failed • ${failed.take(2).joinToString(" • ")}"
@@ -2460,14 +2475,20 @@ private fun postToMain(block: () -> Unit) {
                         sourceManaged = false
                     )
                 }
-            val fresh = parsed.filter { incoming ->
-                profiles.none {
-                    it.id == incoming.id && it.subscriptionId == target.id
+            // MARBLE_SUBSCRIPTION_THREAD_TRUTH_V166 — the dedup read and the addAll are ONE
+            // atomic main-looper block (the old io-thread addAll raced Compose's iteration of
+            // the very same list), and persistence writes the snapshot the block returns.
+            val (addedCount, profilesSnapshot) = applyStateOnMainThread {
+                val fresh = parsed.filter { incoming ->
+                    profiles.none {
+                        it.id == incoming.id && it.subscriptionId == target.id
+                    }
                 }
+                profiles.addAll(fresh)
+                fresh.size to profiles.toList()
             }
-            profiles.addAll(fresh)
-            store.saveProfiles(profiles)
-            message = "${fresh.size} profile${if (fresh.size == 1) "" else "s"} imported into ${target.name}"
+            store.saveProfiles(profilesSnapshot)
+            message = "$addedCount profile${if (addedCount == 1) "" else "s"} imported into ${target.name}"
         }
     }
 
@@ -4087,6 +4108,115 @@ private fun postToMain(block: () -> Unit) {
     fun setRuntimeMessage(value: String) { message = value }
     fun clearMessage() { message = "" }
     fun readLogs(): String = RuntimeDiagnostics(context).bundle(xray.logFile)
+
+    // ───────────────────────────────────────────────────────────────────────────────────────────
+    // MARBLE_BACKGROUND_UNRESTRICTED_V166 — one-tap unrestricted background access.
+    // ───────────────────────────────────────────────────────────────────────────────────────────
+    //
+    // A tunnel that Android is allowed to pause is a tunnel that dies on every screen-off, and
+    // the re-connect storm is exactly when a VPN on a restricted network matters most. The
+    // OS-level grant for this is the battery-optimization exemption — Android calls it
+    // "unrestricted background activity" — and Settings → System now carries its one-tap
+    // surface: a live status read-out plus the button that opens Android's own dialog for this
+    // package. The manifest already declares REQUEST_IGNORE_BATTERY_OPTIMIZATIONS; this is the
+    // product surface that exercises it.
+    // ───────────────────────────────────────────────────────────────────────────────────────────
+
+    /** True when Android already grants MarbleNG unrestricted background activity. */
+    fun backgroundExemptionGranted(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return true
+        val power = context.getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
+            ?: return true
+        return runCatching { power.isIgnoringBatteryOptimizations(context.packageName) }
+            .getOrDefault(false)
+    }
+
+    /**
+     * Android's own dialog that exempts this package from battery optimization — the grant
+     * Android calls "unrestricted background activity". One tap in Settings → System launches it
+     * and the exemption applies the moment the user confirms.
+     */
+    fun unrestrictedBackgroundDirectIntent(): Intent =
+        Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
+            .setData(android.net.Uri.parse("package:${context.packageName}"))
+
+    /**
+     * The exemption list page, for ROMs that removed the direct dialog. The user finds
+     * MarbleNG in the list and switches it there; same grant, one extra tap.
+     */
+    fun unrestrictedBackgroundFallbackIntent(): Intent =
+        Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+
+    /** Records the user's attempt to gain unrestricted background access from the Settings card. */
+    fun noteBackgroundAccessRequest() {
+        diagnostics.event(
+            "APP",
+            "background-access-requested",
+            "alreadyGranted" to backgroundExemptionGranted(),
+            "surface" to "settings-card"
+        )
+    }
+
+    /**
+     * Open Android's exemption surface for this package. The Settings page prefers its
+     * activity-result launcher (so the granted state refreshes the instant the user returns);
+     * this fire-and-forget path is the shared fallback for callers without one.
+     */
+    fun requestUnrestrictedBackgroundAccess(uiContext: Context) {
+        if (backgroundExemptionGranted()) {
+            message = "Unrestricted background access is already granted"
+            return
+        }
+        val newTask = if (uiContext is android.app.Activity) 0 else Intent.FLAG_ACTIVITY_NEW_TASK
+        val launched = runCatching {
+            uiContext.startActivity(unrestrictedBackgroundDirectIntent().addFlags(newTask))
+        }.isSuccess || runCatching {
+            uiContext.startActivity(unrestrictedBackgroundFallbackIntent().addFlags(newTask))
+        }.isSuccess
+        message = if (launched) {
+            "Allow unrestricted background activity for MarbleNG on the Android page"
+        } else {
+            "Could not open Android's battery-optimization page"
+        }
+    }
+
+    /**
+     * MARBLE_SUBSCRIPTION_THREAD_TRUTH_V166 — the ONE mutation gate for [profiles],
+     * [subscriptions] and [history].
+     *
+     * ## The crash this replaces
+     *
+     * Tapping the subscription refresh icon crashed the app with
+     * `java.util.ConcurrentModificationException` on the main thread, inside the Compose frame
+     * clock, while a screen showing the servers was being drawn. The refresh task ran on the io
+     * pool and mutated the Compose-observed state lists right there — `profiles.removeAll`,
+     * `profiles.addAll`, `subscriptions[index] = …` — while Compose recomposition was iterating
+     * the very same lists on the main looper. `mutableStateListOf` is a SnapshotStateList: every
+     * iterator pins the snapshot it was created in and fails fast the moment the list is
+     * structurally modified outside it, so the worker thread's mutation detonated inside the
+     * UI's iteration. SnapshotStateList is a Compose observation tool, not a concurrent
+     * collection; its one safe mutation discipline is the same one Compose itself applies — on
+     * the main looper, where mutation and iteration are ordered by the looper instead of racing.
+     *
+     * Background tasks therefore compute everything they can off-thread (fetch, parse, dedup)
+     * and apply the resulting structural mutation through this gate. The block runs on the main
+     * looper, the worker waits for its value, and persistence writes the immutable snapshot the
+     * block returns — a worker thread never persists the live list either, because serialising
+     * `mutableStateListOf` while Compose draws is the same race one frame earlier.
+     *
+     * The wait honours task cancellation: an interrupted sweep wakes from the future's `get`
+     * with an [InterruptedException] exactly like one blocked in a socket.
+     */
+    private fun <T> applyStateOnMainThread(block: () -> T): T {
+        if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) return block()
+        val applied = java.util.concurrent.FutureTask { block() }
+        postToMain { applied.run() }
+        return try {
+            applied.get()
+        } catch (error: java.util.concurrent.ExecutionException) {
+            throw error.cause ?: error
+        }
+    }
 
     /** Returns true when the task was accepted and will run; false when the mutex rejected it. */
     private fun task(label: String, block: () -> Unit): Boolean {

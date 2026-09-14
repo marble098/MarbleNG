@@ -10134,7 +10134,7 @@ private fun settingsTabPageSubtitle(tab: SettingsWorkspaceTab): String = when (t
     SettingsWorkspaceTab.TESTS -> "Probes, ranking and live route intelligence"
     SettingsWorkspaceTab.NETWORK -> "DNS, split tunnel and geo rules"
     SettingsWorkspaceTab.ENGINE -> "Xray, transport and adaptive buffers"
-    SettingsWorkspaceTab.SYSTEM -> "Notifications and live stats"
+    SettingsWorkspaceTab.SYSTEM -> "Notifications, background access and live stats"
 }
 
 /**
@@ -10244,7 +10244,12 @@ private fun settingsSections(
         // the scan produces the exact report an issue filing asks for, and the page already
         // owns the debug-log switch Bug Finder also drives — one flag, one home, no split brain.
         SettingsWorkspaceTab.SYSTEM -> listOf(
-            card("Notifications","Alerts",HomeIcon.STATUS,Aether.Cyan) { NotificationSettings(repo) }
+            card("Notifications","Alerts",HomeIcon.STATUS,Aether.Cyan) { NotificationSettings(repo) },
+            // MARBLE_BACKGROUND_UNRESTRICTED_V166 — the one-tap fix for a VPN that Android keeps
+            // interrupting in the background: the OS-level unrestricted-activity grant.
+            card("Background access","Fixes interrupted VPN in background",HomeIcon.POWER,Aether.Amber) {
+                BackgroundAccessSettings(repo)
+            }
         )
     }
 }
@@ -10787,6 +10792,74 @@ private fun NotificationSettings(repo: AppRepository) {
                 range = 5..300
             ) {
                 repo.updateSettings(repo.settings.copy(notificationCooldownSec = it))
+            }
+        }
+    }
+}
+
+/**
+ * MARBLE_BACKGROUND_UNRESTRICTED_V166 — the one-tap fix when the user's VPN keeps getting
+ * interrupted in the background.
+ *
+ * Android's battery optimization is allowed to pause a VPN app the moment the screen is off,
+ * which on restricted networks reads as "the tunnel dies and never comes back". This card shows
+ * the live state of the OS-level exemption — what Android calls unrestricted background
+ * activity — and one button opens Android's own dialog for this package, so the tap in Settings
+ * becomes the grant itself the moment the user confirms. The activity-result launcher re-reads
+ * the truth the instant the user returns from the Android page; a ROM that removed the direct
+ * dialog still gets the exemption list page.
+ */
+@Composable
+private fun BackgroundAccessSettings(repo: AppRepository) {
+    val context = LocalContext.current
+    var granted by remember { mutableStateOf(repo.backgroundExemptionGranted()) }
+    val returnFromAndroidPage = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        // Whatever the user chose on the Android page, the exemption state is the repository's.
+        granted = repo.backgroundExemptionGranted()
+    }
+
+    Row(
+        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(7.dp)
+    ) {
+        HoloBadge(
+            if (granted) "UNRESTRICTED ON" else "BACKGROUND RESTRICTED",
+            if (granted) Aether.Emerald else Aether.Amber,
+            compact = true
+        )
+    }
+
+    if (granted) {
+        Text(
+            trx("MarbleNG already has unrestricted background activity. The tunnel is allowed to stay alive with the screen off, so background interruptions are not a battery-optimization problem."),
+            color = Aether.InkMuted,
+            style = MaterialTheme.typography.bodySmall
+        )
+    } else {
+        Text(
+            trx("If your VPN is interrupted while the app is in the background, grant MarbleNG unrestricted background activity. One tap opens Android's own page and the exemption applies the moment you confirm."),
+            color = Aether.InkMuted,
+            style = MaterialTheme.typography.bodySmall
+        )
+        CyberButton(
+            label = "Grant unrestricted background access",
+            color = Aether.Amber,
+            modifier = Modifier.fillMaxWidth(),
+            icon = HomeIcon.POWER
+        ) {
+            repo.noteBackgroundAccessRequest()
+            val direct = repo.unrestrictedBackgroundDirectIntent()
+            val fallback = repo.unrestrictedBackgroundFallbackIntent()
+            runCatching {
+                returnFromAndroidPage.launch(direct)
+            }.recoverCatching {
+                returnFromAndroidPage.launch(fallback)
+            }.onFailure {
+                // No exemption surface at all on this ROM: fall back to the plain launch,
+                // which reports honestly through the repository message.
+                repo.requestUnrestrictedBackgroundAccess(context)
             }
         }
     }

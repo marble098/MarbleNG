@@ -69,11 +69,14 @@ class ProbeMethodV151Test {
         // Marble's own real-delay measurement accepts plain http; sing-box's endpoint does not.
         assertEquals("http://example.com/g", DelayTest.url("http://example.com/g"))
         assertEquals(DelayTest.URL, DelayTest.url("https://"))
+        // MARBLE_CENSORSHIP_REACH_TARGETS_V166 — the fallbacks are three different operators
+        // now (Google, Cloudflare, Firefox); a same-operator fallback died with its primary on
+        // networks that filter Google.
         assertEquals(
             listOf(
                 DelayTest.URL,
                 DelayTest.URL_SECONDARY,
-                "https://www.cloudflare.com/cdn-cgi/trace"
+                DelayTest.URL_TERTIARY
             ),
             DelayTest.candidates(DelayTest.URL)
         )

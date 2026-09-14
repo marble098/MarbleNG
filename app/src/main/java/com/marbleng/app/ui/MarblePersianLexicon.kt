@@ -485,6 +485,20 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Bug Finder" to "اشکال‌یاب",
     "Scan the runtime, then copy or save the report" to "اجرای اسکن، سپس کپی یا ذخیره گزارش",
     "Notifications and live stats" to "اعلان‌ها و آمار زنده",
+    // MARBLE_BACKGROUND_UNRESTRICTED_V166 — the one-tap unrestricted-background-access card.
+    "Notifications, background access and live stats" to "اعلان‌ها، دسترسی پس‌زمینه و آمار زنده",
+    "Background access" to "دسترسی در پس‌زمینه",
+    "Fixes interrupted VPN in background" to "رفع قطعی VPN در پس‌زمینه",
+    "UNRESTRICTED ON" to "فعالیت نامحدود: فعال",
+    "BACKGROUND RESTRICTED" to "پس‌زمینه: محدودشده",
+    "Grant unrestricted background access" to "اعطای دسترسی نامحدود در پس‌زمینه",
+    "MarbleNG already has unrestricted background activity. The tunnel is allowed to stay alive with the screen off, so background interruptions are not a battery-optimization problem." to
+        "MarbleNG از قبل فعالیت نامحدود در پس‌زمینه دارد. تونل می‌تواند با صفحه خاموش زنده بماند، بنابراین قطعی‌های پس‌زمینه مشکل بهینه‌سازی باتری نیستند.",
+    "If your VPN is interrupted while the app is in the background, grant MarbleNG unrestricted background activity. One tap opens Android's own page and the exemption applies the moment you confirm." to
+        "اگر وقتی برنامه در پس‌زمینه است VPN شما قطع می‌شود، فعالیت نامحدود در پس‌زمینه را به MarbleNG بدهید. با یک ضربه صفحه خود اندروید باز می‌شود و به‌محض تأیید شما، استثنا اعمال می‌شود.",
+    "Unrestricted background access is already granted" to "دسترسی نامحدود در پس‌زمینه از قبل اعطا شده است",
+    "Allow unrestricted background activity for MarbleNG on the Android page" to "در صفحه اندروید، فعالیت نامحدود در پس‌زمینه را برای MarbleNG اجازه دهید",
+    "Could not open Android's battery-optimization page" to "صفحه بهینه‌سازی باتری اندروید باز نشد",
     "Diagnostics" to "عیب‌یابی",
     "Expert controls" to "کنترل‌های حرفه‌ای",
     "Show every option here." to "نمایش همه گزینه‌ها در اینجا.",
