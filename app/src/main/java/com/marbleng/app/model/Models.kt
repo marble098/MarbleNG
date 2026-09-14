@@ -646,6 +646,122 @@ fun parseDockSize(raw: String): DockSize =
         }
 
 /**
+ * MARBLE_DOCK_SLOT_V167 — what the fourth slot of the bottom bar opens.
+ *
+ * The bar used to be exactly three tabs, and the fourth one is not a fourth *page* the product
+ * invents for everyone: it is the slot a user fills with the thing they reach for most. Three
+ * shapes cover every request that has come in — a whole subscription, one exact config, and the
+ * live pulse of the running route with the tools that act on it:
+ *
+ *  - [SOURCE] one source (a subscription, or the local Manual bucket), scoped exactly like the
+ *    Servers page scopes it, with that source's own verbs: refresh, ping, rank;
+ *  - [CONFIG] one saved config, with the product's own connect control and its measurement;
+ *  - [PULSE]  the live route — state, uptime, rates, jitter, score — plus the tools that act on
+ *    the whole library (rank, ping, refresh, diagnostics).
+ *
+ * [PULSE] is the default because it is the only one of the three that is meaningful on a fresh
+ * install with an empty library, so the fourth slot is never a blank page.
+ */
+enum class DockSlotKind(val id: String) {
+    PULSE("pulse"),
+    SOURCE("source"),
+    CONFIG("config");
+
+    companion object {
+        val DEFAULT: DockSlotKind get() = PULSE
+    }
+}
+
+fun parseDockSlotKind(raw: String): DockSlotKind =
+    DockSlotKind.entries.firstOrNull { it.id.equals(raw.trim(), ignoreCase = true) }
+        ?: when (raw.trim().uppercase()) {
+            "SUB", "SUBSCRIPTION", "GROUP", "SUBS" -> DockSlotKind.SOURCE
+            "NODE", "PROFILE", "SERVER", "CONFIGS" -> DockSlotKind.CONFIG
+            else -> DockSlotKind.DEFAULT
+        }
+
+/**
+ * MARBLE_DOCK_SLOT_V167 — the glyph the fourth slot draws.
+ *
+ * Four silhouettes, none of them one of the three fixed tabs: a pulse trace, a spark, a stack of
+ * layers and a bearing. They are drawn by the same Canvas that draws the other three tabs, so the
+ * chosen one keeps the bar's optical weight instead of arriving as a foreign icon.
+ */
+enum class DockSlotIcon(val id: String) {
+    PULSE("pulse"),
+    SPARK("spark"),
+    LAYERS("layers"),
+    BEARING("bearing");
+
+    companion object {
+        val DEFAULT: DockSlotIcon get() = PULSE
+    }
+}
+
+fun parseDockSlotIcon(raw: String): DockSlotIcon =
+    DockSlotIcon.entries.firstOrNull { it.id.equals(raw.trim(), ignoreCase = true) }
+        ?: when (raw.trim().uppercase()) {
+            "BOLT", "STAR", "ACTIVITY" -> DockSlotIcon.SPARK
+            "STACK", "LIBRARY", "BOOK" -> DockSlotIcon.LAYERS
+            "COMPASS", "ROUTE", "GLOBE" -> DockSlotIcon.BEARING
+            else -> DockSlotIcon.DEFAULT
+        }
+
+/** Longest caption the dock will draw for the fourth slot, in characters. */
+const val DOCK_SLOT_CAPTION_MAX: Int = 14
+
+/** The English default caption of a [DockSlotKind.PULSE] slot, translated at the call site. */
+const val DOCK_SLOT_CAPTION_PULSE: String = "Pulse"
+
+/** The English default caption of a slot that has no target to name yet. */
+const val DOCK_SLOT_CAPTION_FALLBACK: String = "Custom"
+
+/**
+ * MARBLE_DOCK_SLOT_V167 — the caption the dock prints for the fourth slot.
+ *
+ * The user's own words always win; a blank caption is filled in by what the slot actually opens,
+ * so a tab can never be an anonymous rectangle. The result is bounded, because the bar divides
+ * one row between four tabs and an unbounded caption is how a tab starts eliding its own name.
+ */
+fun dockSlotCaption(configured: String): String =
+    configured.trim().take(DOCK_SLOT_CAPTION_MAX)
+
+/**
+ * The caption a slot uses when the user wrote none: the target's own name when it has one, and a
+ * constant (`Pulse` / `Custom`) when it does not. Kept separate from [dockSlotCaption] so the two
+ * constants can be translated at the call site without translating a user's own words.
+ */
+fun dockSlotDefaultCaption(kind: DockSlotKind, targetName: String): String = when {
+    kind == DockSlotKind.PULSE -> DOCK_SLOT_CAPTION_PULSE
+    targetName.isNotBlank() -> targetName.trim().take(DOCK_SLOT_CAPTION_MAX)
+    else -> DOCK_SLOT_CAPTION_FALLBACK
+}
+
+/**
+ * MARBLE_DOCK_SLOT_V167 — the dock's slots, in render order.
+ *
+ * The fourth slot is a preference, not a fixture: a user who does not want it gets the three-tab
+ * bar the product shipped before it, and the bar and the pager are handed the *same* list so they
+ * can never disagree about how many tabs are on screen.
+ */
+fun <T> dockSlots(all: List<T>, optional: T, showOptional: Boolean): List<T> =
+    if (showOptional) all.toList() else all.filterNot { it == optional }
+
+/**
+ * MARBLE_DOCK_SLOT_V167 — the page a remembered tab name opens in a dock that may be missing its
+ * fourth slot.
+ *
+ * The name is persisted across launches, so an install that had the fourth slot selected and then
+ * turned it off comes back asking for page 4 of a three-page pager. The index is therefore always
+ * repaired into the list that is actually on screen: a hidden slot falls back to the first tab
+ * instead of asking the pager for a page that does not exist.
+ */
+fun <T> dockSlotIndex(slots: List<T>, remembered: T): Int {
+    if (slots.isEmpty()) return 0
+    return slots.indexOf(remembered).coerceIn(0, slots.lastIndex)
+}
+
+/**
  * MARBLE_DOCK_CUSTOM_V145 — the dock's content policy.
  *
  * Labels and icons are independent switches, but a bar with neither is not a navigation
@@ -1151,6 +1267,26 @@ data class AppSettings(
     val dockShowIcons: Boolean = true,
     /** Dock footprint: small, medium (default) or large. */
     val dockSize: String = DockSize.MEDIUM.id,
+
+    // MARBLE_DOCK_SLOT_V167 — the fourth tab, and what the user made of it.
+    /** Draw the fourth tab. On by default: the bar ships with four slots. */
+    val dockSlotEnabled: Boolean = true,
+    /** What the slot opens: [DockSlotKind.PULSE], SOURCE (a subscription) or CONFIG (one node). */
+    val dockSlotKind: String = DockSlotKind.DEFAULT.id,
+    /** The source a SOURCE slot opens: a subscription id, "manual", or "all". */
+    val dockSlotSourceId: String = "all",
+    /** The exact config a CONFIG slot opens; blank means "not chosen yet". */
+    val dockSlotProfileId: String = "",
+    /**
+     * The config's own source id, carried next to [dockSlotProfileId] for the same reason the
+     * Library carries it: an id alone is not an identity, and a node id has been seen to repeat
+     * across two sources.
+     */
+    val dockSlotProfileSourceId: String = "",
+    /** The user's own caption for the slot; blank means "let the target name itself". */
+    val dockSlotLabel: String = "",
+    /** The glyph the slot draws: see [DockSlotIcon]. */
+    val dockSlotIcon: String = DockSlotIcon.DEFAULT.id,
 
     /** MARBLE_BILINGUAL_V110 — "system" follows the device locale; "en"/"fa" are overrides. */
     val appLanguage: String = AppLanguage.SYSTEM.id,

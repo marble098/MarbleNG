@@ -1183,7 +1183,75 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Plaintext VLESS/Trojan nodes stay usable; switching off refuses them" to
         "سرورهای VLESS/Trojan بدون رمزنگاری قابل استفاده می‌مانند؛ با خاموش‌کردن این کلید رد می‌شوند",
     "Unencrypted traffic is readable by your ISP. Marble labels it on the server row and never rewrites your node." to
-        "ترافیک بدون رمزنگاری برای ISP قابل خواندن است. ماربل آن را روی ردیف سرور برچسب می‌زند و هرگز کانفیگ شما را بازنویسی نمی‌کند."
+        "ترافیک بدون رمزنگاری برای ISP قابل خواندن است. ماربل آن را روی ردیف سرور برچسب می‌زند و هرگز کانفیگ شما را بازنویسی نمی‌کند.",
+
+    // MARBLE_DOCK_SLOT_V167 — the fourth tab of the bottom bar and its customization page.
+    "Fourth tab" to "تب چهارم",
+    "Customize" to "شخصی‌سازی",
+    "Customize the fourth tab" to "شخصی‌سازی تب چهارم",
+    "What the fourth slot of the bottom bar opens, what it is called and how it looks" to
+        "تب چهارم نوار پایین چه چیزی را باز می‌کند، چه نامی دارد و چه شکلی است",
+    "Show the fourth tab" to "نمایش تب چهارم",
+    "Off leaves the three-tab bar this product shipped with; nothing else changes." to
+        "با خاموش‌کردن، همان نوار سه‌تبی قبلی می‌ماند و هیچ چیز دیگری تغییر نمی‌کند.",
+    "Hidden • the bar keeps three tabs" to "مخفی • نوار سه تب را نگه می‌دارد",
+    "The fourth slot is off, so the bar draws three tabs." to
+        "تب چهارم خاموش است، بنابراین نوار فقط سه تب را نشان می‌دهد.",
+    "What it opens" to "چه چیزی باز شود",
+    "Live pulse" to "نبض زنده",
+    "One subscription" to "یک اشتراک",
+    "One config" to "یک کانفیگ",
+    "State, rates and tools" to "وضعیت، سرعت و ابزارها",
+    "Every server of one source" to "همه سرورهای یک منبع",
+    "One saved config, one tap" to "یک کانفیگ ذخیره‌شده، یک ضربه",
+    "The pulse needs no subject: it always shows the route that is carrying traffic, and the tools act on the whole library." to
+        "نبض به انتخاب نیاز ندارد: همیشه مسیر فعال را نشان می‌دهد و ابزارها روی کل کتابخانه عمل می‌کنند.",
+    "Tab name" to "نام تب",
+    "Tab icon" to "آیکون تب",
+    "Shown under the icon" to "زیر آیکون نمایش داده می‌شود",
+    "Blank uses" to "خالی یعنی",
+    "Use the target name" to "استفاده از نام مقصد",
+    "The live route, and the tools that act on the library" to
+        "مسیر فعال و ابزارهایی که روی کتابخانه عمل می‌کنند",
+    "Which source" to "کدام منبع",
+    "Which config" to "کدام کانفیگ",
+    "Pinned" to "انتخاب‌شده",
+    "All servers" to "همه سرورها",
+    "Every server in the library" to "همه سرورهای کتابخانه",
+    "Servers you added yourself" to "سرورهایی که خودتان اضافه کرده‌اید",
+    "No subscriptions yet. Add one from the Servers page and it appears here." to
+        "هنوز اشتراکی اضافه نشده است. از صفحه سرورها یکی اضافه کنید تا اینجا نمایش داده شود.",
+    "The library is empty. Add a config from the Servers page first." to
+        "کتابخانه خالی است. ابتدا از صفحه سرورها یک کانفیگ اضافه کنید.",
+    "No config matches this search." to "هیچ کانفیگی با این جست‌وجو همخوان نیست.",
+    "This source has no servers" to "این منبع سروری ندارد",
+    "Everything it publishes was removed, or it was never filled. Pick another source, or add servers from the Servers page." to
+        "همه سرورهای این منبع حذف شده‌اند یا هرگز پر نشده است. منبع دیگری انتخاب کنید یا از صفحه سرورها سرور اضافه کنید.",
+    "Pick another source" to "انتخاب منبع دیگر",
+    "No config chosen yet" to "هنوز کانفیگی انتخاب نشده است",
+    "Pick one saved config for this slot, and it will be one tap away from the bar for as long as you keep it there." to
+        "یک کانفیگ ذخیره‌شده برای این تب انتخاب کنید تا همیشه با یک ضربه از نوار پایین در دسترس باشد.",
+    "Choose a config" to "انتخاب کانفیگ",
+    "Tools" to "ابزارها",
+    "Rank everything" to "رتبه‌بندی همه",
+    "Ping everything" to "پینگ همه",
+    "Refresh sources" to "به‌روزرسانی منابع",
+    "Run Bug Finder" to "اجرای باگ‌یاب",
+    "Bug report" to "گزارش باگ",
+    "Privacy audit" to "بررسی حریم خصوصی",
+    "Measured by the same engine as the Home ping, and remembered like any other result." to
+        "با همان موتور پینگ صفحه اصلی اندازه‌گیری می‌شود و مثل هر نتیجه دیگری ذخیره می‌ماند.",
+    "Down" to "دریافت",
+    "Up" to "ارسال",
+    "Used" to "مصرف",
+    "Ping this source" to "پینگ این منبع",
+    "Rank this source" to "رتبه‌بندی این منبع",
+    "Refresh this source" to "به‌روزرسانی این منبع",
+    "Use this config" to "استفاده از این کانفیگ",
+    "Connect this config" to "اتصال این کانفیگ",
+    "Change config" to "تغییر کانفیگ",
+    "Selected: the connect button on Home and the dock's own Connect act on this config." to
+        "انتخاب‌شده: دکمه اتصال صفحه اصلی و دکمه اتصال همین تب روی این کانفیگ عمل می‌کنند."
 )
 
 /** Lowercased view of the lexicon so `UPPERCASE` renders of the same keys still match. */
@@ -1222,7 +1290,11 @@ private val FaPatterns: List<Pair<Regex, (MatchResult) -> String>> = listOf(
     Regex("""^(\d+)m ago$""") to { m -> "${m.groupValues[1]} دقیقه پیش" },
     Regex("""^(\d+)h ago$""") to { m -> "${m.groupValues[1]} ساعت پیش" },
     Regex("""^(\d+)d ago$""") to { m -> "${m.groupValues[1]} روز پیش" },
-    Regex("""^just now$""") to { _ -> "همین حالا" }
+    Regex("""^just now$""") to { _ -> "همین حالا" },
+    // MARBLE_DOCK_SLOT_V167 — the fourth tab's config picker names its own cap.
+    Regex("""^Showing the first (\d+) configs — search to narrow them down\.$""") to { m ->
+        "نمایش ${m.groupValues[1]} کانفیگ اول • برای محدودکردن جست‌وجو کنید."
+    }
 )
 
 private fun faPattern(text: String): String? {

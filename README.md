@@ -39,6 +39,30 @@ It focuses on real proxy verification, fast one-tap connection, fail-closed rout
 - Smart GitHub Release update checks.
 - Signed multi-ABI APKs built by GitHub Actions.
 - Remembers the last ping of every server across restarts, updates and process death.
+- A **fourth tab you fill yourself** — a subscription, one config, or the live pulse of the route.
+
+## The fourth tab, and a smaller Home banner
+
+`docs/DOCK_SLOT_AND_COMPACT_BANNER_V167.md` is the newest chapter.
+
+**The bottom bar has four slots now, and the fourth one belongs to the user.** It was promised and
+never shipped, four times, because every candidate was a product decision imposed on every install.
+The slot is instead a choice with three real shapes: the **live pulse** (state, uptime, down/up, ping,
+jitter, quality, and the six tools that act on the library — the default, because it is the only one
+that means anything with an empty library), **one subscription** (its own list with that source's
+ping, rank and refresh verbs) or **one config** (one node, one tap). It has its own page in
+Settings → **Fourth tab**: show/hide, kind, subject, a caption the user writes (bounded to what the
+bar can draw) and one of four Canvas glyphs. Turning it off returns the exact three-tab bar the
+product shipped, with no page left dangling — the pager looks its page up instead of indexing by
+ordinal, and a remembered fourth tab is repaired into the bar that is on screen.
+
+**The Home status banner lost roughly half its height in all four themes.** It is one shared card
+the four presentations call, and it was three stacked strips with three fixed floors, three dividers
+and a 40 dp flag tile — ~139 dp repeating five facts. It is now two rows and a hairline (~73 dp): the
+status line (dot, state word, uptime), then the flag, the node, the exit IP with its country code,
+the wire scheme, the source and a reserve-width ping readout, with the whole identity row opening the
+full IP report. Nothing that was fixed-height became conditional, so nothing jumps when the route
+comes up.
 
 ## Speed and memory of a measurement
 

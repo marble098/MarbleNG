@@ -190,6 +190,9 @@ files = {
     "ui": read("app/src/main/java/com/marbleng/app/ui/Aether2026.kt"),
     "homeStyles": read("app/src/main/java/com/marbleng/app/ui/MarbleHomeStyles.kt"),
     "strings": read("app/src/main/java/com/marbleng/app/ui/MarbleStrings.kt"),
+    # MARBLE_DOCK_SLOT_V167 — the fourth tab's model test and the chapter that explains it.
+    "dockSlotTest": read("app/src/test/java/com/marbleng/app/model/DockSlotV167Test.kt"),
+    "dockSlotDoc": read("docs/DOCK_SLOT_AND_COMPACT_BANNER_V167.md"),
     "marbleApp": read("app/src/main/java/com/marbleng/app/ui/MarbleApp.kt"),
     "homeStudio": read("app/src/main/java/com/marbleng/app/ui/MarbleHomeStudio.kt"),
     "connectPlacement": read("app/src/main/java/com/marbleng/app/ui/MarbleConnectPlacement.kt"),
@@ -2082,6 +2085,63 @@ check(
     and "MARBLE_CORE_CONFIG_SUPERSET_V165" in files["interopDoc"]
     and "requiresTransportSecurity" in files["supersetDoc"]
     and "CoreConfigSuperset" in files["interopDoc"],
+)
+
+# MARBLE_DOCK_SLOT_V167 — the fourth tab of the bottom bar is the user's, and the Home status
+# banner is one compact card in all four presentations.
+# MARBLE_HOME_COMPACT_BANNER_V167 — the banner lost a third of its height on every Home page and
+# kept every fact it carried: two rows and a hairline, a 20 dp status line and a reserved ping
+# width, instead of three fixed-height strips with a 40 dp flag tile.
+_banner_body = _fun_body(files["homeStyles"], "internal fun IosStatusWideCard(")
+check(
+    "the Home status banner is one compact card in every theme",
+    files["homeStyles"].count("IosStatusWideCard(") == 5
+    and "MARBLE_HOME_COMPACT_BANNER_V167" in files["homeStyles"]
+    and "homeStatusText(evidence).uppercase()" in files["homeStyles"]
+    and "StatusDot(stateColor = stateColor, busy = evidence.connecting, size = 13.dp)" in files["homeStyles"]
+    and "Arrangement.spacedBy(4.dp)" in _banner_body
+    # The two old fixed strips are gone from the card: the identity row itself is the IP-report
+    # affordance now, and no separate HomeIpRow is composed inside the banner.
+    and "clickable { actions.onIpDetails() }" in _banner_body
+    and "HomeIpRow(" not in _banner_body,
+)
+check(
+    "the fourth dock slot is a preference, not a fixture",
+    "enum class DockSlotKind" in files["models"]
+    and "fun <T> dockSlots(" in files["models"]
+    and "fun <T> dockSlotIndex(" in files["models"]
+    and "SpatialTab.CUSTOM" in files["ui"]
+    and "dockSlots(SpatialTab.entries, SpatialTab.CUSTOM, repo.settings.dockSlotEnabled)" in files["ui"]
+    and "when (tabs.getOrNull(pageIndex) ?: SpatialTab.DECK)" in files["ui"]
+    and "if (item == SpatialTab.CUSTOM && !slot.enabled) return@forEach" in files["ui"],
+)
+check(
+    "the fourth dock slot is personalized from Settings and persisted",
+    all(
+        field in files["models"]
+        for field in (
+            "dockSlotEnabled",
+            "dockSlotKind",
+            "dockSlotSourceId",
+            "dockSlotLabel",
+            "dockSlotIcon",
+        )
+    )
+    and "parseDockSlotKind" in files["store"]
+    and "dockSlotLabel" in files["store"]
+    and "const val DOCK_SLOT" in files["ui"]
+    and "SettingsDockSlotPage(" in files["ui"]
+    and "SettingsDockSlotPreview(" in files["ui"]
+    and "DockSlotIconChoice(" in files["ui"]
+    and "dockSlotCaptionText(" in files["ui"],
+)
+check(
+    "V167 behaviour is covered by named tests and a chapter",
+    "class DockSlotV167Test" in files["dockSlotTest"]
+    and "MARBLE_DOCK_SLOT_V167" in files["dockSlotDoc"]
+    and "MARBLE_HOME_COMPACT_BANNER_V167" in files["dockSlotDoc"]
+    and "dockSlotIndex" in files["dockSlotDoc"]
+    and "Fourth tab" in files["dockSlotDoc"],
 )
 
 production = "\n".join(
