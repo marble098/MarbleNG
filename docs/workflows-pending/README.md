@@ -12,6 +12,27 @@ Copy each file over the one in `.github/workflows/` with the same name:
 | `verify.yml` | `.github/workflows/verify.yml` | a new **sing-box pinned-source smoke** (three steps) clones the pinned sing-box commit from `core-lock.json`, resolves the Go toolchain from the pinned *Xray's* `go.mod` — the exact resolution `build.yml` performs — injects both backports (V157 crash fix and V161 Go 1.27 force-close), checks every marker site, proves injector idempotence, runs the injected regression tests plus the `-tags badlinkname` link pin on `./transport/v2rayxhttp`, and links the whole core on the host with the release `SINGBOX_TAGS` read from `prepare-native.sh`; job timeout 25 → 40 minutes. This is the gate that would have caught build run #247 (the post-merge link failure of PR #135) at PR time: the core-lock bot's `GOTOOLCHAIN`-moving Xray bump lands on main with no build of its own, so a PR gate that never links the pinned sing-box under the pinned toolchain cannot see what the release build will do |
 | `update-cores.yml` | `.github/workflows/update-cores.yml` | the pre-push "Prove the Android crash backport still applies" dry run now also dry-runs `scripts/inject-singbox-go127-fix.py`, so a sing-box tag that moves the force-close anchors — or an Xray bump that moves the toolchain that makes them fatal — kills the one-minute updater before it commits a lock nobody can build. It also requires `.singbox.commit`/`.singbox.patch`/single-digest in the resolved lock (from the earlier V157 batch, kept) |
 
+## MARBLE_SOCKET_FLIGHT_V168 — Android SDK setup fix (2026-09-15, urgent)
+
+Google removed the legacy `tools` package from the Android SDK repository. Every
+`android-actions/setup-android@v4` call defaults `packages` to `tools platform-tools`, so the
+**Set up Android SDK** step fails with `Failed to find package 'tools'` on every branch —
+including `main` (last green 2026-09-13) — before any repo code is compiled. Bumping the action
+does not help (v4.0.1 keeps the default); the input must be named explicitly:
+
+```yaml
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: "platform-tools"
+```
+
+The fix is already applied to the staged `verify.yml` and `build.yml` below, so copying those
+also retires the broken default. The **live** `.github/workflows/marble-cloud-gate.yml` has no
+staged copy: when installing, add the same `with: packages: "platform-tools"` block to its
+existing Set up Android SDK step (the following `Install compile SDK` step already installs
+`platforms;android-36` + `build-tools;36.0.0`).
+
 Notes for whoever installs them:
 
 * `build.yml` (still the file to replace `.github/workflows/build.yml` with, but see the

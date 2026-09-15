@@ -19,6 +19,7 @@ import com.marbleng.app.core.ContinuousRouteOptimizer
 import com.marbleng.app.core.ConnectivityDiagnosticsObserver
 import com.marbleng.app.core.DataStallGuard
 import com.marbleng.app.core.ConfigBlockGuard
+import com.marbleng.app.core.HevTunnelPolicy
 import com.marbleng.app.core.CoreConfigSuperset
 import com.marbleng.app.core.EgressObservationPolicy
 import com.marbleng.app.core.JitterControlPolicy
@@ -85,6 +86,8 @@ class MarbleVpnService : VpnService() {
     // MARBLE_RTT_RESILIENCE_V47
     // MARBLE_REAL_RTT_XHTTP_V50
     // MARBLE_REALTIME_ENGINE_V70
+    // MARBLE_SOCKET_FLIGHT_V168 — physical-socket tuning (MPTCP, UDP fragment, liveness,
+    // fragment dialers, HEV pipeline) is owned by CoreSocketPolicy and HevTunnelPolicy.
     // Live optimisation may learn while connected, but it must never intentionally tear down
     // a healthy user tunnel merely to hot-apply a transport experiment.
     companion object {
@@ -1053,27 +1056,17 @@ class MarbleVpnService : VpnService() {
         // socket buffer, and a throttled device stops paying for buffers it cannot fill.
         val datapath = (application as MarbleApplication).repo.intelligence
             .tunnelTuning(profile.id, settings)
-        val cfg = buildList {
-            add("tunnel:")
-            add("  mtu: $activeMtu")
-            add("  ipv4: 198.18.0.1")
-            // HEV's ipv6 address is optional. Advertising fc00::1 while the TUN did not capture
-            // ::/0 (user turned IPv6 off, or the underlay cannot carry it) is how Happy Eyeballs
-            // packets entered a stack that then had nowhere to send them.
-            if (ipv6RouteCaptured) add("  ipv6: 'fc00::1'")
-            add("  icmp: 'off'")
-            add("socks5:")
-            add("  address: '127.0.0.1'")
-            add("  port: $socksPort")
-            add("  udp: 'udp'")
-            add("misc:")
-            add("  log-file: '${diag.hevLog.absolutePath}'")
-            add("  log-level: error")
-            add("  task-stack-size: 86016")
-            add("  tcp-buffer-size: ${datapath.tcpBufferBytes}")
-            add("  udp-recv-buffer-size: ${datapath.udpBufferBytes}")
-            add("  max-session-count: ${datapath.maxSessions}")
-        }.joinToString(separator = "\n", postfix = "\n")
+        // MARBLE_SOCKET_FLIGHT_V168 — pipeline the SOCKS5 handshake, widen the UDP splice burst
+        // pool and give a fragmented dial room to complete. The document is assembled in
+        // HevTunnelPolicy, pinned against the accepted keys of the pinned 2.17.1 core.
+        val cfg = HevTunnelPolicy.buildConfig(
+            socksPort = socksPort,
+            mtu = activeMtu,
+            ipv6 = ipv6RouteCaptured,
+            logFilePath = diag.hevLog.absolutePath,
+            datapath = datapath,
+            fastOpen = settings.tcpFastOpenEnabled
+        )
         if (cfg.contains("\\n") || !cfg.contains('\n')) {
             handleFailure(session, "Internal HEV YAML encoding failure")
             return

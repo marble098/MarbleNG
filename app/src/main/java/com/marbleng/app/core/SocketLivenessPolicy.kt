@@ -1,8 +1,12 @@
 package com.marbleng.app.core
 
 /**
- * Conservative Xray TCP liveness values. TCP_NODELAY is intentionally absent because Go already
- * enables it. MPTCP is intentionally opt-in elsewhere because kernel/server support is required.
+ * Conservative TCP liveness values shared by both engines (Xray sockopt and sing-box dial
+ * fields). TCP_NODELAY is intentionally absent because Go already enables it.
+ *
+ * MARBLE_SOCKET_FLIGHT_V168: MPTCP used to be deliberately opt-in here for fear of old kernels;
+ * Go's multipath dialer (net/mptcpsock_linux.go) probes support at runtime and retries plain TCP
+ * on every MPTCP error, so it is now offered by default in [CoreSocketPolicy].
  *
  * MARBLE_IRAN_LIVENESS_V80: Enhanced with Iran-specific settings that account for
  * the longer RTT and higher loss characteristics of filtered international transit.
