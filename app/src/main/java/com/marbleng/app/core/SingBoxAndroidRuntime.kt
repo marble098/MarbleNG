@@ -229,9 +229,11 @@ object SingBoxAndroidRuntime {
     /** The one-line explanation attached to the package-manager probe. */
     const val PACKAGE_MANAGER_REMEDIATION: String =
         "sing-box tried to read Android's package list (/data/system/packages.xml), which an app " +
-            "process may not open. MarbleNG asks for no process/package rule, so this line alone " +
-            "is harmless — but it identifies the core build that also crashed in its `direct` " +
-            "outbound. Update MarbleNG, or switch Settings → Tunnel core to Xray-core."
+            "process may not open. Every GOOS=android core prints this once per start, including " +
+            "the patched one MarbleNG ships (MARBLE_SINGBOX_ANDROID_CLI_CRASH_V157), and MarbleNG " +
+            "asks for no process/package rule, so the line alone is harmless. It only matters " +
+            "next to a `panic:`/SIGSEGV in the same log — that combination is reported separately " +
+            "as a crashed core."
 
     /**
      * MARBLE_SINGBOX_PORT_SOVEREIGNTY_V158 — True when the core died because the local SOCKS port

@@ -26,7 +26,9 @@ object XrayConfigHardener {
     // MARBLE_REALTIME_ENGINE_V70
     // MARBLE_UNIFIED_ADDRESS_FAMILY_V65
     // MARBLE_SOCKET_FLIGHT_V168 — MPTCP, physical fragment-dialer tuning, uTLS gap fill.
-    private val infra = setOf("freedom", "blackhole", "dns", "loopback")
+    // MARBLE_RESERVED_TAG_COLLISION_V183 — the core accepts `direct`/`block` as aliases of
+    // `freedom`/`blackhole`; an alias is infrastructure exactly like its canonical name.
+    private val infra = setOf("freedom", "direct", "blackhole", "block", "dns", "loopback")
     private val compatibilityDependencyProtocols = setOf(
         "freedom", "http", "shadowsocks", "socks", "trojan", "vless", "vmess", "hysteria", "wireguard"
     )
@@ -391,6 +393,15 @@ object XrayConfigHardener {
         // innermost hop's `domainStrategy` — two silent behaviour changes hiding inside a compat fix.
         val importedChainHops = mutableSetOf<String>()
 
+        // MARBLE_RESERVED_TAG_COLLISION_V183 — the hardener appends its own `block`, `direct`,
+        // `dns-out`, `fragment-direct` and `tls-fragment` outbounds below, and the core's outbound
+        // manager refuses a document that names one tag twice (`app/proxyman/outbound: existing tag
+        // found: block`, exit code 23). An imported serverless-style document routinely ships its
+        // own `block`/`direct`/`dns-out`, so an imported hop that would collide is renamed here and
+        // every reference to it (dialerProxy, the removed proxySettings) follows the rename. The
+        // user's routing section is replaced wholesale further down, so no rule can dangle.
+        renameReservedImportedTags(old)
+
         for (i in 0 until old.length()) {
             val orig = old.optJSONObject(i) ?: continue
             val clone = JSONObject(orig.toString())
@@ -399,6 +410,11 @@ object XrayConfigHardener {
                 if (isSelectableProxy(clone) && firstTag.isBlank()) "proxy" else "out-$i"
             }
             clone.put("tag", tag)
+            if (tag in byTag) {
+                // A document that already repeats a tag cannot start on the core either; keep the
+                // first definition and skip the shadowed duplicate instead of emitting both.
+                continue
+            }
             byTag[tag] = clone
             if (isSelectableProxy(clone) && firstTag.isBlank()) firstTag = tag
             if (orig.optJSONObject("proxySettings")?.optString("tag").orEmpty().isNotBlank() ||
@@ -1429,6 +1445,50 @@ object XrayConfigHardener {
         }
         if (!clean.matches(Regex("\\d{1,3}(\\.\\d{1,3}){3}"))) return false
         return clean.split('.').all { (it.toIntOrNull() ?: -1) in 0..255 }
+    }
+
+    /**
+     * MARBLE_RESERVED_TAG_COLLISION_V183 — outbound tags [harden] emits itself. An imported hop that
+     * carries one of these names is renamed to `import-<tag>` before the graph is read, and every
+     * `sockopt.dialerProxy` / `proxySettings.tag` that pointed at it is rewritten to match.
+     */
+    internal val RESERVED_OUTBOUND_TAGS: Set<String> = setOf(
+        "block", "direct", "dns-out", "fragment-direct", "tls-fragment"
+    )
+
+    internal fun importedAliasFor(tag: String): String = "import-$tag"
+
+    /**
+     * Rename colliding tags in [outbounds] in place. Returns the applied `old → new` map (empty when
+     * nothing collided) so callers can log it. The alias itself is made unique against the rest of
+     * the document, so `import-block` can never collide with an outbound the user already named so.
+     */
+    internal fun renameReservedImportedTags(outbounds: JSONArray): Map<String, String> {
+        val present = linkedSetOf<String>()
+        for (i in 0 until outbounds.length()) {
+            outbounds.optJSONObject(i)?.optString("tag")?.takeIf { it.isNotBlank() }?.let(present::add)
+        }
+        val renames = linkedMapOf<String, String>()
+        present.filter { it in RESERVED_OUTBOUND_TAGS }.forEach { tag ->
+            var candidate = importedAliasFor(tag)
+            var suffix = 2
+            while (candidate in present || candidate in renames.values) {
+                candidate = importedAliasFor(tag) + "-" + suffix++
+            }
+            renames[tag] = candidate
+        }
+        if (renames.isEmpty()) return renames
+        for (i in 0 until outbounds.length()) {
+            val outbound = outbounds.optJSONObject(i) ?: continue
+            renames[outbound.optString("tag")]?.let { outbound.put("tag", it) }
+            outbound.optJSONObject("streamSettings")?.optJSONObject("sockopt")?.let { sockopt ->
+                renames[sockopt.optString("dialerProxy")]?.let { sockopt.put("dialerProxy", it) }
+            }
+            outbound.optJSONObject("proxySettings")?.let { proxy ->
+                renames[proxy.optString("tag")]?.let { proxy.put("tag", it) }
+            }
+        }
+        return renames
     }
 
     /** Freedom/direct hops that already shred TLS are selectable routes, not infrastructure. */

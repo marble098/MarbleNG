@@ -39,9 +39,29 @@ class XrayManager(private val context: Context) {
     // MARBLE_V2RAYNG_SMART_RANK_V45
     // MARBLE_TEMP_CONFIG_FALLBACK_V47
     // MARBLE_REALTIME_ENGINE_V70
-    private companion object {
+    internal companion object {
         const val ROUTING_ASSET_REFRESH_MS = 24L * 60L * 60L * 1000L
         const val ROUTING_ASSET_RETRY_MS = 6L * 60L * 60L * 1000L
+
+        /**
+         * MARBLE_RESERVED_TAG_COLLISION_V183 — the one line that explains a start failure. The core
+         * prints its `[Info]` DNS bootstrap lines right before `Failed to start: …`, so "the last
+         * four lines" used to be three DoH-client notices and a truncated cause. The fatal line
+         * leads now; the recent context follows, bounded as before.
+         */
+        internal fun summarizeStartFailure(lines: List<String>): String {
+            val meaningful = lines.map { it.trim() }.filter { it.isNotBlank() }
+            if (meaningful.isEmpty()) return ""
+            val fatal = meaningful.lastOrNull { line ->
+                line.contains("Failed to start", ignoreCase = true) ||
+                    line.contains("[Error]", ignoreCase = true) ||
+                    line.contains("panic:", ignoreCase = true) ||
+                    line.contains("fatal", ignoreCase = true)
+            }
+            val context = meaningful.takeLast(4).filterNot { it == fatal }
+            val ordered = if (fatal != null) listOf(fatal) + context else context
+            return ordered.joinToString(" | ").take(900)
+        }
     }
     private val lifecycleLock = Any()
     private val assetLock = ReentrantLock()
@@ -1256,9 +1276,7 @@ class XrayManager(private val context: Context) {
     private fun lastLogHint(): String {
         if (!logFile.isFile) return "no Xray log"
         return runCatching {
-            logFile.useLines { lines ->
-                lines.filter { it.isNotBlank() }.toList().takeLast(4).joinToString(" | ")
-            }.take(900)
+            logFile.useLines { lines -> summarizeStartFailure(lines.toList()) }
         }.getOrDefault("Xray log unavailable").ifBlank { "no Xray error detail" }
     }
 

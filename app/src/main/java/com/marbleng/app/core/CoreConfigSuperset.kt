@@ -130,7 +130,7 @@ object CoreConfigSuperset {
      */
     private val CORE_CHECKED_PROTOCOLS = setOf("vless", "trojan")
 
-    private val INFRA_OUTBOUND_PROTOCOLS = setOf("freedom", "blackhole", "dns", "loopback", "warp")
+    private val INFRA_OUTBOUND_PROTOCOLS = setOf("freedom", "direct", "blackhole", "block", "dns", "loopback", "warp")
 
     /** The security values that satisfy the core's rule by themselves. */
     private val TRANSPORT_SECURITY = setOf("tls", "reality")
