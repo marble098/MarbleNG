@@ -26,7 +26,7 @@ import com.marbleng.app.core.JitterControlPolicy
 import com.marbleng.app.core.LinkDeadlinePolicy
 import com.marbleng.app.core.LinkEvidence
 import com.marbleng.app.core.LinkQualityEstimator
-import com.marbleng/app.core.NetworkSnapshot
+import com.marbleng.app.core.NetworkSnapshot
 import com.marbleng.app.core.PathMtuPolicy
 import com.marbleng.app.core.ProfileFlapGuard
 import com.marbleng.app.core.ProtocolFingerprintAwareVerifier

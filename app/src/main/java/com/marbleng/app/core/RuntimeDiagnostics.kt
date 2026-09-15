@@ -470,7 +470,7 @@ class RuntimeDiagnostics(private val context: Context) {
             if (level >= 5) {
                 synchronized(ringLock) {
                     while (ring.size > 200 || ringChars > 100_000L) {
-                        val dropped = ring.removeFirstOrNull() ?: break
+                        val dropped = ring.pollFirst() ?: break
                         ringChars = (ringChars - dropped.length).coerceAtLeast(0L)
                     }
                 }
