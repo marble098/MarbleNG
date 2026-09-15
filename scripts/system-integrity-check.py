@@ -2198,6 +2198,27 @@ check(
     # The inline YAML builder inside the service must be gone: one writer, one test target.
     and 'add("socks5:")' not in files["vpn"],
 )
+# Google retired the legacy 'tools' SDK package (2026-09) while setup-android@v4 defaults its
+# packages input to 'tools platform-tools'; every run then died at 'Set up Android SDK' before
+# any repo code was compiled. The App token cannot write .github/workflows/, so — per the
+# docs/workflows-pending convention — the fix ships in the staged complete copies that
+# workflow(name) prefers. Every v4 call site in a staged file must name surviving packages.
+def _setup_android_pins_packages(wf: str) -> bool:
+    return (
+        wf.count("uses: android-actions/setup-android@v4") >= 1
+        and wf.count("uses: android-actions/setup-android@v4")
+        == wf.count('packages: "platform-tools"')
+    )
+
+check(
+    "V168 CI: staged workflows never rely on the retired default 'tools' SDK package",
+    _setup_android_pins_packages(workflow("verify.yml"))
+    and _setup_android_pins_packages(workflow("build.yml"))
+    and all(
+        "uses: android-actions/setup-android@v4" in f.read_text(encoding="utf-8")
+        for f in [ROOT / ".github/workflows/verify.yml", ROOT / ".github/workflows/build.yml"]
+    ),
+)
 check(
     "V168 behaviour is pinned by named tests and explained by a chapter",
     "class SocketFlightV168Test" in files["socketFlightTest"]

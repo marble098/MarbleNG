@@ -60,6 +60,13 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4
+        with:
+          # MARBLE_SOCKET_FLIGHT_V168 CI unblock: Google retired the legacy
+          # 'tools' SDK package (2026-09); the action defaults to
+          # 'tools platform-tools' and sdkmanager exits 1 on the missing
+          # package. platform-tools still exists; the later step installs
+          # the platform/build-tools this build needs.
+          packages: "platform-tools"
 
       - name: Install Android SDK and NDK
         shell: bash

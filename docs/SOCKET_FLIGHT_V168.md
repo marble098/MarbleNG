@@ -161,6 +161,23 @@ uTLS layer), and never overwrites an explicit value including `unsafe`.
   shapes, TFO, MSS, mux, family/DNS plan) to the shared `AppSettings` before either config
   writer runs, so both engines receive identical Turbo decisions.
 
+## CI unblock — the retired `tools` SDK package (2026-09-15)
+
+Source verification went red on every branch (last green `main`: 2026-09-13) in the **Set up
+Android SDK** step, before any repo code was compiled. `android-actions/setup-android@v4`
+defaults its `packages` input to `tools platform-tools`; Google removed the long-obsolete `tools`
+package from the SDK repository, so `sdkmanager tools` now answers `Failed to find package
+'tools'` and exits 1. Bumping the action does not help (v4.0.1 keeps the same default). Every
+call site — `build.yml`, `verify.yml`, `marble-cloud-gate.yml` and their staged copies under
+`docs/workflows-pending/` — now names `packages: "platform-tools"` explicitly; the following
+steps install `platforms;android-36` and `build-tools;36.0.0`. The fix is staged in the complete
+workflow copies under `docs/workflows-pending/` (the push token cannot write
+`.github/workflows/`, the established convention in that directory's README) and pinned by a
+named integrity invariant over the staged copies; the live files, including
+`marble-cloud-gate.yml` (which has no staged copy), receive the same one-block override when the
+staged workflows are installed. Until that install the only red CI step on every branch is this
+SDK provisioning step, which fails before any repo code compiles.
+
 ## Verification map (pinned source, not documentation hearsay)
 
 - Xray `v26.9.9` `transport/internet/system_dialer.go` — non-fatal sockopt application on both
