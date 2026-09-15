@@ -94,7 +94,9 @@ data class BugReport(
 private data class ExitEvidence(
     val text: String,
     val crashLike: Int,
-    val lowMemory: Int
+    val lowMemory: Int,
+    /** One line per crash-like record, so the WARN itself says what happened. */
+    val crashSummaries: List<String> = emptyList()
 )
 
 class BugFinder(private val context: Context, private val xray: XrayManager, private val singbox: SingBoxManager? = null) {
@@ -210,11 +212,16 @@ class BugFinder(private val context: Context, private val xray: XrayManager, pri
                     "counters read nothing, while the route itself is unaffected",
                 SingBoxAndroidRuntime.STARTUP_TIMEOUT_REMEDIATION
             )
+            // MARBLE_RESERVED_TAG_COLLISION_V183 — INFO, not WARN. The probe line is printed by
+            // every Android build of the core on every start, the crash it used to accompany is
+            // fixed in the binary MarbleNG compiles, and the crash itself is the FAIL branch above.
+            // Warning about it on a healthy start made every report carry a warning nobody could
+            // act on, which is how the real warnings stopped being read.
             SingBoxAndroidRuntime.isPackageManagerFault(coreEvidence) -> BugCheck(
                 "SingBox core start-up",
-                BugSeverity.WARN,
-                "The core tried to read Android's package list (/data/system/packages.xml), which " +
-                    "an app process may not open",
+                BugSeverity.INFO,
+                "The core logged Android's package-list probe (/data/system/packages.xml: " +
+                    "permission denied) and kept running • no crash signature in the retained logs",
                 SingBoxAndroidRuntime.PACKAGE_MANAGER_REMEDIATION
             )
             else -> BugCheck(
@@ -225,6 +232,20 @@ class BugFinder(private val context: Context, private val xray: XrayManager, pri
                 } else {
                     "no crash signature in the retained sing-box logs"
                 }
+            )
+        }
+
+        // MARBLE_RESERVED_TAG_COLLISION_V183 — the Xray twin of the sing-box start-up check. A
+        // config-load refusal (`Failed to start: … existing tag found: block`, exit code 23) is a
+        // fact about the document MarbleNG wrote, never about the server, and it must be named as
+        // such in every app state instead of surfacing only as "BLOCKED • Kill switch active".
+        val xrayStartFault = XrayStartFailure.classify(xray.lastStartError, allRuntime)
+        if (xrayStartFault != null) {
+            checks += BugCheck(
+                "Xray core start-up",
+                BugSeverity.FAIL,
+                xrayStartFault.headline,
+                xrayStartFault.remediation
             )
         }
 
@@ -624,8 +645,12 @@ class BugFinder(private val context: Context, private val xray: XrayManager, pri
                 exits.crashLike > 0 -> BugCheck(
                     "Historical process exits",
                     BugSeverity.WARN,
-                    "${exits.crashLike} crash/ANR/native-crash exit record(s) found in Android history",
-                    "Review the PROCESS EXIT HISTORY section"
+                    "${exits.crashLike} crash/ANR/native-crash exit record(s) found in Android history" +
+                        // MARBLE_RESERVED_TAG_COLLISION_V183 — the records travel with the check:
+                        // a report that is shared as a screenshot or trimmed to its HEALTH CHECKS
+                        // used to point at a section the reader did not have.
+                        exits.crashSummaries.joinToString("") { " • $it" },
+                    "Review the PROCESS EXIT HISTORY section for the full traces"
                 )
                 exits.lowMemory > 0 -> BugCheck(
                     "Historical process exits",
@@ -695,7 +720,12 @@ class BugFinder(private val context: Context, private val xray: XrayManager, pri
             }
         )
         sections += BugSection("CONNECTION / ENGINE EVENT TIMELINE", connectionTimeline(allRuntime))
-        sections += BugSection("ANDROID PROCESS EXIT HISTORY", exits.text)
+        // The WARN above points the reader at this section by name; it must exist under that name
+        // even when Android returned nothing, or the report references a section that is not there.
+        sections += BugSection(
+            "PROCESS EXIT HISTORY",
+            exits.text.ifBlank { "No ApplicationExitInfo records returned by Android" }
+        )
         sections += BugSection(
             "DIAGNOSTICS ENGINE",
             buildString {
@@ -912,6 +942,7 @@ class BugFinder(private val context: Context, private val xray: XrayManager, pri
 
         var crashLike = 0
         var lowMemory = 0
+        val crashSummaries = mutableListOf<String>()
         val warningCutoff = now - 24L * 60L * 60L * 1000L
         val text = buildString {
             appendLine("records=${exits.size}")
@@ -925,7 +956,11 @@ class BugFinder(private val context: Context, private val xray: XrayManager, pri
                         exit.reason == ApplicationExitInfo.REASON_CRASH_NATIVE ||
                         exit.reason == ApplicationExitInfo.REASON_ANR
                     )
-                ) crashLike++
+                ) {
+                    crashLike++
+                    crashSummaries += "#${index + 1} ${Instant.ofEpochMilli(exit.timestamp)} $reason " +
+                        "status=${exit.status} ${sanitize(exit.description.orEmpty()).take(160)}"
+                }
                 if (
                     exit.timestamp >= warningCutoff &&
                     exit.reason == ApplicationExitInfo.REASON_LOW_MEMORY
@@ -951,7 +986,7 @@ class BugFinder(private val context: Context, private val xray: XrayManager, pri
                 }
             }
         }
-        return ExitEvidence(text, crashLike, lowMemory)
+        return ExitEvidence(text, crashLike, lowMemory, crashSummaries.take(8))
     }
 
     private fun exitReason(reason: Int): String = when (reason) {

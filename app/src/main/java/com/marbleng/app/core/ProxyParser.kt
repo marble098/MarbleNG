@@ -26,7 +26,7 @@ object ProxyParser {
     private val shareFinder = Regex(
         "(?i)(?:vless|vmess|trojan|ss|hysteria2|hy2|hysteria|tuic|anytls|socks5?|https?|ssh)://[^\\s]+"
     )
-    private val infraProtocols = setOf("freedom", "blackhole", "dns", "loopback")
+    private val infraProtocols = setOf("freedom", "direct", "blackhole", "block", "dns", "loopback")
 
     /**
      * MARBLE_CORE_CONFIG_SUPERSET_V165 — share-link parameter → `xhttpSettings` field, using the

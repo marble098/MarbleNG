@@ -399,7 +399,7 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         for (i in 0 until outbounds.length()) {
             val outbound = outbounds.optJSONObject(i) ?: continue
             val protocol = outbound.optString("protocol").lowercase()
-            if (protocol in setOf("freedom", "blackhole", "dns", "loopback")) continue
+            if (protocol in setOf("freedom", "direct", "blackhole", "block", "dns", "loopback")) continue
             val settings = outbound.optJSONObject("settings") ?: continue
             val server = settings.optJSONArray("vnext")?.optJSONObject(0)
                 ?: settings.optJSONArray("servers")?.optJSONObject(0)

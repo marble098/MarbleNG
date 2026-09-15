@@ -43,6 +43,7 @@ import com.marbleng.app.core.SingBoxAndroidRuntime
 import com.marbleng.app.core.SingBoxConfigDoctor
 import com.marbleng.app.core.SingBoxManager
 import com.marbleng.app.core.XrayManager
+import com.marbleng.app.core.XrayStartFailure
 import com.marbleng.app.core.coreEngine
 import com.marbleng.app.model.AppSettings
 import com.marbleng.app.model.ProxyProfile
@@ -704,10 +705,14 @@ class MarbleVpnService : VpnService() {
             // detail says whose fault it is.
             val unusableCore = activeEngine == CoreEngine.SINGBOX &&
                 SingBoxAndroidRuntime.isUnusableCore(coreStartError)
+            val xrayFault = if (activeEngine == CoreEngine.XRAY) XrayStartFailure.classify(coreStartError) else null
             diag.event(
                 coreTag,
                 if (unusableCore) "core-unusable-on-device" else "core-start-failure-not-a-server-verdict",
-                "reason" to coreStartError.take(300),
+                // The cause line leads: the previous 300-character cut was spent on the DNS
+                // `[Info]` prologue and truncated the one line that mattered.
+                "reason" to (xrayFault?.cause ?: coreStartError).take(300),
+                "faultKind" to (xrayFault?.kind?.name ?: "unclassified"),
                 "selfTest" to (singBox.lastSelfTest?.summary ?: "not run")
             )
             handleFailure(
@@ -727,6 +732,11 @@ class MarbleVpnService : VpnService() {
                     // "Core/configuration error" for a port another process held, which reads
                     // like a verdict about the profile the user just tapped. Name the owner.
                     SingBoxAndroidRuntime.isPortBindConflict(coreStartError) -> "Local port in use"
+                    // MARBLE_RESERVED_TAG_COLLISION_V183 — an Xray load refusal (duplicate
+                    // outbound tag, unparsable document, port in use) is named as a document
+                    // fault so the BLOCKED detail does not read like a dead server.
+                    activeEngine == CoreEngine.XRAY ->
+                        XrayStartFailure.faultClass(coreStartError, "Core/configuration error")
                     else -> "Core/configuration error"
                 }
             )

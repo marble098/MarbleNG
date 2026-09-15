@@ -89,6 +89,7 @@ object XrayConfigRepairs {
         val repairs = LinkedHashSet<String>()
         for (index in 0 until outbounds.length()) {
             val outbound = outbounds.optJSONObject(index) ?: continue
+            canonicalizeProtocolAlias(outbound, repairs)
             unchainProxySettings(outbound, repairs)
             coerceNumericStrings(outbound, repairs)
 
@@ -106,6 +107,27 @@ object XrayConfigRepairs {
 
         if (repairs.isEmpty()) return Report(source, emptyList())
         return Report(root.toString(), repairs.toList())
+    }
+
+    /**
+     * MARBLE_RESERVED_TAG_COLLISION_V183 — the pinned core's outbound loader accepts two spellings
+     * for the same handler (`infra/conf/xray.go`: `"block"`/`"blackhole"` → BlackholeConfig,
+     * `"direct"`/`"freedom"` → FreedomConfig). Every reader in MarbleNG (`infra`, the selectable-
+     * proxy test, the preflight validator, the parser) is written against the canonical names, so an
+     * imported `"protocol": "direct"` used to be mistaken for a proxy and `"protocol": "block"` for a
+     * dialer. The upstream XTLS serverless document uses the aliases exclusively.
+     */
+    internal val PROTOCOL_ALIASES: Map<String, String> = mapOf(
+        "direct" to "freedom",
+        "block" to "blackhole"
+    )
+
+    internal fun canonicalizeProtocolAlias(outbound: JSONObject, repairs: MutableSet<String>): Boolean {
+        val protocol = outbound.optString("protocol").trim().lowercase()
+        val canonical = PROTOCOL_ALIASES[protocol] ?: return false
+        outbound.put("protocol", canonical)
+        repairs += "protocol-$protocol-to-$canonical"
+        return true
     }
 
     /**

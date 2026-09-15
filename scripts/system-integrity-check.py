@@ -169,6 +169,9 @@ files = {
     "interopDoc": read("docs/core-interoperability.md"),
     "supersetTest": read("app/src/test/java/com/marbleng/app/core/CoreConfigSupersetV165Test.kt"),
     "repairsTest": read("app/src/test/java/com/marbleng/app/core/XrayConfigRepairsV165Test.kt"),
+    "xrayStartFailure": read("app/src/main/java/com/marbleng/app/core/XrayStartFailure.kt"),
+    "reservedTagTest": read("app/src/test/java/com/marbleng/app/core/ReservedTagCollisionV183Test.kt"),
+    "reservedTagDoc": read("docs/RESERVED_TAG_COLLISION_V183.md"),
     "linkParamsTest": read("app/src/test/java/com/marbleng/app/core/ShareLinkParamsV165Test.kt"),
     "blockGuardTest": read("app/src/test/java/com/marbleng/app/core/ConfigBlockGuardV165Test.kt"),
     "tlsPinning": read("app/src/main/java/com/marbleng/app/core/TlsPinningPolicy.kt"),
@@ -2227,6 +2230,38 @@ check(
     and "pipeline" in files["socketFlightDoc"]
     and "tcp_multi_path" in files["socketFlightDoc"]
     and "udp_fragment" in files["socketFlightDoc"],
+)
+
+# MARBLE_RESERVED_TAG_COLLISION_V183 — `existing tag found: block` (exit code 23). The hardener
+# appends its own block/direct/dns-out/fragment outbounds, so an imported document that already
+# names one of them must be renamed before the graph is read, and a load refusal must be reported
+# as a document fault rather than as "Kill switch active".
+check(
+    "V183 imported outbounds can never collide with the tags the hardener emits",
+    "renameReservedImportedTags(old)" in files["hardener"]
+    and 'internal val RESERVED_OUTBOUND_TAGS: Set<String> = setOf(' in files["hardener"]
+    and '"block", "direct", "dns-out", "fragment-direct", "tls-fragment"' in files["hardener"]
+    and 'internal fun importedAliasFor(tag: String): String = "import-$tag"' in files["hardener"]
+    and "if (tag in byTag) {" in files["hardener"]
+    and 'private val infra = setOf("freedom", "direct", "blackhole", "block", "dns", "loopback")' in files["hardener"]
+    and "canonicalizeProtocolAlias(outbound, repairs)" in files["configRepairs"]
+    and '"direct" to "freedom"' in files["configRepairs"]
+    and '"block" to "blackhole"' in files["configRepairs"],
+)
+check(
+    "V183 an Xray load refusal is classified and named in every reader",
+    "object XrayStartFailure" in files["xrayStartFailure"]
+    and "DUPLICATE_OUTBOUND_TAG" in files["xrayStartFailure"]
+    and 'if (!line.contains("ok=false")) return ""' in files["xrayStartFailure"]
+    and 'XrayStartFailure.classify(xray.lastStartError, allRuntime)' in files["bug"]
+    and '"Xray core start-up"' in files["bug"]
+    and '"PROCESS EXIT HISTORY"' in files["bug"]
+    and '"ANDROID PROCESS EXIT HISTORY"' not in files["bug"]
+    and 'XrayStartFailure.faultClass(coreStartError, "Core/configuration error")' in files["vpn"]
+    and "internal fun summarizeStartFailure(lines: List<String>): String" in files["xray"]
+    and "class ReservedTagCollisionV183Test" in files["reservedTagTest"]
+    and "existing tag found: block" in files["reservedTagTest"]
+    and "MARBLE_RESERVED_TAG_COLLISION_V183" in files["reservedTagDoc"],
 )
 
 production = "\n".join(

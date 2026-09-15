@@ -688,7 +688,7 @@ private fun removeKeys(
         for (i in 0 until outbounds.length()) {
             val candidate = outbounds.optJSONObject(i) ?: continue
             val protocol = candidate.optString("protocol").lowercase()
-            if (protocol in setOf("freedom", "blackhole", "dns", "loopback")) continue
+            if (protocol in setOf("freedom", "direct", "blackhole", "block", "dns", "loopback")) continue
             return candidate
         }
         return null
