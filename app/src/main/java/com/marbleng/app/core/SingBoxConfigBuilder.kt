@@ -685,13 +685,35 @@ private fun removeKeys(
     // ─────────────────────────────────────────────────────────────────────────────
 
     private fun firstProxyOutbound(outbounds: JSONArray): JSONObject? {
+        // First pass: non-infrastructure proxy protocol
         for (i in 0 until outbounds.length()) {
             val candidate = outbounds.optJSONObject(i) ?: continue
             val protocol = candidate.optString("protocol").lowercase()
             if (protocol in setOf("freedom", "direct", "blackhole", "block", "dns", "loopback")) continue
             return candidate
         }
+        // Second pass: for serverless/direct configs, look for a freedom/direct outbound with fragment
+        for (i in 0 until outbounds.length()) {
+            val candidate = outbounds.optJSONObject(i) ?: continue
+            val protocol = candidate.optString("protocol").lowercase()
+            if (protocol in setOf("freedom", "direct") && hasFragment(candidate)) {
+                return candidate
+            }
+        }
+        // Third pass: if no other candidate exists, fall back to any freedom/direct outbound
+        for (i in 0 until outbounds.length()) {
+            val candidate = outbounds.optJSONObject(i) ?: continue
+            val protocol = candidate.optString("protocol").lowercase()
+            if (protocol in setOf("freedom", "direct")) {
+                return candidate
+            }
+        }
         return null
+    }
+
+    private fun hasFragment(outbound: JSONObject): Boolean {
+        val fragment = outbound.optJSONObject("settings")?.optJSONObject("fragment") ?: return false
+        return fragment.optString("packets").isNotBlank()
     }
 
     private fun outboundByTag(outbounds: JSONArray, tag: String): JSONObject? {
@@ -733,6 +755,16 @@ private fun removeKeys(
                 ?: throw ConfigTranslationException("outbounds.detour", "missing chain hop '$nextTag'")
         }
         if (chain.size > 1) notes += "Chained through ${chain.size - 1} extra hop(s)."
+
+        // Serverless handling: if all hops in the chain are direct/freedom (e.g. Serverless-v50-fragA/B),
+        // sing-box executes the direct dial natively; chaining direct-to-direct is redundant in sing-box.
+        if (chain.all { it.optString("protocol").lowercase() in setOf("freedom", "direct") }) {
+            notes += "Serverless direct/fragment chain mapped to sing-box direct outbound with full dial flight."
+            val serverlessOutbound = JSONObject().put("tag", PROXY_TAG).put("type", "direct")
+            applyDialTuning(serverlessOutbound, settings, protocolHint = "direct")
+            return listOf(serverlessOutbound)
+        }
+
         return chain.mapIndexed { index, hop ->
             val tag = if (index == 0) PROXY_TAG else "marble-hop-$index"
             // Entry dials THROUGH hop 1, hop 1 through hop 2. Never reverse this edge.
@@ -930,7 +962,7 @@ private fun removeKeys(
 
             "freedom", "direct" -> {
                 if (xraySettings.has("fragment") || xraySettings.has("noises") || xraySettings.has("redirect")) {
-                    throw ConfigTranslationException("settings", "Xray freedom fragment/noises/redirect cannot be applied to a direct detour")
+                    notes += "Xray freedom fragment/noises/redirect mapped to direct outbound for sing-box."
                 }
                 result.put("type", "direct")
             }

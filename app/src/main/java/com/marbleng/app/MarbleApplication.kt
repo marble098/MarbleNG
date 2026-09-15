@@ -38,12 +38,14 @@ class MarbleApplication : Application() {
 
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
+        RuntimeDiagnostics.onMemoryPressure(level)
         if (::repo.isInitialized) repo.onMemoryPressure(level)
     }
 
     @Deprecated("Compatibility callback for severe system memory pressure")
     override fun onLowMemory() {
         super.onLowMemory()
+        RuntimeDiagnostics.onMemoryPressure(100)
         if (::repo.isInitialized) repo.onMemoryPressure(100)
     }
 }

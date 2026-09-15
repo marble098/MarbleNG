@@ -24,6 +24,7 @@ object NativeSingBoxConfig {
                 ?: throw ConfigTranslationException("route.final", "selected outbound '$finalTag' is missing")
         }
         return objects.firstOrNull { it.optString("type") !in infrastructure }
+            ?: objects.firstOrNull { it.optString("type") == "direct" }
             ?: throw ConfigTranslationException("outbounds", "no proxy outbound")
     }
 

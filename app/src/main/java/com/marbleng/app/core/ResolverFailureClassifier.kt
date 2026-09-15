@@ -180,7 +180,9 @@ object ResolverFailureClassifier {
         return lower.contains("dns") || lower.contains("doh") ||
             lower.contains("dns-query") || lower.contains("resolver") ||
             lower.contains("upstream") || lower.contains("app/dns") ||
-            lower.contains("dns.go") || lower.contains("dnscrypt")
+            lower.contains("dns.go") || lower.contains("dnscrypt") ||
+            lower.contains("nameserver") || lower.contains("resolve") ||
+            lower.contains("exchange failed")
     }
 
     /**

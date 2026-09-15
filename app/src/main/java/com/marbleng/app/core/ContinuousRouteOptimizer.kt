@@ -54,6 +54,7 @@ class ContinuousRouteOptimizer(
     private var cycle = 0
     private var lastScanAt = 0L
     private var lastSwitchAt = 0L
+    private var consecutiveSwitches = 0
     private var pendingProfileId = ""
     private var pendingWins = 0
     /** MARBLE_IRAN_OPTIMIZER_V80 */
@@ -114,6 +115,7 @@ class ContinuousRouteOptimizer(
         lastScanAt = lastScan
         pendingProfileId = ""
         pendingWins = 0
+        consecutiveSwitches = 0
     }
 
     @Synchronized
@@ -203,7 +205,14 @@ class ContinuousRouteOptimizer(
 
         // MARBLE_IRAN_OPTIMIZER_V80: Much longer cooldowns in Iran
         val iranMultiplier = if (iranModeActive) 2.5 else 1.0
-        val cool = (s.optimizerSwitchCooldownSec.coerceIn(60, 1800) * 1000L * iranMultiplier).toLong()
+        val baseCool = (s.optimizerSwitchCooldownSec.coerceIn(60, 1800) * 1000L * iranMultiplier).toLong()
+        val penaltyMultiplier = when {
+            consecutiveSwitches <= 1 -> 1.0
+            consecutiveSwitches == 2 -> 1.5
+            consecutiveSwitches == 3 -> 2.0
+            else -> 3.0
+        }
+        val cool = (baseCool * penaltyMultiplier).toLong()
         if (lastSwitchAt > 0 && now - lastSwitchAt < cool) {
             clear()
             return OptimizerDecision(
@@ -308,6 +317,12 @@ class ContinuousRouteOptimizer(
 
     @Synchronized
     fun noteSwitch(now: Long = System.currentTimeMillis()) {
+        val window = 600_000L // 10 minutes
+        if (lastSwitchAt > 0 && now - lastSwitchAt < window) {
+            consecutiveSwitches++
+        } else {
+            consecutiveSwitches = 1
+        }
         lastSwitchAt = now
         clear()
     }
