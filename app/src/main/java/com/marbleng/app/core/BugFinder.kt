@@ -12,6 +12,7 @@ import android.content.Context
 import android.os.Build
 import android.os.Debug
 import android.os.Process
+import com.marbleng.app.MarbleApplication
 import com.marbleng.app.model.AppSettings
 import com.marbleng.app.model.ConnectionMode
 import com.marbleng.app.model.ConnectionRecord
@@ -22,8 +23,11 @@ import java.io.RandomAccessFile
 import java.net.Inet6Address
 import java.net.InetSocketAddress
 import java.net.Socket
+import java.text.SimpleDateFormat
 import java.time.Instant
 import java.util.ArrayDeque
+import java.util.Locale
+import java.util.TimeZone
 
 enum class BugSeverity { PASS, INFO, WARN, FAIL }
 
@@ -96,7 +100,8 @@ private data class ExitEvidence(
     val crashLike: Int,
     val lowMemory: Int,
     /** One line per crash-like record, so the WARN itself says what happened. */
-    val crashSummaries: List<String> = emptyList()
+    val crashSummaries: List<String> = emptyList(),
+    val totalCrashLike: Int = 0
 )
 
 class BugFinder(private val context: Context, private val xray: XrayManager, private val singbox: SingBoxManager? = null) {
@@ -183,6 +188,7 @@ class BugFinder(private val context: Context, private val xray: XrayManager, pri
         val coreEvidence = listOf(singboxLog, singboxUrlTestLog, selfTestLog).joinToString("\n")
         val selfTestVerdict = singbox?.lastSelfTest
             ?: SingBoxCoreSelfTest.read(File(context.filesDir, "singbox-selftest.json"), sbin)
+        val singboxStartFault = SingBoxStartFailure.classify(singbox?.lastStartError.orEmpty(), allRuntime)
         checks += when {
             SingBoxAndroidRuntime.isCoreCrash(coreEvidence) -> BugCheck(
                 "SingBox core start-up",
@@ -198,6 +204,12 @@ class BugFinder(private val context: Context, private val xray: XrayManager, pri
                 "The core self-test cannot start this binary: " +
                     ProbeLocalFaultGate.headline(selfTestVerdict.reason),
                 SingBoxAndroidRuntime.CRASH_REMEDIATION
+            )
+            singboxStartFault != null -> BugCheck(
+                "SingBox core start-up",
+                BugSeverity.FAIL,
+                singboxStartFault.headline,
+                singboxStartFault.remediation
             )
             // MARBLE_SINGBOX_STARTUP_GATE_V162 — a tunnel that is up with a controller that is
             // not. It outranks the package-manager WARN below it because that one is printed by
@@ -556,12 +568,27 @@ class BugFinder(private val context: Context, private val xray: XrayManager, pri
         // The summary is derived from the SAME raw lines via the shared classifier, so a category
         // can never report 0 while the raw log clearly contains it (the old narrow substring match
         // reported "0 DNS EOF" on DoH "unexpected EOF" lines).
-        val rawLines = xrayLog.lineSequence().filter { it.isNotBlank() }.toList()
+        val activeCoreLog = if (settings.coreEngine() == CoreEngine.SINGBOX) singboxLog else xrayLog
+        val rawLines = activeCoreLog.lineSequence().filter { it.isNotBlank() }.toList()
         val resolverSummary = ResolverFailureClassifier.summarize(rawLines)
-        val resolverErrors = resolverSummary.transportFailures
-        val dohDeadlineCount = resolverSummary.deadlineCount
-        val dnsEofCount = resolverSummary.eofCount
-        val certExpired = resolverSummary.certExpiredCount
+
+        val persistedEvidence = runCatching {
+            (context.applicationContext as? MarbleApplication)?.repo?.intelligence?.resolverEvidence().orEmpty()
+        }.getOrDefault(emptyList())
+
+        val endpointEvidence = ResolverEvidencePolicy.observe(rawLines.asSequence(), persistedEvidence, now)
+        val worstEndpoint = endpointEvidence.maxByOrNull { it.decisiveFailures }
+        val demotedEndpoints = ResolverEvidencePolicy.demoted(
+            endpointEvidence.map { it.endpoint },
+            endpointEvidence,
+            now
+        )
+
+        val dohDeadlineCount = maxOf(resolverSummary.deadlineCount, endpointEvidence.sumOf { it.deadlines })
+        val dnsEofCount = maxOf(resolverSummary.eofCount, endpointEvidence.sumOf { it.eof })
+        val certExpired = maxOf(resolverSummary.certExpiredCount, endpointEvidence.sumOf { it.certExpired })
+        val tlsCount = maxOf(resolverSummary.tlsCount, endpointEvidence.sumOf { it.tls })
+        val resolverErrors = maxOf(resolverSummary.transportFailures, dohDeadlineCount + dnsEofCount + certExpired + tlsCount)
 
         /*
          * MARBLE_RESOLVER_EVIDENCE_V134 — a count without a window is not a measurement.
@@ -577,14 +604,12 @@ class BugFinder(private val context: Context, private val xray: XrayManager, pri
          * turns this evidence into a different emitted resolver list lives in ResolverEvidencePolicy,
          * MarbleIntelligence and XrayConfigHardener.
          */
-        val resolverWindow = ResolverEvidencePolicy.window(resolverErrors, tunnelUptimeMs)
-        val endpointEvidence = ResolverEvidencePolicy.observe(rawLines.asSequence(), emptyList(), now)
-        val worstEndpoint = endpointEvidence.maxByOrNull { it.decisiveFailures }
-        val demotedEndpoints = ResolverEvidencePolicy.demoted(
-            endpointEvidence.map { it.endpoint },
-            endpointEvidence,
-            now
-        )
+        val effectiveUptimeMs = if (tunnelUptimeMs > 0L) {
+            tunnelUptimeMs
+        } else {
+            estimateSessionWindowMs(rawLines, allRuntime)
+        }
+        val resolverWindow = ResolverEvidencePolicy.window(resolverErrors, effectiveUptimeMs)
         val windowMinutes = resolverWindow.windowMs / 60_000L
         val rateLabel = if (resolverWindow.rateUnknown) {
             "window unknown"
@@ -602,7 +627,7 @@ class BugFinder(private val context: Context, private val xray: XrayManager, pri
             certExpired > 0 -> BugCheck(
                 "Resolver health",
                 BugSeverity.WARN,
-                "$certExpired expired-certificate resolver event(s) observed in the current Xray session",
+                "$certExpired expired-certificate resolver event(s) observed in the current session",
                 "Endpoint quarantine is active; an expired resolver will not stay in rotation silently"
             )
             resolverErrors == 0 -> BugCheck(
@@ -615,7 +640,7 @@ class BugFinder(private val context: Context, private val xray: XrayManager, pri
                 BugSeverity.WARN,
                 "$resolverErrors resolver errors at $rateLabel • " +
                     "$dohDeadlineCount DoH deadlines • $dnsEofCount DNS EOF • " +
-                    "${resolverSummary.tlsCount} TLS • $attributionLabel",
+                    "$tlsCount TLS • $attributionLabel",
                 "Failing endpoints are demoted and encrypted fallback stays armed; if this rate " +
                     "survives a reconnect, the operator is filtering every resolver in the pool"
             )
@@ -627,7 +652,7 @@ class BugFinder(private val context: Context, private val xray: XrayManager, pri
                 BugSeverity.WARN,
                 "$resolverErrors retained resolver errors • $rateLabel • " +
                     "$dohDeadlineCount DoH deadlines • $dnsEofCount DNS EOF • " +
-                    "${resolverSummary.tlsCount} TLS • $attributionLabel",
+                    "$tlsCount TLS • $attributionLabel",
                 "Encrypted fallback remains active; re-run while connected for a rate-based verdict"
             )
             else -> BugCheck(
@@ -639,18 +664,71 @@ class BugFinder(private val context: Context, private val xray: XrayManager, pri
             )
         }
 
+        val intelligence = runCatching {
+            (context.applicationContext as? MarbleApplication)?.repo?.intelligence
+        }.getOrNull()
+        val stormActive = intelligence?.dnsStormActive() == true
+        val stormRate = intelligence?.dnsStormRatePerMinute() ?: 0.0
+        if (stormActive || stormRate >= 3.0) {
+            checks += BugCheck(
+                "DNS storm guard",
+                BugSeverity.WARN,
+                "DNS resolver storm active (${String.format(java.util.Locale.US, "%.2f", stormRate)}/min) • resolver pool in parallel race mode",
+                "Encrypted fallback resolvers are racing; demoted endpoints will be recovered when calm"
+            )
+        }
+
+        val lastTcpInfo = allRuntime.lineSequence().filter { it.contains("tcp-info") }.lastOrNull()
+        if (lastTcpInfo != null) {
+            val lost = Regex("lost=(\\d+)").find(lastTcpInfo)?.groupValues?.get(1)?.toIntOrNull() ?: 0
+            val unacked = Regex("unacked=(\\d+)").find(lastTcpInfo)?.groupValues?.get(1)?.toIntOrNull() ?: 0
+            val cwnd = Regex("cwnd=(\\d+)").find(lastTcpInfo)?.groupValues?.get(1)?.toIntOrNull() ?: 10
+            val mss = Regex("mss=(\\d+)").find(lastTcpInfo)?.groupValues?.get(1)?.toIntOrNull() ?: 1400
+            val pmtu = Regex("pmtu=(\\d+)").find(lastTcpInfo)?.groupValues?.get(1)?.toIntOrNull() ?: 1500
+            val stressed = lastTcpInfo.contains("stressed=true")
+
+            if (stressed && (lost >= 10 || unacked >= 10 || (cwnd <= 2 && lost > 0) || (mss in 1..600))) {
+                checks += BugCheck(
+                    "TCP path health",
+                    BugSeverity.WARN,
+                    "Transport stressed: lost=$lost, unacked=$unacked, cwnd=$cwnd, mss=$mss (pmtu=$pmtu) • middlebox packet loss or blackhole MTU",
+                    "Adaptive MTU/MSS reduction active; consider switching node if loss persists"
+                )
+            } else if (connected) {
+                checks += BugCheck(
+                    "TCP path health",
+                    BugSeverity.PASS,
+                    "Transport parameters normal • cwnd=$cwnd • pmtu=$pmtu • mss=$mss"
+                )
+            }
+        }
+
         val exits = historicalExits(now)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             checks += when {
                 exits.crashLike > 0 -> BugCheck(
                     "Historical process exits",
-                    BugSeverity.WARN,
+                    if (exits.crashLike >= 3) BugSeverity.FAIL else BugSeverity.WARN,
                     "${exits.crashLike} crash/ANR/native-crash exit record(s) found in Android history" +
                         // MARBLE_RESERVED_TAG_COLLISION_V183 — the records travel with the check:
                         // a report that is shared as a screenshot or trimmed to its HEALTH CHECKS
                         // used to point at a section the reader did not have.
                         exits.crashSummaries.joinToString("") { " • $it" },
                     "Review the PROCESS EXIT HISTORY section for the full traces"
+                )
+                exits.totalCrashLike > 0 -> BugCheck(
+                    "Historical process exits",
+                    BugSeverity.WARN,
+                    "${exits.totalCrashLike} historical crash/ANR record(s) found in Android history" +
+                        exits.crashSummaries.joinToString("") { " • $it" },
+                    "Review the PROCESS EXIT HISTORY section for the full traces"
+                )
+                exits.lowMemory >= 2 -> BugCheck(
+                    "Historical process exits",
+                    BugSeverity.WARN,
+                    "${exits.lowMemory} historical Android LOW_MEMORY exit record(s) found • " +
+                        "system pressure evidence; largeHeap and v26 trim hooks are armed",
+                    "Full process-exit evidence is preserved below"
                 )
                 exits.lowMemory > 0 -> BugCheck(
                     "Historical process exits",
@@ -930,6 +1008,47 @@ class BugFinder(private val context: Context, private val xray: XrayManager, pri
         }
     }
 
+    private fun estimateSessionWindowMs(rawLines: List<String>, allRuntime: String): Long {
+        val timestamps = mutableListOf<Long>()
+        val xrayFormat = SimpleDateFormat("yyyy/MM/dd HH:mm:ss", Locale.US).apply {
+            timeZone = TimeZone.getDefault()
+        }
+        val isoFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US).apply {
+            timeZone = TimeZone.getTimeZone("UTC")
+        }
+
+        fun tryParseDate(str: String) {
+            runCatching {
+                val m1 = Regex("(\\d{4}/\\d{2}/\\d{2} \\d{2}:\\d{2}:\\d{2})").find(str)
+                if (m1 != null) {
+                    val d = xrayFormat.parse(m1.groupValues[1])
+                    if (d != null) timestamps += d.time
+                    return
+                }
+                val m2 = Regex("(\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2})").find(str)
+                if (m2 != null) {
+                    val d = isoFormat.parse(m2.groupValues[1])
+                    if (d != null) timestamps += d.time
+                }
+            }
+        }
+
+        rawLines.take(50).forEach { tryParseDate(it) }
+        rawLines.takeLast(50).forEach { tryParseDate(it) }
+
+        if (timestamps.size < 2) {
+            allRuntime.lineSequence().filter { it.isNotBlank() }.take(50).forEach { tryParseDate(it) }
+            allRuntime.lineSequence().filter { it.isNotBlank() }.toList().takeLast(50).forEach { tryParseDate(it) }
+        }
+
+        return if (timestamps.size >= 2) {
+            val span = timestamps.maxOrNull()!! - timestamps.minOrNull()!!
+            if (span > 1_000L) span else 0L
+        } else {
+            0L
+        }
+    }
+
     private fun historicalExits(now: Long): ExitEvidence {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
             return ExitEvidence("Unavailable on Android ${Build.VERSION.SDK_INT}; requires API 30+.", 0, 0)
@@ -941,6 +1060,7 @@ class BugFinder(private val context: Context, private val xray: XrayManager, pri
         }.getOrDefault(emptyList())
 
         var crashLike = 0
+        var totalCrashLike = 0
         var lowMemory = 0
         val crashSummaries = mutableListOf<String>()
         val warningCutoff = now - 24L * 60L * 60L * 1000L
@@ -949,15 +1069,14 @@ class BugFinder(private val context: Context, private val xray: XrayManager, pri
             appendLine("warningWindowHours=24")
             exits.forEachIndexed { index, exit ->
                 val reason = exitReason(exit.reason)
-                if (
-                    exit.timestamp >= warningCutoff &&
-                    (
-                        exit.reason == ApplicationExitInfo.REASON_CRASH ||
-                        exit.reason == ApplicationExitInfo.REASON_CRASH_NATIVE ||
-                        exit.reason == ApplicationExitInfo.REASON_ANR
-                    )
-                ) {
-                    crashLike++
+                val isCrash = exit.reason == ApplicationExitInfo.REASON_CRASH ||
+                    exit.reason == ApplicationExitInfo.REASON_CRASH_NATIVE ||
+                    exit.reason == ApplicationExitInfo.REASON_ANR
+                if (isCrash) {
+                    totalCrashLike++
+                    if (exit.timestamp >= warningCutoff) {
+                        crashLike++
+                    }
                     crashSummaries += "#${index + 1} ${Instant.ofEpochMilli(exit.timestamp)} $reason " +
                         "status=${exit.status} ${sanitize(exit.description.orEmpty()).take(160)}"
                 }
@@ -976,9 +1095,12 @@ class BugFinder(private val context: Context, private val xray: XrayManager, pri
                 appendLine("description=${sanitize(exit.description.orEmpty())}")
 
                 if (index < 8) {
-                    val trace = runCatching {
+                    var trace = runCatching {
                         exit.traceInputStream?.bufferedReader()?.use { reader -> reader.readText().take(80_000) }
                     }.getOrNull()
+                    if (trace.isNullOrBlank() && isCrash) {
+                        trace = RuntimeDiagnostics.findTombstoneNear(context, exit.timestamp)
+                    }
                     if (!trace.isNullOrBlank()) {
                         appendLine("--- exit trace ---")
                         appendLine(sanitize(trace))
@@ -986,7 +1108,7 @@ class BugFinder(private val context: Context, private val xray: XrayManager, pri
                 }
             }
         }
-        return ExitEvidence(text, crashLike, lowMemory, crashSummaries.take(8))
+        return ExitEvidence(text, crashLike, lowMemory, crashSummaries.take(8), totalCrashLike)
     }
 
     private fun exitReason(reason: Int): String = when (reason) {

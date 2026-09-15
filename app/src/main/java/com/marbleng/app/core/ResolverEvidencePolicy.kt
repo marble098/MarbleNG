@@ -224,7 +224,7 @@ object ResolverEvidencePolicy {
      * (`failed to lookup ipv4 for www.google.com`) names a *domain*, and guessing an endpoint from
      * an ambiguous line is how a healthy resolver gets demoted for somebody else's failure.
      */
-    private val QUOTED_ENDPOINT = Regex("\"([A-Za-z][A-Za-z0-9+\\-.]*://[^\"]{3,200})\"")
+    private val QUOTED_ENDPOINT = Regex("""(?:"|'|\b)((?:[A-Za-z][A-Za-z0-9+\-.]*://)[^\s"'<>]{3,200})""")
 
     /** Schemes that are unambiguously a resolver transport rather than an ordinary HTTP fetch. */
     private val RESOLVER_SCHEMES = setOf(

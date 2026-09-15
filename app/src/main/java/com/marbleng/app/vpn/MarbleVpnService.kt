@@ -28,6 +28,7 @@ import com.marbleng.app.core.LinkEvidence
 import com.marbleng.app.core.LinkQualityEstimator
 import com.marbleng.app.core.NetworkSnapshot
 import com.marbleng.app.core.PathMtuPolicy
+import com.marbleng.app.core.ProfileFlapGuard
 import com.marbleng.app.core.ProtocolFingerprintAwareVerifier
 import com.marbleng.app.core.RecoveryBackoffPolicy
 import com.marbleng.app.core.ResolverEvidencePolicy
@@ -36,12 +37,14 @@ import com.marbleng.app.core.SocksHttpClient
 import com.marbleng.app.core.SmartNotificationKind
 import com.marbleng.app.core.SmartNotifier
 import com.marbleng.app.core.TransportTelemetry
+import com.marbleng.app.core.TcpStressMonitor
 import com.marbleng.app.core.TurboBackoffPolicy
 import com.marbleng.app.core.CoreEngine
 import com.marbleng.app.core.SingBoxConfigBuilder
 import com.marbleng.app.core.SingBoxAndroidRuntime
 import com.marbleng.app.core.SingBoxConfigDoctor
 import com.marbleng.app.core.SingBoxManager
+import com.marbleng.app.core.SingBoxStartFailure
 import com.marbleng.app.core.XrayManager
 import com.marbleng.app.core.XrayStartFailure
 import com.marbleng.app.core.coreEngine
@@ -306,6 +309,7 @@ class MarbleVpnService : VpnService() {
     @Volatile private var resolverLogOffset = 0L
     @Volatile private var egressObservationState = EgressObservationPolicy.State()
     @Volatile private var pathMtuState = PathMtuPolicy.State()
+    private val tcpStressMonitor = TcpStressMonitor()
     /** Consecutive live-route ticks that looked good; feeds the Turbo backoff early release. */
     @Volatile private var goodRouteTicks = 0
 
@@ -317,7 +321,7 @@ class MarbleVpnService : VpnService() {
         diag = RuntimeDiagnostics(this)
         notifier = SmartNotifier(this)
         notifier.ensureChannels()
-        routeOptimizer = ContinuousRouteOptimizer(app.repo.intelligence)
+        routeOptimizer = ContinuousRouteOptimizer(app.repo.intelligence, ProfileFlapGuard(iranAware = true))
         tuner = ConnectionTuner(xray, app.repo.intelligence)
         app.repo.intelligence.startMonitoring()
         networkListener = app.repo.intelligence.addNetworkListener(::onUnderlyingNetworkChanged)
@@ -737,6 +741,8 @@ class MarbleVpnService : VpnService() {
                     // fault so the BLOCKED detail does not read like a dead server.
                     activeEngine == CoreEngine.XRAY ->
                         XrayStartFailure.faultClass(coreStartError, "Core/configuration error")
+                    activeEngine == CoreEngine.SINGBOX ->
+                        SingBoxStartFailure.faultClass(coreStartError, "Core/configuration error")
                     else -> "Core/configuration error"
                 }
             )
@@ -1303,6 +1309,36 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                         val stressed = transport.retransDelta >= 2 || transport.lost > 0 ||
                             transport.rttVarMs >= maxOf(20, transport.rttMs / 3)
                         if (stressed) routeProbeRequested.set(true)
+
+                        val retransRate = if (transport.unacked > 0) transport.retransDelta.toDouble() / transport.unacked.toDouble() else 0.0
+                        val lossRate = if (transport.unacked > 0) transport.lost.toDouble() / (transport.lost + transport.unacked).toDouble() else 0.0
+                        val mssRatio = if (activeMtu > 0) transport.mss.toDouble() / activeMtu.toDouble() else 1.0
+                        tcpStressMonitor.observe(
+                            retransmitRate = retransRate,
+                            lossRate = lossRate,
+                            mssRatio = mssRatio,
+                            unackedSegments = transport.unacked,
+                            stressed = stressed,
+                            rttMs = transport.rttMs,
+                            profileId = activeProfileId,
+                            networkKey = repo.intelligence.currentSnapshot().key()
+                        )
+                        val stressDecision = tcpStressMonitor.evaluate()
+                        if (stressDecision.shouldReduceMtu) {
+                            val targetMtu = stressDecision.recommendedLevel.mtu
+                            if (targetMtu < activeMtu) {
+                                repo.intelligence.rememberPathMtu(activeProfileId, targetMtu)
+                                tuningRequested.set(true)
+                                diag.event(
+                                    "MTU", "tcp-stress-mtu-reduced",
+                                    "session" to session,
+                                    "targetMtu" to targetMtu,
+                                    "reason" to stressDecision.reason,
+                                    "urgency" to stressDecision.urgency.name
+                                )
+                            }
+                        }
+
                         if (liveSettings.adaptiveMssEnabled && transport.pmtu in 1280..9000) {
                             // MARBLE_PATH_MTU_STABILITY_V133 — `pmtu` is the MSS of whichever socket
                             // the telemetry happened to sample, so it legitimately alternates
@@ -1908,12 +1944,20 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             if (isRouteCurrent(session, generation) && coreAlive) {
                 monitorWorker.execute {
                     if (!isRouteCurrent(session, generation) || !coreAlive) return@execute
-                    if (System.currentTimeMillis() < verifiedRttBackoffUntilMs) {
+                    val nowMs = System.currentTimeMillis()
+                    if (nowMs < verifiedRttBackoffUntilMs) {
+                        val waitMs = (verifiedRttBackoffUntilMs - nowMs).coerceIn(200L, 5_000L)
                         diag.event(
                             "EGRESS", "startup-observation-held-by-rtt-backoff",
                             "session" to session,
-                            "profile" to profile.id.take(12)
+                            "profile" to profile.id.take(12),
+                            "retryAfterMs" to waitMs
                         )
+                        timerWorker.schedule({
+                            if (isRouteCurrent(session, generation) && coreAlive) {
+                                scheduleSyntheticEgressObservation(session, generation, port, profile, attempt)
+                            }
+                        }, waitMs, java.util.concurrent.TimeUnit.MILLISECONDS)
                         return@execute
                     }
                     val app = application as MarbleApplication

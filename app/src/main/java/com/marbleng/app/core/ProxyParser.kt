@@ -141,6 +141,27 @@ object ProxyParser {
                 break
             }
         }
+        if (selected == null) {
+            for (i in 0 until outbounds.length()) {
+                val candidate = outbounds.optJSONObject(i) ?: continue
+                val proto = candidate.optString("protocol").lowercase()
+                val hasFrag = candidate.optJSONObject("settings")?.optJSONObject("fragment")?.optString("packets")?.isNotBlank() == true
+                if (proto in setOf("freedom", "direct") && hasFrag) {
+                    selected = candidate
+                    break
+                }
+            }
+        }
+        if (selected == null) {
+            for (i in 0 until outbounds.length()) {
+                val candidate = outbounds.optJSONObject(i) ?: continue
+                val proto = candidate.optString("protocol").lowercase()
+                if (proto in setOf("freedom", "direct")) {
+                    selected = candidate
+                    break
+                }
+            }
+        }
         val outbound = selected ?: error("Xray JSON has no proxy outbound")
         // MARBLE_TLS_PINNING_V149 — pasted Xray JSON never passes through the share-link parser,
         // so this is the only place its `tlsSettings` can be brought into line with the core:

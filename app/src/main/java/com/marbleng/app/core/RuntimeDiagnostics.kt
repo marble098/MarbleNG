@@ -298,6 +298,19 @@ class RuntimeDiagnostics(private val context: Context) {
                             "pssKb=${exit.pss} | rssKb=${exit.rss} | " +
                             "description=${redact(exit.description.orEmpty()).take(1_000)}"
                     )
+                    if (index < 8 && (exit.reason == ApplicationExitInfo.REASON_CRASH ||
+                            exit.reason == ApplicationExitInfo.REASON_CRASH_NATIVE ||
+                            exit.reason == ApplicationExitInfo.REASON_ANR)
+                    ) {
+                        val trace = runCatching {
+                            exit.traceInputStream?.bufferedReader()?.use { it.readText().take(40_000) }
+                        }.getOrNull()?.takeIf { it.isNotBlank() }
+                            ?: findTombstoneNear(ctx, exit.timestamp)?.take(40_000)
+                        if (!trace.isNullOrBlank()) {
+                            add("  --- exit trace ---")
+                            trace.lines().take(60).forEach { add("  $it") }
+                        }
+                    }
                 }
             }
         }
@@ -374,13 +387,16 @@ class RuntimeDiagnostics(private val context: Context) {
             val previous = Thread.getDefaultUncaughtExceptionHandler()
 
             Thread.setDefaultUncaughtExceptionHandler { thread, error ->
+                val now = Instant.now()
+                val nowMs = System.currentTimeMillis()
                 val stack = StringWriter().also { sw ->
                     runCatching { error.printStackTrace(PrintWriter(sw)) }
                 }.toString()
 
                 val tombstone = buildString {
                     appendLine("=== MarbleNG FATAL CRASH TOMBSTONE ===")
-                    appendLine("generated=${Instant.now()}")
+                    appendLine("generated=$now")
+                    appendLine("timestamp=$nowMs")
                     appendLine("pid=${Process.myPid()}")
                     appendLine("thread=${thread.name}")
                     appendLine("threadState=${thread.state}")
@@ -388,8 +404,7 @@ class RuntimeDiagnostics(private val context: Context) {
                     appendLine(redact(stack).take(120_000))
                 }
 
-                // Process is already dying: this tiny private write is the only synchronous
-                // diagnostics I/O on a caller thread, preserving the crash across process death.
+                // Process is already dying: synchronously persist the crash across process death.
                 runCatching {
                     pendingCrashFile(context).apply {
                         parentFile?.mkdirs()
@@ -397,10 +412,75 @@ class RuntimeDiagnostics(private val context: Context) {
                     }
                 }
 
+                // Persistent tombstone ring (keep up to 10 files)
+                runCatching {
+                    val crashDir = File(context.filesDir, "logs/crashes").apply { mkdirs() }
+                    File(crashDir, "crash-$nowMs.txt").writeText(tombstone)
+                    val files = crashDir.listFiles()?.sortedBy { it.lastModified() }
+                    if (files != null && files.size > 10) {
+                        files.take(files.size - 10).forEach { it.delete() }
+                    }
+                }
+
+                // Append to crash history log
+                runCatching {
+                    val historyLog = File(context.filesDir, "logs/crash-history.log")
+                    historyLog.parentFile?.mkdirs()
+                    if (historyLog.length() > 500_000L) {
+                        historyLog.writeText("")
+                    }
+                    historyLog.appendText(tombstone + "\n")
+                }
+
+                // Synchronously append to runtime-debug.log so the immediate post-mortem has the crash
+                runCatching {
+                    val debugLog = File(context.filesDir, "logs/runtime-debug.log")
+                    debugLog.parentFile?.mkdirs()
+                    debugLog.appendText("$now | CRASH | uncaught | thread=${thread.name} | ${error::class.java.name}: ${error.message}\n$stack\n")
+                }
+
                 enqueueLine("CRASH | uncaught | thread=${thread.name} | ${error::class.java.name}: ${error.message}")
 
                 if (previous != null) previous.uncaughtException(thread, error)
                 else Process.killProcess(Process.myPid())
+            }
+        }
+
+        fun findTombstoneNear(context: Context, timestampMs: Long, toleranceMs: Long = 180_000L): String? {
+            val crashDir = File(context.filesDir, "logs/crashes")
+            if (crashDir.isDirectory) {
+                val files = crashDir.listFiles() ?: emptyArray()
+                for (file in files) {
+                    val time = file.name.substringAfter("crash-", "").substringBefore(".txt").toLongOrNull()
+                    if (time != null && kotlin.math.abs(time - timestampMs) <= toleranceMs) {
+                        val text = runCatching { file.readText() }.getOrNull()
+                        if (!text.isNullOrBlank()) return text
+                    }
+                }
+            }
+            val pending = pendingCrashFile(context)
+            if (pending.isFile) {
+                val text = runCatching { pending.readText() }.getOrNull()
+                if (!text.isNullOrBlank()) return text
+            }
+            return null
+        }
+
+        fun onMemoryPressure(level: Int) {
+            if (level >= 5) {
+                synchronized(ringLock) {
+                    while (ring.size > 200 || ringChars > 100_000L) {
+                        val dropped = ring.pollFirst() ?: break
+                        ringChars = (ringChars - dropped.length).coerceAtLeast(0L)
+                    }
+                }
+            }
+            if (level >= 15) {
+                synchronized(fileLock) {
+                    runCatching {
+                        externalWriter?.flush()
+                    }
+                }
             }
         }
 
