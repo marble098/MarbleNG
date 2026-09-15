@@ -25,6 +25,7 @@ object XrayConfigHardener {
     // MARBLE_PATTNG_NATIVE_RANK_V62
     // MARBLE_REALTIME_ENGINE_V70
     // MARBLE_UNIFIED_ADDRESS_FAMILY_V65
+    // MARBLE_SOCKET_FLIGHT_V168 — MPTCP, physical fragment-dialer tuning, uTLS gap fill.
     private val infra = setOf("freedom", "blackhole", "dns", "loopback")
     private val compatibilityDependencyProtocols = setOf(
         "freedom", "http", "shadowsocks", "socks", "trojan", "vless", "vmess", "hysteria", "wireguard"
@@ -494,6 +495,12 @@ object XrayConfigHardener {
                     ?.let { hop -> byTag[hop]?.let(::hasFragment) } == true
         } == true
 
+        // Iran Mode is armed whenever the mode is on with countermeasures enabled. It is decided
+        // ONCE, before both the fragment construction below and the per-outbound liveness pass,
+        // so the generated fragment dialer and every proxy hop receive the same liveness profile.
+        val iranActive = settings.iranModePolicy != IranModePolicy.OFF &&
+            settings.iranModeCountermeasures
+
         // Fragment is attached as a Freedom dialer only to a physical proxy hop.
         // For a two-hop chain, the exit already has proxySettings -> entry, so Fragment lands
         // on the entry hop and never destroys the exit transport layer.
@@ -528,6 +535,20 @@ object XrayConfigHardener {
                         fragmentSettings(innerPackets, innerLength, innerInterval, innerMaxSplit)
                     )
                 )
+                .also { freedom ->
+                    // MARBLE_SOCKET_FLIGHT_V168 — this freedom hop, not the proxy hop, opens the
+                    // real TCP socket to the server when fragmentation is on. The pinned Xray
+                    // applies THIS hop's sockopt to that dial, so without the block below every
+                    // fragmented connection ran with a naked socket (no liveness, no user
+                    // timeout, no MPTCP) and a filtered link's stalls killed it silently.
+                    val physical = JSONObject()
+                    CoreSocketPolicy.writeXrayPhysicalTcpSockopt(
+                        physical,
+                        settings,
+                        iranActive
+                    )
+                    freedom.put("streamSettings", JSONObject().put("sockopt", physical))
+                }
         } else {
             null
         }
@@ -627,13 +648,6 @@ object XrayConfigHardener {
             return if (isV6Literal) ipv6ResolverAllowed else true
         }
 
-        // Iran Mode is armed whenever the mode is on with countermeasures enabled. It is decided
-        // ONCE here (before the per-outbound liveness pass) so the same signal that drives the
-        // poison-block rules also drives the Iran-tuned TCP liveness below — the two can never
-        // disagree about whether the network is being filtered.
-        val iranActive = settings.iranModePolicy != IranModePolicy.OFF &&
-            settings.iranModeCountermeasures
-
         val out = JSONArray()
         keep.forEach { tag ->
             byTag[tag]?.let { outbound ->
@@ -700,9 +714,17 @@ object XrayConfigHardener {
                             sockoptObject.put("tcpUserTimeout", liveness.userTimeoutMs)
                             if (settings.tcpFastOpenEnabled) sockoptObject.put("tcpFastOpen", true) else sockoptObject.remove("tcpFastOpen")
                             if (settings.tcpMaxSeg in 536..9000) sockoptObject.put("tcpMaxSeg", settings.tcpMaxSeg) else sockoptObject.remove("tcpMaxSeg")
+                            // MARBLE_SOCKET_FLIGHT_V168 — offer BBR and Multipath TCP on the
+                            // physical socket. Both fail soft at runtime (a kernel without the
+                            // congestion module keeps cubic; Go's multipath dialer retries plain
+                            // TCP), so neither can cost a working connection and both help the
+                            // lossy, radio-handover-heavy paths Marble targets.
+                            if (!sockoptObject.has("tcpCongestion")) sockoptObject.put("tcpCongestion", "bbr")
+                            if (!sockoptObject.has("tcpMptcp")) sockoptObject.put("tcpMptcp", true)
                         } else {
                             sockoptObject.remove("tcpKeepAliveIdle"); sockoptObject.remove("tcpKeepAliveInterval"); sockoptObject.remove("tcpUserTimeout")
                             sockoptObject.remove("tcpFastOpen"); sockoptObject.remove("tcpMaxSeg")
+                            sockoptObject.remove("tcpMptcp"); sockoptObject.remove("tcpCongestion")
                         }
                     }
                 }
@@ -754,6 +776,32 @@ object XrayConfigHardener {
             // removed") and will stop working when the shim is dropped — so the plan is written
             // once, where the engine reads it.
             writeFreedomResolveStrategy(outbound, hopPlan.endpointStrategy)
+
+            // MARBLE_SOCKET_FLIGHT_V168 — the TERMINAL fragment freedom hop (the one with no
+            // dialerProxy of its own) opens the real TCP socket to the server, just like the
+            // generated "fragment-direct". Keep-alive/user-timeout written on the proxy hop never
+            // reach this socket, so omissions are filled here; an intermediate fragment hop that
+            // chains onward is left exactly as imported.
+            if (hasFragment(outbound)) {
+                val freedomSockopt = outbound.optJSONObject("streamSettings")
+                    ?.optJSONObject("sockopt")
+                val dialsDirect = freedomSockopt?.optString("dialerProxy").isNullOrBlank()
+                if (freedomSockopt != null && dialsDirect) {
+                    CoreSocketPolicy.writeXrayPhysicalTcpSockopt(
+                        freedomSockopt,
+                        settings,
+                        iranActive
+                    )
+                }
+            }
+        }
+
+        // MARBLE_SOCKET_FLIGHT_V168 — close the uTLS gap for pasted JSON: a TLS/REALITY hop that
+        // carries no ClientHello fingerprint uses the bare Go ClientHello, which DPI classifies
+        // immediately. Share links and the Manual builder already default to Chrome; QUIC/KCP have
+        // no uTLS layer and any explicit value (including "unsafe") is preserved.
+        keep.forEach { tag ->
+            byTag[tag]?.let { CoreSocketPolicy.applyDefaultUtlsFingerprint(it) }
         }
 
         if (tlsFragmentOutbound != null) out.put(tlsFragmentOutbound)
@@ -806,6 +854,9 @@ object XrayConfigHardener {
             .put("protocol", "socks")
             .put("settings", JSONObject().put("udp", true))
             .put("sniffing", sniffing())
+        // MARBLE_SOCKET_FLIGHT_V168 — offer Fast Open on the loopback listener too, matching the
+        // sing-box inbound, so the HEV→core leg never becomes the only connection without it.
+        CoreSocketPolicy.xrayLocalInboundStream(settings)?.let { inbound.put("streamSettings", it) }
         val inbounds = JSONArray().put(inbound)
         val httpPort = settings.xrayHttpInboundPort
         if (httpPort in 1024..65535 && httpPort != socksPort) {
@@ -817,6 +868,10 @@ object XrayConfigHardener {
                     .put("protocol", "http")
                     .put("settings", JSONObject())
                     .put("sniffing", sniffing())
+                    .also { httpInbound ->
+                        CoreSocketPolicy.xrayLocalInboundStream(settings)
+                            ?.let { httpInbound.put("streamSettings", it) }
+                    }
             )
         }
         src.put("inbounds", inbounds)

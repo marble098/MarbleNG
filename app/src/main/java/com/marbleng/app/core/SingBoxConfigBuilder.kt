@@ -13,6 +13,9 @@ import java.net.URI
 /**
  * MARBLE_SINGBOX_CORE_V151 — the sing-box extended configuration writer.
  *
+ * MARBLE_SOCKET_FLIGHT_V168 — physical-socket tuning (MPTCP, UDP fragment, Iran liveness, direct
+ * hop tuning) is shared with the Xray writer through [CoreSocketPolicy].
+ *
  * MarbleNG stores every node as Xray JSON ([ProxyProfile.configJson]) because that is the format
  * the whole product was built around. sing-box has its own schema, so this object is the single
  * bridge between the two. It has two strategies and always tells the caller which one it used:
@@ -327,12 +330,19 @@ object SingBoxConfigBuilder {
     }
 
     /** The `{type: parser}` outbound: the extended fork reads the share link itself. */
-    private fun parserOutbound(link: String, settings: AppSettings): JSONObject =
-        JSONObject()
+    private fun parserOutbound(link: String, settings: AppSettings): JSONObject {
+        // MARBLE_SOCKET_FLIGHT_V168 — the scheme tells the dial policy whether this parser
+        // outbound opens QUIC/UDP (Hysteria2/TUIC/WireGuard) or a TCP socket.
+        val scheme = when (link.substringBefore("://", "").lowercase()) {
+            "hy2" -> "hysteria2"
+            else -> link.substringBefore("://", "").lowercase()
+        }
+        return JSONObject()
             .put("type", "parser")
             .put("tag", PROXY_TAG)
             .put("link", link)
-            .apply { applyDialTuning(this, settings) }
+            .apply { applyDialTuning(this, settings, protocolHint = scheme) }
+    }
 
     /**
      * Marble's own reading of a share link, as Xray JSON — the intermediate [translate] already
@@ -437,7 +447,10 @@ object SingBoxConfigBuilder {
         // mixed inbound's port-53 traffic is sniffed, matched by the `protocol: dns` rule and
         // answered by the dns module through the configured servers.
         outbounds
-            .put(JSONObject().put("type", "direct").put("tag", DIRECT_TAG))
+            // MARBLE_SOCKET_FLIGHT_V168 — the direct hop carries the encrypted bootstrap DoH
+            // (and direct-route traffic). It is a physical socket too, so it gets the same
+            // MPTCP / UDP-fragment / liveness tuning instead of staying completely raw.
+            .put(directOutbound(settings))
             .put(JSONObject().put("type", "block").put("tag", BLOCK_TAG))
 
         val root = JSONObject()
@@ -954,7 +967,20 @@ private fun removeKeys(
         // `udp`), not an array. Writing `["tcp","udp"]` made `sing-box check` reject every
         // translated config with a decoder error that the old doctor did not know. Omitting the
         // field is the correct way to say "both", and it is exactly what the core defaults to.
-        if (detour != null) result.put("detour", detour) else applyDialTuning(result, settings)
+        // MARBLE_SOCKET_FLIGHT_V168 — only the terminal hop (no detour) opens a physical socket,
+        // so only it carries dial fields. The protocol and transport hints tell the policy whether
+        // that socket is QUIC/UDP (no TCP keep-alive) and which liveness profile applies.
+        if (detour != null) {
+            result.put("detour", detour)
+        } else {
+            applyDialTuning(
+                result,
+                settings,
+                protocolHint = protocol,
+                methodHint = stream.optString("method")
+                    .ifBlank { stream.optString("network") }
+            )
+        }
         return result
     }
 
@@ -977,10 +1003,31 @@ private fun removeKeys(
         server.optString("pass").takeIf { it.isNotBlank() }?.let { result.put("password", it) }
     }
 
-    private fun applyDialTuning(outbound: JSONObject, settings: AppSettings) {
-        outbound.put("tcp_fast_open", settings.tcpFastOpenEnabled)
-        outbound.put("connect_timeout", "${settings.singBoxConnectTimeoutSec.coerceIn(3, 60)}s")
+    /**
+     * MARBLE_SOCKET_FLIGHT_V168 — the single bridge to [CoreSocketPolicy] for a hop that opens
+     * a physical socket: the proxy, the terminal hop of a translated chain and the direct hop.
+     * Chained middle hops carry only `detour` and never reach this function.
+     */
+    private fun applyDialTuning(
+        outbound: JSONObject,
+        settings: AppSettings,
+        protocolHint: String = "",
+        methodHint: String = ""
+    ) {
+        CoreSocketPolicy.writeSingBoxPhysicalDial(
+            outbound,
+            settings,
+            protocolHint,
+            methodHint
+        )
     }
+
+    /** The DIRECT outbound, tuned exactly like the proxy hop for the sockets it opens. */
+    private fun directOutbound(settings: AppSettings): JSONObject =
+        JSONObject()
+            .put("type", "direct")
+            .put("tag", DIRECT_TAG)
+            .apply { applyDialTuning(this, settings, protocolHint = "direct") }
 
     // ─────────────────────────────────────────────────────────────────────────────
     // DNS
@@ -1139,6 +1186,8 @@ private fun removeKeys(
                     .put("tag", "http-in")
                     .put("listen", listen)
                     .put("listen_port", httpPort)
+                    // MARBLE_SOCKET_FLIGHT_V168 — parity with the mixed inbound.
+                    .put("tcp_fast_open", settings.tcpFastOpenEnabled)
             )
         }
         return inbounds

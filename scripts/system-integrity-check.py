@@ -193,6 +193,12 @@ files = {
     # MARBLE_DOCK_SLOT_V167 — the fourth tab's model test and the chapter that explains it.
     "dockSlotTest": read("app/src/test/java/com/marbleng/app/model/DockSlotV167Test.kt"),
     "dockSlotDoc": read("docs/DOCK_SLOT_AND_COMPACT_BANNER_V167.md"),
+    # MARBLE_SOCKET_FLIGHT_V168 — the single authority for physical-socket tuning on both
+    # engines, the pure HEV YAML policy, their joint regression test and the chapter.
+    "socketPolicy": read("app/src/main/java/com/marbleng/app/core/CoreSocketPolicy.kt"),
+    "hevPolicy": read("app/src/main/java/com/marbleng/app/core/HevTunnelPolicy.kt"),
+    "socketFlightTest": read("app/src/test/java/com/marbleng/app/core/SocketFlightV168Test.kt"),
+    "socketFlightDoc": read("docs/SOCKET_FLIGHT_V168.md"),
     "marbleApp": read("app/src/main/java/com/marbleng/app/ui/MarbleApp.kt"),
     "homeStudio": read("app/src/main/java/com/marbleng/app/ui/MarbleHomeStudio.kt"),
     "connectPlacement": read("app/src/main/java/com/marbleng/app/ui/MarbleConnectPlacement.kt"),
@@ -2142,6 +2148,64 @@ check(
     and "MARBLE_HOME_COMPACT_BANNER_V167" in files["dockSlotDoc"]
     and "dockSlotIndex" in files["dockSlotDoc"]
     and "Fourth tab" in files["dockSlotDoc"],
+)
+
+# MARBLE_SOCKET_FLIGHT_V168 — one authority owns the tuning of every socket that crosses the
+# physical network. Xray and sing-box used to tune different sockets and forget others, and HEV
+# paid an extra handshake round trip per app connection. These invariants keep the two writers,
+# the TUN config and the pinned-core-verified option names in lockstep.
+check(
+    "V168 physical-socket policy exists and is shared by both engines",
+    "object CoreSocketPolicy" in files["socketPolicy"]
+    and "MARBLE_SOCKET_FLIGHT_V168" in files["socketPolicy"]
+    and "fun writeXrayPhysicalTcpSockopt(" in files["socketPolicy"]
+    and "fun writeSingBoxPhysicalDial(" in files["socketPolicy"]
+    and "CoreSocketPolicy.writeXrayPhysicalTcpSockopt" in files["hardener"]
+    and "CoreSocketPolicy.applyDefaultUtlsFingerprint" in files["hardener"]
+    and "CoreSocketPolicy.writeSingBoxPhysicalDial" in files["singBoxBuilder"]
+    and "class SocketFlightV168Test" in files["socketFlightTest"],
+)
+check(
+    "V168 Xray offers MPTCP and BBR on the socket that actually dials",
+    '"tcpMptcp", true' in files["socketPolicy"]
+    and '"tcpCongestion", "bbr"' in files["socketPolicy"]
+    # The generated terminal fragment dialer is built with the physical-socket profile.
+    and "CoreSocketPolicy.writeXrayPhysicalTcpSockopt(" in files["hardener"]
+    # tcpKeepAliveCount is not a real Xray sockopt field; it must never be emitted by either writer.
+    and "tcpKeepAliveCount" not in files["hardener"]
+    and "tcpKeepAliveCount" not in files["socketPolicy"],
+)
+check(
+    "V168 sing-box terminal hops carry the full dial flight, chained hops carry only detour",
+    '"tcp_multi_path", true' in files["socketPolicy"]
+    and '"udp_fragment", true' in files["socketPolicy"]
+    and '"tcp_keep_alive"' in files["socketPolicy"]
+    and '"tcp_keep_alive_interval"' in files["socketPolicy"]
+    and "fun directOutbound(" in files["singBoxBuilder"]
+    # The Android-CLI-banned graphical dial fields must never be reintroduced by this policy.
+    and "network_strategy" not in files["socketPolicy"]
+    and "network_type" not in files["socketPolicy"]
+    and "bind_interface" not in files["socketPolicy"],
+)
+check(
+    "V168 HEV YAML is built purely, with pipelining, a fragment-safe connect budget and a wider UDP pool",
+    "object HevTunnelPolicy" in files["hevPolicy"]
+    and "pipeline: true" in files["hevPolicy"]
+    and "tcp-fastopen" in files["hevPolicy"]
+    and "connect-timeout" in files["hevPolicy"]
+    and "udp-copy-buffer-nums" in files["hevPolicy"]
+    and "HevTunnelPolicy.buildConfig(" in files["vpn"]
+    # The inline YAML builder inside the service must be gone: one writer, one test target.
+    and 'add("socks5:")' not in files["vpn"],
+)
+check(
+    "V168 behaviour is pinned by named tests and explained by a chapter",
+    "class SocketFlightV168Test" in files["socketFlightTest"]
+    and "MARBLE_SOCKET_FLIGHT_V168" in files["socketFlightTest"]
+    and "MARBLE_SOCKET_FLIGHT_V168" in files["socketFlightDoc"]
+    and "pipeline" in files["socketFlightDoc"]
+    and "tcp_multi_path" in files["socketFlightDoc"]
+    and "udp_fragment" in files["socketFlightDoc"],
 )
 
 production = "\n".join(
