@@ -1,12 +1,10 @@
 package com.marbleng.app.core
 
 import com.marbleng.app.model.AppSettings
-import com.marbleng.app.model.ConnectionMode
 import com.marbleng.app.model.ProxyProfile
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -71,19 +69,23 @@ class SingBoxStartFailureTest {
             id = "serverless-test-1",
             name = "Serverless Test",
             scheme = "direct",
+            raw = rawConfig,
+            configJson = rawConfig,
             host = "127.0.0.1",
-            port = 0,
-            rawConfig = rawConfig
+            port = 0
         )
 
-        val config = SingBoxConfigBuilder.build(
+        val buildResult = SingBoxConfigBuilder.build(
             profile = profile,
-            inboundPort = 10808,
             settings = AppSettings(),
-            mode = ConnectionMode.PROXY
+            socksPort = 10808,
+            apiPort = 39090,
+            apiSecret = "test-secret",
+            logPath = "",
+            cachePath = "cache.db"
         )
 
-        val json = JSONObject(config)
+        val json = JSONObject(buildResult.json)
         val outbounds = json.getJSONArray("outbounds")
         assertTrue("outbounds must not be empty", outbounds.length() > 0)
         val directOutbound = (0 until outbounds.length())

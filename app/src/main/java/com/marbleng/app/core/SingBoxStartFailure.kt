@@ -12,7 +12,8 @@ object SingBoxStartFailure {
     enum class Kind(val label: String) {
         NO_PROXY_OUTBOUND("No proxy outbound"),
         CONFIG_REJECTED("Configuration rejected by sing-box"),
-        PORT_IN_USE("Local port in use")
+        PORT_IN_USE("Local port in use"),
+        CORE_CRASH("Core crashed on start")
     }
 
     data class Fault(
@@ -30,12 +31,20 @@ object SingBoxStartFailure {
     fun isPortInUse(reason: String): Boolean =
         ADDRESS_IN_USE.containsMatchIn(reason)
 
+    fun isCoreCrash(reason: String): Boolean =
+        reason.contains("runtime: out of memory", ignoreCase = true) ||
+            reason.contains("fatal error:", ignoreCase = true) ||
+            reason.contains("SIGSEGV", ignoreCase = true) ||
+            reason.contains("SIGBUS", ignoreCase = true)
+
     fun causeLine(reason: String): String {
         val segments = reason.split('|', '\n').map { it.trim() }.filter { it.isNotBlank() }
         return segments.lastOrNull { segment ->
             segment.contains("no proxy outbound", ignoreCase = true) ||
                 segment.contains("address already in use", ignoreCase = true) ||
                 segment.contains("bind:", ignoreCase = true) ||
+                segment.contains("runtime: out of memory", ignoreCase = true) ||
+                segment.contains("fatal error:", ignoreCase = true) ||
                 segment.contains("failed", ignoreCase = true) ||
                 segment.contains("FATAL", ignoreCase = true) ||
                 segment.contains("panic", ignoreCase = true)
@@ -47,6 +56,14 @@ object SingBoxStartFailure {
         if (reason.isBlank()) return null
         val cause = causeLine(reason).ifBlank { reason.take(300) }
 
+        if (isCoreCrash(reason)) {
+            return Fault(
+                kind = Kind.CORE_CRASH,
+                cause = cause,
+                headline = "sing-box core crashed while starting: $cause",
+                remediation = "Core crashed or memory exhausted; check device resources or update core"
+            )
+        }
         if (isNoProxyOutbound(reason)) {
             return Fault(
                 kind = Kind.NO_PROXY_OUTBOUND,
@@ -92,6 +109,7 @@ object SingBoxStartFailure {
             when (fault.kind) {
                 Kind.NO_PROXY_OUTBOUND, Kind.CONFIG_REJECTED -> "Configuration rejected by sing-box"
                 Kind.PORT_IN_USE -> "Local port in use"
+                Kind.CORE_CRASH -> "Core crashed on start"
             }
         } ?: default
 }

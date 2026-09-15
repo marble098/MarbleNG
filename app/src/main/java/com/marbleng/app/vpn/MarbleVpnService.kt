@@ -1321,7 +1321,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                             stressed = stressed,
                             rttMs = transport.rttMs,
                             profileId = activeProfileId,
-                            networkKey = repo.intelligence.lastKnownNetworkSnapshot().type.name
+                            networkKey = repo.intelligence.currentSnapshot().key()
                         )
                         val stressDecision = tcpStressMonitor.evaluate()
                         if (stressDecision.shouldReduceMtu) {
