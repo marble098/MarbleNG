@@ -2818,6 +2818,40 @@ private fun CyberDeck(
         // that appears at the top while a ping is running.
         NationalEventBanner(repo = repo, modifier = Modifier.align(Alignment.TopCenter))
 
+        AnimatedVisibility(
+            visible = evidence.connected && evidence.showSpeedWidget,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(start = 20.dp, end = 20.dp, bottom = dockClearance() + 10.dp),
+            enter = fadeIn() + slideInVertically { it / 2 },
+            exit = fadeOut() + slideOutVertically { it / 2 }
+        ) {
+            HomeCloudCard(
+                modifier = Modifier.fillMaxWidth(),
+                elevation = 3.dp
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    HomeVectorIcon(HomeIcon.NETWORK, HomeCloud.Accent, Modifier.size(17.dp))
+                    Text(
+                        Tr.now.networkSpeed,
+                        modifier = Modifier.weight(1f),
+                        color = Aether.InkMuted,
+                        style = MaterialTheme.typography.labelSmall
+                    )
+                    Text(
+                        "↓ ${compactRate(evidence.downBps)}   ↑ ${compactRate(evidence.upBps)}",
+                        color = Aether.Ink,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontFamily = FontFamily.Monospace
+                    )
+                }
+            }
+        }
+
         if (evidence.blocked && repo.stateDetail.isNotBlank()) {
             Text(
                 compactInAppMessage(repo.stateDetail),
@@ -9597,6 +9631,12 @@ private fun SettingsHub(
     val activeStyle = parseHomeStyle(settings.homeStyle)
     val activeFont = parseAppFont(settings.fontFamily)
     val activeLanguage = parseAppLanguage(settings.appLanguage)
+    val backupLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json")
+    ) { uri -> if (uri != null) repo.writeBackup(uri) }
+    val restoreLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri -> if (uri != null) repo.restoreBackup(uri) }
 
     // MARBLE_SETTINGS_RESTORE_V117 — the hub owns its scroll so coming back from a sub-page lands
     // exactly where you left it instead of reshooting to the top.
@@ -9629,6 +9669,46 @@ private fun SettingsHub(
             ) {
                 SettingsThemeMiniRow(repo)
                 SettingsStyleMiniRow(repo)
+            }
+        }
+
+        // Keep the three everyday safety/automation choices on the hub. They used to be buried
+        // among expert tunnel controls, which made Settings feel larger without making it useful.
+        item(key = "hub-essentials") {
+            SettingsHubCard(
+                title = "Essentials",
+                subtitle = "Home, automation and your data",
+                tone = Aether.Emerald
+            ) {
+                SettingSwitch(
+                    title = "Live speed on Home",
+                    subtitle = "Show real-time download and upload only while connected",
+                    checked = settings.homeSpeedWidgetEnabled
+                ) { repo.updateSettings(repo.settings.copy(homeSpeedWidgetEnabled = it)) }
+                SettingSwitch(
+                    title = "Connect to best after scan",
+                    subtitle = "Automatically select and connect the fastest reachable server",
+                    checked = settings.autoConnectBestAfterScan
+                ) { repo.updateSettings(repo.settings.copy(autoConnectBestAfterScan = it)) }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    CyberButton(
+                        label = "Back up",
+                        color = Aether.Cyan,
+                        icon = HomeIcon.DETAILS,
+                        compact = true,
+                        modifier = Modifier.weight(1f)
+                    ) { backupLauncher.launch("marbleng-backup.json") }
+                    CyberButton(
+                        label = "Restore",
+                        color = Aether.Amethyst,
+                        icon = HomeIcon.RESET,
+                        compact = true,
+                        modifier = Modifier.weight(1f)
+                    ) { restoreLauncher.launch(arrayOf("application/json", "text/plain")) }
+                }
             }
         }
 

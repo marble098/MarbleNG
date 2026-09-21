@@ -1000,6 +1000,10 @@ data class AppSettings(
     val homeShowServerSelector: Boolean = true,
     val homeShowRouteDetails: Boolean = true,
     val homeShowRouteRibbon: Boolean = true,
+    /** Compact live transfer card on Home. Opt-in to keep the default Home surface quiet. */
+    val homeSpeedWidgetEnabled: Boolean = false,
+    /** After a completed source scan, select and connect the fastest reachable server. */
+    val autoConnectBestAfterScan: Boolean = false,
 
     /**
      * Optional public metadata lookup for the selected server endpoint shown on Home.

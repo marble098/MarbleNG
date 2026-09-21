@@ -163,6 +163,7 @@ internal data class HomeEvidence(
     val selectedPingFailure: String,
     val downBps: Long,
     val upBps: Long,
+    val showSpeedWidget: Boolean,
     // MARBLE_IRAN_AWARE_PING_UI — Layer 0/2 signals: the capsule's ⚠️ and the sparkline's
     // injection segments consume them.
     val injectedResetSuspected: Boolean = false,
@@ -203,6 +204,7 @@ internal fun buildHomeEvidence(
         selectedPingFailure = repo.selectedPingFailure,
         downBps = if (connected) repo.liveDownBps else 0L,
         upBps = if (connected) repo.liveUpBps else 0L,
+        showSpeedWidget = repo.settings.homeSpeedWidgetEnabled,
         injectedResetSuspected = repo.homePingInjectedReset,
         stabilityClass = repo.homePingStabilityClass
     )
@@ -1478,6 +1480,7 @@ internal fun HomeSessionStats(
         }
     }
 }
+
 
 // ---------------------------------------------------------------------------------------------
 // COMPONENT 1: WIDE STATUS BAR (Shared across all 4 iOS themes)

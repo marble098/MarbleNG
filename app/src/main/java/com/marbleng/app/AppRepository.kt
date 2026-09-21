@@ -2,6 +2,7 @@ package com.marbleng.app
 
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import androidx.compose.runtime.*
 import com.marbleng.app.core.*
@@ -2966,7 +2967,10 @@ private fun postToMain(block: () -> Unit) {
      * tunnel. The choice is persisted with the same key a successful connection writes, so Home,
      * Quick Tile and the next app start all agree on which server the connect button will use.
      */
-    fun selectProfile(p: ProxyProfile) {
+    fun selectProfile(p: ProxyProfile, stopRunningSweep: Boolean = true) {
+        // Selecting a result is an explicit decision: stop a running sweep immediately while
+        // retaining every latency already published on the server cards.
+        if (stopRunningSweep && probeActive) cancelProbes()
         diagnostics.event("APP", "select-server", "profile" to p.id.take(12), "name" to p.name.take(80))
         val changed = selectedProfileId != p.id || selectedProfileSourceId != p.subscriptionId
         if (p.subscriptionId.isNotBlank()) selectLibrarySource(p.subscriptionId)
@@ -2983,6 +2987,28 @@ private fun postToMain(block: () -> Unit) {
             }
         }
         io.execute { runCatching { store.setLastProfileRef(p.id, p.subscriptionId) } }
+    }
+
+    fun writeBackup(uri: Uri) {
+        task("Creating backup") {
+            context.contentResolver.openOutputStream(uri, "wt")?.bufferedWriter()?.use {
+                it.write(store.createBackup())
+            } ?: error("Could not open backup destination")
+            message = "Backup created"
+        }
+    }
+
+    fun restoreBackup(uri: Uri) {
+        if (state == "CONNECTED" || state == "CONNECTING") {
+            message = "Disconnect before restoring a backup"
+            return
+        }
+        task("Restoring backup") {
+            val raw = context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+                ?: error("Could not open backup")
+            store.restoreBackup(raw)
+            postToMain { message = "Backup restored • restart MarbleNG to apply every setting" }
+        }
     }
 
     /** True when [p] is the server the connect button would act on. */
@@ -3846,6 +3872,17 @@ private fun postToMain(block: () -> Unit) {
             }
 
             mergeBenchmarks(expanded)
+            if (settings.autoConnectBestAfterScan && !probeCancelGate.isRequested && state == "DISCONNECTED") {
+                val winnerResult = expanded.filter { it.success > 0 }.minByOrNull { it.latencyMs }
+                val winner = winnerResult?.let { result -> scoped.firstOrNull { it.id == result.profileId } }
+                if (winner != null) {
+                    selectProfile(winner, stopRunningSweep = false)
+                    postToMain {
+                        if (settings.connectionMode == ConnectionMode.FULL_TUN) startVpn(winner)
+                        else startLocalProxy(winner)
+                    }
+                }
+            }
             val passed = expanded.count { it.success > 0 }
             diagnostics.event(
                 "BENCHMARK",
