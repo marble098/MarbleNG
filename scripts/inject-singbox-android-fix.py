@@ -255,7 +255,11 @@ def apply_patch(root: Path, patch: Patch) -> str:
         ]
         if postcondition and all(line in text for line in postcondition):
             # Keep the marker used by prepare-native.sh while leaving the
-            # release's already-correct implementation untouched.
+            # release's already-correct implementation untouched. The marker is
+            # added once: re-prepending on every run would grow the file each
+            # time an idempotence check re-runs the injector.
+            if MARKER in text:
+                return "already verified"
             target.write_text("// " + MARKER + ": fix already present upstream.\n" + text, encoding="utf-8")
             return "verified upstream fix"
         raise SystemExit(

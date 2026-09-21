@@ -218,28 +218,44 @@ jobs:
             done
 
             grep -F 'MARBLE_SINGBOX_GO127_FORCE_CLOSE_V161' transport/v2rayxhttp/dialer.go >/dev/null
-            for variant in \
-              force_close_legacy.go \
-              force_close_go127.go \
-              force_close_go127_stub.go
-            do
-              grep -F 'MARBLE_SINGBOX_GO127_FORCE_CLOSE_V161' "transport/v2rayxhttp/$variant" >/dev/null
-            done
+            if [[ -d common/force_close ]]; then
+              # v1.14.1-extended-2.7.2 and newer: the fork ships the three-way split
+              # itself as a shared package; the injector verified it (build tags and
+              # every pulled symbol) instead of writing variant files here.
+              test -f common/force_close/force_close_legacy.go
+              test -f common/force_close/force_close_go127.go
+              test -f common/force_close/force_close_go127_stub.go
+              grep -F 'func ResetTransport(' common/force_close/force_close.go >/dev/null
+              grep -F '//go:build go1.27 && badlinkname' \
+                common/force_close/force_close_go127.go >/dev/null
+            else
+              for variant in \
+                force_close_legacy.go \
+                force_close_go127.go \
+                force_close_go127_stub.go
+              do
+                grep -F 'MARBLE_SINGBOX_GO127_FORCE_CLOSE_V161' "transport/v2rayxhttp/$variant" >/dev/null
+              done
+            fi
 
             # Idempotence: a second run must be a no-op, or the release build's single
-            # run is not the tree these tests are about to validate.
-            python3 "$GITHUB_WORKSPACE/scripts/inject-singbox-android-fix.py" "$SB_TMP" | grep -F 'already patched'
-            python3 "$GITHUB_WORKSPACE/scripts/inject-singbox-go127-fix.py" "$SB_TMP" | grep -F 'already patched'
+            # run is not the tree these tests are about to validate. "already patched"
+            # is the older pin's marker; "already verified" is the 2.7.2+ verifier's.
+            python3 "$GITHUB_WORKSPACE/scripts/inject-singbox-android-fix.py" "$SB_TMP" | grep -E 'already patched|already verified'
+            python3 "$GITHUB_WORKSPACE/scripts/inject-singbox-go127-fix.py" "$SB_TMP" | grep -E 'already patched|already verified'
 
             # The injected crash regression tests (nil interface monitor).
             env GOTOOLCHAIN=auto CGO_ENABLED=0 go test ./protocol/direct ./route
 
             # The MARBLE_SINGBOX_GO127_FORCE_CLOSE_V161 link pin: compiles AND links
             # the force-close variant the running toolchain selects, with the same
-            # badlinkname tag the release build uses.
+            # badlinkname tag the release build uses. From 2.7.2 on the linknames
+            # live in the fork's common/force_close package, so it is pinned too.
+            FORCE_CLOSE_PKGS=(./transport/v2rayxhttp)
+            if [[ -d common/force_close ]]; then FORCE_CLOSE_PKGS+=(./common/force_close); fi
             env GOTOOLCHAIN=auto CGO_ENABLED=0 go test \
               -tags badlinkname -ldflags "-checklinkname=0" \
-              ./transport/v2rayxhttp
+              "${FORCE_CLOSE_PKGS[@]}"
           )
 
           # The release tag set, read from the file that owns it — never duplicated

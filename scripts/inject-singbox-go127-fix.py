@@ -35,38 +35,57 @@ got the same treatment, and the fork's own CI cannot notice because it pins Go 1
 which always takes the legacy file. MarbleNG builds with the Xray-mandated toolchain and
 the `badlinkname` tag, so it is the first caller to reach the stale declaration.
 
-The fix
--------
-Exactly the fork's own three-way split, ported to `transport/v2rayxhttp`:
+The fix, per pinned layout
+--------------------------
+The pinned tree is one of two layouts, and the injector handles each explicitly:
 
-  * `dialer.go` loses the `clientConnPool` mirror and the `transportConnPool` linkname;
-    `DefaultDialerClient.Close()` now calls `closeHTTP2Connections(transport)` for the
-    http2 case, exactly like `v2rayhttp`'s `ResetTransport` does.
-  * `force_close_legacy.go` (`!go1.27`) carries the old code verbatim — on Go <= 1.26 the
-    legacy symbol exists and links.
-  * `force_close_go127.go` (`go1.27 && badlinkname`) mirrors the fork's own v2rayhttp
-    file: `(*Transport).init` unwraps the wrapper to the `*http.Transport` it configured,
-    net/http push-linknames the internal `*http2.Transport` out as
-    `net/http/internal/http2_test.transportFromH1Transport`, and mirrored layouts of
-    `net/http/internal/http2.Transport` / `.clientConnPool` reach the pooled
-    `*ClientConn`s to close them. Every pulled symbol and every mirrored field offset was
-    verified against the go1.27.1 and x/net v0.57.0 sources:
+  * `v1.14.1-extended-2.7.2` and newer (the 2026-09-21 core-lock bump, build run
+    35602762470 — PR #155 had taught the V157 injector the "already fixed upstream"
+    escape the very morning this broke): the fork shipped the split itself. `dialer.go`
+    now closes through `force_close.ResetTransport(...)` and the whole three-way split
+    moved into a shared package, `common/force_close`
+    (`force_close.go`, `force_close_legacy.go`, `force_close_go127.go`,
+    `force_close_go127_stub.go`), whose Go 1.27 file is byte-for-byte the same linkname
+    set and mirrored layouts MarbleNG verified against go1.27.1 and x/net v0.57.0 when
+    it wrote its own variant in run #247's aftermath. There is nothing left to patch —
+    and patching a moving upstream is how anchors rot — so this injector *verifies* the
+    split instead: every variant file, its build tag, and every pulled symbol; prepends
+    the marker `transport/v2rayxhttp/dialer.go` so the release build's grep keeps
+    something to find; and writes a compile-and-link regression test for the shared
+    package that `scripts/prepare-native.sh` runs as
+    `go test -tags badlinkname ./common/force_close`.
 
-        net/http/internal/http2.Transport{ t1 TransportConfig (interface, 2 words);
-                                          connPool noDialClientConnPool (one-word
-                                          struct{*clientConnPool}) }
-        net/http/internal/http2.clientConnPool{ t *Transport; mu sync.Mutex;
-                                                conns map[string][]*ClientConn; ... }
-        (*ClientConn).Close            transport.go:1045
-        transportFromH1Transport       pushed by net/http/http2.go:557
+  * Older pins (up to `v1.14.0-extended-2.7.1`): exactly the fork's own three-way split,
+    ported to `transport/v2rayxhttp`:
 
-  * `force_close_go127_stub.go` (`go1.27 && !badlinkname`) degrades to the public
-    `CloseIdleConnections()`, the fork's own no-license-to-linkname fallback.
+      * `dialer.go` loses the `clientConnPool` mirror and the `transportConnPool`
+        linkname; `DefaultDialerClient.Close()` now calls `closeHTTP2Connections(transport)`
+        for the http2 case, exactly like `v2rayhttp`'s `ResetTransport` does.
+      * `force_close_legacy.go` (`!go1.27`) carries the old code verbatim — on Go <= 1.26
+        the legacy symbol exists and links.
+      * `force_close_go127.go` (`go1.27 && badlinkname`) mirrors the fork's own v2rayhttp
+        file: `(*Transport).init` unwraps the wrapper to the `*http.Transport` it
+        configured, net/http push-linknames the internal `*http2.Transport` out as
+        `net/http/internal/http2_test.transportFromH1Transport`, and mirrored layouts of
+        `net/http/internal/http2.Transport` / `.clientConnPool` reach the pooled
+        `*ClientConn`s to close them. Every pulled symbol and every mirrored field offset
+        was verified against the go1.27.1 and x/net v0.57.0 sources:
+
+            net/http/internal/http2.Transport{ t1 TransportConfig (interface, 2 words);
+                                              connPool noDialClientConnPool (one-word
+                                              struct{*clientConnPool}) }
+            net/http/internal/http2.clientConnPool{ t *Transport; mu sync.Mutex;
+                                                    conns map[string][]*ClientConn; ... }
+            (*ClientConn).Close            transport.go:1045
+            transportFromH1Transport       pushed by net/http/http2.go:557
+
+      * `force_close_go127_stub.go` (`go1.27 && !badlinkname`) degrades to the public
+        `CloseIdleConnections()`, the fork's own no-license-to-linkname fallback.
 
 The script is idempotent (a second run is a no-op) and anchor-guarded: a moved anchor
-fails the build loudly instead of silently shipping an unpatched core. It also writes a
-compile-and-link regression test per toolchain era, which `scripts/prepare-native.sh`
-runs as `go test -tags badlinkname ./transport/v2rayxhttp` — under the release toolchain
+fails the build loudly instead of silently shipping an unpatched core. In both layouts it
+writes a compile-and-link regression test per toolchain era, which
+`scripts/prepare-native.sh` runs with `-tags badlinkname` — under the release toolchain
 that links the Go 1.27 variant and its linknames in seconds, before any ABI is compiled.
 """
 
@@ -77,10 +96,19 @@ MARKER = "MARBLE_SINGBOX_GO127_FORCE_CLOSE_V161"
 
 # The build whose failure this backports, for every future reader of the injected tree.
 INCIDENT_RUN = "https://github.com/marble098/MarbleNG/actions/runs/34335407394"
+# The build that failed on the *anchor*, after the fork shipped the split itself in
+# v1.14.1-extended-2.7.2 — the run that turned this injector into a verifier.
+UPSTREAM_ADOPTION_RUN = "https://github.com/marble098/MarbleNG/actions/runs/35602762470"
 FORK_REFERENCE = (
-    "transport/v2rayhttp/force_close_{legacy,go127,go127_stub}.go "
-    "(shtorm-7/sing-box-extended v1.14.0-extended-2.7.1)"
+    "common/force_close/force_close_{legacy,go127,go127_stub}.go "
+    "(shtorm-7/sing-box-extended v1.14.1-extended-2.7.2; "
+    "originally transport/v2rayhttp, then transport/v2rayxhttp, in v1.14.0-extended-2.7.1)"
 )
+
+# The fork's shared force-close package, present from v1.14.1-extended-2.7.2 on. When
+# dialer.go routes through it, this injector verifies instead of patching.
+UPSTREAM_PACKAGE = "common/force_close"
+UPSTREAM_DISPATCH = "force_close.ResetTransport("
 
 
 class Patch:
@@ -327,6 +355,67 @@ FILES = {
     "transport/v2rayxhttp/marble_force_close_go127_test.go": GO127_TEST,
 }
 
+# The compile-and-link pin for the fork's own shared package (layout 2.7.2+). Unlike the
+# v2rayxhttp pins above it is not toolchain-gated: all three upstream variants define the
+# same exported symbols with the same signatures, so whichever variant the running
+# toolchain selects, this test compiles AND links it — and its linknames with it.
+UPSTREAM_LINK_TEST = '''package force_close
+
+// ''' + MARKER + ''' — compile-and-link pin for the fork's own three-way split. Which
+// file implements the closer is decided by the toolchain and the badlinkname tag
+// (force_close_legacy.go / force_close_go127.go / force_close_go127_stub.go); this test
+// only has to compile and link the selected variant, so a stale linkname — the run #247
+// failure, an undefined golang.org/x/net/http2.(*Transport).connPool — fails
+// `go test -tags badlinkname ./common/force_close` in seconds, before any ABI is
+// compiled. Written by scripts/inject-singbox-go127-fix.py; incident ''' + INCIDENT_RUN + '''.
+
+import (
+\t"net/http"
+\t"testing"
+
+\t"golang.org/x/net/http2"
+)
+
+func TestMarbleForceCloseVariantLinks(t *testing.T) {
+\tvar (
+\t\treset  func(http.RoundTripper) http.RoundTripper = ResetTransport
+\t\tcloser func(*http2.Transport)                    = CloseHTTP2Connections
+\t)
+\tif reset == nil || closer == nil {
+\t\tt.Fatal("unreachable")
+\t}
+}
+'''
+
+# What "the fork fixed it upstream" means, structurally: per variant file, the build tag
+# and the load-bearing declarations the release binary links against. A pinned tree that
+# fails any needle here is neither the layout this injector patches nor a correct upstream
+# split, and must not ship.
+UPSTREAM_CHECKS = {
+    "force_close.go": [
+        "func ResetTransport(",
+        "case *http2.Transport:",
+        "CloseHTTP2Connections(transport)",
+    ],
+    "force_close_legacy.go": [
+        "//go:build !go1.27",
+        "//go:linkname transportConnPool golang.org/x/net/http2.(*Transport).connPool",
+        "func CloseHTTP2Connections(",
+    ],
+    "force_close_go127.go": [
+        "//go:build go1.27 && badlinkname",
+        "var _ *http.Transport",
+        "conns map[string][]unsafe.Pointer",
+        "//go:linkname transportInit golang.org/x/net/http2.(*Transport).init",
+        "//go:linkname transportFromH1Transport net/http/internal/http2_test.transportFromH1Transport",
+        "//go:linkname clientConnClose net/http/internal/http2.(*ClientConn).Close",
+    ],
+    "force_close_go127_stub.go": [
+        "//go:build go1.27 && !badlinkname",
+        "transport.CloseIdleConnections()",
+    ],
+}
+
 
 def apply_patch(root: Path, patch: Patch) -> str:
     target = root / patch.path
@@ -351,6 +440,39 @@ def apply_patch(root: Path, patch: Patch) -> str:
     return "patched"
 
 
+def verify_upstream_force_close(root: Path) -> list:
+    """Pin the fork's own common/force_close split, loudly, instead of patching it."""
+    package = root / UPSTREAM_PACKAGE
+    if not package.is_dir():
+        raise SystemExit(
+            "sing-box source is inconsistent: transport/v2rayxhttp/dialer.go dispatches "
+            "through " + UPSTREAM_DISPATCH.rstrip("(") + " but the " + UPSTREAM_PACKAGE
+            + " package is missing. Re-read the pinned core before rebuilding; never "
+            "ship an unverified binary."
+        )
+
+    results = []
+    for name, needles in UPSTREAM_CHECKS.items():
+        target = package / name
+        if not target.is_file():
+            raise SystemExit(
+                "the fork's " + UPSTREAM_PACKAGE + " split is incomplete: missing "
+                + name + ". Re-read the pinned core before rebuilding; never ship an "
+                "unverified binary."
+            )
+        text = target.read_text(encoding="utf-8")
+        missing = [needle for needle in needles if needle not in text]
+        if missing:
+            raise SystemExit(
+                "the fork's " + UPSTREAM_PACKAGE + "/" + name + " no longer matches the "
+                "verified three-way split (missing: " + "; ".join(missing) + "). "
+                "Re-read the pinned core before rebuilding; never ship an unverified "
+                "binary."
+            )
+        results.append((UPSTREAM_PACKAGE + "/" + name, "verified upstream fix"))
+    return results
+
+
 def main() -> None:
     if len(sys.argv) != 2:
         raise SystemExit("usage: inject-singbox-go127-fix.py SINGBOX_SOURCE")
@@ -371,15 +493,44 @@ def main() -> None:
         )
 
     results = []
-    for patch in PATCHES:
-        results.append((patch.path, apply_patch(root, patch)))
+    if UPSTREAM_DISPATCH in dialer.read_text(encoding="utf-8"):
+        # ── v1.14.1-extended-2.7.2 and newer: the fork shipped the split itself ──────
+        # (build run 35602762470 died on this injector's stale 2.7.1 anchors there).
+        # Verify the split instead of re-creating it, keep the marker the release
+        # build greps for, and pin the package with a compile-and-link regression test.
+        results.extend(verify_upstream_force_close(root))
 
-    for relative, content in FILES.items():
-        target = root / relative
-        target.write_text(content, encoding="utf-8")
-        if MARKER not in content:
-            raise SystemExit("generated file lost its marker: " + relative)
-        results.append((relative, "variant written"))
+        text = dialer.read_text(encoding="utf-8")
+        if MARKER in text:
+            results.append(("transport/v2rayxhttp/dialer.go", "already verified"))
+        else:
+            # A line comment above the package clause is legal Go and keeps the
+            # marker where prepare-native.sh greps for it.
+            dialer.write_text(
+                "// " + MARKER + ": fix already present upstream — the fork moved the\n"
+                "// v2rayxhttp force-close into " + UPSTREAM_PACKAGE + " (three-way split)\n"
+                "// in v1.14.1-extended-2.7.2; this injector verifies it instead of patching.\n"
+                + text,
+                encoding="utf-8",
+            )
+            results.append(("transport/v2rayxhttp/dialer.go", "verified upstream fix"))
+
+        test_target = root / UPSTREAM_PACKAGE / "marble_force_close_link_test.go"
+        test_target.write_text(UPSTREAM_LINK_TEST, encoding="utf-8")
+        results.append(
+            (UPSTREAM_PACKAGE + "/marble_force_close_link_test.go", "regression test written")
+        )
+    else:
+        # ── up to v1.14.0-extended-2.7.1: port the fork's split to v2rayxhttp ─────────
+        for patch in PATCHES:
+            results.append((patch.path, apply_patch(root, patch)))
+
+        for relative, content in FILES.items():
+            target = root / relative
+            target.write_text(content, encoding="utf-8")
+            if MARKER not in content:
+                raise SystemExit("generated file lost its marker: " + relative)
+            results.append((relative, "variant written"))
 
     # A patched tree must carry the marker in the file that used to fail linking,
     # otherwise the build verification in prepare-native.sh has nothing to grep for.
@@ -388,6 +539,7 @@ def main() -> None:
 
     print("sing-box Go 1.27 v2rayxhttp force-close (" + MARKER + "):")
     print("  incident : " + INCIDENT_RUN)
+    print("  upstream : " + UPSTREAM_ADOPTION_RUN)
     for path, state in results:
         print("  [" + state + "] " + path)
 
