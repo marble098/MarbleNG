@@ -237,6 +237,27 @@ def apply_patch(root: Path, patch: Patch) -> str:
     if patch.new in text:
         return "already patched"
     if text.count(patch.old) != 1:
+        # A newer pinned release may already contain the upstream repair without
+        # MarbleNG's explanatory comments.  Treat that as fixed only when every
+        # functional line introduced by this patch is present; merely losing an
+        # old textual anchor must still stop the build.
+        old_lines = {
+            line.strip()
+            for line in patch.old.splitlines()
+            if line.strip() and not line.lstrip().startswith("//")
+        }
+        postcondition = [
+            line.strip()
+            for line in patch.new.splitlines()
+            if line.strip()
+            and not line.lstrip().startswith("//")
+            and line.strip() not in old_lines
+        ]
+        if postcondition and all(line in text for line in postcondition):
+            # Keep the marker used by prepare-native.sh while leaving the
+            # release's already-correct implementation untouched.
+            target.write_text("// " + MARKER + ": fix already present upstream.\n" + text, encoding="utf-8")
+            return "verified upstream fix"
         raise SystemExit(
             "sing-box anchor moved or is ambiguous ("
             + str(text.count(patch.old))
