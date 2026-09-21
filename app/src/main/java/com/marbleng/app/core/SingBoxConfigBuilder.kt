@@ -42,6 +42,25 @@ object SingBoxConfigBuilder {
     const val DNS_DIRECT_TAG = "dns-direct"
     const val DNS_LOCAL_TAG = "dns-local"
     const val DNS_HOSTS_TAG = "dns-hosts"
+
+    /**
+     * MARBLE_FAKE_IP_V184 — the sing-box `fakeip` DNS server (1.14 server form; the legacy
+     * `dns.fakeip` object was removed in 1.14.0). In-process fake addresses for the app's A/AAAA
+     * questions; the router restores the original domain per flow (`route/route.go`
+     * prepareMatchMetadata) and the forced route `resolve` action resolves the real IP through
+     * the normal DNS graph (where the fakeip transport is excluded, `allowFakeIP=false`), so the
+     * proxy always dials the real address and no fake loop is possible.
+     */
+    const val DNS_FAKEIP_TAG = "dns-fakeip"
+
+    /**
+     * MARBLE_FAKE_IP_V184 — the fake address pool. 283/16 (one class-B of unassigned IANA space,
+     * the Clash-Meta custom convention) keeps 65k of usable addresses and stays far away from
+     * this TUN's own 198.18.0.1/32 interface address — the sing-box default 198.18.0.0/15 would
+     * swallow it.
+     */
+    const val FAKE_IP_POOL = "283.0.0.0/16"
+
     /**
      * Encrypted DoH over DIRECT (IP-literal endpoints), with the system resolver as last resort.
      * This is the sing-box equivalent of Xray `https+local://`: the node hostname is resolved
@@ -1100,6 +1119,19 @@ private fun removeKeys(
             .put("server", "127.0.0.1").put("server_port", bootstrapDnsPort)
             else JSONObject().put("type", "local").put("tag", DNS_LOCAL_TAG))
         servers.put(JSONObject().put("type", "hosts").put("tag", DNS_HOSTS_TAG))
+        // MARBLE_FAKE_IP_V184 — the in-process fake address server. `inet4_range` is mandatory
+        // on the pinned core (NewTransport errors without a valid v4/v6 range) and only the v4
+        // range is armed: an AAAA question answered from a v4-only fakeip server returns an
+        // empty success (dns/transport/fakeip/fakeip.go), so IPv6-preferred apps fall back to
+        // the A record instead of waiting on the tunnel.
+        if (settings.dnsFakeIpEnabled) {
+            servers.put(
+                JSONObject()
+                    .put("type", "fakeip")
+                    .put("tag", DNS_FAKEIP_TAG)
+                    .put("inet4_range", FAKE_IP_POOL)
+            )
+        }
         // Encrypted bootstrap over DIRECT using IP-literal DoH — Xray's `https+local://` equivalent.
         // The Iranian system resolver answers 10.10.34.35/36 for node hostnames; asking it first is
         // why VLESS dials timed out against the injector. Local stays last-resort so a total DoH
@@ -1133,6 +1165,24 @@ private fun removeKeys(
         val rules = JSONArray()
         profile.host.takeIf { it.isNotBlank() && !isLiteralAddress(it) }?.let { host ->
             rules.put(JSONObject().put("domain", JSONArray().put(host)).put("action", "route").put("server", DNS_BOOTSTRAP_TAG))
+        }
+        // MARBLE_FAKE_IP_V184 — every A/AAAA question the APP asks is answered from the fake
+        // pool before it can reach a resolver, which is what makes the cold burst free. The
+        // node-host rule above still wins, so VLESS bootstrap never sees a fake address. On the
+        // ENGINE's own resolution paths (proxy dial, route `resolve`) the same rule is skipped —
+        // the router walks rules with allowFakeIP=false there (dns/router.go), the fakeip
+        // transport is excluded, and the domain falls through to the graph below: the Iranian
+        // set to `dns-direct`, everything else to the final encrypted resolver over the proxy.
+        // That exclusion is what keeps the chain from ever handing a fake address back to the
+        // proxy. `final` therefore stays `dns-remote`: fakeip is the app's answer, not the
+        // engine's.
+        if (settings.dnsFakeIpEnabled) {
+            rules.put(
+                JSONObject()
+                    .put("query_type", JSONArray().put("A").put("AAAA"))
+                    .put("action", "route")
+                    .put("server", DNS_FAKEIP_TAG)
+            )
         }
         val implicit = RoutingEngine.implicitRules(settings)
         val directSites = implicit.directSiteTags.filter { settings.iranDomesticDirect || it != "ir" }
@@ -1238,7 +1288,15 @@ private fun removeKeys(
     private fun routeConfig(settings: AppSettings, notes: MutableList<String>, ruleSetPaths: Map<String, String>): JSONObject {
         val rules = JSONArray()
         if (settings.singBoxSniffEnabled) rules.put(JSONObject().put("action", "sniff"))
-        if (settings.singBoxResolveDestination) rules.put(JSONObject().put("action", "resolve"))
+        // MARBLE_FAKE_IP_V184 — fakeip makes `resolve` mandatory, not an Exclave option: a
+        // restored fake flow reaches the router's pre-match with a DOMAIN destination, and
+        // preMatchFlow rejects that flow unless DestinationAddresses was populated
+        // (route/route.go: "a resolve action is required before routing to outbound"). The
+        // resolve action is a no-op for IP destinations, so the only cost of arming it with
+        // fakeip is one cached encrypted lookup per domain the proxy will dial anyway.
+        if (settings.singBoxResolveDestination || settings.dnsFakeIpEnabled) {
+            rules.put(JSONObject().put("action", "resolve"))
+        }
         if (settings.dnsHijackEnabled) {
             rules.put(JSONObject().put("port", 53).put("action", "hijack-dns"))
         }

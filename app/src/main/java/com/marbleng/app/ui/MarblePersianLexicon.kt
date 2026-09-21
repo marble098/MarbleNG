@@ -662,6 +662,9 @@ private val FaLexicon: Map<String, String> = mapOf(
     "IPv4 / AUTO" to "IPv4 / خودکار",
     "Intercept traditional DNS" to "رهگیری DNS سنتی",
     "Port 53 → encrypted DNS" to "پورت ۵۳ ← DNS رمزنگاری‌شده",
+    // MARBLE_FAKE_IP_V184
+    "Fake IP DNS" to "فیک‌آی‌پی DNS",
+    "Instant local answers; real IP resolved in-tunnel" to "پاسخ‌های آنی محلی؛ آی‌پی واقعی داخل تونل حل می‌شود",
     "Adaptive DoH ordering" to "چینش تطبیقی DoH",
     "Keep the fastest DoH path" to "حفظ سریع‌ترین مسیر DoH",
     "Adaptive IPv4 / IPv6 DNS" to "‏DNS تطبیقی IPv4 / IPv6",
