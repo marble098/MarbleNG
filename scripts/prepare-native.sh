@@ -1731,12 +1731,16 @@ echo "sing-box commit : $SINGBOX_HEAD"
 # The crash fix, and the proof that it is in the tree before anything compiles
 # ---------------------------------------------------------------------------
 
-python3 "$ROOT/scripts/inject-singbox-android-fix.py" "$SINGBOX_SRC"
+SINGBOX_PATCH_LOG="$CORE/singbox-source-patches.log"
+LAST_BUILD_LOG="$SINGBOX_PATCH_LOG"
 
-grep -F 'MARBLE_SINGBOX_ANDROID_CLI_CRASH_V157' \
-    "$SINGBOX_SRC/protocol/direct/outbound.go" >/dev/null || {
-        die "sing-box Android CLI crash fix is missing from protocol/direct/outbound.go"
-    }
+{
+    python3 "$ROOT/scripts/inject-singbox-android-fix.py" "$SINGBOX_SRC"
+
+    grep -F 'MARBLE_SINGBOX_ANDROID_CLI_CRASH_V157' \
+        "$SINGBOX_SRC/protocol/direct/outbound.go" >/dev/null || {
+            die "sing-box Android CLI crash fix is missing from protocol/direct/outbound.go"
+        }
 
 # ---------------------------------------------------------------------------
 # The Go 1.27 force-close fix, and the same proof for it.
@@ -1759,12 +1763,13 @@ grep -F 'MARBLE_SINGBOX_ANDROID_CLI_CRASH_V157' \
 # to v2rayxhttp before anything compiles.
 # ---------------------------------------------------------------------------
 
-python3 "$ROOT/scripts/inject-singbox-go127-fix.py" "$SINGBOX_SRC"
+    python3 "$ROOT/scripts/inject-singbox-go127-fix.py" "$SINGBOX_SRC"
 
-grep -F 'MARBLE_SINGBOX_GO127_FORCE_CLOSE_V161' \
-    "$SINGBOX_SRC/transport/v2rayxhttp/dialer.go" >/dev/null || {
-        die "sing-box Go 1.27 force-close fix is missing from transport/v2rayxhttp/dialer.go"
-    }
+    grep -F 'MARBLE_SINGBOX_GO127_FORCE_CLOSE_V161' \
+        "$SINGBOX_SRC/transport/v2rayxhttp/dialer.go" >/dev/null || {
+            die "sing-box Go 1.27 force-close fix is missing from transport/v2rayxhttp/dialer.go"
+        }
+} 2>&1 | tee "$SINGBOX_PATCH_LOG"
 
 # The module graph is fetched explicitly (and retried) before the tests run,
 # so a dead module transfer fails as "dependency download failed" instead of
@@ -1772,6 +1777,7 @@ grep -F 'MARBLE_SINGBOX_GO127_FORCE_CLOSE_V161' \
 log "Downloading sing-box Go modules"
 
 SINGBOX_MODULE_LOG="$CORE/singbox-module-download.log"
+LAST_BUILD_LOG="$SINGBOX_MODULE_LOG"
 
 singbox_download_modules() {
     (
@@ -1799,6 +1805,7 @@ log "Running the injected sing-box regression tests (nil interface monitor)"
 # resolve here — in seconds — instead of dying at the first ABI's link step four
 # minutes into the job the way build run #247 did.
 SINGBOX_TEST_LOG="$CORE/singbox-regression-test.log"
+LAST_BUILD_LOG="$SINGBOX_TEST_LOG"
 
 # NOTE: errexit is ignored inside a subshell that is the left side of `||`, so the two
 # invocations are chained with `&&` — a failure of the first must not be masked by a
@@ -1888,6 +1895,7 @@ SINGBOX_BUILD_VERSION="${SINGBOX_VERSION}-marble.${SINGBOX_PATCH_LEVEL}"
 log "Resolving the sing-box Android package graph"
 
 SINGBOX_GRAPH_LOG="$CORE/singbox-package-graph.log"
+LAST_BUILD_LOG="$SINGBOX_GRAPH_LOG"
 
 singbox_resolve_graph() {
     local goarch="$1"
