@@ -40,6 +40,22 @@ class AppStore(context: Context) {
         require(root.optString("format") == "marbleng-backup") { "Not a MarbleNG backup" }
         require(root.optInt("version") == 1) { "Unsupported backup version" }
         val values = root.getJSONObject("values")
+
+        // Validate the complete document before clear() is staged. JSONObject.NULL and nested
+        // objects are not SharedPreferences values; silently ignoring either would turn a
+        // malformed backup into a successful but destructive partial restore.
+        values.keys().forEach { key ->
+            require(key.isNotEmpty()) { "Backup contains an empty preference key" }
+            when (val value = values.get(key)) {
+                is Boolean, is Int, is Long, is Double, is String -> Unit
+                is JSONArray -> (0 until value.length()).forEach { index ->
+                    require(value.get(index) is String) {
+                        "Backup preference '$key' contains a non-string set item"
+                    }
+                }
+                else -> error("Backup preference '$key' has an unsupported value")
+            }
+        }
         val edit = prefs.edit().clear()
         values.keys().forEach { key ->
             when (val value = values.get(key)) {
