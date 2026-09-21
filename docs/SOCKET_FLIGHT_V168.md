@@ -170,7 +170,7 @@ package from the SDK repository, so `sdkmanager tools` now answers `Failed to fi
 'tools'` and exits 1. Bumping the action does not help (v4.0.1 keeps the same default). Every
 call site — `build.yml`, `verify.yml`, `marble-cloud-gate.yml` and their staged copies under
 `docs/workflows-pending/` — now names `packages: "platform-tools"` explicitly; the following
-steps install `platforms;android-37` and `build-tools;36.0.0`. The fix is staged in the complete
+steps install `platforms;android-36` and `build-tools;36.0.0`. The fix is staged in the complete
 workflow copies under `docs/workflows-pending/` (the push token cannot write
 `.github/workflows/`, the established convention in that directory's README) and pinned by a
 named integrity invariant over the staged copies; the live files, including

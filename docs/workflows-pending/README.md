@@ -31,7 +31,7 @@ The fix is already applied to the staged `verify.yml` and `build.yml` below, so 
 also retires the broken default. The **live** `.github/workflows/marble-cloud-gate.yml` has no
 staged copy: when installing, add the same `with: packages: "platform-tools"` block to its
 existing Set up Android SDK step (the following `Install compile SDK` step already installs
-`platforms;android-37` + `build-tools;36.0.0`).
+`platforms;android-36` + `build-tools;36.0.0`).
 
 Notes for whoever installs them:
 

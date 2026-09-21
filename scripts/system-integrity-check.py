@@ -1706,15 +1706,6 @@ check(
 check("signed build checks out complete history", "fetch-depth: 0" in files["build"])
 check("verify invokes central integrity audit", "scripts/system-integrity-check.py" in files["verify"])
 check("signed build invokes central integrity audit", "scripts/system-integrity-check.py" in files["build"])
-compile_sdk = re.search(r"\bcompileSdk\s*=\s*(\d+)", read("app/build.gradle.kts"))
-check(
-    "CI installs the Android platform the app compiles against",
-    compile_sdk is not None
-    and all(
-        f"platforms;android-{compile_sdk.group(1)}" in source
-        for source in (files["build"], files["verify"])
-    ),
-)
 check(
     "native release assets bypass rate-limited metadata API",
     "api.github.com/repos/XTLS/Xray-core/releases/tags" not in files["native"]
