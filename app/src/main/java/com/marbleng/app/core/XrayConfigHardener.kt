@@ -859,14 +859,14 @@ object XrayConfigHardener {
         out.put(JSONObject().put("tag", "block").put("protocol", "blackhole"))
 
         val listen = if (settings.xrayAllowLan) "0.0.0.0" else "127.0.0.1"
-        // MARBLE_FAKE_IP_V184 — the fake-IP chain is armed only while the socks inbound sniffs:
-        // the domain restore that turns a 283.x answer back into the real host happens in the
-        // inbound sniffer (the `fakedns` destination override), and without it the proxy would
+        // MARBLE_FAKE_IP_V184 — fake IP is armed only while DNS interception and the SOCKS
+        // inbound sniffer are both active. The restore that turns a 198.19.x answer back into the
+        // real host happens in the inbound `fakedns` override; without it the proxy would
         // dial the fake address itself. Validated against the pinned XTLS/Xray-core v26.9.9
         // source: `app/dispatcher/default.go` replaces `ob.Target` with the restored domain for
         // a `fakedns` result even under `routeOnly`, and `FakeDNSPostProcessingStage` requires
         // the `fakedns` destOverride entry whenever a `fakedns` nameserver is in use.
-        val fakeIpArmed = settings.dnsFakeIpEnabled && settings.xraySniffingEnabled
+        val fakeIpArmed = FakeIpPolicy.isDnsPathArmed(settings) && settings.xraySniffingEnabled
         fun sniffing(): JSONObject = JSONObject()
             .put("enabled", settings.xraySniffingEnabled)
             .put("routeOnly", settings.xraySniffingRouteOnly)
@@ -1041,11 +1041,10 @@ object XrayConfigHardener {
         // from the `fakedns` pool (v26.9.9 `app/dns/nameserver.go`: the client only exists when
         // `dns.servers` contains `{"address":"fakedns"}`), and the encrypted DoH servers below
         // stay in the graph for the proxy's own dial-time resolution, which skips the FakeDNS
-        // client (`transport/internet/dialer.go` LookupForIP, FakeEnable=false). The engine
-        // rejects an LRU at or above the pool size, so poolSize 65536 pairs with the /8 pool
-        // (24 spare host bits); the pool is 283/8 — the core's own 198.18.0.0/15 default would
-        // collide with this TUN's 198.18.0.1/32 interface address. `queryStrategy` is written on
-        // the entry because verify() demands it on every server of the list.
+        // client (`transport/internet/dialer.go` LookupForIP, FakeEnable=false). The shared
+        // 198.19.0.0/16 pool is the non-overlapping half of IANA's reserved benchmarking /15;
+        // the other half contains this TUN's 198.18.0.1/32 interface. `queryStrategy` is written
+        // on the entry because verify() demands it on every server of the list.
         if (fakeIpArmed) {
             dnsServers.put(
                 JSONObject()
@@ -1289,8 +1288,8 @@ object XrayConfigHardener {
             src.put(
                 "fakedns",
                 JSONObject()
-                    .put("ipPool", "283.0.0.0/8")
-                    .put("poolSize", 65536)
+                    .put("ipPool", FakeIpPolicy.IPV4_POOL)
+                    .put("poolSize", FakeIpPolicy.XRAY_LRU_SIZE)
             )
         }
 

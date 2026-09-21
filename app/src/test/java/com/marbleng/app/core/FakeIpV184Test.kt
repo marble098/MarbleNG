@@ -65,6 +65,27 @@ class FakeIpV184Test {
     private fun xrayFakeIndexes(servers: JSONArray): List<Int> =
         (0 until servers.length()).filter { servers.getJSONObject(it).optString("address") == "fakedns" }
 
+    private fun ipv4Number(address: String): Long {
+        val octets = address.split('.')
+        require(octets.size == 4) { "not an IPv4 address: $address" }
+        return octets.fold(0L) { value, raw ->
+            val octet = raw.toIntOrNull()
+            require(octet != null && octet in 0..255) { "invalid IPv4 octet in $address" }
+            (value shl 8) or octet.toLong()
+        }
+    }
+
+    private fun cidrContains(cidr: String, address: String): Boolean {
+        val pieces = cidr.split('/', limit = 2)
+        require(pieces.size == 2) { "not a CIDR: $cidr" }
+        val prefix = pieces[1].toIntOrNull()
+        require(prefix != null && prefix in 0..32) { "invalid CIDR prefix: $cidr" }
+        val mask = if (prefix == 0) 0L else (0xffff_ffffL shl (32 - prefix)) and 0xffff_ffffL
+        val network = ipv4Number(pieces[0])
+        require((network and mask) == network) { "non-canonical CIDR: $cidr" }
+        return (ipv4Number(address) and mask) == network
+    }
+
     private fun xrayDestOverrideHasFake(inbounds: JSONArray): Boolean {
         for (i in 0 until inbounds.length()) {
             val override = inbounds.getJSONObject(i).optJSONObject("sniffing")
@@ -77,13 +98,33 @@ class FakeIpV184Test {
     }
 
     @Test
+    fun sharedPoolIsAValidReservedCidrThatDoesNotContainTheTunInterface() {
+        val pool = FakeIpPolicy.IPV4_POOL
+        assertEquals(pool, SingBoxConfigBuilder.FAKE_IP_POOL)
+        assertTrue(
+            "the fake pool must be inside the reserved benchmark block",
+            cidrContains("198.18.0.0/15", pool.substringBefore('/'))
+        )
+        assertTrue("the configured fake pool must contain its usable addresses", cidrContains(pool, "198.19.0.2"))
+        assertFalse("the fake pool must not swallow HEV's TUN address", cidrContains(pool, "198.18.0.1"))
+
+        val prefix = pool.substringAfter('/').toInt()
+        val addressCount = 1L shl (32 - prefix)
+        assertTrue(
+            "Xray requires its LRU to be strictly smaller than the subnet",
+            FakeIpPolicy.XRAY_LRU_SIZE.toLong() < addressCount
+        )
+    }
+
+    @Test
     fun xrayArmsFakednsPoolNameserverAndSniffingOverride() {
         val hardened = JSONObject(XrayConfigHardener.harden(vlessSource(), 21080, AppSettings()))
 
-        // The v26.9.9 JSON schema (`infra/conf/fakedns.go`): ipPool + poolSize.
+        // The v26.9.9 JSON schema (`infra/conf/fakedns.go`): ipPool + poolSize. The core rejects
+        // an LRU of 65,536 in a /16, so the largest valid value is deliberately one lower.
         val fakedns = hardened.getJSONObject("fakedns")
-        assertEquals("283.0.0.0/8", fakedns.getString("ipPool"))
-        assertEquals(65536, fakedns.getInt("poolSize"))
+        assertEquals(FakeIpPolicy.IPV4_POOL, fakedns.getString("ipPool"))
+        assertEquals(FakeIpPolicy.XRAY_LRU_SIZE, fakedns.getInt("poolSize"))
 
         // The fakedns nameserver exists, carries the list-wide queryStrategy verify() demands,
         // and sits BEFORE the first encrypted DoH server: in serial mode it answers every
@@ -105,7 +146,7 @@ class FakeIpV184Test {
             servers.getJSONObject(fakeIndexes[0]).optString("queryStrategy")
         )
 
-        // The sniffer is what turns a 283.x answer back into the real host; every inbound that
+        // The sniffer is what turns a 198.19.x answer back into the real host; every inbound that
         // carries a sniffing block must name the fakedns destination override.
         assertTrue(xrayDestOverrideHasFake(hardened.getJSONArray("inbounds")))
 
@@ -232,6 +273,12 @@ class FakeIpV184Test {
         assertTrue("the fakeip server must exist", fake != null)
         assertEquals("fakeip", fake!!.optString("type"))
         assertEquals(SingBoxConfigBuilder.FAKE_IP_POOL, fake.optString("inet4_range"))
+        assertFalse("fakeip owns a range, not an upstream server", fake.has("server"))
+
+        // The app can retain a fake answer across a core restart, so the reverse mapping must
+        // survive whenever the user has the (default-on) cache file enabled.
+        val cache = config.getJSONObject("experimental").getJSONObject("cache_file")
+        assertTrue("fakeip reverse mappings must survive core restarts", cache.getBoolean("store_fakeip"))
 
         // The app's A/AAAA questions route to the fake pool; `final` stays the encrypted
         // resolver over the proxy — that is what keeps the engine's own resolution off the
@@ -280,6 +327,35 @@ class FakeIpV184Test {
     }
 
     @Test
+    fun bothEnginesKeepFakeIpOffWhenDnsInterceptionIsOff() {
+        // Fake answers cannot reach an app without the port-53 interception rule. Emitting only
+        // the pool/server in that state is a misleading half-configuration and makes sing-box
+        // resolve every routed domain for no benefit.
+        val settings = AppSettings(dnsHijackEnabled = false)
+        val xray = JSONObject(XrayConfigHardener.harden(vlessSource(), 21080, settings))
+        assertFalse(xray.has("fakedns"))
+        assertTrue(xrayFakeIndexes(xray.getJSONObject("dns").getJSONArray("servers")).isEmpty())
+        assertFalse(xrayDestOverrideHasFake(xray.getJSONArray("inbounds")))
+
+        val singBox = singBoxBuild(settings)
+        val dns = singBox.getJSONObject("dns")
+        val servers = dns.getJSONArray("servers")
+        for (i in 0 until servers.length()) {
+            assertFalse(servers.getJSONObject(i).optString("type") == "fakeip")
+        }
+        val dnsRules = dns.getJSONArray("rules")
+        for (i in 0 until dnsRules.length()) {
+            assertFalse(dnsRules.getJSONObject(i).optJSONArray("query_type") != null)
+        }
+        val routeRules = singBox.getJSONObject("route").getJSONArray("rules")
+        for (i in 0 until routeRules.length()) {
+            assertFalse(routeRules.getJSONObject(i).optString("action") == "resolve")
+        }
+        val cache = singBox.getJSONObject("experimental").getJSONObject("cache_file")
+        assertFalse(cache.has("store_fakeip"))
+    }
+
+    @Test
     fun singBoxStaysClassicWhenFakeipIsOff() {
         val config = singBoxBuild(AppSettings(dnsFakeIpEnabled = false))
         val dns = config.getJSONObject("dns")
@@ -297,5 +373,8 @@ class FakeIpV184Test {
         for (i in 0 until routeRules.length()) {
             assertFalse(routeRules.getJSONObject(i).optString("action") == "resolve")
         }
+        assertFalse(
+            config.getJSONObject("experimental").getJSONObject("cache_file").has("store_fakeip")
+        )
     }
 }

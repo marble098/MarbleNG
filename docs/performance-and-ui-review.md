@@ -31,12 +31,12 @@
 Xray (`XrayConfigHardener.kt`):
 1. بلوک سطح‌بالا `fakedns` با اسکیمای JSON دقیقِ `v26.9.9` (`infra/conf/fakedns.go`):
    ```json
-   "fakedns": { "ipPool": "283.0.0.0/8", "poolSize": 65536 }
+   "fakedns": { "ipPool": "198.19.0.0/16", "poolSize": 65535 }
    ```
    (کلید JSON `poolSize` است، نه `lruSize`. محدودیت `app/dns/fakedns/fake.go`:
-   `log2(lruSize) < تعداد بیت خالی زیرشبکه` — برای /8 با poolSize 65536 برقرار است.
-   استخر 283/8 چون پیش‌فرض خود هسته `198.18.0.0/15` با آدرس رابط TUN یعنی
-   `198.18.0.1/32` **تصادف** دارد.)
+   `log2(lruSize) < تعداد بیت خالی زیرشبکه`؛ در /16 مقدار 65535 معتبر است ولی 65536
+   رد می‌شود. نیمه‌ی دوم بلوک رزروشده‌ی benchmark یعنی `198.19.0.0/16` انتخاب شد تا
+   ضمن غیرعمومی‌بودن، با آدرس رابط TUN یعنی `198.18.0.1/32` **تصادف** نداشته باشد.)
 2. نام‌سرور `{"address":"fakedns","queryStrategy":...}` به‌عنوان **اولین سرور عمومی**
    (قانون `verify()`: هر آیتم `dns.servers` باید `queryStrategy` یک‌شکل داشته باشد).
    لیستگرهای bootstrap دامنه‌محور هستند و در `sortClients` همیشه اولویت دارند، پس
@@ -55,7 +55,7 @@ Xray (`XrayConfigHardener.kt`):
 sing-box (`SingBoxConfigBuilder.kt`):
 1. سرور DNS شکل ۱.۱۴ (بلوک قدیمی `dns.fakeip` در ۱.۱۴ حذف شده):
    ```json
-   { "type": "fakeip", "tag": "dns-fakeip", "inet4_range": "283.0.0.0/16" }
+   { "type": "fakeip", "tag": "dns-fakeip", "inet4_range": "198.19.0.0/16" }
    ```
    `inet4_range` اجباری است (بدون آن `NewTransport` خطا می‌دهد). فقط v4 فعال است:
    پرسش AAAA از استخر v4، پاسخ «موفق/خالی» می‌گیرد و اپ به رکورد A برمی‌گردد.
@@ -71,15 +71,18 @@ sing-box (`SingBoxConfigBuilder.kt`):
    دامنه‌های ایرانی با قاعده‌ی geosite به `dns-direct` (ریज़ولور محلی) و بقیه با DoH از
    تونل حل می‌شوند. خروجی: پراکسی همیشه **آدرس واقعی** را دایل می‌کند.
 
-**چرخه‌ی کامل (هر دو هسته):** پرسش اپ → پاسخ آنی محلی (فیک) → بسته به 283.x از TUN →
+**چرخه‌ی کامل (هر دو هسته):** پرسش اپ → پاسخ آنی محلی (فیک) → بسته به 198.19.x از TUN →
 بازیابی دامنه → روتینگ (IP ruleها IP واقعی می‌بینند) → پراکسی → دایل با آدرس واقعی از
 داخل تونل. پرسش‌های DNS دیگر «در مسیر اتصال» نیستند؛ حلقه‌ی حل واقعی با هر دامنه یک‌بار
 و کش‌شده انجام می‌شود.
 
 **کنترل:** کلید روشن/خاموش در تنظیمات ← شبکه (پشت «رهگیری DNS سنتی») با ترجمه‌ی فارسی.
-در Xray، کل زنجیره (بلوک + نام‌سرور + destOverride) فقط وقتی اسنیفینگ روشن است فعال می‌شود؛
-بدون اسنیفینگ بازیابی دامنه ممکن نیست و پراکسی آدرس فیک را دایل می‌کرد. نمونه‌ی rank و
-delay-test هیچ‌گاه fakeip ندارند (در `hardenForNativeRank` صریحاً strip می‌شود).
+در هر دو هسته، زنجیره فقط وقتی رهگیری DNS روشن است فعال می‌شود؛ بدون قاعده‌ی رهگیری
+پورت ۵۳ پاسخ فیک اصلاً به اپ نمی‌رسد. در Xray اسنیفینگ نیز باید روشن باشد، چون بدون آن
+بازیابی دامنه ممکن نیست و پراکسی آدرس فیک را دایل می‌کرد. نمونه‌ی rank و delay-test
+هیچ‌گاه fakeip ندارند (در `hardenForNativeRank` صریحاً strip می‌شود). در sing-box، وقتی
+cache file روشن است `store_fakeip` نیز نوشته می‌شود تا پاسخ کش‌شده‌ی اپ پس از راه‌اندازی
+مجدد هسته به reverse mapping گم‌شده نخورد.
 
 ---
 
@@ -198,12 +201,11 @@ MTU/آگاه‌سازی در تب‌های دیگر. یک کاربر که می�
 
 ## راستی‌آزمایی
 
-- **تست‌های واحد:** `FakeIpV184Test` (۷ تست: شکل Xray روی/خاموش/بدون اسنیفینگ/rank،
-  شکل sing-box روی/خاموش، ترتیب bootstrap) + ۲ تست heal در `DpiEvasionPolicyTest`.
-  ۶۹ تست موجود دست‌نخورده ماندند — همه‌ی assertهای حساس (bootstrap ladder `≥4
-  https+local://` + `skipFallback` + `full:node.example.net`، `final` روی پراکسی
-  انتخابی، تعداد/ترتیب سرورهای sing-box) tag-based یا prefix-based هستند و با
-  درجِ جدید بی‌تعارضند.
+- **تست‌های واحد:** `FakeIpV184Test` (اعتبار و ظرفیت CIDR مشترک، شکل Xray
+  روی/خاموش/بدون اسنیفینگ/rank، شکل sing-box روی/خاموش، ترتیب bootstrap، و خاموش‌ماندن
+  هر دو هسته بدون DNS interception) + ۲ تست heal در `DpiEvasionPolicyTest`. تست قدیمیِ
+  اسکیمای DNS sing-box نیز اکنون `fakeip` را درست به‌عنوان transport بی‌نیاز از کلید
+  upstreamِ `server` می‌شناسد؛ transportهای راه‌دور همچنان اجباراً کلید ۱.۱۲ را دارند.
 - **invariantهای CI (verify.yml):** رشته‌های پین‌شده (`Unmatched routing fallback must
   stay on the selected proxy`، `normalizeGeoSiteTag(settings.routeAdsTag)`، مارکرهای
   Prism UI و `Marble Product UI v9.1.0`) همه دست‌نخورده‌اند؛ درج‌های UI فقط «اضافه»

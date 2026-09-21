@@ -312,9 +312,16 @@ class SingBoxCoreV151Test {
         for (i in 0 until servers.length()) {
             val server = servers.getJSONObject(i)
             val type = server.getString("type")
-            // `hosts` and `local` (MARBLE_SINGBOX_DNS_ACTION_V152, the system resolver) have no
-            // address of their own; every address-bearing type must use the 1.12 `server` key.
-            if (type == "hosts" || type == "local" || type == "fallback") continue
+            // `hosts`, `local`, `fallback`, and `fakeip` are addressless transports. FakeIP owns
+            // an address *range* (`inet4_range`), not an upstream `server`; treating it as a remote
+            // transport is what made PR #157's otherwise-valid unit suite fail here.
+            if (type in setOf("hosts", "local", "fallback", "fakeip")) {
+                if (type == "fakeip") {
+                    assertFalse("a fakeip transport must not carry an upstream server", server.has("server"))
+                    assertTrue("a fakeip transport must carry an IPv4 range", server.getString("inet4_range").isNotBlank())
+                }
+                continue
+            }
             // sing-box 1.12 renamed the DNS server address key. A server written with `address`
             // parses to nothing and every lookup dies, so this is the single most expensive typo
             // this builder could make.

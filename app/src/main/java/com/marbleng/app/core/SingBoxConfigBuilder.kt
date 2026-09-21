@@ -54,12 +54,12 @@ object SingBoxConfigBuilder {
     const val DNS_FAKEIP_TAG = "dns-fakeip"
 
     /**
-     * MARBLE_FAKE_IP_V184 — the fake address pool. 283/16 (one class-B of unassigned IANA space,
-     * the Clash-Meta custom convention) keeps 65k of usable addresses and stays far away from
-     * this TUN's own 198.18.0.1/32 interface address — the sing-box default 198.18.0.0/15 would
-     * swallow it.
+     * MARBLE_FAKE_IP_V184 — the fake address pool. The second /16 of IANA's reserved
+     * 198.18.0.0/15 benchmarking block keeps roughly 65k addresses without overlapping this
+     * TUN's own 198.18.0.1/32 interface address. It is shared with Xray so an engine switch cannot
+     * change the address-space contract.
      */
-    const val FAKE_IP_POOL = "283.0.0.0/16"
+    const val FAKE_IP_POOL = FakeIpPolicy.IPV4_POOL
 
     /**
      * Encrypted DoH over DIRECT (IP-literal endpoints), with the system resolver as last resort.
@@ -523,6 +523,14 @@ object SingBoxConfigBuilder {
                                     // `store_dns` is the documented replacement and persists the
                                     // whole DNS cache rather than only the rejected-domain cache.
                                     .put("store_dns", true)
+                                    .apply {
+                                        // A cached app answer can outlive a core restart. Persist
+                                        // the reverse fake-IP mapping too, otherwise sing-box
+                                        // rejects that still-cached address as a missing record.
+                                        if (FakeIpPolicy.isDnsPathArmed(settings)) {
+                                            put("store_fakeip", true)
+                                        }
+                                    }
                             )
                         }
                     }
@@ -1124,7 +1132,7 @@ private fun removeKeys(
         // range is armed: an AAAA question answered from a v4-only fakeip server returns an
         // empty success (dns/transport/fakeip/fakeip.go), so IPv6-preferred apps fall back to
         // the A record instead of waiting on the tunnel.
-        if (settings.dnsFakeIpEnabled) {
+        if (FakeIpPolicy.isDnsPathArmed(settings)) {
             servers.put(
                 JSONObject()
                     .put("type", "fakeip")
@@ -1176,7 +1184,7 @@ private fun removeKeys(
         // That exclusion is what keeps the chain from ever handing a fake address back to the
         // proxy. `final` therefore stays `dns-remote`: fakeip is the app's answer, not the
         // engine's.
-        if (settings.dnsFakeIpEnabled) {
+        if (FakeIpPolicy.isDnsPathArmed(settings)) {
             rules.put(
                 JSONObject()
                     .put("query_type", JSONArray().put("A").put("AAAA"))
@@ -1294,7 +1302,7 @@ private fun removeKeys(
         // (route/route.go: "a resolve action is required before routing to outbound"). The
         // resolve action is a no-op for IP destinations, so the only cost of arming it with
         // fakeip is one cached encrypted lookup per domain the proxy will dial anyway.
-        if (settings.singBoxResolveDestination || settings.dnsFakeIpEnabled) {
+        if (settings.singBoxResolveDestination || FakeIpPolicy.isDnsPathArmed(settings)) {
             rules.put(JSONObject().put("action", "resolve"))
         }
         if (settings.dnsHijackEnabled) {
