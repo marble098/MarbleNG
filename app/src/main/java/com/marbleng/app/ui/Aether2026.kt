@@ -1083,25 +1083,29 @@ internal data class DockMetrics(
     val showIcons: Boolean = true,
     val showLabels: Boolean = true
 ) {
+    // MARBLE_MATERIAL_YOU_REFRESH_V185 — the floating bar grows with the refreshed Material
+    // scale: taller pill (+2 dp), one step rounder corners, and glyphs two sizes up so the
+    // dock reads as the bold, modern navigation surface Material apps ship today. Clearance
+    // derives from barHeight, so pages reserve the new footprint automatically.
     val barHeight: Dp
         get() = when (size) {
-            DockSize.SMALL -> 50.dp
-            DockSize.MEDIUM -> 62.dp
-            DockSize.LARGE -> 74.dp
+            DockSize.SMALL -> 52.dp
+            DockSize.MEDIUM -> 64.dp
+            DockSize.LARGE -> 76.dp
         }
 
     val iconSize: Dp
         get() = when (size) {
-            DockSize.SMALL -> 17.dp
-            DockSize.MEDIUM -> 21.dp
-            DockSize.LARGE -> 26.dp
+            DockSize.SMALL -> 18.dp
+            DockSize.MEDIUM -> 24.dp
+            DockSize.LARGE -> 29.dp
         }
 
     val corner: Dp
         get() = when (size) {
-            DockSize.SMALL -> 24.dp
-            DockSize.MEDIUM -> 28.dp
-            DockSize.LARGE -> 32.dp
+            DockSize.SMALL -> 26.dp
+            DockSize.MEDIUM -> 30.dp
+            DockSize.LARGE -> 34.dp
         }
 
     val innerPadding: Dp
@@ -1234,7 +1238,8 @@ private fun FloatingSpatialDock(
                 // bar, the pager and persistence can never disagree about what a tab is.
                 if (item == SpatialTab.CUSTOM && !slot.enabled) return@forEach
                 val active = item == selected
-                val glassShape = RoundedCornerShape(20.dp)
+                // MARBLE_MATERIAL_YOU_REFRESH_V185 — the tab pill rounds with the taller refreshed bar.
+                val glassShape = RoundedCornerShape(22.dp)
 
                 // MARBLE_DOCK_STABLE_COLOR_V115 — a spring interpolates past its target on the
                 // way in (underdamped) and that overshoot flashed the pill/text on every click
@@ -1325,7 +1330,9 @@ private fun MarbleTabIcon(
     Canvas(modifier) {
         val w=size.width
         val h=size.height
-        val stroke=if(active) 2.1f.dp.toPx() else 1.7f.dp.toPx()
+        // MARBLE_MATERIAL_YOU_REFRESH_V185 — tab glyphs stroke at the Material Symbols weight
+        // so the dock icons read fuller and carry the active state more clearly.
+        val stroke=if(active) 2.3f.dp.toPx() else 1.9f.dp.toPx()
         val line=Stroke(width=stroke,cap=StrokeCap.Round)
 
         when(tab) {
@@ -1635,8 +1642,11 @@ private fun HomeVectorIcon(
         // MARBLE_HOME_VECTOR_ICONS_V36 + V77 — size-aware weight. The stroke stays
         // proportional to the glyph, so an icon scales up or down with its slot and keeps
         // the same optical weight: thin at micro/inline sizes, confident at hero sizes.
-        val stroke = (m * .082f).coerceIn(1.35f, 3.4f)
-        val fine = (stroke * .78f).coerceIn(1.15f, 2.6f)
+        // MARBLE_MATERIAL_YOU_REFRESH_V185 — the weight curve lifts to the Material Symbols
+        // optical weight: ~9.4% of the glyph box, so every icon reads fuller and more modern
+        // at both inline and hero sizes without redrawing a single path.
+        val stroke = (m * .094f).coerceIn(1.5f, 3.8f)
+        val fine = (stroke * .80f).coerceIn(1.3f, 2.9f)
         // MARBLE_ICON_POLISH_V115 — rounded caps AND joins: modern product icon strokes never
         // leave miter spikes at corners, so every glyph reads clean at 14dp and at 40dp.
         val line = Stroke(width = stroke, cap = StrokeCap.Round, join = StrokeJoin.Round)
@@ -2106,10 +2116,12 @@ private fun HomeVectorIcon(
 private fun HomeIconTile(icon: HomeIcon, color: Color, modifier: Modifier = Modifier) {
     // MARBLE_NAVY_BRAND_UI_V77 — tiles carry a soft tone gradient + hairline so icon
     // "chips" read as crafted glass rather than flat tinted squares.
-    val shape = RoundedCornerShape(13.dp)
+    // MARBLE_MATERIAL_YOU_REFRESH_V185 — the tile grows to a 42 dp Material touch-square with a
+    // 22 dp glyph inside, so leading icons read as confident, modern affordances.
+    val shape = RoundedCornerShape(14.dp)
     Box(
         modifier
-            .size(38.dp)
+            .size(42.dp)
             .clip(shape)
             .background(
                 Brush.linearGradient(
@@ -2123,7 +2135,7 @@ private fun HomeIconTile(icon: HomeIcon, color: Color, modifier: Modifier = Modi
             .border(1.dp, color.copy(alpha = .22f), shape),
         contentAlignment = Alignment.Center
     ) {
-        HomeVectorIcon(icon, color, Modifier.size(20.dp))
+        HomeVectorIcon(icon, color, Modifier.size(22.dp))
     }
 }
 
@@ -2142,7 +2154,7 @@ private fun HomeStatusChip(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        HomeVectorIcon(icon, tone, Modifier.size(14.dp))
+        HomeVectorIcon(icon, tone, Modifier.size(15.dp))
         Text(
             trx(text),
             color = tone,
@@ -2166,10 +2178,12 @@ private fun MarbleCompactTopBar(
     modifier: Modifier = Modifier
 ) {
     // MARBLE_PAGE_HEADER_V117 — a slim, quiet page header shared by Servers and Settings.
+    // MARBLE_MATERIAL_YOU_REFRESH_V185 — the header grows to the taller Material app-bar
+    // proportion and its brand/tile marks scale up with the refreshed icon ramp.
     Row(
         modifier=modifier
             .fillMaxWidth()
-            .heightIn(min=56.dp)
+            .heightIn(min=60.dp)
             .padding(vertical=5.dp),
         verticalAlignment=Alignment.CenterVertically,
         horizontalArrangement=Arrangement.spacedBy(11.dp)
@@ -2177,8 +2191,8 @@ private fun MarbleCompactTopBar(
         if(title == "MarbleNG") {
             Box(
                 modifier=Modifier
-                    .size(38.dp)
-                    .clip(RoundedCornerShape(12.dp))
+                    .size(40.dp)
+                    .clip(RoundedCornerShape(13.dp))
                     .background(
                         Brush.linearGradient(
                             listOf(Aether.Cyan,Aether.Amethyst)
@@ -2187,7 +2201,7 @@ private fun MarbleCompactTopBar(
                     .border(
                         1.dp,
                         Color.White.copy(alpha=.22f),
-                        RoundedCornerShape(12.dp)
+                        RoundedCornerShape(13.dp)
                     ),
                 contentAlignment=Alignment.Center
             ) {
@@ -2195,7 +2209,7 @@ private fun MarbleCompactTopBar(
                     painter=painterResource(R.drawable.ic_marble_prism),
                     contentDescription=null,
                     tint=Color.White,
-                    modifier=Modifier.size(22.dp)
+                    modifier=Modifier.size(24.dp)
                 )
             }
         } else {
@@ -2204,7 +2218,7 @@ private fun MarbleCompactTopBar(
                 "Settings" -> HomeIcon.MODE
                 else -> HomeIcon.DETAILS
             }
-            HomeIconTile(icon,Aether.Cyan,Modifier.size(36.dp))
+            HomeIconTile(icon,Aether.Cyan,Modifier.size(40.dp))
         }
 
         Column(
@@ -2274,7 +2288,9 @@ private fun MarbleMenuPanel(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .statusBarsPadding()
-                    .padding(start = 14.dp, end = 16.dp, top = 60.dp)
+                    // MARBLE_MATERIAL_YOU_REFRESH_V185 — the menu sheet meets the shared 16 dp
+                    // Material edge margin on both sides.
+                    .padding(start = 16.dp, end = 16.dp, top = 60.dp)
                     .widthIn(max = 360.dp)
                     .fillMaxWidth()
                     .shadow(
@@ -2353,7 +2369,7 @@ private fun MarbleMenuPanelItem(
                 .background(tone.copy(alpha = .12f)),
             contentAlignment = Alignment.Center
         ) {
-            HomeVectorIcon(icon, tone, Modifier.size(18.dp))
+            HomeVectorIcon(icon, tone, Modifier.size(20.dp))
         }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
             Text(
@@ -2481,7 +2497,7 @@ private fun HomeRouteDetailsRow(
             HomeVectorIcon(
                 HomeIcon.ROUTE,
                 Aether.Amethyst,
-                Modifier.size(17.dp)
+                Modifier.size(19.dp)
             )
         }
         Spacer(Modifier.width(10.dp))
@@ -2687,7 +2703,8 @@ private fun HomeQuickSettingRow(
     onChecked: (Boolean) -> Unit
 ) {
     val tone=if(checked) Aether.Cyan else Aether.InkMuted
-    val shape=RoundedCornerShape(20.dp)
+    // MARBLE_MATERIAL_YOU_REFRESH_V185 — Home tiles round to the refreshed card radius.
+    val shape=RoundedCornerShape(22.dp)
 
     Column(
         modifier=Modifier
@@ -2710,7 +2727,7 @@ private fun HomeQuickSettingRow(
                     .background(tone.copy(alpha=.10f)),
                 contentAlignment=Alignment.Center
             ) {
-                HomeVectorIcon(icon,tone,Modifier.size(19.dp))
+                HomeVectorIcon(icon,tone,Modifier.size(21.dp))
             }
             Spacer(Modifier.weight(1f))
             Switch(
@@ -2835,7 +2852,7 @@ private fun CyberDeck(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    HomeVectorIcon(HomeIcon.NETWORK, HomeCloud.Accent, Modifier.size(17.dp))
+                    HomeVectorIcon(HomeIcon.NETWORK, HomeCloud.Accent, Modifier.size(19.dp))
                     Text(
                         Tr.now.networkSpeed,
                         modifier = Modifier.weight(1f),
@@ -2971,7 +2988,8 @@ private fun HomeActionPortal(
     modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
-    val shape=RoundedCornerShape(20.dp)
+    // MARBLE_MATERIAL_YOU_REFRESH_V185 — Home tiles round to the refreshed card radius.
+    val shape=RoundedCornerShape(22.dp)
     Row(
         modifier
             .heightIn(min=78.dp)
@@ -2997,7 +3015,7 @@ private fun HomeActionPortal(
                 .background(color.copy(alpha=.12f)),
             contentAlignment=Alignment.Center
         ) {
-            HomeVectorIcon(icon,color,Modifier.size(20.dp))
+            HomeVectorIcon(icon,color,Modifier.size(22.dp))
         }
         Spacer(Modifier.width(9.dp))
         Column(Modifier.weight(1f)) {
@@ -3021,7 +3039,7 @@ private fun HomeActionPortal(
         HomeVectorIcon(
             HomeIcon.DETAILS,
             color.copy(alpha=.72f),
-            Modifier.size(16.dp)
+            Modifier.size(18.dp)
         )
     }
 }
@@ -3047,7 +3065,7 @@ private fun HomeRouteRibbon(repo: AppRepository) {
                 HomeVectorIcon(
                     HomeIcon.NETWORK,
                     Aether.Cyan,
-                    Modifier.size(22.dp)
+                    Modifier.size(24.dp)
                 )
             }
             Spacer(Modifier.width(10.dp))
@@ -3175,7 +3193,7 @@ private fun IranModeStatusPill(state: IranModeState) {
                 .background(tone.copy(alpha = .11f)),
             contentAlignment = Alignment.Center
         ) {
-            HomeVectorIcon(if (scanning) HomeIcon.BENCHMARK else HomeIcon.SHIELD, tone, Modifier.size(20.dp))
+            HomeVectorIcon(if (scanning) HomeIcon.BENCHMARK else HomeIcon.SHIELD, tone, Modifier.size(22.dp))
         }
 
         Column(Modifier.weight(1f)) {
@@ -3432,7 +3450,7 @@ private fun MiniMetric(
         verticalArrangement = Arrangement.Center
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-            icon?.let { HomeVectorIcon(it, valueColor, Modifier.size(13.dp)) }
+            icon?.let { HomeVectorIcon(it, valueColor, Modifier.size(14.dp)) }
             Text(
                 trx(label).uppercase(),
                 color = Aether.InkFaint,
@@ -3468,7 +3486,8 @@ private fun HoloActionPill(
     modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
-    val shape = RoundedCornerShape(20.dp)
+    // MARBLE_MATERIAL_YOU_REFRESH_V185 — Home tiles round to the refreshed card radius.
+    val shape = RoundedCornerShape(22.dp)
     Row(
         modifier = modifier
             .heightIn(min = 76.dp)
@@ -4454,7 +4473,7 @@ private fun ServersRoundButton(
             ),
         contentAlignment = Alignment.Center
     ) {
-        HomeVectorIcon(icon, tone, Modifier.size(19.dp))
+        HomeVectorIcon(icon, tone, Modifier.size(21.dp))
     }
 }
 
@@ -4611,7 +4630,7 @@ private fun ServersMenuItem(
                 horizontalArrangement = Arrangement.spacedBy(9.dp)
             ) {
                 if (icon != null) {
-                    HomeVectorIcon(icon, tone, Modifier.size(16.dp))
+                    HomeVectorIcon(icon, tone, Modifier.size(18.dp))
                 }
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
@@ -4636,7 +4655,7 @@ private fun ServersMenuItem(
         },
         trailingIcon = {
             if (selected) {
-                HomeVectorIcon(HomeIcon.CHECK, Aether.Cyan, Modifier.size(15.dp))
+                HomeVectorIcon(HomeIcon.CHECK, Aether.Cyan, Modifier.size(16.dp))
             }
         }
     )
@@ -4703,7 +4722,7 @@ private fun ServersSearchField(
             )
         },
         leadingIcon = {
-            HomeVectorIcon(HomeIcon.SEARCH, Aether.InkMuted, Modifier.size(18.dp))
+            HomeVectorIcon(HomeIcon.SEARCH, Aether.InkMuted, Modifier.size(20.dp))
         },
         trailingIcon = {
             if (value.isNotBlank()) {
@@ -4716,7 +4735,7 @@ private fun ServersSearchField(
                         .kineticClickable(role = Role.Button, boundedShape = CircleShape, onClick = onClear),
                     contentAlignment = Alignment.Center
                 ) {
-                    HomeVectorIcon(HomeIcon.CANCEL, Aether.InkMuted, Modifier.size(13.dp))
+                    HomeVectorIcon(HomeIcon.CANCEL, Aether.InkMuted, Modifier.size(14.dp))
                 }
             }
         },
@@ -4862,7 +4881,7 @@ private fun ServersFilterRail(
                     ),
                 contentAlignment = Alignment.Center
             ) {
-                HomeVectorIcon(HomeIcon.FILTER, Aether.Ink, Modifier.size(17.dp))
+                HomeVectorIcon(HomeIcon.FILTER, Aether.Ink, Modifier.size(19.dp))
             }
             DropdownMenu(
                 expanded = advancedOpen,
@@ -5001,14 +5020,14 @@ private fun ServersFilterRail(
                 sweeping -> HomeVectorIcon(
                     HomeIcon.STOP,
                     if (repo.probeCancelling) Aether.InkFaint else Aether.Danger,
-                    Modifier.size(15.dp)
+                    Modifier.size(16.dp)
                 )
                 busy -> CircularProgressIndicator(
                     modifier = Modifier.size(16.dp),
                     color = Aether.Cyan,
                     strokeWidth = 2.dp
                 )
-                else -> HomeVectorIcon(HomeIcon.PING, Aether.Ink, Modifier.size(19.dp))
+                else -> HomeVectorIcon(HomeIcon.PING, Aether.Ink, Modifier.size(21.dp))
             }
         }
     }
@@ -5035,7 +5054,7 @@ private fun ServersFilterCapsule(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        HomeVectorIcon(icon, tone, Modifier.size(14.dp))
+        HomeVectorIcon(icon, tone, Modifier.size(15.dp))
         Text(
             trx(label),
             color = tone,
@@ -5060,7 +5079,7 @@ private fun ServersFilterCapsule(
                     ),
                 contentAlignment = Alignment.Center
             ) {
-                HomeVectorIcon(HomeIcon.CANCEL, tone, Modifier.size(11.dp))
+                HomeVectorIcon(HomeIcon.CANCEL, tone, Modifier.size(13.dp))
             }
         }
     }
@@ -5099,7 +5118,7 @@ private fun ServersProbeStrip(repo: AppRepository) {
             HomeVectorIcon(
                 if (refreshing) HomeIcon.DOWNLOAD else HomeIcon.PING,
                 Aether.Cyan,
-                Modifier.size(17.dp)
+                Modifier.size(19.dp)
             )
             Text(
                 when {
@@ -5181,7 +5200,7 @@ private fun ServersProbeStrip(repo: AppRepository) {
                         else -> HomeIcon.BENCHMARK
                     },
                     tone,
-                    Modifier.size(15.dp)
+                    Modifier.size(16.dp)
                 )
                 Text(
                     stripLeadingFlag(repo.probeLastName),
@@ -5341,7 +5360,7 @@ private fun ServersGroupHeader(
                         HomeVectorIcon(
                             HomeIcon.RESET,
                             if (local) Aether.InkFaint else Aether.Amethyst,
-                            Modifier.size(16.dp)
+                            Modifier.size(18.dp)
                         )
                     }
                 }
@@ -5372,12 +5391,12 @@ private fun ServersGroupHeader(
                     pinging -> HomeVectorIcon(
                         HomeIcon.STOP,
                         if (cancelling) Aether.InkFaint else Aether.Danger,
-                        Modifier.size(14.dp)
+                        Modifier.size(15.dp)
                     )
                     else -> HomeVectorIcon(
                         HomeIcon.PING,
                         if (group.profiles.isEmpty()) Aether.InkFaint else Aether.Emerald,
-                        Modifier.size(16.dp)
+                        Modifier.size(18.dp)
                     )
                 }
             }
@@ -5411,7 +5430,7 @@ private fun ServersGroupHeader(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        HomeVectorIcon(HomeIcon.INFO, Aether.Cyan, Modifier.size(15.dp))
+                        HomeVectorIcon(HomeIcon.INFO, Aether.Cyan, Modifier.size(16.dp))
                         Text(
                             subscriptionUsageText(subscription),
                             color = Aether.Cyan,
@@ -5449,7 +5468,7 @@ private fun ServersGroupHeader(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            HomeVectorIcon(HomeIcon.GLOBE, Aether.Ink, Modifier.size(13.dp))
+                            HomeVectorIcon(HomeIcon.GLOBE, Aether.Ink, Modifier.size(14.dp))
                             Text(
                                 trx("Website"),
                                 color = Aether.Ink,
@@ -5500,7 +5519,7 @@ private fun ServersGroupMenuButton(
                 ),
             contentAlignment = Alignment.Center
         ) {
-            HomeVectorIcon(HomeIcon.MORE, if (open) Aether.Cyan else Aether.InkMuted, Modifier.size(16.dp))
+            HomeVectorIcon(HomeIcon.MORE, if (open) Aether.Cyan else Aether.InkMuted, Modifier.size(18.dp))
         }
         ServersGroupMenu(
             group = group,
@@ -5725,7 +5744,7 @@ private fun ServersNodeCard(
                     .padding(horizontal = 18.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                HomeVectorIcon(HomeIcon.PENCIL, tone, Modifier.size(19.dp))
+                HomeVectorIcon(HomeIcon.PENCIL, tone, Modifier.size(21.dp))
                 Spacer(Modifier.width(8.dp))
                 Text(
                     trx("Edit"),
@@ -5955,7 +5974,7 @@ private fun ServersPingCapsule(
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 // The latency reads as a measurement at a glance, one step larger than before.
-                HomeVectorIcon(HomeIcon.PING, tone, Modifier.size(14.dp))
+                HomeVectorIcon(HomeIcon.PING, tone, Modifier.size(15.dp))
                 Text(
                     "$latencyMs",
                     color = tone,
@@ -6074,7 +6093,7 @@ private fun ServersNodeMenu(
             HomeVectorIcon(
                 HomeIcon.MORE,
                 if (open) Aether.Cyan else Aether.InkMuted,
-                Modifier.size(16.dp)
+                Modifier.size(18.dp)
             )
         }
         DropdownMenu(
@@ -6579,7 +6598,7 @@ private fun ServersDropdownField(
                     },
                     trailingIcon = {
                         if (selected) {
-                            HomeVectorIcon(HomeIcon.ACTIVE, Aether.Cyan, Modifier.size(16.dp))
+                            HomeVectorIcon(HomeIcon.ACTIVE, Aether.Cyan, Modifier.size(18.dp))
                         }
                     }
                 )
@@ -7256,7 +7275,7 @@ private fun ServersSecretField(
                 HomeVectorIcon(
                     if (visible) HomeIcon.STOP else HomeIcon.DETAILS,
                     Aether.InkFaint,
-                    Modifier.size(15.dp)
+                    Modifier.size(16.dp)
                 )
             }
         },
@@ -7343,7 +7362,7 @@ private fun ServersAddPage(
                         size = 38.dp,
                         descriptiveLabel = "Close"
                     ) {
-                        HomeVectorIcon(HomeIcon.CANCEL, Aether.Ink, Modifier.size(16.dp))
+                        HomeVectorIcon(HomeIcon.CANCEL, Aether.Ink, Modifier.size(18.dp))
                     }
                 }
 
@@ -7667,7 +7686,7 @@ private fun ConnectionDetailPage(
                     size = 38.dp,
                     descriptiveLabel = "Back to servers"
                 ) {
-                    HomeVectorIcon(HomeIcon.DETAILS, Aether.Cyan, Modifier.size(17.dp))
+                    HomeVectorIcon(HomeIcon.DETAILS, Aether.Cyan, Modifier.size(19.dp))
                 }
                 Spacer(Modifier.width(6.dp))
                 Spacer(Modifier.width(4.dp))
@@ -7826,7 +7845,7 @@ private fun LibraryFilterSheet(
                     HomeVectorIcon(
                         HomeIcon.CANCEL,
                         Aether.Cyan,
-                        Modifier.size(17.dp)
+                        Modifier.size(19.dp)
                     )
                 }
             }
@@ -8001,7 +8020,7 @@ private fun SourceOrbitChip(
                 HomeVectorIcon(
                     HomeIcon.MORE,
                     if(selected) Aether.Cyan else color,
-                    Modifier.size(17.dp)
+                    Modifier.size(19.dp)
                 )
             }
         }
@@ -8234,7 +8253,7 @@ private fun DockSlotEmptyCard(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(9.dp)
         ) {
-            HomeVectorIcon(icon, Aether.Cyan, Modifier.size(18.dp))
+            HomeVectorIcon(icon, Aether.Cyan, Modifier.size(20.dp))
             Text(
                 trx(title),
                 color = Aether.Ink,
@@ -8343,7 +8362,7 @@ private fun DockPulseLiveCard(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(5.dp)
             ) {
-                HomeVectorIcon(HomeIcon.PING, tone, Modifier.size(13.dp))
+                HomeVectorIcon(HomeIcon.PING, tone, Modifier.size(14.dp))
                 Text(
                     trx("Ping"),
                     color = tone,
@@ -8534,7 +8553,7 @@ private fun DockSourceHeaderCard(repo: AppRepository, target: DockSlotTarget) {
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(9.dp)
         ) {
-            HomeVectorIcon(HomeIcon.NODES, Aether.Emerald, Modifier.size(17.dp))
+            HomeVectorIcon(HomeIcon.NODES, Aether.Emerald, Modifier.size(19.dp))
             Text(
                 target.displayName,
                 color = Aether.Ink,
@@ -9012,7 +9031,7 @@ private fun SettingsSubPage(
                     size = 36.dp,
                     descriptiveLabel = "Back to settings"
                 ) {
-                    HomeVectorIcon(HomeIcon.BACK, Aether.Cyan, Modifier.size(16.dp))
+                    HomeVectorIcon(HomeIcon.BACK, Aether.Cyan, Modifier.size(18.dp))
                 }
                 Spacer(Modifier.width(9.dp))
                 Column(Modifier.weight(1f)) {
@@ -9193,7 +9212,7 @@ private fun SettingsHubRow(
         ) {
             preview()
         }
-        HomeVectorIcon(HomeIcon.CHEVRON, tone.copy(alpha = .70f), Modifier.size(13.dp))
+        HomeVectorIcon(HomeIcon.CHEVRON, tone.copy(alpha = .70f), Modifier.size(14.dp))
     }
 }
 
@@ -9294,8 +9313,9 @@ private fun SettingsThemeMiniRow(repo: AppRepository) {
         null
     }
     val choices = listOf(
-        Triple(AppTheme.SYSTEM, "System", listOf(Color(0xFF0A0A14), Color(0xFFF0F8FF), Aether.Cyan)),
-        Triple(AppTheme.LIGHT, "Light", listOf(Color(0xFFF0F8FF), Color.White, Aether.Cyan)),
+        // MARBLE_MATERIAL_YOU_REFRESH_V185 — swatches preview the refreshed light page tone.
+        Triple(AppTheme.SYSTEM, "System", listOf(Color(0xFF0A0A14), Color(0xFFF4F8FD), Aether.Cyan)),
+        Triple(AppTheme.LIGHT, "Light", listOf(Color(0xFFF4F8FD), Color.White, Aether.Cyan)),
         Triple(AppTheme.DARK, "AMOLED", listOf(Color(0xFF000000), Color(0xFF001144), Aether.Emerald)),
         Triple(
             AppTheme.PHONE_DYNAMIC,
@@ -9839,19 +9859,19 @@ private fun SettingsHub(
                             SettingsPages.workspace(SettingsWorkspaceTab.SYSTEM, "Notifications")
                         )
                     }
-                ) { HomeVectorIcon(HomeIcon.STATUS, Aether.Cyan, Modifier.size(20.dp)) }
+                ) { HomeVectorIcon(HomeIcon.STATUS, Aether.Cyan, Modifier.size(22.dp)) }
                 SettingsHubRow(
                     title = "Engine & tunnel",
                     subtitle = "Xray, transport and adaptive buffers",
                     tone = Aether.Amber,
                     onClick = { onNavigate(SettingsPages.workspace(SettingsWorkspaceTab.ENGINE)) }
-                ) { HomeVectorIcon(HomeIcon.TUNNEL, Aether.Amber, Modifier.size(20.dp)) }
+                ) { HomeVectorIcon(HomeIcon.TUNNEL, Aether.Amber, Modifier.size(22.dp)) }
                 SettingsHubRow(
                     title = "General",
                     subtitle = "Home layout, sources and app updates",
                     tone = Aether.Emerald,
                     onClick = { onNavigate(SettingsPages.workspace(SettingsWorkspaceTab.GENERAL)) }
-                ) { HomeVectorIcon(HomeIcon.MODE, Aether.Emerald, Modifier.size(20.dp)) }
+                ) { HomeVectorIcon(HomeIcon.MODE, Aether.Emerald, Modifier.size(22.dp)) }
                 SettingsHubRow(
                     title = t.informationTitle,
                     subtitle = t.informationDetail,
@@ -9875,19 +9895,19 @@ private fun SettingsHub(
                     // MARBLE_SETTINGS_HUB_TRIM_V163 — no app-version stamp on this row: the app
                     // version is not the core version, and the three pinned core tags are
                     // listed on the engine page itself.
-                ) { HomeVectorIcon(HomeIcon.TUNNEL, Aether.CyanBright, Modifier.size(20.dp)) }
+                ) { HomeVectorIcon(HomeIcon.TUNNEL, Aether.CyanBright, Modifier.size(22.dp)) }
                 SettingsHubRow(
                     title = "Xray core settings",
                     subtitle = trx("PattNG options: sniffing, log, LAN, HTTP inbound"),
                     tone = Aether.Emerald,
                     onClick = { onNavigate(SettingsPages.XRAY_CORE) }
-                ) { HomeVectorIcon(HomeIcon.SHIELD, Aether.Emerald, Modifier.size(20.dp)) }
+                ) { HomeVectorIcon(HomeIcon.SHIELD, Aether.Emerald, Modifier.size(22.dp)) }
                 SettingsHubRow(
                     title = "sing-box extended",
                     subtitle = trx("Exclave options: sniff, resolve dest, LAN, timeout"),
                     tone = Aether.Amethyst,
                     onClick = { onNavigate(SettingsPages.SINGBOX_CORE) }
-                ) { HomeVectorIcon(HomeIcon.TUNNEL, Aether.Amethyst, Modifier.size(20.dp)) }
+                ) { HomeVectorIcon(HomeIcon.TUNNEL, Aether.Amethyst, Modifier.size(22.dp)) }
             }
         }
     }
@@ -11111,7 +11131,7 @@ private fun InformationLinkRow(
                 overflow = TextOverflow.Ellipsis
             )
         }
-        HomeVectorIcon(HomeIcon.GLOBE, tone, Modifier.size(16.dp))
+        HomeVectorIcon(HomeIcon.GLOBE, tone, Modifier.size(18.dp))
     }
 }
 
@@ -11550,7 +11570,7 @@ private fun SettingsSectionCard(
                 HomeVectorIcon(
                     icon,
                     color,
-                    Modifier.size(17.dp)
+                    Modifier.size(19.dp)
                 )
             }
             Column(
@@ -12368,7 +12388,7 @@ private fun ServerIntelHomeCard(repo: AppRepository) {
                                 .background(Aether.Cyan.copy(alpha = .11f)),
                             contentAlignment = Alignment.Center
                         ) {
-                            HomeVectorIcon(HomeIcon.DETAILS, Aether.Cyan, Modifier.size(16.dp))
+                            HomeVectorIcon(HomeIcon.DETAILS, Aether.Cyan, Modifier.size(18.dp))
                         }
                         Column(Modifier.weight(1f)) {
                             Text(
@@ -12388,7 +12408,7 @@ private fun ServerIntelHomeCard(repo: AppRepository) {
                                 overflow = TextOverflow.Ellipsis
                             )
                         }
-                        HomeVectorIcon(HomeIcon.DETAILS, Aether.Cyan.copy(alpha = .55f), Modifier.size(14.dp))
+                        HomeVectorIcon(HomeIcon.DETAILS, Aether.Cyan.copy(alpha = .55f), Modifier.size(15.dp))
                     }
                 }
             } ?: Text(
@@ -12886,7 +12906,7 @@ private fun RoutingEntryCard(
                 .background(Aether.Emerald.copy(alpha = .12f)),
             contentAlignment = Alignment.Center
         ) {
-            HomeVectorIcon(HomeIcon.ROUTING, Aether.Emerald, Modifier.size(18.dp))
+            HomeVectorIcon(HomeIcon.ROUTING, Aether.Emerald, Modifier.size(20.dp))
         }
         Column(Modifier.weight(1f)) {
             Text(
@@ -12908,7 +12928,7 @@ private fun RoutingEntryCard(
                 overflow = TextOverflow.Ellipsis
             )
         }
-        HomeVectorIcon(HomeIcon.MORE, Aether.Emerald, Modifier.size(16.dp))
+        HomeVectorIcon(HomeIcon.MORE, Aether.Emerald, Modifier.size(18.dp))
     }
 }
 
@@ -13175,7 +13195,7 @@ private fun RoutingSettings(repo: AppRepository) {
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(9.dp)
         ) {
-            HomeVectorIcon(HomeIcon.INFO, Aether.Amber, Modifier.size(15.dp))
+            HomeVectorIcon(HomeIcon.INFO, Aether.Amber, Modifier.size(16.dp))
             Text(
                 trx("Geo routing paused until the routing databases finish downloading"),
                 color = Aether.InkMuted,
@@ -13479,7 +13499,7 @@ private fun RoutingRuleCard(
                     },
                 contentAlignment = Alignment.Center
             ) {
-                HomeVectorIcon(HomeIcon.SORT, if (dragging) tone else Aether.InkFaint, Modifier.size(15.dp))
+                HomeVectorIcon(HomeIcon.SORT, if (dragging) tone else Aether.InkFaint, Modifier.size(16.dp))
             }
             Spacer(Modifier.width(6.dp))
             // Outbound colour spine: one glance says what this rule does.
@@ -13531,7 +13551,7 @@ private fun RoutingRuleCard(
                         .kineticClickable(role = Role.Button, showIndication = false) { menu = true },
                     contentAlignment = Alignment.Center
                 ) {
-                    HomeVectorIcon(HomeIcon.MORE, Aether.InkMuted, Modifier.size(16.dp))
+                    HomeVectorIcon(HomeIcon.MORE, Aether.InkMuted, Modifier.size(18.dp))
                 }
                 DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                     DropdownMenuItem(
@@ -13682,7 +13702,7 @@ private fun RoutingRuleEditorSheet(
                         .kineticClickable(role = Role.Button, onClick = onDismiss),
                     contentAlignment = Alignment.Center
                 ) {
-                    HomeVectorIcon(HomeIcon.CANCEL, Aether.Cyan, Modifier.size(17.dp))
+                    HomeVectorIcon(HomeIcon.CANCEL, Aether.Cyan, Modifier.size(19.dp))
                 }
             }
 
@@ -14752,7 +14772,7 @@ private fun DockSlotBarPreview(
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                HomeVectorIcon(glyph, Aether.InkFaint, Modifier.size(13.dp))
+                HomeVectorIcon(glyph, Aether.InkFaint, Modifier.size(14.dp))
                 Spacer(Modifier.width(5.dp))
                 Text(
                     label,
@@ -15250,7 +15270,8 @@ private fun CyberButton(
                             resolved == PrismButtonVariant.Danger
                         ) LocalContentColor.current else color
                     } else Aether.InkFaint,
-                    Modifier.size(if(compact) 16.dp else 18.dp)
+                    // MARBLE_MATERIAL_YOU_REFRESH_V185 — button glyphs ride the larger icon ramp.
+                    Modifier.size(if(compact) 18.dp else 20.dp)
                 )
             }
         }

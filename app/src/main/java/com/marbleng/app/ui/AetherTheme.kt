@@ -6,10 +6,22 @@ package com.marbleng.app.ui
 // MARBLE_M3_EXPRESSIVE_THEME_V53
 // MARBLE_PRISM_THEME_V54
 // MARBLE_NAVY_BRAND_THEME_V77
+// MARBLE_MATERIAL_YOU_REFRESH_V185
 // The whole identity is re-anchored on the Marble navy/ice/electric blue ramp:
 //   #000033 deep navy  •  #001144 dark navy  •  #0066CC electric  •  #3399FF bright
 //   #ADD8E6 ice        •  #E0FFFF ice white   •  #F0F8FF alice     •  #FFFFFF white
 // Light and Dark are the same formal color system; only the surface/ink roles swap.
+//
+// MARBLE_MATERIAL_YOU_REFRESH_V185 — the Material You / Android 16-17 visual refresh. The ramp
+// above stays the brand; what changed is the *finish* of every role that holds content:
+//   • cards and containers move from tinted glass steps to calm, cool, opaque
+//     "surface container" tones (light) and navy-lifted steps over AMOLED black (dark);
+//   • hairlines drop to quieter, cooler neutral strokes;
+//   • the type ramp follows the Material 3 scale with clearer steps between display,
+//     headline, title and body roles, so hierarchy reads at a glance;
+//   • shapes round one step up everywhere, matching the newest Material corner language.
+// minSdk 26 is untouched: every role still resolves through the same AetherPalette, and the
+// Material You dynamic branch keeps its API 31 guard.
 
 import android.app.Activity
 import android.os.Build
@@ -118,39 +130,45 @@ private object Brand {
  * blue system in both themes. Emerald/Amber/Danger stay as *functional* state colours only:
  * a VPN must never dress "blocked" or "connected" in the brand hue.
  */
+// MARBLE_MATERIAL_YOU_REFRESH_V185 — light surfaces adopt Material You's calm container language:
+// a cool near-white page, opaque white cards, soft blue-gray container steps and quiet neutral
+// hairlines. Tint intensity now lives in the accents only, so content owns the contrast.
 private val LightPalette = AetherPalette(
-    void = Brand.Alice,
+    void = Color(0xFFF4F8FD),
     voidElevated = Brand.White,
-    glass = Brand.IceWhite,
-    glassStrong = Brand.Ice.compositeOver(Brand.White),
-    glassBorder = Brand.Electric.copy(alpha = .30f).compositeOver(Brand.White),
-    glassBorderSoft = Brand.Ice.copy(alpha = .40f).compositeOver(Brand.White),
-    barGlass = Brand.White.copy(alpha = .74f),
-    barGlassBorder = Brand.NavyDeep.copy(alpha = .10f).compositeOver(Brand.White),
+    glass = Color(0xFFEDF3FA),
+    glassStrong = Color(0xFFE2ECF6),
+    glassBorder = Brand.Electric.copy(alpha = .22f).compositeOver(Brand.White),
+    glassBorderSoft = Brand.NavyDeep.copy(alpha = .10f).compositeOver(Brand.White),
+    barGlass = Brand.White.copy(alpha = .78f),
+    barGlassBorder = Brand.NavyDeep.copy(alpha = .08f).compositeOver(Brand.White),
     barGlassHighlight = Color.White.copy(alpha = .60f),
     amethyst = Brand.NavyDark,
     amethystBright = Brand.Electric,
     cyan = Brand.Electric,
     cyanBright = Brand.Bright,
-    slate = Brand.Ice.copy(alpha = .42f).compositeOver(Brand.White),
+    slate = Color(0xFFE8EFF7),
     slateBright = Brand.NavyDark.copy(alpha = .55f).compositeOver(Brand.White),
     danger = Color(0xFFE23D5B),
     dangerBright = Color(0xFFF26079),
     emerald = Color(0xFF009A74),
     amber = Color(0xFFD98200),
     ink = Brand.NavyDeep,
-    inkMuted = Brand.NavyDeep.copy(alpha = .70f).compositeOver(Brand.White),
-    inkFaint = Brand.NavyDeep.copy(alpha = .42f).compositeOver(Brand.White)
+    inkMuted = Brand.NavyDeep.copy(alpha = .66f).compositeOver(Brand.White),
+    inkFaint = Brand.NavyDeep.copy(alpha = .40f).compositeOver(Brand.White)
 )
 
-/* Dark remains an explicit accessibility/user choice with a true AMOLED black foundation. */
+/* Dark remains an explicit accessibility/user choice with a true AMOLED black foundation.
+ * MARBLE_MATERIAL_YOU_REFRESH_V185 — the elevated steps above the black floor gain a navy cast
+ * (#0B111C / #0E141F / #121A28) so cards, sheets and wells separate from the void the way the
+ * newest Material dark themes do, and hairlines cool down to slate-blue strokes. */
 private val DarkPalette = AetherPalette(
     void = Color(0xFF000000),          // pure AMOLED black
-    voidElevated = Color(0xFF020204),   // one barely lifted black step
-    glass = Color(0xFF030307),          // no gray wash on AMOLED panels
-    glassStrong = Color(0xFF05050A),
-    glassBorder = Brand.Electric.copy(alpha = .28f).compositeOver(Color(0xFF020204)),
-    glassBorderSoft = Color(0xFF101018),
+    voidElevated = Color(0xFF0B111C),   // navy-lifted card step
+    glass = Color(0xFF0E141F),          // container step
+    glassStrong = Color(0xFF121A28),
+    glassBorder = Brand.Electric.copy(alpha = .30f).compositeOver(Color(0xFF0B111C)),
+    glassBorderSoft = Color(0xFF1E2836),
     // The dock is opaque while idle. Its translucent value is used only while content is moving.
     barGlass = Color(0xD9000000),
     barGlassBorder = Brand.Ice.copy(alpha = .14f),
@@ -159,7 +177,7 @@ private val DarkPalette = AetherPalette(
     amethystBright = Brand.Bright,
     cyan = Brand.Bright,
     cyanBright = Brand.Ice,
-    slate = Color(0xFF030307),
+    slate = Color(0xFF101724),
     slateBright = Brand.Ice,
     danger = Color(0xFFFF718B),
     dangerBright = Color(0xFFFF99AA),
@@ -276,112 +294,138 @@ private fun aetherTypography(fontId: String, persian: Boolean): Typography {
     // The tight negative tracking tuned for Latin ruins Perso-Arabic joining; Persian runs at
     // neutral tracking so Vazir's own metrics decide the rhythm.
     fun track(latin: Double): TextUnit = if (persian) 0.sp else latin.sp
-    // MARBLE_PERSIAN_TYPE_FLOOR_V184 — 10.5 sp labelSmall was below even the Material 3 spec
-    // (11 sp) and below the smallest size at which Vazirmatn's hairline joins stay legible on
-    // mid-range panels. Persian captions render at 11.5 sp instead of 11 sp, one half-step
-    // above the Latin floor, because a Persian label carries the same copy in a face whose
-    // strokes are thinner at equal point size.
-    fun labelSmallSize(): TextUnit = if (persian) 11.5.sp else 11.sp
-    fun labelSmallLine(): TextUnit = if (persian) 16.sp else 15.sp
-    // Vazirmatn Regular is a display cut; at 14 sp body size its strokes read faint on AMOLED
+    // MARBLE_PERSIAN_TYPE_FLOOR_V184 — the smallest label size must stay legible for Vazirmatn's
+    // hairline joins on mid-range panels. MARBLE_MATERIAL_YOU_REFRESH_V185 lifts the whole label
+    // floor half a step with the rest of the Material 3 ramp: Latin labels render at 11.5 sp and
+    // Persian labels one half-step above, at 12 sp, keeping the same +0.5 sp guard.
+    fun labelSmallSize(): TextUnit = if (persian) 12.sp else 11.5.sp
+    fun labelSmallLine(): TextUnit = if (persian) 17.sp else 16.sp
+    // Vazirmatn Regular is a display cut; at body sizes its strokes read faint on AMOLED
     // and on washed-out light surfaces. UI body copy takes the Medium weight in Persian only —
     // the Latin faces keep the spec weight.
     val bodyWeight = if (persian) FontWeight.Medium else FontWeight.Normal
+    // MARBLE_MATERIAL_YOU_REFRESH_V185 — the ramp follows the Material 3 scale with the compact
+    // product calibration MarbleNG ships: display grows to 40 sp, headlines step 28/24/20 sp,
+    // titles step 18/16/14 sp, bodyLarge joins the spec at 16/24, and the label ramp gains the
+    // 14 sp labelLarge. Every step between roles is now at least 1.5 sp, so hierarchy reads at a
+    // glance, and line heights gain ~1 dp of air for long-setting copy.
     return Typography(
     displayLarge = TextStyle(
         fontFamily = family,
         fontWeight = FontWeight.Bold,
-        fontSize = 36.sp,
+        fontSize = 40.sp,
+        lineHeight = 48.sp,
+        letterSpacing = track(-.50)
+    ),
+    displayMedium = TextStyle(
+        fontFamily = family,
+        fontWeight = FontWeight.Bold,
+        fontSize = 34.sp,
         lineHeight = 42.sp,
-        letterSpacing = track(-.74)
+        letterSpacing = track(-.40)
+    ),
+    displaySmall = TextStyle(
+        fontFamily = family,
+        fontWeight = FontWeight.SemiBold,
+        fontSize = 30.sp,
+        lineHeight = 38.sp,
+        letterSpacing = track(-.30)
     ),
     headlineLarge = TextStyle(
         fontFamily = family,
         fontWeight = FontWeight.Bold,
-        fontSize = 25.sp,
-        lineHeight = 31.sp,
-        letterSpacing = track(-.38)
+        fontSize = 28.sp,
+        lineHeight = 34.sp,
+        letterSpacing = track(-.30)
     ),
     headlineMedium = TextStyle(
         fontFamily = family,
         fontWeight = FontWeight.SemiBold,
-        fontSize = 22.sp,
-        lineHeight = 28.sp,
-        letterSpacing = track(-.26)
+        fontSize = 24.sp,
+        lineHeight = 30.sp,
+        letterSpacing = track(-.20)
     ),
     headlineSmall = TextStyle(
         fontFamily = family,
         fontWeight = FontWeight.SemiBold,
-        fontSize = 19.sp,
-        lineHeight = 24.sp,
-        letterSpacing = track(-.16)
+        fontSize = 20.sp,
+        lineHeight = 26.sp,
+        letterSpacing = track(-.10)
     ),
     titleLarge = TextStyle(
         fontFamily = family,
         fontWeight = FontWeight.SemiBold,
-        fontSize = 17.sp,
-        lineHeight = 22.sp,
+        fontSize = 18.sp,
+        lineHeight = 24.sp,
         letterSpacing = track(-.10)
     ),
     titleMedium = TextStyle(
         fontFamily = family,
         fontWeight = FontWeight.SemiBold,
-        fontSize = 15.sp,
-        lineHeight = 20.sp
+        fontSize = 16.sp,
+        lineHeight = 22.sp
     ),
     titleSmall = TextStyle(
         fontFamily = family,
         fontWeight = FontWeight.SemiBold,
-        fontSize = 13.5.sp,
-        lineHeight = 19.sp
+        fontSize = 14.sp,
+        lineHeight = 19.sp,
+        letterSpacing = track(.05)
     ),
     bodyLarge = TextStyle(
         fontFamily = family,
-        fontWeight = FontWeight.Normal,
-        fontSize = 15.sp,
-        lineHeight = 21.sp
+        fontWeight = bodyWeight,
+        fontSize = 16.sp,
+        lineHeight = 24.sp,
+        letterSpacing = track(.15)
     ),
     bodyMedium = TextStyle(
         fontFamily = family,
         fontWeight = bodyWeight,
         fontSize = 14.sp,
-        lineHeight = 20.sp
+        lineHeight = 20.sp,
+        letterSpacing = track(.10)
     ),
     bodySmall = TextStyle(
         fontFamily = family,
         fontWeight = bodyWeight,
         fontSize = 12.sp,
-        lineHeight = 17.sp
+        lineHeight = 17.sp,
+        letterSpacing = track(.20)
     ),
     labelLarge = TextStyle(
         fontFamily = family,
         fontWeight = FontWeight.SemiBold,
-        fontSize = 13.5.sp,
-        lineHeight = 18.sp
+        fontSize = 14.sp,
+        lineHeight = 20.sp,
+        letterSpacing = track(.10)
     ),
     labelMedium = TextStyle(
         fontFamily = family,
         fontWeight = FontWeight.Medium,
         fontSize = 12.sp,
         lineHeight = 16.sp,
-        letterSpacing = track(.04)
+        letterSpacing = track(.30)
     ),
     labelSmall = TextStyle(
         fontFamily = family,
         fontWeight = FontWeight.Medium,
         fontSize = labelSmallSize(),
         lineHeight = labelSmallLine(),
-        letterSpacing = track(.08)
+        letterSpacing = track(.40)
     )
 )
 }
 
+// MARBLE_MATERIAL_YOU_REFRESH_V185 — the shape ramp rounds one step up to match the newest
+// Material corner language: 12 / 16 / 20 / 28 / 32 dp. Material components (sheets, menus,
+// chips, text fields) pick these up through MaterialTheme.shapes across the whole app.
 val AetherShapes = Shapes(
-    extraSmall = RoundedCornerShape(10.dp),
-    small = RoundedCornerShape(14.dp),
-    medium = RoundedCornerShape(18.dp),
-    large = RoundedCornerShape(24.dp),
-    extraLarge = RoundedCornerShape(30.dp)
+    extraSmall = RoundedCornerShape(12.dp),
+    small = RoundedCornerShape(16.dp),
+    medium = RoundedCornerShape(20.dp),
+    large = RoundedCornerShape(28.dp),
+    extraLarge = RoundedCornerShape(32.dp)
 )
 
 /**
@@ -399,9 +443,10 @@ private fun applyNightOutline(
     // The designed AMOLED rim: one quiet hairline that separates surfaces without lines.
     DarkOutlineStyle.SUBTLE -> palette
     // Doubled presence: the same hue, clearly visible, for users who want framed cards.
+    // MARBLE_MATERIAL_YOU_REFRESH_V185 — the bold frame cools to the new slate hairline family.
     DarkOutlineStyle.BOLD -> palette.copy(
         glassBorder = palette.glassBorder.copy(alpha = (palette.glassBorder.alpha * 2.1f).coerceAtMost(.85f)),
-        glassBorderSoft = Color(0xFF2A2A3A),
+        glassBorderSoft = Color(0xFF31405A),
         barGlassBorder = palette.barGlassBorder.copy(alpha = (palette.barGlassBorder.alpha * 2.4f).coerceAtMost(.75f))
     )
     // Brand-tinted frames: electric-blue rims that glow against the AMOLED black.
@@ -481,7 +526,21 @@ fun AetherFlowTheme(
             surfaceTint=Color.Transparent,
             error=palette.danger,
             outline=palette.glassBorderSoft,
-            outlineVariant=palette.glassBorderSoft.copy(alpha=.55f)
+            outlineVariant=palette.glassBorderSoft.copy(alpha=.55f),
+            // MARBLE_MATERIAL_YOU_REFRESH_V185 — the tonal container ladder Material components
+            // actually read (bottom sheets, menus, chips, filled cards) now resolves to the cool
+            // Marble surface ramp instead of the stock gray baseline, so every stock M3 surface
+            // sits inside the same identity as the custom Prism surfaces.
+            surfaceContainerLowest=Brand.White,
+            surfaceContainerLow=Color(0xFFF6F9FD),
+            surfaceContainer=Color(0xFFF0F5FB),
+            surfaceContainerHigh=Color(0xFFEAF1F8),
+            surfaceContainerHighest=Color(0xFFE3ECF5),
+            surfaceDim=Color(0xFFD9E3EF),
+            surfaceBright=Color(0xFFF8FBFE),
+            inverseSurface=Color(0xFF0D1420),
+            inverseOnSurface=Color(0xFFEEF3FA),
+            inversePrimary=Color(0xFFA9CBFF)
         )
     } else {
         darkColorScheme(
@@ -503,7 +562,19 @@ fun AetherFlowTheme(
             surfaceTint=Color.Transparent,
             error=palette.danger,
             outline=palette.glassBorder,
-            outlineVariant=palette.glassBorderSoft
+            outlineVariant=palette.glassBorderSoft,
+            // MARBLE_MATERIAL_YOU_REFRESH_V185 — the dark container ladder lifts from AMOLED black
+            // through navy-tinted steps, matching the refreshed Aether dark surfaces.
+            surfaceContainerLowest=Color.Black,
+            surfaceContainerLow=Color(0xFF070C13),
+            surfaceContainer=Color(0xFF0F1622),
+            surfaceContainerHigh=Color(0xFF18202D),
+            surfaceContainerHighest=Color(0xFF1D2734),
+            surfaceDim=Color.Black,
+            surfaceBright=Color(0xFF141B27),
+            inverseSurface=Color(0xFFEDF2FA),
+            inverseOnSurface=Color(0xFF0D1420),
+            inversePrimary=Color(0xFF9CC6FF)
         )
     }
 

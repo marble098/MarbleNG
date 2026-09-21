@@ -68,6 +68,9 @@ internal object MarbleSpacing {
     val M = 16.dp
     val L = 24.dp
     val XL = 32.dp
+    // MARBLE_MATERIAL_YOU_REFRESH_V185 — a page-margin step on the same 8 dp grid, so screens
+    // that want the roomier Material edge margin share one constant instead of literals.
+    val Page = 16.dp
 }
 
 internal enum class MarbleMetricBand {
@@ -133,46 +136,53 @@ internal fun marbleMetricTone(band: MarbleMetricBand): Color = when (band) {
  * The one saturated element remains the selection state: a faint sky fill with a 1.5 dp
  * electric-blue rim.
  *
- * Light values are the product spec:
- *  - page gradient  `#F7FAFD → #EEF6FC` (near-white at the top, a touch more blue downwards);
- *  - card           solid `White`, `RoundedCornerShape(20.dp)`, `#E4EDF6` 1 dp border,
+ * Light values are the product spec (MARBLE_MATERIAL_YOU_REFRESH_V185):
+ *  - page gradient  `#F8FBFE → #EDF4FB` (near-white at the top, a touch more blue downwards);
+ *  - card           solid `White`, `RoundedCornerShape(22.dp)`, `#DEE8F3` 1 dp border,
  *                   `shadowElevation = 2.dp`;
- *  - selected card  `#E8F5FF`, `1.5 dp #4AA8E8` border, `shadowElevation = 3.dp`.
+ *  - selected card  `#E7F1FE`, `1.5 dp #3D8BE0` border, `shadowElevation = 3.dp`.
  *
  * Dark keeps the same geometry and the same single-accent grammar on AMOLED-friendly tones:
- * a black-to-midnight gradient, solid ink cards with a faint hairline, and the same `#4AA8E8`
- * selection rim on a deep-navy fill.
+ * a black-to-midnight gradient, navy-lifted ink cards with a slate hairline, and a brighter
+ * `#6FB2F2` selection rim on a deep-navy fill.
+ */
+/**
+ * MARBLE_MATERIAL_YOU_REFRESH_V185 — the Home surface system adopts the refreshed Material You
+ * finish: calm cool page tones, opaque white cards (navy-lifted steps on AMOLED), quiet neutral
+ * card hairlines and a deeper, higher-contrast selection accent. Radii round one step up
+ * (22 dp cards / 14 dp insets) to match the newest Material corner language. The semantic
+ * geometry (one hairline, one shadow, one saturated selection) is unchanged.
  */
 internal object HomeCloud {
     // Light surface set (the product spec).
     val LightBase = Color(0xFFF4F8FC)
-    val LightBgTop = Color(0xFFF7FAFD)
-    val LightBgBottom = Color(0xFFEEF6FC)
+    val LightBgTop = Color(0xFFF8FBFE)
+    val LightBgBottom = Color(0xFFEDF4FB)
     // MARBLE_HOME_CLOUD_V141 — opaque card fill: the white inside a box is exactly the box.
     val LightCardFill = Color.White
-    val LightCardBorder = Color(0xFFE4EDF6)
-    val LightCardSelectedFill = Color(0xFFE8F5FF)
-    val LightCardSelectedBorder = Color(0xFF4AA8E8)
-    val LightInsetFill = Color(0xFFF1F6FB)
-    val LightInsetBorder = Color(0xFFE2ECF5)
+    val LightCardBorder = Color(0xFFDEE8F3)
+    val LightCardSelectedFill = Color(0xFFE7F1FE)
+    val LightCardSelectedBorder = Color(0xFF3D8BE0)
+    val LightInsetFill = Color(0xFFF0F5FB)
+    val LightInsetBorder = Color(0xFFDDE7F2)
 
-    // Dark surface set — same geometry, AMOLED tones.
+    // Dark surface set — same geometry, AMOLED tones lifted with a navy cast.
     val DarkBgTop = Color(0xFF000000)
     val DarkBgBottom = Color(0xFF060D18)
     // MARBLE_HOME_CLOUD_V141 — opaque dark card fill, one uniform tone edge to edge.
-    val DarkCardFill = Color(0xFF101A2C)
-    val DarkCardBorder = Color(0xFF1E2B44)
-    val DarkCardSelectedFill = Color(0xFF10253A)
-    val DarkCardSelectedBorder = Color(0xFF4AA8E8)
-    val DarkInsetFill = Color(0xFF0A111D)
-    val DarkInsetBorder = Color(0xFF1D2A41)
+    val DarkCardFill = Color(0xFF0F1727)
+    val DarkCardBorder = Color(0xFF25344E)
+    val DarkCardSelectedFill = Color(0xFF122A45)
+    val DarkCardSelectedBorder = Color(0xFF6FB2F2)
+    val DarkInsetFill = Color(0xFF0B1322)
+    val DarkInsetBorder = Color(0xFF233350)
 
     /** The single selection/brand accent of the Home surface system. */
-    val Accent = Color(0xFF4AA8E8)
+    val Accent = Color(0xFF3D8BE0)
 
-    val CardShape = RoundedCornerShape(20.dp)
-    val CardRadius = 20.dp
-    val InsetShape = RoundedCornerShape(12.dp)
+    val CardShape = RoundedCornerShape(22.dp)
+    val CardRadius = 22.dp
+    val InsetShape = RoundedCornerShape(14.dp)
     val CardElevation = 2.dp
     val SelectedElevation = 3.dp
     val Hairline = 1.dp
@@ -307,17 +317,20 @@ internal fun anchoredTextBlockHeight(style: TextStyle, lines: Int): Dp {
 internal object PrismSurface {
     // MARBLE_PRODUCT_SIMPLE_V117 — the whole control ramp is one step smaller and one step
     // rounder-but-flatter: Marble-like compact controls, no stacked shadows.
-    val CardRadius = 20.dp
-    val TileRadius = 16.dp
-    val InsetRadius = 12.dp
+    // MARBLE_MATERIAL_YOU_REFRESH_V185 — every radius rounds one step up to the newest Material
+    // corner language (22/18/14 cards→controls) and the touch targets grow to the Material
+    // baseline: 46 dp standard controls, 36 dp compact, 42 dp icon controls.
+    val CardRadius = 22.dp
+    val TileRadius = 18.dp
+    val InsetRadius = 14.dp
     // Controls intentionally use a tighter radius than cards. The resulting soft squircle reads as
     // an action rather than another nested panel, while keeping Marble's rounded visual language.
-    val ControlRadius = 13.dp
-    val ControlHeight = 44.dp
-    val CompactControlHeight = 34.dp
-    val IconControlSize = 38.dp
+    val ControlRadius = 15.dp
+    val ControlHeight = 46.dp
+    val CompactControlHeight = 36.dp
+    val IconControlSize = 42.dp
     val Hairline = 1.dp
-    val StrongHairline = 1.4.dp
+    val StrongHairline = 1.5.dp
     // Marble-like depth is present but deliberately quiet: one shallow shadow per elevated
     // surface, with the AMOLED palette doing most of the separation work.
     val RestingElevation = 2.dp
@@ -502,7 +515,7 @@ internal fun PrismWell(
     tone: Color = Aether.Cyan,
     selected: Boolean = false,
     radius: Dp = PrismSurface.InsetRadius,
-    contentPadding: PaddingValues = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+    contentPadding: PaddingValues = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
     onClick: (() -> Unit)? = null,
     enabled: Boolean = true,
     content: @Composable BoxScope.() -> Unit
@@ -583,8 +596,9 @@ internal fun PrismButton(
         else -> accent.copy(alpha=.26f)
     }
     val pad=contentPadding ?: PaddingValues(
-        horizontal=if (compact) 12.dp else 15.dp,
-        vertical=if (compact) 7.dp else 9.dp
+        // MARBLE_MATERIAL_YOU_REFRESH_V185 — roomier button padding on the 46 dp target.
+        horizontal=if (compact) 13.dp else 16.dp,
+        vertical=if (compact) 8.dp else 10.dp
     )
 
     CompositionLocalProvider(LocalContentColor provides content) {
@@ -592,7 +606,7 @@ internal fun PrismButton(
             modifier=modifier
                 .heightIn(
                     min=when {
-                        detail.isNotBlank() && !compact -> 52.dp
+                        detail.isNotBlank() && !compact -> 54.dp
                         compact -> PrismSurface.CompactControlHeight
                         else -> PrismSurface.ControlHeight
                     }
@@ -768,14 +782,16 @@ internal fun PrismSelectionTile(
     tone: Color,
     modifier: Modifier = Modifier,
     detail: String = "",
-    minHeight: Dp = 40.dp,
+    minHeight: Dp = 42.dp,
     alignment: Alignment = Alignment.Center,
     leading: (@Composable (() -> Unit))? = null,
     trailing: (@Composable (() -> Unit))? = null,
     enabled: Boolean = true,
     onClick: () -> Unit
 ) {
-    val shape=RoundedCornerShape(13.dp)
+    // MARBLE_MATERIAL_YOU_REFRESH_V185 — selection tiles round to the control radius and pad to
+    // the taller Material touch target.
+    val shape=RoundedCornerShape(15.dp)
     // MARBLE_BUTTON_TEXT_RECT_REMOVED_DS_V68
     // One continuous fill owns the whole tile. No second rectangle (hairline of a foreign
     // neutral, M3 indicator, nested surface) is allowed behind or around the label — selection
@@ -801,7 +817,7 @@ internal fun PrismSelectionTile(
             // state layer composited as a semi-transparent off-white rectangle behind the
             // detail text. Suppressing the indication leaves press scale intact.
             .kineticClickable(enabled=enabled, role=Role.Button, boundedShape=shape, showIndication=false, onClick=onClick)
-            .padding(horizontal=12.dp,vertical=8.dp),
+            .padding(horizontal=13.dp,vertical=9.dp),
         verticalAlignment=Alignment.CenterVertically,
         horizontalArrangement=when (alignment) {
             Alignment.CenterStart -> Arrangement.Start
@@ -950,7 +966,7 @@ internal fun PrismBadge(
             )
             .clip(shape)
             .background(tone.copy(alpha=if(strong) .11f else .065f))
-            .padding(horizontal=10.dp,vertical=6.dp),
+            .padding(horizontal=11.dp,vertical=7.dp),
         verticalAlignment=Alignment.CenterVertically,
         horizontalArrangement=Arrangement.spacedBy(6.dp)
     ) {
@@ -995,7 +1011,8 @@ internal fun MarbleMetricCard(
     // color so the sparkline shows WHERE resets happened, not just the average.
     flaggedSamples: List<Boolean> = emptyList()
 ) {
-    val shape=RoundedCornerShape(20.dp)
+    // MARBLE_MATERIAL_YOU_REFRESH_V185 — the metric bento rounds with the refreshed card radius.
+    val shape=RoundedCornerShape(22.dp)
     val border=Brush.linearGradient(
         listOf(
             tone.copy(alpha=.30f),
@@ -1480,7 +1497,8 @@ internal fun PrismThemeChoice(
     dynamicPreview: Boolean = false,
     onClick: () -> Unit
 ) {
-    val shape=RoundedCornerShape(16.dp)
+    // MARBLE_MATERIAL_YOU_REFRESH_V185 — theme thumbnails round to the refreshed tile radius.
+    val shape=RoundedCornerShape(18.dp)
     // MARBLE_NAVY_BRAND_THEME_V77 — previews paint the real Marble surfaces so the
     // selector previews the identity, not a generic gray wireframe.
     val context = LocalContext.current
@@ -1491,7 +1509,7 @@ internal fun PrismThemeChoice(
             null
         }
     val previewBg=generated?.background
-        ?: if(darkPreview) Color(0xFF000033) else Color(0xFFF0F8FF)
+        ?: if(darkPreview) Color(0xFF000000) else Color(0xFFF4F8FD)
     val previewSurface=generated?.surface
         ?: if(darkPreview) Color(0xFF001144) else Color.White
     val previewText=generated?.onSurface
