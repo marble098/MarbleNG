@@ -859,10 +859,24 @@ object XrayConfigHardener {
         out.put(JSONObject().put("tag", "block").put("protocol", "blackhole"))
 
         val listen = if (settings.xrayAllowLan) "0.0.0.0" else "127.0.0.1"
+        // MARBLE_FAKE_IP_V184 — fake IP is armed only while DNS interception and the SOCKS
+        // inbound sniffer are both active. The restore that turns a 198.19.x answer back into the
+        // real host happens in the inbound `fakedns` override; without it the proxy would
+        // dial the fake address itself. Validated against the pinned XTLS/Xray-core v26.9.9
+        // source: `app/dispatcher/default.go` replaces `ob.Target` with the restored domain for
+        // a `fakedns` result even under `routeOnly`, and `FakeDNSPostProcessingStage` requires
+        // the `fakedns` destOverride entry whenever a `fakedns` nameserver is in use.
+        val fakeIpArmed = FakeIpPolicy.isDnsPathArmed(settings) && settings.xraySniffingEnabled
         fun sniffing(): JSONObject = JSONObject()
             .put("enabled", settings.xraySniffingEnabled)
             .put("routeOnly", settings.xraySniffingRouteOnly)
-            .put("destOverride", JSONArray(listOf("http", "tls", "quic")))
+            .put(
+                "destOverride",
+                JSONArray(
+                    if (fakeIpArmed) listOf("http", "tls", "quic", "fakedns")
+                    else listOf("http", "tls", "quic")
+                )
+            )
         val inbound = JSONObject()
             .put("tag", "socks-in")
             .put("listen", listen)
@@ -1019,6 +1033,24 @@ object XrayConfigHardener {
                         .put("timeoutMs", if (index == 0) 2_500 else 3_000)
                 )
             }
+        }
+
+        // MARBLE_FAKE_IP_V184 — the first *global* server. Domain-matched clients (the
+        // `https+local://` bootstrap ladder above) still take precedence, so the node hostname
+        // keeps resolving exactly as before; every other A/AAAA question is answered in-process
+        // from the `fakedns` pool (v26.9.9 `app/dns/nameserver.go`: the client only exists when
+        // `dns.servers` contains `{"address":"fakedns"}`), and the encrypted DoH servers below
+        // stay in the graph for the proxy's own dial-time resolution, which skips the FakeDNS
+        // client (`transport/internet/dialer.go` LookupForIP, FakeEnable=false). The shared
+        // 198.19.0.0/16 pool is the non-overlapping half of IANA's reserved benchmarking /15;
+        // the other half contains this TUN's 198.18.0.1/32 interface. `queryStrategy` is written
+        // on the entry because verify() demands it on every server of the list.
+        if (fakeIpArmed) {
+            dnsServers.put(
+                JSONObject()
+                    .put("address", "fakedns")
+                    .put("queryStrategy", queryStrategy)
+            )
         }
 
         // Adaptive DNS remains encrypted-only and bounded. Marble Intelligence measures the
@@ -1243,6 +1275,23 @@ object XrayConfigHardener {
          */
         listOf("api", "reverse", "metrics", "stats", "observatory", "burstObservatory", "fakedns")
             .forEach(src::remove)
+
+        // MARBLE_FAKE_IP_V184 — the strip above removed the USER's fakedns block; this re-arms
+        // Marble's own. Written AFTER the strip so it cannot be removed with it, and only when
+        // the sniffing restore path is live (see [fakeIpArmed]). v26.9.9 JSON schema, straight
+        // from `infra/conf/fakedns.go`: `ipPool` + `poolSize` (the LRU cap, not `lruSize`). No
+        // routing rule is emitted: the v26.9.9 `RoutingRule` proto has no `fakedns` field, so a
+        // v25-style `{"type":"field","fakedns":true}` rule is an unknown-field parse error.
+        // Fake addresses fall through to the existing final rule and ride the selected proxy —
+        // the "Unmatched routing fallback must stay on the selected proxy" invariant is intact.
+        if (fakeIpArmed) {
+            src.put(
+                "fakedns",
+                JSONObject()
+                    .put("ipPool", FakeIpPolicy.IPV4_POOL)
+                    .put("poolSize", FakeIpPolicy.XRAY_LRU_SIZE)
+            )
+        }
 
         // MARBLE_TLS_PINNING_V149 — the last gate before Xray parses the document.
         //

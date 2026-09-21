@@ -1203,6 +1203,22 @@ data class AppSettings(
     val mtuMin: Int = 1280,
     val mtuMax: Int = 1500,
     val dnsHijackEnabled: Boolean = true,
+
+    /**
+     * MARBLE_FAKE_IP_V184 — the core answers the app's DNS questions with instant local fake
+     * addresses instead of serial encrypted queries through the cold tunnel; the engine restores
+     * the real domain per connection and resolves the real IP inside the tunnel.
+     *
+     * Cold WhatsApp startup asked ~15 domains of the remote DoH *through the tunnel* before the
+     * first byte of the first flow could leave the device; with fake addresses the app gets its
+     * answers in the same tick and the first flows start while the tunnel warms up. Xray:
+     * top-level `fakedns` pool + a `fakedns` nameserver + the sniffing `fakedns` destination
+     * override (validated against the pinned XTLS/Xray-core v26.9.9 source). sing-box: a
+     * `fakeip` DNS server + the `query_type` rule + a forced route `resolve` action (validated
+     * against the pinned shtorm-7/sing-box-extended v1.14.1 source). Off restores the previous
+     * resolver-graph behaviour exactly.
+     */
+    val dnsFakeIpEnabled: Boolean = true,
     val adaptiveDnsEnabled: Boolean = true,
     val adaptiveDualStackEnabled: Boolean = true,
     val adaptiveThroughputEnabled: Boolean = true,

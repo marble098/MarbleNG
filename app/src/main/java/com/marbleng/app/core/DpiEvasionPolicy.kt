@@ -341,6 +341,15 @@ object DpiEvasionPolicy {
     /**
      * Escalate (never weaken) fragment/MTU/timeouts from live ping, jitter and loss.
      * Applied after IranShield so a healthy Iran recipe is not replaced by a milder default.
+     *
+     * MARBLE_FAKE_IP_V184 — plain high ping arms NOTHING fragment-related any more. A
+     * 250 ms+ ping through a relay is distance and capacity, not packet loss or DPI, and
+     * shredding every TLS handshake into paced 10-30 byte records (RECORD_SPLIT) or capping
+     * the MTU at 1400 to survive a *slow* link made interactive apps measurably worse:
+     * WhatsApp opens a fresh handshake per flow, so each one paid seconds of 1-byte/4 ms
+     * pacing on a link that only needed more time, not smaller packets. Fragment escalation
+     * now requires a packet-level defect (loss or jitter); high ping keeps exactly the
+     * remediation it actually needs — the longer bench/precheck budgets below.
      */
     fun heal(
         base: AppSettings,
@@ -354,7 +363,8 @@ object DpiEvasionPolicy {
             evidence.lossy -> MAX_SLICE
             evidence.highJitter && IranShield.tier(state) >= 2 -> TLSHELLO_SNI
             evidence.highJitter -> RECORD_SPLIT
-            evidence.highPing -> if (current.rank >= RECORD_SPLIT.rank) current else RECORD_SPLIT
+            // A slow but stable link is not a fragmenting link: keep whatever the ladder
+            // (or Iran Mode) already chose and only widen the timing budgets below.
             else -> current
         }
         val chosen = if (needed.rank >= current.rank) needed else current
@@ -365,7 +375,6 @@ object DpiEvasionPolicy {
             val ceiling = when {
                 evidence.lossy -> min(mtuCeiling(state, cellular), 1280)
                 evidence.highJitter -> min(mtuCeiling(state, cellular), 1360)
-                evidence.highPing -> min(mtuCeiling(state, cellular), 1400)
                 else -> mtuCeiling(state, cellular)
             }
             next = next.copy(mtuMax = min(next.mtuMax, ceiling).coerceAtLeast(next.mtuMin))

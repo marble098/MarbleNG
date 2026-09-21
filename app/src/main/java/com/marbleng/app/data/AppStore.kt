@@ -493,6 +493,9 @@ class AppStore(context: Context) {
         mtuMin = prefs.getInt("mtuMin", 1280),
         mtuMax = prefs.getInt("mtuMax", 1500),
         dnsHijackEnabled = prefs.getBoolean("dnsHijackEnabled", true),
+        // MARBLE_FAKE_IP_V184 — default true: an upgrade must get the fake-IP cold-DNS fix
+        // without any user action; the DNS page carries the explicit off switch.
+        dnsFakeIpEnabled = prefs.getBoolean("dnsFakeIpEnabled", true),
         adaptiveDnsEnabled = prefs.getBoolean("adaptiveDnsEnabled", true),
         adaptiveDualStackEnabled = prefs.getBoolean("adaptiveDualStackEnabled", true),
         adaptiveThroughputEnabled = prefs.getBoolean("adaptiveThroughputEnabled", true),
@@ -720,6 +723,7 @@ class AppStore(context: Context) {
         .putInt("mtuMin", s.mtuMin)
         .putInt("mtuMax", s.mtuMax)
         .putBoolean("dnsHijackEnabled", s.dnsHijackEnabled)
+        .putBoolean("dnsFakeIpEnabled", s.dnsFakeIpEnabled)
         .putBoolean("adaptiveDnsEnabled", s.adaptiveDnsEnabled)
         .putBoolean("adaptiveDualStackEnabled", s.adaptiveDualStackEnabled)
         .putBoolean("adaptiveThroughputEnabled", s.adaptiveThroughputEnabled)

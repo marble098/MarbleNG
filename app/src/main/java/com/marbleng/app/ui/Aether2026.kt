@@ -12682,6 +12682,15 @@ private fun DnsSettings(repo: AppRepository) {
         subtitle = "Port 53 → encrypted DNS",
         checked = repo.settings.dnsHijackEnabled
     ) { repo.updateSettings(repo.settings.copy(dnsHijackEnabled = it)) }
+    // MARBLE_FAKE_IP_V184 — the cold-DNS fix, visible. On by default: without it the app's
+    // first ~15 domain lookups ride the encrypted resolvers through the tunnel one after
+    // another before any flow can start; with it the core answers locally in the same tick
+    // and resolves the real address per connection inside the tunnel.
+    SettingSwitch(
+        title = "Fake IP DNS",
+        subtitle = "Instant local answers; real IP resolved in-tunnel",
+        checked = repo.settings.dnsFakeIpEnabled
+    ) { repo.updateSettings(repo.settings.copy(dnsFakeIpEnabled = it)) }
     SettingSwitch(
         title = "Adaptive DoH ordering",
         subtitle = "Keep the fastest DoH path",
