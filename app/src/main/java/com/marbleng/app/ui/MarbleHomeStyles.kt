@@ -769,7 +769,9 @@ private fun ConnectButtonRound(
                             style = MaterialTheme.typography.labelSmall.copy(
                                 fontWeight = FontWeight.Bold,
                                 fontFeatureSettings = "tnum",
-                                fontSize = 11.sp
+                                // MARBLE_MATERIAL_YOU_REFRESH_V185 — the micro chip rides the new
+                                // label floor (11.5 sp) instead of the retired 11 sp.
+                                fontSize = 11.5.sp
                             ),
                             maxLines = 1,
                             softWrap = false
@@ -1209,7 +1211,9 @@ internal fun HomeGlyphIcon(glyph: HomeGlyph, color: Color, modifier: Modifier = 
     Canvas(modifier) {
         val w = size.width
         val h = size.height
-        val stroke = (size.minDimension * .095f).coerceIn(1.3f, 3.2f)
+        // MARBLE_MATERIAL_YOU_REFRESH_V185 — the Home glyph stroke lifts to the refreshed
+        // Material Symbols weight so every Home presentation's icons read fuller and modern.
+        val stroke = (size.minDimension * .102f).coerceIn(1.45f, 3.5f)
         val line = Stroke(width = stroke, cap = StrokeCap.Round, join = StrokeJoin.Round)
         when (glyph) {
             HomeGlyph.POWER -> {

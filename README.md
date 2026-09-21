@@ -41,9 +41,21 @@ It focuses on real proxy verification, fast one-tap connection, fail-closed rout
 - Remembers the last ping of every server across restarts, updates and process death.
 - A **fourth tab you fill yourself** — a subscription, one config, or the live pulse of the route.
 
+## The Material refresh
+
+`docs/MATERIAL_REFRESH_V185.md` is the newest chapter.
+
+**MarbleNG now wears the newest Google Material language.** The type ramp follows the Material 3
+scale with unambiguous steps between display, headline, title and body; cards, containers and
+borders move to Material You's calm surface-container finish (cool near-white light surfaces,
+navy-lifted steps over AMOLED black); every shape rounds one step up and touch targets meet the
+Material baseline; and the whole Canvas icon family strokes at the Material Symbols weight,
+larger in every slot — including a taller, rounder floating dock with bigger glyphs. minSdk
+stays 26 and no behavior changes: this is the design system only.
+
 ## The fourth tab, and a smaller Home banner
 
-`docs/DOCK_SLOT_AND_COMPACT_BANNER_V167.md` is the newest chapter.
+`docs/DOCK_SLOT_AND_COMPACT_BANNER_V167.md` is the previous chapter.
 
 **The bottom bar has four slots now, and the fourth one belongs to the user.** It was promised and
 never shipped, four times, because every candidate was a product decision imposed on every install.

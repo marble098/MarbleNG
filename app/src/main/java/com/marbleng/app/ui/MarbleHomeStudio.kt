@@ -107,7 +107,8 @@ internal fun HomeSelectedRouteCard(
     modifier: Modifier = Modifier
 ) {
     val t = Tr.now
-    val shape = RoundedCornerShape(20.dp)
+    // MARBLE_MATERIAL_YOU_REFRESH_V185 — Home cards round to the refreshed card radius.
+    val shape = RoundedCornerShape(22.dp)
     val node = evidence.nodeName.ifBlank { t.chooseRoute }
     val group = evidence.sourceName.ifBlank { "—" }
     val protocol = evidence.profile?.scheme?.trim().orEmpty()
@@ -267,7 +268,8 @@ internal fun HomeLivePingMeter(
     )
     val pulse = if (measuring) MarbleMotion.current.loop(1_200) else 0f
 
-    val shape = RoundedCornerShape(20.dp)
+    // MARBLE_MATERIAL_YOU_REFRESH_V185 — Home cards round to the refreshed card radius.
+    val shape = RoundedCornerShape(22.dp)
     val valueLabel = when {
         measured -> "${evidence.pingMs}"
         measuring -> "•••"

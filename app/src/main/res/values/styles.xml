@@ -7,7 +7,9 @@
         <item name="android:fontFamily">@font/vazirmatn_medium</item>
         <item name="android:windowLightStatusBar">true</item>
         <item name="android:windowLightNavigationBar">true</item>
-        <item name="android:statusBarColor">#F0F8FF</item>
+        <!-- MARBLE_MATERIAL_YOU_REFRESH_V185 — the pre-compose window paints the refreshed
+             light page tone so launch never flashes the old alice-blue. -->
+        <item name="android:statusBarColor">#F4F8FD</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="android:navigationBarDividerColor">@android:color/transparent</item>
         <item name="android:windowActionModeOverlay">true</item>
