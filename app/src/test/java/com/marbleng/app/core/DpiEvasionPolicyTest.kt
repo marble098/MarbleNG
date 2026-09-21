@@ -51,6 +51,58 @@ class DpiEvasionPolicyTest {
     }
 
     /**
+     * MARBLE_FAKE_IP_V184 — a slow but stable link (high ping, no loss, no jitter) is distance
+     * and capacity, not a packet-level defect. heal() must not arm the fragment recipe or cap
+     * the MTU for it: WhatsApp-style flows pay a fresh handshake per connection, and shredding
+     * every ClientHello into paced 10-30 byte records on a merely slow link made interactive
+     * apps measurably worse. Only the timing budgets widen.
+     */
+    @Test
+    fun healDoesNotFragmentOnPlainHighPing() {
+        val base = DpiEvasionPolicy.applyRecipe(AppSettings(), DpiEvasionPolicy.TLSHELLO)
+        val healed = DpiEvasionPolicy.heal(
+            base,
+            DpiEvasionPolicy.PathEvidence(
+                pingMs = 320,
+                jitterMs = 5,
+                successPercent = 100,
+                samples = 6
+            ),
+            IranModeState()
+        )
+        assertEquals(base.fragmentPackets, healed.fragmentPackets)
+        assertEquals(base.fragmentLength, healed.fragmentLength)
+        assertTrue(
+            "MTU ceiling must not drop for a slow-but-stable link",
+            healed.mtuMax >= 1500
+        )
+        assertTrue("slow links keep the widened bench budget", healed.benchTimeoutSec >= 14)
+        assertTrue("slow links keep the widened precheck budget", healed.tcpPrecheckTimeoutMs >= 3_000)
+    }
+
+    /**
+     * The re-gating must not disarm the real defects: sustained jitter still escalates the
+     * fragment recipe (RECORD_SPLIT) and caps the MTU at 1360.
+     */
+    @Test
+    fun healStillEscalatesOnJitter() {
+        val base = DpiEvasionPolicy.applyRecipe(AppSettings(), DpiEvasionPolicy.TLSHELLO)
+        val healed = DpiEvasionPolicy.heal(
+            base,
+            DpiEvasionPolicy.PathEvidence(
+                pingMs = 90,
+                jitterMs = 40,
+                successPercent = 100,
+                samples = 6
+            ),
+            IranModeState()
+        )
+        assertEquals(DpiEvasionPolicy.RECORD_SPLIT.packets, healed.fragmentPackets)
+        assertEquals(DpiEvasionPolicy.RECORD_SPLIT.length, healed.fragmentLength)
+        assertTrue(healed.mtuMax <= 1360)
+    }
+
+    /**
      * SNI + TCP-reset DPI uses the chained fragment recipe. The outer hop is the packet
      * split (1-1/1-3/5-10), NOT Xray's "tlshello" record-rewriter: real servers (Fastly,
      * Cloudflare, GitHub, AWS — RST, verified on v26.7.28) and Iran's 2026 DPI reject that

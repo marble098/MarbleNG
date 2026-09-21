@@ -1,6 +1,10 @@
 <resources>
     <style name="Theme.MarbleNG" parent="android:style/Theme.Material.Light.NoActionBar">
-        <item name="android:fontFamily">sans</item>
+        <!-- MARBLE_FAKE_IP_V184 — platform-rendered text (window titles, toasts, IME chrome,
+             any non-Compose surface) was falling back to the stock Roboto "sans" face while
+             every Compose surface in the product already draws Vazirmatn in Persian. One
+             app-wide identity instead of a two-face product. -->
+        <item name="android:fontFamily">@font/vazirmatn_medium</item>
         <item name="android:windowLightStatusBar">true</item>
         <item name="android:windowLightNavigationBar">true</item>
         <item name="android:statusBarColor">#F0F8FF</item>

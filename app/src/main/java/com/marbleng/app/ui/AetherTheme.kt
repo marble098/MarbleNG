@@ -276,6 +276,17 @@ private fun aetherTypography(fontId: String, persian: Boolean): Typography {
     // The tight negative tracking tuned for Latin ruins Perso-Arabic joining; Persian runs at
     // neutral tracking so Vazir's own metrics decide the rhythm.
     fun track(latin: Double): TextUnit = if (persian) 0.sp else latin.sp
+    // MARBLE_PERSIAN_TYPE_FLOOR_V184 — 10.5 sp labelSmall was below even the Material 3 spec
+    // (11 sp) and below the smallest size at which Vazirmatn's hairline joins stay legible on
+    // mid-range panels. Persian captions render at 11.5 sp instead of 11 sp, one half-step
+    // above the Latin floor, because a Persian label carries the same copy in a face whose
+    // strokes are thinner at equal point size.
+    fun labelSmallSize(): TextUnit = if (persian) 11.5.sp else 11.sp
+    fun labelSmallLine(): TextUnit = if (persian) 16.sp else 15.sp
+    // Vazirmatn Regular is a display cut; at 14 sp body size its strokes read faint on AMOLED
+    // and on washed-out light surfaces. UI body copy takes the Medium weight in Persian only —
+    // the Latin faces keep the spec weight.
+    val bodyWeight = if (persian) FontWeight.Medium else FontWeight.Normal
     return Typography(
     displayLarge = TextStyle(
         fontFamily = family,
@@ -332,13 +343,13 @@ private fun aetherTypography(fontId: String, persian: Boolean): Typography {
     ),
     bodyMedium = TextStyle(
         fontFamily = family,
-        fontWeight = FontWeight.Normal,
+        fontWeight = bodyWeight,
         fontSize = 14.sp,
         lineHeight = 20.sp
     ),
     bodySmall = TextStyle(
         fontFamily = family,
-        fontWeight = FontWeight.Normal,
+        fontWeight = bodyWeight,
         fontSize = 12.sp,
         lineHeight = 17.sp
     ),
@@ -358,8 +369,8 @@ private fun aetherTypography(fontId: String, persian: Boolean): Typography {
     labelSmall = TextStyle(
         fontFamily = family,
         fontWeight = FontWeight.Medium,
-        fontSize = 10.5.sp,
-        lineHeight = 14.sp,
+        fontSize = labelSmallSize(),
+        lineHeight = labelSmallLine(),
         letterSpacing = track(.08)
     )
 )
