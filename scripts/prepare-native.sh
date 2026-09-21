@@ -1761,6 +1761,17 @@ LAST_BUILD_LOG="$SINGBOX_PATCH_LOG"
 # same split, and its own CI cannot notice because it pins Go 1.26.7 — the legacy
 # file always wins there. The injector below ports the fork's own three-way split
 # to v2rayxhttp before anything compiles.
+#
+# v1.14.1-extended-2.7.2 (the 2026-09-21 core-lock bump, build run 35602762470)
+# turned the tables: the fork shipped the split itself, as a shared package.
+# dialer.go now dispatches through force_close.ResetTransport() and
+# common/force_close carries force_close{,_legacy,_go127,_go127_stub}.go with the
+# same linkname set and mirrored layouts MarbleNG verified against go1.27.1 when
+# it wrote its own variant after run #247. The injector detects that layout and
+# verifies it (every variant file, its build tag, every pulled symbol) instead of
+# patching — patching a moving upstream is how anchors rot, and run 35602762470
+# is what a stale anchor costs. It still ports the split itself when the pin is
+# older than 2.7.2, and still dies loudly when the tree matches neither layout.
 # ---------------------------------------------------------------------------
 
     python3 "$ROOT/scripts/inject-singbox-go127-fix.py" "$SINGBOX_SRC"
@@ -1799,13 +1810,22 @@ log "Running the injected sing-box regression tests (nil interface monitor)"
 # a Linux runner where a real monitor would otherwise hide the crash.
 #
 # The second invocation is the MARBLE_SINGBOX_GO127_FORCE_CLOSE_V161 link pin:
-# `go test -tags badlinkname` compiles AND links transport/v2rayxhttp with the
+# `go test -tags badlinkname` compiles AND links the force-close packages with the
 # same badlinkname tag the release build uses, so under the Go 1.27 toolchain
 # the pinned Xray go.mod mandates, the force-close variant's linknames must all
 # resolve here — in seconds — instead of dying at the first ABI's link step four
-# minutes into the job the way build run #247 did.
+# minutes into the job the way build run #247 did. transport/v2rayxhttp is pinned
+# in both layouts; from v1.14.1-extended-2.7.2 on, the fork's own shared
+# common/force_close package is where the linknames actually live, so it is
+# pinned explicitly too (its regression test references the exported closer, so
+# the pulled symbols cannot be dead-code eliminated).
 SINGBOX_TEST_LOG="$CORE/singbox-regression-test.log"
 LAST_BUILD_LOG="$SINGBOX_TEST_LOG"
+
+FORCE_CLOSE_PKGS=(./transport/v2rayxhttp)
+if [[ -d "$SINGBOX_SRC/common/force_close" ]]; then
+    FORCE_CLOSE_PKGS+=(./common/force_close)
+fi
 
 # NOTE: errexit is ignored inside a subshell that is the left side of `||`, so the two
 # invocations are chained with `&&` — a failure of the first must not be masked by a
@@ -1826,7 +1846,7 @@ LAST_BUILD_LOG="$SINGBOX_TEST_LOG"
         go test \
             -tags badlinkname \
             -ldflags "-checklinkname=0" \
-            ./transport/v2rayxhttp
+            "${FORCE_CLOSE_PKGS[@]}"
 ) 2>&1 | tee "$SINGBOX_TEST_LOG" || {
     echo
     echo "Last test output:"

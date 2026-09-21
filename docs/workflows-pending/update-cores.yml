@@ -65,8 +65,10 @@ jobs:
           python3 scripts/inject-singbox-go127-fix.py "$WORK/singbox"
 
           echo "Backports apply cleanly to $TAG ($COMMIT)."
-          echo "If a future tag already carries the fork's own v2rayxhttp go1.27 split,"
-          echo "inject-singbox-go127-fix.py reports 'already patched' and can be retired."
+          echo "MARBLE_SINGBOX_GO127_FORCE_CLOSE_V161: since v1.14.1-extended-2.7.2 the"
+          echo "fork ships the force-close split itself (common/force_close); the injector"
+          echo "then verifies it instead of patching, and a future tag that moves either"
+          echo "the dispatch or the variant files fails right here, in the updater."
       - name: Commit only when tags changed
         run: |
           if git diff --quiet -- core-lock.json; then echo 'No core update.'; exit 0; fi

@@ -160,3 +160,82 @@ the PR gate, and the release tag set keeps `badlinkname` and `tfogo_checklinknam
   workflow changes are staged in `docs/workflows-pending/` per that directory's README,
   derived from the current live files, and the release build works without them (the fix
   itself lives in `prepare-native.sh` and the injector).
+
+---
+
+## 6. 2026-09-21 — the fork adopted the split upstream (`v1.14.1-extended-2.7.2`)
+
+The tables turned the same week this chapter shipped. The scheduled core updater
+bumped sing-box `v1.14.0-extended-2.7.1` → `v1.14.1-extended-2.7.2` (commit `55faa76`,
+`core-lock.json` `updated: 2026-09-21`), and build run
+[35602762470](https://github.com/marble098/MarbleNG/actions/runs/35602762470) — the first
+build after PR #155 — died four minutes in, at a line this repository had written itself:
+
+```
+sing-box anchor moved or is ambiguous (0 matches) in transport/v2rayxhttp/dialer.go —
+legacy http2 clientConnPool mirror + connPool linkname (undefined on go1.27).
+Re-read the pinned core before rebuilding; never ship an unpatched binary.
+```
+
+The toolchain did not move this time, and neither did the link error return. What happened
+is the better version of the same story: **the fork shipped the split itself.** Release
+2.7.2 consolidates the whole three-way split into a shared package —
+`common/force_close/{force_close,force_close_legacy,force_close_go127,force_close_go127_stub}.go`
+— and routes every caller through it: `v2rayxhttp`'s `DefaultDialerClient.Close()`,
+`v2rayhttp`'s `ResetTransport`, and `v2raygrpclite` all now dispatch via
+`force_close.ResetTransport(...)`. The stale `clientConnPool` mirror and the
+`transportConnPool` linkname are gone from `dialer.go` — the two anchors this injector
+patched — so `0 matches` was not drift to re-anchor against; it was the fix, upstream.
+
+The fork's `force_close_go127.go` is byte-for-byte the same design this repository verified
+against go1.27.1 and x/net v0.57.0 in §3: same `var _ *http.Transport` first-use
+declaration, same mirrored `net/http/internal/http2.Transport` / `.clientConnPool` layouts,
+same three linkname pulls (`(*Transport).init`,
+`http2_test.transportFromH1Transport`, `(*ClientConn).Close`), same
+`go1.27 && badlinkname` / `go1.27 && !badlinkname` / `!go1.27` tag gating. Nothing about
+MarbleNG's analysis aged; only the location of the code did.
+
+### The injector is now a verifier for 2.7.2+ pins
+
+Patching a moving upstream is how anchors rot — run 35602762470 is what a stale anchor
+costs, and PR #155 had already taught the *V157* injector the "already fixed upstream"
+escape that very morning. `inject-singbox-go127-fix.py` now handles both layouts
+explicitly:
+
+* **`force_close.ResetTransport` present in `dialer.go`** (2.7.2 and newer): verify, don't
+  patch. Every variant file must exist with its exact build tag and its load-bearing
+  declarations (each linkname pull, the mirror field, the dispatch through
+  `CloseHTTP2Connections`); `dialer.go` gets the `MARBLE_SINGBOX_GO127_FORCE_CLOSE_V161`
+  marker prepended so the release build's grep keeps something to find; and the injector
+  writes the compile-and-link regression test `common/force_close/marble_force_close_link_test.go`.
+  Any deviation — a renamed pull, a weakened tag, a missing variant — fails loudly with the
+  same "never ship an unverified binary" severity as a moved anchor ever did.
+* **Older pins** (up to 2.7.1): §3 unchanged — the anchored port to `v2rayxhttp`, the three
+  variant files, the per-era tests.
+
+`prepare-native.sh` pins the package that carries the linknames in the running layout: the
+link-pin invocation is now
+
+```
+go test -tags badlinkname -ldflags "-checklinkname=0" ./transport/v2rayxhttp ./common/force_close
+```
+
+(`common/force_close` is added whenever the pinned tree carries it). The staged PR-gate
+smoke (`docs/workflows-pending/verify.yml`) and the staged updater dry-run learn the same
+layout-awareness, and `system-integrity-check.py`'s V161 invariants keep passing unchanged
+— the strings they grep for are still in the injector, both of its layouts.
+
+### What did NOT change
+
+* **`core-lock.json`** — the 2.7.2 pin (and its `crash-fix.1` patch level) stays exactly as
+  the updater wrote it; this chapter makes the *build* honest about what that pin ships.
+* **`SINGBOX_TAGS`** — 2.7.2's `.goreleaser.yaml` only *adds* optional tags
+  (`with_openvpn`, `with_openconnect`, `with_ccm`, `with_ocm`, `with_cloudflared`,
+  `with_usbip`) to the android build; `with_trusttunnel`, `with_call`, `with_sudoku` and
+  the rest of the release list survive, so the tag set is untouched.
+* **The core's runtime behavior** — the force-close reaches the same `(*ClientConn).Close`
+  the old linkname did, now through the fork's own shared package; the V157 nil-monitor
+  guards (upstream's own in 2.7.2, plus the still-needed `route/network.go` backport) are
+  untouched.
+* **Live workflows** — still not modified; the layout-aware smoke and updater changes are
+  staged in `docs/workflows-pending/` per that directory's README.
