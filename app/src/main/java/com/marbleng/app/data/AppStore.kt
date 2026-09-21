@@ -17,6 +17,43 @@ class AppStore(context: Context) {
     // MARBLE_LIBRARY_MEMORY_STORE_V33
     private val prefs = context.getSharedPreferences("marbleng-store", Context.MODE_PRIVATE)
 
+    /** Portable, versioned backup of all user-owned local state (including future preferences). */
+    fun createBackup(): String {
+        val values = JSONObject()
+        prefs.all.forEach { (key, value) ->
+            values.put(key, when (value) {
+                is Set<*> -> JSONArray(value.filterIsInstance<String>())
+                else -> value
+            })
+        }
+        return JSONObject()
+            .put("format", "marbleng-backup")
+            .put("version", 1)
+            .put("createdAt", System.currentTimeMillis())
+            .put("values", values)
+            .toString(2)
+    }
+
+    /** Atomically replaces local state after validating a MarbleNG backup. */
+    fun restoreBackup(raw: String) {
+        val root = JSONObject(raw)
+        require(root.optString("format") == "marbleng-backup") { "Not a MarbleNG backup" }
+        require(root.optInt("version") == 1) { "Unsupported backup version" }
+        val values = root.getJSONObject("values")
+        val edit = prefs.edit().clear()
+        values.keys().forEach { key ->
+            when (val value = values.get(key)) {
+                is Boolean -> edit.putBoolean(key, value)
+                is Int -> edit.putInt(key, value)
+                is Long -> edit.putLong(key, value)
+                is Double -> edit.putFloat(key, value.toFloat())
+                is String -> edit.putString(key, value)
+                is JSONArray -> edit.putStringSet(key, (0 until value.length()).map { value.getString(it) }.toSet())
+            }
+        }
+        check(edit.commit()) { "Could not save restored data" }
+    }
+
     fun loadProfiles(): MutableList<ProxyProfile> = parseArray("profiles") { ProxyProfile.fromJson(it) }
     fun saveProfiles(v: List<ProxyProfile>) = saveArray("profiles", v.map { it.toJson() })
     fun loadSubscriptions(): MutableList<Subscription> = parseArray("subscriptions") { Subscription.fromJson(it) }
@@ -324,6 +361,8 @@ class AppStore(context: Context) {
         homeShowServerSelector = prefs.getBoolean("homeShowServerSelector", true),
         homeShowRouteDetails = prefs.getBoolean("homeShowRouteDetails", true),
         homeShowRouteRibbon = prefs.getBoolean("homeShowRouteRibbon", true),
+        homeSpeedWidgetEnabled = prefs.getBoolean("homeSpeedWidgetEnabled", false),
+        autoConnectBestAfterScan = prefs.getBoolean("autoConnectBestAfterScan", false),
         serverIntelEnabled = prefs.getBoolean("serverIntelEnabled", true),
 
         smartNotificationsEnabled = prefs.getBoolean("smartNotificationsEnabled", true),
@@ -558,6 +597,8 @@ class AppStore(context: Context) {
         .putBoolean("homeShowServerSelector", s.homeShowServerSelector)
         .putBoolean("homeShowRouteDetails", s.homeShowRouteDetails)
         .putBoolean("homeShowRouteRibbon", s.homeShowRouteRibbon)
+        .putBoolean("homeSpeedWidgetEnabled", s.homeSpeedWidgetEnabled)
+        .putBoolean("autoConnectBestAfterScan", s.autoConnectBestAfterScan)
         .putBoolean("serverIntelEnabled", s.serverIntelEnabled)
 
         .putBoolean("smartNotificationsEnabled", s.smartNotificationsEnabled)
