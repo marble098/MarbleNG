@@ -3004,8 +3004,20 @@ private fun postToMain(block: () -> Unit) {
             return
         }
         task("Restoring backup") {
-            val raw = context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
-                ?: error("Could not open backup")
+            // A document provider is untrusted input.  Do not use readText(): a malicious or
+            // accidentally selected file must not be able to exhaust the app process heap.
+            val limit = 8 * 1024 * 1024
+            val raw = context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { reader ->
+                val text = StringBuilder()
+                val buffer = CharArray(8 * 1024)
+                while (true) {
+                    val count = reader.read(buffer)
+                    if (count < 0) break
+                    require(text.length + count <= limit) { "Backup is larger than 8 MiB" }
+                    text.append(buffer, 0, count)
+                }
+                text.toString()
+            } ?: error("Could not open backup")
             store.restoreBackup(raw)
             postToMain { message = "Backup restored • restart MarbleNG to apply every setting" }
         }
@@ -3876,8 +3888,10 @@ private fun postToMain(block: () -> Unit) {
                 val winnerResult = expanded.filter { it.success > 0 }.minByOrNull { it.latencyMs }
                 val winner = winnerResult?.let { result -> scoped.firstOrNull { it.id == result.profileId } }
                 if (winner != null) {
-                    selectProfile(winner, stopRunningSweep = false)
+                    // Profile selection mutates Compose state. Keep both selection and launch on
+                    // the main looper instead of racing a frame from this benchmark worker.
                     postToMain {
+                        selectProfile(winner, stopRunningSweep = false)
                         if (settings.connectionMode == ConnectionMode.FULL_TUN) startVpn(winner)
                         else startLocalProxy(winner)
                     }
