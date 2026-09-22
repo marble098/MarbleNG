@@ -96,7 +96,8 @@ class MarbleExpressiveMathV186Test {
     fun morphHitsBothEndpointsAndClampsOvershoot() {
         assertEquals(15f, ExpressiveMath.morph(15f, 999f, 0f), 1e-6f)
         assertEquals(999f, ExpressiveMath.morph(15f, 999f, 1f), 1e-6f)
-        assertEquals(457f, ExpressiveMath.morph(15f, 999f, .45f), 1e-4f)
+        // 15 + (999 - 15) * .45 = 457.8 — the exact lerp midpoint the morph promises.
+        assertEquals(457.8f, ExpressiveMath.morph(15f, 999f, .45f), 1e-4f)
         // A release spring overshoots t past 1: the radius clamps, the shape never inverts.
         assertEquals(999f, ExpressiveMath.morph(15f, 999f, 1.18f), 1e-6f)
         assertEquals(15f, ExpressiveMath.morph(15f, 999f, -.2f), 1e-6f)
