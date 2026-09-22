@@ -11,6 +11,15 @@ package com.marbleng.app.ui
 //
 // All 4 themes feature iOS-style glass boxes, fixed screen height (no outer page scroll),
 // and inner scrollable components where needed.
+//
+// MARBLE_EXPRESSIVE_MOTION_V186 — the Material 3 Expressive motion chapter for Home: every
+// presentation cascades its cards in on arrival, the state word and the ping readout roll on
+// the emphasized curves instead of hard-swapping, the connect controls' securing arcs stretch
+// and contract on the shared clock (the wavy rhythm of the newest Android loaders), released
+// knobs and pressed discs spring back with one visible overshoot, and the status pip became a
+// living double-pulse dot. All fixed-slot contracts survive untouched: the banner keeps its
+// compact two-row geometry, the ping meter keeps its reserved slot, and no control resizes
+// with state.
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
@@ -31,6 +40,8 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -42,10 +53,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
@@ -610,6 +621,10 @@ private fun ConnectButtonRound(
         Box(
             modifier = Modifier
                 .size(diameter)
+                // MARBLE_EXPRESSIVE_MOTION_V186 — the acknowledgement beat: when the session
+                // flips, the whole face springs up five percent past rest once, then settles
+                // on the emphasized decelerate curve.
+                .marblePopWhen(evidence.connected, peak = 1.05f)
                 .shadow(
                     elevation = 16.dp,
                     shape = CircleShape,
@@ -636,6 +651,7 @@ private fun ConnectButtonRound(
                     role = Role.Button,
                     pressScale = .94f,
                     boundedShape = CircleShape,
+                    releaseSpec = MarbleExpressiveSpecs.SpringReleaseFloat,
                     onClick = {
                         // The acknowledgement ring expands outward once per tap, on the shared
                         // response spring, while the press scale (owned by kineticClickable)
@@ -673,7 +689,10 @@ private fun ConnectButtonRound(
                         drawArc(
                             color = animatedTone.copy(alpha = .85f + .15f * busyPulse),
                             startAngle = -90f + sweep,
-                            sweepAngle = 104f,
+                            // MARBLE_EXPRESSIVE_MOTION_V186 — the securing arc STRETCHES: its
+                            // sweep oscillates between 74 and 136 degrees on the breathing
+                            // clock, the elastic rhythm of the newest Android loaders.
+                            sweepAngle = ExpressiveMath.arcSweep(busyPulse, 74f, 136f),
                             useCenter = false,
                             topLeft = Offset(c.x - r * .80f, c.y - r * .80f),
                             size = Size(r * 1.60f, r * 1.60f),
@@ -731,11 +750,20 @@ private fun ConnectButtonRound(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
-                HomeGlyphIcon(
-                    connectButtonGlyph(evidence),
-                    animatedTone,
-                    Modifier.size(diameter * iconFraction)
-                )
+                // MARBLE_EXPRESSIVE_MOTION_V186 — the power glyph rolls instead of snapping:
+                // the departing glyph accelerates out of the slot while the incoming one
+                // springs in from a slight underscale, all inside the animated icon box, so
+                // the button face keeps its exact footprint in every state.
+                MarbleExpressiveGlyphSwap(
+                    key = connectButtonGlyph(evidence),
+                    modifier = Modifier.size(diameter * iconFraction)
+                ) {
+                    HomeGlyphIcon(
+                        connectButtonGlyph(evidence),
+                        animatedTone,
+                        Modifier.size(diameter * iconFraction)
+                    )
+                }
                 if (evidence.connected) {
                     Spacer(Modifier.height(4.dp))
                     val pingLabel = when {
@@ -965,9 +993,13 @@ private fun ConnectButtonSlide(
                                             )
                                             onToggle()
                                         } else {
+                                            // MARBLE_EXPRESSIVE_MOTION_V186 — a short drag
+                                            // releases on the wave spring: the knob springs back
+                                            // to its resting side with one visible overshoot and
+                                            // squishes against the track's clip before settling.
                                             knob.animateTo(
                                                 if (evidence.connected) travelPx else 0f,
-                                                MarbleMotionSpecs.ResponseFloat
+                                                MarbleExpressiveSpecs.WaveSpringFloat
                                             )
                                         }
                                     }
@@ -977,7 +1009,7 @@ private fun ConnectButtonSlide(
                                     scope.launch {
                                         knob.animateTo(
                                             if (evidence.connected) travelPx else 0f,
-                                            MarbleMotionSpecs.ResponseFloat
+                                            MarbleExpressiveSpecs.WaveSpringFloat
                                         )
                                     }
                                 }
@@ -990,11 +1022,18 @@ private fun ConnectButtonSlide(
                         },
                     contentAlignment = Alignment.Center
                 ) {
-                    HomeGlyphIcon(
-                        connectButtonGlyph(evidence),
-                        Aether.Void,
-                        Modifier.size(knobSize * .42f)
-                    )
+                    // MARBLE_EXPRESSIVE_MOTION_V186 — the knob's glyph rolls on state flips
+                    // inside its fixed 42%-of-knob slot; the drag geometry never changes.
+                    MarbleExpressiveGlyphSwap(
+                        key = connectButtonGlyph(evidence),
+                        modifier = Modifier.size(knobSize * .42f)
+                    ) {
+                        HomeGlyphIcon(
+                            connectButtonGlyph(evidence),
+                            Aether.Void,
+                            Modifier.size(knobSize * .42f)
+                        )
+                    }
                 }
             }
             Spacer(Modifier.height(8.dp))
@@ -1552,16 +1591,38 @@ internal fun IosStatusWideCard(
             ) {
                 StatusDot(stateColor = stateColor, busy = evidence.connecting, size = 13.dp)
                 Spacer(Modifier.width(6.dp))
-                Text(
-                    text = homeStatusText(evidence).uppercase(),
-                    color = stateColor,
-                    style = MaterialTheme.typography.labelSmall.copy(
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 1.0.sp
-                    ),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+                // MARBLE_EXPRESSIVE_MOTION_V186 — the state word rolls on the emphasized pair:
+                // the new sentence decelerates up into the 18 dp status line while the old one
+                // accelerates away. The line's reserved height never changes, so the banner
+                // keeps its compact two-row geometry in every state and nothing below moves.
+                AnimatedContent(
+                    targetState = homeStatusText(evidence).uppercase(),
+                    transitionSpec = {
+                        (
+                            fadeIn(MarbleExpressiveSpecs.EntranceFadeFloat) +
+                                slideInVertically(MarbleExpressiveSpecs.RollInSpatial) { it / 2 }
+                            ) togetherWith (
+                            fadeOut(
+                                tween(
+                                    durationMillis = MarbleExpressiveMotion.Short4,
+                                    easing = MarbleExpressiveMotion.EmphasizedAccelerate
+                                )
+                            ) + slideOutVertically(MarbleExpressiveSpecs.RollOutSpatial) { -it / 2 }
+                            )
+                    },
+                    label = "home-status-word-roll"
+                ) { stateWord ->
+                    Text(
+                        text = stateWord,
+                        color = stateColor,
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 1.0.sp
+                        ),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
                 if (evidence.connected) {
                     Spacer(Modifier.width(6.dp))
                     Text(
@@ -1643,15 +1704,17 @@ internal fun IosStatusWideCard(
                     horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = pingVal,
+                    // MARBLE_EXPRESSIVE_MOTION_V186 — the reserved-width readout rolls: each
+                    // new measurement decelerates up into the chip instead of hard-swapping
+                    // digits, inside the exact box the chip already owned.
+                    MarbleExpressiveValueText(
+                        value = pingVal,
                         color = pingT,
                         style = MaterialTheme.typography.labelSmall.copy(
                             fontWeight = FontWeight.Bold,
                             fontFamily = FontFamily.Monospace
                         ),
-                        maxLines = 1,
-                        textAlign = TextAlign.Center
+                        maxLines = 1
                     )
                 }
 
@@ -1929,16 +1992,21 @@ private fun HomeBareAction(
                 role = Role.Button,
                 pressScale = .92f,
                 boundedShape = CircleShape,
+                releaseSpec = MarbleExpressiveSpecs.SpringReleaseFloat,
                 onClick = onClick
             )
             .semantics { contentDescription = description },
         contentAlignment = Alignment.Center
     ) {
         if (busy) {
-            CircularProgressIndicator(
+            // MARBLE_EXPRESSIVE_MOTION_V186 — the bare action's busy beat is the wavy
+            // expressive indicator: three arcs stretching around the 17 dp slot on the
+            // shared clock instead of a rigid stock spinner.
+            MarbleExpressiveCircularIndicator(
                 modifier = Modifier.size(17.dp),
                 color = tone,
-                strokeWidth = 2.dp
+                strokeWidth = 2.dp,
+                arcCount = 3
             )
         } else {
             HomeGlyphIcon(
@@ -1960,7 +2028,15 @@ internal fun homeStateTone(evidence: HomeEvidence): Color = when {
     else -> Aether.SlateBright
 }
 
-/** Flat status pip with a soft halo; breathes only while a handshake is actually running. */
+/**
+ * Flat status pip with a soft halo; breathes only while a handshake is actually running.
+ *
+ * MARBLE_EXPRESSIVE_MOTION_V186 — a settled session now reads as ALIVE: one soft ring leaves the
+ * pip every 2.6 s on the shared frame clock, and a second ring follows half a period behind it,
+ * so the pulse never has a dead beat. Both rings expand and fade strictly inside the pip's own
+ * [size] slot — the banner's 13 dp geometry is untouched — and with animations disabled the
+ * rings rest and the pip renders exactly as the classic static dot.
+ */
 @Composable
 private fun StatusDot(stateColor: Color, busy: Boolean, size: Dp = 18.dp) {
     val motion = MarbleMotion.current
@@ -1971,6 +2047,18 @@ private fun StatusDot(stateColor: Color, busy: Boolean, size: Dp = 18.dp) {
         // The shared clock is read in the draw phase: ambient motion costs zero recompositions.
         val breathe = motion.breathe(900)
         val haloAlpha = if (busy) 0.22f + 0.20f * breathe else 0.16f
+        if (!busy && motion.motionEnabled) {
+            val phase = motion.loop(2_600)
+            drawCircle(
+                color = stateColor.copy(alpha = 0.30f * (1f - phase)),
+                radius = diameter * (0.28f + 0.22f * phase)
+            )
+            val offsetPhase = ExpressiveMath.wrap01(phase + 0.5f)
+            drawCircle(
+                color = stateColor.copy(alpha = 0.18f * (1f - offsetPhase)),
+                radius = diameter * (0.28f + 0.22f * offsetPhase)
+            )
+        }
         drawCircle(color = stateColor.copy(alpha = haloAlpha), radius = diameter * 0.5f)
         drawCircle(
             color = stateColor.copy(alpha = if (busy) 0.75f + 0.25f * breathe else 1f),
@@ -2011,6 +2099,10 @@ internal fun IosServerListBox(
     maxListHeight: Dp = Dp.Unspecified
 ) {
     val t = Tr.now
+    // MARBLE_EXPRESSIVE_MOTION_V186 — the Home server card owns its arrival cascade: rows rise
+    // one stagger step apart the first time the card is composed. The window disarms itself, so
+    // reorders, filter changes and scroll-backs never replay the entrance.
+    val entranceArmed = rememberMarbleEntranceWindow()
     val activeSubId = repo.librarySourceFilter
     val allSubs = repo.subscriptions
     val activeSubName = when {
@@ -2165,15 +2257,26 @@ internal fun IosServerListBox(
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                     contentPadding = PaddingValues(bottom = bottomOverlayClearance)
                 ) {
-                    items(visibleServers, key = { it.id }) { server ->
+                    // MARBLE_EXPRESSIVE_MOTION_V186 — the rows arrive in a cascade: each one
+                    // rises and settles one stagger step after the previous, first eight only
+                    // (the rest are below the fold; the index clamps at the library's maximum).
+                    itemsIndexed(visibleServers, key = { _, server -> server.id }) { rowIndex, server ->
                         // MARBLE_HOME_MIRRORS_SERVERS_V150 — same predicates as the Servers page:
                         // selected is the stored selection (any state), active is the row actually
                         // carrying traffic — so the Home list and Servers list agree about which
                         // server is chosen and which is live, and a tap selects exactly as Servers does.
                         val isSelected = repo.isSelectedProfile(server)
                         val isConnected = repo.isActiveProfile(server)
-                        // animateItem keeps reorders/gliding smooth without touching row heights.
-                        Box(Modifier.animateItem()) {
+                        // animateItem keeps reorders/gliding smooth without touching row heights;
+                        // the stagger adds the one-time arrival rise-and-settle inside that box.
+                        Box(
+                            Modifier
+                                .animateItem()
+                                .marbleStaggerIn(
+                                    rowIndex + 1,
+                                    enabled = entranceArmed() && rowIndex < 8
+                                )
+                        ) {
                             IosServerItemRow(
                                 server = server,
                                 result = benchmarks[server.id],
@@ -2539,10 +2642,11 @@ private fun HomeServerLatencySlab(
         contentAlignment = Alignment.Center
     ) {
         when {
-            testing -> CircularProgressIndicator(
+            testing -> MarbleExpressiveCircularIndicator(
                 modifier = Modifier.size(11.dp),
                 color = tone,
-                strokeWidth = 1.6.dp
+                strokeWidth = 1.6.dp,
+                arcCount = 2
             )
             !measured -> Text(
                 if (attempted) "✕" else "—",
@@ -2649,7 +2753,10 @@ internal fun IosSlideToConnect(
         LaunchedEffect(evidence.connected, evidence.connecting, maxDragPx) {
             // Never fight the finger: a state change that lands mid-drag waits for the release.
             if (!dragging) {
-                dragOffset.animateTo(restOffset, tween(260, easing = FastOutSlowInEasing))
+                // MARBLE_EXPRESSIVE_MOTION_V186 — the thumb parks on the wave spring: one soft
+                // overshoot against the track's clip, then it holds. The committed flight
+                // below keeps its deliberate 220 ms tween — that beat belongs to the action.
+                dragOffset.animateTo(restOffset, MarbleExpressiveSpecs.WaveSpringFloat)
             }
         }
 
@@ -2660,7 +2767,10 @@ internal fun IosSlideToConnect(
             val sheenPhase = motion.loop(if (busy) 1100 else 3000)
             val sheenAlpha = (if (busy) 0.30f else 0.20f) * (1f - progress)
             if (sheenAlpha > 0.01f) {
-                val band = size.width * 0.34f
+                // MARBLE_EXPRESSIVE_MOTION_V186 — the invitation band breathes: its width
+                // oscillates between 22% and 42% of the track on its own slow clock while it
+                // sweeps, so the sheen reads as a living highlight instead of a fixed stripe.
+                val band = size.width * ExpressiveMath.wavyValue(motion.loop(1900), 0.22f, 0.42f)
                 val x = sheenPhase * (size.width + band) - band
                 drawRect(
                     topLeft = Offset(x, 0f),
@@ -2741,9 +2851,13 @@ internal fun IosSlideToConnect(
                                 }
                             } else {
                                 coroutineScope.launch {
+                                    // MARBLE_EXPRESSIVE_MOTION_V186 — a short drag releases on
+                                    // the wave spring: the thumb springs back to its resting
+                                    // side with one visible overshoot, exactly the elastic
+                                    // release the newest Android slide controls advertise.
                                     dragOffset.animateTo(
                                         restOffset,
-                                        tween(250, easing = FastOutSlowInEasing)
+                                        MarbleExpressiveSpecs.WaveSpringFloat
                                     )
                                 }
                             }
@@ -2751,7 +2865,7 @@ internal fun IosSlideToConnect(
                         onDragCancel = {
                             dragging = false
                             coroutineScope.launch {
-                                dragOffset.animateTo(restOffset, tween(200))
+                                dragOffset.animateTo(restOffset, MarbleExpressiveSpecs.WaveSpringFloat)
                             }
                         },
                         onHorizontalDrag = { change, dragAmount ->
@@ -2791,18 +2905,22 @@ internal fun HomeThemeSlider(
     ) {
         // Top actions (outside the banner) + Wide Status Bar
         HomeTopActionBar(evidence, actions, repo)
-        IosStatusWideCard(evidence, actions)
+        // MARBLE_EXPRESSIVE_MOTION_V186 — Theme 1 arrives in a cascade: banner, server card,
+        // then the slide control, one stagger step apart on the emphasized entrance pair.
+        IosStatusWideCard(evidence, actions, modifier = Modifier.marbleStaggerIn(1))
 
         // Center: Sub & Server List Box (Scrollable inner list)
         IosServerListBox(
             repo = repo,
             evidence = evidence,
             actions = actions,
-            modifier = Modifier.weight(1f, fill = false)
+            modifier = Modifier
+                .weight(1f, fill = false)
+                .marbleStaggerIn(2)
         )
 
         // Bottom: Slide to connect Slider
-        IosSlideToConnect(evidence, actions)
+        IosSlideToConnect(evidence, actions, modifier = Modifier.marbleStaggerIn(3))
     }
 }
 
@@ -2844,11 +2962,15 @@ private fun FloatingConnectFab(
             val inset = stroke / 2f
             val ring = Size(size.width - inset * 2f, size.height - inset * 2f)
             if (busy) {
+                // MARBLE_EXPRESSIVE_MOTION_V186 — the securing orbit stretches: the sweep
+                // oscillates on a second clock while the arc rotates, so the busy ring
+                // breathes the way the newest Android loaders do.
+                val wobble = motion.loop(1_900)
                 rotate(degrees = spin * 360f) {
                     drawArc(
                         color = tone,
                         startAngle = -90f,
-                        sweepAngle = 300f,
+                        sweepAngle = ExpressiveMath.arcSweep(wobble, 170f, 320f),
                         useCenter = false,
                         topLeft = Offset(inset, inset),
                         size = ring,
@@ -2868,6 +2990,8 @@ private fun FloatingConnectFab(
         Box(
             modifier = Modifier
                 .size(68.dp)
+                // MARBLE_EXPRESSIVE_MOTION_V186 — acknowledgement beat on the session flip.
+                .marblePopWhen(evidence.connected, peak = 1.06f)
                 .graphicsLayer {
                     val breathe = motion.breathe(2400)
                     val scale = if (busy) 1f + 0.04f * breathe else 1f
@@ -2877,7 +3001,11 @@ private fun FloatingConnectFab(
                 .shadow(4.dp, CircleShape, spotColor = tone)
                 .clip(CircleShape)
                 .background(tone)
-                .kineticClickable(boundedShape = CircleShape) { onToggle() },
+                .kineticClickable(
+                    pressScale = .93f,
+                    boundedShape = CircleShape,
+                    releaseSpec = MarbleExpressiveSpecs.SpringReleaseFloat
+                ) { onToggle() },
             contentAlignment = Alignment.Center
         ) {
             HomeGlyphIcon(HomeGlyph.POWER, Color.White, Modifier.size(32.dp))
@@ -2900,7 +3028,14 @@ private fun FloatingSplitAction(
             .shadow(3.dp, CircleShape, spotColor = tone)
             .clip(CircleShape)
             .background(tone)
-            .kineticClickable(enabled = enabled, boundedShape = CircleShape, onClick = onClick)
+            // MARBLE_EXPRESSIVE_MOTION_V186 — the split actions release on the bouncy spring.
+            .kineticClickable(
+                enabled = enabled,
+                pressScale = .92f,
+                boundedShape = CircleShape,
+                releaseSpec = MarbleExpressiveSpecs.SpringReleaseFloat,
+                onClick = onClick
+            )
             .semantics { contentDescription = description },
         contentAlignment = Alignment.Center
     ) {
@@ -2927,12 +3062,16 @@ internal fun HomeThemeFloating(
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             HomeTopActionBar(evidence, actions, repo)
-            IosStatusWideCard(evidence, actions)
+            // MARBLE_EXPRESSIVE_MOTION_V186 — Theme 2 arrives in a cascade: banner first,
+            // then the expanded server card one stagger step behind it.
+            IosStatusWideCard(evidence, actions, modifier = Modifier.marbleStaggerIn(1))
             IosServerListBox(
                 repo = repo,
                 evidence = evidence,
                 actions = actions,
-                modifier = Modifier.weight(1f, fill = false),
+                modifier = Modifier
+                    .weight(1f, fill = false)
+                    .marbleStaggerIn(2),
                 // The split FAB floats above the last rows; reserve the room so no server is
                 // ever hidden underneath it (MARBLE_HOME_FLOATING_CLEARANCE_V141).
                 bottomOverlayClearance = 104.dp
@@ -2971,8 +3110,29 @@ internal fun HomeFloatingSplitControl(
         AnimatedContent(
             targetState = evidence.connected,
             transitionSpec = {
-                (fadeIn(tween(300)) + scaleIn(tween(300)))
-                    .togetherWith(fadeOut(tween(200)) + scaleOut(tween(200)))
+                // MARBLE_EXPRESSIVE_MOTION_V186 — the split morph rides the expressive pair:
+                // the arriving control springs up past rest once on the release spring while
+                // the departing one accelerates away on the emphasized accelerate curve.
+                (
+                    fadeIn(MarbleExpressiveSpecs.EntranceFadeFloat) +
+                        scaleIn(
+                            animationSpec = MarbleExpressiveSpecs.SpringReleaseFloat,
+                            initialScale = .72f
+                        )
+                    ) togetherWith (
+                    fadeOut(
+                        tween(
+                            durationMillis = MarbleExpressiveMotion.Short4,
+                            easing = MarbleExpressiveMotion.EmphasizedAccelerate
+                        )
+                    ) + scaleOut(
+                        animationSpec = tween(
+                            durationMillis = MarbleExpressiveMotion.Short4,
+                            easing = MarbleExpressiveMotion.EmphasizedAccelerate
+                        ),
+                        targetScale = .72f
+                    )
+                    )
             },
             label = "floating-split-anim"
         ) { isConnected ->
@@ -3072,16 +3232,22 @@ internal fun OrbitalConnectControl(
                 radius = size.minDimension * 0.44f
             )
             when {
-                busy -> rotate(degrees = spin * 360f) {
-                    drawArc(
-                        color = tone,
-                        startAngle = -80f,
-                        sweepAngle = 300f,
-                        useCenter = false,
-                        topLeft = Offset(inset, inset),
-                        size = ring,
-                        style = Stroke(stroke, cap = StrokeCap.Round)
-                    )
+                busy -> {
+                    // MARBLE_EXPRESSIVE_MOTION_V186 — the securing orbit stretches: the sweep
+                    // oscillates on a second clock while the arc rotates, so the dial breathes
+                    // the way the newest Android busy rings do.
+                    val wobble = motion.loop(1_700)
+                    rotate(degrees = spin * 360f) {
+                        drawArc(
+                            color = tone,
+                            startAngle = -80f,
+                            sweepAngle = ExpressiveMath.arcSweep(wobble, 180f, 320f),
+                            useCenter = false,
+                            topLeft = Offset(inset, inset),
+                            size = ring,
+                            style = Stroke(stroke, cap = StrokeCap.Round)
+                        )
+                    }
                 }
                 connected -> drawArc(
                     color = tone.copy(alpha = 0.70f + 0.30f * breathe),
@@ -3112,10 +3278,16 @@ internal fun OrbitalConnectControl(
         Box(
             modifier = Modifier
                 .size(86.dp)
+                // MARBLE_EXPRESSIVE_MOTION_V186 — acknowledgement beat on the session flip.
+                .marblePopWhen(connected, peak = 1.05f)
                 .shadow(5.dp, CircleShape, spotColor = tone)
                 .clip(CircleShape)
                 .background(tone)
-                .kineticClickable(boundedShape = CircleShape) { actions.onToggleConnection() },
+                .kineticClickable(
+                    pressScale = .93f,
+                    boundedShape = CircleShape,
+                    releaseSpec = MarbleExpressiveSpecs.SpringReleaseFloat
+                ) { actions.onToggleConnection() },
             contentAlignment = Alignment.Center
         ) {
             HomeGlyphIcon(HomeGlyph.POWER, Color.White, Modifier.size(40.dp))
@@ -3140,11 +3312,15 @@ internal fun HomeThemeEmbossed(
     ) {
         // Top actions (outside the banner) + Status Bar
         HomeTopActionBar(evidence, actions, repo)
-        IosStatusWideCard(evidence, actions)
+        // MARBLE_EXPRESSIVE_MOTION_V186 — Theme 3 arrives in a cascade: banner, orbital core,
+        // caption, server card — one stagger step apart on the emphasized entrance pair.
+        IosStatusWideCard(evidence, actions, modifier = Modifier.marbleStaggerIn(1))
 
         // Center: Orbital power core + caption (fixed height, never resizes with status text)
         Box(
-            modifier = Modifier.padding(vertical = 2.dp),
+            modifier = Modifier
+                .padding(vertical = 2.dp)
+                .marbleStaggerIn(2),
             contentAlignment = Alignment.Center
         ) {
             OrbitalConnectControl(evidence = evidence, actions = actions)
@@ -3152,7 +3328,9 @@ internal fun HomeThemeEmbossed(
         ConnectButtonCaption(
             evidence = evidence,
             tone = homeStateTone(evidence),
-            modifier = Modifier.padding(bottom = 2.dp)
+            modifier = Modifier
+                .marbleStaggerIn(3)
+                .padding(bottom = 2.dp)
         )
 
         // Bottom: Server List Box
@@ -3160,7 +3338,9 @@ internal fun HomeThemeEmbossed(
             repo = repo,
             evidence = evidence,
             actions = actions,
-            modifier = Modifier.weight(1f, fill = false)
+            modifier = Modifier
+                .weight(1f, fill = false)
+                .marbleStaggerIn(4)
         )
     }
 }
@@ -3216,6 +3396,8 @@ internal fun HomeThemeModular(
     // the thumb. The page therefore reserves the same 104 dp of clearance Theme 2 reserves, so no
     // module is ever buried underneath it.
     val floatingOverlay = modularConnect == ConnectButtonStyle.FLOATING
+    // MARBLE_EXPRESSIVE_MOTION_V186 — the customizer page cascades its modules in on arrival.
+    val entranceArmed = rememberMarbleEntranceWindow()
 
     Box(modifier = Modifier.fillMaxSize()) {
         Column(
@@ -3268,37 +3450,62 @@ internal fun HomeThemeModular(
         // Render the modules in the (repaired) configured order, honouring every visibility
         // switch the customizer offers. CONNECT is deliberately not hideable: a Home page that
         // cannot open a tunnel is not a layout choice, it is a broken product.
-        cardOrder.forEach { cardType ->
+        cardOrder.forEachIndexed { moduleIndex, cardType ->
             when (cardType) {
                 ModularLayout.STATUS -> if (settings.modularShowStatus) {
-                    IosStatusWideCard(evidence, actions)
+                    IosStatusWideCard(
+                        evidence,
+                        actions,
+                        modifier = Modifier.marbleStaggerIn(
+                            moduleIndex + 1,
+                            enabled = entranceArmed()
+                        )
+                    )
                 }
                 ModularLayout.SERVERS -> if (settings.modularShowServers) {
                     IosServerListBox(
                         repo = repo,
                         evidence = evidence,
                         actions = actions,
+                        modifier = Modifier.marbleStaggerIn(
+                            moduleIndex + 1,
+                            enabled = entranceArmed()
+                        ),
                         maxListHeight = serverListMaxHeight
                     )
                 }
                 ModularLayout.CONNECT -> if (!floatingOverlay) {
-                    ModularConnectModule(
-                        evidence = evidence,
-                        actions = actions,
-                        style = modularConnect
-                    )
+                    Box(
+                        Modifier.marbleStaggerIn(moduleIndex + 1, enabled = entranceArmed())
+                    ) {
+                        ModularConnectModule(
+                            evidence = evidence,
+                            actions = actions,
+                            style = modularConnect
+                        )
+                    }
                 }
                 ModularLayout.STATS -> if (settings.modularShowStats) {
-                    HomeSessionStats(evidence, actions, Aether.Cyan)
+                    Box(
+                        Modifier.marbleStaggerIn(moduleIndex + 1, enabled = entranceArmed())
+                    ) {
+                        HomeSessionStats(evidence, actions, Aether.Cyan)
+                    }
                 }
                 ModularLayout.SHORTCUTS -> if (settings.modularShowShortcuts) {
-                    HomeShortcutDeck(evidence, actions, HomeCloud.Accent)
+                    Box(
+                        Modifier.marbleStaggerIn(moduleIndex + 1, enabled = entranceArmed())
+                    ) {
+                        HomeShortcutDeck(evidence, actions, HomeCloud.Accent)
+                    }
                 }
             }
         }
 
         if (settings.modularShowSocks) {
-            ModularSocksCard(repo = repo, evidence = evidence)
+            Box(Modifier.marbleStaggerIn(cardOrder.size + 1, enabled = entranceArmed())) {
+                ModularSocksCard(repo = repo, evidence = evidence)
+            }
         }
         }
 
@@ -3393,7 +3600,14 @@ private fun ModularPingAction(
             .shadow(3.dp, CircleShape, spotColor = Aether.Emerald)
             .clip(CircleShape)
             .background(Aether.Emerald)
-            .kineticClickable(enabled = enabled, boundedShape = CircleShape, onClick = onClick)
+            // MARBLE_EXPRESSIVE_MOTION_V186 — the deck's ping disc releases on the bouncy spring.
+            .kineticClickable(
+                enabled = enabled,
+                pressScale = .92f,
+                boundedShape = CircleShape,
+                releaseSpec = MarbleExpressiveSpecs.SpringReleaseFloat,
+                onClick = onClick
+            )
             .semantics { contentDescription = description },
         contentAlignment = Alignment.Center
     ) {

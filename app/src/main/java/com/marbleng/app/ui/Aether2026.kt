@@ -51,6 +51,13 @@ package com.marbleng.app.ui
 // MARBLE_UNIFIED_SURFACE_SYSTEM_UI_V65
 // MARBLE_NAVY_BRAND_UI_V77
 // MARBLE_HOME_PUZZLE_GRID_V77
+// MARBLE_EXPRESSIVE_MOTION_V186 — the Material 3 Expressive motion chapter: pages recede with
+// depth while the pager travels, the app-level busy bar becomes the wavy expressive linear, the
+// detail page opens on a true container transform, Settings pages move on the shared axis, dock
+// glyphs pop once when their tab wakes, list rows cascade in on first open and glide on spring
+// placement, and live readouts roll instead of hard-swapping. All of it reads Marble's one shared
+// frame clock and the expressive spec library (MarbleExpressive.kt); no infinite transition and
+// no measured geometry is added anywhere.
 
 import android.Manifest
 import android.content.Intent
@@ -157,6 +164,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
 import com.marbleng.app.AppRepository
 import com.marbleng.app.R
@@ -534,6 +542,11 @@ fun Aether2026App(
             // marble-page-transition-fast — the pager drives tab changes directly so swipes
             // track the finger with physics (instant, no staged crossfade); dock taps stay
             // snappy via animateScrollToPage's bounded page turn.
+            // MARBLE_EXPRESSIVE_MOTION_V186 — the turn itself keeps tracking the finger, but the
+            // travelling page now recedes: scale and alpha follow its distance from the settled
+            // slot (marblePageDepth), the depth transform the newest Android pagers use. The
+            // resting page renders at exactly scale 1 / alpha 1 — a still screen is pixel-identical
+            // to before — and the transform lives in the draw layer, so swiping recomposes nothing.
             HorizontalPager(
                 state = pagerState,
                 modifier = Modifier.fillMaxSize(),
@@ -541,7 +554,9 @@ fun Aether2026App(
                 beyondViewportPageCount = 1
             ) { pageIndex ->
                 Box(
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .marblePageDepth { marblePageOffset(pagerState, pageIndex) },
                     contentAlignment = Alignment.TopCenter
                 ) {
                     Box(
@@ -596,17 +611,14 @@ fun Aether2026App(
                 targetState = detailProfile,
                 modifier = Modifier.matchParentSize(),
                 transitionSpec = {
-                    (
-                        fadeIn(MarbleMotionSpecs.ResponseFloat) +
-                            scaleIn(initialScale = .965f, animationSpec = MarbleMotionSpecs.ResponseFloat) +
-                            slideInVertically(MarbleMotionSpecs.Spatial) { height -> height / 14 }
-                    ) togetherWith (
-                        fadeOut(MarbleMotionSpecs.ExitFloat) +
-                            scaleOut(targetScale = .985f, animationSpec = MarbleMotionSpecs.ExitFloat) +
-                            slideOutVertically(MarbleMotionSpecs.SpatialExit) { height -> height / 18 }
-                    )
+                    // MARBLE_EXPRESSIVE_MOTION_V186 — the detail page opens on the Material
+                    // container transform with the expressive calibration: it decelerates in from
+                    // a slightly smaller scale while rising a twelfth of the screen, and closes
+                    // by accelerating away — fade resolved before slide on both legs, so the two
+                    // surfaces never cross at equal strength.
+                    expressiveContainerTransform(forward = true)
                 },
-                label = "connection-detail-container-transform-v20"
+                label = "connection-detail-container-transform-v186"
             ) { profile ->
                 if (profile == null) {
                     Box(Modifier.size(0.dp))
@@ -622,16 +634,23 @@ fun Aether2026App(
 
             // The top bar is the fallback for work that has no card of its own (audits, geo assets,
             // routing verification). Tests and refreshes report on their own node/source cards.
+            // MARBLE_EXPRESSIVE_MOTION_V186 — the fallback busy bar is the expressive wavy
+            // linear: one breathing blob travelling the track on the emphasized curve, dropping
+            // in from the top edge it owns and leaving on the short accelerated exit. With
+            // animations disabled it resolves to the calm static head form of the same indicator.
             AnimatedVisibility(
                 visible = repo.busy && !repo.inlineProgressActive,
                 modifier = Modifier.align(Alignment.TopCenter),
-                enter = fadeIn(MarbleMotionSpecs.ResponseFloat),
-                exit = fadeOut(MarbleMotionSpecs.ExitFloat)
+                enter = fadeIn(MarbleExpressiveSpecs.EntranceFadeFloat) +
+                    slideInVertically(MarbleExpressiveSpecs.EntranceRiseSpatial) { height -> -height },
+                exit = fadeOut(tween(MarbleExpressiveMotion.Short4, easing = MarbleExpressiveMotion.EmphasizedAccelerate)) +
+                    slideOutVertically(MarbleExpressiveSpecs.RollOutSpatial) { height -> -height }
             ) {
-                LinearProgressIndicator(
+                MarbleExpressiveLinearIndicator(
                     modifier = Modifier.fillMaxWidth(),
                     color = Aether.Cyan,
-                    trackColor = Color.Transparent
+                    trackColor = Color.Transparent,
+                    height = 4.dp
                 )
             }
 
@@ -856,10 +875,13 @@ private fun IpDetailsDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 if (loading) {
-                    LinearProgressIndicator(
+                    // MARBLE_EXPRESSIVE_MOTION_V186 — the dialog's resolving bar is the wavy
+                    // expressive linear: the blob breathes while the lookup is genuinely in flight.
+                    MarbleExpressiveLinearIndicator(
                         modifier = Modifier.fillMaxWidth(),
                         color = Aether.Cyan,
-                        trackColor = Color.Transparent
+                        trackColor = Color.Transparent,
+                        height = 4.dp
                     )
                 }
                 if (info == null) {
@@ -1129,6 +1151,15 @@ internal data class DockMetrics(
 
 internal val LocalDockMetrics = staticCompositionLocalOf { DockMetrics() }
 
+/**
+ * MARBLE_EXPRESSIVE_MOTION_V186 — the signed distance, in pages, of one pager page from the
+ * settled position: 0 while the page is home, ±1 while it sits one slot away, fractional for
+ * every point in between. Read inside marblePageDepth's draw-phase lambda, so the pager's scroll
+ * offset never enters composition: swiping drives the depth transform without recomposing a page.
+ */
+private fun marblePageOffset(pagerState: PagerState, page: Int): Float =
+    (pagerState.currentPage - page) + pagerState.currentPageOffsetFraction
+
 @Composable
 private fun dockClearance(): Dp =
     WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() +
@@ -1286,12 +1317,21 @@ private fun FloatingSpatialDock(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     if (metrics.showIcons) {
+                        // MARBLE_EXPRESSIVE_MOTION_V186 — the acknowledgement lives INSIDE the
+                        // pill: when a tab wakes, its glyph pops once (1 → 1.18 → 1 on the pop
+                        // spring) and is perfectly still again. THE BAR ITSELF STILL NEVER MOVES
+                        // (MARBLE_DOCK_STILL_BAR_V132) and the chrome colours still ride the
+                        // overshoot-free dock tweens (MARBLE_DOCK_STABLE_COLOR_V115) — this is a
+                        // draw-layer scale on the icon alone, one beat per selection change, no
+                        // loop and no frame callback of its own.
                         MarbleTabIcon(
                             tab = item,
                             color = inkTone,
                             active = active,
                             slotIcon = slot.icon,
-                            modifier = Modifier.size(metrics.iconSize)
+                            modifier = Modifier
+                                .size(metrics.iconSize)
+                                .marblePopWhen(active, peak = 1.18f)
                         )
                     }
                     if (metrics.showIcons && metrics.showLabels) {
@@ -1524,6 +1564,10 @@ private fun LiveProgressBar(
 ) {
     val track = Aether.GlassBorderSoft
     val head = -.4f + MarbleMotion.current.loop(1_150) * 1.4f
+    // MARBLE_EXPRESSIVE_MOTION_V186 — the indeterminate segment breathes while it travels: one
+    // more phase on the same shared clock, so the bar's width gently swells and contracts the
+    // way the expressive linear loader does, instead of sliding as a rigid block.
+    val widthPhase = MarbleMotion.current.loop(900)
     val settled by animateFloatAsState(
         targetValue = fraction?.coerceIn(0f, 1f) ?: 0f,
         animationSpec = MarbleMotionSpecs.ProgressFloat,
@@ -1540,7 +1584,7 @@ private fun LiveProgressBar(
             cap = StrokeCap.Round
         )
         if (fraction == null) {
-            val segment = size.width * .4f
+            val segment = size.width * ExpressiveMath.wavyValue(widthPhase, .26f, .48f)
             val start = (size.width * head).coerceAtLeast(0f)
             val end = (size.width * head + segment).coerceAtMost(size.width)
             if (end > start) {
@@ -2546,8 +2590,12 @@ private fun NationalEventBanner(repo: AppRepository, modifier: Modifier = Modifi
     AnimatedVisibility(
         visible = repo.nationalEventCause.isNotEmpty(),
         modifier = modifier,
-        enter = fadeIn(MarbleMotionSpecs.ResponseFloat),
-        exit = fadeOut(MarbleMotionSpecs.ExitFloat)
+        // MARBLE_EXPRESSIVE_MOTION_V186 — the banner drops in from the top edge it owns on the
+        // decelerate curve and leaves on the short accelerated exit.
+        enter = fadeIn(MarbleExpressiveSpecs.EntranceFadeFloat) +
+            slideInVertically(MarbleExpressiveSpecs.EntranceRiseSpatial) { height -> -height },
+        exit = fadeOut(tween(MarbleExpressiveMotion.Short4, easing = MarbleExpressiveMotion.EmphasizedAccelerate)) +
+            slideOutVertically(MarbleExpressiveSpecs.RollOutSpatial) { height -> -height }
     ) {
         Row(
             modifier = Modifier
@@ -2650,9 +2698,12 @@ private fun HomeMetricBento(repo: AppRepository) {
                 // flicker/glitch on every live update.
                 sparkline = pingHistory,
                 flaggedSamples = pingFlags,
+                // MARBLE_EXPRESSIVE_MOTION_V186 — the bento cascades: Ping leads, Jitter follows
+                // one stagger step behind, Quality a step after that.
                 modifier = Modifier
                     .weight(1.08f)
                     .fillMaxHeight()
+                    .marbleStaggerIn(1)
             )
             Column(
                 modifier = Modifier
@@ -2668,6 +2719,7 @@ private fun HomeMetricBento(repo: AppRepository) {
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth()
+                        .marbleStaggerIn(2)
                 )
                 MarbleMetricCard(
                     title = "Quality",
@@ -2677,6 +2729,7 @@ private fun HomeMetricBento(repo: AppRepository) {
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth()
+                        .marbleStaggerIn(3)
                 )
             }
         }
@@ -2840,8 +2893,12 @@ private fun CyberDeck(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .padding(start = 20.dp, end = 20.dp, bottom = dockClearance() + 10.dp),
-            enter = fadeIn() + slideInVertically { it / 2 },
-            exit = fadeOut() + slideOutVertically { it / 2 }
+            // MARBLE_EXPRESSIVE_MOTION_V186 — the speed widget rides up from the page floor on
+            // the decelerate curve and sinks back on the short accelerated exit.
+            enter = fadeIn(MarbleExpressiveSpecs.EntranceFadeFloat) +
+                slideInVertically(MarbleExpressiveSpecs.EntranceRiseSpatial) { it / 2 },
+            exit = fadeOut(tween(MarbleExpressiveMotion.Short4, easing = MarbleExpressiveMotion.EmphasizedAccelerate)) +
+                slideOutVertically(MarbleExpressiveSpecs.RollOutSpatial) { it / 2 }
         ) {
             HomeCloudCard(
                 modifier = Modifier.fillMaxWidth(),
@@ -2958,12 +3015,16 @@ private fun HomeStatusAnchor(
     AnimatedContent(
         targetState=title,
         transitionSpec={
-            (fadeIn(MarbleMotionSpecs.ResponseFloat) +
-                slideInVertically(MarbleMotionSpecs.Spatial) { it / 3 }) togetherWith
-                (fadeOut(MarbleMotionSpecs.ExitFloat) +
-                    slideOutVertically(MarbleMotionSpecs.SpatialExit) { -it / 3 })
+            // MARBLE_EXPRESSIVE_MOTION_V186 — the status sentence rolls on the emphasized pair:
+            // the new line decelerates up into the slot while the old one accelerates away. The
+            // anchored height reservation below is untouched — the roll happens strictly inside
+            // the fixed block, so the Connect control still never moves when copy changes.
+            (fadeIn(MarbleExpressiveSpecs.EntranceFadeFloat) +
+                slideInVertically(MarbleExpressiveSpecs.RollInSpatial) { it / 3 }) togetherWith
+                (fadeOut(tween(MarbleExpressiveMotion.Short4, easing = MarbleExpressiveMotion.EmphasizedAccelerate)) +
+                    slideOutVertically(MarbleExpressiveSpecs.RollOutSpatial) { -it / 3 })
         },
-        label="home-status-title-anchor-v64",
+        label="home-status-title-anchor-v186",
         modifier=modifier
             .fillMaxWidth()
             .heightIn(min=titleBlock)
@@ -3004,7 +3065,13 @@ private fun HomeActionPortal(
                     )
                 )
             )
-            .kineticClickable(role=Role.Button,onClick=onClick)
+            // MARBLE_EXPRESSIVE_MOTION_V186 — the portal tiles spring back with one soft overshoot.
+            .kineticClickable(
+                role=Role.Button,
+                pressScale=.96f,
+                releaseSpec=MarbleExpressiveSpecs.SpringReleaseFloat,
+                onClick=onClick
+            )
             .padding(horizontal=11.dp,vertical=10.dp),
         verticalAlignment=Alignment.CenterVertically
     ) {
@@ -3268,6 +3335,11 @@ private fun ConnectionCore(
         else -> "Connect"
     }
     val shape = RoundedCornerShape(28.dp)
+    // MARBLE_EXPRESSIVE_MOTION_V186 — the securing arc rotates AND stretches on the shared frame
+    // clock (the wavy rhythm of the newest Android loaders). The phase is read only while a
+    // handshake is genuinely in flight, so an idle orb subscribes to nothing.
+    val motion = MarbleMotion.current
+    val orbPhase = if (connecting) motion.loop(1_300) else 0f
 
     Column(
         Modifier
@@ -3316,17 +3388,24 @@ private fun ConnectionCore(
                     .clip(CircleShape)
                     .background(statusColor.copy(alpha = .075f))
                     .border(2.dp, statusColor.copy(alpha = .72f), CircleShape)
-                    .kineticClickable(role = Role.Button, pressScale = .95f, onClick = onToggle),
+                    .kineticClickable(
+                        role = Role.Button,
+                        pressScale = .95f,
+                        releaseSpec = MarbleExpressiveSpecs.SpringReleaseFloat,
+                        onClick = onToggle
+                    ),
                 contentAlignment = Alignment.Center
             ) {
                 Canvas(Modifier.matchParentSize().padding(8.dp)) {
                     val r = size.minDimension / 2f
                     drawCircle(statusColor.copy(alpha = .08f), r)
                     if (connecting) {
+                        // One wavy arc: the sweep breathes between 150° and 280° while the head
+                        // travels the orbit, so "securing" reads as work in flight, not a sticker.
                         drawArc(
                             color = statusColor,
-                            startAngle = -70f,
-                            sweepAngle = 235f,
+                            startAngle = -90f + orbPhase * 360f,
+                            sweepAngle = ExpressiveMath.arcSweep(orbPhase, 150f, 280f),
                             useCenter = false,
                             style = Stroke(6f, cap = StrokeCap.Round)
                         )
@@ -3341,7 +3420,10 @@ private fun ConnectionCore(
                     },
                     color = statusColor,
                     style = MaterialTheme.typography.headlineMedium,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
+                    // MARBLE_EXPRESSIVE_MOTION_V186 — the state glyph pops once per state change
+                    // (arrow → ellipsis → check) and is perfectly still in between.
+                    modifier = Modifier.marblePopWhen(statusTitle, peak = 1.28f)
                 )
             }
 
@@ -3460,8 +3542,10 @@ private fun MiniMetric(
         }
         Spacer(Modifier.height(2.dp))
         Row(verticalAlignment = Alignment.Bottom) {
-            Text(
-                value,
+            // MARBLE_EXPRESSIVE_MOTION_V186 — live metrics roll: each new sample decelerates up
+            // into the slot instead of hard-swapping, inside the cell's own box.
+            MarbleExpressiveValueText(
+                value = value,
                 color = valueColor,
                 style = MaterialTheme.typography.titleMedium.copy(
                     fontFamily = FontFamily.Monospace,
@@ -3501,7 +3585,15 @@ private fun HoloActionPill(
                     )
                 )
             )
-            .kineticClickable(role = Role.Button, boundedShape = shape, onClick = onClick)
+            // MARBLE_EXPRESSIVE_MOTION_V186 — Home's action pills spring back with the expressive
+            // release: one soft overshoot, then still.
+            .kineticClickable(
+                role = Role.Button,
+                pressScale = .96f,
+                boundedShape = shape,
+                releaseSpec = MarbleExpressiveSpecs.SpringReleaseFloat,
+                onClick = onClick
+            )
             .padding(horizontal = 11.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -3696,6 +3788,10 @@ private fun CyberLibrary(
     val clipboard = LocalClipboardManager.current
     val context = LocalContext.current
     val listState = rememberLazyListState()
+    // MARBLE_EXPRESSIVE_MOTION_V186 — the first-open cascade window: rows composed in the first
+    // moments after the page arrives play their staggered entrance; rows a later scroll creates
+    // appear instantly, so the cascade is a page greeting, never motion under the thumb.
+    val entranceArmed = rememberMarbleEntranceWindow()
     val settings = repo.settings
 
     var search by rememberSaveable { mutableStateOf("") }
@@ -4182,7 +4278,7 @@ private fun CyberLibrary(
             item(key = "servers-progress-gap") { Spacer(Modifier.height(10.dp)) }
         }
 
-        groups.forEach { group ->
+        groups.forEachIndexed { groupIndex, group ->
             val collapsed = group.key in repo.libraryCollapsedSources
             val subscription = repo.subscriptions.firstOrNull { it.id == group.key }
             val total = when (group.kind) {
@@ -4194,8 +4290,12 @@ private fun CyberLibrary(
             val stacked = !collapsed && group.profiles.isNotEmpty()
 
             item(key = "group-${group.key}") {
+                // MARBLE_EXPRESSIVE_MOTION_V186 — group boxes cascade on first open: each header
+                // arrives one stagger step behind the previous group, capped by the schedule so
+                // a long library never animates a tail.
                 ServersGroupHeader(
                     group = group,
+                    modifier = Modifier.marbleStaggerIn(groupIndex, enabled = entranceArmed()),
                     attachedBelow = stacked,
                     subscription = subscription,
                     collapsed = collapsed,
@@ -4256,35 +4356,47 @@ private fun CyberLibrary(
                     items = group.profiles,
                     key = { _, profile -> "${group.key}:${profile.id}" }
                 ) { index, profile ->
-                    ServersNodeCard(
-                        profile = profile,
-                        repo = repo,
-                        result = benchmarks[profile.id],
-                        active = repo.isActiveProfile(profile),
-                        selected = repo.isSelectedProfile(profile),
-                        lastInGroup = index == group.profiles.lastIndex,
-                        probeState = repo.probeStateOf(profile.id),
-                        // MARBLE_SELECT_IS_NOT_CONNECT_V121 — a tap selects. It only connects when
-                        // a tunnel is already up (switching route is an explicit re-connect) or is
-                        // being established, so browsing the list can never open a connection.
-                        onConnect = {
-                            if (repo.probeActive || repo.probeCancelling) {
-                                repo.setRuntimeMessage("Wait until ping finishes before changing server")
-                            } else if (repo.state == "CONNECTED" || repo.state == "CONNECTING") {
-                                onConnect(profile)
-                            } else {
-                                repo.selectProfile(profile)
-                            }
-                        },
-                        onEdit = {
-                            renameTarget = profile
-                            renameText = stripLeadingFlag(profile.name)
-                        },
-                        onMove = { moveTarget = profile },
-                        onQr = { qrTarget = profile },
-                        onDelete = { deleteTarget = profile },
-                        onDetails = { onDetails(profile) }
-                    )
+                    // MARBLE_EXPRESSIVE_MOTION_V186 — rows now move like physical objects:
+                    // animateItem glides every reorder (a rank sweep, a sort flip, a filter
+                    // change) on spring placement instead of a hard cut, and the first rows of
+                    // the first open cascade in one stagger step behind their group header.
+                    // Rows composed by a later scroll appear instantly — the entrance window
+                    // disarms itself, so no row ever animates under a scrolling thumb.
+                    Box(
+                        Modifier
+                            .animateItem()
+                            .marbleStaggerIn(index + 1, enabled = entranceArmed() && index < 8)
+                    ) {
+                        ServersNodeCard(
+                            profile = profile,
+                            repo = repo,
+                            result = benchmarks[profile.id],
+                            active = repo.isActiveProfile(profile),
+                            selected = repo.isSelectedProfile(profile),
+                            lastInGroup = index == group.profiles.lastIndex,
+                            probeState = repo.probeStateOf(profile.id),
+                            // MARBLE_SELECT_IS_NOT_CONNECT_V121 — a tap selects. It only connects when
+                            // a tunnel is already up (switching route is an explicit re-connect) or is
+                            // being established, so browsing the list can never open a connection.
+                            onConnect = {
+                                if (repo.probeActive || repo.probeCancelling) {
+                                    repo.setRuntimeMessage("Wait until ping finishes before changing server")
+                                } else if (repo.state == "CONNECTED" || repo.state == "CONNECTING") {
+                                    onConnect(profile)
+                                } else {
+                                    repo.selectProfile(profile)
+                                }
+                            },
+                            onEdit = {
+                                renameTarget = profile
+                                renameText = stripLeadingFlag(profile.name)
+                            },
+                            onMove = { moveTarget = profile },
+                            onQr = { qrTarget = profile },
+                            onDelete = { deleteTarget = profile },
+                            onDetails = { onDetails(profile) }
+                        )
+                    }
                 }
             }
 
@@ -4466,14 +4578,19 @@ private fun ServersRoundButton(
             .background(Aether.GlassStrong.copy(alpha = .34f))
             .border(1.dp, if (selected) Aether.Cyan.copy(alpha = .45f) else Aether.GlassBorderSoft, CircleShape)
             .semantics { contentDescription = description }
+            // MARBLE_EXPRESSIVE_MOTION_V186 — the round page verbs compress a touch deeper and
+            // spring back with one visible overshoot, the expressive press of the newest Android.
             .kineticClickable(
                 role = Role.Button,
+                pressScale = .92f,
                 boundedShape = CircleShape,
+                releaseSpec = MarbleExpressiveSpecs.SpringReleaseFloat,
                 onClick = onClick
             ),
         contentAlignment = Alignment.Center
     ) {
-        HomeVectorIcon(icon, tone, Modifier.size(21.dp))
+        // The glyph pops once when the control's selected state flips (sort mode armed, filter on).
+        HomeVectorIcon(icon, tone, Modifier.size(21.dp).marblePopWhen(selected))
     }
 }
 
@@ -5022,10 +5139,11 @@ private fun ServersFilterRail(
                     if (repo.probeCancelling) Aether.InkFaint else Aether.Danger,
                     Modifier.size(16.dp)
                 )
-                busy -> CircularProgressIndicator(
+                busy -> MarbleExpressiveCircularIndicator(
                     modifier = Modifier.size(16.dp),
                     color = Aether.Cyan,
-                    strokeWidth = 2.dp
+                    strokeWidth = 2.dp,
+                    arcCount = 3
                 )
                 else -> HomeVectorIcon(HomeIcon.PING, Aether.Ink, Modifier.size(21.dp))
             }
@@ -5167,21 +5285,17 @@ private fun ServersProbeStrip(repo: AppRepository) {
                 )
             }
         }
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(4.dp)
-                .clip(ServersPillShape)
-                .background(Aether.GlassStrong.copy(alpha = .40f))
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth(progress.coerceIn(0f, 1f))
-                    .fillMaxHeight()
-                    .clip(ServersPillShape)
-                    .background(Aether.Cyan)
-            )
-        }
+        // MARBLE_EXPRESSIVE_MOTION_V186 — the sweep bar is the expressive determinate linear:
+        // the fill settles through the patient progress spring (a server finishing early glides
+        // instead of jumping) and a soft shimmer sweeps the filled part while the batch genuinely
+        // runs, so a paused-looking 60% never reads as a stuck 60%.
+        MarbleExpressiveLinearIndicator(
+            modifier = Modifier.fillMaxWidth(),
+            progress = progress.coerceIn(0f, 1f),
+            color = Aether.Cyan,
+            trackColor = Aether.GlassStrong.copy(alpha = .40f),
+            height = 4.dp
+        )
         if (repo.probeLastName.isNotBlank()) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -5244,6 +5358,9 @@ private fun ServersProbeStrip(repo: AppRepository) {
 @Composable
 private fun ServersGroupHeader(
     group: LibraryGroup,
+    // MARBLE_EXPRESSIVE_MOTION_V186 — the caller hands the group box its place in the
+    // first-open entrance cascade; the header itself stays structurally identical.
+    modifier: Modifier = Modifier,
     subscription: Subscription?,
     // MARBLE_SERVERS_STACKED_GROUPS_V121 — true when this header opens a box whose servers are
     // stacked flush beneath it, so it drops its bottom corners and its bottom hairline.
@@ -5269,15 +5386,18 @@ private fun ServersGroupHeader(
         else -> Aether.Cyan
     }
     val local = subscription?.url?.isBlank() == true
+    // MARBLE_EXPRESSIVE_MOTION_V186 — the chevron folds and unfolds on the wave spring: it
+    // overshoots its quarter-turn by a hair and settles, the way disclosure affordances move in
+    // the newest Android surfaces.
     val chevronRotation by animateFloatAsState(
         targetValue = if (collapsed) 90f else -90f,
-        animationSpec = MarbleMotionSpecs.ResponseFloat,
+        animationSpec = MarbleExpressiveSpecs.WaveSpringFloat,
         label = "servers-group-chevron"
     )
     val shape = if (attachedBelow) ServersGroupHeadShape else ServersCardShape
 
     Column(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .clip(shape)
             .background(Aether.VoidElevated)
@@ -5351,10 +5471,11 @@ private fun ServersGroupHeader(
                     contentAlignment = Alignment.Center
                 ) {
                     if (refreshing) {
-                        CircularProgressIndicator(
+                        MarbleExpressiveCircularIndicator(
                             modifier = Modifier.size(15.dp),
                             color = Aether.Amethyst,
-                            strokeWidth = 2.dp
+                            strokeWidth = 2.dp,
+                            arcCount = 3
                         )
                     } else {
                         HomeVectorIcon(
@@ -5955,10 +6076,11 @@ private fun ServersPingCapsule(
         contentAlignment = Alignment.Center
     ) {
         when {
-            testing -> CircularProgressIndicator(
+            testing -> MarbleExpressiveCircularIndicator(
                 modifier = Modifier.size(12.dp),
                 color = tone,
-                strokeWidth = 1.6.dp
+                strokeWidth = 1.6.dp,
+                arcCount = 2
             )
 
             !measured -> Text(
@@ -8145,6 +8267,10 @@ private fun CustomDockPage(
     onContentScrollChanged: (Boolean) -> Unit
 ) {
     val listState = rememberLazyListState()
+    // MARBLE_EXPRESSIVE_MOTION_V186 — the fourth tab greets the user the same way every other
+    // page does: its cards cascade one stagger step apart on arrival, and anything composed by
+    // a later scroll appears instantly.
+    val entranceArmed = rememberMarbleEntranceWindow()
     LaunchedEffect(listState.isScrollInProgress) {
         onContentScrollChanged(listState.isScrollInProgress)
     }
@@ -8161,34 +8287,54 @@ private fun CustomDockPage(
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         item(key = "dock-slot-header") {
-            MarbleCompactTopBar(
-                title = chrome.caption,
-                subtitle = dockSlotSubtitle(target),
-                actionLabel = "Customize",
-                actionIcon = HomeIcon.MODE,
-                onAction = onCustomize
-            )
+            Box(Modifier.marbleStaggerIn(0, enabled = entranceArmed())) {
+                MarbleCompactTopBar(
+                    title = chrome.caption,
+                    subtitle = dockSlotSubtitle(target),
+                    actionLabel = "Customize",
+                    actionIcon = HomeIcon.MODE,
+                    onAction = onCustomize
+                )
+            }
         }
 
         when (target.kind) {
             DockSlotKind.PULSE -> {
-                item(key = "dock-slot-pulse-live") { DockPulseLiveCard(repo, deck, actions) }
-                item(key = "dock-slot-pulse-metrics") { DockPulseMetricsCard(repo, deck) }
-                item(key = "dock-slot-pulse-tools") { DockPulseToolsCard(repo, actions, onDialog) }
+                item(key = "dock-slot-pulse-live") {
+                    Box(Modifier.marbleStaggerIn(1, enabled = entranceArmed())) {
+                        DockPulseLiveCard(repo, deck, actions)
+                    }
+                }
+                item(key = "dock-slot-pulse-metrics") {
+                    Box(Modifier.marbleStaggerIn(2, enabled = entranceArmed())) {
+                        DockPulseMetricsCard(repo, deck)
+                    }
+                }
+                item(key = "dock-slot-pulse-tools") {
+                    Box(Modifier.marbleStaggerIn(3, enabled = entranceArmed())) {
+                        DockPulseToolsCard(repo, actions, onDialog)
+                    }
+                }
             }
 
             DockSlotKind.SOURCE -> {
-                item(key = "dock-slot-source-head") { DockSourceHeaderCard(repo, target) }
+                item(key = "dock-slot-source-head") {
+                    Box(Modifier.marbleStaggerIn(1, enabled = entranceArmed())) {
+                        DockSourceHeaderCard(repo, target)
+                    }
+                }
                 if (target.isEmpty) {
                     item(key = "dock-slot-source-empty") {
-                        DockSlotEmptyCard(
-                            icon = HomeIcon.LIBRARY,
-                            title = "This source has no servers",
-                            detail = "Everything it publishes was removed, or it was never filled. " +
-                                "Pick another source, or add servers from the Servers page.",
-                            actionLabel = "Pick another source",
-                            onAction = onCustomize
-                        )
+                        Box(Modifier.marbleStaggerIn(2, enabled = entranceArmed())) {
+                            DockSlotEmptyCard(
+                                icon = HomeIcon.LIBRARY,
+                                title = "This source has no servers",
+                                detail = "Everything it publishes was removed, or it was never filled. " +
+                                    "Pick another source, or add servers from the Servers page.",
+                                actionLabel = "Pick another source",
+                                onAction = onCustomize
+                            )
+                        }
                     }
                 } else {
                     // The user's own order, exactly as the Servers page would draw it. Their hide
@@ -8201,38 +8347,52 @@ private fun CustomDockPage(
                         benchmarks = repo.benchmarks.associateBy { it.profileId }
                     )
                     // One batch lookup for the whole list, then one row per server that reads it.
+                    // MARBLE_EXPRESSIVE_MOTION_V186 — the source rows glide on spring placement
+                    // (a sort flip in Settings rearranges them as physical motion) and the first
+                    // eight cascade behind the header when the page arrives.
                     val measurements = repo.benchmarks.associateBy { it.profileId }
-                    items(ordered, key = { "dock-slot-src-${it.id}-${it.subscriptionId}" }) { profile ->
-                        DockNodeRow(
-                            profile = profile,
-                            result = measurements[profile.id],
-                            probeState = repo.probeStateOf(profile.id),
-                            active = repo.isActiveProfile(profile),
-                            selected = repo.isSelectedProfile(profile),
-                            onSelect = {
-                                if (repo.probeActive || repo.probeCancelling) {
-                                    repo.setRuntimeMessage("Wait until ping finishes before changing server")
-                                } else if (repo.state == "CONNECTED" || repo.state == "CONNECTING") {
-                                    onConnect(profile)
-                                } else {
-                                    repo.selectProfile(profile)
-                                }
-                            },
-                            onDetails = { onDetails(profile) }
-                        )
+                    itemsIndexed(
+                        ordered,
+                        key = { _, profile -> "dock-slot-src-${profile.id}-${profile.subscriptionId}" }
+                    ) { index, profile ->
+                        Box(
+                            Modifier
+                                .animateItem()
+                                .marbleStaggerIn(index + 1, enabled = entranceArmed() && index < 8)
+                        ) {
+                            DockNodeRow(
+                                profile = profile,
+                                result = measurements[profile.id],
+                                probeState = repo.probeStateOf(profile.id),
+                                active = repo.isActiveProfile(profile),
+                                selected = repo.isSelectedProfile(profile),
+                                onSelect = {
+                                    if (repo.probeActive || repo.probeCancelling) {
+                                        repo.setRuntimeMessage("Wait until ping finishes before changing server")
+                                    } else if (repo.state == "CONNECTED" || repo.state == "CONNECTING") {
+                                        onConnect(profile)
+                                    } else {
+                                        repo.selectProfile(profile)
+                                    }
+                                },
+                                onDetails = { onDetails(profile) }
+                            )
+                        }
                     }
                 }
             }
 
             DockSlotKind.CONFIG -> {
                 item(key = "dock-slot-config-head") {
-                    DockConfigCard(
-                        repo = repo,
-                        target = target,
-                        onConnect = onConnect,
-                        onDetails = onDetails,
-                        onCustomize = onCustomize
-                    )
+                    Box(Modifier.marbleStaggerIn(1, enabled = entranceArmed())) {
+                        DockConfigCard(
+                            repo = repo,
+                            target = target,
+                            onConnect = onConnect,
+                            onDetails = onDetails,
+                            onCustomize = onCustomize
+                        )
+                    }
                 }
             }
         }
@@ -9647,6 +9807,11 @@ private fun SettingsHub(
 ) {
     val t = Tr.now
     val settings = repo.settings
+    // MARBLE_EXPRESSIVE_MOTION_V186 — the hub cascades: arriving from a page turn or back from
+    // a sub-page, its five cards follow the header one stagger step apart. The window disarms
+    // itself, so the restored scroll position (V117) lands on fully-settled cards and nothing
+    // animates under a scrolling thumb.
+    val entranceArmed = rememberMarbleEntranceWindow()
     val activeTheme = parseAppTheme(settings.theme)
     val activeStyle = parseHomeStyle(settings.homeStyle)
     val activeFont = parseAppFont(settings.fontFamily)
@@ -9683,6 +9848,7 @@ private fun SettingsHub(
         // The decisions people touch every day stay here and apply instantly.
         item(key = "hub-quick") {
             SettingsHubCard(
+                modifier = Modifier.marbleStaggerIn(1, enabled = entranceArmed()),
                 title = t.quickSettingsTitle,
                 subtitle = t.quickSettingsDetail,
                 tone = Aether.Cyan
@@ -9696,6 +9862,7 @@ private fun SettingsHub(
         // among expert tunnel controls, which made Settings feel larger without making it useful.
         item(key = "hub-essentials") {
             SettingsHubCard(
+                modifier = Modifier.marbleStaggerIn(2, enabled = entranceArmed()),
                 title = "Essentials",
                 subtitle = "Home, automation and your data",
                 tone = Aether.Emerald
@@ -9735,6 +9902,7 @@ private fun SettingsHub(
     // ------------------------------------------------ Connection
         item(key = "hub-connection") {
             SettingsHubCard(
+                modifier = Modifier.marbleStaggerIn(3, enabled = entranceArmed()),
                 title = t.categoryConnection,
                 subtitle = "Routing, tests and servers",
                 tone = Aether.Emerald
@@ -9774,6 +9942,7 @@ private fun SettingsHub(
         // ------------------------------------------------ Appearance
         item(key = "hub-appearance") {
             SettingsHubCard(
+                modifier = Modifier.marbleStaggerIn(4, enabled = entranceArmed()),
                 title = t.categoryAppearance,
                 subtitle = "Theme, Home style, typeface and language",
                 tone = Aether.Amethyst
@@ -9846,6 +10015,7 @@ private fun SettingsHub(
         // ------------------------------------------------ System
         item(key = "hub-system") {
             SettingsHubCard(
+                modifier = Modifier.marbleStaggerIn(5, enabled = entranceArmed()),
                 title = t.categorySystem,
                 subtitle = "Notifications, engine, general and information",
                 tone = Aether.SlateBright
@@ -11203,14 +11373,12 @@ private fun SpatialSettings(
         transitionSpec = {
             // Forward pages slide in from the trailing edge, back slides out to it: the direction of
             // travel always matches the direction of the hierarchy.
+            // MARBLE_EXPRESSIVE_MOTION_V186 — that travel now rides the expressive shared axis:
+            // the arriving page decelerates in over the full Long1 curve while the departing page
+            // accelerates away on a shorter one, so the pair never crosses at equal strength and
+            // a hierarchy move reads as one deliberate gesture.
             val direction = if (targetState == SettingsPages.HUB) -1 else 1
-            (
-                slideInHorizontally(MarbleMotionSpecs.Spatial) { it / 7 * direction } +
-                    fadeIn(MarbleMotionSpecs.ResponseFloat)
-                ) togetherWith (
-                slideOutHorizontally(MarbleMotionSpecs.SpatialExit) { -it / 7 * direction } +
-                    fadeOut(MarbleMotionSpecs.ExitFloat)
-                )
+            expressiveSharedAxisX(direction)
         },
         label = "settings-page"
     ) { target ->
@@ -12215,10 +12383,11 @@ private fun ServerIntelHomeCard(repo: AppRepository) {
                 )
             }
             when {
-                repo.serverIntelLoading -> CircularProgressIndicator(
+                repo.serverIntelLoading -> MarbleExpressiveCircularIndicator(
                     modifier=Modifier.size(22.dp),
                     color=Aether.Cyan,
-                    strokeWidth=2.dp
+                    strokeWidth=2.dp,
+                    arcCount=3
                 )
                 info != null -> HoloBadge("READY",Aether.Emerald,true)
                 selected == null -> HoloBadge("NO ROUTE",Aether.InkMuted,true)

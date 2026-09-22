@@ -205,6 +205,12 @@ files = {
     "marbleApp": read("app/src/main/java/com/marbleng/app/ui/MarbleApp.kt"),
     "homeStudio": read("app/src/main/java/com/marbleng/app/ui/MarbleHomeStudio.kt"),
     "connectPlacement": read("app/src/main/java/com/marbleng/app/ui/MarbleConnectPlacement.kt"),
+    # MARBLE_EXPRESSIVE_MOTION_V186 — the motion chapter: its library, the shared motion clock it
+    # extends, the pure-math test that pins the wave/stagger/depth contracts, and the chapter.
+    "expressive": read("app/src/main/java/com/marbleng/app/ui/MarbleExpressive.kt"),
+    "motion": read("app/src/main/java/com/marbleng/app/ui/MarbleMotion.kt"),
+    "expressiveTest": read("app/src/test/java/com/marbleng/app/ui/MarbleExpressiveMathV186Test.kt"),
+    "expressiveDoc": read("docs/EXPRESSIVE_MOTION_V186.md"),
     "tile": read("app/src/main/java/com/marbleng/app/quicktile/MarbleQuickTileService.kt"),
     "manifest": read("app/src/main/AndroidManifest.xml"),
     "security": read("app/src/main/res/xml/network_security_config.xml"),
@@ -2262,6 +2268,90 @@ check(
     and "class ReservedTagCollisionV183Test" in files["reservedTagTest"]
     and "existing tag found: block" in files["reservedTagTest"]
     and "MARBLE_RESERVED_TAG_COLLISION_V183" in files["reservedTagDoc"],
+)
+
+# MARBLE_EXPRESSIVE_MOTION_V186 — the motion chapter is a library, an adoption and a contract.
+# The library holds the Material 3 Expressive tokens (emphasized curves, duration ladder,
+# stagger step), the physical specs (release/pop/settle springs, entrance and roll pieces) and
+# the pure wave math; the product UI must actually run on it — wavy indicators, arrival
+# cascades, page depth, rolling readouts and the expressive transitions; the pure math is
+# pinned by a named test class; and the chapter document explains the boundary. A design
+# chapter that stops being used is drift, and drift is what this checker catches.
+check(
+    "V186 expressive motion library holds its tokens, specs and pure math",
+    "object MarbleExpressiveMotion" in files["expressive"]
+    and "object MarbleExpressiveSpecs" in files["expressive"]
+    and "object ExpressiveMath" in files["expressive"]
+    and "val EmphasizedDecelerate" in files["expressive"]
+    and "val EmphasizedAccelerate" in files["expressive"]
+    and "const val StaggerStepMs" in files["expressive"]
+    and "fun staggerDelayMs(" in files["expressive"]
+    and "fun arcSweep(" in files["expressive"]
+    and "STAGGER_MAX_INDEX" in files["expressive"]
+    and "SpringReleaseFloat" in files["expressive"]
+    and "WaveSpringFloat" in files["expressive"],
+)
+check(
+    "V186 expressive components, modifiers and transitions exist",
+    "fun MarbleExpressiveCircularIndicator(" in files["expressive"]
+    and "fun MarbleExpressiveLinearIndicator(" in files["expressive"]
+    and "fun MarbleExpressiveValueText(" in files["expressive"]
+    and "fun MarbleExpressiveGlyphSwap(" in files["expressive"]
+    and "fun Modifier.marbleStaggerIn(" in files["expressive"]
+    and "fun Modifier.marbleSpringIn(" in files["expressive"]
+    and "fun Modifier.marblePopWhen(" in files["expressive"]
+    and "fun Modifier.marblePageDepth(" in files["expressive"]
+    and "fun Modifier.expressiveClickable(" in files["expressive"]
+    and "fun rememberMarbleEntranceWindow(" in files["expressive"]
+    and "fun rememberExpressiveMorphShape(" in files["expressive"]
+    and "expressiveContainerTransform(" in files["expressive"]
+    and "expressiveSharedAxisX(" in files["expressive"]
+    and "fun expressiveFadeThrough(" in files["expressive"],
+)
+check(
+    "V186 the product UI actually runs on the expressive library",
+    "MarbleExpressiveCircularIndicator(" in files["ui"]
+    and "MarbleExpressiveLinearIndicator(" in files["ui"]
+    and "MarbleExpressiveValueText(" in files["ui"]
+    and "marbleStaggerIn(" in files["ui"]
+    and "marblePopWhen(" in files["ui"]
+    and "marblePageDepth" in files["ui"]
+    and "expressiveContainerTransform(" in files["ui"]
+    and "expressiveSharedAxisX(" in files["ui"]
+    and "rememberMarbleEntranceWindow(" in files["ui"]
+    and "marbleStaggerIn(" in files["homeStyles"]
+    and "ExpressiveMath.arcSweep(" in files["homeStyles"]
+    and "MarbleExpressiveGlyphSwap(" in files["homeStyles"]
+    and "rememberMarbleEntranceWindow(" in files["homeStyles"]
+    and "MarbleExpressiveValueText(" in files["homeStudio"]
+    and "marblePopWhen(" in files["homeStudio"]
+    and "ExpressiveMath." in files["homeStudio"]
+    and "marbleStaggerIn(" in files["permissions"]
+    and "rememberMarbleEntranceWindow(" in files["permissions"]
+    and "releaseSpec" in files["motion"]
+    and "MarbleExpressiveShapes" in files["theme"]
+    and "MARBLE_EXPRESSIVE_MOTION_V186" in files["design"],
+)
+check(
+    "V186 the elastic surface keeps the fixed-slot and determinism contracts",
+    # The V135 reveal stays opacity-only: the meter column keeps its reserved 150 dp slot.
+    ".width(150.dp)" in files["homeStudio"]
+    and "graphicsLayer { alpha = presence }" in files["homeStudio"]
+    # The slide controls keep their committed thresholds and park behavior (V146).
+    and "val threshold = .78f" in files["homeStyles"]
+    and "maxDragPx * 0.65f" in files["homeStyles"]
+    and "MARBLE_SLIDE_PARK_V146" in files["homeStyles"]
+    # The floating shutter keeps its pinned geometry.
+    and "fun ConnectButtonFloating(" in files["homeStudio"]
+    and ".size(76.dp)" in files["homeStudio"],
+)
+check(
+    "V186 expressive math is pinned by a named test and explained by a chapter",
+    "class MarbleExpressiveMathV186Test" in files["expressiveTest"]
+    and "staggerDelayMs" in files["expressiveTest"]
+    and "arcSweep" in files["expressiveTest"]
+    and "MARBLE_EXPRESSIVE_MOTION_V186" in files["expressiveDoc"]
+    and "MARBLE_EXPRESSIVE_MOTION_V186" in files["expressive"],
 )
 
 production = "\n".join(

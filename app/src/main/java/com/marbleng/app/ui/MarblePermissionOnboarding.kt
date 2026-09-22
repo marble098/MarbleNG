@@ -63,6 +63,11 @@ fun ConnectionPermissionDialog(
     onDismiss: () -> Unit
 ) {
     val copy = permissionCopy(step)
+    // MARBLE_EXPRESSIVE_MOTION_V186 — the permission dialog arrives as a cascade instead of a
+    // single flash: icon, headline, explanation, assurance row and error line rise one stagger
+    // step apart on the emphasized entrance pair. The window disarms itself, so a step change
+    // that recomposes the dialog mid-life never replays the entrance.
+    val entranceArmed = rememberMarbleEntranceWindow()
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -70,7 +75,9 @@ fun ConnectionPermissionDialog(
         tonalElevation = 0.dp,
         icon = {
             Surface(
-                modifier = Modifier.size(48.dp),
+                modifier = Modifier
+                    .marbleStaggerIn(0, enabled = entranceArmed())
+                    .size(48.dp),
                 shape = RoundedCornerShape(16.dp),
                 color = copy.tone.copy(alpha = .12f),
                 tonalElevation = 0.dp
@@ -92,7 +99,10 @@ fun ConnectionPermissionDialog(
             }
         },
         title = {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Column(
+                modifier = Modifier.marbleStaggerIn(1, enabled = entranceArmed()),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
                 Text(trx(copy.title), color = Aether.Ink)
                 Text(
                     trx(copy.detail),
@@ -102,7 +112,10 @@ fun ConnectionPermissionDialog(
             }
         },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(
+                modifier = Modifier.marbleStaggerIn(2, enabled = entranceArmed()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
                 Text(
                     trx(copy.reason),
                     color = Aether.InkMuted,
@@ -111,6 +124,7 @@ fun ConnectionPermissionDialog(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .marbleStaggerIn(3, enabled = entranceArmed())
                         .background(
                             copy.tone.copy(alpha = .07f),
                             RoundedCornerShape(12.dp)
@@ -133,6 +147,7 @@ fun ConnectionPermissionDialog(
                 if (error.isNotBlank()) {
                     Text(
                         error,
+                        modifier = Modifier.marbleStaggerIn(4, enabled = entranceArmed()),
                         color = Aether.Danger,
                         style = MaterialTheme.typography.bodySmall
                     )

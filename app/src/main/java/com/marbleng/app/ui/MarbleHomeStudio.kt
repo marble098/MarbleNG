@@ -16,8 +16,15 @@ package com.marbleng.app.ui
 //   4. [HomeShortcutDeck]       add / paste / QR / always-visible ping, sitting above the banner.
 //   5. [ConnectButtonStream]    the floor bar with a light band travelling right → left.
 //   6. [ConnectButtonFloating]  the circular shutter pinned to the bottom-end corner (V137).
+//
+// MARBLE_EXPRESSIVE_MOTION_V186 — the Material 3 Expressive motion pass over this file: the
+// ping meter's readout ROLLS on the emphasized curves inside its fixed slot (the V135
+// opacity-only reveal contract survives untouched, only its easing changed), the stream bar's
+// travelling ribbon became a stretching blob, the floating shutter's securing arc breathes,
+// glyphs roll instead of snapping, and every press releases on the bouncy expressive spring.
 
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -261,9 +268,12 @@ internal fun HomeLivePingMeter(
     } else {
         0f
     }
+    // MARBLE_EXPRESSIVE_MOTION_V186 — the gauge needle settles on the expressive progress
+    // spring: it arrives a hair past the new measurement, then rests. Deterministic target,
+    // elastic arrival.
     val animatedFill by animateFloatAsState(
         targetValue = fill,
-        animationSpec = MarbleMotionSpecs.HeroFloat,
+        animationSpec = MarbleExpressiveSpecs.ProgressSettleFloat,
         label = "live-ping-fill"
     )
     val pulse = if (measuring) MarbleMotion.current.loop(1_200) else 0f
@@ -284,9 +294,22 @@ internal fun HomeLivePingMeter(
 
     // MARBLE_LIVE_PING_FIXED_SLOT_V135 — opacity is the ONLY reveal: the slot this column
     // occupies is identical in every state, so nothing around the meter can ever move.
+    // MARBLE_EXPRESSIVE_MOTION_V186 — the reveal stays strictly opacity-only (fixed slot V135:
+    // nothing around the meter may ever move), but it now rides the emphasized pair — it
+    // decelerates into presence and accelerates out of it.
     val presence by animateFloatAsState(
         targetValue = if (visible) 1f else 0f,
-        animationSpec = if (visible) MarbleMotionSpecs.ResponseFloat else MarbleMotionSpecs.ExitFloat,
+        animationSpec = if (visible) {
+            tween(
+                durationMillis = MarbleExpressiveMotion.Medium2,
+                easing = MarbleExpressiveMotion.EmphasizedDecelerate
+            )
+        } else {
+            tween(
+                durationMillis = MarbleExpressiveMotion.Short4,
+                easing = MarbleExpressiveMotion.EmphasizedAccelerate
+            )
+        },
         label = "live-ping-presence"
     )
 
@@ -308,6 +331,7 @@ internal fun HomeLivePingMeter(
                 enabled = visible && homePingTappable(evidence),
                 role = Role.Button,
                 boundedShape = shape,
+                releaseSpec = MarbleExpressiveSpecs.SpringReleaseFloat,
                 onClick = actions.onTestPing
             )
             .semantics { contentDescription = "${t.livePing}: $spokenPing" }
@@ -367,13 +391,16 @@ internal fun HomeLivePingMeter(
             }
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Row(verticalAlignment = Alignment.Bottom) {
-                    Text(
-                        valueLabel,
+                    // MARBLE_EXPRESSIVE_MOTION_V186 — the headline number rolls: each new
+                    // measurement decelerates up into the gauge while the old one accelerates
+                    // away, inside the gauge's own fixed slot. The " ms" companion keeps its
+                    // static place, so the row's geometry never moves.
+                    MarbleExpressiveValueText(
+                        value = valueLabel,
                         color = Aether.Ink,
                         style = MaterialTheme.typography.headlineSmall,
                         fontWeight = FontWeight.Black,
-                        maxLines = 1,
-                        softWrap = false
+                        maxLines = 1
                     )
                     if (measured) {
                         Text(
@@ -619,7 +646,13 @@ private fun HomeDeckButton(
             .background(Aether.VoidElevated.copy(alpha = .92f))
             .border(1.dp, tone.copy(alpha = .30f), shape)
             .semantics { contentDescription = label }
-            .kineticClickable(role = Role.Button, boundedShape = shape, onClick = onClick),
+            .kineticClickable(
+                role = Role.Button,
+                pressScale = .9f,
+                boundedShape = shape,
+                releaseSpec = MarbleExpressiveSpecs.SpringReleaseFloat,
+                onClick = onClick
+            ),
         contentAlignment = Alignment.Center
     ) {
         content()
@@ -686,6 +719,7 @@ internal fun ConnectButtonStream(
                     role = Role.Button,
                     pressScale = .99f,
                     boundedShape = shape,
+                    releaseSpec = MarbleExpressiveSpecs.SpringReleaseFloat,
                     onClick = onToggle
                 )
                 .semantics { contentDescription = "$label connection button" }
@@ -693,7 +727,10 @@ internal fun ConnectButtonStream(
             // The travelling band sits under the content so the glyph and copy stay crisp.
             Canvas(Modifier.matchParentSize()) {
                 // Right → left: the band's centre walks from `width + band` down to `-band`.
-                val bandWidth = size.width * .38f
+                // MARBLE_EXPRESSIVE_MOTION_V186 — the ribbon is a blob, not a stripe: its
+                // width swells and thins once per pass on the wave curve, exactly the
+                // stretching rhythm of the newest Android travelling indicators.
+                val bandWidth = size.width * ExpressiveMath.wavyValue(phase, .24f, .46f)
                 val travel = size.width + bandWidth
                 val x = size.width + bandWidth - travel * phase
                 drawRect(
@@ -824,6 +861,9 @@ internal fun ConnectButtonFloating(
         Box(
             modifier = Modifier
                 .size(76.dp)
+                // MARBLE_EXPRESSIVE_MOTION_V186 — acknowledgement beat on the session flip:
+                // the shutter springs up past rest once, then settles.
+                .marblePopWhen(evidence.connected, peak = 1.06f)
                 .shadow(
                     elevation = 18.dp,
                     shape = CircleShape,
@@ -847,6 +887,7 @@ internal fun ConnectButtonFloating(
                     role = Role.Button,
                     pressScale = .93f,
                     boundedShape = CircleShape,
+                    releaseSpec = MarbleExpressiveSpecs.SpringReleaseFloat,
                     onClick = onToggle
                 )
                 .semantics { contentDescription = "$label floating connection button" },
@@ -866,7 +907,10 @@ internal fun ConnectButtonFloating(
                         drawArc(
                             color = animatedTone.copy(alpha = .85f + .15f * breathe),
                             startAngle = -90f + sweep,
-                            sweepAngle = 100f,
+                            // MARBLE_EXPRESSIVE_MOTION_V186 — the securing arc stretches: the
+                            // sweep oscillates on a second clock (read in the draw phase, so
+                            // it never recomposes) while the arc rotates.
+                            sweepAngle = ExpressiveMath.arcSweep(motion.loop(1_900), 70f, 132f),
                             useCenter = false,
                             topLeft = Offset(c.x - r * .86f, c.y - r * .86f),
                             size = Size(r * 1.72f, r * 1.72f),
@@ -898,11 +942,18 @@ internal fun ConnectButtonFloating(
                     )
                 }
             }
-            HomeGlyphIcon(
-                connectButtonGlyph(evidence),
-                animatedTone,
-                Modifier.size(76.dp * iconFraction)
-            )
+            // MARBLE_EXPRESSIVE_MOTION_V186 — the glyph rolls inside the animated icon slot
+            // instead of snapping when the session flips.
+            MarbleExpressiveGlyphSwap(
+                key = connectButtonGlyph(evidence),
+                modifier = Modifier.size(76.dp * iconFraction)
+            ) {
+                HomeGlyphIcon(
+                    connectButtonGlyph(evidence),
+                    animatedTone,
+                    Modifier.size(76.dp * iconFraction)
+                )
+            }
         }
         Spacer(Modifier.height(6.dp))
         ConnectButtonCaption(evidence, animatedTone)
