@@ -11,6 +11,13 @@ package com.marbleng.app.ui
 // MARBLE_PRISM_BUTTON_SYSTEM_DS_V65
 // MARBLE_PRISM_RIM_AND_SEARCH_FRAME_DS_V66
 // MARBLE_BUTTON_TEXT_RECT_REMOVED_DS_V68
+// MARBLE_EXPRESSIVE_MOTION_V186 — the design system's controls answer the finger with the
+// newest Android's physics: buttons morph toward a pill while pressed and spring back with one
+// visible overshoot, selection tiles pop once when chosen, icon controls bounce on release,
+// live metric values roll instead of hard-swapping, and the securing arc of the connection stage
+// stretches and contracts on the shared frame clock (the wavy rhythm of the expressive loaders).
+// Geometry contracts are untouched: one hairline, one shadow, no nested translucency, and every
+// fixed slot stays exactly as large as it was.
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
@@ -20,6 +27,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.border
 import androidx.compose.foundation.background
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -430,6 +438,10 @@ internal fun PrismPanel(
     onClick: (() -> Unit)? = null,
     enabled: Boolean = true,
     verticalSpacing: Dp = MarbleSpacing.S,
+    // MARBLE_EXPRESSIVE_MOTION_V186 — a page that wants its cards to cascade in passes each
+    // panel its place in the cascade; the default (-1) keeps the panel perfectly static, so
+    // every existing call site behaves exactly as it did before the expressive chapter.
+    entranceIndex: Int = -1,
     content: @Composable ColumnScope.() -> Unit
 ) {
     val selectedProgress by animateFloatAsState(
@@ -461,6 +473,9 @@ internal fun PrismPanel(
 
     Box(
         modifier=modifier
+            // The cascade lives in the draw layer, above the caller's modifier and below the
+            // depth stack: the shadow, the rim and the fill all travel with the panel.
+            .then(if (entranceIndex >= 0) Modifier.marbleStaggerIn(entranceIndex) else Modifier)
             .shadow(
                 elevation=elevation,
                 shape=shape,
@@ -553,6 +568,12 @@ internal fun PrismWell(
  * `Button`. The Material surface still painted a second, differently-coloured rectangle behind the
  * label even with `containerColor = Transparent` — the box users saw behind every Settings and
  * Library-filter control. One fill, optional hairline, one content colour; no nested surface.
+ *
+ * MARBLE_EXPRESSIVE_MOTION_V186 — the button now presses like the newest Android: the corner
+ * radius softens toward a pill under the finger on a short emphasized curve, the face compresses
+ * to .965, and the release SPRINGS — radius and scale both overshoot rest once before settling.
+ * One interaction source feeds the morph, the press scale and the click, so the three can never
+ * disagree; the fill, the hairline and the label grammar are exactly the V117 flat skin.
  */
 internal enum class PrismButtonVariant { Primary, Secondary, Quiet, Danger }
 
@@ -571,7 +592,15 @@ internal fun PrismButton(
     contentPadding: PaddingValues? = null
 ) {
     val filled=enabled && (variant == PrismButtonVariant.Primary || variant == PrismButtonVariant.Danger)
-    val shape=RoundedCornerShape(if (compact) 11.dp else PrismSurface.ControlRadius)
+    // MARBLE_EXPRESSIVE_MOTION_V186 — the shape is no longer a constant: the button owns one
+    // interaction source, and the radius morphs between its resting corner and the expressive
+    // pressed pill (compact controls stop one step short, see MarbleExpressiveShapes).
+    val interactionSource = remember { MutableInteractionSource() }
+    val shape = rememberExpressiveMorphShape(
+        interactionSource = interactionSource,
+        restRadius = if (compact) 11.dp else PrismSurface.ControlRadius,
+        pressedRadius = if (compact) MarbleExpressiveShapes.CompactButtonPressRadius else MarbleExpressiveShapes.ButtonPressRadius
+    )
 
     val accent=if (variant == PrismButtonVariant.Danger) Aether.Danger else tone
     val content=when {
@@ -619,6 +648,9 @@ internal fun PrismButton(
                     enabled=enabled,
                     role=Role.Button,
                     boundedShape=shape,
+                    pressScale=.965f,
+                    interactionSource=interactionSource,
+                    releaseSpec=MarbleExpressiveSpecs.SpringReleaseFloat,
                     onClick=onClick
                 )
                 .padding(pad),
@@ -702,10 +734,15 @@ internal fun PrismIconButton(
                 if (descriptiveLabel.isBlank()) Modifier
                 else Modifier.semantics { contentDescription=descriptiveLabel }
             )
+            // MARBLE_EXPRESSIVE_MOTION_V186 — icon controls compress a touch deeper and spring
+            // back with the expressive overshoot: a round target under the thumb should feel
+            // like a physical key, not a dimmer.
             .kineticClickable(
                 enabled=enabled,
                 role=Role.Button,
+                pressScale=.93f,
                 boundedShape=shape,
+                releaseSpec=MarbleExpressiveSpecs.SpringReleaseFloat,
                 onClick=onClick
             ),
         contentAlignment=Alignment.Center
@@ -812,11 +849,17 @@ internal fun PrismSelectionTile(
                 if (selected) tone.copy(alpha=.42f) else tone.copy(alpha=.10f),
                 shape
             )
+            // MARBLE_EXPRESSIVE_MOTION_V186 — one acknowledgement pop the instant the tile
+            // becomes selected: 1 → 1.045 → 1 on the pop spring, then perfectly still. The
+            // wash and the ink remain the persistent selection grammar; the pop is only the
+            // beat that says "your choice landed". It is a draw-layer scale, so the tile's
+            // measured box — and every tile around it — never moves.
+            .marblePopWhen(selected, peak = 1.045f)
             // MARBLE_SELECTION_TILE_INDICATION_REMOVED_DS_V69
             // The tile already signals selection through fill and ink. Material3's ripple
             // state layer composited as a semi-transparent off-white rectangle behind the
             // detail text. Suppressing the indication leaves press scale intact.
-            .kineticClickable(enabled=enabled, role=Role.Button, boundedShape=shape, showIndication=false, onClick=onClick)
+            .kineticClickable(enabled=enabled, role=Role.Button, boundedShape=shape, showIndication=false, releaseSpec=MarbleExpressiveSpecs.SpringReleaseFloat, onClick=onClick)
             .padding(horizontal=13.dp,vertical=9.dp),
         verticalAlignment=Alignment.CenterVertically,
         horizontalArrangement=when (alignment) {
@@ -1056,8 +1099,12 @@ internal fun MarbleMetricCard(
                 )
             }
             Row(verticalAlignment=Alignment.Bottom) {
-                Text(
-                    value,
+                // MARBLE_EXPRESSIVE_MOTION_V186 — the readout rolls: a live metric that updates
+                // while the user watches decelerates its new value up into the slot instead of
+                // hard-swapping digits. The roll happens inside the Text's own box, so the bento
+                // cell never changes size mid-measurement.
+                MarbleExpressiveValueText(
+                    value=value,
                     color=if(value=="—") Aether.InkMuted else tone,
                     style=MaterialTheme.typography.headlineMedium.copy(
                         fontFamily=FontFamily.Monospace,
@@ -1353,7 +1400,11 @@ internal fun PrismConnectionStage(
 
             val sweep=when {
                 connected && qualityScore>=0 -> 360f*progress
-                connecting -> 110f
+                // MARBLE_EXPRESSIVE_MOTION_V186 — the securing arc is wavy now: it stretches and
+                // contracts on the same shared clock phase that rotates it, the arc rhythm of the
+                // newest Android loaders. A rigid 110° sweep rotating at constant speed read as a
+                // mechanical spinner; the wave reads as work genuinely in flight.
+                connecting -> ExpressiveMath.arcSweep(phase, 72f, 142f)
                 blocked -> 300f
                 else -> 78f
             }

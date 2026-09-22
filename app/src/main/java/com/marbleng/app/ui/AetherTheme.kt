@@ -7,6 +7,7 @@ package com.marbleng.app.ui
 // MARBLE_PRISM_THEME_V54
 // MARBLE_NAVY_BRAND_THEME_V77
 // MARBLE_MATERIAL_YOU_REFRESH_V185
+// MARBLE_EXPRESSIVE_MOTION_V186
 // The whole identity is re-anchored on the Marble navy/ice/electric blue ramp:
 //   #000033 deep navy  •  #001144 dark navy  •  #0066CC electric  •  #3399FF bright
 //   #ADD8E6 ice        •  #E0FFFF ice white   •  #F0F8FF alice     •  #FFFFFF white
@@ -427,6 +428,31 @@ val AetherShapes = Shapes(
     large = RoundedCornerShape(28.dp),
     extraLarge = RoundedCornerShape(32.dp)
 )
+
+/**
+ * MARBLE_EXPRESSIVE_MOTION_V186 — the shape-morph endpoints of the expressive control language.
+ *
+ * Material 3 Expressive controls do not hold one shape: a button softens toward a pill under the
+ * finger and springs back on release (see [rememberExpressiveMorphShape]). These tokens are the
+ * two ends of that morph for each control family, so every pressable surface in the product
+ * bends by the same amount instead of each call site inventing its own pressed radius:
+ *
+ *  • [ButtonPressRadius] — the pressed end of every standard control: a full pill. Compose
+ *    clamps corner radii at half the box when drawing, so one large value reads as "fully round"
+ *    on a 46 dp button and on a 54 dp detail button alike.
+ *  • [CompactButtonPressRadius] — the pressed end of compact controls, one step short of the
+ *    pill so dense rows morph without their buttons turning into circles.
+ *  • [TilePressRadius] — selection tiles soften by two steps, never all the way: a tile is a
+ *    surface you choose, not an action you fire, and the smaller bend keeps the two grammar.
+ *
+ * Resting radii stay wherever V185 put them ([PrismSurface], [AetherShapes], HomeCloud); this
+ * object only names where a press takes them.
+ */
+internal object MarbleExpressiveShapes {
+    val ButtonPressRadius = 999.dp
+    val CompactButtonPressRadius = 24.dp
+    val TilePressRadius = 22.dp
+}
 
 /**
  * MARBLE_NIGHT_OUTLINES_V112 — the user's dark-theme hairline personality.

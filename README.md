@@ -40,10 +40,46 @@ It focuses on real proxy verification, fast one-tap connection, fail-closed rout
 - Signed multi-ABI APKs built by GitHub Actions.
 - Remembers the last ping of every server across restarts, updates and process death.
 - A **fourth tab you fill yourself** — a subscription, one config, or the live pulse of the route.
+- **Material 3 Expressive motion** — stretching loaders, cascading arrivals, rolling readouts and springy releases on every control.
+
+## Motion that feels like the newest Android
+
+`docs/EXPRESSIVE_MOTION_V186.md` is the newest chapter.
+
+**Every movement in MarbleNG now speaks Material 3 Expressive**, the motion language shipping on
+current Android — built entirely from primitives every supported device has, so minSdk stays 26
+and no behavior changes. One new library (`MarbleExpressive.kt`) holds the emphasized curves,
+the duration ladder, the release springs and the pure, unit-tested wave math; the whole product
+was rewired through it:
+
+- **Loaders stretch.** Every spinner and progress bar — the busy top bar, the probe strip, the
+  securing rings of all five connect silhouettes, refresh and testing spinners down to 11 dp —
+  is now a wavy indicator whose arcs grow long and snap short on the shared frame clock, the
+  signature rhythm of the newest Android.
+- **Screens arrive in cascades.** All four Home themes, the Servers library, the Settings hub,
+  the custom dock page and the permission dialog stagger their content in one 45 ms step apart,
+  through a self-disarming entrance window: a screen arrives once, and scrolling or filtering
+  never replays the arrival.
+- **Numbers roll.** The home status word, the ping badge, the live meter headline and the metric
+  cards exchange values on the emphasized pair — the new value decelerates up into the fixed
+  slot while the old one accelerates away. Nothing around a readout ever moves.
+- **Releases spring.** Every press lets go with one visible overshoot; a short drag on either
+  slide-to-connect control squishes the knob against the track wall before it settles; buttons
+  morph their corner radius while pressed; selections and session flips pop once as
+  acknowledgement.
+- **Navigation has depth.** Pages parallax and shrink inside the pager, Home → connection
+  detail runs a container transform, and Settings sub-pages ride the shared X axis.
+- **A protected tunnel reads as alive.** The status pip emits a soft double ring every 2.6
+  seconds — strictly inside its own 13 dp slot.
+
+The guarantees survive the elastic surface: the V135 opacity-only ping reveal, the compact
+banner geometry, the slide thresholds and park behavior, deterministic metric bands, and full
+respect for the system "remove animations" setting — with motion off, every spinner, ring and
+cascade rests at its exact target value.
 
 ## The Material refresh
 
-`docs/MATERIAL_REFRESH_V185.md` is the newest chapter.
+`docs/MATERIAL_REFRESH_V185.md` is the previous chapter.
 
 **MarbleNG now wears the newest Google Material language.** The type ramp follows the Material 3
 scale with unambiguous steps between display, headline, title and body; cards, containers and

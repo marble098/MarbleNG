@@ -185,6 +185,16 @@ fun ProvideMarbleMotion(content: @Composable () -> Unit) {
  *
  * This modifier deliberately owns click semantics as well as scale/lift feedback so callers never
  * stack multiple gesture detectors on the same control.
+ *
+ * MARBLE_EXPRESSIVE_MOTION_V186 — two additive knobs, both defaulting to the exact V34 behavior:
+ *  • [interactionSource] lets a caller OWN the gesture source so a second expressive effect can
+ *    observe the same press — the shape morph of [rememberExpressiveMorphShape] must read the
+ *    very press the click handler reads, and two sources on one control can disagree by a frame;
+ *  • [releaseSpec] lets a caller trade the release physics without touching the press-in: the
+ *    expressive controls pass the spring-back spec so the button overshoots rest once on the way
+ *    out ([MarbleExpressiveSpecs.SpringReleaseFloat]), while every existing caller keeps the
+ *    overshoot-free interaction spring — including the dock, where MARBLE_DOCK_STABLE_COLOR_V115
+ *    bans bounce for good reason.
  */
 fun Modifier.kineticClickable(
     enabled: Boolean = true,
@@ -192,18 +202,20 @@ fun Modifier.kineticClickable(
     pressScale: Float = .972f,
     boundedShape: Shape = RoundedCornerShape(22.dp),
     showIndication: Boolean = true,
+    interactionSource: MutableInteractionSource? = null,
+    releaseSpec: FiniteAnimationSpec<Float> = MarbleMotionSpecs.InteractionFloat,
     onClick: () -> Unit
 ): Modifier = composed {
-    val interactionSource = remember { MutableInteractionSource() }
-    val pressed by interactionSource.collectIsPressedAsState()
+    val ownedSource = interactionSource ?: remember { MutableInteractionSource() }
+    val pressed by ownedSource.collectIsPressedAsState()
     val scale by animateFloatAsState(
         targetValue = if (enabled && pressed) pressScale else 1f,
-        animationSpec = MarbleMotionSpecs.InteractionFloat,
+        animationSpec = if (pressed) MarbleMotionSpecs.InteractionFloat else releaseSpec,
         label = "kinetic-press-scale"
     )
     val lift by animateFloatAsState(
         targetValue = if (enabled && pressed) 1.6f else 0f,
-        animationSpec = MarbleMotionSpecs.InteractionFloat,
+        animationSpec = if (pressed) MarbleMotionSpecs.InteractionFloat else releaseSpec,
         label = "kinetic-press-lift"
     )
     // MARBLE_SELECTION_TILE_INDICATION_REMOVED_DS_V69
@@ -224,7 +236,7 @@ fun Modifier.kineticClickable(
             clip = true
         }
         .clickable(
-            interactionSource = interactionSource,
+            interactionSource = ownedSource,
             indication = indication,
             enabled = enabled,
             role = role,
