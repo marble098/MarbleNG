@@ -552,6 +552,10 @@ class AppStore(context: Context) {
         dockSlotProfileSourceId = prefs.getString("dockSlotProfileSourceId", "") ?: "",
         dockSlotLabel = dockSlotCaption(prefs.getString("dockSlotLabel", "") ?: ""),
         dockSlotIcon = parseDockSlotIcon(prefs.getString("dockSlotIcon", DockSlotIcon.DEFAULT.id) ?: DockSlotIcon.DEFAULT.id).id,
+        dockSlotAccent = parseDockSlotAccent(
+            prefs.getString("dockSlotAccent", DockSlotAccent.DEFAULT.id) ?: DockSlotAccent.DEFAULT.id
+        ).id,
+        dockSlotShowStatusBadge = prefs.getBoolean("dockSlotShowStatusBadge", true),
 
         debugModeEnabled = prefs.getBoolean("debugModeEnabled", false),
         expertMode = prefs.getBoolean("expertMode", false)
@@ -769,6 +773,8 @@ class AppStore(context: Context) {
         .putString("dockSlotProfileSourceId", s.dockSlotProfileSourceId.trim())
         .putString("dockSlotLabel", dockSlotCaption(s.dockSlotLabel))
         .putString("dockSlotIcon", parseDockSlotIcon(s.dockSlotIcon).id)
+        .putString("dockSlotAccent", parseDockSlotAccent(s.dockSlotAccent).id)
+        .putBoolean("dockSlotShowStatusBadge", s.dockSlotShowStatusBadge)
 
         .putBoolean("debugModeEnabled", s.debugModeEnabled)
         .putBoolean("expertMode", s.expertMode)

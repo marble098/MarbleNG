@@ -707,6 +707,28 @@ fun parseDockSlotIcon(raw: String): DockSlotIcon =
             else -> DockSlotIcon.DEFAULT
         }
 
+/** Accent family for the user's fourth navigation slot. */
+enum class DockSlotAccent(val id: String) {
+    OCEAN("ocean"),
+    MINT("mint"),
+    VIOLET("violet"),
+    AMBER("amber");
+
+    companion object {
+        val DEFAULT: DockSlotAccent get() = OCEAN
+    }
+}
+
+fun parseDockSlotAccent(raw: String): DockSlotAccent =
+    DockSlotAccent.entries.firstOrNull { it.id.equals(raw.trim(), ignoreCase = true) }
+        ?: when (raw.trim().uppercase()) {
+            "CYAN", "BLUE", "ICE" -> DockSlotAccent.OCEAN
+            "GREEN", "EMERALD" -> DockSlotAccent.MINT
+            "PURPLE", "AMETHYST" -> DockSlotAccent.VIOLET
+            "GOLD", "YELLOW" -> DockSlotAccent.AMBER
+            else -> DockSlotAccent.DEFAULT
+        }
+
 /** Longest caption the dock will draw for the fourth slot, in characters. */
 const val DOCK_SLOT_CAPTION_MAX: Int = 14
 
@@ -1307,6 +1329,10 @@ data class AppSettings(
     val dockSlotLabel: String = "",
     /** The glyph the slot draws: see [DockSlotIcon]. */
     val dockSlotIcon: String = DockSlotIcon.DEFAULT.id,
+    /** The independent accent used by the fourth tab's selection pill and customization preview. */
+    val dockSlotAccent: String = DockSlotAccent.DEFAULT.id,
+    /** Show a small live connection-state dot over the fourth tab's glyph. */
+    val dockSlotShowStatusBadge: Boolean = true,
 
     /** MARBLE_BILINGUAL_V110 — "system" follows the device locale; "en"/"fa" are overrides. */
     val appLanguage: String = AppLanguage.SYSTEM.id,

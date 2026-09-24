@@ -243,8 +243,29 @@ private fun rememberedSpatialTab(name: String): SpatialTab =
 private data class DockSlotChrome(
     val enabled: Boolean,
     val caption: String,
-    val icon: DockSlotIcon
+    val icon: DockSlotIcon,
+    val accent: Color,
+    val showStatusBadge: Boolean,
+    val statusTone: Color,
+    val statusDescription: String
 )
+
+@Composable
+private fun dockSlotAccentTone(accent: DockSlotAccent): Color = when (accent) {
+    DockSlotAccent.OCEAN -> Aether.Cyan
+    DockSlotAccent.MINT -> Aether.Emerald
+    DockSlotAccent.VIOLET -> Aether.AmethystBright
+    DockSlotAccent.AMBER -> Aether.Amber
+}
+
+@Composable
+private fun dockSlotStateTone(state: String): Color = when (state.trim().uppercase()) {
+    "CONNECTED" -> Aether.Emerald
+    "CONNECTING" -> Aether.CyanBright
+    "DISCONNECTING" -> Aether.Amber
+    "BLOCKED" -> Aether.Danger
+    else -> Aether.InkFaint
+}
 
 /**
  * MARBLE_DOCK_SLOT_V167 — what the fourth slot currently points at, resolved against the library.
@@ -511,12 +532,17 @@ fun Aether2026App(
     // not write) and the glyph it draws. The two can never disagree, because there is one value.
     val slotKind = parseDockSlotKind(repo.settings.dockSlotKind)
     val slotTarget = dockSlotTarget(repo, slotKind)
+    val slotStatusTone = dockSlotStateTone(repo.state)
     val slotChrome = DockSlotChrome(
         enabled = repo.settings.dockSlotEnabled,
         caption = dockSlotCaption(repo.settings.dockSlotLabel).ifBlank {
             dockSlotCaptionText(slotKind, slotTarget.displayName)
         },
-        icon = parseDockSlotIcon(repo.settings.dockSlotIcon)
+        icon = parseDockSlotIcon(repo.settings.dockSlotIcon),
+        accent = dockSlotAccentTone(parseDockSlotAccent(repo.settings.dockSlotAccent)),
+        showStatusBadge = repo.settings.dockSlotShowStatusBadge,
+        statusTone = slotStatusTone,
+        statusDescription = homeStatusText(deck.evidence)
     )
 
     // MARBLE_DOCK_CUSTOM_V145 — the dock's chosen footprint is published once, so the bar and
@@ -1269,24 +1295,26 @@ private fun FloatingSpatialDock(
                 // bar, the pager and persistence can never disagree about what a tab is.
                 if (item == SpatialTab.CUSTOM && !slot.enabled) return@forEach
                 val active = item == selected
+                val isCustomSlot = item == SpatialTab.CUSTOM
+                val slotAccent = if (isCustomSlot) slot.accent else Aether.Cyan
                 // MARBLE_MATERIAL_YOU_REFRESH_V185 — the tab pill rounds with the taller refreshed bar.
                 val glassShape = RoundedCornerShape(22.dp)
 
-                // MARBLE_DOCK_STABLE_COLOR_V115 — a spring interpolates past its target on the
-                // way in (underdamped) and that overshoot flashed the pill/text on every click
-                // and theme switch, so the chrome animates with a short overshoot-free tween.
+                // MARBLE_DOCK_STABLE_COLOR_V115 — the selected custom tab now uses its own saved
+                // accent, while the three permanent tabs keep the brand cyan. All three chrome
+                // layers still settle on the overshoot-free dock tween.
                 val inkTone by animateColorAsState(
-                    targetValue = if (active) Aether.Cyan else Aether.InkMuted,
+                    targetValue = if (active) slotAccent else Aether.InkMuted,
                     animationSpec = MarbleMotionSpecs.DockColor,
                     label = "dock-tone-${item.name}"
                 )
                 val pillBg by animateColorAsState(
-                    targetValue = if (active) Aether.Cyan.copy(alpha = .16f) else Color.Transparent,
+                    targetValue = if (active) slotAccent.copy(alpha = .16f) else Color.Transparent,
                     animationSpec = MarbleMotionSpecs.DockColor,
                     label = "dock-pill-${item.name}"
                 )
                 val indicatorTone by animateColorAsState(
-                    targetValue = if (active) Aether.Cyan.copy(alpha = .34f) else Color.Transparent,
+                    targetValue = if (active) slotAccent.copy(alpha = .34f) else Color.Transparent,
                     animationSpec = MarbleMotionSpecs.DockColor,
                     label = "dock-indicator-${item.name}"
                 )
@@ -1311,7 +1339,12 @@ private fun FloatingSpatialDock(
                             contentDescription = "${
                                 if (item == SpatialTab.CUSTOM) slot.caption else item.label
                             } tab"
-                            stateDescription = if (active) "Selected" else "Not selected"
+                            stateDescription = when {
+                                active && isCustomSlot && slot.showStatusBadge ->
+                                    "Selected • ${slot.statusDescription}"
+                                active -> "Selected"
+                                else -> "Not selected"
+                            }
                         },
                     horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically
@@ -1319,20 +1352,33 @@ private fun FloatingSpatialDock(
                     if (metrics.showIcons) {
                         // MARBLE_EXPRESSIVE_MOTION_V186 — the acknowledgement lives INSIDE the
                         // pill: when a tab wakes, its glyph pops once (1 → 1.18 → 1 on the pop
-                        // spring) and is perfectly still again. THE BAR ITSELF STILL NEVER MOVES
-                        // (MARBLE_DOCK_STILL_BAR_V132) and the chrome colours still ride the
-                        // overshoot-free dock tweens (MARBLE_DOCK_STABLE_COLOR_V115) — this is a
-                        // draw-layer scale on the icon alone, one beat per selection change, no
-                        // loop and no frame callback of its own.
-                        MarbleTabIcon(
-                            tab = item,
-                            color = inkTone,
-                            active = active,
-                            slotIcon = slot.icon,
+                        // spring) and is perfectly still again. THE BAR ITSELF STILL NEVER MOVES.
+                        // The custom slot's live state dot is pinned to the glyph's own box, so it
+                        // adds information without moving the icon, label or dock geometry.
+                        Box(
                             modifier = Modifier
                                 .size(metrics.iconSize)
-                                .marblePopWhen(active, peak = 1.18f)
-                        )
+                                .marblePopWhen(active, peak = 1.18f),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            MarbleTabIcon(
+                                tab = item,
+                                color = inkTone,
+                                active = active,
+                                slotIcon = slot.icon,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                            if (isCustomSlot && slot.showStatusBadge) {
+                                Box(
+                                    modifier = Modifier
+                                        .align(Alignment.TopEnd)
+                                        .size(if (metrics.size == DockSize.SMALL) 7.dp else 8.dp)
+                                        .clip(CircleShape)
+                                        .background(slot.statusTone)
+                                        .border(1.5.dp, dockSurface, CircleShape)
+                                )
+                            }
+                        }
                     }
                     if (metrics.showIcons && metrics.showLabels) {
                         Spacer(Modifier.width(7.dp))
@@ -1350,6 +1396,15 @@ private fun FloatingSpatialDock(
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             letterSpacing = 0.01.sp
+                        )
+                    }
+                    if (isCustomSlot && slot.showStatusBadge && metrics.showLabels && !metrics.showIcons) {
+                        Spacer(Modifier.width(5.dp))
+                        Box(
+                            Modifier
+                                .size(7.dp)
+                                .clip(CircleShape)
+                                .background(slot.statusTone)
                         )
                     }
                 }
@@ -2888,43 +2943,9 @@ private fun CyberDeck(
         // that appears at the top while a ping is running.
         NationalEventBanner(repo = repo, modifier = Modifier.align(Alignment.TopCenter))
 
-        AnimatedVisibility(
-            visible = evidence.connected && evidence.showSpeedWidget,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(start = 20.dp, end = 20.dp, bottom = dockClearance() + 10.dp),
-            // MARBLE_EXPRESSIVE_MOTION_V186 — the speed widget rides up from the page floor on
-            // the decelerate curve and sinks back on the short accelerated exit.
-            enter = fadeIn(MarbleExpressiveSpecs.EntranceFadeFloat) +
-                slideInVertically(MarbleExpressiveSpecs.EntranceRiseSpatial) { it / 2 },
-            exit = fadeOut(tween(MarbleExpressiveMotion.Short4, easing = MarbleExpressiveMotion.EmphasizedAccelerate)) +
-                slideOutVertically(MarbleExpressiveSpecs.RollOutSpatial) { it / 2 }
-        ) {
-            HomeCloudCard(
-                modifier = Modifier.fillMaxWidth(),
-                elevation = 3.dp
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    HomeVectorIcon(HomeIcon.NETWORK, HomeCloud.Accent, Modifier.size(19.dp))
-                    Text(
-                        Tr.now.networkSpeed,
-                        modifier = Modifier.weight(1f),
-                        color = Aether.InkMuted,
-                        style = MaterialTheme.typography.labelSmall
-                    )
-                    Text(
-                        "↓ ${compactRate(evidence.downBps)}   ↑ ${compactRate(evidence.upBps)}",
-                        color = Aether.Ink,
-                        style = MaterialTheme.typography.labelMedium,
-                        fontFamily = FontFamily.Monospace
-                    )
-                }
-            }
-        }
+        // MARBLE_HOME_TELEMETRY_GRID_V187 — optional down/up throughput now lives in the status
+        // card's animated two-cell grid. Keeping it in that card avoids a second floating box
+        // sitting over the Theme 1 page-floor connect track.
 
         if (evidence.blocked && repo.stateDetail.isNotBlank()) {
             Text(
@@ -9662,7 +9683,13 @@ private fun SettingsStyleMotif(style: HomeStyle, tone: Color, modifier: Modifier
  * a picture instead of a sentence.
  */
 @Composable
-private fun SettingsDockSlotPreview(icon: DockSlotIcon, enabled: Boolean, tone: Color) {
+private fun SettingsDockSlotPreview(
+    icon: DockSlotIcon,
+    enabled: Boolean,
+    tone: Color,
+    showStatusBadge: Boolean,
+    badgeTone: Color
+) {
     // Aether is a composition-local palette, so the mark's own ink is read here, in the composable
     // body, and never inside the draw lambda — which is not a composable scope.
     val mark = Aether.Void
@@ -9721,6 +9748,11 @@ private fun SettingsDockSlotPreview(icon: DockSlotIcon, enabled: Boolean, tone: 
                     StrokeCap.Round
                 )
             }
+        }
+        if (enabled && showStatusBadge) {
+            val badgeCenter = Offset(3 * (slot + 3.dp.toPx()) + slot * .78f, h * .24f)
+            drawCircle(mark, radius = 2.0.dp.toPx(), center = badgeCenter)
+            drawCircle(badgeTone, radius = 1.45.dp.toPx(), center = badgeCenter)
         }
     }
 }
@@ -9984,13 +10016,15 @@ private fun SettingsHub(
                         settings,
                         dockSlotTarget(repo, parseDockSlotKind(settings.dockSlotKind))
                     ),
-                    tone = Aether.CyanBright,
+                    tone = dockSlotAccentTone(parseDockSlotAccent(settings.dockSlotAccent)),
                     onClick = { onNavigate(SettingsPages.DOCK_SLOT) }
                 ) {
                     SettingsDockSlotPreview(
                         icon = parseDockSlotIcon(settings.dockSlotIcon),
                         enabled = settings.dockSlotEnabled,
-                        tone = Aether.CyanBright
+                        tone = dockSlotAccentTone(parseDockSlotAccent(settings.dockSlotAccent)),
+                        showStatusBadge = settings.dockSlotShowStatusBadge,
+                        badgeTone = dockSlotStateTone(repo.state)
                     )
                 }
                 SettingsHubRow(
@@ -14821,88 +14855,301 @@ private fun SettingsDockSlotPage(
     val kind = parseDockSlotKind(settings.dockSlotKind)
     val target = dockSlotTarget(repo, kind)
     val icon = parseDockSlotIcon(settings.dockSlotIcon)
+    val accent = dockSlotAccentTone(parseDockSlotAccent(settings.dockSlotAccent))
+    val badgeTone = dockSlotStateTone(repo.state)
     val effectiveCaption = dockSlotCaption(settings.dockSlotLabel).ifBlank {
         dockSlotCaptionText(kind, target.displayName)
     }
 
     SettingsSubPage(
         title = "Fourth tab",
-        subtitle = "What the fourth slot of the bottom bar opens, what it is called and how it looks",
+        subtitle = "Build a shortcut for the route, source or live signal you reach for most",
         onBack = onBack,
         listState = listState
     ) {
-        // The bar itself, at the size the user chose: four slots, the fourth one live.
-        DockSlotBarPreview(
-            caption = effectiveCaption,
-            icon = icon,
-            enabled = settings.dockSlotEnabled,
-            active = true
-        )
+        SettingsHubCard(
+            title = "Live preview",
+            subtitle = "Every change below is applied to the bar immediately",
+            tone = accent
+        ) {
+            DockSlotBarPreview(
+                caption = effectiveCaption,
+                icon = icon,
+                enabled = settings.dockSlotEnabled,
+                active = true,
+                tone = accent,
+                showStatusBadge = settings.dockSlotShowStatusBadge,
+                badgeTone = badgeTone
+            )
+            Text(
+                if (settings.dockSlotEnabled) {
+                    "${dockSlotKindLabel(kind)}  •  ${target.displayName.ifBlank { dockSlotKindDetail(kind) }}"
+                } else {
+                    "The fourth tab is hidden. Turn it back on whenever you want it in the bar."
+                },
+                color = Aether.InkMuted,
+                style = settingsBodyStyle(),
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
 
-        SettingSwitch(
-            title = "Show the fourth tab",
-            subtitle = "Off leaves the three-tab bar this product shipped with; nothing else changes.",
-            checked = settings.dockSlotEnabled
-        ) { repo.updateSettings(repo.settings.copy(dockSlotEnabled = it)) }
+        SettingsHubCard(
+            title = "Availability",
+            subtitle = "Keep four destinations, or return to the original three-tab bar",
+            tone = Aether.Cyan
+        ) {
+            SettingSwitch(
+                title = "Show the fourth tab",
+                subtitle = "Hide it without deleting your saved target, name or appearance.",
+                checked = settings.dockSlotEnabled
+            ) { repo.updateSettings(repo.settings.copy(dockSlotEnabled = it)) }
+        }
 
-        Text(
-            trx("What it opens"),
-            color = Aether.Ink,
-            style = settingsRowTitleStyle()
-        )
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        SettingsHubCard(
+            title = "What this tab opens",
+            subtitle = "Choose the job this slot does; then pick its target below",
+            tone = accent
         ) {
             DockSlotKind.entries.forEach { candidate ->
-                CyberSegment(
-                    label = dockSlotKindLabel(candidate),
-                    detail = dockSlotKindDetail(candidate),
+                DockSlotKindChoice(
+                    kind = candidate,
                     selected = kind == candidate,
-                    color = dockSlotKindTone(candidate),
-                    modifier = Modifier.weight(1f)
+                    tone = if (kind == candidate) accent else dockSlotKindTone(candidate)
                 ) {
                     repo.updateSettings(repo.settings.copy(dockSlotKind = candidate.id))
                 }
             }
         }
 
-        when (kind) {
-            DockSlotKind.PULSE -> Text(
-                trx("The pulse needs no subject: it always shows the route that is carrying traffic, " +
-                    "and the tools act on the whole library."),
-                color = Aether.InkMuted,
-                style = settingsBodyStyle()
-            )
-
-            DockSlotKind.SOURCE -> DockSlotSourcePicker(repo)
-
-            DockSlotKind.CONFIG -> DockSlotConfigPicker(repo, target)
+        SettingsHubCard(
+            title = "Choose the target",
+            subtitle = when (kind) {
+                DockSlotKind.PULSE -> "Live route telemetry follows the connection automatically"
+                DockSlotKind.SOURCE -> "Pin one subscription or the whole library"
+                DockSlotKind.CONFIG -> "Pin one saved config for one-tap access"
+            },
+            tone = dockSlotKindTone(kind)
+        ) {
+            when (kind) {
+                DockSlotKind.PULSE -> Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Box(
+                        Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(accent.copy(alpha = .12f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        HomeGlyphIcon(HomeGlyph.PULSE, accent, Modifier.size(19.dp))
+                    }
+                    Text(
+                        trx("The pulse follows the route carrying traffic and keeps library tools one tap away."),
+                        color = Aether.InkMuted,
+                        style = settingsBodyStyle(),
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                DockSlotKind.SOURCE -> DockSlotSourcePicker(repo)
+                DockSlotKind.CONFIG -> DockSlotConfigPicker(repo, target)
+            }
         }
 
-        DockSlotCaptionField(repo)
-
-        Text(
-            trx("Tab icon"),
-            color = Aether.Ink,
-            style = settingsRowTitleStyle()
-        )
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        SettingsHubCard(
+            title = "Name and symbol",
+            subtitle = "Make the slot recognizable in the narrow bottom bar",
+            tone = accent
         ) {
-            DockSlotIcon.entries.forEach { candidate ->
-                DockSlotIconChoice(
-                    icon = candidate,
-                    selected = icon == candidate,
-                    tone = dockSlotKindTone(kind),
-                    modifier = Modifier.weight(1f)
-                ) {
-                    repo.updateSettings(repo.settings.copy(dockSlotIcon = candidate.id))
+            DockSlotCaptionField(repo)
+            Text(
+                trx("Tab icon"),
+                color = Aether.Ink,
+                style = settingsRowTitleStyle()
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(7.dp)
+            ) {
+                DockSlotIcon.entries.forEach { candidate ->
+                    DockSlotIconChoice(
+                        icon = candidate,
+                        selected = icon == candidate,
+                        tone = accent,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        repo.updateSettings(repo.settings.copy(dockSlotIcon = candidate.id))
+                    }
                 }
             }
         }
+
+        SettingsHubCard(
+            title = "Color and status",
+            subtitle = "Give the fourth destination its own accent and live indicator",
+            tone = accent
+        ) {
+            Text(
+                trx("Accent color"),
+                color = Aether.Ink,
+                style = settingsRowTitleStyle()
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(7.dp)
+            ) {
+                DockSlotAccent.entries.forEach { candidate ->
+                    DockSlotAccentChoice(
+                        accent = candidate,
+                        selected = parseDockSlotAccent(settings.dockSlotAccent) == candidate,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        repo.updateSettings(repo.settings.copy(dockSlotAccent = candidate.id))
+                    }
+                }
+            }
+            SettingSwitch(
+                title = "Live connection dot",
+                subtitle = "Show connected, connecting or stopped state on the fourth tab icon.",
+                checked = settings.dockSlotShowStatusBadge
+            ) { repo.updateSettings(repo.settings.copy(dockSlotShowStatusBadge = it)) }
+        }
     }
+}
+
+/** A full-width, accessible choice card for each of the slot's three real jobs. */
+@Composable
+private fun DockSlotKindChoice(
+    kind: DockSlotKind,
+    selected: Boolean,
+    tone: Color,
+    onClick: () -> Unit
+) {
+    val shape = RoundedCornerShape(15.dp)
+    val fill by animateColorAsState(
+        targetValue = if (selected) tone.copy(alpha = .12f) else homeCloudInsetFill(),
+        animationSpec = MarbleMotionSpecs.Color,
+        label = "dock-kind-fill-${kind.id}"
+    )
+    val border by animateColorAsState(
+        targetValue = if (selected) tone.copy(alpha = .48f) else homeCloudInsetBorder(),
+        animationSpec = MarbleMotionSpecs.Color,
+        label = "dock-kind-border-${kind.id}"
+    )
+    val glyph = when (kind) {
+        DockSlotKind.PULSE -> HomeGlyph.PULSE
+        DockSlotKind.SOURCE -> HomeGlyph.LIBRARY
+        DockSlotKind.CONFIG -> HomeGlyph.BOLT
+    }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(fill)
+            .border(1.dp, border, shape)
+            .kineticClickable(role = Role.RadioButton, boundedShape = shape, onClick = onClick)
+            .semantics { this.selected = selected }
+            .padding(horizontal = 11.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Box(
+            Modifier
+                .size(38.dp)
+                .clip(CircleShape)
+                .background(tone.copy(alpha = .13f)),
+            contentAlignment = Alignment.Center
+        ) {
+            HomeGlyphIcon(glyph, tone, Modifier.size(19.dp))
+        }
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            Text(
+                trx(dockSlotKindLabel(kind)),
+                color = if (selected) tone else Aether.Ink,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                trx(dockSlotKindDetail(kind)),
+                color = Aether.InkFaint,
+                style = MaterialTheme.typography.labelSmall,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        if (selected) {
+            Box(
+                Modifier
+                    .size(20.dp)
+                    .clip(CircleShape)
+                    .background(tone)
+                    .marblePopWhen(selected, peak = 1.12f),
+                contentAlignment = Alignment.Center
+            ) {
+                HomeGlyphIcon(HomeGlyph.CHECK, Color.White, Modifier.size(11.dp))
+            }
+        } else {
+            Box(Modifier.size(20.dp).border(1.dp, Aether.InkFaint.copy(alpha = .4f), CircleShape))
+        }
+    }
+}
+
+/** A clearly labelled accent swatch; changing it immediately recolors the live dock preview. */
+@Composable
+private fun DockSlotAccentChoice(
+    accent: DockSlotAccent,
+    selected: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    val tone = dockSlotAccentTone(accent)
+    val shape = RoundedCornerShape(13.dp)
+    Column(
+        modifier = modifier
+            .heightIn(min = 60.dp)
+            .clip(shape)
+            .background(if (selected) tone.copy(alpha = .13f) else homeCloudInsetFill())
+            .border(
+                1.dp,
+                if (selected) tone.copy(alpha = .5f) else homeCloudInsetBorder(),
+                shape
+            )
+            .kineticClickable(role = Role.RadioButton, boundedShape = shape, onClick = onClick)
+            .semantics { this.selected = selected }
+            .padding(horizontal = 4.dp, vertical = 7.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Box(
+            Modifier
+                .size(18.dp)
+                .clip(CircleShape)
+                .background(tone)
+                .then(if (selected) Modifier.border(2.dp, Aether.Ink.copy(alpha = .22f), CircleShape) else Modifier)
+                .marblePopWhen(selected, peak = 1.12f)
+        )
+        Text(
+            trx(dockSlotAccentLabel(accent)),
+            color = if (selected) tone else Aether.InkMuted,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+private fun dockSlotAccentLabel(accent: DockSlotAccent): String = when (accent) {
+    DockSlotAccent.OCEAN -> "Ocean"
+    DockSlotAccent.MINT -> "Mint"
+    DockSlotAccent.VIOLET -> "Violet"
+    DockSlotAccent.AMBER -> "Amber"
 }
 
 /**
@@ -14915,7 +15162,10 @@ private fun DockSlotBarPreview(
     caption: String,
     icon: DockSlotIcon,
     enabled: Boolean,
-    active: Boolean
+    active: Boolean,
+    tone: Color,
+    showStatusBadge: Boolean,
+    badgeTone: Color
 ) {
     val dim = if (enabled) 1f else .38f
     Row(
@@ -14957,10 +15207,10 @@ private fun DockSlotBarPreview(
                 .weight(1f)
                 .alpha(dim)
                 .clip(RoundedCornerShape(14.dp))
-                .background(if (active) Aether.Cyan.copy(alpha = .16f) else Color.Transparent)
+                .background(if (active) tone.copy(alpha = .16f) else Color.Transparent)
                 .border(
                     1.dp,
-                    if (active) Aether.Cyan.copy(alpha = .34f) else Color.Transparent,
+                    if (active) tone.copy(alpha = .34f) else Color.Transparent,
                     RoundedCornerShape(14.dp)
                 )
                 .padding(vertical = 5.dp),
@@ -14969,13 +15219,14 @@ private fun DockSlotBarPreview(
         ) {
             // Aether is a composition-local palette: the glyph ink is read here, in the composable
             // body, and never inside the draw lambda below.
-            val glyphInk = Aether.Cyan
-            Canvas(Modifier.size(14.dp)) {
-                val w = size.width
-                val h = size.height
-                val stroke = 1.6.dp.toPx()
-                val line = Stroke(width = stroke, cap = StrokeCap.Round)
-                when (icon) {
+            val glyphInk = tone
+            Box(Modifier.size(18.dp)) {
+                Canvas(Modifier.align(Alignment.Center).size(14.dp)) {
+                    val w = size.width
+                    val h = size.height
+                    val stroke = 1.6.dp.toPx()
+                    val line = Stroke(width = stroke, cap = StrokeCap.Round)
+                    when (icon) {
                     DockSlotIcon.PULSE -> drawPath(
                         Path().apply {
                             moveTo(w * .14f, h * .52f)
@@ -15024,12 +15275,23 @@ private fun DockSlotBarPreview(
                         drawLine(glyphInk, Offset(w * .5f, h * .5f), Offset(w * .70f, h * .30f), stroke, StrokeCap.Round)
                         drawLine(glyphInk, Offset(w * .5f, h * .5f), Offset(w * .38f, h * .62f), stroke, StrokeCap.Round)
                     }
+                    }
+                }
+                if (showStatusBadge) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .size(7.dp)
+                            .clip(CircleShape)
+                            .background(badgeTone)
+                            .border(1.5.dp, Aether.VoidElevated, CircleShape)
+                    )
                 }
             }
             Spacer(Modifier.width(5.dp))
             Text(
                 caption,
-                color = if (active) Aether.Cyan else Aether.InkFaint,
+                color = if (active) tone else Aether.InkFaint,
                 style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
@@ -15058,9 +15320,9 @@ private fun DockSlotIconChoice(
     // The chosen glyph draws on its own tone and an unchosen one on the muted ink; both are read
     // here, in the composable body, because the Canvas below is not a composable scope.
     val glyphInk = if (selected) tone else Aether.InkMuted
-    Box(
+    Column(
         modifier = modifier
-            .heightIn(min = 48.dp)
+            .heightIn(min = 62.dp)
             .clip(shape)
             .background(if (selected) tone.copy(alpha = .14f) else homeCloudInsetFill())
             .border(
@@ -15069,8 +15331,10 @@ private fun DockSlotIconChoice(
                 shape
             )
             .kineticClickable(role = Role.RadioButton, boundedShape = shape, onClick = onClick)
-            .semantics { this.selected = selected },
-        contentAlignment = Alignment.Center
+            .semantics { this.selected = selected }
+            .padding(vertical = 6.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(3.dp)
     ) {
         Canvas(Modifier.size(20.dp)) {
             val w = size.width
@@ -15129,7 +15393,22 @@ private fun DockSlotIconChoice(
                 }
             }
         }
+        Text(
+            trx(dockSlotIconLabel(icon)),
+            color = if (selected) tone else Aether.InkMuted,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
+}
+
+private fun dockSlotIconLabel(icon: DockSlotIcon): String = when (icon) {
+    DockSlotIcon.PULSE -> "Pulse"
+    DockSlotIcon.SPARK -> "Spark"
+    DockSlotIcon.LAYERS -> "Layers"
+    DockSlotIcon.BEARING -> "Bearing"
 }
 
 /** One row of a picker: a title, one quiet line, and a trailing count or state. */

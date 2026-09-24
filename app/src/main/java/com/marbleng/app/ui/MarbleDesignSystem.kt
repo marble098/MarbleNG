@@ -16,8 +16,8 @@ package com.marbleng.app.ui
 // visible overshoot, selection tiles pop once when chosen, icon controls bounce on release,
 // live metric values roll instead of hard-swapping, and the securing arc of the connection stage
 // stretches and contracts on the shared frame clock (the wavy rhythm of the expressive loaders).
-// Geometry contracts are untouched: one hairline, one shadow, no nested translucency, and every
-// fixed slot stays exactly as large as it was.
+// Control geometry stays stable: one hairline, no nested translucency, and every fixed slot
+// remains the same size. HomeCloud cards are the deliberate flat-surface exception (zero shadow).
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
@@ -140,17 +140,15 @@ internal fun marbleMetricTone(band: MarbleMetricBand): Color = when (band) {
  * the box and carries one uniform tone edge to edge. The old 82%-translucent fill let the page
  * gradient bleed through unevenly (the card read lighter at the top than at the bottom) and is
  * the same translucent stack the theme layer already banned for causing rectangular compositing
- * bands on real GPUs. Depth now comes from one hairline and a 2 dp shadow, never translucency.
- * The one saturated element remains the selection state: a faint sky fill with a 1.5 dp
- * electric-blue rim.
+ * bands on real GPUs. Home now uses opaque, flat cards with one hairline and no drop shadow;
+ * the one saturated element remains the selection state: a faint sky fill with a 1.5 dp rim.
  *
- * Light values are the product spec (MARBLE_MATERIAL_YOU_REFRESH_V185):
+ * Light values keep the refreshed Material You palette:
  *  - page gradient  `#F8FBFE → #EDF4FB` (near-white at the top, a touch more blue downwards);
- *  - card           solid `White`, `RoundedCornerShape(22.dp)`, `#DEE8F3` 1 dp border,
- *                   `shadowElevation = 2.dp`;
- *  - selected card  `#E7F1FE`, `1.5 dp #3D8BE0` border, `shadowElevation = 3.dp`.
+ *  - card           solid `White`, `RoundedCornerShape(22.dp)`, `#DEE8F3` 1 dp border, no elevation;
+ *  - selected card  `#E7F1FE`, `1.5 dp #3D8BE0` border, no elevation.
  *
- * Dark keeps the same geometry and the same single-accent grammar on AMOLED-friendly tones:
+ * Dark keeps the same geometry and single-accent grammar on AMOLED-friendly tones:
  * a black-to-midnight gradient, navy-lifted ink cards with a slate hairline, and a brighter
  * `#6FB2F2` selection rim on a deep-navy fill.
  */
@@ -158,8 +156,8 @@ internal fun marbleMetricTone(band: MarbleMetricBand): Color = when (band) {
  * MARBLE_MATERIAL_YOU_REFRESH_V185 — the Home surface system adopts the refreshed Material You
  * finish: calm cool page tones, opaque white cards (navy-lifted steps on AMOLED), quiet neutral
  * card hairlines and a deeper, higher-contrast selection accent. Radii round one step up
- * (22 dp cards / 14 dp insets) to match the newest Material corner language. The semantic
- * geometry (one hairline, one shadow, one saturated selection) is unchanged.
+ * (22 dp cards / 14 dp insets) to match the newest Material corner language. Home cards are
+ * intentionally flat: fill + hairline + one saturated selection, never a shadow.
  */
 internal object HomeCloud {
     // Light surface set (the product spec).
@@ -191,8 +189,10 @@ internal object HomeCloud {
     val CardShape = RoundedCornerShape(22.dp)
     val CardRadius = 22.dp
     val InsetShape = RoundedCornerShape(14.dp)
-    val CardElevation = 2.dp
-    val SelectedElevation = 3.dp
+    // MARBLE_HOME_FLAT_SURFACES_V187 — Home cards read through fill + hairline only; the raised
+    // shadows made the first screen feel crowded and are intentionally removed from every card.
+    val CardElevation = 0.dp
+    val SelectedElevation = 0.dp
     val Hairline = 1.dp
     val SelectedHairline = 1.5.dp
 }
@@ -244,9 +244,8 @@ internal fun homeCloudInsetBorder(): Color =
 internal fun homeCloudDivider(): Color = homeCloudInsetBorder()
 
 /**
- * The one Home card container: translucent fill + thin hairline + tiny shadow, exactly the
- * MARBLE_HOME_CLOUD_V140 contract. [selected] switches to the sky fill, the 1.5 dp accent rim
- * and the slightly deeper shadow. No blur, no stacked shadows, no specular edges.
+ * The one Home card container: opaque fill + one thin hairline and no elevation. [selected]
+ * switches to the sky fill and 1.5 dp accent rim. The homepage intentionally has no box shadows.
  */
 @Composable
 internal fun HomeCloudCard(
@@ -307,20 +306,22 @@ internal fun anchoredTextBlockHeight(style: TextStyle, lines: Int): Dp {
 }
 
 /**
- * The single depth contract every container in MarbleNG is measured against.
+ * The depth contract for Prism surfaces and controls.
  *
  * Before this existed, a panel could ship with a shadow, with a hairline, or with neither, and the
- * difference was decided by whoever happened to write that row. The rule is now mechanical:
+ * difference was decided by whoever happened to write that row. Prism surfaces follow one rule:
  *
- *  - an **elevated** surface (card, sheet, hero portal, node row) carries exactly one soft,
+ *  - an **elevated** Prism surface (sheet, hero portal, node row) carries exactly one soft,
  *    state-tinted shadow and one hairline;
  *  - an **inset** surface ([PrismWell]) is recessed by fill, never by shadow — that is what a
  *    metric strip, a sub-row or a status line inside a card uses;
  *  - **controls** ([PrismButton], [PrismIconButton], selection tiles) reuse the same radii and the
- *    same selected-state language as the surface they sit on.
+ *    same selected-state language as the surface they sit on;
+ *  - the separate HomeCloud card family is intentionally flat and uses no shadow.
  *
  * Nested translucency, specular edges and stacked shadows stay banned: they caused GPU compositing
- * bands on real devices, and one shadow plus one outline is enough to read depth.
+ * bands on real devices, and one shadow plus one outline is enough to read depth on elevated
+ * Prism surfaces.
  */
 internal object PrismSurface {
     // MARBLE_PRODUCT_SIMPLE_V117 — the whole control ramp is one step smaller and one step

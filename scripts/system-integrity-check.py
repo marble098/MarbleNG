@@ -2102,23 +2102,25 @@ check(
     and "CoreConfigSuperset" in files["interopDoc"],
 )
 
-# MARBLE_DOCK_SLOT_V167 — the fourth tab of the bottom bar is the user's, and the Home status
-# banner is one compact card in all four presentations.
-# MARBLE_HOME_COMPACT_BANNER_V167 — the banner lost a third of its height on every Home page and
-# kept every fact it carried: two rows and a hairline, a 20 dp status line and a reserved ping
-# width, instead of three fixed-height strips with a 40 dp flag tile.
+# MARBLE_HOME_STATUS_REFRAME_V187 — the fourth dock slot is user-owned, and one shared status
+# card serves all four Home presentations with a compact route row plus optional live throughput.
 _banner_body = _fun_body(files["homeStyles"], "internal fun IosStatusWideCard(")
+_theme1_body = _fun_body(files["homeStyles"], "internal fun HomeThemeSlider(")
 check(
-    "the Home status banner is one compact card in every theme",
+    "the Home status card is shared, shadowless and telemetry stays in its route hierarchy",
     files["homeStyles"].count("IosStatusWideCard(") == 5
-    and "MARBLE_HOME_COMPACT_BANNER_V167" in files["homeStyles"]
-    and "homeStatusText(evidence).uppercase()" in files["homeStyles"]
-    and "StatusDot(stateColor = stateColor, busy = evidence.connecting, size = 13.dp)" in files["homeStyles"]
-    and "Arrangement.spacedBy(4.dp)" in _banner_body
-    # The two old fixed strips are gone from the card: the identity row itself is the IP-report
-    # affordance now, and no separate HomeIpRow is composed inside the banner.
+    and "MARBLE_HOME_STATUS_REFRAME_V187" in files["homeStyles"]
+    and "HomeCloudCard(modifier = modifier.fillMaxWidth(), shape = shape)" in _banner_body
+    and "val CardElevation = 0.dp" in files["design"]
+    and "homeStatusText(evidence)" in _banner_body
+    and "visible = evidence.connected && evidence.showSpeedWidget" in _banner_body
+    and _banner_body.count("HomeConnectionMetric(") == 2
+    and "glyph = HomeGlyph.DOWNLOAD" in _banner_body
+    and "glyph = HomeGlyph.UPLOAD" in _banner_body
     and "clickable { actions.onIpDetails() }" in _banner_body
-    and "HomeIpRow(" not in _banner_body,
+    and "HomeIpRow(" not in _banner_body
+    and ".weight(1f)" in _theme1_body
+    and "IosSlideToConnect(evidence, actions" in _theme1_body,
 )
 check(
     "the fourth dock slot is a preference, not a fixture",
