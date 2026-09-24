@@ -17,9 +17,9 @@ package com.marbleng.app.ui
 // the emphasized curves instead of hard-swapping, the connect controls' securing arcs stretch
 // and contract on the shared clock (the wavy rhythm of the newest Android loaders), released
 // knobs and pressed discs spring back with one visible overshoot, and the status pip became a
-// living double-pulse dot. All fixed-slot contracts survive untouched: the banner keeps its
-// compact two-row geometry, the ping meter keeps its reserved slot, and no control resizes
-// with state.
+// living double-pulse dot. The status and route lines plus the ping slot remain stable; optional
+// download/upload telemetry expands inside that same card, while Theme 1's center lane absorbs
+// the extra height and keeps the slide-to-connect control anchored at the page floor.
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
@@ -135,6 +135,7 @@ import com.marbleng.app.model.ModularLayout
 import com.marbleng.app.model.ProbeState
 import com.marbleng.app.model.parseConnectButtonStyle
 import com.marbleng.app.model.ProxyProfile
+import java.util.Locale
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.PI
@@ -1236,6 +1237,7 @@ internal fun loopFade(t: Float): Float = sin((t.coerceIn(0f, 1f)) * PI.toFloat()
 
 internal enum class HomeGlyph {
     POWER, CHECK, RESET, COPY, REFRESH, MORE, PULSE, CLOCK, LIBRARY, PLUS, BOLT, PASTE, QR, INFO,
+    DOWNLOAD, UPLOAD,
 
     /**
      * MARBLE_PING_CANCEL_V156 — a filled rounded square: the universal stop. It is the glyph the
@@ -1333,6 +1335,28 @@ internal fun HomeGlyphIcon(glyph: HomeGlyph, color: Color, modifier: Modifier = 
                     lineTo(w * .86f, h * .50f)
                 }
                 drawPath(p, color, style = line)
+            }
+            HomeGlyph.DOWNLOAD, HomeGlyph.UPLOAD -> {
+                val down = glyph == HomeGlyph.DOWNLOAD
+                val startY = if (down) h * .18f else h * .82f
+                val endY = if (down) h * .64f else h * .36f
+                drawLine(color, Offset(w * .5f, startY), Offset(w * .5f, endY), stroke, StrokeCap.Round)
+                val arrow = Path().apply {
+                    if (down) {
+                        moveTo(w * .30f, h * .48f)
+                        lineTo(w * .50f, h * .68f)
+                        lineTo(w * .70f, h * .48f)
+                        moveTo(w * .24f, h * .82f)
+                        lineTo(w * .76f, h * .82f)
+                    } else {
+                        moveTo(w * .30f, h * .52f)
+                        lineTo(w * .50f, h * .32f)
+                        lineTo(w * .70f, h * .52f)
+                        moveTo(w * .24f, h * .18f)
+                        lineTo(w * .76f, h * .18f)
+                    }
+                }
+                drawPath(arrow, color, style = line)
             }
             HomeGlyph.CLOCK -> {
                 drawCircle(color = color, radius = w * .38f, center = Offset(w * .5f, h * .5f), style = line)
@@ -1532,30 +1556,19 @@ internal fun HomeSessionStats(
 /**
  * The iOS-styled Wide Status Bar — one shared card for all four Home presentations.
  *
- * It carries, in two rows:
- * 1. the connection state (Connected / Connecting / Closing / Stopped) with its dot and the
- *    session's uptime;
- * 2. the route: its flag, its name, the exit address with its country code, the wire scheme and
- *    the source it came from, the route's own remembered ping, and the one-tap copy of the
- *    address. The identity row itself opens the full IP report.
+ * It carries one stable status line (state, animated dot and uptime), one route line (flag, node,
+ * compact endpoint/protocol, a tappable ping readout and copy action), and an optional two-cell
+ * download/upload grid. The route identity opens the full IP report. Keeping the telemetry optional
+ * preserves the quieter default while placing live rates inside the same card when requested.
  *
  * MARBLE_PING_USER_TAPPED_ONLY_V143 — this card never arms a measurement. The ping it prints was
  * taken when the user asked for one, from the Home ping action or the pulse page.
  *
- * MARBLE_HOME_STABLE_GEOMETRY_V141 — every element keeps its reserved place. Nothing is composed
- * only while connected, so the instant a tunnel comes up the card cannot grow a row and shove the
- * server deck and the connect control down the page. No AnimatedVisibility, no height animation,
- * no layout change — ever.
- *
- * MARBLE_HOME_COMPACT_BANNER_V167 — the card is two rows and a hairline, where it used to be three
- * stacked strips with three fixed 32/40/32 dp floors, a divider between each pair, 16 dp of
- * vertical padding and a 40 dp flag tile: ~139 dp of the top of every Home page repeating five
- * facts. The same five facts now fit in ~73 dp — a 20 dp status line, a 28 dp flag tile, one quiet
- * monospace meta run for the address and the wire, and a ping readout with its own reserved width
- * at the trailing edge, so a measurement landing in it can never re-flow the row it lands in.
- *
- * Everything that was fixed-height stays fixed-height: no strip appears or disappears. Only the
- * vocabulary is smaller.
+ * MARBLE_HOME_STATUS_REFRAME_V187 — the old status slab repeated source/protocol/IP in crowded
+ * strips. This hierarchy prioritizes connection state and selected route; a short emphasized
+ * expansion reveals live transfer rates only when connected and the existing display preference
+ * is on. The first theme's center lane absorbs that growth while its slide control stays on the
+ * page floor.
  */
 @Composable
 internal fun IosStatusWideCard(
@@ -1564,43 +1577,64 @@ internal fun IosStatusWideCard(
     modifier: Modifier = Modifier
 ) {
     val t = Tr.now
-
-    // MARBLE_PING_USER_TAPPED_ONLY_V143 — the banner never measures automatically. Ping is
-    // only ever taken when the user taps the ping shortcut at the top of the Home page.
     val stateColor by animateColorAsState(
         targetValue = homeStateTone(evidence),
         animationSpec = MarbleMotionSpecs.Color,
         label = "status-color"
     )
+    val shape = RoundedCornerShape(22.dp)
+    val pingValue = compactHomePingValue(evidence)
+    val pingSpoken = homePingLabel(evidence)
+    val pingTone = homePingTone(evidence, Aether.Cyan)
+    val routeMeta = listOfNotNull(
+        evidence.ip.takeIf { it.isNotBlank() },
+        evidence.profile?.scheme?.uppercase()?.takeIf { it.isNotBlank() }
+    ).joinToString("  ·  ").ifBlank {
+        evidence.location.takeIf { it.isNotBlank() }
+            ?: evidence.countryCode.takeIf { it.isNotBlank() }
+            ?: trx("Route details")
+    }
 
-    // MARBLE_HOME_CLOUD_V141 — the canonical cloud card: one opaque white box, exactly the size
-    // of the card, one hairline, one shallow shadow. Nothing translucent, nothing nested.
-    HomeCloudCard(modifier = modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) {
+    // MARBLE_HOME_STATUS_REFRAME_V187 — one clear connection line and one route line. The old
+    // banner packed four metadata fields, a ping badge, copy and info glyphs into the same row;
+    // this hierarchy keeps only the endpoint + protocol at a glance and moves the full report
+    // behind the route tap. State and latency still roll in their fixed slots.
+    HomeCloudCard(modifier = modifier.fillMaxWidth(), shape = shape) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 10.dp, vertical = 7.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
+                .padding(horizontal = 12.dp, vertical = 9.dp),
+            verticalArrangement = Arrangement.spacedBy(7.dp)
         ) {
-            // ── Row 1: the state word, its dot and the session's uptime. ───────────────────────
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(min = 18.dp),
+                    .heightIn(min = 24.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                StatusDot(stateColor = stateColor, busy = evidence.connecting, size = 13.dp)
-                Spacer(Modifier.width(6.dp))
-                // MARBLE_EXPRESSIVE_MOTION_V186 — the state word rolls on the emphasized pair:
-                // the new sentence decelerates up into the 18 dp status line while the old one
-                // accelerates away. The line's reserved height never changes, so the banner
-                // keeps its compact two-row geometry in every state and nothing below moves.
+                Box(
+                    modifier = Modifier
+                        .size(26.dp)
+                        .clip(CircleShape)
+                        .background(stateColor.copy(alpha = .12f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    StatusDot(stateColor = stateColor, busy = evidence.connecting, size = 11.dp)
+                }
+                Spacer(Modifier.width(8.dp))
                 AnimatedContent(
-                    targetState = homeStatusText(evidence).uppercase(),
+                    targetState = homeStatusText(evidence),
                     transitionSpec = {
                         (
                             fadeIn(MarbleExpressiveSpecs.EntranceFadeFloat) +
-                                slideInVertically(MarbleExpressiveSpecs.RollInSpatial) { it / 2 }
+                                slideInVertically(MarbleExpressiveSpecs.RollInSpatial) { it / 2 } +
+                                scaleIn(
+                                    tween(
+                                        durationMillis = MarbleExpressiveMotion.Medium2,
+                                        easing = MarbleExpressiveMotion.EmphasizedDecelerate
+                                    ),
+                                    initialScale = .94f
+                                )
                             ) togetherWith (
                             fadeOut(
                                 tween(
@@ -1615,101 +1649,110 @@ internal fun IosStatusWideCard(
                     Text(
                         text = stateWord,
                         color = stateColor,
-                        style = MaterialTheme.typography.labelSmall.copy(
+                        style = MaterialTheme.typography.labelLarge.copy(
                             fontWeight = FontWeight.Bold,
-                            letterSpacing = 1.0.sp
+                            letterSpacing = 0.15.sp
                         ),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
                 }
-                if (evidence.connected) {
-                    Spacer(Modifier.width(6.dp))
-                    Text(
-                        text = "• ${rememberUptimeLabel(evidence.connectedSinceMs)}",
-                        color = Aether.InkMuted,
-                        style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
-                        maxLines = 1
-                    )
-                }
+                Spacer(Modifier.weight(1f))
+                HomeGlyphIcon(HomeGlyph.CLOCK, Aether.InkFaint, Modifier.size(13.dp))
+                Spacer(Modifier.width(5.dp))
+                Text(
+                    text = if (evidence.connected) {
+                        rememberUptimeLabel(evidence.connectedSinceMs)
+                    } else {
+                        "—"
+                    },
+                    color = Aether.InkMuted,
+                    style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                    maxLines = 1
+                )
             }
 
-            HorizontalDivider(color = homeCloudDivider())
+            HorizontalDivider(color = homeCloudDivider().copy(alpha = .72f))
 
-            // ── Row 2: the route, its address, and the live ping. The whole row is the IP
-            // report's affordance; the copy control sits inside it as its own target. ─────────
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 30.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .clickable { actions.onIpDetails() }
-                    .semantics { contentDescription = t.ipDetails },
+                modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                // Flag inside a flat tile so emoji flags of different drawing heights can never
-                // wobble the baseline of the row.
-                Box(
-                    modifier = Modifier
-                        .size(28.dp)
-                        .clip(RoundedCornerShape(9.dp))
-                        .background(homeCloudInsetFill())
-                        .border(1.dp, homeCloudInsetBorder(), RoundedCornerShape(9.dp)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = if (evidence.flag.isNotBlank()) evidence.flag else "🌐",
-                        fontSize = 14.sp,
-                        maxLines = 1
-                    )
-                }
-
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        text = evidence.nodeName.ifBlank { t.chooseRoute },
-                        color = Aether.Ink,
-                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Text(
-                        text = listOfNotNull(
-                            evidence.ip.takeIf { it.isNotBlank() },
-                            evidence.countryCode.takeIf { it.isNotBlank() }?.let { "($it)" },
-                            evidence.profile?.scheme?.uppercase()?.takeIf { it.isNotBlank() },
-                            evidence.sourceName.takeIf { it.isNotBlank() }
-                        ).joinToString(" • "),
-                        color = Aether.InkMuted,
-                        style = MaterialTheme.typography.labelSmall.copy(
-                            fontFamily = FontFamily.Monospace
-                        ),
-                        maxLines = 1,
-                        softWrap = false,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-
-                // Inline Ping Result — reserved width, so digits appearing never re-flow the row.
-                val pingVal = homePingLabel(evidence)
-                val pingT = homePingTone(evidence, Aether.Cyan)
                 Row(
                     modifier = Modifier
-                        .widthIn(min = 52.dp)
-                        .clip(RoundedCornerShape(9.dp))
-                        .background(pingT.copy(alpha = 0.14f))
-                        .border(1.dp, pingT.copy(alpha = 0.35f), RoundedCornerShape(9.dp))
-                        .clickable(enabled = homePingTappable(evidence)) { actions.onTestPing() }
-                        .padding(horizontal = 8.dp, vertical = 3.dp),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically
+                        .weight(1f)
+                        .heightIn(min = 38.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .clickable { actions.onIpDetails() }
+                        .semantics { contentDescription = t.ipDetails },
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(9.dp)
                 ) {
-                    // MARBLE_EXPRESSIVE_MOTION_V186 — the reserved-width readout rolls: each
-                    // new measurement decelerates up into the chip instead of hard-swapping
-                    // digits, inside the exact box the chip already owned.
+                    Box(
+                        modifier = Modifier
+                            .size(34.dp)
+                            .clip(CircleShape)
+                            .background(homeCloudInsetFill()),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = evidence.flag.ifBlank { "🌐" },
+                            fontSize = 16.sp,
+                            maxLines = 1
+                        )
+                    }
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(1.dp)
+                    ) {
+                        Text(
+                            text = evidence.nodeName.ifBlank { t.chooseRoute },
+                            color = Aether.Ink,
+                            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = routeMeta,
+                            color = Aether.InkMuted,
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontFamily = FontFamily.Monospace
+                            ),
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+
+                Row(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(14.dp))
+                        .kineticClickable(
+                            enabled = homePingTappable(evidence),
+                            role = Role.Button,
+                            boundedShape = RoundedCornerShape(14.dp),
+                            pressScale = .96f,
+                            releaseSpec = MarbleExpressiveSpecs.SpringReleaseFloat
+                        ) { actions.onTestPing() }
+                        .semantics { contentDescription = pingSpoken }
+                        .padding(start = 2.dp, end = 5.dp, top = 3.dp, bottom = 3.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(28.dp)
+                            .clip(CircleShape)
+                            .background(pingTone.copy(alpha = .12f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        HomeGlyphIcon(HomeGlyph.PULSE, pingTone, Modifier.size(14.dp))
+                    }
                     MarbleExpressiveValueText(
-                        value = pingVal,
-                        color = pingT,
+                        value = pingValue,
+                        color = pingTone,
                         style = MaterialTheme.typography.labelSmall.copy(
                             fontWeight = FontWeight.Bold,
                             fontFamily = FontFamily.Monospace
@@ -1718,25 +1761,134 @@ internal fun IosStatusWideCard(
                     )
                 }
 
-                // MARBLE_HOME_IP_STRIP_V151 — the "Show complete IP information" caption is gone;
-                // the words survive as the row's content description above, and the glyph below is
-                // the sighted affordance. The copy action stays one tap away, as it always was.
                 Box(
                     modifier = Modifier
-                        .size(22.dp)
+                        .size(30.dp)
                         .clip(CircleShape)
-                        .clickable(onClick = actions.onCopyIp),
+                        .background(homeCloudInsetFill())
+                        .kineticClickable(
+                            role = Role.Button,
+                            boundedShape = CircleShape,
+                            pressScale = .9f,
+                            releaseSpec = MarbleExpressiveSpecs.SpringReleaseFloat
+                        ) { actions.onCopyIp() }
+                        .semantics { contentDescription = t.copyIp },
                     contentAlignment = Alignment.Center
                 ) {
-                    HomeGlyphIcon(HomeGlyph.COPY, HomeCloud.Accent, Modifier.size(12.dp))
+                    HomeGlyphIcon(HomeGlyph.COPY, Aether.InkMuted, Modifier.size(14.dp))
                 }
-                HomeGlyphIcon(
-                    glyph = HomeGlyph.INFO,
-                    color = HomeCloud.Accent,
-                    modifier = Modifier.size(11.dp)
+            }
+
+            AnimatedVisibility(
+                visible = evidence.connected && evidence.showSpeedWidget,
+                enter = expandVertically(
+                    animationSpec = tween(
+                        durationMillis = MarbleExpressiveMotion.Medium2,
+                        easing = MarbleExpressiveMotion.EmphasizedDecelerate
+                    )
+                ) + fadeIn(MarbleExpressiveSpecs.EntranceFadeFloat),
+                exit = shrinkVertically(
+                    animationSpec = tween(
+                        durationMillis = MarbleExpressiveMotion.Short4,
+                        easing = MarbleExpressiveMotion.EmphasizedAccelerate
+                    )
+                ) + fadeOut(
+                    tween(
+                        durationMillis = MarbleExpressiveMotion.Short4,
+                        easing = MarbleExpressiveMotion.EmphasizedAccelerate
+                    )
                 )
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 1.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    HomeConnectionMetric(
+                        glyph = HomeGlyph.DOWNLOAD,
+                        label = t.download,
+                        value = homeCompactRate(evidence.downBps),
+                        tone = Aether.CyanBright,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Box(Modifier.width(1.dp).height(42.dp).background(homeCloudDivider()))
+                    HomeConnectionMetric(
+                        glyph = HomeGlyph.UPLOAD,
+                        label = t.upload,
+                        value = homeCompactRate(evidence.upBps),
+                        tone = Aether.AmethystBright,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
             }
         }
+    }
+}
+
+/**
+ * ZedSecure-inspired connection telemetry: two quiet, equal cells with circular glyph wells.
+ * Values roll in place, so changing rates never reflows the server/status hierarchy.
+ */
+@Composable
+private fun HomeConnectionMetric(
+    glyph: HomeGlyph,
+    label: String,
+    value: String,
+    tone: Color,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier.padding(vertical = 3.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(3.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(27.dp)
+                .clip(CircleShape)
+                .background(tone.copy(alpha = .12f)),
+            contentAlignment = Alignment.Center
+        ) {
+            HomeGlyphIcon(glyph, tone, Modifier.size(14.dp))
+        }
+        Text(
+            label,
+            color = Aether.InkFaint,
+            style = MaterialTheme.typography.labelSmall,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        MarbleExpressiveValueText(
+            value = value,
+            color = tone,
+            style = MaterialTheme.typography.labelMedium.copy(
+                fontWeight = FontWeight.Bold,
+                fontFamily = FontFamily.Monospace,
+                fontFeatureSettings = "tnum"
+            ),
+            maxLines = 1
+        )
+    }
+}
+
+private fun homeCompactRate(bytesPerSecond: Long): String = when {
+    bytesPerSecond >= 1024L * 1024L ->
+        String.format(Locale.US, "%.1f MB/s", bytesPerSecond / (1024.0 * 1024.0))
+    bytesPerSecond >= 1024L ->
+        String.format(Locale.US, "%.0f KB/s", bytesPerSecond / 1024.0)
+    else -> "${bytesPerSecond} B/s"
+}
+
+/** A short, calm ping value for the Home card; the full verdict remains in accessibility copy. */
+private fun compactHomePingValue(evidence: HomeEvidence): String {
+    val (milliseconds, state, _) = homeV137PingChannel(evidence)
+    return when (state) {
+        ConnectionPingState.MEASURING -> "•••"
+        ConnectionPingState.MEASURED -> if (milliseconds > 0) "${milliseconds}ms" else "—"
+        ConnectionPingState.FAILED -> "×"
+        ConnectionPingState.IDLE -> "—"
     }
 }
 
@@ -2452,144 +2604,144 @@ private fun IosServerItemRow(
     onClick: () -> Unit
 ) {
     val motion = MarbleMotion.current
-    val t = Tr.now
-    val rowShape = RoundedCornerShape(14.dp)
+    val rowShape = RoundedCornerShape(16.dp)
     val itemBg by animateColorAsState(
-        targetValue = if (isSelected) homeCloudSelectedFill() else homeCloudInsetFill(),
+        targetValue = when {
+            isConnected -> Aether.Emerald.copy(alpha = if (homeCloudDark()) .12f else .09f)
+            isSelected -> homeCloudSelectedFill()
+            else -> homeCloudInsetFill()
+        },
         animationSpec = MarbleMotionSpecs.Color,
         label = "srv-row-bg"
     )
     val itemBorder by animateColorAsState(
-        targetValue = if (isSelected) homeCloudSelectedBorder() else homeCloudInsetBorder(),
+        targetValue = when {
+            isConnected -> Aether.Emerald.copy(alpha = .42f)
+            isSelected -> homeCloudSelectedBorder()
+            else -> homeCloudInsetBorder()
+        },
         animationSpec = MarbleMotionSpecs.Color,
         label = "srv-row-border"
     )
     val tone = protocolTone(server.scheme)
-    // Captured in composition: the draw lambda below must not read @Composable palette getters.
     val liveTone = Aether.Emerald
-    // MARBLE_HOME_MIRRORS_SERVERS_V150 — same "measured" gate as the Servers page
-    // (ServersPingCapsule): a latency only counts once a real measurement succeeded and is not a
-    // synthetic sub-20 ms handshake. A failed probe is an attempted (red ✕) fact, never "—".
+    val flag = leadingFlagGlyph(server.name)
     val measured = result?.takeIf { it.success > 0 && it.latencyMs >= 20 }
     val latency = measured?.latencyMs?.toInt() ?: 0
     val attempted = result != null && measured == null
+    val endpoint = buildString {
+        append(server.host.trim().removeSurrounding("[", "]"))
+        if (server.port > 0) append(":${server.port}")
+    }.ifBlank { server.scheme.uppercase() }
+    val rowStateDescription = when {
+        isConnected -> trx("Connected")
+        isSelected -> trx("Selected")
+        else -> ""
+    }
 
+    // MARBLE_HOME_SERVER_ROW_REFRAME_V187 — the list no longer repeats protocol in a monogram,
+    // a second label and an active-state capsule. One leading identity (flag or protocol), one
+    // quiet endpoint line, one measured latency and one tiny state mark keep the row scannable.
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .shadow(
-                elevation = if (isSelected) HomeCloud.SelectedElevation else 0.dp,
-                shape = rowShape,
-                spotColor = HomeCloud.Accent.copy(alpha = 0.30f)
-            )
             .clip(rowShape)
             .background(itemBg)
             .border(1.dp, itemBorder, rowShape)
             .clickable(onClick = onClick)
-            .padding(horizontal = 10.dp, vertical = 9.dp),
+            .semantics {
+                contentDescription = listOfNotNull(
+                    stripLeadingFlag(server.name),
+                    server.scheme.uppercase().takeIf { it.isNotBlank() },
+                    endpoint.takeIf { it.isNotBlank() }
+                ).joinToString(", ")
+                stateDescription = rowStateDescription
+            }
+            .padding(horizontal = 10.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Protocol monogram tile — flat tint fill + monogram, one hue per wire scheme.
         Box(
             modifier = Modifier
-                .size(38.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .background(tone.copy(alpha = if (isSelected) 0.16f else 0.10f)),
+                .size(36.dp)
+                .clip(CircleShape)
+                .background(tone.copy(alpha = if (isSelected || isConnected) .15f else .09f)),
             contentAlignment = Alignment.Center
         ) {
             Text(
-                text = protocolMonogram(server.scheme),
+                text = flag ?: protocolMonogram(server.scheme),
                 color = tone,
+                fontSize = if (flag != null) 17.sp else 11.sp,
                 style = MaterialTheme.typography.labelMedium.copy(
                     fontWeight = FontWeight.Bold,
-                    fontFamily = FontFamily.Monospace,
-                    letterSpacing = 0.5.sp
-                )
-            )
-        }
-
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = server.name,
-                color = if (isSelected) Aether.Ink else Aether.Ink.copy(alpha = 0.88f),
-                style = MaterialTheme.typography.bodyMedium.copy(
-                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                    fontFamily = if (flag == null) FontFamily.Monospace else FontFamily.Default,
+                    letterSpacing = 0.3.sp
                 ),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                maxLines = 1
             )
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(5.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = server.scheme.uppercase(),
-                    color = tone,
-                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold)
-                )
-                if (server.host.isNotBlank()) {
-                    Text("•", color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
-                    Text(
-                        text = server.host,
-                        color = Aether.InkMuted,
-                        style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+            if (isConnected) {
+                Canvas(
+                    Modifier
+                        .align(Alignment.BottomEnd)
+                        .size(9.dp)
+                ) {
+                    drawCircle(
+                        color = liveTone.copy(alpha = .62f + .38f * motion.breathe(1400)),
+                        radius = size.minDimension * .5f
                     )
                 }
             }
         }
 
-        // Trailing state — measured latency plus one quiet mark, never a layout of its own.
-        // MARBLE_PING_AIR_V152 — one step more air between the tone-only latency and the mark,
-        // so the two never read as one glued chip now that the slab fill is gone.
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
         ) {
-            // MARBLE_HOME_MIRRORS_SERVERS_V150 — the same latency capsule the Servers page shows.
-            HomeServerLatencySlab(
-                latencyMs = latency,
-                measured = measured != null,
-                testing = testing,
-                attempted = attempted
+            Text(
+                text = stripLeadingFlag(server.name),
+                color = Aether.Ink,
+                style = MaterialTheme.typography.bodyMedium.copy(
+                    fontWeight = if (isSelected || isConnected) FontWeight.Bold else FontWeight.Medium
+                ),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
-            when {
-                isConnected -> {
-                    Row(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(9.dp))
-                            .background(Aether.Emerald.copy(alpha = 0.14f))
-                            .padding(horizontal = 7.dp, vertical = 3.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Canvas(modifier = Modifier.size(6.dp)) {
-                            drawCircle(
-                                color = liveTone.copy(alpha = 0.55f + 0.45f * motion.breathe(1400)),
-                                radius = size.minDimension * 0.5f
-                            )
-                        }
-                        Spacer(Modifier.width(4.dp))
-                        Text(
-                            text = t.homeConnectedBadge,
-                            color = Aether.Emerald,
-                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold)
-                        )
-                    }
-                }
-                isSelected -> {
-                    Box(
-                        modifier = Modifier
-                            .size(22.dp)
-                            .clip(CircleShape)
-                            .background(HomeCloud.Accent),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        HomeGlyphIcon(HomeGlyph.CHECK, Color.White, Modifier.size(11.dp))
-                    }
-                }
+            Text(
+                text = endpoint,
+                color = Aether.InkMuted,
+                style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+
+        HomeServerLatencySlab(
+            latencyMs = latency,
+            measured = measured != null,
+            testing = testing,
+            attempted = attempted
+        )
+
+        when {
+            isConnected -> Box(
+                modifier = Modifier
+                    .size(22.dp)
+                    .clip(CircleShape)
+                    .background(Aether.Emerald.copy(alpha = .14f)),
+                contentAlignment = Alignment.Center
+            ) {
+                HomeGlyphIcon(HomeGlyph.CHECK, Aether.Emerald, Modifier.size(12.dp))
             }
+            isSelected -> Box(
+                modifier = Modifier
+                    .size(22.dp)
+                    .clip(CircleShape)
+                    .background(HomeCloud.Accent),
+                contentAlignment = Alignment.Center
+            ) {
+                HomeGlyphIcon(HomeGlyph.CHECK, Color.White, Modifier.size(11.dp))
+            }
+            else -> Spacer(Modifier.size(22.dp))
         }
     }
 }
@@ -2734,7 +2886,8 @@ internal fun IosSlideToConnect(
         modifier = modifier
             .fillMaxWidth()
             .height(62.dp)
-            .shadow(3.dp, trackShape, spotColor = tone.copy(alpha = 0.18f))
+            // MARBLE_HOME_FLAT_SURFACES_V187 — the long connection track is a control, not a
+            // raised card: the state rim supplies enough contrast without a floor shadow.
             .clip(trackShape)
             .background(homeCloudCardFill())
             .border(1.5.dp, tone.copy(alpha = 0.40f), trackShape)
@@ -2909,17 +3062,26 @@ internal fun HomeThemeSlider(
         // then the slide control, one stagger step apart on the emphasized entrance pair.
         IosStatusWideCard(evidence, actions, modifier = Modifier.marbleStaggerIn(1))
 
-        // Center: Sub & Server List Box (Scrollable inner list)
-        IosServerListBox(
-            repo = repo,
-            evidence = evidence,
-            actions = actions,
+        // The center lane owns all remaining height, while the server card stays top-aligned
+        // inside it. This caps a long list for its own scroll and leaves short libraries with
+        // intentional breathing room — the horizontal connect track always stays at the floor.
+        Box(
             modifier = Modifier
-                .weight(1f, fill = false)
-                .marbleStaggerIn(2)
-        )
+                .fillMaxWidth()
+                .weight(1f)
+        ) {
+            IosServerListBox(
+                repo = repo,
+                evidence = evidence,
+                actions = actions,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .align(Alignment.TopCenter)
+                    .marbleStaggerIn(2)
+            )
+        }
 
-        // Bottom: Slide to connect Slider
+        // The horizontal slide control is a true page-floor action in the first theme.
         IosSlideToConnect(evidence, actions, modifier = Modifier.marbleStaggerIn(3))
     }
 }

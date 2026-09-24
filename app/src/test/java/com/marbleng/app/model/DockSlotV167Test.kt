@@ -56,6 +56,20 @@ class DockSlotV167Test {
     }
 
     @Test
+    fun fourthTabAccentsRoundTripAndLegacyColorNamesStayCompatible() {
+        DockSlotAccent.entries.forEach { accent ->
+            assertEquals(accent, parseDockSlotAccent(accent.id))
+            assertEquals(accent, parseDockSlotAccent(accent.id.uppercase()))
+        }
+        assertEquals(DockSlotAccent.OCEAN, DockSlotAccent.DEFAULT)
+        assertEquals(DockSlotAccent.OCEAN, parseDockSlotAccent("cyan"))
+        assertEquals(DockSlotAccent.MINT, parseDockSlotAccent("emerald"))
+        assertEquals(DockSlotAccent.VIOLET, parseDockSlotAccent("amethyst"))
+        assertEquals(DockSlotAccent.AMBER, parseDockSlotAccent("gold"))
+        assertEquals(DockSlotAccent.DEFAULT, parseDockSlotAccent("not-a-color"))
+    }
+
+    @Test
     fun theRetiredIconVocabularyStillNamesItsGlyph() {
         listOf("bolt", "star", "activity").forEach { legacy ->
             assertEquals(legacy, DockSlotIcon.SPARK, parseDockSlotIcon(legacy))
