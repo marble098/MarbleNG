@@ -32,12 +32,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.offset
+import androidx.compose.foundation.layout.offset
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -133,7 +134,7 @@ fun ProtocolGlyph(family: ProtocolFamily, color: Color, modifier: Modifier = Mod
                 )
                 drawPath(
                     Path().apply {
-                        moveTo(8.9f, 19.7f); quadTo(12f, 22.3f, 15.1f, 19.7f)
+                        moveTo(8.9f, 19.7f); cubicTo(10.97f, 21.43f, 13.03f, 21.43f, 15.1f, 19.7f)
                     },
                     color, style = line
                 )
@@ -143,10 +144,10 @@ fun ProtocolGlyph(family: ProtocolFamily, color: Color, modifier: Modifier = Mod
             ProtocolFamily.VMESS -> {
                 drawPath(
                     Path().apply {
-                        moveTo(6.8f, 6.6f); lineTo(17.2f, 6.6f); quadTo(19.4f, 6.6f, 19.4f, 8.8f)
-                        lineTo(19.4f, 15.2f); quadTo(19.4f, 17.4f, 17.2f, 17.4f)
-                        lineTo(6.8f, 17.4f); quadTo(4.6f, 17.4f, 4.6f, 15.2f)
-                        lineTo(4.6f, 8.8f); quadTo(4.6f, 6.6f, 6.8f, 6.6f); close()
+                        moveTo(6.8f, 6.6f); lineTo(17.2f, 6.6f); cubicTo(18.67f, 6.6f, 19.4f, 7.33f, 19.4f, 8.8f)
+                        lineTo(19.4f, 15.2f); cubicTo(19.4f, 16.67f, 18.67f, 17.4f, 17.2f, 17.4f)
+                        lineTo(6.8f, 17.4f); cubicTo(5.33f, 17.4f, 4.6f, 16.67f, 4.6f, 15.2f)
+                        lineTo(4.6f, 8.8f); cubicTo(4.6f, 7.33f, 5.33f, 6.6f, 6.8f, 6.6f); close()
                     },
                     color, style = line
                 )
