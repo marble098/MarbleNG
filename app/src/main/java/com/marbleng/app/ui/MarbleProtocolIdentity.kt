@@ -406,6 +406,17 @@ fun ServerStateChip(
  *
  * Same measurement vocabulary as the legacy capsule: a probe that ran and failed is a red fact,
  * one that never ran is a quiet dash, and a running probe is the tiny wavy spinner.
+ *
+ * MARBLE_SERVERS_HIERARCHY_V189 — two switches, both off by default so the Home list is untouched:
+ *
+ * - [compact] drops every size one step (13.5 → [ServersHierarchy.ROW_PING_SP] sp, a narrower
+ *   column, a smaller meter) for a server row that lives *inside* a subscription card, where the
+ *   latency is level-2 information and must not out-shout the subscription's own name;
+ * - [quietFailure] takes the red off a probe that ran and got no answer. A server that did not
+ *   reply is a fact about that server, not an emergency on the page: the row it sits in fades and
+ *   carries the cross, and the readout stays in a muted tone. Red stays for the things a user has
+ *   to act on — and "slow" (measured, over 250 ms) still reads red, because that one is a real
+ *   measurement.
  */
 @Composable
 fun ServerPingStat(
@@ -413,6 +424,8 @@ fun ServerPingStat(
     measured: Boolean,
     testing: Boolean,
     attempted: Boolean = false,
+    compact: Boolean = false,
+    quietFailure: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val tone = when {
@@ -422,7 +435,7 @@ fun ServerPingStat(
             latencyMs <= 250 -> Aether.Amber
             else -> Aether.Danger
         }
-        attempted -> Aether.Danger
+        attempted -> if (quietFailure) Aether.InkMuted else Aether.Danger
         else -> Aether.InkFaint
     }
     val quality = when {
@@ -437,10 +450,15 @@ fun ServerPingStat(
         attempted -> trx("No response")
         else -> trx("Not measured")
     }
+    // MARBLE_SERVERS_HIERARCHY_V189 — one step down in every dimension for a nested row.
+    val numberSize = if (compact) ServersHierarchy.ROW_PING_SP.sp else 13.5.sp
+    val unitSize = if (compact) 8.sp else 8.5.sp
+    val glyphSize = if (compact) 12.sp else 13.sp
+    val spinner = if (compact) 12.dp else 13.dp
     Column(
         modifier = modifier
-            .widthIn(min = 52.dp)
-            .height(34.dp)
+            .widthIn(min = if (compact) 44.dp else 52.dp)
+            .height(if (compact) 30.dp else 34.dp)
             .semantics { contentDescription = spoken },
         horizontalAlignment = Alignment.End,
         verticalArrangement = Arrangement.Center
@@ -453,11 +471,11 @@ fun ServerPingStat(
                 Text(
                     "ms",
                     color = tone.copy(alpha = .74f),
-                    style = TextStyle(fontSize = 9.sp, fontWeight = FontWeight.Bold),
+                    style = TextStyle(fontSize = unitSize, fontWeight = FontWeight.Bold),
                     maxLines = 1
                 )
                 MarbleExpressiveCircularIndicator(
-                    modifier = Modifier.size(13.dp),
+                    modifier = Modifier.size(spinner),
                     color = tone,
                     strokeWidth = 1.6.dp,
                     arcCount = 2
@@ -467,13 +485,13 @@ fun ServerPingStat(
             !measured -> Text(
                 if (attempted) "✕" else "—",
                 color = tone,
-                style = TextStyle(fontSize = 13.sp, fontWeight = FontWeight.Bold),
+                style = TextStyle(fontSize = glyphSize, fontWeight = FontWeight.Bold),
                 maxLines = 1
             )
 
             else -> Column(
                 horizontalAlignment = Alignment.End,
-                verticalArrangement = Arrangement.spacedBy(2.5.dp)
+                verticalArrangement = Arrangement.spacedBy(2.dp)
             ) {
                 Row(
                     verticalAlignment = Alignment.Bottom,
@@ -483,7 +501,7 @@ fun ServerPingStat(
                         "$latencyMs",
                         color = tone,
                         style = TextStyle(
-                            fontSize = 13.5.sp,
+                            fontSize = numberSize,
                             fontWeight = FontWeight.Bold,
                             fontFeatureSettings = "tnum"
                         ),
@@ -492,11 +510,11 @@ fun ServerPingStat(
                     Text(
                         "ms",
                         color = tone.copy(alpha = .70f),
-                        style = TextStyle(fontSize = 8.5.sp, fontWeight = FontWeight.Medium),
+                        style = TextStyle(fontSize = unitSize, fontWeight = FontWeight.Medium),
                         maxLines = 1
                     )
                 }
-                PingQualityBars(quality, tone)
+                PingQualityBars(quality, tone, compact = compact)
             }
         }
     }
@@ -506,13 +524,25 @@ fun ServerPingStat(
  * The three-bar quality meter under a measured latency: more bars means a faster route. Filled
  * bars take the measurement tone, the remainder stays a quiet hairline, so the meter reads as an
  * instrument rather than a decoration.
+ *
+ * [compact] shrinks the meter to the size a nested subscription row has room for.
  */
 @Composable
-fun PingQualityBars(quality: Int, tone: Color, modifier: Modifier = Modifier) {
+fun PingQualityBars(
+    quality: Int,
+    tone: Color,
+    modifier: Modifier = Modifier,
+    compact: Boolean = false
+) {
     // The Aether palette is a @Composable getter, so the resting-bar colour is resolved here,
     // outside the DrawScope, where the Canvas lambda cannot reach it.
     val unlit = Aether.InkFaint.copy(alpha = .30f)
-    Canvas(modifier = modifier.size(width = 16.dp, height = 10.dp)) {
+    Canvas(
+        modifier = modifier.size(
+            width = if (compact) 14.dp else 16.dp,
+            height = if (compact) 8.5.dp else 10.dp
+        )
+    ) {
         val barW = size.width / 4.6f
         val gap = size.width / 8f
         val heights = listOf(size.height * .42f, size.height * .72f, size.height)

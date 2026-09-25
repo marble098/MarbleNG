@@ -41,10 +41,40 @@ It focuses on real proxy verification, fast one-tap connection, fail-closed rout
 - Remembers the last ping of every server across restarts, updates and process death.
 - A **fourth tab you fill yourself** — a subscription, one config, or the live pulse of the route.
 - **Material 3 Expressive motion** — stretching loaders, cascading arrivals, rolling readouts and springy releases on every control.
+- **A Servers page that shows its hierarchy** — subscription cards with a real usage bar, and their servers nested inside them, smaller in every dimension.
+
+## Servers you can read at a glance
+
+`docs/SERVERS_HIERARCHY_V189.md` is the newest chapter.
+
+**A subscription is a container, and its servers live inside it.** The page used to be a stack of
+visually equal rows: a subscription header and its servers shared one outline, one type scale and
+one tile size, so nothing but their order said which servers belonged to which plan. The page has
+two levels now, and the gap between them is measurable — 16 dp corners and a 1.5 dp outline for
+the card, 12 dp corners, no outline and an 8 dp inset for the list inside it; a 16 sp
+subscription name over 13 sp server names; a 30 dp protocol tile where a standalone server still
+gets 40 dp. Rows are separated by hairlines, never by borders, and the only row that grows an
+outline is the one carrying traffic.
+
+**A plan is a bar, not a sentence.** Each subscription shows its used/total figures and, under
+them, a real progress bar whose colour is the plan's own state — green to 70 %, amber to 90 %, red
+past it — with the percent beside it. Expiry, the provider's website and the auto-update state
+stepped down into one quiet secondary line, because they are read once and then ignored.
+
+**Counts live in the controls.** The header's `2 groups • 48 servers` line is gone: the group
+capsule badges how many groups the page holds, the protocol capsule badges how many servers the
+current scope shows, and the advanced-filter button badges how many of its own switches are on.
+The whole rail dropped a step (38 → 32 dp) to pay for it.
+
+**Failure is quiet.** A server a probe could not reach fades and shows a cross in a muted tone;
+red stays for a measured latency that is genuinely bad. One table
+(`MarbleServersHierarchy.kt`) owns the sizes and the plan arithmetic, and
+`ServersHierarchyV189Test` pins both, so a nested row can never quietly grow back to the size of
+the card that holds it.
 
 ## A face for every server type, and a calmer Settings
 
-`docs/PROTOCOL_IDENTITY_V188.md` is the newest chapter.
+`docs/PROTOCOL_IDENTITY_V188.md` is the chapter before it.
 
 **Every wire scheme now has its own minimal identity.** VLESS ripples, VMESS sends an envelope,
 Trojan hides behind a shield, Shadowsocks wears the sock, Hysteria2 pushes twin chevrons,

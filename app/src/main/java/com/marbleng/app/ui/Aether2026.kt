@@ -3749,14 +3749,53 @@ private val ServersMenuShape = RoundedCornerShape(16.dp)
 private val ServersBadgeShape = RoundedCornerShape(8.dp)
 private val ServersPillShape = RoundedCornerShape(999.dp)
 
-// MARBLE_SERVERS_STACKED_GROUPS_V121 — the two halves of a subscription box.
+// MARBLE_SERVERS_HIERARCHY_V189 — the two levels of the page now own two different silhouettes.
 //
-// A group is a single card: the header rounds only its top, every server row below it is square,
-// and the last row rounds only the bottom. Nothing between them is rounded or spaced, so the
-// servers of a subscription read as one continuous stack instead of a pile of separate cards.
-private val ServersGroupHeadShape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
-private val ServersGroupTailShape = RoundedCornerShape(bottomStart = 16.dp, bottomEnd = 16.dp)
+// Level 1 is the subscription card: the largest radius on the page and the boldest hairline.
+// Level 2 is the server list inside it: a smaller radius, inset from the card's edge on both
+// sides, no border of its own — its rows are separated by a hairline and only the row that
+// carries traffic grows an outline. The radius step (16 → 12) and the inset are what make the
+// nesting readable without a single word of explanation.
+private val ServersGroupHeadShape = RoundedCornerShape(
+    topStart = ServersHierarchy.GROUP_CORNER_DP.dp,
+    topEnd = ServersHierarchy.GROUP_CORNER_DP.dp
+)
+private val ServersGroupTailShape = RoundedCornerShape(
+    bottomStart = ServersHierarchy.GROUP_CORNER_DP.dp,
+    bottomEnd = ServersHierarchy.GROUP_CORNER_DP.dp
+)
 private val ServersGroupBodyShape = RoundedCornerShape(0.dp)
+
+/** The nested server list: its first row rounds the top, its last row rounds the bottom. */
+private val ServersListHeadShape = RoundedCornerShape(
+    topStart = ServersHierarchy.LIST_CORNER_DP.dp,
+    topEnd = ServersHierarchy.LIST_CORNER_DP.dp
+)
+private val ServersListTailShape = RoundedCornerShape(
+    bottomStart = ServersHierarchy.LIST_CORNER_DP.dp,
+    bottomEnd = ServersHierarchy.LIST_CORNER_DP.dp
+)
+private val ServersListBodyShape = RoundedCornerShape(0.dp)
+
+/**
+ * One height for every control of the filter rail — capsules and icon buttons alike.
+ *
+ * MARBLE_SERVERS_HIERARCHY_V189 — the rail was 38 dp of pill with 7 dp between four controls; it
+ * is 32 dp with 6 dp now, which is what lets both capsules carry a count badge without pushing
+ * the row past the edge of a phone.
+ */
+private val ServersRailControlSize = 32.dp
+
+/** The outline of a subscription card, drawn slice by slice down the LazyColumn. */
+@Composable
+private fun serversGroupFrameColor(): Color = Aether.GlassBorder
+
+private val ServersGroupFrameWidth = ServersHierarchy.GROUP_BORDER_DP.dp
+
+/** The hairline between two servers of the same subscription. */
+@Composable
+private fun serversRowDividerColor(): Color =
+    Aether.GlassBorderSoft.copy(alpha = ServersHierarchy.ROW_DIVIDER_ALPHA)
 
 /**
  * Draws the box hairline of one slice of a stacked group.
@@ -3788,18 +3827,35 @@ private fun Modifier.serversStackedFrame(
 /** MARBLE_MANUAL_BUCKET_V122 — pasted/imported configs always land in the permanent Manual bucket. */
 private fun libraryIntakeTarget(@Suppress("UNUSED_PARAMETER") repo: AppRepository): String = "manual"
 
-/** Subscription accounting, straight from the provider's subscription-userinfo headers. */
-private fun subscriptionDataText(bytes: Long): String = when {
-    bytes <= 0L -> "0 B"
-    bytes >= 1_000_000_000L -> "%.1f GB".format(bytes / 1_000_000_000.0)
-    bytes >= 1_000_000L -> "%.0f MB".format(bytes / 1_000_000.0)
-    bytes >= 1_000L -> "%.0f KB".format(bytes / 1_000.0)
-    else -> "$bytes B"
-}
-
+/**
+ * Subscription accounting, straight from the provider's subscription-userinfo headers.
+ *
+ * MARBLE_SERVERS_HIERARCHY_V189 — the sizing, the percent and the colour tier are pure functions
+ * in [ServersHierarchy] (one `compactBytes`, not a second formatter here), so the bar, its label
+ * and its colour are three readings of one number.
+ */
 private fun subscriptionUsageText(sub: Subscription): String =
-    "${subscriptionDataText(sub.uploadBytes + sub.downloadBytes)} / " +
-        if (sub.totalBytes <= 0L) "\u221E" else subscriptionDataText(sub.totalBytes)
+    ServersHierarchy.usageText(sub.uploadBytes + sub.downloadBytes, sub.totalBytes)
+
+private fun subscriptionUsedBytes(sub: Subscription): Long =
+    (sub.uploadBytes + sub.downloadBytes).coerceAtLeast(0L)
+
+/** The 0f..1f fill of a subscription's usage bar. */
+private fun subscriptionUsageFraction(sub: Subscription): Float =
+    ServersHierarchy.usageFraction(subscriptionUsedBytes(sub), sub.totalBytes)
+
+/** Where the plan sits: calm, watch, critical — or unknown when the provider reported no quota. */
+private fun subscriptionUsageTier(sub: Subscription): SubscriptionUsageTier =
+    ServersHierarchy.usageTier(subscriptionUsedBytes(sub), sub.totalBytes)
+
+/** The tone of a usage bar and its percent: green, amber, red, or quiet when unmetered. */
+@Composable
+private fun usageTierTone(tier: SubscriptionUsageTier): Color = when (tier) {
+    SubscriptionUsageTier.CALM -> Aether.Emerald
+    SubscriptionUsageTier.WATCH -> Aether.Amber
+    SubscriptionUsageTier.CRITICAL -> Aether.Danger
+    SubscriptionUsageTier.UNKNOWN -> Aether.InkFaint
+}
 
 private fun subscriptionExpiryText(sub: Subscription): String {
     if (sub.expireAt <= 0L) return "Unlimited"
@@ -4186,8 +4242,6 @@ private fun CyberLibrary(
     ) {
         item(key = "servers-header") {
             ServersTopBar(
-                groupCount = groups.size,
-                serverCount = allProfiles.size,
                 addOpen = addMenuOpen,
                 onAdd = { addMenuOpen = !addMenuOpen },
                 onAddDismiss = { addMenuOpen = false },
@@ -4244,6 +4298,13 @@ private fun CyberLibrary(
                 repo = repo,
                 groupLabel = activeGroupLabel,
                 groupActive = filter.sourceId != "all",
+                // MARBLE_SERVERS_HIERARCHY_V189 — the counts the header line used to carry on its
+                // own now live inside the controls that own them: the group control badges how
+                // many groups the page holds, the protocol control badges how many servers the
+                // current scope shows.
+                groupBadge = ServersHierarchy.groupBadge(groups.size),
+                serverBadge = "${visibleProfiles.size}",
+                serverBadgeSpoken = ServersHierarchy.serverBadge(visibleProfiles.size),
                 groupOptions = groupOptions,
                 groupMenuOpen = groupMenuOpen,
                 onGroupMenu = { groupMenuOpen = !groupMenuOpen },
@@ -4404,6 +4465,9 @@ private fun CyberLibrary(
                             result = benchmarks[profile.id],
                             active = repo.isActiveProfile(profile),
                             selected = repo.isSelectedProfile(profile),
+                            // MARBLE_SERVERS_HIERARCHY_V189 — the first row rounds the nested
+                            // block's top, the last one its bottom; everything between is square.
+                            firstInGroup = index == 0,
                             lastInGroup = index == group.profiles.lastIndex,
                             probeState = repo.probeStateOf(profile.id),
                             // MARBLE_SELECT_IS_NOT_CONNECT_V121 — a tap selects. It only connects when
@@ -4504,13 +4568,17 @@ private val SERVERS_SORT_OPTIONS = listOf(
 // --------------------------------------------------------------------------- top bar
 
 /**
- * The page header: a bold headline, one quiet line of counts, and the two round controls that own
- * the page's primary verbs — add a server and change the order.
+ * The page header: a bold headline and the two round controls that own the page's primary verbs —
+ * add a server and change the order.
+ *
+ * MARBLE_SERVERS_HIERARCHY_V189 — the "N groups • M servers" line that used to sit under the
+ * headline is gone. A count on a line of its own is a fact the reader has to carry down the page
+ * and match to a control by hand; the same two numbers now ride inside the two controls they
+ * describe (the group capsule and the protocol capsule), where they answer the question the
+ * control is already asking. The header is one line shorter for it.
  */
 @Composable
 private fun ServersTopBar(
-    groupCount: Int,
-    serverCount: Int,
     addOpen: Boolean,
     onAdd: () -> Unit,
     onAddDismiss: () -> Unit,
@@ -4527,24 +4595,15 @@ private fun ServersTopBar(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    trx("Servers"),
-                    color = Aether.Ink,
-                    style = MaterialTheme.typography.headlineMedium,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Spacer(Modifier.height(2.dp))
-                Text(
-                    trx("$groupCount groups • $serverCount servers"),
-                    color = Aether.InkMuted,
-                    style = MaterialTheme.typography.bodySmall,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
+            Text(
+                trx("Servers"),
+                color = Aether.Ink,
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
+            )
             Spacer(Modifier.width(10.dp))
             // MARBLE_ADD_SERVER_MENU_V121 — every way to get a server into Marble, in one menu
             // anchored to the + button instead of a sheet that had to be opened before the user
@@ -4903,15 +4962,23 @@ private fun ServersSearchField(
 // --------------------------------------------------------------------------- filter rail
 
 /**
- * The filter rail under the search field: the active group capsule, the protocol capsule (with a
- * live count per protocol), the advanced-filter menu and the page-wide ping. Four controls, one
- * row, and each one states exactly what it is currently doing.
+ * The filter rail under the search field: the active group capsule, the protocol capsule, the
+ * advanced-filter menu and the page-wide ping. Four controls, one compact row.
+ *
+ * MARBLE_SERVERS_HIERARCHY_V189 — each capsule now carries its own count badge, so the row states
+ * both *what* it is filtering by and *how much* is in that scope, and the header no longer needs a
+ * line of counts of its own. Everything in the row dropped a step in size at the same time
+ * (38 → 32 dp controls, 7 → 6 dp gaps, one weight of type), because a rail that repeats on every
+ * scroll frame should cost the list its space, not the other way round.
  */
 @Composable
 private fun ServersFilterRail(
     repo: AppRepository,
     groupLabel: String,
     groupActive: Boolean,
+    groupBadge: String,
+    serverBadge: String,
+    serverBadgeSpoken: String,
     groupOptions: List<Pair<String, String>>,
     groupMenuOpen: Boolean,
     onGroupMenu: () -> Unit,
@@ -4933,18 +5000,25 @@ private fun ServersFilterRail(
     val settings = repo.settings
     val maxPing = settings.serversMaxPingMs
     val busy = repo.busy || repo.probeActive
+    // How many of the menu's own switches are narrowing the list — the number the filter control
+    // badges, so the menu says how much it is doing before it is opened.
+    val advancedCount = ServersHierarchy.activeFilterCount(
+        groupByCountry = settings.serversGroupByCountry,
+        onlyReachable = settings.serversOnlyReachable,
+        maxPingMs = maxPing
+    )
 
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(7.dp)
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        // Group / source capsule.
+        // Group / source capsule: the scope, badged with how many groups the page holds.
         Box(modifier = Modifier.weight(1f, fill = false)) {
             ServersFilterCapsule(
                 label = groupLabel,
                 tone = if (groupActive) Aether.Cyan else Aether.InkMuted,
-                icon = HomeIcon.SERVER,
+                badge = groupBadge,
                 onClick = onGroupMenu,
                 onClear = if (groupActive) {
                     { onGroupPick("all") }
@@ -4968,12 +5042,13 @@ private fun ServersFilterRail(
             }
         }
 
-        // Protocol capsule with per-protocol counts.
-        Box {
+        // Protocol capsule: the wire filter, badged with how many servers this scope shows.
+        Box(modifier = Modifier.weight(1f, fill = false)) {
             ServersFilterCapsule(
                 label = protocol.ifBlank { "All protocols" },
                 tone = if (protocol.isNotBlank()) Aether.Cyan else Aether.InkMuted,
-                icon = HomeIcon.TUNNEL,
+                badge = serverBadge,
+                badgeSpoken = serverBadgeSpoken,
                 onClick = onProtocolMenu,
                 onClear = if (protocol.isNotBlank()) {
                     { onProtocolPick(ServersQuery.ALL_PROTOCOLS) }
@@ -5007,15 +5082,14 @@ private fun ServersFilterRail(
 
         // Advanced filters.
         Box {
-            val advancedLabel = trx("Advanced filters")
+            val advancedLabel = trx("Advanced filters") +
+                if (advancedCount > 0) ", " + trx(ServersHierarchy.filterBadge(advancedCount)) else ""
             Box(
                 modifier = Modifier
-                    .size(38.dp)
+                    .size(ServersRailControlSize)
                     .clip(ServersBadgeShape)
                     .background(
-                        if (advancedOpen || settings.serversOnlyReachable || maxPing > 0 ||
-                            settings.serversGroupByCountry
-                        ) {
+                        if (advancedCount > 0 || advancedOpen) {
                             Aether.Cyan.copy(alpha = .12f)
                         } else {
                             Aether.GlassStrong.copy(alpha = .30f)
@@ -5029,7 +5103,32 @@ private fun ServersFilterRail(
                     ),
                 contentAlignment = Alignment.Center
             ) {
-                HomeVectorIcon(HomeIcon.FILTER, Aether.Ink, Modifier.size(19.dp))
+                HomeVectorIcon(HomeIcon.FILTER, Aether.Ink, Modifier.size(18.dp))
+            }
+            // The count badge rides the button's corner: how many switches are narrowing the
+            // list, readable without opening the menu that owns them. It is a sibling of the
+            // clipped button, not a child of it, so its overhang is never cut by the shape.
+            if (advancedCount > 0) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .offset(x = 3.dp, y = (-3).dp)
+                        .clip(CircleShape)
+                        .background(Aether.Cyan)
+                        .padding(horizontal = 4.dp, vertical = 0.5.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        "$advancedCount",
+                        color = Aether.VoidElevated,
+                        style = TextStyle(
+                            fontSize = 8.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFeatureSettings = "tnum"
+                        ),
+                        maxLines = 1
+                    )
+                }
             }
             DropdownMenu(
                 expanded = advancedOpen,
@@ -5146,7 +5245,7 @@ private fun ServersFilterRail(
         )
         Box(
             modifier = Modifier
-                .size(38.dp)
+                .size(ServersRailControlSize)
                 .clip(ServersBadgeShape)
                 .background(
                     when {
@@ -5168,56 +5267,66 @@ private fun ServersFilterRail(
                 sweeping -> HomeVectorIcon(
                     HomeIcon.STOP,
                     if (repo.probeCancelling) Aether.InkFaint else Aether.Danger,
-                    Modifier.size(16.dp)
+                    Modifier.size(15.dp)
                 )
                 busy -> MarbleExpressiveCircularIndicator(
-                    modifier = Modifier.size(16.dp),
+                    modifier = Modifier.size(15.dp),
                     color = Aether.Cyan,
                     strokeWidth = 2.dp,
                     arcCount = 3
                 )
-                else -> HomeVectorIcon(HomeIcon.PING, Aether.Ink, Modifier.size(21.dp))
+                else -> HomeVectorIcon(HomeIcon.PING, Aether.Ink, Modifier.size(19.dp))
             }
         }
     }
 }
 
-/** One capsule of the filter rail: icon, live label, and an × that appears only when it filters. */
+/**
+ * One capsule of the filter rail: the live label, its count badge, and an × that appears only when
+ * the capsule is actually filtering.
+ *
+ * MARBLE_SERVERS_HIERARCHY_V189 — the leading glyph is gone and the capsule dropped a step in
+ * every dimension (38 → 32 dp, one weight of type, tighter padding). The space the glyph used to
+ * take now holds the fact the control is about: a count badge inside the pill, on a tint of the
+ * capsule's own tone. A capsule that says "All groups · 2 groups" answers the question it asks;
+ * a capsule with a server glyph in front of it did not.
+ */
 @Composable
 private fun ServersFilterCapsule(
     label: String,
     tone: Color,
-    icon: HomeIcon,
+    badge: String? = null,
+    badgeSpoken: String? = null,
     onClick: () -> Unit,
     onClear: (() -> Unit)? = null
 ) {
     Row(
         modifier = Modifier
-            .heightIn(min = 38.dp)
-            .widthIn(max = 190.dp)
+            .heightIn(min = ServersRailControlSize)
             .clip(ServersPillShape)
             .background(tone.copy(alpha = .10f))
             .border(1.dp, tone.copy(alpha = .26f), ServersPillShape)
             .kineticClickable(role = Role.Button, boundedShape = ServersPillShape, onClick = onClick)
-            .padding(start = 11.dp, end = if (onClear == null) 12.dp else 5.dp),
+            .padding(start = 9.dp, end = if (onClear == null) 9.dp else 3.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp)
+        horizontalArrangement = Arrangement.spacedBy(5.dp)
     ) {
-        HomeVectorIcon(icon, tone, Modifier.size(15.dp))
         Text(
             trx(label),
             color = tone,
-            style = MaterialTheme.typography.labelMedium,
-            fontWeight = FontWeight.SemiBold,
+            style = TextStyle(fontSize = 11.sp, fontWeight = FontWeight.SemiBold),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f, fill = false)
         )
+        if (badge != null) {
+            ServersFilterCount(text = badge, tone = tone, spoken = badgeSpoken)
+        }
         if (onClear != null) {
             val clearLabel = trx("Clear")
             Box(
                 modifier = Modifier
-                    .size(26.dp)
+                    .size(22.dp)
                     .clip(CircleShape)
                     .semantics { contentDescription = clearLabel }
                     .kineticClickable(
@@ -5228,10 +5337,47 @@ private fun ServersFilterCapsule(
                     ),
                 contentAlignment = Alignment.Center
             ) {
-                HomeVectorIcon(HomeIcon.CANCEL, tone, Modifier.size(13.dp))
+                HomeVectorIcon(HomeIcon.CANCEL, tone, Modifier.size(12.dp))
             }
         }
     }
+}
+
+/**
+ * The count inside a filter capsule: the capsule's own tone at badge weight, never a second
+ * colour, so the number reads as part of the control and not as a notification.
+ */
+@Composable
+private fun ServersFilterCount(
+    text: String,
+    tone: Color,
+    spoken: String? = null
+) {
+    val shape = RoundedCornerShape(7.dp)
+    // Resolved here, outside the semantics block: [trx] is composable and that block is not.
+    val spokenLabel = spoken?.let { trx(it) }
+    Text(
+        trx(text),
+        color = tone,
+        style = TextStyle(
+            fontSize = 9.sp,
+            fontWeight = FontWeight.Bold,
+            fontFeatureSettings = "tnum"
+        ),
+        maxLines = 1,
+        overflow = TextOverflow.Clip,
+        modifier = Modifier
+            .clip(shape)
+            .background(tone.copy(alpha = .16f))
+            .then(
+                if (spokenLabel == null) {
+                    Modifier
+                } else {
+                    Modifier.semantics { contentDescription = spokenLabel }
+                }
+            )
+            .padding(horizontal = 5.dp, vertical = 1.5.dp)
+    )
 }
 
 /**
@@ -5380,11 +5526,22 @@ private fun ServersProbeStrip(repo: AppRepository) {
 // --------------------------------------------------------------------------- group header
 
 /**
- * One group header.
+ * One subscription card's header — level 1 of the page's hierarchy.
  *
- * Folded it is a single rounded row — chevron, name, count and the auto-update state. Open it
- * grows its own facts: the plan usage box, the expiry line, the provider website capsule, the
- * refresh control and the group menu. Nothing here resizes the servers below it.
+ * Folded it is a single rounded row — chevron, name, count badge and the three controls. Open it
+ * grows exactly two facts about the plan and nothing else:
+ *
+ *  1. the **usage line**: its text, and under it a real progress bar whose colour *is* the plan's
+ *     own state — green to 70 %, amber to 90 %, red past it — instead of a number the reader has
+ *     to judge for themselves;
+ *  2. one quiet **secondary line**: expiry, the provider's website and the auto-update state, the
+ *     three facts that are read once and then ignored, at secondary weight under the bar.
+ *
+ * MARBLE_SERVERS_HIERARCHY_V189 — this card is the biggest thing on the page on purpose: the
+ * largest corner radius ([ServersHierarchy.GROUP_CORNER_DP]), the boldest hairline
+ * ([ServersHierarchy.GROUP_BORDER_DP]), the largest type, and three *equal* controls
+ * (refresh / status / menu) on one even gap at its trailing edge. The servers stacked below are
+ * deliberately smaller in every dimension; see [ServersNodeCard].
  */
 @Composable
 private fun ServersGroupHeader(
@@ -5426,6 +5583,14 @@ private fun ServersGroupHeader(
         label = "servers-group-chevron"
     )
     val shape = if (attachedBelow) ServersGroupHeadShape else ServersCardShape
+    // One plan, three readings of one number: the text, the bar's fill and the bar's colour all
+    // come from the same rounded percent, so they can never disagree.
+    val usageTier = subscription?.let(::subscriptionUsageTier) ?: SubscriptionUsageTier.UNKNOWN
+    val usageTone = usageTierTone(usageTier)
+    val metered = subscription != null && ServersHierarchy.hasQuota(subscription.totalBytes)
+    val usagePercent = subscription?.let {
+        ServersHierarchy.usagePercent(subscriptionUsedBytes(it), it.totalBytes)
+    } ?: 0
 
     Column(
         modifier = modifier
@@ -5433,131 +5598,158 @@ private fun ServersGroupHeader(
             .clip(shape)
             .background(Aether.VoidElevated)
             // An attached header keeps its side and top hairlines and lets the rows below draw the
-            // rest of the box, so the group never shows a seam between its own parts.
+            // rest of the box, so the group never shows a seam between its own parts. The stroke
+            // is the boldest on the page: this is the outline that contains everything else.
             .serversStackedFrame(
                 openBottom = attachedBelow,
-                color = Aether.GlassBorderSoft
+                color = serversGroupFrameColor(),
+                width = ServersGroupFrameWidth,
+                radius = ServersHierarchy.GROUP_CORNER_DP.dp
             )
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .kineticClickable(role = Role.Button, boundedShape = shape, onClick = onToggle)
-                .padding(start = 11.dp, end = 6.dp, top = 11.dp, bottom = 11.dp),
+                .padding(
+                    start = 12.dp,
+                    end = 7.dp,
+                    top = 12.dp,
+                    bottom = if (attachedBelow) 10.dp else 12.dp
+                ),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(
                 modifier = Modifier
-                    .size(30.dp)
-                    .clip(RoundedCornerShape(10.dp))
+                    .size(ServersHierarchy.GROUP_TILE_DP.dp)
+                    .clip(RoundedCornerShape(11.dp))
                     .background(accent.copy(alpha = .10f)),
                 contentAlignment = Alignment.Center
             ) {
                 Box(
                     Modifier
                         .graphicsLayer { rotationZ = chevronRotation }
-                        .size(14.dp)
+                        .size(15.dp)
                 ) {
                     HomeVectorIcon(HomeIcon.CHEVRON, accent, Modifier.fillMaxSize())
                 }
             }
             Spacer(Modifier.width(10.dp))
             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(7.dp)
+                ) {
                     if (group.flag.isNotBlank()) {
                         Text(group.flag, style = MaterialTheme.typography.titleSmall, maxLines = 1)
                     }
                     Text(
                         group.title,
                         color = Aether.Ink,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 2,
+                        style = TextStyle(
+                            fontSize = ServersHierarchy.GROUP_NAME_SP.sp,
+                            fontWeight = FontWeight.Bold
+                        ),
+                        maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f, fill = false)
                     )
+                    // The count belongs to the name, not to a line of its own: level 1 says how
+                    // much it holds, right where it says what it is.
+                    ServersGroupCountPill(count = total, tone = accent)
                 }
-                Text(
-                    (if (total == 1) "1 server" else "$total servers") +
-                        if (shown != total) " • $shown shown" else "",
-                    color = Aether.InkFaint,
-                    style = MaterialTheme.typography.labelSmall,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+                if (shown != total) {
+                    Text(
+                        trx("$shown shown"),
+                        color = Aether.InkFaint,
+                        style = TextStyle(fontSize = ServersHierarchy.GROUP_SECONDARY_SP.sp),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
             }
-            if (subscription != null) {
-                val refreshLabel = trx("Refresh ${group.title}")
+            Spacer(Modifier.width(4.dp))
+            // Refresh / status / menu: three equal controls on one even gap, so the trailing edge
+            // of the card reads as a row of siblings rather than as three unrelated icons that
+            // happen to sit next to each other.
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(ServersHierarchy.GROUP_CONTROL_GAP_DP.dp)
+            ) {
+                if (subscription != null) {
+                    val refreshLabel = trx("Refresh ${group.title}")
+                    Box(
+                        modifier = Modifier
+                            .size(ServersHierarchy.GROUP_CONTROL_DP.dp)
+                            .clip(RoundedCornerShape(11.dp))
+                            .semantics { contentDescription = refreshLabel }
+                            .kineticClickable(
+                                enabled = !local,
+                                role = Role.Button,
+                                boundedShape = RoundedCornerShape(11.dp),
+                                onClick = onRefresh
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (refreshing) {
+                            MarbleExpressiveCircularIndicator(
+                                modifier = Modifier.size(15.dp),
+                                color = Aether.Amethyst,
+                                strokeWidth = 2.dp,
+                                arcCount = 3
+                            )
+                        } else {
+                            HomeVectorIcon(
+                                HomeIcon.RESET,
+                                if (local) Aether.InkFaint else Aether.Amethyst,
+                                Modifier.size(ServersHierarchy.GROUP_ICON_DP.dp)
+                            )
+                        }
+                    }
+                }
+                // MARBLE_SERVERS_GROUP_PING_V145 — every subscription card carries its own ping
+                // control next to its own refresh control. Measuring a group used to be buried in
+                // the three-dot menu: two taps and a menu scan for the action a user runs more
+                // often than any other on this page, while the icon beside it refreshed the same
+                // group in one. The verb moved to where its sibling already lives; the menu entry
+                // is gone, so there is exactly one way to ping a group.
+                // MARBLE_PING_CANCEL_V156 — while this group is the batch, its own ping control is
+                // its stop control. One icon, both directions, next to the group it acts on.
+                val pingLabel =
+                    trx(if (pinging || cancelling) "Cancel measuring" else "Ping ${group.title}")
                 Box(
                     modifier = Modifier
-                        .size(34.dp)
+                        .size(ServersHierarchy.GROUP_CONTROL_DP.dp)
                         .clip(RoundedCornerShape(11.dp))
-                        .semantics { contentDescription = refreshLabel }
+                        .semantics { contentDescription = pingLabel }
                         .kineticClickable(
-                            enabled = !local,
+                            enabled = (pinging && !cancelling) || (!pinging && group.profiles.isNotEmpty()),
                             role = Role.Button,
                             boundedShape = RoundedCornerShape(11.dp),
-                            onClick = onRefresh
+                            onClick = { if (pinging) onCancelPing() else onPing() }
                         ),
                     contentAlignment = Alignment.Center
                 ) {
-                    if (refreshing) {
-                        MarbleExpressiveCircularIndicator(
-                            modifier = Modifier.size(15.dp),
-                            color = Aether.Amethyst,
-                            strokeWidth = 2.dp,
-                            arcCount = 3
+                    when {
+                        pinging -> HomeVectorIcon(
+                            HomeIcon.STOP,
+                            if (cancelling) Aether.InkFaint else Aether.Danger,
+                            Modifier.size(15.dp)
                         )
-                    } else {
-                        HomeVectorIcon(
-                            HomeIcon.RESET,
-                            if (local) Aether.InkFaint else Aether.Amethyst,
-                            Modifier.size(18.dp)
+                        else -> HomeVectorIcon(
+                            HomeIcon.PING,
+                            if (group.profiles.isEmpty()) Aether.InkFaint else Aether.Emerald,
+                            Modifier.size(ServersHierarchy.GROUP_ICON_DP.dp)
                         )
                     }
                 }
+                ServersGroupMenuButton(
+                    group = group,
+                    subscription = subscription,
+                    autoRefresh = autoRefresh,
+                    onMenu = onMenu
+                )
             }
-            // MARBLE_SERVERS_GROUP_PING_V145 — every subscription card carries its own ping
-            // control next to its own refresh control. Measuring a group used to be buried in
-            // the three-dot menu: two taps and a menu scan for the action a user runs more often
-            // than any other on this page, while the icon beside it refreshed the same group in
-            // one. The verb moved to where its sibling already lives; the menu entry is gone, so
-            // there is exactly one way to ping a group.
-            // MARBLE_PING_CANCEL_V156 — while this group is the batch, its own ping control is
-            // its stop control. One icon, both directions, next to the group it acts on.
-            val pingLabel = trx(if (pinging || cancelling) "Cancel measuring" else "Ping ${group.title}")
-            Box(
-                modifier = Modifier
-                    .size(34.dp)
-                    .clip(RoundedCornerShape(11.dp))
-                    .semantics { contentDescription = pingLabel }
-                    .kineticClickable(
-                        enabled = (pinging && !cancelling) || (!pinging && group.profiles.isNotEmpty()),
-                        role = Role.Button,
-                        boundedShape = RoundedCornerShape(11.dp),
-                        onClick = { if (pinging) onCancelPing() else onPing() }
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                when {
-                    pinging -> HomeVectorIcon(
-                        HomeIcon.STOP,
-                        if (cancelling) Aether.InkFaint else Aether.Danger,
-                        Modifier.size(15.dp)
-                    )
-                    else -> HomeVectorIcon(
-                        HomeIcon.PING,
-                        if (group.profiles.isEmpty()) Aether.InkFaint else Aether.Emerald,
-                        Modifier.size(18.dp)
-                    )
-                }
-            }
-            ServersGroupMenuButton(
-                group = group,
-                subscription = subscription,
-                autoRefresh = autoRefresh,
-                onMenu = onMenu
-            )
         }
 
         AnimatedVisibility(
@@ -5568,67 +5760,78 @@ private fun ServersGroupHeader(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(start = 11.dp, end = 11.dp, bottom = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                    .padding(start = 12.dp, end = 12.dp, bottom = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(9.dp)
             ) {
                 if (subscription != null && !local) {
-                    // Plan accounting, exactly as the provider reported it.
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(Aether.Cyan.copy(alpha = .10f))
-                            .padding(horizontal = 11.dp, vertical = 9.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        HomeVectorIcon(HomeIcon.INFO, Aether.Cyan, Modifier.size(16.dp))
-                        Text(
-                            subscriptionUsageText(subscription),
-                            color = Aether.Cyan,
-                            style = MaterialTheme.typography.labelMedium.copy(
-                                fontFamily = FontFamily.Monospace,
-                                fontWeight = FontWeight.Bold
-                            ),
-                            maxLines = 1
+                    // The plan, exactly as the provider reported it — and the bar that shows how
+                    // much of it is left, in the plan's own state colour.
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            HomeVectorIcon(HomeIcon.INFO, usageTone, Modifier.size(14.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                subscriptionUsageText(subscription),
+                                color = Aether.Ink,
+                                style = TextStyle(
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontFeatureSettings = "tnum"
+                                ),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f)
+                            )
+                            if (metered) {
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    ServersHierarchy.percentLabel(usagePercent),
+                                    color = usageTone,
+                                    style = TextStyle(
+                                        fontSize = 11.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        fontFeatureSettings = "tnum"
+                                    ),
+                                    maxLines = 1
+                                )
+                            }
+                        }
+                        // MARBLE_SERVERS_HIERARCHY_V189 — a real bar, not a sentence. The fill
+                        // settles on the expressive progress spring, and its colour is the tier:
+                        // green while the plan is comfortable, amber as it runs out, red past
+                        // 90 %. An unmetered plan shows an empty track: there is nothing to fill.
+                        MarbleExpressiveLinearIndicator(
+                            progress = if (metered) subscriptionUsageFraction(subscription) else 0f,
+                            color = usageTone,
+                            trackColor = usageTone.copy(alpha = .13f),
+                            height = ServersHierarchy.USAGE_BAR_HEIGHT_DP.dp
                         )
                     }
-                    Text(
-                        "${trx("Expires")}: ${subscriptionExpiryText(subscription)}",
-                        color = Aether.InkFaint,
-                        style = MaterialTheme.typography.labelSmall,
-                        maxLines = 1
-                    )
                 }
+                // The secondary line: three facts that matter once — when the plan ends, where the
+                // provider lives, whether Marble keeps it fresh. One row, secondary weight, under
+                // the bar, so the primary fact above stays the only loud thing in the card.
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
+                    if (subscription != null && !local) {
+                        Text(
+                            "${trx("Expires")}: ${subscriptionExpiryText(subscription)}",
+                            color = Aether.InkFaint,
+                            style = TextStyle(fontSize = ServersHierarchy.GROUP_SECONDARY_SP.sp),
+                            maxLines = 1
+                        )
+                    }
                     if (subscription != null && subscription.url.isNotBlank()) {
-                        Row(
-                            modifier = Modifier
-                                .heightIn(min = 32.dp)
-                                .clip(ServersPillShape)
-                                .border(1.dp, Aether.GlassBorderSoft, ServersPillShape)
-                                .kineticClickable(
-                                    role = Role.Button,
-                                    boundedShape = ServersPillShape,
-                                    onClick = { onWebsite(subscription.url) }
-                                )
-                                .padding(horizontal = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            HomeVectorIcon(HomeIcon.GLOBE, Aether.Ink, Modifier.size(14.dp))
-                            Text(
-                                trx("Website"),
-                                color = Aether.Ink,
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.SemiBold,
-                                maxLines = 1
-                            )
-                        }
+                        ServersWebsiteLink(
+                            onClick = { onWebsite(subscription.url) }
+                        )
                     }
                     Text(
                         when {
@@ -5638,9 +5841,10 @@ private fun ServersGroupHeader(
                             else -> trx("Auto-update off")
                         },
                         color = Aether.InkFaint,
-                        style = MaterialTheme.typography.labelSmall,
+                        style = TextStyle(fontSize = ServersHierarchy.GROUP_SECONDARY_SP.sp),
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
                     )
                 }
             }
@@ -5648,7 +5852,67 @@ private fun ServersGroupHeader(
     }
 }
 
-/** The three-dot control of one group header, with its menu anchored underneath. */
+/**
+ * The count a subscription carries beside its own name — level 1's badge, a step louder than the
+ * badges inside the filter rail because it belongs to the biggest card on the page.
+ */
+@Composable
+private fun ServersGroupCountPill(count: Int, tone: Color) {
+    val shape = RoundedCornerShape(8.dp)
+    Text(
+        trx(ServersHierarchy.serverBadge(count)),
+        color = tone,
+        style = TextStyle(
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Bold,
+            fontFeatureSettings = "tnum"
+        ),
+        maxLines = 1,
+        modifier = Modifier
+            .clip(shape)
+            .background(tone.copy(alpha = .12f))
+            .border(1.dp, tone.copy(alpha = .24f), shape)
+            .padding(horizontal = 7.dp, vertical = 2.dp)
+    )
+}
+
+/**
+ * The provider's website, at secondary weight: a small globe and a word, not a button competing
+ * with the card's own controls. It is a link out of the app, and it is dressed like one.
+ */
+@Composable
+private fun ServersWebsiteLink(onClick: () -> Unit) {
+    val shape = RoundedCornerShape(7.dp)
+    val label = trx("Website")
+    Row(
+        modifier = Modifier
+            .clip(shape)
+            .background(Aether.GlassBorderSoft.copy(alpha = .45f))
+            .kineticClickable(role = Role.Button, boundedShape = shape, onClick = onClick)
+            .padding(horizontal = 7.dp, vertical = 2.5.dp)
+            .semantics { contentDescription = label },
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        HomeVectorIcon(HomeIcon.GLOBE, Aether.InkMuted, Modifier.size(11.dp))
+        Text(
+            label,
+            color = Aether.InkMuted,
+            style = TextStyle(
+                fontSize = ServersHierarchy.GROUP_SECONDARY_SP.sp,
+                fontWeight = FontWeight.SemiBold
+            ),
+            maxLines = 1
+        )
+    }
+}
+
+/**
+ * The three-dot control of one group header, with its menu anchored underneath.
+ *
+ * MARBLE_SERVERS_HIERARCHY_V189 — the same box and the same glyph size as the refresh and status
+ * controls beside it, so the card's trailing edge is three equal siblings on one gap.
+ */
 @Composable
 private fun ServersGroupMenuButton(
     group: LibraryGroup,
@@ -5661,7 +5925,7 @@ private fun ServersGroupMenuButton(
     Box {
         Box(
             modifier = Modifier
-                .size(34.dp)
+                .size(ServersHierarchy.GROUP_CONTROL_DP.dp)
                 .clip(RoundedCornerShape(11.dp))
                 .semantics { contentDescription = menuLabel }
                 .kineticClickable(
@@ -5671,7 +5935,11 @@ private fun ServersGroupMenuButton(
                 ),
             contentAlignment = Alignment.Center
         ) {
-            HomeVectorIcon(HomeIcon.MORE, if (open) Aether.Cyan else Aether.InkMuted, Modifier.size(18.dp))
+            HomeVectorIcon(
+                HomeIcon.MORE,
+                if (open) Aether.Cyan else Aether.InkMuted,
+                Modifier.size(ServersHierarchy.GROUP_ICON_DP.dp)
+            )
         }
         ServersGroupMenu(
             group = group,
@@ -5800,7 +6068,7 @@ private fun serverPingTone(latencyMs: Int, measured: Boolean, testing: Boolean):
 // MarbleProtocolIdentity.kt, so the Servers page and the Home page read one identical table.
 
 /**
- * One server, one row of its subscription's box.
+ * One server — level 2 of the page's hierarchy: a row *inside* its subscription's card.
  *
  * MARBLE_PROTOCOL_IDENTITY — anatomy, left to right: the circular protocol tile (the type's own
  * glyph, its tone, the country flag on the rim, and the connection state on the rim colour), the
@@ -5808,9 +6076,20 @@ private fun serverPingTone(latencyMs: Int, measured: Boolean, testing: Boolean):
  * the right-aligned latency stat column and the row's own menu. Swiping right still opens the
  * rename dialog for people who liked that shortcut.
  *
- * MARBLE_SERVERS_STACKED_GROUPS_V121 — the row has no card of its own. It stacks flush under the
- * subscription header, shares the group's outline, and is separated from its neighbours by a
- * hairline only, so a subscription reads as one box of servers.
+ * MARBLE_SERVERS_HIERARCHY_V189 — a nested row is smaller than the card that holds it in every
+ * single dimension, and the difference is the design:
+ *
+ * - **inset**: the row sits [ServersHierarchy.LIST_INSET_DP] inside the card's edge on both sides,
+ *   on a softer container surface, so the servers read as a list *inside* a box rather than as
+ *   more cards of the same size stacked under a header;
+ * - **no border of its own**: rows are separated by a hairline divider, never by an outline. The
+ *   only row that grows an outline is the one carrying traffic, and it grows it in the state
+ *   colour, beside its own state word;
+ * - **smaller type and tile**: a 30 dp protocol tile where a standalone server gets 40 dp, a 13 sp
+ *   name where the subscription's name is 16 sp, and a latency readout one step under both;
+ * - **quiet failure**: a server a probe could not reach fades to
+ *   [ServersHierarchy.FAILED_ROW_ALPHA] and shows a cross in a muted tone. Red is reserved for
+ *   things the user must act on now, and "this one did not answer" is not one of them.
  *
  * MARBLE_SELECT_IS_NOT_CONNECT_V121 — three distinct row states, none of which change geometry:
  * connected (emerald rim + "Connected"), selected (cyan rim + "Selected", the server the connect
@@ -5825,6 +6104,7 @@ private fun ServersNodeCard(
     result: BenchmarkResult?,
     active: Boolean,
     selected: Boolean,
+    firstInGroup: Boolean,
     lastInGroup: Boolean,
     probeState: ProbeState,
     onConnect: () -> Unit,
@@ -5838,6 +6118,8 @@ private fun ServersNodeCard(
     val latency = measured?.latencyMs?.toInt() ?: 0
     val testing = probeState == ProbeState.TESTING
     val securing = !active && repo.state == "CONNECTING" && repo.stateDetail == profile.name
+    // A probe ran and the server did not answer. A fact, not an alarm.
+    val unreachable = result != null && measured == null && !testing
     // MARBLE_PROTOCOL_IDENTITY — the row's connection state rides the protocol tile's rim:
     // emerald when it carries traffic, amethyst while a handshake runs, cyan for the stored
     // selection, and the protocol's own hue when the row rests.
@@ -5847,17 +6129,25 @@ private fun ServersNodeCard(
         selected -> Aether.Cyan
         else -> null
     }
+    // The nested block rounds at its own two ends and is square everywhere between.
+    val panelShape = when {
+        firstInGroup && lastInGroup -> RoundedCornerShape(ServersHierarchy.LIST_CORNER_DP.dp)
+        firstInGroup -> ServersListHeadShape
+        lastInGroup -> ServersListTailShape
+        else -> ServersListBodyShape
+    }
     val rowShape = if (lastInGroup) ServersGroupTailShape else ServersGroupBodyShape
     val rowFill by animateColorAsState(
         targetValue = when {
-            active -> Aether.Emerald.copy(alpha = .09f)
-            securing -> Aether.Amethyst.copy(alpha = .09f)
-            selected -> Aether.Cyan.copy(alpha = .07f)
+            active -> Aether.Emerald.copy(alpha = .10f)
+            securing -> Aether.Amethyst.copy(alpha = .10f)
+            selected -> Aether.Cyan.copy(alpha = .08f)
             else -> Color.Transparent
         },
         animationSpec = MarbleMotionSpecs.Color,
         label = "servers-row-state"
     )
+    val rowAlpha = if (unreachable) ServersHierarchy.FAILED_ROW_ALPHA else 1f
     val country = ServersQuery.countryOf(profile)
     val name = stripLeadingFlag(profile.name)
     val flag = leadingFlagGlyph(profile.name) ?: country.flag
@@ -5884,12 +6174,14 @@ private fun ServersNodeCard(
             Row(
                 modifier = Modifier
                     .fillMaxSize()
-                    .clip(rowShape)
+                    // The reveal sits where the row itself sits: inside the card's edge.
+                    .padding(horizontal = ServersHierarchy.LIST_INSET_DP.dp)
+                    .clip(panelShape)
                     .background(tone.copy(alpha = .12f))
-                    .padding(horizontal = 18.dp),
+                    .padding(horizontal = 14.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                HomeVectorIcon(HomeIcon.PENCIL, tone, Modifier.size(21.dp))
+                HomeVectorIcon(HomeIcon.PENCIL, tone, Modifier.size(19.dp))
                 Spacer(Modifier.width(8.dp))
                 Text(
                     trx("Edit"),
@@ -5900,117 +6192,169 @@ private fun ServersNodeCard(
             }
         }
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(rowShape)
-                .background(Aether.VoidElevated)
-                .background(rowFill)
-                // The group's own outline continues through this row; the top edge is a hairline
-                // separator drawn by the frame's neighbour, never a second frame.
-                .serversStackedFrame(
-                    openTop = true,
-                    openBottom = !lastInGroup,
-                    color = Aether.GlassBorderSoft
-                )
-                .kineticClickable(
-                    enabled = !repo.busy && !active,
-                    role = Role.Button,
-                    boundedShape = rowShape,
-                    onClick = onConnect
-                )
-                .padding(start = 11.dp, end = 4.dp, top = 9.dp, bottom = 9.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // MARBLE_PROTOCOL_IDENTITY — the row opens with the server's type: a circular tile
-            // with the protocol's own glyph, its tone, and the country flag riding the rim.
-            ProtocolTile(
-                scheme = profile.scheme,
-                size = 40.dp,
-                flag = flag.takeIf { it.isNotBlank() && it != ServerCountry.UNKNOWN.flag },
-                stateTone = tileStateTone
-            )
-            Spacer(Modifier.width(10.dp))
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(3.dp)
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    // The subscription's own outline continues through this row at the card's
+                    // edge; the top edge is a hairline drawn by the frame's neighbour, never a
+                    // second frame. The row's own surface is the inset panel below.
+                    .serversStackedFrame(
+                        openTop = true,
+                        openBottom = !lastInGroup,
+                        color = serversGroupFrameColor(),
+                        width = ServersGroupFrameWidth,
+                        radius = ServersHierarchy.GROUP_CORNER_DP.dp
+                    )
+                    .kineticClickable(
+                        enabled = !repo.busy && !active,
+                        role = Role.Button,
+                        boundedShape = rowShape,
+                        onClick = onConnect
+                    ),
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(horizontal = ServersHierarchy.LIST_INSET_DP.dp)
+                        .clip(panelShape)
+                        // One container step away from the card's own surface: darker than the
+                        // card in Light (recessed), lighter than it in Dark (an inset well).
+                        // Either way the block is a different surface from the card that holds
+                        // it, which is the whole point of the inset.
+                        .background(Aether.Glass)
+                        .background(rowFill)
+                        // The one outline a nested row is allowed to grow, and only when it is
+                        // the server that is actually doing something.
+                        .then(
+                            if (tileStateTone != null) {
+                                Modifier.border(1.dp, tileStateTone.copy(alpha = .45f), panelShape)
+                            } else {
+                                Modifier
+                            }
+                        )
+                        .padding(
+                            start = ServersHierarchy.ROW_PAD_START_DP.dp,
+                            end = 3.dp,
+                            top = ServersHierarchy.ROW_PAD_VERTICAL_DP.dp,
+                            bottom = ServersHierarchy.ROW_PAD_VERTICAL_DP.dp
+                        )
+                        .alpha(rowAlpha),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        name,
-                        color = Aether.Ink,
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        softWrap = false,
-                        overflow = TextOverflow.Clip,
-                        modifier = Modifier
-                            .weight(1f, fill = false)
-                            .basicMarquee(iterations = Int.MAX_VALUE, initialDelayMillis = 2000)
-                    )
-                    if (active) {
-                        ServerStateChip(trx("Connected"), Aether.Emerald)
-                    } else if (securing) {
-                        ServerStateChip(trx("Securing"), Aether.Amethyst)
-                    } else if (selected) {
-                        ServerStateChip(trx("Selected"), Aether.Cyan)
-                    }
-                }
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    // The unique per-type identity: the protocol's glyph beside its label,
-                    // one tiny chip that is smaller than the old text-only badge.
-                    ProtocolBadge(
+                    // MARBLE_PROTOCOL_IDENTITY — the row opens with the server's type: a circular
+                    // tile with the protocol's own glyph, its tone, and the country flag riding
+                    // the rim. Inside a subscription it is the smaller of the two tile sizes.
+                    ProtocolTile(
                         scheme = profile.scheme,
-                        label = ServersQuery.badge(profile)
+                        size = ServersHierarchy.ROW_TILE_DP.dp,
+                        flag = flag.takeIf { it.isNotBlank() && it != ServerCountry.UNKNOWN.flag },
+                        stateTone = tileStateTone
                     )
-                    Text(
-                        ServersQuery.address(profile),
-                        color = Aether.InkFaint,
-                        style = MaterialTheme.typography.labelSmall,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f)
+                    Spacer(Modifier.width(9.dp))
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(5.dp)
+                        ) {
+                            Text(
+                                name,
+                                color = Aether.Ink,
+                                style = TextStyle(
+                                    fontSize = ServersHierarchy.ROW_NAME_SP.sp,
+                                    fontWeight = FontWeight.Bold
+                                ),
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Clip,
+                                modifier = Modifier
+                                    .weight(1f, fill = false)
+                                    .basicMarquee(iterations = Int.MAX_VALUE, initialDelayMillis = 2000)
+                            )
+                            if (active) {
+                                ServerStateChip(trx("Connected"), Aether.Emerald)
+                            } else if (securing) {
+                                ServerStateChip(trx("Securing"), Aether.Amethyst)
+                            } else if (selected) {
+                                ServerStateChip(trx("Selected"), Aether.Cyan)
+                            }
+                        }
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(5.dp)
+                        ) {
+                            // The unique per-type identity: the protocol's glyph beside its label,
+                            // one tiny chip that is smaller than the old text-only badge.
+                            ProtocolBadge(
+                                scheme = profile.scheme,
+                                label = ServersQuery.badge(profile)
+                            )
+                            Text(
+                                ServersQuery.address(profile),
+                                color = Aether.InkFaint,
+                                style = TextStyle(fontSize = ServersHierarchy.ROW_DETAIL_SP.sp),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
+                    // MARBLE_PROTOCOL_IDENTITY — the latency owns its own right-aligned stat
+                    // column (number + quality meter) at the trailing edge, no longer a lone
+                    // number floating free in the middle of the row.
+                    Spacer(Modifier.width(6.dp))
+                    ServerPingStat(
+                        latencyMs = latency,
+                        measured = measured != null,
+                        testing = testing,
+                        // "It failed" and "it was never tried" are different facts and must look
+                        // different — but neither of them is allowed to shout in red.
+                        attempted = unreachable,
+                        compact = true,
+                        quietFailure = true
+                    )
+                    // Breathing room between the stat column and the three-dot menu.
+                    Spacer(Modifier.width(1.dp))
+                    ServersNodeMenu(
+                        profile = profile,
+                        repo = repo,
+                        onEdit = onEdit,
+                        onMove = onMove,
+                        onQr = onQr,
+                        onDelete = onDelete,
+                        onDetails = onDetails,
+                        onCopyLink = {
+                            clipboard.setText(
+                                AnnotatedString(profile.raw.trim().ifBlank { profile.configJson })
+                            )
+                            repo.setRuntimeMessage("Config copied")
+                        },
+                        onCopyJson = {
+                            clipboard.setText(AnnotatedString(profile.configJson))
+                            repo.setRuntimeMessage("Xray JSON copied")
+                        }
                     )
                 }
             }
-            // MARBLE_PROTOCOL_IDENTITY — the latency owns its own right-aligned stat column
-            // (number + quality meter) at the trailing edge, no longer a lone number floating
-            // free in the middle of the row.
-            Spacer(Modifier.width(7.dp))
-            ServerPingStat(
-                latencyMs = latency,
-                measured = measured != null,
-                testing = testing,
-                // "It failed" and "it was never tried" are different facts and must look different.
-                attempted = result != null && measured == null
-            )
-            // Breathing room between the stat column and the three-dot menu so they never touch.
-            Spacer(Modifier.width(2.dp))
-            ServersNodeMenu(
-                profile = profile,
-                repo = repo,
-                onEdit = onEdit,
-                onMove = onMove,
-                onQr = onQr,
-                onDelete = onDelete,
-                onDetails = onDetails,
-                onCopyLink = {
-                    clipboard.setText(
-                        AnnotatedString(profile.raw.trim().ifBlank { profile.configJson })
+            // The hairline between two servers of one subscription: inset a little further than
+            // the panel so it reads as a separator inside the block, not as a card edge.
+            if (!lastInGroup) {
+                HorizontalDivider(
+                    thickness = 1.dp,
+                    color = serversRowDividerColor(),
+                    modifier = Modifier.padding(
+                        horizontal = ServersHierarchy.LIST_INSET_DP.dp + 12.dp
                     )
-                    repo.setRuntimeMessage("Config copied")
-                },
-                onCopyJson = {
-                    clipboard.setText(AnnotatedString(profile.configJson))
-                    repo.setRuntimeMessage("Xray JSON copied")
-                }
-            )
+                )
+            } else {
+                // The block ends before the card does, so the nested list never touches the
+                // outline that contains it.
+                Spacer(Modifier.height(8.dp))
+            }
         }
     }
 }
@@ -6192,13 +6536,15 @@ private fun ServersNodeMenu(
             tone = if (open) Aether.Cyan else Aether.InkMuted,
             selected = open,
             enabled = !repo.busy,
-            size = 34.dp,
+            // MARBLE_SERVERS_HIERARCHY_V189 — a nested row's own control, one step under the
+            // subscription card's 32 dp controls.
+            size = 28.dp,
             descriptiveLabel = "More actions for ${stripLeadingFlag(profile.name)}"
         ) {
             HomeVectorIcon(
                 HomeIcon.MORE,
                 if (open) Aether.Cyan else Aether.InkMuted,
-                Modifier.size(18.dp)
+                Modifier.size(16.dp)
             )
         }
         DropdownMenu(
