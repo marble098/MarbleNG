@@ -17,7 +17,8 @@ package com.marbleng.app.ui
 // live metric values roll instead of hard-swapping, and the securing arc of the connection stage
 // stretches and contracts on the shared frame clock (the wavy rhythm of the expressive loaders).
 // Control geometry stays stable: one hairline, no nested translucency, and every fixed slot
-// remains the same size. HomeCloud cards are the deliberate flat-surface exception (zero shadow).
+// remains the same size. HomeCloud cards share the same one-shadow depth contract since
+// MARBLE_HOME_CLOUD_DEPTH_V191 (one cool shadow, a gradient rim and a whisper wash).
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
@@ -214,10 +215,11 @@ internal object HomeCloud {
     val CardShape = RoundedCornerShape(22.dp)
     val CardRadius = 22.dp
     val InsetShape = RoundedCornerShape(14.dp)
-    // MARBLE_HOME_FLAT_SURFACES_V187 — Home cards read through fill + hairline only; the raised
-    // shadows made the first screen feel crowded and are intentionally removed from every card.
-    val CardElevation = 0.dp
-    val SelectedElevation = 0.dp
+    // MARBLE_HOME_CLOUD_DEPTH_V191 — the flat-plane experiment ends: a resting card lifts 3 dp on
+    // a single cool brand shadow, the selected card 7 dp. V187's total removal left every surface
+    // on one plane; the fix for "crowded" was never zero shadow, it was ONE quiet shadow.
+    val CardElevation = 3.dp
+    val SelectedElevation = 7.dp
     val Hairline = 1.dp
     val SelectedHairline = 1.5.dp
 }
@@ -298,8 +300,16 @@ internal fun homeCloudInsetBorder(): Color = when {
 internal fun homeCloudDivider(): Color = homeCloudInsetBorder()
 
 /**
- * The one Home card container: opaque fill + one thin hairline and no elevation. [selected]
- * switches to the sky fill and 1.5 dp accent rim. The homepage intentionally has no box shadows.
+ * The one Home card container: opaque fill + one thin hairline. [selected] switches to the sky
+ * fill and 1.5 dp accent rim.
+ *
+ * MARBLE_HOME_CLOUD_DEPTH_V191 — the cards left the flat-plane era. V187 dropped every shadow to
+ * answer "crowded", but all-opaque boxes with a 1 dp border on a near-white page left every card
+ * on exactly the same depth plane, which is the root of the lifeless first screen. Each card now
+ * carries the Prism depth contract: ONE cool brand-tinted shadow (never a grey one), a gradient
+ * hairline that catches light at the top, and a whisper-level brand wash inside the top edge.
+ * Nothing is stacked, nothing is translucent — the fill stays exactly the box, and selected cards
+ * lift a step so the chosen route reads as raised, not just re-tinted.
  */
 @Composable
 internal fun HomeCloudCard(
@@ -314,34 +324,141 @@ internal fun HomeCloudCard(
     ),
     content: @Composable () -> Unit
 ) {
-    Surface(
-        modifier = modifier,
-        shape = shape,
-        color = fill,
-        border = border,
-        shadowElevation = elevation,
-        content = content
+    // MARBLE_HOME_CLOUD_DEPTH_V191 — one soft cool shadow: navy-cast in Light (a grey shadow on a
+    // blue page reads as dirt), an electric glow lift in Dark (shadows on AMOLED need colour to
+    // exist at all). The elevation itself animates, so selection raises the card on the spring.
+    val lift by animateDpAsState(
+        targetValue = elevation,
+        animationSpec = MarbleMotionSpecs.Dp,
+        label = "home-cloud-card-lift"
     )
+    val dark = homeCloudDark()
+    val shadowAmbient = if (dark) Color(0xFF001144).copy(alpha = .34f) else Color(0xFF0A2540).copy(alpha = .20f)
+    val shadowSpot = if (dark) HomeCloud.Accent.copy(alpha = .30f) else Color(0xFF1E5FAF).copy(alpha = .26f)
+    // The gradient rim catches the aurora at the top and fades to the plain hairline at the
+    // bottom — light hitting an edge, not a second border. The top stop is theme-aware: lifted
+    // towards white in Light (a highlight), lifted towards the brand accent in Dark (a cool rim).
+    val rimBrush = if (selected) {
+        Brush.verticalGradient(
+            listOf(homeCloudSelectedBorder(), homeCloudCardBorder())
+        )
+    } else {
+        val plainRim = homeCloudCardBorder()
+        val litRim = if (dark) lerp(plainRim, HomeCloud.Accent, .30f) else lerp(plainRim, Color.White, .55f)
+        Brush.verticalGradient(listOf(litRim, plainRim))
+    }
+    // The whisper wash: a brand-tinted lightening at the top inside of the card, fading out over
+    // the first ~130 dp. It breaks the perfect flatness of the fill without tinting content.
+    val washTop = if (dark) HomeCloud.Accent.copy(alpha = .055f) else Color(0xFF3399FF).copy(alpha = .035f)
+    val washEndPx = with(LocalDensity.current) { 130.dp.toPx() }
+    Box(
+        modifier = modifier
+            .shadow(
+                elevation = lift,
+                shape = shape,
+                clip = false,
+                ambientColor = shadowAmbient,
+                spotColor = shadowSpot
+            )
+            .clip(shape)
+            .background(fill)
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(washTop, Color.Transparent),
+                    startY = 0f,
+                    endY = washEndPx
+                )
+            )
+            .border(border.width, rimBrush, shape)
+    ) {
+        content()
+    }
 }
 
 /**
- * Clean iOS Glass Backdrop.
- * Calm, refined, and non-distracting solid/frosted surface.
+ * Clean iOS Glass Backdrop — MARBLE_AURORA_BACKDROP_V191.
+ *
+ * The page under every tab was a two-stop gradient whose stops differ by ~3% lightness, which on
+ * a real panel reads as one flat empty field — the single biggest source of the "lifeless page"
+ * feel, because every card, pill and divider floated on it with nothing behind them.
+ *
+ * The backdrop is now a calm *brand aurora*: the same quiet vertical base gradient, with three
+ * large soft radial glows laid over it — electric blue off the top-start corner, bright ice off
+ * the top-end corner, and a deep navy pool at the floor. Alphas are whisper-level in Light
+ * (~4–7%) and ambient in Dark (~9–14%), so the atmosphere reads as depth and brand, never as
+ * decoration. Under the phone-colours theme every hue is derived from the live Aether ramp, so a
+ * wallpaper palette keeps its own aurora.
+ *
+ * The two upper glows breathe — very slowly (11 s / 15 s), out of phase — on Marble's one shared
+ * frame clock, read inside the draw lambda so the page never recomposes and, with animations
+ * disabled, freezes at its calm midpoint. Nothing scrolls, shimmers or distracts: the page simply
+ * has air and light in it.
  */
 @Composable
 internal fun PrismBackdrop(
     modifier: Modifier = Modifier,
     flavor: HomeFlavor = HomeFlavor.IOS_SLIDER
 ) {
-    // MARBLE_HOME_CLOUD_V140 — the page under every tab is the Home cloud gradient: almost
-    // white at the top, a touch more blue towards the bottom (near-black → midnight in dark
-    // mode). Flat single-tone backdrops made the translucent cards above it read as one flat
-    // blue field; the barely-there gradient keeps the depth cue without adding noise.
-    Box(modifier) {
-        Box(
-            Modifier
-                .matchParentSize()
-                .background(homeCloudBackgroundBrush())
+    val dark = homeCloudDark()
+    val motion = MarbleMotion.current
+    val motionOn = motion.motionEnabled
+    // MARBLE_THEME_COHERENCE_V191 — dynamic palettes aurora from the wallpaper ramp itself.
+    val glowStart = Aether.Cyan
+    val glowEnd = Aether.CyanBright
+    // The floor pool is the deep end of the same hue the page is lit from: two steps toward
+    // black under the brand palettes, the palette's own secondary under a wallpaper set.
+    val glowFloor = if (Aether.IsDynamic) Aether.Amethyst else lerp(glowStart, Color.Black, .55f)
+    val baseBrush = homeCloudBackgroundBrush()
+    Canvas(modifier = modifier.fillMaxSize()) {
+        val w = size.width
+        val h = size.height
+        // Base vertical wash.
+        drawRect(brush = baseBrush)
+        // Breathing factors: 0..1 waves, out of phase; static 0.5 when motion is off.
+        val waveA = if (motionOn) motion.breathe(11_000) else .5f
+        val waveB = if (motionOn) motion.breathe(15_000, offset = .35f) else .5f
+        val aFactor = .82f + .36f * waveA
+        val bFactor = .82f + .36f * waveB
+        fun glowAlpha(base: Float, factor: Float): Float = (base * factor).coerceIn(0f, 1f)
+
+        // Top-start halo — the electric brand light.
+        drawCircle(
+            brush = Brush.radialGradient(
+                colors = listOf(
+                    glowStart.copy(alpha = glowAlpha(if (dark) .13f else .065f, aFactor)),
+                    Color.Transparent
+                ),
+                center = Offset(w * -.08f, h * -.06f),
+                radius = (w + h) * .52f
+            ),
+            radius = (w + h) * .52f,
+            center = Offset(w * -.08f, h * -.06f)
+        )
+        // Top-end halo — the ice counter-light.
+        drawCircle(
+            brush = Brush.radialGradient(
+                colors = listOf(
+                    glowEnd.copy(alpha = glowAlpha(if (dark) .09f else .045f, bFactor)),
+                    Color.Transparent
+                ),
+                center = Offset(w * 1.10f, h * .04f),
+                radius = (w + h) * .46f
+            ),
+            radius = (w + h) * .46f,
+            center = Offset(w * 1.10f, h * .04f)
+        )
+        // Floor pool — the deep navy the page stands on.
+        drawCircle(
+            brush = Brush.radialGradient(
+                colors = listOf(
+                    glowFloor.copy(alpha = if (dark) .12f else .05f),
+                    Color.Transparent
+                ),
+                center = Offset(w * .5f, h * 1.16f),
+                radius = (w + h) * .58f
+            ),
+            radius = (w + h) * .58f,
+            center = Offset(w * .5f, h * 1.16f)
         )
     }
 }
@@ -513,16 +630,21 @@ internal fun PrismPanel(
     val shape=RoundedCornerShape(radius)
     val surface=Aether.VoidElevated
     val violet=Aether.Amethyst
-    val glowAlpha=.014f + .022f*selectedProgress
+    // MARBLE_PANEL_GLOW_FIX_V191 — the ambient brand glow was tuned to a maximum of 3.6% alpha,
+    // which is below the point a human eye registers on a bright panel: the element shipped, was
+    // never once seen, and the product read as flat. The resting glow is now visible-but-calm
+    // (4.5%) and a selected panel floods to a clear 10%. Still one radial breath of light inside
+    // the corner — never a border, never a fill.
+    val glowAlpha=.045f + .055f*selectedProgress
     // MARBLE_BUTTON_TEXT_RECT_REMOVED_DS_V68
     // GlassBorderSoft in the panel rim composited as a pale rectangular band on light themes —
     // especially around Settings section cards and the Library filter sheet panels that host the
     // choice chips. Keep the rim as pure accent/violet so no foreign rectangle sits behind labels.
     val borderBrush=Brush.linearGradient(
         listOf(
-            accent.copy(alpha=.18f + .34f*selectedProgress),
-            violet.copy(alpha=.10f + .18f*selectedProgress),
-            accent.copy(alpha=.08f + .12f*selectedProgress)
+            accent.copy(alpha=.22f + .34f*selectedProgress),
+            violet.copy(alpha=.12f + .18f*selectedProgress),
+            accent.copy(alpha=.10f + .12f*selectedProgress)
         )
     )
 
@@ -535,8 +657,8 @@ internal fun PrismPanel(
                 elevation=elevation,
                 shape=shape,
                 clip=false,
-                ambientColor=accent.copy(alpha=.16f),
-                spotColor=accent.copy(alpha=.22f)
+                ambientColor=accent.copy(alpha=.22f),
+                spotColor=accent.copy(alpha=.32f)
             )
             .border(PrismSurface.Hairline,borderBrush,shape)
             .clip(shape)
@@ -696,6 +818,23 @@ internal fun PrismButton(
                     }
                 )
                 .widthIn(min=if (compact) 64.dp else 88.dp)
+                // MARBLE_FILLED_BUTTON_LIFT_V191 — the flat rule stays for quiet and tinted
+                // controls, but the one *filled* verb of a surface (Connect, Disconnect) now
+                // carries a soft accent-tinted lift. A completely shadowless saturated slab read
+                // as a dead sticker next to the shadowed cards it sits on.
+                .then(
+                    if (filled) {
+                        Modifier.shadow(
+                            elevation = PrismSurface.ControlElevation,
+                            shape = shape,
+                            clip = false,
+                            ambientColor = accent.copy(alpha = .22f),
+                            spotColor = accent.copy(alpha = .34f)
+                        )
+                    } else {
+                        Modifier
+                    }
+                )
                 .clip(shape)
                 .background(skin)
                 .border(PrismSurface.Hairline, hairline, shape)

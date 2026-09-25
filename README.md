@@ -41,6 +41,7 @@ It focuses on real proxy verification, fast one-tap connection, fail-closed rout
 - Remembers the last ping of every server across restarts, updates and process death.
 - A **fourth tab you fill yourself** — a subscription, one config, or the live pulse of the route.
 - **Material 3 Expressive motion** — stretching loaders, cascading arrivals, rolling readouts and springy releases on every control.
+- **A living, layered surface** — a slowly breathing brand aurora behind every page, and one cool-shadow depth system above it, so nothing floats on a dead flat field.
 - **A Servers page that shows its hierarchy** — subscription cards with a real usage bar, and their servers nested inside them, smaller in every dimension.
 
 ## Servers you can read at a glance
@@ -125,6 +126,22 @@ The guarantees survive the elastic surface: the V135 opacity-only ping reveal, t
 banner geometry, the slide thresholds and park behavior, deterministic metric bands, and full
 respect for the system "remove animations" setting — with motion off, every spinner, ring and
 cascade rests at its exact target value.
+
+## A page with air and light in it
+
+`docs/AURORA_AND_DEPTH_V191.md` is the newest chapter.
+
+**The interface stopped being a flat field.** Every page now sits on a calm brand *aurora* — the
+quiet cloud gradient with three large soft radial glows over it (electric blue off one top
+corner, bright ice off the other, a deep navy pool at the floor), breathing so slowly it reads as
+atmosphere rather than animation, frozen completely when animations are off. Above it, every
+raised surface rejoined the physical world with one rule: **one cool brand-tinted shadow, never a
+grey one** — navy-cast in Light, an electric glow lift on AMOLED. Home cards lift 3 dp (the
+selected route 7, animated on the spring), Settings hub groups carry their section's tone as a
+lit wash down the card, subscription headers on the Servers page glow faintly at their top edge,
+and the dock's selected pill finally reads as selected at a glance — with the light-theme glass
+bug (the bar vanishing mid-scroll) fixed in the same breath. The PrismPanel glow, tuned in some
+earlier life to a maximum of 3.6 % alpha, is now actually visible.
 
 ## The Material refresh
 

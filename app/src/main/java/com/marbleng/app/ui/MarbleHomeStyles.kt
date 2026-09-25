@@ -2777,8 +2777,16 @@ internal fun IosSlideToConnect(
         modifier = modifier
             .fillMaxWidth()
             .height(62.dp)
-            // MARBLE_HOME_FLAT_SURFACES_V187 — the long connection track is a control, not a
-            // raised card: the state rim supplies enough contrast without a floor shadow.
+            // MARBLE_HOME_CLOUD_DEPTH_V191 — the track keeps its control identity (no card lift)
+            // but gains the one soft cool shadow every raised surface now carries, so it no
+            // longer reads as a hole cut in the page between two shadowed cards.
+            .shadow(
+                elevation = 3.dp,
+                shape = trackShape,
+                clip = false,
+                ambientColor = Color(0xFF0A2540).copy(alpha = .18f),
+                spotColor = tone.copy(alpha = .26f)
+            )
             .clip(trackShape)
             .background(homeCloudCardFill())
             .border(1.5.dp, tone.copy(alpha = 0.40f), trackShape)

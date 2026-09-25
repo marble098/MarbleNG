@@ -2116,14 +2116,20 @@ check(
 
 # MARBLE_HOME_STATUS_REFRAME_V187 — the fourth dock slot is user-owned, and one shared status
 # card serves all four Home presentations with a compact route row plus optional live throughput.
+# MARBLE_HOME_CLOUD_DEPTH_V191 — the flat-plane era of that card ended: the container is shared
+# exactly as before, but it now carries the product depth contract (one cool brand shadow, a
+# gradient rim, a whisper wash) instead of V187's total shadow ban. The invariant pins the lift.
 _banner_body = _fun_body(files["homeStyles"], "internal fun IosStatusWideCard(")
 _theme1_body = _fun_body(files["homeStyles"], "internal fun HomeThemeSlider(")
 check(
-    "the Home status card is shared, shadowless and telemetry stays in its route hierarchy",
+    "the Home status card is shared, lifted on one cool shadow and telemetry stays in its route hierarchy",
     files["homeStyles"].count("IosStatusWideCard(") == 5
     and "MARBLE_HOME_STATUS_REFRAME_V187" in files["homeStyles"]
     and "HomeCloudCard(modifier = modifier.fillMaxWidth(), shape = shape)" in _banner_body
-    and "val CardElevation = 0.dp" in files["design"]
+    # MARBLE_HOME_CLOUD_DEPTH_V191 — 0.dp is gone for good; the pin is the lift itself.
+    and "val CardElevation = 3.dp" in files["design"]
+    and "val SelectedElevation = 7.dp" in files["design"]
+    and "MARBLE_HOME_CLOUD_DEPTH_V191" in files["design"]
     and "homeStatusText(evidence)" in _banner_body
     and "visible = evidence.connected && evidence.showSpeedWidget" in _banner_body
     and _banner_body.count("HomeConnectionMetric(") == 2
