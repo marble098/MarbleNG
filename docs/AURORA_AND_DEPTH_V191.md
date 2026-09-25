@@ -105,6 +105,10 @@ it sits on.
 ## Compatibility & cost
 
 - minSdk 26 unchanged; no new APIs — only `shadow`, `Brush` and the existing shared frame clock.
+- The V187 "shadowless Home card" integrity invariant was **retitled and re-pinned**, not
+  deleted: the audit (`scripts/system-integrity-check.py`) now asserts the lift itself
+  (`CardElevation = 3.dp`, `SelectedElevation = 7.dp`, the `MARBLE_HOME_CLOUD_DEPTH_V191`
+  marker), so the depth contract can never silently drift back to the flat plane either.
 - The aurora lives in ONE draw node under the window: no recompositions, no allocation outside
   three gradient brushes per frame, and it freezes completely when animations are disabled.
 - Every wash length is density-aware (dp → px), so the lit bands keep their proportion on every
