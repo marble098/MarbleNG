@@ -42,6 +42,25 @@ It focuses on real proxy verification, fast one-tap connection, fail-closed rout
 - A **fourth tab you fill yourself** — a subscription, one config, or the live pulse of the route.
 - **Material 3 Expressive motion** — stretching loaders, cascading arrivals, rolling readouts and springy releases on every control.
 
+## A face for every server type, and a calmer Settings
+
+`docs/PROTOCOL_IDENTITY_V188.md` is the newest chapter.
+
+**Every wire scheme now has its own minimal identity.** VLESS ripples, VMESS sends an envelope,
+Trojan hides behind a shield, Shadowsocks wears the sock, Hysteria2 pushes twin chevrons,
+WireGuard carries a key, SSH keeps a prompt, SOCKS a tunnel ring and HTTP a request/reply swap —
+each on a circular tile with its own tone, the country flag riding the rim, and a tiny badge
+under the name. Both server lists (Servers page and Home) share that one anatomy: type tile,
+name, endpoint, and the latency in its own right-aligned stat column with a three-bar quality
+meter — no longer a lone number floating in the middle of a row.
+
+**Settings answers each question once.** The four doors that used to ask "which core?" (Engine
+& tunnel, Tunnel core, Xray core settings, sing-box extended) are one door now, badged with the
+running core's name; the duplicate *General & servers* row and the duplicated *Fourth tab* card
+are gone, with nothing lost — the engine page owns the switch, the pinned versions and the
+delay test. And the bottom dock no longer fades when you tap a tab: glass is reserved for real
+scrolling.
+
 ## Motion that feels like the newest Android
 
 `docs/EXPRESSIVE_MOTION_V186.md` is the newest chapter.

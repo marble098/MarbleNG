@@ -2558,37 +2558,15 @@ private fun GroupChevron(color: Color, modifier: Modifier = Modifier) {
     }
 }
 
-/** The wire-scheme colour family of a server row — one flat hue per protocol. */
-@Composable
-private fun protocolTone(scheme: String): Color = when (scheme.trim().lowercase()) {
-    "vmess" -> Aether.Cyan
-    "vless" -> Aether.Amethyst
-    "trojan" -> Aether.Amber
-    "shadowsocks", "ss" -> Aether.Emerald
-    "ssh" -> Aether.SlateBright
-    "socks", "http", "https" -> Aether.CyanBright
-    else -> Aether.Cyan
-}
-
-/** The 1–2 letter monogram of a wire scheme, drawn in the protocol colour tile. */
-private fun protocolMonogram(scheme: String): String = when (scheme.trim().lowercase()) {
-    "vmess" -> "VM"
-    "vless" -> "VL"
-    "trojan" -> "TJ"
-    "shadowsocks", "ss" -> "SS"
-    "ssh" -> "SH"
-    "socks" -> "SO"
-    "http", "https" -> "HT"
-    else -> scheme.trim().take(2).uppercase().ifBlank { "PR" }
-}
-
 /**
  * MARBLE_HOME_SERVER_ROW_V141 — one clean, flat server row.
  *
- * A protocol monogram tile (colour-coded per wire scheme) leads, name + scheme/host caption
- * follow, and the trailing state is one of three quiet marks: nothing (resting), a check
- * (selected) or a live pill (carrying traffic). Resting rows are near-invisible insets; the
- * selected row is the one saturated element with the sky fill and accent rim.
+ * MARBLE_PROTOCOL_IDENTITY — a circular protocol tile (the type's own glyph and tone, the flag
+ * on the rim, the connection state on the rim colour) leads, the name with its tiny protocol
+ * badge follows, the latency reads in the shared right-aligned stat column, and the trailing
+ * state is one of two quiet marks: a check (selected) or a live check (carrying traffic).
+ * Resting rows are near-invisible insets; the selected row is the one saturated element with
+ * the sky fill and accent rim.
  *
  * MARBLE_HOME_MIRRORS_SERVERS_V150 — the row also carries the server's measured latency, the
  * exact same value the Servers page shows for that server, so sorting by ping in Servers and
@@ -2604,7 +2582,6 @@ private fun IosServerItemRow(
     testing: Boolean,
     onClick: () -> Unit
 ) {
-    val motion = MarbleMotion.current
     val rowShape = RoundedCornerShape(16.dp)
     val itemBg by animateColorAsState(
         targetValue = when {
@@ -2624,8 +2601,6 @@ private fun IosServerItemRow(
         animationSpec = MarbleMotionSpecs.Color,
         label = "srv-row-border"
     )
-    val tone = protocolTone(server.scheme)
-    val liveTone = Aether.Emerald
     val flag = leadingFlagGlyph(server.name)
     val measured = result?.takeIf { it.success > 0 && it.latencyMs >= 20 }
     val latency = measured?.latencyMs?.toInt() ?: 0
@@ -2640,9 +2615,10 @@ private fun IosServerItemRow(
         else -> ""
     }
 
-    // MARBLE_HOME_SERVER_ROW_REFRAME_V187 — the list no longer repeats protocol in a monogram,
-    // a second label and an active-state capsule. One leading identity (flag or protocol), one
-    // quiet endpoint line, one measured latency and one tiny state mark keep the row scannable.
+    // MARBLE_PROTOCOL_IDENTITY — the row now opens with the server's type in a circular tile
+    // (the protocol's own glyph and tone, the flag on the rim, the connection state on the rim
+    // colour), then the name with its tiny protocol badge, and the latency in its own
+    // right-aligned stat column with a quality meter — the same anatomy the Servers page uses.
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -2662,41 +2638,20 @@ private fun IosServerItemRow(
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(
-            modifier = Modifier
-                .size(36.dp)
-                .clip(CircleShape)
-                .background(tone.copy(alpha = if (isSelected || isConnected) .15f else .09f)),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = flag ?: protocolMonogram(server.scheme),
-                color = tone,
-                fontSize = if (flag != null) 17.sp else 11.sp,
-                style = MaterialTheme.typography.labelMedium.copy(
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = if (flag == null) FontFamily.Monospace else FontFamily.Default,
-                    letterSpacing = 0.3.sp
-                ),
-                maxLines = 1
-            )
-            if (isConnected) {
-                Canvas(
-                    Modifier
-                        .align(Alignment.BottomEnd)
-                        .size(9.dp)
-                ) {
-                    drawCircle(
-                        color = liveTone.copy(alpha = .62f + .38f * motion.breathe(1400)),
-                        radius = size.minDimension * .5f
-                    )
-                }
+        ProtocolTile(
+            scheme = server.scheme,
+            size = 38.dp,
+            flag = flag,
+            stateTone = when {
+                isConnected -> Aether.Emerald
+                isSelected -> HomeCloud.Accent
+                else -> null
             }
-        }
+        )
 
         Column(
             modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(2.dp)
+            verticalArrangement = Arrangement.spacedBy(2.5.dp)
         ) {
             Text(
                 text = stripLeadingFlag(server.name),
@@ -2707,16 +2662,25 @@ private fun IosServerItemRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
-            Text(
-                text = endpoint,
-                color = Aether.InkMuted,
-                style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(5.dp)
+            ) {
+                ProtocolBadge(scheme = server.scheme)
+                Text(
+                    text = endpoint,
+                    color = Aether.InkMuted,
+                    style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+            }
         }
 
-        HomeServerLatencySlab(
+        // MARBLE_PROTOCOL_IDENTITY — the latency reads in the same right-aligned stat column the
+        // Servers page uses, so one list's number is the other's number in the same place.
+        ServerPingStat(
             latencyMs = latency,
             measured = measured != null,
             testing = testing,
@@ -2743,90 +2707,6 @@ private fun IosServerItemRow(
                 HomeGlyphIcon(HomeGlyph.CHECK, Color.White, Modifier.size(11.dp))
             }
             else -> Spacer(Modifier.size(22.dp))
-        }
-    }
-}
-
-/**
- * MARBLE_HOME_MIRRORS_SERVERS_V150 — a compact latency readout for one Home server row. It is the
- * Home expression of the Servers page's latency capsule (same measured gate, same tone ramp),
- * just at the row's own scale so the list never outshouts the status banner.
- *
- * MARBLE_PING_AIR_V152 — the tinted slab is gone, matching the Servers page: inside a row that
- * already carries a protocol tile, badges and a live pill, the latency's own background was one
- * surface too many and squeezed the number against its edges. The measurement now stands alone
- * in its quality tone with room around it.
- */
-@Composable
-private fun HomeServerLatencySlab(
-    latencyMs: Int,
-    measured: Boolean,
-    testing: Boolean,
-    attempted: Boolean
-) {
-    // Same tone ramp as the Servers page's latency capsule: green <100 ms, amber ≤250 ms, red
-    // above that. A probe that ran and failed reads as a red ✕, never as an unknown —.
-    val tone = when {
-        testing -> Aether.Cyan
-        measured -> when {
-            latencyMs < 100 -> Aether.Emerald
-            latencyMs <= 250 -> Aether.Amber
-            else -> Aether.Danger
-        }
-        attempted -> Aether.Danger
-        else -> Aether.InkFaint
-    }
-    val quality = when {
-        latencyMs <= 0 -> "Waiting"
-        latencyMs < 100 -> "Fast"
-        latencyMs <= 250 -> "Fair"
-        else -> "Slow"
-    }
-    val spoken = when {
-        testing -> trx("Testing server")
-        measured -> trx("Latency") + " $latencyMs ms, $quality"
-        attempted -> trx("No response")
-        else -> trx("Not measured")
-    }
-    Box(
-        modifier = Modifier
-            .height(26.dp)
-            .semantics { contentDescription = spoken },
-        contentAlignment = Alignment.Center
-    ) {
-        when {
-            testing -> MarbleExpressiveCircularIndicator(
-                modifier = Modifier.size(11.dp),
-                color = tone,
-                strokeWidth = 1.6.dp,
-                arcCount = 2
-            )
-            !measured -> Text(
-                if (attempted) "✕" else "—",
-                color = tone,
-                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-                maxLines = 1
-            )
-            else -> Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                Text(
-                    "$latencyMs",
-                    color = tone,
-                    style = MaterialTheme.typography.labelMedium.copy(
-                        fontWeight = FontWeight.Bold,
-                        fontFeatureSettings = "tnum"
-                    ),
-                    maxLines = 1
-                )
-                Text(
-                    trx("ms"),
-                    color = tone.copy(alpha = 0.74f),
-                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                    maxLines = 1
-                )
-            }
         }
     }
 }
