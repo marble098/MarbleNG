@@ -128,6 +128,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.LocalConfiguration
@@ -558,22 +559,26 @@ fun Aether2026App(
     // MARBLE_DOCK_CUSTOM_V145 — the dock's chosen footprint is published once, so the bar and
     // every page's bottom clearance are always derived from the same value.
     CompositionLocalProvider(LocalDockMetrics provides DockMetrics.of(repo.settings)) {
+    // MARBLE_EDGE_TO_EDGE_BACKDROP_V190 — the page gradient is painted under the WHOLE window,
+    // status bar and gesture area included. It used to start inside the Scaffold padding, so the
+    // strips behind the status bar and the gesture handle kept the flat Void tone and showed as
+    // two differently tinted bands above and below every page.
+    Box(Modifier.fillMaxSize()) {
+    // MARBLE_HOME_GRADIENTS_V116 — the whole page follows the selected Home style's
+    // multi-colour identity, so Home, Servers and Settings share the same professional
+    // gradient family instead of one grey wash.
+    DeepSpaceBackdrop(
+        Modifier.matchParentSize(),
+        flavor = homeFlavorFor(parseHomeStyle(repo.settings.homeStyle))
+    )
     Scaffold(
-        containerColor = Aether.Void
+        containerColor = Color.Transparent
     ) { padding ->
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .background(Aether.Void)
         ) {
-            // MARBLE_HOME_GRADIENTS_V116 — the whole page follows the selected Home style's
-            // multi-colour identity, so Home, Servers and Settings share the same professional
-            // gradient family instead of one grey wash.
-            DeepSpaceBackdrop(
-                Modifier.matchParentSize(),
-                flavor = homeFlavorFor(parseHomeStyle(repo.settings.homeStyle))
-            )
 
             // marble-page-transition-fast — the pager drives tab changes directly so swipes
             // track the finger with physics (instant, no staged crossfade); dock taps stay
@@ -760,6 +765,7 @@ fun Aether2026App(
             // surface for a three-entry menu is gone: a menu is a menu, not a page.
 
         }
+    }
     }
     }
 
@@ -1324,7 +1330,9 @@ private fun FloatingSpatialDock(
                     label = "dock-pill-${item.name}"
                 )
                 val indicatorTone by animateColorAsState(
-                    targetValue = if (active) slotAccent.copy(alpha = .34f) else Color.Transparent,
+                    // MARBLE_DOCK_PILL_V190 — a lighter rim: the fill already marks the tab, and the old
+                    // .34 rim drew a second heavy outline inside the dock's own border.
+                    targetValue = if (active) slotAccent.copy(alpha = .20f) else Color.Transparent,
                     animationSpec = MarbleMotionSpecs.DockColor,
                     label = "dock-indicator-${item.name}"
                 )
@@ -3815,13 +3823,19 @@ private fun Modifier.serversStackedFrame(
     val r = radius.toPx()
     val top = if (openTop) -r * 2f else 0f
     val bottom = if (openBottom) size.height + r * 2f else size.height
-    drawRoundRect(
-        color = color,
-        topLeft = Offset(stroke / 2f, top + stroke / 2f),
-        size = Size(size.width - stroke, bottom - top - stroke),
-        cornerRadius = CornerRadius(r, r),
-        style = Stroke(width = stroke)
-    )
+    // MARBLE_SERVERS_FRAME_CLIP_V190 — the extended stroke MUST be clipped to this slice. Without
+    // the clip every row painted its neighbours' rounded corners and top/bottom edges into the
+    // rows above and below it: stray "(" arcs at the card edge and hairlines struck straight
+    // through server names. Only the two side rails (and the real corners) may survive.
+    clipRect(left = 0f, top = 0f, right = size.width, bottom = size.height) {
+        drawRoundRect(
+            color = color,
+            topLeft = Offset(stroke / 2f, top + stroke / 2f),
+            size = Size(size.width - stroke, bottom - top - stroke),
+            cornerRadius = CornerRadius(r, r),
+            style = Stroke(width = stroke)
+        )
+    }
 }
 
 /** MARBLE_MANUAL_BUCKET_V122 — pasted/imported configs always land in the permanent Manual bucket. */
@@ -4663,9 +4677,11 @@ private fun ServersRoundButton(
     val description = trx(label)
     Box(
         modifier = Modifier
-            .size(44.dp)
+            .size(42.dp)
             .clip(CircleShape)
-            .background(Aether.GlassStrong.copy(alpha = .34f))
+            // MARBLE_SERVERS_HEADER_V190 — the header verbs sit on the same card surface as the
+            // search field under them, instead of a see-through wash that took the page tint.
+            .background(if (selected) Aether.Cyan.copy(alpha = .12f) else Aether.VoidElevated)
             .border(1.dp, if (selected) Aether.Cyan.copy(alpha = .45f) else Aether.GlassBorderSoft, CircleShape)
             .semantics { contentDescription = description }
             // MARBLE_EXPRESSIVE_MOTION_V186 — the round page verbs compress a touch deeper and
@@ -5018,7 +5034,10 @@ private fun ServersFilterRail(
             ServersFilterCapsule(
                 label = groupLabel,
                 tone = if (groupActive) Aether.Cyan else Aether.InkMuted,
-                badge = groupBadge,
+                // MARBLE_SERVERS_RAIL_V190 — while one group is picked, "1 group" restates the
+                // obvious and was what squeezed the group's own name down to "155.103…". The
+                // capsule then carries the name and its clear button only.
+                badge = groupBadge.takeUnless { groupActive },
                 onClick = onGroupMenu,
                 onClear = if (groupActive) {
                     { onGroupPick("all") }
@@ -6149,7 +6168,7 @@ private fun ServersNodeCard(
     )
     val rowAlpha = if (unreachable) ServersHierarchy.FAILED_ROW_ALPHA else 1f
     val country = ServersQuery.countryOf(profile)
-    val name = stripLeadingFlag(profile.name)
+    val name = displayServerName(profile.name, profile.host, profile.scheme)
     val flag = leadingFlagGlyph(profile.name) ?: country.flag
     val clipboard = LocalClipboardManager.current
 
@@ -6165,6 +6184,25 @@ private fun ServersNodeCard(
         }
     }
 
+    // MARBLE_SERVERS_FRAME_CLIP_V190 — the card's own surface and its side rails belong to the
+    // WHOLE slice (row + divider + tail spacer), not just to the clickable row. Before, the 8 dp
+    // gutters beside the nested block showed the page gradient instead of the card white, the
+    // rails broke at every divider, and the last row's bottom corners sat 8 dp above the card's
+    // real bottom edge. The slice now paints one continuous card, and the swipe reveal lives
+    // inside it.
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(rowShape)
+            .background(Aether.VoidElevated)
+            .serversStackedFrame(
+                openTop = true,
+                openBottom = !lastInGroup,
+                color = serversGroupFrameColor(),
+                width = ServersGroupFrameWidth,
+                radius = ServersHierarchy.GROUP_CORNER_DP.dp
+            )
+    ) {
     SwipeToDismissBox(
         state = swipeState,
         enableDismissFromStartToEnd = !repo.busy,
@@ -6196,16 +6234,8 @@ private fun ServersNodeCard(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    // The subscription's own outline continues through this row at the card's
-                    // edge; the top edge is a hairline drawn by the frame's neighbour, never a
-                    // second frame. The row's own surface is the inset panel below.
-                    .serversStackedFrame(
-                        openTop = true,
-                        openBottom = !lastInGroup,
-                        color = serversGroupFrameColor(),
-                        width = ServersGroupFrameWidth,
-                        radius = ServersHierarchy.GROUP_CORNER_DP.dp
-                    )
+                    // The subscription's outline and surface are painted by the slice around
+                    // this row; the row itself only owns the inset panel below.
                     .kineticClickable(
                         enabled = !repo.busy && !active,
                         role = Role.Button,
@@ -6343,19 +6373,30 @@ private fun ServersNodeCard(
             // The hairline between two servers of one subscription: inset a little further than
             // the panel so it reads as a separator inside the block, not as a card edge.
             if (!lastInGroup) {
-                HorizontalDivider(
-                    thickness = 1.dp,
-                    color = serversRowDividerColor(),
-                    modifier = Modifier.padding(
-                        horizontal = ServersHierarchy.LIST_INSET_DP.dp + 12.dp
+                // The divider sits ON the nested block's surface, so the block reads as one
+                // continuous recessed list instead of loose strips with card-white seams.
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = ServersHierarchy.LIST_INSET_DP.dp)
+                        .background(Aether.Glass)
+                ) {
+                    HorizontalDivider(
+                        thickness = 1.dp,
+                        color = serversRowDividerColor(),
+                        modifier = Modifier.padding(
+                            start = (ServersHierarchy.ROW_PAD_START_DP + ServersHierarchy.ROW_TILE_DP + 9f).dp,
+                            end = 12.dp
+                        )
                     )
-                )
+                }
             } else {
                 // The block ends before the card does, so the nested list never touches the
                 // outline that contains it.
                 Spacer(Modifier.height(8.dp))
             }
         }
+    }
     }
 }
 
@@ -9559,7 +9600,7 @@ private fun SettingsSubPage(
  * card without touching any of the dozens of call sites: each row draws a tone rail, and a
  * checked row lights its hairline with the same hue.
  */
-private val LocalSettingsSectionTone = compositionLocalOf { HomeCloud.Accent }
+private val LocalSettingsSectionTone = compositionLocalOf { HomeCloud.BrandAccent }
 
 /** The tone a Settings row should wear: its section's tone, falling back to the brand accent. */
 @Composable

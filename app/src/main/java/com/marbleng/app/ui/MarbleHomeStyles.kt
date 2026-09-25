@@ -1659,18 +1659,39 @@ internal fun IosStatusWideCard(
                     )
                 }
                 Spacer(Modifier.weight(1f))
-                HomeGlyphIcon(HomeGlyph.CLOCK, Aether.InkFaint, Modifier.size(13.dp))
-                Spacer(Modifier.width(5.dp))
-                Text(
-                    text = if (evidence.connected) {
-                        rememberUptimeLabel(evidence.connectedSinceMs)
-                    } else {
-                        "—"
-                    },
-                    color = Aether.InkMuted,
-                    style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
-                    maxLines = 1
-                )
+                // MARBLE_HOME_STATUS_V190 — the uptime exists only while a session does. A clock
+                // beside a bare dash said nothing while disconnected and read as a broken widget;
+                // the chip now fades in with the session and leaves with it.
+                AnimatedVisibility(
+                    visible = evidence.connected,
+                    enter = fadeIn(MarbleExpressiveSpecs.EntranceFadeFloat),
+                    exit = fadeOut(
+                        tween(
+                            durationMillis = MarbleExpressiveMotion.Short4,
+                            easing = MarbleExpressiveMotion.EmphasizedAccelerate
+                        )
+                    )
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(stateColor.copy(alpha = .10f))
+                            .padding(horizontal = 7.dp, vertical = 3.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        HomeGlyphIcon(HomeGlyph.CLOCK, stateColor, Modifier.size(12.dp))
+                        Text(
+                            text = if (evidence.connected) rememberUptimeLabel(evidence.connectedSinceMs) else "",
+                            color = stateColor,
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontWeight = FontWeight.Bold,
+                                fontFeatureSettings = "tnum"
+                            ),
+                            maxLines = 1
+                        )
+                    }
+                }
             }
 
             HorizontalDivider(color = homeCloudDivider().copy(alpha = .72f))
@@ -1718,7 +1739,7 @@ internal fun IosStatusWideCard(
                             text = routeMeta,
                             color = Aether.InkMuted,
                             style = MaterialTheme.typography.labelSmall.copy(
-                                fontFamily = FontFamily.Monospace
+                                fontFeatureSettings = "tnum"
                             ),
                             maxLines = 1,
                             softWrap = false,
@@ -1744,22 +1765,26 @@ internal fun IosStatusWideCard(
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(28.dp)
+                            .size(30.dp)
                             .clip(CircleShape)
                             .background(pingTone.copy(alpha = .12f)),
                         contentAlignment = Alignment.Center
                     ) {
                         HomeGlyphIcon(HomeGlyph.PULSE, pingTone, Modifier.size(14.dp))
                     }
-                    MarbleExpressiveValueText(
-                        value = pingValue,
-                        color = pingTone,
-                        style = MaterialTheme.typography.labelSmall.copy(
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = FontFamily.Monospace
-                        ),
-                        maxLines = 1
-                    )
+                    // MARBLE_HOME_STATUS_V190 — an unmeasured route shows the pulse button alone:
+                    // a lone dash beside it looked like a missing value, not an invitation to tap.
+                    if (pingValue != "—") {
+                        MarbleExpressiveValueText(
+                            value = pingValue,
+                            color = pingTone,
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontWeight = FontWeight.Bold,
+                                fontFeatureSettings = "tnum"
+                            ),
+                            maxLines = 1
+                        )
+                    }
                 }
 
                 Box(
@@ -2654,10 +2679,10 @@ private fun IosServerItemRow(
             verticalArrangement = Arrangement.spacedBy(2.5.dp)
         ) {
             Text(
-                text = stripLeadingFlag(server.name),
+                text = displayServerName(server.name, server.host, server.scheme),
                 color = Aether.Ink,
                 style = MaterialTheme.typography.bodyMedium.copy(
-                    fontWeight = if (isSelected || isConnected) FontWeight.Bold else FontWeight.Medium
+                    fontWeight = if (isSelected || isConnected) FontWeight.Bold else FontWeight.SemiBold
                 ),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
@@ -2667,10 +2692,13 @@ private fun IosServerItemRow(
                 horizontalArrangement = Arrangement.spacedBy(5.dp)
             ) {
                 ProtocolBadge(scheme = server.scheme)
+                // Tabular figures instead of a monospace face: digits still line up row to row,
+                // but the endpoint no longer spends a full em per dot and colon, so the port
+                // stays visible instead of being ellipsised away on a normal phone.
                 Text(
                     text = endpoint,
                     color = Aether.InkMuted,
-                    style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                    style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f)
@@ -2680,34 +2708,16 @@ private fun IosServerItemRow(
 
         // MARBLE_PROTOCOL_IDENTITY — the latency reads in the same right-aligned stat column the
         // Servers page uses, so one list's number is the other's number in the same place.
+        // MARBLE_HOME_ROW_V190 — the trailing check badge (and the empty 22 dp slot every other
+        // row reserved for it) is gone. Selection was already stated three times — the sky fill,
+        // the accent rim and the lit tile ring — and the reserved slot cut the endpoint short on
+        // every row. The latency column now owns the trailing edge alone.
         ServerPingStat(
             latencyMs = latency,
             measured = measured != null,
             testing = testing,
             attempted = attempted
         )
-
-        when {
-            isConnected -> Box(
-                modifier = Modifier
-                    .size(22.dp)
-                    .clip(CircleShape)
-                    .background(Aether.Emerald.copy(alpha = .14f)),
-                contentAlignment = Alignment.Center
-            ) {
-                HomeGlyphIcon(HomeGlyph.CHECK, Aether.Emerald, Modifier.size(12.dp))
-            }
-            isSelected -> Box(
-                modifier = Modifier
-                    .size(22.dp)
-                    .clip(CircleShape)
-                    .background(HomeCloud.Accent),
-                contentAlignment = Alignment.Center
-            ) {
-                HomeGlyphIcon(HomeGlyph.CHECK, Color.White, Modifier.size(11.dp))
-            }
-            else -> Spacer(Modifier.size(22.dp))
-        }
     }
 }
 
@@ -3301,12 +3311,15 @@ internal fun OrbitalConnectControl(
                     size = ring,
                     style = Stroke(stroke, cap = StrokeCap.Round)
                 )
+                // MARBLE_ORBIT_REST_V190 — the resting orbit is four even, softer dashes with
+                // equal gaps (60° arc / 30° gap) so it reads as one calm ring around the core,
+                // not as broken segments of different weights.
                 else -> rotate(degrees = slowSpin * 360f) {
                     repeat(4) { index ->
                         drawArc(
-                            color = tone.copy(alpha = 0.55f),
-                            startAngle = index * 90f,
-                            sweepAngle = 54f,
+                            color = tone.copy(alpha = 0.42f),
+                            startAngle = index * 90f + 15f,
+                            sweepAngle = 60f,
                             useCenter = false,
                             topLeft = Offset(inset, inset),
                             size = ring,

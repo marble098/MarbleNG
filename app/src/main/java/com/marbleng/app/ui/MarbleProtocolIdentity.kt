@@ -44,6 +44,7 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Matrix
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
@@ -121,19 +122,25 @@ fun ProtocolGlyph(family: ProtocolFamily, color: Color, modifier: Modifier = Mod
         val u = size.width / 24f
         fun p(x: Float, y: Float) = Offset(x * u, y * u)
         val stroke = 1.9f * u
+        // MARBLE_GLYPH_SCALE_FIX — every path is authored in the 24×24 design space and must be
+        // scaled by the same factor as the lines and circles. The raw paths used to be drawn in
+        // pixels, so the V, the chevrons and the shields rendered a few pixels wide in the
+        // tile's top-left corner instead of filling its centre.
+        val designToCanvas = Matrix().apply { scale(u, u) }
+        fun glyph(block: Path.() -> Unit): Path = Path().apply(block).apply { transform(designToCanvas) }
         val line = Stroke(width = stroke, cap = StrokeCap.Round, join = StrokeJoin.Round)
 
         when (family) {
             // A lean V with one signal ripple leaving its tip: "less" is a stream.
             ProtocolFamily.VLESS -> {
                 drawPath(
-                    Path().apply {
+                    glyph {
                         moveTo(6.4f, 6.6f); lineTo(12f, 17.4f); lineTo(17.6f, 6.6f)
                     },
                     color, style = line
                 )
                 drawPath(
-                    Path().apply {
+                    glyph {
                         moveTo(8.9f, 19.7f); cubicTo(10.97f, 21.43f, 13.03f, 21.43f, 15.1f, 19.7f)
                     },
                     color, style = line
@@ -143,7 +150,7 @@ fun ProtocolGlyph(family: ProtocolFamily, color: Color, modifier: Modifier = Mod
             // An envelope with its flap: a message in transit.
             ProtocolFamily.VMESS -> {
                 drawPath(
-                    Path().apply {
+                    glyph {
                         moveTo(6.8f, 6.6f); lineTo(17.2f, 6.6f); cubicTo(18.67f, 6.6f, 19.4f, 7.33f, 19.4f, 8.8f)
                         lineTo(19.4f, 15.2f); cubicTo(19.4f, 16.67f, 18.67f, 17.4f, 17.2f, 17.4f)
                         lineTo(6.8f, 17.4f); cubicTo(5.33f, 17.4f, 4.6f, 16.67f, 4.6f, 15.2f)
@@ -152,7 +159,7 @@ fun ProtocolGlyph(family: ProtocolFamily, color: Color, modifier: Modifier = Mod
                     color, style = line
                 )
                 drawPath(
-                    Path().apply {
+                    glyph {
                         moveTo(5.6f, 7.8f); lineTo(12f, 13.4f); lineTo(18.4f, 7.8f)
                     },
                     color, style = line
@@ -162,7 +169,7 @@ fun ProtocolGlyph(family: ProtocolFamily, color: Color, modifier: Modifier = Mod
             // A shield with a keyhole: hidden armour.
             ProtocolFamily.TROJAN -> {
                 drawPath(
-                    Path().apply {
+                    glyph {
                         moveTo(12f, 3.6f); lineTo(18.7f, 6.4f); lineTo(18.7f, 11.8f)
                         cubicTo(18.7f, 15.5f, 16.1f, 18.8f, 12f, 20.7f)
                         cubicTo(7.9f, 18.8f, 5.3f, 15.5f, 5.3f, 11.8f)
@@ -177,7 +184,7 @@ fun ProtocolGlyph(family: ProtocolFamily, color: Color, modifier: Modifier = Mod
             // The sock itself — the silhouette the name was built on.
             ProtocolFamily.SHADOWSOCKS -> {
                 drawPath(
-                    Path().apply {
+                    glyph {
                         moveTo(9f, 4.6f); lineTo(9f, 10.2f)
                         cubicTo(9f, 13.1f, 10.8f, 15.3f, 13.6f, 16.3f)
                         lineTo(17f, 17.5f); cubicTo(19f, 18.2f, 20.1f, 15.7f, 18.5f, 14.4f)
@@ -191,13 +198,13 @@ fun ProtocolGlyph(family: ProtocolFamily, color: Color, modifier: Modifier = Mod
             // Twin chevrons pushing right: pure speed.
             ProtocolFamily.HYSTERIA2 -> {
                 drawPath(
-                    Path().apply {
+                    glyph {
                         moveTo(5.9f, 6.9f); lineTo(12.1f, 12f); lineTo(5.9f, 17.1f)
                     },
                     color, style = line
                 )
                 drawPath(
-                    Path().apply {
+                    glyph {
                         moveTo(11.9f, 6.9f); lineTo(18.1f, 12f); lineTo(11.9f, 17.1f)
                     },
                     color, style = line
@@ -215,7 +222,7 @@ fun ProtocolGlyph(family: ProtocolFamily, color: Color, modifier: Modifier = Mod
             // A terminal prompt: the shell of remote access.
             ProtocolFamily.SSH -> {
                 drawPath(
-                    Path().apply {
+                    glyph {
                         moveTo(6.4f, 8.2f); lineTo(10.8f, 12f); lineTo(6.4f, 15.8f)
                     },
                     color, style = line
@@ -233,14 +240,14 @@ fun ProtocolGlyph(family: ProtocolFamily, color: Color, modifier: Modifier = Mod
             ProtocolFamily.HTTP -> {
                 drawLine(color, p(5.8f, 9.2f), p(18.2f, 9.2f), stroke, StrokeCap.Round)
                 drawPath(
-                    Path().apply {
+                    glyph {
                         moveTo(15.2f, 6.4f); lineTo(18.2f, 9.2f); lineTo(15.2f, 12f)
                     },
                     color, style = line
                 )
                 drawLine(color, p(18.2f, 14.8f), p(5.8f, 14.8f), stroke, StrokeCap.Round)
                 drawPath(
-                    Path().apply {
+                    glyph {
                         moveTo(8.8f, 12f); lineTo(5.8f, 14.8f); lineTo(8.8f, 17.6f)
                     },
                     color, style = line
@@ -250,7 +257,7 @@ fun ProtocolGlyph(family: ProtocolFamily, color: Color, modifier: Modifier = Mod
             // The fallback: a sealed hex with its own centre.
             ProtocolFamily.OTHER -> {
                 drawPath(
-                    Path().apply {
+                    glyph {
                         moveTo(12f, 4.4f); lineTo(18.58f, 8.2f); lineTo(18.58f, 15.8f)
                         lineTo(12f, 19.6f); lineTo(5.42f, 15.8f); lineTo(5.42f, 8.2f); close()
                     },
@@ -546,7 +553,8 @@ fun PingQualityBars(
         val barW = size.width / 4.6f
         val gap = size.width / 8f
         val heights = listOf(size.height * .42f, size.height * .72f, size.height)
-        val total = heights.sum() + gap * 2f
+        // Three bars and two gaps: the meter is centred on its own width, not on the bars' heights.
+        val total = barW * 3f + gap * 2f
         var x = (size.width - total) / 2f
         heights.forEachIndexed { index, h ->
             val lit = index < quality
