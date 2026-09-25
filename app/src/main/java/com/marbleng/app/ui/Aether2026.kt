@@ -1250,8 +1250,10 @@ private fun FloatingSpatialDock(
 
         val idleSurface = Aether.VoidElevated
         val glassSurface = Aether.BarGlass
+        // MARBLE_DOCK_GLASS_VISIBILITY_V191 — the glass floor rises with the token: 0.78 left the
+        // light bar at ~61% body, i.e. legible only by its shadow.
         val surfaceAlpha by animateFloatAsState(
-            targetValue = if (glass) 0.78f else 1f,
+            targetValue = if (glass) 0.90f else 1f,
             animationSpec = MarbleMotionSpecs.DockFloat,
             label = "dock-surface-alpha"
         )
@@ -1324,17 +1326,29 @@ private fun FloatingSpatialDock(
                     animationSpec = MarbleMotionSpecs.DockColor,
                     label = "dock-tone-${item.name}"
                 )
+                // MARBLE_DOCK_PRESENCE_V191 — the selected pill finally reads as selected. The
+                // V190 "lighter rim" pass (.16 fill / .20 rim) left the active tab almost
+                // indistinguishable from its neighbours on the light theme — a navigation bar
+                // must answer "where am I?" from across the room. The fill rises to a quarter
+                // tint, the rim to a third, and the pill gains a vertical gradient (accent-lit
+                // top → calm bottom) so the selection reads as a lit object, not a wash. The
+                // geometry is untouched: the bar still never moves.
                 val pillBg by animateColorAsState(
-                    targetValue = if (active) slotAccent.copy(alpha = .16f) else Color.Transparent,
+                    targetValue = if (active) slotAccent.copy(alpha = .24f) else Color.Transparent,
                     animationSpec = MarbleMotionSpecs.DockColor,
                     label = "dock-pill-${item.name}"
                 )
                 val indicatorTone by animateColorAsState(
-                    // MARBLE_DOCK_PILL_V190 — a lighter rim: the fill already marks the tab, and the old
-                    // .34 rim drew a second heavy outline inside the dock's own border.
-                    targetValue = if (active) slotAccent.copy(alpha = .20f) else Color.Transparent,
+                    targetValue = if (active) slotAccent.copy(alpha = .34f) else Color.Transparent,
                     animationSpec = MarbleMotionSpecs.DockColor,
                     label = "dock-indicator-${item.name}"
+                )
+                // The wash fades on the same overshoot-free tween as the pill's colour, so the
+                // selection never pops on or off mid-turn.
+                val pillWashAlpha by animateFloatAsState(
+                    targetValue = if (active) 1f else 0f,
+                    animationSpec = MarbleMotionSpecs.DockFloat,
+                    label = "dock-wash-${item.name}"
                 )
 
                 Row(
@@ -1343,6 +1357,20 @@ private fun FloatingSpatialDock(
                         .fillMaxHeight()
                         .clip(glassShape)
                         .background(pillBg)
+                        .then(
+                            if (pillWashAlpha < .01f) {
+                                Modifier
+                            } else {
+                                Modifier.background(
+                                    Brush.verticalGradient(
+                                        listOf(
+                                            slotAccent.copy(alpha = .16f * pillWashAlpha),
+                                            Color.Transparent
+                                        )
+                                    )
+                                )
+                            }
+                        )
                         .border(1.dp, indicatorTone, glassShape)
                         .kineticClickable(
                             boundedShape = glassShape,
@@ -4675,14 +4703,34 @@ private fun ServersRoundButton(
 ) {
     val tone = if (selected) Aether.Cyan else Aether.Ink
     val description = trx(label)
+    // MARBLE_SERVERS_HEADER_PRESENCE_V191 — the header verbs were near-invisible on the aurora
+    // page: card-white fill under a hairline-soft border. They keep the card surface but gain a
+    // soft cool shadow and a legible rim, so "+" and the sort control read as controls from the
+    // first glance.
+    val buttonElevation by animateDpAsState(
+        targetValue = if (selected) 5.dp else 2.dp,
+        animationSpec = MarbleMotionSpecs.Dp,
+        label = "servers-round-button-elevation"
+    )
     Box(
         modifier = Modifier
             .size(42.dp)
+            .shadow(
+                elevation = buttonElevation,
+                shape = CircleShape,
+                clip = false,
+                ambientColor = Color(0xFF0A2540).copy(alpha = .16f),
+                spotColor = if (selected) Aether.Cyan.copy(alpha = .34f) else Color(0xFF1E5FAF).copy(alpha = .22f)
+            )
             .clip(CircleShape)
             // MARBLE_SERVERS_HEADER_V190 — the header verbs sit on the same card surface as the
             // search field under them, instead of a see-through wash that took the page tint.
             .background(if (selected) Aether.Cyan.copy(alpha = .12f) else Aether.VoidElevated)
-            .border(1.dp, if (selected) Aether.Cyan.copy(alpha = .45f) else Aether.GlassBorderSoft, CircleShape)
+            .border(
+                1.dp,
+                if (selected) Aether.Cyan.copy(alpha = .45f) else Aether.GlassBorder,
+                CircleShape
+            )
             .semantics { contentDescription = description }
             // MARBLE_EXPRESSIVE_MOTION_V186 — the round page verbs compress a touch deeper and
             // spring back with one visible overshoot, the expressive press of the newest Android.
@@ -5414,12 +5462,29 @@ private fun ServersProbeStrip(repo: AppRepository) {
     val refreshing = repo.refreshingSources.isNotEmpty()
     val cancelling = repo.probeCancelling
     val stopLabel = trx("Cancel measuring")
+    val washEndPx = with(LocalDensity.current) { 80.dp.toPx() }
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            // MARBLE_SERVERS_GROUP_PRESENCE_V191 — the live strip is a page-level card and joins
+            // the depth language while it is on screen.
+            .shadow(
+                elevation = 4.dp,
+                shape = ServersCardShape,
+                clip = false,
+                ambientColor = Color(0xFF0A2540).copy(alpha = .18f),
+                spotColor = Aether.Cyan.copy(alpha = .28f)
+            )
             .clip(ServersCardShape)
             .background(Aether.VoidElevated)
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(Aether.Cyan.copy(alpha = .06f), Color.Transparent),
+                    startY = 0f,
+                    endY = washEndPx
+                )
+            )
             .border(1.dp, Aether.Cyan.copy(alpha = .22f), ServersCardShape)
             .padding(horizontal = 13.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(7.dp)
@@ -5610,12 +5675,26 @@ private fun ServersGroupHeader(
     val usagePercent = subscription?.let {
         ServersHierarchy.usagePercent(subscriptionUsedBytes(it), it.totalBytes)
     } ?: 0
+    // MARBLE_SERVERS_GROUP_PRESENCE_V191 — the wash fades over real dp, not raw pixels, so the
+    // lit band keeps its proportion on every panel density.
+    val washEndPx = with(LocalDensity.current) { 80.dp.toPx() }
 
     Column(
         modifier = modifier
             .fillMaxWidth()
             .clip(shape)
             .background(Aether.VoidElevated)
+            // MARBLE_SERVERS_GROUP_PRESENCE_V191 — the level-1 card carries its own light: a
+            // whisper accent wash down from the header's top edge, fading out long before the
+            // rows begin, so the subscription reads as a lit container rather than one more grey
+            // box — and the wash can never seam into the rows, because it is gone by then.
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(accent.copy(alpha = .06f), Color.Transparent),
+                    startY = 0f,
+                    endY = washEndPx
+                )
+            )
             // An attached header keeps its side and top hairlines and lets the rows below draw the
             // rest of the box, so the group never shows a seam between its own parts. The stroke
             // is the boldest on the page: this is the outline that contains everything else.
@@ -8167,7 +8246,11 @@ private fun ConnectionDetailPage(
     val clipboard = LocalClipboardManager.current
 
     LazyColumn(
-        modifier = Modifier.fillMaxSize().background(Aether.Void),
+        // MARBLE_DETAIL_PAGE_AURORA_V191 — the detail overlay no longer paints its own flat Void
+        // floor. The window-level aurora backdrop already lives under this page; letting it show
+        // through keeps the container-transform arrival on the same living page the user left,
+        // instead of landing on a dead black rectangle.
+        modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 12.dp, bottom = dockClearance()),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
@@ -8606,12 +8689,35 @@ private fun DockSlotCard(
     modifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit
 ) {
+    // MARBLE_DOCK_SLOT_PRESENCE_V191 — the fourth tab's cards join the product depth language:
+    // one cool shadow, a tone-lit top wash and a gradient rim, so the page reads as the same
+    // physical system as Home and Settings instead of flat grey plates.
+    val dark = homeCloudDark()
+    val washEndPx = with(LocalDensity.current) { 150.dp.toPx() }
     Column(
         modifier = modifier
             .fillMaxWidth()
+            .shadow(
+                elevation = 4.dp,
+                shape = ServersCardShape,
+                clip = false,
+                ambientColor = if (dark) Color(0xFF001144).copy(alpha = .34f) else Color(0xFF0A2540).copy(alpha = .18f),
+                spotColor = tone.copy(alpha = .28f)
+            )
             .clip(ServersCardShape)
             .background(Aether.VoidElevated)
-            .border(1.dp, tone.copy(alpha = .22f), ServersCardShape)
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(tone.copy(alpha = if (dark) .07f else .05f), Color.Transparent),
+                    startY = 0f,
+                    endY = washEndPx
+                )
+            )
+            .border(
+                1.dp,
+                Brush.verticalGradient(listOf(tone.copy(alpha = .40f), tone.copy(alpha = .16f))),
+                ServersCardShape
+            )
             .padding(13.dp),
         verticalArrangement = Arrangement.spacedBy(9.dp),
         content = content
@@ -9616,26 +9722,52 @@ private fun SettingsHubCard(
     content: @Composable ColumnScope.() -> Unit
 ) {
     val shape = RoundedCornerShape(18.dp)
+    // MARBLE_SETTINGS_HUB_PRESENCE_V191 — the hub was a wall of identical grey boxes: same fill,
+    // same 18% border, no depth, no colour. Every group card now carries its section's tone in
+    // the surface itself — a soft tone-lit wash down from the top edge, one cool shadow, and a
+    // gradient rim — so the page reads as colour-coded groups instead of one grey column, and
+    // each card sits on its own depth plane above the aurora page.
+    val dark = homeCloudDark()
+    val washEndPx = with(LocalDensity.current) { 170.dp.toPx() }
     Column(
         modifier = modifier
             .fillMaxWidth()
+            .shadow(
+                elevation = 4.dp,
+                shape = shape,
+                clip = false,
+                ambientColor = if (dark) Color(0xFF001144).copy(alpha = .34f) else Color(0xFF0A2540).copy(alpha = .18f),
+                spotColor = if (dark) tone.copy(alpha = .26f) else tone.copy(alpha = .30f)
+            )
             .clip(shape)
             // MARBLE_SETTINGS_OPAQUE_SURFACES_V141 — opaque fill: a 92% surface let the page
             // gradient bleed through unevenly, the same translucent-stack defect the theme
             // layer already banned for causing compositing bands.
             .background(Aether.VoidElevated)
-            .border(1.dp, tone.copy(alpha = .18f), shape)
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(tone.copy(alpha = if (dark) .07f else .05f), Color.Transparent),
+                    startY = 0f,
+                    endY = washEndPx
+                )
+            )
+            .border(
+                1.dp,
+                Brush.verticalGradient(listOf(tone.copy(alpha = .38f), tone.copy(alpha = .14f))),
+                shape
+            )
             .padding(start = 13.dp, end = 13.dp, top = 11.dp, bottom = 12.dp),
         verticalArrangement = Arrangement.spacedBy(9.dp)
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
             // MARBLE_SETTINGS_QUIET_CHROME_V114 — no marker bar, no status pip: the group is named
-            // in type and nothing else.
+            // in type and nothing else. V191 lifts the label to the full tone: at 92% alpha it
+            // greyed out on the wash it now sits on.
             Text(
                 trx(title).uppercase(),
-                color = tone.copy(alpha = .92f),
-                style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 1.4.sp),
-                fontWeight = FontWeight.Medium,
+                color = tone,
+                style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 1.6.sp),
+                fontWeight = FontWeight.Bold,
                 maxLines = 1
             )
             if (!subtitle.isNullOrBlank()) {

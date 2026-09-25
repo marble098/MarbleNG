@@ -147,8 +147,13 @@ private val LightPalette = AetherPalette(
     glassStrong = Color(0xFFE2ECF6),
     glassBorder = Brand.Electric.copy(alpha = .22f).compositeOver(Brand.White),
     glassBorderSoft = Brand.NavyDeep.copy(alpha = .10f).compositeOver(Brand.White),
-    barGlass = Brand.White.copy(alpha = .78f),
-    barGlassBorder = Brand.NavyDeep.copy(alpha = .08f).compositeOver(Brand.White),
+    // MARBLE_DOCK_GLASS_VISIBILITY_V191 — the light glass values were tuned for the old flat
+    // white page, where a 61% white bar still had its border to carry it. On the aurora backdrop
+    // the bar reads as a hole while scrolling. The glass keeps more of its body (.94) and its
+    // hairline doubles (.16), so the page shows *through* the bar instead of the bar vanishing
+    // *into* the page.
+    barGlass = Brand.White.copy(alpha = .94f),
+    barGlassBorder = Brand.NavyDeep.copy(alpha = .16f).compositeOver(Brand.White),
     barGlassHighlight = Color.White.copy(alpha = .60f),
     amethyst = Brand.NavyDark,
     amethystBright = Brand.Electric,
