@@ -386,14 +386,17 @@ fun Aether2026App(
     val pageOf: (SpatialTab) -> Int = { tab -> tabs.indexOf(tab).coerceAtLeast(0) }
 
     // One suspension-safe page turn: the marker always clears — even when the animation is
-    // cancelled by a finger grab — so the dock can never get stuck translucent.
+    // cancelled by a finger grab — so the dock can never get stuck translucent. Tapping the tab
+    // that is already on screen is a no-op: no marker, no scroll, no flicker of any kind.
     val goToTab: (Int) -> Unit = { page ->
-        tabTurn = true
-        scope.launch {
-            try {
-                pagerState.animateScrollToPage(page)
-            } finally {
-                tabTurn = false
+        if (page != pagerState.currentPage) {
+            tabTurn = true
+            scope.launch {
+                try {
+                    pagerState.animateScrollToPage(page)
+                } finally {
+                    tabTurn = false
+                }
             }
         }
     }
@@ -409,17 +412,24 @@ fun Aether2026App(
         if (pagerState.currentPage > tabs.lastIndex) pagerState.scrollToPage(tabs.lastIndex)
     }
 
-    // Sync pager → tab name for persistence and reset the dock to its resting skin when
-    // switching pages. Each scrollable page reports its own motion below.
+    // Sync pager → tab name for persistence and reset the content-scroll report when switching
+    // pages. Each scrollable page reports its own motion below.
+    //
+    // MARBLE_DOCK_NO_TAP_FADE — the turn marker deliberately does NOT clear here. The page flips
+    // at the middle of the programmatic turn, which is exactly when the animation is still in
+    // progress; clearing the marker at that moment is what let the dock fade to glass for the
+    // back half of every tab tap. The marker now survives until the turn actually settles, which
+    // the isScrollInProgress watch below owns.
     LaunchedEffect(currentTab) {
-        tabTurn = false
         contentScrolling = false
         onContentScrollChanged(false)
         repo.rememberAppTab(currentTab.name)
     }
 
-    // Whichever coroutine owns the turn, any settled pager clears the marker, so a fast
-    // double-tap or an interrupted animation can never leave the dock semi-transparent.
+    // The settled pager is the ONLY thing that clears the turn marker now: a fast double-tap,
+    // an interrupted animation or a finger grab all end in a settled pager, so the dock can
+    // never get stuck translucent — and a tab tap can never fade it either, because the marker
+    // is already gone by the time the finger- or content-scroll glass rule could fire.
     LaunchedEffect(pagerState.isScrollInProgress) {
         if (!pagerState.isScrollInProgress) tabTurn = false
     }
@@ -5786,32 +5796,24 @@ private fun serverPingTone(latencyMs: Int, measured: Boolean, testing: Boolean):
     else -> Aether.Danger
 }
 
-/** The wire-scheme accent of a node, keyed by protocol. */
-@Composable
-private fun protocolTone(scheme: String): Color = when (scheme.trim().uppercase()) {
-    "VLESS" -> Aether.Amethyst
-    "VMESS" -> Aether.Cyan
-    "TROJAN" -> Aether.Emerald
-    "SHADOWSOCKS", "SS" -> Aether.Amber
-    "HYSTERIA2", "HY2" -> Aether.SlateBright
-    "WIREGUARD" -> Aether.Slate
-    "SSH" -> Aether.InkMuted
-    else -> Aether.Cyan
-}
+// MARBLE_PROTOCOL_IDENTITY — the per-scheme tone table moved to protocolTone(family) in
+// MarbleProtocolIdentity.kt, so the Servers page and the Home page read one identical table.
 
 /**
  * One server, one row of its subscription's box.
  *
- * Anatomy, left to right: the state bar, the country, the identity column (bold name above a
- * protocol badge and the endpoint), the latency capsule and the row's own menu. Swiping right
- * still opens the rename dialog for people who liked that shortcut.
+ * MARBLE_PROTOCOL_IDENTITY — anatomy, left to right: the circular protocol tile (the type's own
+ * glyph, its tone, the country flag on the rim, and the connection state on the rim colour), the
+ * identity column (bold name beside a tiny state word, above the protocol badge and the endpoint),
+ * the right-aligned latency stat column and the row's own menu. Swiping right still opens the
+ * rename dialog for people who liked that shortcut.
  *
  * MARBLE_SERVERS_STACKED_GROUPS_V121 — the row has no card of its own. It stacks flush under the
  * subscription header, shares the group's outline, and is separated from its neighbours by a
  * hairline only, so a subscription reads as one box of servers.
  *
  * MARBLE_SELECT_IS_NOT_CONNECT_V121 — three distinct row states, none of which change geometry:
- * connected (emerald bar + "Connected"), selected (cyan bar + "Selected", the server the connect
+ * connected (emerald rim + "Connected"), selected (cyan rim + "Selected", the server the connect
  * button will use) and plain. Tapping a row selects it; see the call site for the one case where
  * a tap re-connects.
  */
@@ -5836,13 +5838,14 @@ private fun ServersNodeCard(
     val latency = measured?.latencyMs?.toInt() ?: 0
     val testing = probeState == ProbeState.TESTING
     val securing = !active && repo.state == "CONNECTING" && repo.stateDetail == profile.name
-    val routeTone = if (active) Aether.Emerald else Aether.Cyan
-    // The row states, in priority order. Only colour and one word ever change.
-    val stateTone = when {
+    // MARBLE_PROTOCOL_IDENTITY — the row's connection state rides the protocol tile's rim:
+    // emerald when it carries traffic, amethyst while a handshake runs, cyan for the stored
+    // selection, and the protocol's own hue when the row rests.
+    val tileStateTone: Color? = when {
         active -> Aether.Emerald
         securing -> Aether.Amethyst
         selected -> Aether.Cyan
-        else -> Color.Transparent
+        else -> null
     }
     val rowShape = if (lastInGroup) ServersGroupTailShape else ServersGroupBodyShape
     val rowFill by animateColorAsState(
@@ -5916,30 +5919,21 @@ private fun ServersNodeCard(
                     boundedShape = rowShape,
                     onClick = onConnect
                 )
-                .padding(start = 12.dp, end = 5.dp, top = 11.dp, bottom = 11.dp),
+                .padding(start = 11.dp, end = 4.dp, top = 9.dp, bottom = 9.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // State bar: the whole vocabulary of "which server is this?" in three pixels.
-            Box(
-                Modifier
-                    .width(3.dp)
-                    .height(26.dp)
-                    .clip(ServersPillShape)
-                    .background(stateTone)
+            // MARBLE_PROTOCOL_IDENTITY — the row opens with the server's type: a circular tile
+            // with the protocol's own glyph, its tone, and the country flag riding the rim.
+            ProtocolTile(
+                scheme = profile.scheme,
+                size = 40.dp,
+                flag = flag.takeIf { it.isNotBlank() && it != ServerCountry.UNKNOWN.flag },
+                stateTone = tileStateTone
             )
-            Spacer(Modifier.width(9.dp))
-            // Country: the flag the label carried, else the resolved one, else the scheme initial.
-            Text(
-                flag.takeIf { it.isNotBlank() && it != ServerCountry.UNKNOWN.flag }
-                    ?: profile.scheme.trim().take(1).uppercase().ifBlank { "S" },
-                style = MaterialTheme.typography.titleMedium,
-                maxLines = 1,
-                modifier = Modifier.width(26.dp)
-            )
-            Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.width(10.dp))
             Column(
                 modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
+                verticalArrangement = Arrangement.spacedBy(3.dp)
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -5958,54 +5952,22 @@ private fun ServersNodeCard(
                             .basicMarquee(iterations = Int.MAX_VALUE, initialDelayMillis = 2000)
                     )
                     if (active) {
-                        Text(
-                            trx("Connected"),
-                            color = routeTone,
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            modifier = Modifier
-                                .clip(ServersBadgeShape)
-                                .background(routeTone.copy(alpha = .13f))
-                                .padding(horizontal = 6.dp, vertical = 1.dp)
-                        )
+                        ServerStateChip(trx("Connected"), Aether.Emerald)
                     } else if (securing) {
-                        Text(
-                            trx("Securing"),
-                            color = Aether.Amethyst,
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1
-                        )
+                        ServerStateChip(trx("Securing"), Aether.Amethyst)
                     } else if (selected) {
-                        Text(
-                            trx("Selected"),
-                            color = Aether.Cyan,
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            modifier = Modifier
-                                .clip(ServersBadgeShape)
-                                .background(Aether.Cyan.copy(alpha = .12f))
-                                .padding(horizontal = 6.dp, vertical = 1.dp)
-                        )
+                        ServerStateChip(trx("Selected"), Aether.Cyan)
                     }
                 }
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    val tone = protocolTone(profile.scheme)
-                    Text(
-                        ServersQuery.badge(profile),
-                        color = tone,
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        modifier = Modifier
-                            .clip(ServersBadgeShape)
-                            .background(tone.copy(alpha = .12f))
-                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    // The unique per-type identity: the protocol's glyph beside its label,
+                    // one tiny chip that is smaller than the old text-only badge.
+                    ProtocolBadge(
+                        scheme = profile.scheme,
+                        label = ServersQuery.badge(profile)
                     )
                     Text(
                         ServersQuery.address(profile),
@@ -6017,19 +5979,19 @@ private fun ServersNodeCard(
                     )
                 }
             }
-            // MARBLE_PING_AIR_V152 — with the capsule's background gone the readout needs its
-            // own clearings on both sides; the name column is a marquee and absorbs the give.
-            Spacer(Modifier.width(9.dp))
-            ServersPingCapsule(
+            // MARBLE_PROTOCOL_IDENTITY — the latency owns its own right-aligned stat column
+            // (number + quality meter) at the trailing edge, no longer a lone number floating
+            // free in the middle of the row.
+            Spacer(Modifier.width(7.dp))
+            ServerPingStat(
                 latencyMs = latency,
                 measured = measured != null,
                 testing = testing,
                 // "It failed" and "it was never tried" are different facts and must look different.
                 attempted = result != null && measured == null
             )
-            // MARBLE_PING_SPACING_V130 — breathing room between the latency capsule and the
-            // three-dot menu so they never touch.
-            Spacer(Modifier.width(10.dp))
+            // Breathing room between the stat column and the three-dot menu so they never touch.
+            Spacer(Modifier.width(2.dp))
             ServersNodeMenu(
                 profile = profile,
                 repo = repo,
@@ -9122,11 +9084,9 @@ private object SettingsPages {
     const val TYPEFACE = "typeface"
     const val LANGUAGE = "language"
     const val INFORMATION = "information"
-    // MARBLE_SINGBOX_CORE_V151 — the tunnel core has its own page: the engine switch, the pinned
-    // versions and the sing-box extended controls.
-    const val CORE = "core"
-    const val XRAY_CORE = "xray-core"
-    const val SINGBOX_CORE = "singbox-core"
+    // MARBLE_SETTINGS_DEDUP — the separate core pages (CORE / XRAY_CORE / SINGBOX_CORE) are gone:
+    // their content merged into the ENGINE workspace, so one engine page owns the switch, the
+    // pinned versions and both cores' options.
     const val ROUTING = "routing"
 
     /**
@@ -9962,14 +9922,12 @@ private fun SettingsHub(
                     tone = Aether.Cyan,
                     onClick = { onNavigate(SettingsPages.workspace(SettingsWorkspaceTab.TESTS)) }
                 ) { SettingsTestPreview(Aether.Cyan) }
-                SettingsHubRow(
-                    title = "General & servers",
-                    subtitle = trx("${repo.libraryProfiles.size} servers"),
-                    tone = Aether.SlateBright,
-                    onClick = { onNavigate(SettingsPages.workspace(SettingsWorkspaceTab.GENERAL)) }
-                ) { SettingsRoutingPreview(Aether.SlateBright) }
             }
         }
+
+        // MARBLE_SETTINGS_DEDUP — "General & servers" used to live here AND as "General" in the
+        // System card below, both doors opening the same page. One door stays: the System card,
+        // next to the other app-level titles it belongs with.
 
         // ------------------------------------------------ Appearance
         item(key = "hub-appearance") {
@@ -10064,10 +10022,17 @@ private fun SettingsHub(
                         )
                     }
                 ) { HomeVectorIcon(HomeIcon.STATUS, Aether.Cyan, Modifier.size(22.dp)) }
+                // MARBLE_SETTINGS_DEDUP — the engine used to answer "which core?" from FOUR
+                // doors on the hub: Engine & tunnel, Tunnel core, Xray core settings and
+                // sing-box extended — three of them rendering the same switch cards a second
+                // time. One door now owns the whole engine surface, and it still names the
+                // running core on the title line (MARBLE_CORE_NAME_IN_SETTINGS_V160) before
+                // the page is opened.
                 SettingsHubRow(
                     title = "Engine & tunnel",
-                    subtitle = "Xray, transport and adaptive buffers",
+                    subtitle = "Core switch, Xray, sing-box, fragment and mux",
                     tone = Aether.Amber,
+                    badge = CoreEngineInfo.displayName(repo.activeCoreEngine),
                     onClick = { onNavigate(SettingsPages.workspace(SettingsWorkspaceTab.ENGINE)) }
                 ) { HomeVectorIcon(HomeIcon.TUNNEL, Aether.Amber, Modifier.size(22.dp)) }
                 SettingsHubRow(
@@ -10082,36 +10047,6 @@ private fun SettingsHub(
                     tone = Aether.Amethyst,
                     onClick = { onNavigate(SettingsPages.INFORMATION) }
                 ) { SettingsVersionPreview(Aether.Amethyst) }
-
-                // MARBLE_SINGBOX_CORE_V151 — the engine Marble starts is a first-class decision,
-                // so it sits on the hub next to the build identity it belongs to.
-                //
-                // MARBLE_CORE_NAME_IN_SETTINGS_V160 — the row used to answer "which core?" twice
-                // and identically ("Xray core • Xray-core") in a line too faint to notice. The
-                // name now sits on the title's own line as a badge, so the hub answers the
-                // question before the page is opened.
-                SettingsHubRow(
-                    title = "Tunnel core",
-                    subtitle = trx("The engine Marble starts when you connect"),
-                    tone = Aether.CyanBright,
-                    badge = CoreEngineInfo.displayName(repo.activeCoreEngine),
-                    onClick = { onNavigate(SettingsPages.CORE) }
-                    // MARBLE_SETTINGS_HUB_TRIM_V163 — no app-version stamp on this row: the app
-                    // version is not the core version, and the three pinned core tags are
-                    // listed on the engine page itself.
-                ) { HomeVectorIcon(HomeIcon.TUNNEL, Aether.CyanBright, Modifier.size(22.dp)) }
-                SettingsHubRow(
-                    title = "Xray core settings",
-                    subtitle = trx("PattNG options: sniffing, log, LAN, HTTP inbound"),
-                    tone = Aether.Emerald,
-                    onClick = { onNavigate(SettingsPages.XRAY_CORE) }
-                ) { HomeVectorIcon(HomeIcon.SHIELD, Aether.Emerald, Modifier.size(22.dp)) }
-                SettingsHubRow(
-                    title = "sing-box extended",
-                    subtitle = trx("Exclave options: sniff, resolve dest, LAN, timeout"),
-                    tone = Aether.Amethyst,
-                    onClick = { onNavigate(SettingsPages.SINGBOX_CORE) }
-                ) { HomeVectorIcon(HomeIcon.TUNNEL, Aether.Amethyst, Modifier.size(22.dp)) }
             }
         }
     }
@@ -10755,151 +10690,8 @@ private fun SettingsLanguagePage(
     }
 }
 
-/**
- * MARBLE_SINGBOX_CORE_V151 — Core: which tunnel engine Marble starts, and how it is configured.
- *
- * MarbleNG ships two tunnel cores. Xray core is the one the product has always run, fronted by
- * hev-socks5-tunnel for the TUN. sing-box extended is the second, and it is not a fallback: it
- * carries protocols and a rule-set engine Xray does not have, and it answers delay tests for its
- * own live outbound. The engine is a user decision, so it gets a page of its own rather than a
- * hidden flag, and the pinned version of every core is printed on it — the same three strings the
- * build config, the native build script and the release workflow were assembled from.
- */
-@Composable
-private fun SettingsCorePage(
-    repo: AppRepository,
-    onBack: () -> Unit,
-    listState: LazyListState = rememberLazyListState()
-) {
-    val s = repo.settings
-    val engine = parseCoreEngine(s.coreEngineId)
-    SettingsSubPage(
-        title = trx("Tunnel core"),
-        // MARBLE_CORE_NAME_IN_SETTINGS_V160 — the page opens with the answer on the title line:
-        // which core this build is actually running right now.
-        subtitle = CoreEngineInfo.displayName(engine) +
-            " • " + trx("The engine Marble starts when you connect"),
-        onBack = onBack,
-        listState = listState
-    ) {
-        SettingsHubCard(
-            title = trx("Engine"),
-            subtitle = trx("Switching closes the tunnel; reconnect to run the new core"),
-            tone = Aether.Cyan
-        ) {
-            CoreEngine.entries.forEach { candidate ->
-                val selected = engine == candidate
-                val tone = if (candidate == CoreEngine.XRAY) Aether.Emerald else Aether.Amethyst
-                val shape = RoundedCornerShape(14.dp)
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(shape)
-                        .background(Aether.Glass.copy(alpha = .42f))
-                        .border(
-                            1.dp,
-                            if (selected) tone.copy(alpha = .58f) else Aether.GlassBorderSoft.copy(alpha = .5f),
-                            shape
-                        )
-                        .kineticClickable(role = Role.Button, boundedShape = shape) {
-                            repo.setCoreEngine(candidate)
-                        }
-                        .padding(horizontal = 12.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Column(
-                        modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(1.dp)
-                    ) {
-                        Text(
-                            trx(coreEngineTitle(candidate)),
-                            color = if (selected) tone else Aether.Ink,
-                            style = settingsRowTitleStyle(),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Text(
-                            trx(coreEngineDetail(candidate)),
-                            color = Aether.InkFaint,
-                            style = settingsBodyStyle(),
-                            maxLines = 3,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                    Box(
-                        Modifier
-                            .size(9.dp)
-                            .clip(CircleShape)
-                            .background(if (selected) tone else Aether.InkFaint.copy(alpha = .30f))
-                    )
-                }
-            }
-        }
-
-        SettingsHubCard(
-            title = trx("Pinned versions"),
-            subtitle = trx("Read from core-lock.json at build time"),
-            tone = Aether.Emerald
-        ) {
-            InformationRow(trx("Xray core"), BuildConfig.XRAY_CORE_TAG, Aether.Emerald)
-            InformationRow(trx("Tunnel core"), BuildConfig.HEV_CORE_TAG, Aether.Amber)
-            InformationRow(trx("sing-box extended"), BuildConfig.SINGBOX_CORE_TAG, Aether.CyanBright)
-            InformationRow(
-                trx("Running engine"),
-                CoreEngineInfo.displayName(repo.activeCoreEngine),
-                if (repo.activeCoreEngine == CoreEngine.SINGBOX) Aether.Amethyst else Aether.Emerald
-            )
-            if (repo.coreStartPhase.isNotBlank()) {
-                InformationRow(trx("Start phase"), repo.coreStartPhase, Aether.InkMuted)
-            }
-            if (repo.coreStartError.isNotBlank()) {
-                InformationRow(trx("Last start error"), repo.coreStartError, Aether.Danger)
-            }
-        }
-
-        SettingsHubCard(
-            title = trx("Xray core"),
-            subtitle = trx("PattNG options applied when Xray is the running engine"),
-            tone = Aether.Emerald
-        ) {
-            XrayCoreSettings(repo)
-        }
-
-        SettingsHubCard(
-            title = trx("sing-box extended"),
-            subtitle = trx("Exclave options applied when sing-box is the running engine"),
-            tone = Aether.Amethyst
-        ) {
-            SingBoxCoreSettings(repo)
-        }
-
-        SettingsHubCard(
-            title = trx("Delay test"),
-            subtitle = trx("What a real-delay measurement loads"),
-            tone = Aether.Amber
-        ) {
-            TinyField(
-                label = trx("Delay test URL"),
-                value = s.delayTestUrl,
-                onValue = { repo.setDelayTestUrl(it) }
-            )
-            Text(
-                trx("Real delay opens this address through the tunnel and times it. A small, always-reachable page gives the most comparable numbers; an https address is required because sing-box discards plain http."),
-                color = Aether.InkFaint,
-                style = settingsBodyStyle()
-            )
-            if (s.delayTestUrl.trim() != DelayTest.URL) {
-                CyberButton(
-                    label = trx("Reset to default"),
-                    color = Aether.Cyan,
-                    modifier = Modifier.fillMaxWidth()
-                ) { repo.setDelayTestUrl(DelayTest.URL) }
-            }
-        }
-    }
-}
-
+// MARBLE_SINGBOX_CORE_V151 / MARBLE_SETTINGS_DEDUP — the names and details of the two tunnel
+// cores, now read by the ENGINE workspace's "Engine" card (the dedicated core pages are gone).
 private fun coreEngineTitle(engine: CoreEngine): String = when (engine) {
     CoreEngine.XRAY -> "Xray core"
     CoreEngine.SINGBOX -> "sing-box extended"
@@ -10910,64 +10702,6 @@ private fun coreEngineDetail(engine: CoreEngine): String = when (engine) {
         "The engine Marble has always run: Xray core behind hev-socks5-tunnel, with every tuning switch in Settings applied to it"
     CoreEngine.SINGBOX ->
         "The extended core: one process owns the tunnel, adds warp, masque and mieru, ships the geo rule sets, and answers URL test from its own measurements"
-}
-
-@Composable
-private fun SettingsXrayCorePage(
-    repo: AppRepository,
-    onBack: () -> Unit,
-    listState: LazyListState = rememberLazyListState()
-) {
-    SettingsSubPage(
-        title = trx("Xray core settings"),
-        subtitle = trx("PattNG options: sniffing, log, LAN and HTTP inbound"),
-        onBack = onBack,
-        listState = listState
-    ) {
-        SettingsHubCard(
-            title = trx("Xray core"),
-            subtitle = trx("Applied when Tunnel core is Xray"),
-            tone = Aether.Emerald
-        ) {
-            XrayCoreSettings(repo)
-        }
-        SettingsHubCard(
-            title = trx("Fragment & Mux"),
-            subtitle = trx("DPI resilience on the Xray path"),
-            tone = Aether.Amber
-        ) {
-            FragmentMuxSettings(repo)
-        }
-    }
-}
-
-@Composable
-private fun SettingsSingBoxCorePage(
-    repo: AppRepository,
-    onBack: () -> Unit,
-    listState: LazyListState = rememberLazyListState()
-) {
-    SettingsSubPage(
-        title = trx("sing-box extended"),
-        subtitle = trx("Exclave options: sniff, resolve dest, LAN, timeout"),
-        onBack = onBack,
-        listState = listState
-    ) {
-        SettingsHubCard(
-            title = trx("sing-box extended"),
-            subtitle = trx("Applied when Tunnel core is sing-box extended"),
-            tone = Aether.Amethyst
-        ) {
-            SingBoxCoreSettings(repo)
-        }
-        SettingsHubCard(
-            title = trx("Fragment & Mux"),
-            subtitle = trx("TLS ClientHello fragment and mux on the extended core"),
-            tone = Aether.Amber
-        ) {
-            FragmentMuxSettings(repo)
-        }
-    }
 }
 
 @Composable
@@ -11368,9 +11102,6 @@ private fun SpatialSettings(
     val typefaceListState = rememberLazyListState()
     val languageListState = rememberLazyListState()
     val informationListState = rememberLazyListState()
-    val coreListState = rememberLazyListState()
-    val xrayCoreListState = rememberLazyListState()
-    val singBoxCoreListState = rememberLazyListState()
     val routingListState = rememberLazyListState()
     // MARBLE_DOCK_SLOT_V167
     val dockSlotListState = rememberLazyListState()
@@ -11473,24 +11204,9 @@ private fun SpatialSettings(
                     onBack = { page = SettingsPages.HUB }
                 )
 
-            target == SettingsPages.CORE -> SettingsCorePage(
-                repo = repo,
-                listState = coreListState,
-                onBack = { page = SettingsPages.HUB }
-            )
-
-            target == SettingsPages.XRAY_CORE -> SettingsXrayCorePage(
-                repo = repo,
-                listState = xrayCoreListState,
-                onBack = { page = SettingsPages.HUB }
-            )
-
-            target == SettingsPages.SINGBOX_CORE -> SettingsSingBoxCorePage(
-                repo = repo,
-                listState = singBoxCoreListState,
-                onBack = { page = SettingsPages.HUB }
-            )
-
+            // MARBLE_SETTINGS_DEDUP — a restored page key from an older build ("core",
+            // "xray-core", "singbox-core") falls through to Information: the pages are gone,
+            // the navigator must not crash on the saved state that still names them.
             else -> SettingsInformationPage(
                 repo = repo,
                 listState = informationListState,
@@ -11609,32 +11325,9 @@ private fun settingsSections(
                 HomeIcon.SERVER,
                 Aether.Emerald
             ) { DockSettings(repo) },
-            // MARBLE_DOCK_SLOT_V167 — the fourth tab lives next to the bar it belongs to: the
-            // switch that shows it, what it opens right now, and the door to its own page.
-            card(
-                "Fourth tab",
-                dockSlotSettingsSubtitle(
-                    repo.settings,
-                    dockSlotTarget(repo, parseDockSlotKind(repo.settings.dockSlotKind))
-                ),
-                HomeIcon.PLUS,
-                Aether.CyanBright
-            ) {
-                SettingSwitch(
-                    title = "Show the fourth tab",
-                    subtitle = "Off leaves the three-tab bar this product shipped with; nothing else changes.",
-                    checked = repo.settings.dockSlotEnabled
-                ) { repo.updateSettings(repo.settings.copy(dockSlotEnabled = it)) }
-                CyberButton(
-                    label = "Customize the fourth tab",
-                    color = Aether.CyanBright,
-                    icon = HomeIcon.MODE,
-                    variant = PrismButtonVariant.Primary,
-                    compact = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    onClick = { onNavigate(SettingsPages.DOCK_SLOT) }
-                )
-            },
+            // MARBLE_SETTINGS_DEDUP — the "Fourth tab" card used to duplicate the slot's own
+            // page: the show/hide switch and the Customize button both live on the Fourth tab
+            // page (Settings › Appearance › Fourth tab), so this second door is gone.
             card("Subscriptions","Refresh & sources",HomeIcon.LIBRARY,Aether.Amethyst) { SubscriptionSettings(repo) },
             // MARBLE_MODULAR_CUSTOMIZER_V151 — Home style 4 can hide its Customize affordance.
             // The switch that hides it lives in the customizer itself, so the way back has to live
@@ -11687,11 +11380,105 @@ private fun settingsSections(
             // Per-app proxy moved into Network & Routing — no standalone section, no hub card.
             card("Per-app proxy","Tunnel or bypass per app",HomeIcon.PRIVACY,Aether.Emerald) { SplitTunnelSettings(repo) }
         )
-        SettingsWorkspaceTab.ENGINE -> listOf(
-            card("Fragment & Mux","DPI resilience",HomeIcon.SPARK,Aether.Amber) { FragmentMuxSettings(repo) },
-            card("Xray core","PattNG sniffing, log, LAN inbound",HomeIcon.SHIELD,Aether.Emerald) { XrayCoreSettings(repo) },
-            card("sing-box extended","Exclave sniff, resolve dest, timeout",HomeIcon.TUNNEL,Aether.Amethyst) { SingBoxCoreSettings(repo) }
-        )
+        SettingsWorkspaceTab.ENGINE -> {
+            // MARBLE_SETTINGS_DEDUP — the engine surface is one page now. The separate "Tunnel
+            // core", "Xray core settings" and "sing-box extended" pages used to re-render these
+            // same cards; their unique content (the core switch, the pinned build tags, the
+            // delay test) moved up into this list instead.
+            val engine = parseCoreEngine(repo.settings.coreEngineId)
+            listOf(
+                // MARBLE_CORE_NAME_IN_SETTINGS_V160 — the card opens with the answer on its own
+                // title line: which core this build is running right now.
+                card("Engine",CoreEngineInfo.displayName(engine) + " • Switching closes the tunnel; reconnect to run the new core",HomeIcon.TUNNEL,Aether.Cyan) {
+                    CoreEngine.entries.forEach { candidate ->
+                        val selected = engine == candidate
+                        val tone = if (candidate == CoreEngine.XRAY) Aether.Emerald else Aether.Amethyst
+                        val shape = RoundedCornerShape(14.dp)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(shape)
+                                .background(Aether.Glass.copy(alpha = .42f))
+                                .border(
+                                    1.dp,
+                                    if (selected) tone.copy(alpha = .58f) else Aether.GlassBorderSoft.copy(alpha = .5f),
+                                    shape
+                                )
+                                .kineticClickable(role = Role.Button, boundedShape = shape) {
+                                    repo.setCoreEngine(candidate)
+                                }
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Column(
+                                modifier = Modifier.weight(1f),
+                                verticalArrangement = Arrangement.spacedBy(1.dp)
+                            ) {
+                                Text(
+                                    trx(coreEngineTitle(candidate)),
+                                    color = if (selected) tone else Aether.Ink,
+                                    style = settingsRowTitleStyle(),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    trx(coreEngineDetail(candidate)),
+                                    color = Aether.InkFaint,
+                                    style = settingsBodyStyle(),
+                                    maxLines = 3,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            Box(
+                                Modifier
+                                    .size(9.dp)
+                                    .clip(CircleShape)
+                                    .background(if (selected) tone else Aether.InkFaint.copy(alpha = .30f))
+                            )
+                        }
+                    }
+                },
+                card("Pinned versions","Read from core-lock.json at build time",HomeIcon.DETAILS,Aether.Emerald) {
+                    InformationRow(trx("Xray core"), BuildConfig.XRAY_CORE_TAG, Aether.Emerald)
+                    InformationRow(trx("Tunnel core"), BuildConfig.HEV_CORE_TAG, Aether.Amber)
+                    InformationRow(trx("sing-box extended"), BuildConfig.SINGBOX_CORE_TAG, Aether.CyanBright)
+                    InformationRow(
+                        trx("Running engine"),
+                        CoreEngineInfo.displayName(repo.activeCoreEngine),
+                        if (repo.activeCoreEngine == CoreEngine.SINGBOX) Aether.Amethyst else Aether.Emerald
+                    )
+                    if (repo.coreStartPhase.isNotBlank()) {
+                        InformationRow(trx("Start phase"), repo.coreStartPhase, Aether.InkMuted)
+                    }
+                    if (repo.coreStartError.isNotBlank()) {
+                        InformationRow(trx("Last start error"), repo.coreStartError, Aether.Danger)
+                    }
+                },
+                card("Fragment & Mux","DPI resilience",HomeIcon.SPARK,Aether.Amber) { FragmentMuxSettings(repo) },
+                card("Xray core","PattNG sniffing, log, LAN inbound",HomeIcon.SHIELD,Aether.Emerald) { XrayCoreSettings(repo) },
+                card("sing-box extended","Exclave sniff, resolve dest, timeout",HomeIcon.TUNNEL,Aether.Amethyst) { SingBoxCoreSettings(repo) },
+                card("Delay test","What a real-delay measurement loads",HomeIcon.PING,Aether.Amber) {
+                    TinyField(
+                        label = trx("Delay test URL"),
+                        value = repo.settings.delayTestUrl,
+                        onValue = { repo.setDelayTestUrl(it) }
+                    )
+                    Text(
+                        trx("Real delay opens this address through the tunnel and times it. A small, always-reachable page gives the most comparable numbers; an https address is required because sing-box discards plain http."),
+                        color = Aether.InkFaint,
+                        style = settingsBodyStyle()
+                    )
+                    if (repo.settings.delayTestUrl.trim() != DelayTest.URL) {
+                        CyberButton(
+                            label = trx("Reset to default"),
+                            color = Aether.Cyan,
+                            modifier = Modifier.fillMaxWidth()
+                        ) { repo.setDelayTestUrl(DelayTest.URL) }
+                    }
+                }
+            )
+        }
         // MARBLE_BUGFINDER_HOME_V144 — Bug Finder is a runtime-diagnostics instrument, not an
         // alert control, so it no longer lives next to Notifications. It moved to
         // Settings › Information, beside Versions, the Diagnostics export and Report an issue:
@@ -11708,6 +11495,14 @@ private fun settingsSections(
     }
 }
 
+/**
+ * The expert-gate read-out row.
+ *
+ * MARBLE_SETTINGS_EXPERT_ALWAYS_V118 — Advanced Settings is no longer gated: the switch used to
+ * hide the low-level tunnel controls, and the product owner removed the gating so every option
+ * is shown across all sections. The row stays as the display read-out of the persisted value
+ * (the system integrity audit pins it), but no hub card composes it any more.
+ */
 @Composable
 private fun ExpertGateRow(repo: AppRepository) {
     Row(

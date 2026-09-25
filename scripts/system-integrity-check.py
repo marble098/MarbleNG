@@ -192,6 +192,7 @@ files = {
     "diag": read("app/src/main/java/com/marbleng/app/core/RuntimeDiagnostics.kt"),
     "ui": read("app/src/main/java/com/marbleng/app/ui/Aether2026.kt"),
     "homeStyles": read("app/src/main/java/com/marbleng/app/ui/MarbleHomeStyles.kt"),
+    "protocolIdentity": read("app/src/main/java/com/marbleng/app/ui/MarbleProtocolIdentity.kt"),
     "strings": read("app/src/main/java/com/marbleng/app/ui/MarbleStrings.kt"),
     # MARBLE_DOCK_SLOT_V167 — the fourth tab's model test and the chapter that explains it.
     "dockSlotTest": read("app/src/test/java/com/marbleng/app/model/DockSlotV167Test.kt"),
@@ -1281,10 +1282,14 @@ check(
     ".background(tone.copy(alpha = .12f))" not in _fun_body(files["ui"], "fun ServersPingCapsule")
     and "MARBLE_PING_AIR_V152" in files["ui"],
 )
+# MARBLE_PROTOCOL_IDENTITY — the Home server row dropped its own slab for the shared
+# ServerPingStat (MarbleProtocolIdentity.kt): the same tone-only measurement rule now lives in
+# one component both lists read, so the invariant is pinned there — the readout must never grow
+# a tinted fill back, and the Home row must actually compose it.
 check(
-    "the Home latency slab is tone-only",
-    ".background(tone.copy(alpha = 0.12f))" not in _fun_body(files["homeStyles"], "fun HomeServerLatencySlab")
-    and "MARBLE_PING_AIR_V152" in files["homeStyles"],
+    "the Home latency readout is tone-only",
+    ".background(tone.copy(alpha" not in _fun_body(files["protocolIdentity"], "fun ServerPingStat(")
+    and "ServerPingStat(" in files["homeStyles"],
 )
 # Xray's certificate-pinning keys are read here to *report* the limitation, never written into a
 # sing-box config: the fork has no equivalent, and a key it does not know is a config it refuses.
