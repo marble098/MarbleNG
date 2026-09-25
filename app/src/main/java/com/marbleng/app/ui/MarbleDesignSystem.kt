@@ -53,6 +53,8 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.runtime.remember
@@ -122,6 +124,19 @@ internal fun stripLeadingFlag(text: String): String {
     return clean.substring(flag.length).trimStart()
 }
 
+/**
+ * MARBLE_NAMELESS_ROW_V190 — the name a server row actually prints. Some providers ship nodes
+ * whose remark is only a flag, only whitespace or only invisible joiners; those rows used to
+ * render with an empty title line. A title with no letter or digit falls back to the endpoint
+ * host, then to the protocol, so every row always says which server it is.
+ */
+internal fun displayServerName(name: String, host: String, scheme: String): String {
+    val clean = stripLeadingFlag(name)
+    if (clean.any { it.isLetterOrDigit() }) return clean
+    val endpoint = host.trim().removeSurrounding("[", "]")
+    return endpoint.ifBlank { scheme.uppercase().ifBlank { "Server" } }
+}
+
 @Composable
 internal fun marbleMetricTone(band: MarbleMetricBand): Color = when (band) {
     MarbleMetricBand.GOOD -> Aether.Emerald
@@ -183,8 +198,18 @@ internal object HomeCloud {
     val DarkInsetFill = Color(0xFF0B1322)
     val DarkInsetBorder = Color(0xFF233350)
 
-    /** The single selection/brand accent of the Home surface system. */
-    val Accent = Color(0xFF3D8BE0)
+    /** The brand selection accent (the Marble light/dark palettes). */
+    val BrandAccent = Color(0xFF3D8BE0)
+
+    /**
+     * The single selection accent of the Home surface system.
+     *
+     * MARBLE_THEME_COHERENCE_V190 — a composable read: the brand sky blue under the Marble
+     * palettes, the palette's own primary under the phone-colours theme, so the selected row,
+     * its check and the group pill always match the connect button beside them.
+     */
+    val Accent: Color
+        @Composable get() = if (Aether.IsDynamic) Aether.Cyan else BrandAccent
 
     val CardShape = RoundedCornerShape(22.dp)
     val CardRadius = 22.dp
@@ -201,43 +226,72 @@ internal object HomeCloud {
 @Composable
 internal fun homeCloudDark(): Boolean = Aether.Void.luminance() < 0.5f
 
+/*
+ * MARBLE_THEME_COHERENCE_V190 — every Home cloud role below has two sources. Under the Marble
+ * palettes it keeps the tuned brand values of the table above. Under the phone-colours theme it
+ * is derived from the live Aether palette, because the fixed ice/sky values were painting a blue
+ * page, blue selections and blue insets under a wallpaper-coloured dock, connect button and
+ * status bar — the "two themes on one screen" look.
+ */
+
 /** The Home page gradient: near-white at the top, a touch more blue towards the bottom. */
 @Composable
-internal fun homeCloudBackgroundBrush(): Brush = if (homeCloudDark()) {
-    Brush.verticalGradient(colors = listOf(HomeCloud.DarkBgTop, HomeCloud.DarkBgBottom))
-} else {
-    Brush.verticalGradient(colors = listOf(HomeCloud.LightBgTop, HomeCloud.LightBgBottom))
+internal fun homeCloudBackgroundBrush(): Brush = when {
+    Aether.IsDynamic -> Brush.verticalGradient(
+        colors = listOf(Aether.Void, lerp(Aether.Void, Aether.Glass, .55f))
+    )
+    homeCloudDark() -> Brush.verticalGradient(colors = listOf(HomeCloud.DarkBgTop, HomeCloud.DarkBgBottom))
+    else -> Brush.verticalGradient(colors = listOf(HomeCloud.LightBgTop, HomeCloud.LightBgBottom))
 }
 
-/** Fill of a resting Home card: translucent white (light) / translucent ink (dark). */
+/** Fill of a resting Home card: solid white (light) / solid ink (dark). */
 @Composable
-internal fun homeCloudCardFill(): Color =
-    if (homeCloudDark()) HomeCloud.DarkCardFill else HomeCloud.LightCardFill
+internal fun homeCloudCardFill(): Color = when {
+    Aether.IsDynamic -> Aether.VoidElevated
+    homeCloudDark() -> HomeCloud.DarkCardFill
+    else -> HomeCloud.LightCardFill
+}
 
-/** Hairline of a resting Home card: the thin white edge that makes the box feel lifted. */
+/** Hairline of a resting Home card. */
 @Composable
-internal fun homeCloudCardBorder(): Color =
-    if (homeCloudDark()) HomeCloud.DarkCardBorder else HomeCloud.LightCardBorder
+internal fun homeCloudCardBorder(): Color = when {
+    Aether.IsDynamic -> Aether.GlassBorderSoft
+    homeCloudDark() -> HomeCloud.DarkCardBorder
+    else -> HomeCloud.LightCardBorder
+}
 
 /** Fill of the one selected/active card. */
 @Composable
-internal fun homeCloudSelectedFill(): Color =
-    if (homeCloudDark()) HomeCloud.DarkCardSelectedFill else HomeCloud.LightCardSelectedFill
+internal fun homeCloudSelectedFill(): Color = when {
+    Aether.IsDynamic -> Aether.Cyan.copy(alpha = if (homeCloudDark()) .18f else .10f)
+        .compositeOver(Aether.VoidElevated)
+    homeCloudDark() -> HomeCloud.DarkCardSelectedFill
+    else -> HomeCloud.LightCardSelectedFill
+}
 
 /** Selection rim: the only saturated stroke on the Home surface. */
 @Composable
-internal fun homeCloudSelectedBorder(): Color =
-    if (homeCloudDark()) HomeCloud.DarkCardSelectedBorder else HomeCloud.LightCardSelectedBorder
+internal fun homeCloudSelectedBorder(): Color = when {
+    Aether.IsDynamic -> Aether.Cyan.copy(alpha = .70f).compositeOver(Aether.VoidElevated)
+    homeCloudDark() -> HomeCloud.DarkCardSelectedBorder
+    else -> HomeCloud.LightCardSelectedBorder
+}
 
 /** Inset fill for chips/pills/rows that sit *inside* a Home card. */
 @Composable
-internal fun homeCloudInsetFill(): Color =
-    if (homeCloudDark()) HomeCloud.DarkInsetFill else HomeCloud.LightInsetFill
+internal fun homeCloudInsetFill(): Color = when {
+    Aether.IsDynamic -> Aether.Glass
+    homeCloudDark() -> HomeCloud.DarkInsetFill
+    else -> HomeCloud.LightInsetFill
+}
 
 /** Inset hairline. */
 @Composable
-internal fun homeCloudInsetBorder(): Color =
-    if (homeCloudDark()) HomeCloud.DarkInsetBorder else HomeCloud.LightInsetBorder
+internal fun homeCloudInsetBorder(): Color = when {
+    Aether.IsDynamic -> Aether.GlassBorderSoft
+    homeCloudDark() -> HomeCloud.DarkInsetBorder
+    else -> HomeCloud.LightInsetBorder
+}
 
 /** Divider color that matches the inset hairline. */
 @Composable

@@ -2455,6 +2455,35 @@ check(
     and "MARBLE_SERVERS_HIERARCHY_V189" in files["ui"],
 )
 
+# MARBLE_VISUAL_REPAIR_V190 — the real-device review of Home and Servers.
+check(
+    "V190 the stacked servers frame is clipped to its own slice",
+    "clipRect(left = 0f, top = 0f, right = size.width, bottom = size.height)"
+    in _fun_body(files["ui"], "fun Modifier.serversStackedFrame(")
+    and ".background(Aether.VoidElevated)" in _fun_body(files["ui"], "fun ServersNodeCard(")
+    and "displayServerName(" in _fun_body(files["ui"], "fun ServersNodeCard(")
+    and "fun displayServerName(" in files["design"],
+)
+check(
+    "V190 protocol glyph paths are scaled into the canvas and the meter is centred",
+    "Path().apply(block).apply { transform(designToCanvas) }" in files["protocolIdentity"]
+    and "val total = barW * 3f + gap * 2f" in files["protocolIdentity"]
+    and "heights.sum() + gap" not in files["protocolIdentity"],
+)
+check(
+    "V190 one colour source per theme",
+    "val systemDynamicColor = false" in files["theme"]
+    and "dynamic = true" in files["theme"]
+    and "dynamicPhonePalette(generated, !light)" in files["theme"]
+    and "Aether.IsDynamic" in files["design"]
+    and "window.statusBarColor=palette.void.toArgb()" in files["theme"],
+)
+check(
+    "V190 the page backdrop runs edge to edge",
+    "MARBLE_EDGE_TO_EDGE_BACKDROP_V190" in files["ui"]
+    and "containerColor = Color.Transparent" in files["ui"],
+)
+
 production = "\n".join(
     value for key, value in files.items()
     if key not in {"build", "verify", "native"}

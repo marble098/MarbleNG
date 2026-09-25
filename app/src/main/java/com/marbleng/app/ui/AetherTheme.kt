@@ -101,7 +101,13 @@ private data class AetherPalette(
     val amber: Color,
     val ink: Color,
     val inkMuted: Color,
-    val inkFaint: Color
+    val inkFaint: Color,
+    // MARBLE_THEME_COHERENCE_V190 — true when the set was rebuilt from the phone's wallpaper
+    // palette. Surfaces that used to hard-code the brand ice/sky values (the Home cloud cards,
+    // the page gradient, the selection accent) read this and follow the palette instead, so a
+    // dynamic theme can no longer paint a lavender dock over an ice-blue page with sky-blue
+    // selections beside a violet connect button.
+    val dynamic: Boolean = false
 )
 
 /**
@@ -197,17 +203,25 @@ private val DarkPalette = AetherPalette(
  * "blocked" are never confused with the brand accent.
  */
 private fun dynamicPhonePalette(scheme: androidx.compose.material3.ColorScheme, dark: Boolean): AetherPalette {
-    val surface = scheme.surface
+    // MARBLE_THEME_COHERENCE_V190 — the surface ladder was flattened: `background` and `surface`
+    // are the same tone in Material You, so cards sat invisibly on the page and every edge had
+    // to be carried by a hairline. The page now takes a container step and the cards the
+    // brightest (light) / a lifted (dark) step, exactly as the brand palette separates them.
+    // Hairlines were also far too heavy: the dock and the page controls were framed with the
+    // scheme's full `outline` (a mid grey), which read as a thick grey border on every control.
+    // They now take the quiet `outlineVariant` family, like the brand palette's soft strokes.
+    val card = if (dark) scheme.surfaceContainer else scheme.surfaceContainerLowest
+    val surface = card
     fun over(fg: Color, alpha: Float): Color = fg.copy(alpha = alpha).compositeOver(surface)
     return AetherPalette(
-        void = scheme.background,
-        voidElevated = scheme.surface,
-        glass = scheme.surfaceContainerLow,
-        glassStrong = scheme.surfaceContainer,
-        glassBorder = over(scheme.primary, .30f),
-        glassBorderSoft = scheme.outlineVariant,
-        barGlass = scheme.surface.copy(alpha = if (dark) .88f else .74f),
-        barGlassBorder = over(scheme.outline, .60f),
+        void = if (dark) scheme.background else scheme.surfaceContainerLow,
+        voidElevated = card,
+        glass = if (dark) scheme.surfaceContainerHigh else scheme.surfaceContainer,
+        glassStrong = if (dark) scheme.surfaceContainerHighest else scheme.surfaceContainerHigh,
+        glassBorder = over(scheme.primary, if (dark) .30f else .22f),
+        glassBorderSoft = over(scheme.outlineVariant, if (dark) .80f else .70f),
+        barGlass = card.copy(alpha = if (dark) .88f else .78f),
+        barGlassBorder = over(scheme.outlineVariant, if (dark) .55f else .60f),
         barGlassHighlight = if (dark) {
             Color.White.copy(alpha = .06f).compositeOver(surface)
         } else {
@@ -225,7 +239,8 @@ private fun dynamicPhonePalette(scheme: androidx.compose.material3.ColorScheme, 
         amber = Color(0xFFD98200),
         ink = scheme.onSurface,
         inkMuted = scheme.onSurfaceVariant,
-        inkFaint = scheme.onSurfaceVariant.copy(alpha = .72f)
+        inkFaint = scheme.onSurfaceVariant.copy(alpha = .72f).compositeOver(surface),
+        dynamic = true
     )
 }
 
@@ -254,6 +269,8 @@ object Aether {
     val Ink: Color @Composable get() = LocalAetherPalette.current.ink
     val InkMuted: Color @Composable get() = LocalAetherPalette.current.inkMuted
     val InkFaint: Color @Composable get() = LocalAetherPalette.current.inkFaint
+    /** True while the palette follows the phone's wallpaper instead of the Marble brand ramp. */
+    val IsDynamic: Boolean @Composable get() = LocalAetherPalette.current.dynamic
 }
 
 // MARBLE_VAZIR_REAL_FONT_V111
@@ -518,17 +535,27 @@ fun AetherFlowTheme(
     if (phoneDynamic) {
         val generated =
             if (light) dynamicLightColorScheme(context) else dynamicDarkColorScheme(context)
-        dynamicPalette = dynamicPhonePalette(generated, light)
-        dynamicScheme = generated
+        val rebuilt = dynamicPhonePalette(generated, !light)
+        dynamicPalette = rebuilt
+        // Stock Material surfaces (menus, sheets, text fields) sit on the same page/card steps
+        // as the rebuilt Aether palette instead of the scheme's flat background.
+        dynamicScheme = generated.copy(
+            background = rebuilt.void,
+            surface = rebuilt.voidElevated,
+            surfaceTint = Color.Transparent
+        )
     } else {
         dynamicPalette = null
         dynamicScheme = null
     }
 
-    // Dynamic system surfaces can turn a dark system theme gray. Keep the dark branch on the
-    // explicit AMOLED palette; only a light system theme may borrow Material You accents.
-    val systemDynamicColor =
-        requested == AppTheme.SYSTEM && light && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+    // MARBLE_THEME_COHERENCE_V190 — "System" means *follow the system's light/dark switch* with
+    // the Marble identity. It used to hand the stock Material components (search field, menus,
+    // dialogs, sheets, the status-bar colour) the wallpaper scheme while every custom surface
+    // kept the brand palette, so one screen mixed lavender, pink and electric blue. Wallpaper
+    // colours now belong to the explicit "Phone colours" theme only, where the palette AND the
+    // Material scheme are rebuilt from the same source.
+    val systemDynamicColor = false
 
     val palette=dynamicPalette ?: if(light) LightPalette else applyNightOutline(DarkPalette, outlineStyleId)
 
@@ -617,7 +644,8 @@ fun AetherFlowTheme(
             val controller=WindowCompat.getInsetsController(window,view)
             controller.isAppearanceLightStatusBars=light
             controller.isAppearanceLightNavigationBars=light
-            window.statusBarColor=scheme.background.toArgb()
+            // The page under the status bar is the Aether page tone, not the stock scheme's.
+            window.statusBarColor=palette.void.toArgb()
             // The gesture/navigation surface must not paint a second horizontal strip below the app.
             // Android still owns the gesture handle itself, but the app-controlled bar and divider
             // are fully transparent on every navigation mode.
