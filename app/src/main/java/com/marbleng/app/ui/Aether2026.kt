@@ -2373,7 +2373,9 @@ private fun MarbleCompactTopBar(
             Text(
                 trx(title),
                 color=Aether.Ink,
-                style=MaterialTheme.typography.titleLarge,
+                // MARBLE_PAGE_TITLE_SCALE_V191 — the shared page anchor: headlineSmall Bold,
+                // the same step as the Servers headline and the Home wordmark.
+                style=MaterialTheme.typography.headlineSmall,
                 fontWeight=FontWeight.Bold,
                 maxLines=1,
                 overflow=TextOverflow.Ellipsis
@@ -4640,7 +4642,11 @@ private fun ServersTopBar(
             Text(
                 trx("Servers"),
                 color = Aether.Ink,
-                style = MaterialTheme.typography.headlineMedium,
+                // MARBLE_PAGE_TITLE_SCALE_V191 — every page anchor prints at one scale: the
+                // Servers headline (24 sp) towered over the Settings and fourth-tab headers
+                // (18 sp) beside it in the same dock, so the pages read as different products.
+                // All three now share headlineSmall, the same step the Home wordmark uses.
+                style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -5017,8 +5023,10 @@ private fun ServersSearchField(
             unfocusedContainerColor = Aether.VoidElevated,
             cursorColor = Aether.Cyan,
             focusedBorderColor = Aether.Cyan.copy(alpha = .60f),
-            unfocusedBorderColor = Aether.GlassBorderSoft,
-            disabledBorderColor = Aether.GlassBorderSoft
+            // MARBLE_SERVERS_HEADER_PRESENCE_V191 — the resting rim matches the round verbs
+            // beside it; the old hairline-soft stroke left the field's outline barely there.
+            unfocusedBorderColor = Aether.GlassBorder,
+            disabledBorderColor = Aether.GlassBorder
         )
     )
 }
