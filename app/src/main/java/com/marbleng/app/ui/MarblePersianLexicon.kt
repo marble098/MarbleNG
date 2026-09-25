@@ -954,6 +954,11 @@ private val FaLexicon: Map<String, String> = mapOf(
     "All groups" to "همه گروه‌ها",
     "All protocols" to "همه پروتکل‌ها",
     "Advanced filters" to "فیلترهای پیشرفته",
+    // MARBLE_SERVERS_HIERARCHY_V189 — the counts the header line used to carry now ride inside
+    // the filter controls and beside a subscription's own name, so their singulars need a home
+    // here; the plurals are pattern rules below.
+    "1 group" to "یک گروه",
+    "1 filter" to "یک فیلتر",
     "Group by country" to "گروه‌بندی بر اساس کشور",
     "Only reachable" to "فقط در دسترس",
     "Max ping" to "بیشترین پینگ",
@@ -1294,6 +1299,10 @@ private val FaLexiconLower: Map<String, String> =
 // Compound runtime strings ("12 nodes", "3 visible • 40 total", "45 sec", …).
 private val FaPatterns: List<Pair<Regex, (MatchResult) -> String>> = listOf(
     Regex("""^(\d+) servers$""") to { m -> "${m.groupValues[1]} سرور" },
+    // MARBLE_SERVERS_HIERARCHY_V189 — the count badges inside the filter rail's controls and
+    // beside a subscription's name. Latin digits, like every other count in the product.
+    Regex("""^(\d+) groups$""") to { m -> "${m.groupValues[1]} گروه" },
+    Regex("""^(\d+) filters$""") to { m -> "${m.groupValues[1]} فیلتر" },
     // MARBLE_SERVERS_REDESIGN_V120 — the page header count, a folded group and the per-card menu.
     Regex("""^(\d+) groups • (\d+) servers$""") to { m ->
         "${m.groupValues[1]} گروه • ${m.groupValues[2]} سرور"

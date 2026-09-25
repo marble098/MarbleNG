@@ -212,6 +212,13 @@ files = {
     "motion": read("app/src/main/java/com/marbleng/app/ui/MarbleMotion.kt"),
     "expressiveTest": read("app/src/test/java/com/marbleng/app/ui/MarbleExpressiveMathV186Test.kt"),
     "expressiveDoc": read("docs/EXPRESSIVE_MOTION_V186.md"),
+    # MARBLE_SERVERS_HIERARCHY_V189 — the Servers page's two levels: the pure size table and plan
+    # arithmetic, the test that pins both, and the chapter that explains the nesting.
+    "serversHierarchy": read("app/src/main/java/com/marbleng/app/ui/MarbleServersHierarchy.kt"),
+    "serversHierarchyTest": read(
+        "app/src/test/java/com/marbleng/app/ui/ServersHierarchyV189Test.kt"
+    ),
+    "serversHierarchyDoc": read("docs/SERVERS_HIERARCHY_V189.md"),
     "tile": read("app/src/main/java/com/marbleng/app/quicktile/MarbleQuickTileService.kt"),
     "manifest": read("app/src/main/AndroidManifest.xml"),
     "security": read("app/src/main/res/xml/network_security_config.xml"),
@@ -2359,6 +2366,93 @@ check(
     and "arcSweep" in files["expressiveTest"]
     and "MARBLE_EXPRESSIVE_MOTION_V186" in files["expressiveDoc"]
     and "MARBLE_EXPRESSIVE_MOTION_V186" in files["expressive"],
+)
+
+# MARBLE_SERVERS_HIERARCHY_V189 — the Servers page is two levels now, and the difference between
+# them is the design: a subscription card (largest radius, boldest outline, largest type) and the
+# servers nested inside it (smaller in every shared dimension, inset, borderless, hairline
+# separated). A pure table owns the sizes and the plan arithmetic, the product reads that table,
+# and a named test pins both — a nested row that grows back to the size of its card has to fail
+# here before it can ship.
+check(
+    "V189 the servers hierarchy owns one size table and the plan arithmetic",
+    "object ServersHierarchy" in files["serversHierarchy"]
+    and "enum class SubscriptionUsageTier" in files["serversHierarchy"]
+    and "const val CALM_CEILING_PERCENT = 70" in files["serversHierarchy"]
+    and "const val WATCH_CEILING_PERCENT = 90" in files["serversHierarchy"]
+    and "const val GROUP_CORNER_DP = 16f" in files["serversHierarchy"]
+    and "const val LIST_CORNER_DP = 12f" in files["serversHierarchy"]
+    and "const val ROW_TILE_DP = 30f" in files["serversHierarchy"]
+    and "const val STANDALONE_TILE_DP = 40f" in files["serversHierarchy"]
+    and "const val ROW_NAME_SP = 13f" in files["serversHierarchy"]
+    and "fun usagePercent(" in files["serversHierarchy"]
+    and "fun usageFraction(" in files["serversHierarchy"]
+    and "fun usageTier(" in files["serversHierarchy"]
+    and "fun compactBytes(" in files["serversHierarchy"]
+    and "fun groupBadge(" in files["serversHierarchy"]
+    and "fun activeFilterCount(" in files["serversHierarchy"]
+    # The table is arithmetic only: no Compose, so JVM unit tests can read it.
+    and "androidx.compose" not in files["serversHierarchy"]
+    and "MARBLE_SERVERS_HIERARCHY_V189" in files["serversHierarchy"],
+)
+check(
+    "V189 the Servers page reads the hierarchy table instead of hard-coding its sizes",
+    "ServersHierarchy.GROUP_CORNER_DP.dp" in files["ui"]
+    and "ServersHierarchy.GROUP_BORDER_DP.dp" in files["ui"]
+    and "ServersHierarchy.GROUP_NAME_SP.sp" in files["ui"]
+    and "ServersHierarchy.GROUP_CONTROL_DP.dp" in files["ui"]
+    and "ServersHierarchy.ROW_TILE_DP.dp" in files["ui"]
+    and "ServersHierarchy.ROW_NAME_SP.sp" in files["ui"]
+    and "ServersHierarchy.LIST_INSET_DP.dp" in files["ui"]
+    and "ServersHierarchy.percentLabel(" in files["ui"]
+    and "ServersHierarchy.groupBadge(groups.size)" in files["ui"]
+    and "ServersHierarchy.activeFilterCount(" in files["ui"]
+    and "ServersHierarchy.ROW_PING_SP.sp" in files["protocolIdentity"]
+    and "compact = true" in _fun_body(files["ui"], "fun ServersNodeCard("),
+)
+check(
+    "V189 a nested server row is smaller, inset and borderless",
+    # The card's outline is the boldest one and still runs through every row.
+    "width = ServersGroupFrameWidth" in _fun_body(files["ui"], "fun ServersNodeCard(")
+    # The row sits inside the card on the container step, with no outline of its own.
+    and ".padding(horizontal = ServersHierarchy.LIST_INSET_DP.dp)"
+    in _fun_body(files["ui"], "fun ServersNodeCard(")
+    and ".background(Aether.Glass)" in _fun_body(files["ui"], "fun ServersNodeCard(")
+    and "HorizontalDivider(" in _fun_body(files["ui"], "fun ServersNodeCard(")
+    # The old 40 dp standalone tile is gone from the nested row, and so is its 38 dp rail.
+    and "size = 40.dp" not in _fun_body(files["ui"], "fun ServersNodeCard(")
+    and ".size(38.dp)" not in _fun_body(files["ui"], "fun ServersFilterRail(")
+    # A probe that got no answer fades the row instead of reddening the number.
+    and "quietFailure = true" in _fun_body(files["ui"], "fun ServersNodeCard(")
+    and "ServersHierarchy.FAILED_ROW_ALPHA" in _fun_body(files["ui"], "fun ServersNodeCard(")
+    and "attempted -> if (quietFailure) Aether.InkMuted else Aether.Danger"
+    in files["protocolIdentity"],
+)
+check(
+    "V189 a subscription card shows its plan as a bar and its counts as badges",
+    # The usage bar is real, and its colour is the plan's own tier.
+    "MarbleExpressiveLinearIndicator(" in _fun_body(files["ui"], "fun ServersGroupHeader(")
+    and "usageTierTone(" in files["ui"]
+    and "subscriptionUsageFraction(" in _fun_body(files["ui"], "fun ServersGroupHeader(")
+    # The count rides beside the subscription's own name, not on a line of its own.
+    and "ServersGroupCountPill(count = total" in _fun_body(files["ui"], "fun ServersGroupHeader(")
+    # The three trailing controls are equal siblings on one gap.
+    and "Arrangement.spacedBy(ServersHierarchy.GROUP_CONTROL_GAP_DP.dp)"
+    in _fun_body(files["ui"], "fun ServersGroupHeader(")
+    # The counts the header used to print moved into the filter controls for good.
+    and "$groupCount groups" not in files["ui"]
+    and "badge = groupBadge" in _fun_body(files["ui"], "fun ServersFilterRail(")
+    and "badge = serverBadge" in _fun_body(files["ui"], "fun ServersFilterRail("),
+)
+check(
+    "V189 the servers hierarchy is pinned by a named test and explained by a chapter",
+    "class ServersHierarchyV189Test" in files["serversHierarchyTest"]
+    and "usageTier" in files["serversHierarchyTest"]
+    and "ROW_TILE_DP" in files["serversHierarchyTest"]
+    and "groupBadge" in files["serversHierarchyTest"]
+    and "MARBLE_SERVERS_HIERARCHY_V189" in files["serversHierarchyTest"]
+    and "MARBLE_SERVERS_HIERARCHY_V189" in files["serversHierarchyDoc"]
+    and "MARBLE_SERVERS_HIERARCHY_V189" in files["ui"],
 )
 
 production = "\n".join(
