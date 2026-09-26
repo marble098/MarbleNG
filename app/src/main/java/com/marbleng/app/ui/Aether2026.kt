@@ -1664,16 +1664,12 @@ private fun LiveProgressBar(
     color: Color = Aether.Cyan
 ) {
     val track = Aether.GlassBorderSoft
-    val head = -.4f + MarbleMotion.current.loop(1_150) * 1.4f
-    // MARBLE_EXPRESSIVE_MOTION_V186 — the indeterminate segment breathes while it travels: one
-    // more phase on the same shared clock, so the bar's width gently swells and contracts the
-    // way the expressive linear loader does, instead of sliding as a rigid block.
-    val widthPhase = MarbleMotion.current.loop(900)
     val settled by animateFloatAsState(
         targetValue = fraction?.coerceIn(0f, 1f) ?: 0f,
         animationSpec = MarbleMotionSpecs.ProgressFloat,
         label = "live-progress-fill"
     )
+    val motion = MarbleMotion.current
 
     Canvas(modifier.fillMaxWidth().height(4.dp)) {
         val y = size.height / 2f
@@ -1685,6 +1681,14 @@ private fun LiveProgressBar(
             cap = StrokeCap.Round
         )
         if (fraction == null) {
+            // MARBLE_SMOOTH_CLOCK_V193 — the indeterminate phases live in the draw phase now:
+            // this bar used to read them in composition, recomposing its whole host at the
+            // frame rate even while it showed a settled percentage. Only the canvas redraws.
+            val head = -.4f + motion.loop(1_150) * 1.4f
+            // MARBLE_EXPRESSIVE_MOTION_V186 — the indeterminate segment breathes while it
+            // travels: one more phase on the same shared clock, so the bar's width gently
+            // swells and contracts the way the expressive linear loader does.
+            val widthPhase = motion.loop(900)
             val segment = size.width * ExpressiveMath.wavyValue(widthPhase, .26f, .48f)
             val start = (size.width * head).coerceAtLeast(0f)
             val end = (size.width * head + segment).coerceAtMost(size.width)
@@ -2538,86 +2542,6 @@ private fun MarbleMenuPanelItem(
     }
 }
 
-@Composable
-private fun MarbleServerAvatar(
-    profile: ProxyProfile?,
-    active: Boolean,
-    modifier: Modifier = Modifier
-) {
-    val flag=profile?.name?.let(::leadingFlagGlyph)
-    val fallback=profile?.host?.let(::countryGlyph).orEmpty()
-        .takeIf { it.isNotBlank() && it != "◈" }
-    val label=flag
-        ?: fallback
-        ?: profile?.scheme?.trim()?.take(1)?.uppercase()?.ifBlank { "M" }
-        ?: "M"
-    val tone=if(active) Aether.Emerald else Aether.Cyan
-    val shape=RoundedCornerShape(17.dp)
-
-    // The badge has to live outside the clipped surface box: a corner sticker inside the rounded
-    // rectangle is cut away by the clip. The outer box keeps the fixed 50dp box, so nothing re-measures.
-    Box(
-        modifier=modifier
-            .size(50.dp),
-        contentAlignment=Alignment.Center
-    ) {
-        Box(
-            modifier=Modifier
-                .matchParentSize()
-                .border(
-                    if(active) 1.4.dp else 1.dp,
-                    tone.copy(alpha=if(active) .55f else .32f),
-                    shape
-                )
-                .clip(shape)
-                .background(
-                    Brush.linearGradient(
-                        if(active) {
-                            listOf(
-                                tone.copy(alpha=.26f),
-                                tone.copy(alpha=.09f),
-                                Aether.Amethyst.copy(alpha=.11f)
-                            )
-                        } else {
-                            listOf(
-                                tone.copy(alpha=.13f),
-                                Aether.Amethyst.copy(alpha=.055f)
-                            )
-                        }
-                    )
-                ),
-            contentAlignment=Alignment.Center
-        ) {
-            Text(
-                label,
-                color=tone,
-                style=if(flag != null || fallback != null) {
-                    MaterialTheme.typography.headlineSmall
-                } else {
-                    MaterialTheme.typography.titleLarge
-                },
-                fontWeight=FontWeight.Bold
-            )
-        }
-        if(active) {
-            Box(
-                modifier=Modifier
-                    .align(Alignment.BottomEnd)
-                    .offset(x=2.dp,y=2.dp)
-                    .size(16.dp)
-                    .clip(CircleShape)
-                    .background(Aether.Emerald),
-                contentAlignment=Alignment.Center
-            ) {
-                HomeVectorIcon(
-                    HomeIcon.CHECK,
-                    Aether.Void,
-                    Modifier.size(10.dp)
-                )
-            }
-        }
-    }
-}
 
 @Composable
 private fun HomeRouteDetailsRow(
@@ -3309,7 +3233,10 @@ private fun IranModeStatusPill(state: IranModeState) {
     val forced = state.policy == IranModePolicy.ALWAYS_ON
     val scanning = state.scanning && !forced
     val tone = if (scanning) Aether.Amber else Aether.Emerald
-    val pulse = .76f + MarbleMotion.current.breathe(2_100) * .24f
+    // MARBLE_SMOOTH_CLOCK_V193 — the scanning pulse is read in the layer phase (inside the
+    // graphicsLayer lambda), so the pill no longer recomposes at the frame rate while the
+    // detector scans; only this icon's layer redraws.
+    val motion = MarbleMotion.current
     val shape = RoundedCornerShape(18.dp)
 
     Row(
@@ -3324,7 +3251,9 @@ private fun IranModeStatusPill(state: IranModeState) {
         Box(
             Modifier
                 .size(36.dp)
-                .alpha(if (scanning) pulse else 1f)
+                .graphicsLayer {
+                    alpha = if (scanning) .76f + motion.breathe(2_100) * .24f else 1f
+                }
                 .clip(RoundedCornerShape(13.dp))
                 .background(tone.copy(alpha = .11f)),
             contentAlignment = Alignment.Center
@@ -3405,10 +3334,11 @@ private fun ConnectionCore(
     }
     val shape = RoundedCornerShape(28.dp)
     // MARBLE_EXPRESSIVE_MOTION_V186 — the securing arc rotates AND stretches on the shared frame
-    // clock (the wavy rhythm of the newest Android loaders). The phase is read only while a
-    // handshake is genuinely in flight, so an idle orb subscribes to nothing.
+    // clock (the wavy rhythm of the newest Android loaders).
+    // MARBLE_SMOOTH_CLOCK_V193 — the phase is now read inside the draw lambda below, so the
+    // handshake animates the canvas only; the whole ConnectionCore scope no longer recomposes at
+    // the frame rate for the duration of every connect.
     val motion = MarbleMotion.current
-    val orbPhase = if (connecting) motion.loop(1_300) else 0f
 
     Column(
         Modifier
@@ -3471,6 +3401,8 @@ private fun ConnectionCore(
                     if (connecting) {
                         // One wavy arc: the sweep breathes between 150° and 280° while the head
                         // travels the orbit, so "securing" reads as work in flight, not a sticker.
+                        // Draw-phase clock read — recomposes nothing (MARBLE_SMOOTH_CLOCK_V193).
+                        val orbPhase = motion.loop(1_300)
                         drawArc(
                             color = statusColor,
                             startAngle = -90f + orbPhase * 360f,
@@ -6363,12 +6295,13 @@ private fun ServersNodeCard(
                         .alpha(rowAlpha),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // MARBLE_PROTOCOL_IDENTITY — the row opens with the server's type: a circular
-                    // tile with the protocol's own glyph, its tone, and the country flag riding
-                    // the rim. MARBLE_SERVER_LOCATION_V192 — when the location is known, the real
-                    // national flag fills the circle instead; the emoji chip only fills in when
-                    // the art library cannot name the country yet. Inside a subscription it is
-                    // the smaller of the two tile sizes.
+                    // MARBLE_PROTOCOL_TEXT_IDENTITY_V193 — the row opens with the server's
+                    // PLACE: a circular avatar whose content is the country's real flag when the
+                    // location is known, or the name's own flag glyph while it is not. The wire
+                    // scheme no longer draws inside the circle at all — the coloured text badge
+                    // under the name speaks the type, each protocol in its own hue.
+                    // MARBLE_SERVER_LOCATION_V192 — the location answer is the repository's
+                    // once-tested geolocation when learned, the label's own country otherwise.
                     ProtocolTile(
                         scheme = profile.scheme,
                         size = ServersHierarchy.ROW_TILE_DP.dp,
@@ -6397,7 +6330,13 @@ private fun ServersNodeCard(
                                 overflow = TextOverflow.Clip,
                                 modifier = Modifier
                                     .weight(1f, fill = false)
-                                    .basicMarquee(iterations = Int.MAX_VALUE, initialDelayMillis = 2000)
+                                    // MARBLE_SMOOTH_CLOCK_V193 — three passes, not infinite: an
+                                    // overflowing name used to keep a marquee animation alive
+                                    // for as long as its row stayed composed, so a long list of
+                                    // long names held a permanent frame invalidation. Three
+                                    // passes still spell the whole name out, then the row is
+                                    // still — and scrolling stays smooth on big subscriptions.
+                                    .basicMarquee(iterations = 3, initialDelayMillis = 2000)
                             )
                             if (active) {
                                 ServerStateChip(trx("Connected"), Aether.Emerald)
@@ -6411,8 +6350,8 @@ private fun ServersNodeCard(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(5.dp)
                         ) {
-                            // The unique per-type identity: the protocol's glyph beside its label,
-                            // one tiny chip that is smaller than the old text-only badge.
+                            // The unique per-type identity (MARBLE_PROTOCOL_TEXT_IDENTITY_V193):
+                            // the protocol's name in its own colour — pure text, no glyph.
                             ProtocolBadge(
                                 scheme = profile.scheme,
                                 label = ServersQuery.badge(profile)
@@ -8838,13 +8777,21 @@ private fun CustomDockPage(
                         DockPulseLiveCard(repo, deck, actions)
                     }
                 }
-                item(key = "dock-slot-pulse-metrics") {
+                // MARBLE_DOCK_SLOT_PLUS_V193 — the pulse page earns its name: a quality card
+                // between the live route and the raw numbers, so the slot answers "how good is
+                // this route right now?" in one glance, not after mental arithmetic.
+                item(key = "dock-slot-pulse-quality") {
                     Box(Modifier.marbleStaggerIn(2, enabled = entranceArmed())) {
+                        DockPulseQualityCard(repo, deck)
+                    }
+                }
+                item(key = "dock-slot-pulse-metrics") {
+                    Box(Modifier.marbleStaggerIn(3, enabled = entranceArmed())) {
                         DockPulseMetricsCard(repo, deck)
                     }
                 }
                 item(key = "dock-slot-pulse-tools") {
-                    Box(Modifier.marbleStaggerIn(3, enabled = entranceArmed())) {
+                    Box(Modifier.marbleStaggerIn(4, enabled = entranceArmed())) {
                         DockPulseToolsCard(repo, actions, onDialog)
                     }
                 }
@@ -8853,7 +8800,7 @@ private fun CustomDockPage(
             DockSlotKind.SOURCE -> {
                 item(key = "dock-slot-source-head") {
                     Box(Modifier.marbleStaggerIn(1, enabled = entranceArmed())) {
-                        DockSourceHeaderCard(repo, target)
+                        DockSourceHeaderCard(repo, target, onConnect)
                     }
                 }
                 if (target.isEmpty) {
@@ -9068,14 +9015,149 @@ private fun DockPulseLiveCard(
                 )
             }
         }
+
+        // MARBLE_DOCK_SLOT_PLUS_V193 — the one verb the page's headline deserves: the same
+        // toggle Home's own connect control runs, so the fourth tab can open and close the
+        // tunnel without a trip back to the first one.
+        CyberButton(
+            label = when {
+                evidence.disconnecting -> "Disconnecting…"
+                evidence.connecting -> "Cancel connect"
+                evidence.connected -> "Disconnect"
+                else -> "Connect"
+            },
+            color = when {
+                evidence.disconnecting || evidence.connecting -> Aether.Amber
+                evidence.connected -> Aether.Danger
+                else -> Aether.Emerald
+            },
+            icon = if (evidence.connected || evidence.connecting) HomeIcon.STOP else HomeIcon.POWER,
+            variant = PrismButtonVariant.Primary,
+            compact = true,
+            modifier = Modifier.fillMaxWidth(),
+            enabled = !evidence.disconnecting,
+            onClick = actions.onToggleConnection
+        )
     }
 }
 
-/** Four live numbers of the running route: what it moves, how fast it answers, how steady it is. */
+/**
+ * MARBLE_DOCK_SLOT_PLUS_V193 — route quality, read at a glance: the live score as one settled
+ * meter, the stability word the intelligence layer attached to the route, and the two signals
+ * that change a verdict (jitter and a suspected injected reset). Every fact is the repository's
+ * own; the card invents nothing and an unmeasured route says so instead of printing zeros.
+ */
+@Composable
+private fun DockPulseQualityCard(repo: AppRepository, deck: DeckEvidence) {
+    val evidence = deck.evidence
+    val score = repo.liveRouteScore
+    val tone = when {
+        evidence.blocked -> Aether.Danger
+        score >= 75 -> Aether.Emerald
+        score >= 45 -> Aether.Amber
+        score >= 0 -> Aether.Danger
+        else -> Aether.Cyan
+    }
+    // The meter settles on the shared progress spring, exactly like every other readout.
+    val fill by animateFloatAsState(
+        targetValue = score.coerceIn(0, 100) / 100f,
+        animationSpec = MarbleMotionSpecs.ProgressFloat,
+        label = "dock-quality-meter"
+    )
+
+    DockSlotCard(tone = tone) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(9.dp)
+        ) {
+            HomeVectorIcon(HomeIcon.QUALITY, tone, Modifier.size(17.dp))
+            Text(
+                trx("Route quality"),
+                color = Aether.Ink,
+                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                modifier = Modifier.weight(1f)
+            )
+            if (score >= 0) {
+                Text(
+                    "$score%",
+                    color = tone,
+                    style = MaterialTheme.typography.labelMedium.copy(
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold
+                    )
+                )
+            } else {
+                Text(
+                    trx("Not measured yet"),
+                    color = Aether.InkFaint,
+                    style = MaterialTheme.typography.labelSmall
+                )
+            }
+        }
+
+        // The meter: one hairline track, one settled fill, one round head.
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(6.dp)
+                .clip(ServersPillShape)
+                .background(Aether.GlassBorderSoft.copy(alpha = .6f))
+        ) {
+            Box(
+                Modifier
+                    .fillMaxWidth(fill.coerceAtLeast(0.02f))
+                    .fillMaxHeight()
+                    .clip(ServersPillShape)
+                    .background(
+                        Brush.horizontalGradient(
+                            listOf(tone.copy(alpha = .55f), tone)
+                        )
+                    )
+            )
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(7.dp)
+        ) {
+            HoloBadge(
+                if (evidence.stabilityClass.isNotBlank()) evidence.stabilityClass else "STABLE",
+                if (evidence.stabilityClass.isNotBlank() &&
+                    evidence.stabilityClass.uppercase() != "STABLE"
+                ) Aether.Amber else Aether.Emerald,
+                compact = true
+            )
+            HoloBadge(
+                if (repo.liveJitterMs > 0) "JITTER ${repo.liveJitterMs}ms" else "JITTER —",
+                Aether.Amethyst,
+                compact = true
+            )
+            if (evidence.injectedResetSuspected) {
+                HoloBadge("RESET SUSPECTED", Aether.Danger, compact = true)
+            }
+        }
+        Text(
+            trx(
+                "The score is the live route's own verdict — throughput, delay and steadiness " +
+                    "measured while you use it. Ping the route to refresh it."
+            ),
+            color = Aether.InkFaint,
+            style = MaterialTheme.typography.labelSmall
+        )
+    }
+}
+
+/**
+ * Six live numbers of the running route: what it moves, how fast it answers, how steady it is,
+ * and — MARBLE_DOCK_SLOT_PLUS_V193 — how long it has been up and how much data this session has
+ * moved. The numbers come from the same engine as the Home ping and are remembered like any
+ * other result, so the slot never disagrees with the page it borrows its route from.
+ */
 @Composable
 private fun DockPulseMetricsCard(repo: AppRepository, deck: DeckEvidence) {
     val evidence = deck.evidence
     val measured = evidence.pingState == ConnectionPingState.MEASURED
+    val uptime = rememberUptimeLabel(evidence.connectedSinceMs)
 
     DockSlotCard(tone = Aether.Cyan) {
         Row(
@@ -9120,17 +9202,34 @@ private fun DockPulseMetricsCard(repo: AppRepository, deck: DeckEvidence) {
                 icon = HomeIcon.JITTER
             )
         }
-        Text(
-            trx("Measured by the same engine as the Home ping, and remembered like any other result."),
-            color = Aether.InkFaint,
-            style = MaterialTheme.typography.labelSmall
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            MiniMetric(
+                label = "Uptime",
+                value = if (evidence.connected) uptime else "—",
+                unit = "",
+                modifier = Modifier.weight(1f),
+                accent = Aether.SlateBright,
+                icon = HomeIcon.ROUTE
+            )
+            MiniMetric(
+                label = "Session",
+                value = if (evidence.sessionBytes > 0) formatBytes(evidence.sessionBytes) else "—",
+                unit = "",
+                modifier = Modifier.weight(1f),
+                accent = Aether.Amber,
+                icon = HomeIcon.DOWNLOAD
+            )
+        }
     }
 }
 
 /**
- * The tools half of the pulse slot: the five things a user reaches for while looking at a live
- * route, each one a real engine entry point rather than a link somewhere else.
+ * The tools half of the pulse slot, arranged MARBLE_DOCK_SLOT_PLUS_V193-style: two quiet captions
+ * — what touches the library, and what inspects the session — above six real engine entry points,
+ * so the card scans as two short rows instead of one undifferentiated grid.
  *
  * A running sweep is reported by the Servers page's own progress strip, so the control that started
  * a measurement stays the control that can cancel it, exactly as it is everywhere else.
@@ -9153,6 +9252,13 @@ private fun DockPulseToolsCard(
         if (repo.inlineProgressActive) {
             ServersProbeStrip(repo)
         }
+
+        Text(
+            trx("LIBRARY"),
+            color = Aether.InkFaint,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold
+        )
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -9175,18 +9281,27 @@ private fun DockPulseToolsCard(
                 onClick = { repo.testAll() }
             )
         }
+        CyberButton(
+            label = "Refresh sources",
+            color = Aether.Emerald,
+            icon = HomeIcon.DOWNLOAD,
+            compact = true,
+            modifier = Modifier.fillMaxWidth(),
+            onClick = { repo.refreshAll() }
+        )
+
+        HorizontalDivider(color = Aether.GlassBorderSoft)
+
+        Text(
+            trx("DIAGNOSTICS"),
+            color = Aether.InkFaint,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold
+        )
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            CyberButton(
-                label = "Refresh sources",
-                color = Aether.Emerald,
-                icon = HomeIcon.DOWNLOAD,
-                compact = true,
-                modifier = Modifier.weight(1f),
-                onClick = { repo.refreshAll() }
-            )
             CyberButton(
                 label = if (report == null) "Run Bug Finder" else "Bug report",
                 color = Aether.Amber,
@@ -9199,18 +9314,6 @@ private fun DockPulseToolsCard(
                     if (report == null) repo.runBugFinder() else onDialog("Bug Finder")
                 }
             )
-        }
-        if (report != null) {
-            Text(
-                report.headline,
-                color = Aether.InkMuted,
-                style = MaterialTheme.typography.labelSmall
-            )
-        }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
             CyberButton(
                 label = "Privacy audit",
                 color = Aether.CyanBright,
@@ -9222,29 +9325,52 @@ private fun DockPulseToolsCard(
                     onDialog("Privacy")
                 }
             )
-            CyberButton(
-                label = "IP details",
-                color = Aether.SlateBright,
-                icon = HomeIcon.INFO,
-                compact = true,
-                modifier = Modifier.weight(1f),
-                onClick = { actions.onIpDetails() }
+        }
+        CyberButton(
+            label = "IP details",
+            color = Aether.SlateBright,
+            icon = HomeIcon.INFO,
+            compact = true,
+            modifier = Modifier.fillMaxWidth(),
+            onClick = { actions.onIpDetails() }
+        )
+        if (report != null) {
+            Text(
+                report.headline,
+                color = Aether.InkMuted,
+                style = MaterialTheme.typography.labelSmall
             )
         }
     }
 }
 
 /**
- * The head of a source slot: what the source is, what it costs the account, and the verbs the
- * Servers page gives that same source — ping and rank always, refresh wherever there is something
- * remote to fetch — all scoped to it.
+ * The head of a source slot: what the source is, what it costs the account, what its list looks
+ * like (MARBLE_DOCK_SLOT_PLUS_V193 — servers, measured, best latency, one row of facts), and the
+ * verbs the Servers page gives that same source — ping and rank always, refresh wherever there is
+ * something remote to fetch, plus the one tap the list below exists for: connect to the fastest
+ * server this source has measured.
  */
 @Composable
-private fun DockSourceHeaderCard(repo: AppRepository, target: DockSlotTarget) {
+private fun DockSourceHeaderCard(
+    repo: AppRepository,
+    target: DockSlotTarget,
+    onConnect: (ProxyProfile) -> Unit
+) {
     val subscription = repo.subscriptions.firstOrNull { it.id == target.id }
     // "All servers" refreshes every source and a subscription refreshes itself; the local Manual
     // bucket is the one scope with nothing remote to fetch, so it is the one without the verb.
     val refreshable = target.id != "manual"
+    // One batch read of the stored measurements: how many of this source's servers answered,
+    // and which measured one is the fastest — the exact definition the Servers list ranks by.
+    val measurements = remember(target.id, repo.benchmarks) {
+        repo.benchmarks.associateBy { it.profileId }
+    }
+    val measuredCount = target.profiles.count { measurements[it.id]?.let { r -> r.success > 0 } == true }
+    val fastest = target.profiles
+        .mapNotNull { profile -> measurements[profile.id]?.let { profile to it } }
+        .filter { (_, r) -> r.success > 0 && r.latencyMs >= 20 }
+        .minByOrNull { (_, r) -> r.latencyMs }
 
     DockSlotCard(tone = Aether.Emerald) {
         Row(
@@ -9281,6 +9407,33 @@ private fun DockSourceHeaderCard(repo: AppRepository, target: DockSlotTarget) {
             )
         }
 
+        // One line of list truth: N servers • M measured • best X ms (name). Nothing invented:
+        // an unmeasured source says "not measured yet" instead of a fake zero.
+        Text(
+            buildString {
+                append(target.profiles.size)
+                append(" ")
+                append(trx("servers"))
+                append(" • ")
+                if (measuredCount == 0) {
+                    append(trx("Not measured yet"))
+                } else {
+                    append(measuredCount)
+                    append(" ")
+                    append(trx("measured"))
+                    fastest?.let { (profile, result) ->
+                        append(" • ")
+                        append(trx("best"))
+                        append(" ${result.latencyMs.toInt()} ms (${stripLeadingFlag(profile.name)})")
+                    }
+                }
+            },
+            color = Aether.InkMuted,
+            style = MaterialTheme.typography.labelSmall,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -9300,6 +9453,30 @@ private fun DockSourceHeaderCard(repo: AppRepository, target: DockSlotTarget) {
                 compact = true,
                 modifier = Modifier.weight(1f),
                 onClick = { repo.smartRankSource(target.id) }
+            )
+        }
+        if (fastest != null) {
+            val (bestProfile, bestResult) = fastest
+            CyberButton(
+                label = "Connect fastest",
+                detail = "${bestResult.latencyMs.toInt()} ms",
+                color = Aether.Emerald,
+                icon = HomeIcon.POWER,
+                variant = PrismButtonVariant.Primary,
+                compact = true,
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !repo.busy && !repo.probeActive,
+                onClick = {
+                    // The same rule every list row follows: select when the tunnel is down,
+                    // switch over when it is up, never fight a running ping sweep.
+                    if (repo.probeActive || repo.probeCancelling) {
+                        repo.setRuntimeMessage("Wait until ping finishes before changing server")
+                    } else if (repo.state == "CONNECTED" || repo.state == "CONNECTING") {
+                        onConnect(bestProfile)
+                    } else {
+                        repo.selectProfile(bestProfile)
+                    }
+                }
             )
         }
         if (refreshable) {
@@ -11316,177 +11493,181 @@ private fun coreEngineDetail(engine: CoreEngine): String = when (engine) {
         "The extended core: one process owns the tunnel, adds warp, masque and mieru, ships the geo rule sets, and answers URL test from its own measurements"
 }
 
+/**
+ * MARBLE_SETTINGS_DEDUP_V193 — one core-options surface for both engines.
+ *
+ * The Xray card and the sing-box card each owned their own "Sniffing", "Allow LAN inbound",
+ * "HTTP inbound port", "Log level" and "TCP Fast Open" control, scattered across two sections of
+ * the same Engine page. They all did one job per concept — and TCP Fast Open is literally one
+ * shared setting consumed by both cores. This composable draws each concept exactly once,
+ * reading and writing the fields of whichever engine is selected in the Engine card above; the
+ * options that genuinely belong to one core (route-only sniffing for Xray, resolve-destination
+ * and the extended parser choices for sing-box) appear with it.
+ */
 @Composable
-private fun XrayCoreSettings(repo: AppRepository) {
+private fun CoreEngineOptions(repo: AppRepository, engine: CoreEngine) {
     val s = repo.settings
+    val isXray = engine == CoreEngine.XRAY
+    val tone = if (isXray) Aether.Emerald else Aether.Amethyst
+
     Text(
-        trx("Marble builds a full Xray config from the server link, pins TLS when you asked for it, and hands the SOCKS port to hev-socks5-tunnel. These switches are the PattNG core options."),
+        if (isXray) {
+            trx("Marble builds a full Xray config from the server link, pins TLS when you asked for it, and hands the SOCKS port to hev-socks5-tunnel. These are the PattNG core options; switch the engine above to change this card.")
+        } else {
+            trx("The extended core speaks WARP, MASQUE, MTProxy, Mieru, TrustTunnel and the standard protocols. A node it cannot run is reported on the server with the reason, never silently dropped. These are the Exclave core options; switch the engine above to change this card.")
+        },
         color = Aether.InkMuted,
         style = settingsBodyStyle()
     )
-    InformationRow(trx("Fronted by"), "hev-socks5-tunnel ${BuildConfig.HEV_CORE_TAG}", Aether.Amber)
+    if (isXray) {
+        InformationRow(trx("Fronted by"), "hev-socks5-tunnel ${BuildConfig.HEV_CORE_TAG}", Aether.Amber)
+    } else {
+        InformationRow(trx("Control API"), trx("127.0.0.1 inside this app; read for URL test only"), Aether.CyanBright)
+    }
 
+    // ── Log level ─────────────────────────────────────────────────────────────
+    // One picker; the values it offers are the ones the selected core understands.
     Text(trx("Log level"), color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
     FlowRow(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(7.dp),
         verticalArrangement = Arrangement.spacedBy(7.dp)
     ) {
-        listOf("error", "warning", "info", "debug", "none").forEach { level ->
+        val levels = if (isXray) {
+            listOf("error", "warning", "info", "debug", "none")
+        } else {
+            listOf("trace", "debug", "info", "warn", "error", "fatal")
+        }
+        levels.forEach { level ->
             CyberChoiceChip(
                 text = level.uppercase(),
-                selected = s.xrayLogLevel.equals(level, ignoreCase = true),
-                color = Aether.Emerald
-            ) { repo.updateSettings(repo.settings.copy(xrayLogLevel = level)) }
+                selected = (if (isXray) s.xrayLogLevel else s.singBoxLogLevel).equals(level, ignoreCase = true),
+                color = tone
+            ) {
+                repo.updateSettings(
+                    if (isXray) repo.settings.copy(xrayLogLevel = level)
+                    else repo.settings.copy(singBoxLogLevel = level)
+                )
+            }
         }
     }
 
+    // ── Sniffing ──────────────────────────────────────────────────────────────
     SettingSwitch(
-        title = "Sniffing",
-        subtitle = "Read HTTP/TLS/QUIC so routing sees the real host",
-        checked = s.xraySniffingEnabled
-    ) { repo.updateSettings(repo.settings.copy(xraySniffingEnabled = it)) }
-
-    AnimatedVisibility(s.xraySniffingEnabled) {
-        SettingSwitch(
-            title = "Route-only sniffing",
-            subtitle = "Sniff for routing, do not rewrite the destination",
-            checked = s.xraySniffingRouteOnly
-        ) { repo.updateSettings(repo.settings.copy(xraySniffingRouteOnly = it)) }
-    }
-
-    SettingSwitch(
-        title = "Allow LAN inbound",
-        subtitle = "Bind SOCKS/HTTP on 0.0.0.0 so other devices can use this phone",
-        checked = s.xrayAllowLan
-    ) { repo.updateSettings(repo.settings.copy(xrayAllowLan = it)) }
-
-    TinyField(
-        label = if (s.xrayHttpInboundPort == 0) "HTTP inbound port (0 = off)" else "HTTP inbound port",
-        value = s.xrayHttpInboundPort.toString(),
-        modifier = Modifier.fillMaxWidth()
-    ) { raw ->
-        val port = raw.trim().toIntOrNull()?.coerceIn(0, 65535) ?: 0
-        repo.updateSettings(repo.settings.copy(xrayHttpInboundPort = port))
-    }
-
-    SettingSwitch(
-        title = "TCP Fast Open",
-        subtitle = "Send data with the handshake",
-        checked = s.tcpFastOpenEnabled
-    ) { repo.updateSettings(repo.settings.copy(tcpFastOpenEnabled = it)) }
-
-    SettingSwitch(
-        title = "Maximum config compatibility",
-        subtitle = "Verify the final config with Xray before connecting",
-        checked = s.configCompatibilityMode
-    ) { repo.updateSettings(repo.settings.copy(configCompatibilityMode = it)) }
-
-    // MARBLE_CORE_CONFIG_SUPERSET_V165 — the consent switch for a cleartext public node. The core
-    // policy patch (`scripts/inject-xray-config-superset.py`) asks the application this one question,
-    // and this is the control that answers it. Switching it off restores fail-closed behaviour
-    // exactly; leaving it on is what makes a plaintext subscription usable instead of "0/42".
-    SettingSwitch(
-        title = trx("Dial unencrypted nodes"),
-        subtitle = trx("Plaintext VLESS/Trojan nodes stay usable; switching off refuses them"),
-        checked = s.allowUnencryptedPublicOutbound
-    ) { repo.updateSettings(repo.settings.copy(allowUnencryptedPublicOutbound = it)) }
-    Text(
-        trx(
-            "Unencrypted traffic is readable by your ISP. Marble labels it on the server row " +
-                "and never rewrites your node."
-        ),
-        color = Aether.InkMuted,
-        style = settingsBodyStyle()
-    )
-}
-
-@Composable
-private fun SingBoxCoreSettings(repo: AppRepository) {
-    val s = repo.settings
-    Text(
-        trx("The extended core speaks WARP, MASQUE, MTProxy, Mieru, TrustTunnel and the standard protocols. A node it cannot run is reported on the server with the reason, never silently dropped. These switches are the Exclave core options."),
-        color = Aether.InkMuted,
-        style = settingsBodyStyle()
-    )
-
-    SettingSwitch(
-        title = trx("Prefer link parser"),
-        subtitle = trx("Hand the original vless://, trojan:// or ss:// link to the extended core's own parser. Turn this off if a node behaves differently through it."),
-        checked = s.singBoxPreferParser,
-        onChecked = { repo.updateSettings(repo.settings.copy(singBoxPreferParser = it)) }
-    )
-    SettingSwitch(
-        title = trx("Unified delay"),
-        subtitle = trx("Measure a real round trip instead of trusting a cached handshake. Also what makes URL test comparable to Real delay."),
-        checked = s.singBoxUnifiedDelay,
-        onChecked = { repo.updateSettings(repo.settings.copy(singBoxUnifiedDelay = it)) }
-    )
-    SettingSwitch(
-        title = trx("Cache file"),
-        subtitle = trx("Remember resolved addresses and DNS answers between runs. Turn off to write nothing to disk."),
-        checked = s.singBoxCacheFile,
-        onChecked = { repo.updateSettings(repo.settings.copy(singBoxCacheFile = it)) }
-    )
-    NumberSetting(
-        title = trx("Connect timeout"),
-        value = s.singBoxConnectTimeoutSec,
-        range = 3..60,
-        suffix = "s",
-        onValue = { repo.updateSettings(repo.settings.copy(singBoxConnectTimeoutSec = it.coerceIn(3, 60))) }
-    )
-
-    Text(trx("Log level"), color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
-    FlowRow(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(7.dp),
-        verticalArrangement = Arrangement.spacedBy(7.dp)
+        title = trx("Sniffing"),
+        subtitle = trx("Read HTTP/TLS/QUIC so routing sees the real host"),
+        checked = if (isXray) s.xraySniffingEnabled else s.singBoxSniffEnabled
     ) {
-        listOf("trace", "debug", "info", "warn", "error", "fatal").forEach { level ->
-            CyberChoiceChip(
-                text = level.uppercase(),
-                selected = s.singBoxLogLevel.equals(level, ignoreCase = true),
-                color = Aether.Amethyst
-            ) { repo.updateSettings(repo.settings.copy(singBoxLogLevel = level)) }
+        repo.updateSettings(
+            if (isXray) repo.settings.copy(xraySniffingEnabled = it)
+            else repo.settings.copy(singBoxSniffEnabled = it)
+        )
+    }
+    AnimatedVisibility(if (isXray) s.xraySniffingEnabled else s.singBoxSniffEnabled) {
+        Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+            if (isXray) {
+                SettingSwitch(
+                    title = trx("Route-only sniffing"),
+                    subtitle = trx("Sniff for routing, do not rewrite the destination"),
+                    checked = s.xraySniffingRouteOnly
+                ) { repo.updateSettings(repo.settings.copy(xraySniffingRouteOnly = it)) }
+            } else {
+                SettingSwitch(
+                    title = trx("Resolve destination"),
+                    subtitle = trx("Resolve the domain to an IP before matching routing rules"),
+                    checked = s.singBoxResolveDestination
+                ) { repo.updateSettings(repo.settings.copy(singBoxResolveDestination = it)) }
+            }
         }
     }
 
+    // ── LAN exposure ──────────────────────────────────────────────────────────
     SettingSwitch(
-        title = "Sniffing",
-        subtitle = "Read HTTP/TLS/QUIC so routing sees the real host",
-        checked = s.singBoxSniffEnabled
-    ) { repo.updateSettings(repo.settings.copy(singBoxSniffEnabled = it)) }
-
-    SettingSwitch(
-        title = "Resolve destination",
-        subtitle = "Resolve the domain to an IP before matching routing rules",
-        checked = s.singBoxResolveDestination
-    ) { repo.updateSettings(repo.settings.copy(singBoxResolveDestination = it)) }
-
-    SettingSwitch(
-        title = "Allow LAN inbound",
-        subtitle = "Bind the mixed inbound on 0.0.0.0 so other devices can use this phone",
-        checked = s.singBoxAllowLan
-    ) { repo.updateSettings(repo.settings.copy(singBoxAllowLan = it)) }
-
+        title = trx("Allow LAN inbound"),
+        subtitle = trx("Bind the inbounds on 0.0.0.0 so other devices can use this phone"),
+        checked = if (isXray) s.xrayAllowLan else s.singBoxAllowLan
+    ) {
+        repo.updateSettings(
+            if (isXray) repo.settings.copy(xrayAllowLan = it)
+            else repo.settings.copy(singBoxAllowLan = it)
+        )
+    }
     NumberSetting(
-        title = "HTTP inbound port",
-        value = s.singBoxHttpInboundPort,
+        title = trx("HTTP inbound port"),
+        value = if (isXray) s.xrayHttpInboundPort else s.singBoxHttpInboundPort,
         range = 0..65535,
-        suffix = if (s.singBoxHttpInboundPort == 0) " off" else ""
-    ) { repo.updateSettings(repo.settings.copy(singBoxHttpInboundPort = it.coerceIn(0, 65535))) }
+        suffix = if ((if (isXray) s.xrayHttpInboundPort else s.singBoxHttpInboundPort) == 0) " off" else ""
+    ) {
+        val port = it.coerceIn(0, 65535)
+        repo.updateSettings(
+            if (isXray) repo.settings.copy(xrayHttpInboundPort = port)
+            else repo.settings.copy(singBoxHttpInboundPort = port)
+        )
+    }
 
+    // ── TCP Fast Open ─────────────────────────────────────────────────────────
+    // One switch, one field, both cores: CoreSocketPolicy writes it into the Xray sockopt and
+    // sing-box's tcp_fast_open alike. It is shown exactly once.
     SettingSwitch(
-        title = "TCP Fast Open",
-        subtitle = "Send data with the handshake",
+        title = trx("TCP Fast Open"),
+        subtitle = trx("Send data with the handshake • applies to both cores"),
         checked = s.tcpFastOpenEnabled
     ) { repo.updateSettings(repo.settings.copy(tcpFastOpenEnabled = it)) }
 
-    Text(
-        trx("The core's own control API listens on 127.0.0.1 inside this app on a port it chooses at start. MarbleNG reads it to answer URL test; nothing outside the app can reach it."),
-        color = Aether.InkFaint,
-        style = settingsBodyStyle()
-    )
+    HorizontalDivider(color = Aether.GlassBorderSoft)
+
+    // ── The options only this core has ────────────────────────────────────────
+    if (isXray) {
+        SettingSwitch(
+            title = trx("Maximum config compatibility"),
+            subtitle = trx("Verify the final config with Xray before connecting"),
+            checked = s.configCompatibilityMode
+        ) { repo.updateSettings(repo.settings.copy(configCompatibilityMode = it)) }
+        // MARBLE_CORE_CONFIG_SUPERSET_V165 — the consent switch for a cleartext public node. The
+        // core policy patch (`scripts/inject-xray-config-superset.py`) asks the application this
+        // one question, and this is the control that answers it. Switching it off restores
+        // fail-closed behaviour exactly; leaving it on is what makes a plaintext subscription
+        // usable instead of "0/42".
+        SettingSwitch(
+            title = trx("Dial unencrypted nodes"),
+            subtitle = trx("Plaintext VLESS/Trojan nodes stay usable; switching off refuses them"),
+            checked = s.allowUnencryptedPublicOutbound
+        ) { repo.updateSettings(repo.settings.copy(allowUnencryptedPublicOutbound = it)) }
+        Text(
+            trx(
+                "Unencrypted traffic is readable by your ISP. Marble labels it on the server row " +
+                    "and never rewrites your node."
+            ),
+            color = Aether.InkMuted,
+            style = settingsBodyStyle()
+        )
+    } else {
+        SettingSwitch(
+            title = trx("Prefer link parser"),
+            subtitle = trx("Hand the original vless://, trojan:// or ss:// link to the extended core's own parser. Turn this off if a node behaves differently through it."),
+            checked = s.singBoxPreferParser,
+            onChecked = { repo.updateSettings(repo.settings.copy(singBoxPreferParser = it)) }
+        )
+        SettingSwitch(
+            title = trx("Unified delay"),
+            subtitle = trx("Measure a real round trip instead of trusting a cached handshake. Also what makes URL test comparable to Real delay."),
+            checked = s.singBoxUnifiedDelay,
+            onChecked = { repo.updateSettings(repo.settings.copy(singBoxUnifiedDelay = it)) }
+        )
+        SettingSwitch(
+            title = trx("Cache file"),
+            subtitle = trx("Remember resolved addresses and DNS answers between runs. Turn off to write nothing to disk."),
+            checked = s.singBoxCacheFile,
+            onChecked = { repo.updateSettings(repo.settings.copy(singBoxCacheFile = it)) }
+        )
+        NumberSetting(
+            title = trx("Connect timeout"),
+            value = s.singBoxConnectTimeoutSec,
+            range = 3..60,
+            suffix = "s",
+            onValue = { repo.updateSettings(repo.settings.copy(singBoxConnectTimeoutSec = it.coerceIn(3, 60))) }
+        )
+    }
 }
 
 /**
@@ -12068,8 +12249,17 @@ private fun settingsSections(
                     }
                 },
                 card("Fragment & Mux","DPI resilience",HomeIcon.SPARK,Aether.Amber) { FragmentMuxSettings(repo) },
-                card("Xray core","PattNG sniffing, log, LAN inbound",HomeIcon.SHIELD,Aether.Emerald) { XrayCoreSettings(repo) },
-                card("sing-box extended","Exclave sniff, resolve dest, timeout",HomeIcon.TUNNEL,Aether.Amethyst) { SingBoxCoreSettings(repo) },
+                // MARBLE_SETTINGS_DEDUP_V193 — the two per-core option cards are one surface now.
+                // "Sniffing", "Allow LAN inbound", "HTTP inbound port", "Log level" and "TCP Fast
+                // Open" each existed twice — once under Xray, once under sing-box — describing the
+                // same single setting in two different sections. The merged card adapts to the
+                // engine chosen above, so every option appears exactly once.
+                card(
+                    "Core options",
+                    "Sniffing, LAN, log • ${CoreEngineInfo.displayName(engine)}",
+                    HomeIcon.SHIELD,
+                    Aether.Emerald
+                ) { CoreEngineOptions(repo, engine) },
                 card("Delay test","What a real-delay measurement loads",HomeIcon.PING,Aether.Amber) {
                     TinyField(
                         label = trx("Delay test URL"),
@@ -12267,265 +12457,6 @@ private fun ConnectionSettings(repo: AppRepository) {
 
 }
 
-@Composable
-private fun IntelligenceSettings(repo: AppRepository) {
-    val s = repo.settings
-    val status = repo.intelligenceStatus
-    val sentinel = repo.sentinel
-
-    Row(
-        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(7.dp)
-    ) {
-        HoloBadge(status.networkLabel, Aether.Cyan, compact = true)
-        HoloBadge("MTU ${status.effectiveMtu.takeIf { it > 0 } ?: s.mtuMax}", Aether.Emerald, compact = true)
-        HoloBadge("CPU ${status.thermalBudgetPercent}%", if (status.thermalBudgetPercent >= 65) Aether.Emerald else Aether.Amber, compact = true)
-        HoloBadge("HISTORY ${status.historyRecords}", Aether.Amethyst, compact = true)
-        HoloBadge(
-            if (status.acceleratedRoutes > 0) {
-                "TURBO ${status.accelerationLabel} • ${status.acceleratedRoutes}"
-            } else {
-                "TURBO ${status.accelerationLabel}"
-            },
-            if (s.connectTuningEnabled) Aether.Emerald else Aether.InkFaint,
-            compact = true
-        )
-    }
-
-    Text(status.lastDecision, color = Aether.InkMuted, style = MaterialTheme.typography.bodySmall)
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(13.dp))
-            .background(homeCloudInsetFill())
-            .border(1.dp, Aether.Emerald.copy(alpha = .20f), RoundedCornerShape(13.dp))
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text(
-                "Marble Intelligence Engine",
-                color = Aether.Ink,
-                style = settingsRowTitleStyle(),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                "Always active • adaptive MTU, Mux, fragment and route policies",
-                color = Aether.InkMuted,
-                style = MaterialTheme.typography.labelSmall,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-        HoloBadge("ON", Aether.Emerald, compact = true)
-    }
-
-    SettingSwitch(
-        title = "Maximum config compatibility",
-        subtitle = "Verify the final config with Xray",
-        checked = s.configCompatibilityMode
-    ) { repo.updateSettings(repo.settings.copy(configCompatibilityMode = it)) }
-
-    SettingSwitch(
-        title = "Verified performance auto-tune",
-        subtitle = "Keep only proven gains",
-        checked = s.verifiedPerformanceTuning
-    ) { repo.updateSettings(repo.settings.copy(verifiedPerformanceTuning = it)) }
-
-    SettingSwitch(
-        title = "Marble Turbo acceleration",
-        subtitle = "Pick the fastest transport on connect",
-        checked = s.connectTuningEnabled
-    ) { repo.updateSettings(repo.settings.copy(connectTuningEnabled = it)) }
-
-    AnimatedVisibility(s.connectTuningEnabled) {
-        Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
-            NumberSetting("Connect tuning budget", s.connectTuningBudgetSec, 0..20, " sec") {
-                repo.updateSettings(repo.settings.copy(connectTuningBudgetSec = it))
-            }
-            NumberSetting("Strategies per pass", s.connectTuningMethods, 1..8) {
-                repo.updateSettings(repo.settings.copy(connectTuningMethods = it))
-            }
-            SettingSwitch(
-                title = "Keep improving while connected",
-                subtitle = "Learn in background, keep the tunnel",
-                checked = s.liveTuningEnabled
-            ) { repo.updateSettings(repo.settings.copy(liveTuningEnabled = it)) }
-
-            AnimatedVisibility(s.liveTuningEnabled) {
-                Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
-                    NumberSetting("Live tuning interval", s.liveTuningIntervalSec, 60..3600, " sec") {
-                        repo.updateSettings(repo.settings.copy(liveTuningIntervalSec = it))
-                    }
-                    NumberSetting("Ping that triggers tuning", s.liveTuningPingTriggerMs, 80..1200, " ms") {
-                        repo.updateSettings(repo.settings.copy(liveTuningPingTriggerMs = it))
-                    }
-                    NumberSetting("Minimum gain to learn", s.liveTuningMinGainPercent, 5..80, " %") {
-                        repo.updateSettings(repo.settings.copy(liveTuningMinGainPercent = it))
-                    }
-                }
-            }
-
-            SettingSwitch(
-                title = "Adaptive tunnel datapath",
-                subtitle = "Size buffers from real throughput",
-                checked = s.adaptiveBufferEnabled
-            ) { repo.updateSettings(repo.settings.copy(adaptiveBufferEnabled = it)) }
-
-            CyberButton(
-                label = "Learn faster route now",
-                color = Aether.Emerald,
-                modifier = Modifier.fillMaxWidth(),
-                enabled = repo.state == "CONNECTED"
-            ) { repo.boostActiveRoute() }
-        }
-    }
-
-    SettingSwitch(
-        title = "Continuous Marble Autopilot",
-        subtitle = "Verify route, rotate challenges",
-        checked = s.continuousOptimizerEnabled
-    ) { repo.updateSettings(repo.settings.copy(continuousOptimizerEnabled = it)) }
-
-    AnimatedVisibility(s.continuousOptimizerEnabled) {
-        Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
-            NumberSetting("Autopilot interval", s.optimizerIntervalSec, 60..900, " sec") {
-                repo.updateSettings(repo.settings.copy(optimizerIntervalSec = it))
-            }
-            NumberSetting("Challengers per cycle", s.optimizerCandidateCount, 2..8) {
-                repo.updateSettings(repo.settings.copy(optimizerCandidateCount = it))
-            }
-            NumberSetting("Deep speed cycle", s.optimizerDeepScanEvery, 3..20, " cycles") {
-                repo.updateSettings(repo.settings.copy(optimizerDeepScanEvery = it))
-            }
-            NumberSetting("Switch cooldown", s.optimizerSwitchCooldownSec, 60..1800, " sec") {
-                repo.updateSettings(repo.settings.copy(optimizerSwitchCooldownSec = it))
-            }
-            NumberSetting("Evidence confirmations", s.optimizerConfirmations, 1..3) {
-                repo.updateSettings(repo.settings.copy(optimizerConfirmations = it))
-            }
-            SettingSwitch(
-                title = "Protect heavy downloads",
-                subtitle = "Pause scans during downloads",
-                checked = s.optimizerAvoidHeavyTraffic
-            ) { repo.updateSettings(repo.settings.copy(optimizerAvoidHeavyTraffic = it)) }
-        }
-    }
-
-    SettingSwitch(
-        title = "Persistent route intelligence",
-        subtitle = "Health history per network",
-        checked = s.healthHistoryEnabled
-    ) { repo.updateSettings(s.copy(healthHistoryEnabled = it)) }
-
-    SettingSwitch(
-        title = "Connection race",
-        subtitle = "First healthy route wins",
-        checked = s.raceConnectEnabled
-    ) { repo.updateSettings(s.copy(raceConnectEnabled = it)) }
-
-    AnimatedVisibility(s.raceConnectEnabled) {
-        NumberSetting("Race width", s.raceWidth, 2..4) {
-            repo.updateSettings(repo.settings.copy(raceWidth = it))
-        }
-    }
-
-    SettingSwitch(
-        title = "Smart fallback",
-        subtitle = "Fail-closed switch to a backup",
-        checked = s.smartFallbackEnabled
-    ) { repo.updateSettings(s.copy(smartFallbackEnabled = it)) }
-
-    AnimatedVisibility(s.smartFallbackEnabled) {
-        Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
-            NumberSetting("Fallback depth", s.fallbackCount, 1..8) {
-                repo.updateSettings(repo.settings.copy(fallbackCount = it))
-            }
-            SettingSwitch(
-                title = "Auto-connect after kill switch",
-                subtitle = "Off = tap Connect again",
-                checked = s.autoReconnectAfterKillSwitch
-            ) { repo.updateSettings(repo.settings.copy(autoReconnectAfterKillSwitch = it)) }
-        }
-    }
-
-    SettingSwitch(
-        title = "Network-change recovery",
-        subtitle = "Re-probe after Wi-Fi ↔ cellular",
-        checked = s.networkChangeRecoveryEnabled
-    ) { repo.updateSettings(s.copy(networkChangeRecoveryEnabled = it)) }
-
-    SettingSwitch(
-        title = "Adaptive MTU",
-        subtitle = "Match the real link MTU",
-        checked = s.adaptiveMtuEnabled
-    ) { repo.updateSettings(s.copy(adaptiveMtuEnabled = it)) }
-
-    AnimatedVisibility(s.adaptiveMtuEnabled) {
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            NumberSetting("MTU floor", s.mtuMin, 1280..1500) {
-                repo.updateSettings(repo.settings.copy(mtuMin = it.coerceAtMost(repo.settings.mtuMax)))
-            }
-            NumberSetting("MTU ceiling", s.mtuMax, 1280..1500) {
-                repo.updateSettings(repo.settings.copy(mtuMax = it.coerceAtLeast(repo.settings.mtuMin)))
-            }
-        }
-    }
-
-    SettingSwitch(
-        title = "Thermal-aware benchmarking",
-        subtitle = "Ease off before throttling",
-        checked = s.thermalAwareEnabled
-    ) { repo.updateSettings(s.copy(thermalAwareEnabled = it)) }
-
-    SettingSwitch(
-        title = "Adaptive throughput test",
-        subtitle = "Start small, grow on trust",
-        checked = s.adaptiveThroughputEnabled
-    ) { repo.updateSettings(s.copy(adaptiveThroughputEnabled = it)) }
-
-    SettingSwitch(
-        title = "UDP / QUIC probe",
-        subtitle = "Real UDP health via STUN",
-        checked = s.udpProbeEnabled
-    ) { repo.updateSettings(s.copy(udpProbeEnabled = it)) }
-
-    Text(trx("Workload"), color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
-    FlowRow(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(7.dp),
-        verticalArrangement = Arrangement.spacedBy(7.dp)
-    ) {
-        WorkloadProfile.entries.forEach { mode ->
-            CyberChoiceChip(
-                text = mode.name,
-                selected = s.workloadProfile == mode,
-                color = when (mode) {
-                    WorkloadProfile.STREAMING -> Aether.Amethyst
-                    WorkloadProfile.STEALTH -> Aether.Amber
-                    else -> Aether.Cyan
-                }
-            ) { repo.updateSettings(repo.settings.copy(workloadProfile = mode)) }
-        }
-    }
-
-    HorizontalDivider(color = Aether.GlassBorderSoft)
-    Text(trx("Privacy sentinel"), color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
-    Row(
-        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(7.dp)
-    ) {
-        HoloBadge(sentinel.coverage, if (sentinel.coverage == "DEVICE-WIDE") Aether.Emerald else Aether.Amber, compact = true)
-        HoloBadge(if (sentinel.dnsHijack) "DNS HIJACK" else "DNS OPEN", if (sentinel.dnsHijack) Aether.Emerald else Aether.Amber, compact = true)
-        HoloBadge(if (sentinel.killSwitchArmed) "KILL SWITCH" else "NO KILL SWITCH", if (sentinel.killSwitchArmed) Aether.Emerald else Aether.InkFaint, compact = true)
-    }
-    if (sentinel.splitBypassCount > 0) {
-        Text("${sentinel.splitBypassCount} apps bypass the VPN; coverage is partial.", color = Aether.Amber, style = MaterialTheme.typography.bodySmall)
-    }
-}
 
 @Composable
 private fun NotificationSettings(repo: AppRepository) {

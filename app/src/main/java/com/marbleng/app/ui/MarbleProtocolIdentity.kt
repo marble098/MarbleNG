@@ -1,20 +1,22 @@
 package com.marbleng.app.ui
 
 // =================================================================================================
-// MARBLE_PROTOCOL_IDENTITY — one unique, minimal visual identity per wire scheme.
+// MARBLE_PROTOCOL_IDENTITY — one unique colour identity per wire scheme.
+// MARBLE_PROTOCOL_TEXT_IDENTITY_V193 — the flag is the circle; the type is text.
 // =================================================================================================
 //
-// Before this every server type was a plain text chip in a flat colour, and the two lists (Servers
-// page, Home page) even disagreed about which colour belongs to which scheme. Each protocol now
-// owns a small hand-drawn vector glyph, one flat tone and a tiny badge, drawn in the same
-// Canvas-stroke language as the dock icons so the identity reads as part of the product and not
-// as a sticker glued onto it.
+// The hand-drawn glyph set (the VLESS "V", the VMESS envelope, the sock, the shields) is gone:
+// at tile size it read as the ugly, unexplainable shapes inside the server circles. A server's
+// circle now carries its country — the real national flag filling the disc edge to edge, or the
+// name's own flag glyph while the tested location is still unknown — and the wire scheme speaks
+// as TEXT: [ProtocolBadge] renders each protocol's label bold in a hue that belongs to it alone
+// (see [protocolTone]: ten families, ten distinct, hand-picked colours). The same hue tints the
+// resting rim of the circle, so type and place still read from the same glance.
 //
-// The layout vocabulary follows the modern VPN clients on the Play Store (ZedSecure and its
-// lineage): circular icon containers for the protocol, quiet tinted fills, hairline borders that
-// light up with state, and a latency readout that sits in its own right-aligned stat column —
-// number first, quality meter under it — instead of a lone number floating in the middle of a
-// row.
+// The layout vocabulary follows the modern VPN clients on the Play Store: circular flag avatars,
+// quiet tinted fills, hairline borders that light up with state, and a latency readout that sits
+// in its own right-aligned stat column — number first, quality meter under it — instead of a lone
+// number floating in the middle of a row.
 
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -38,17 +40,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.foundation.layout.offset
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Matrix
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.StrokeJoin
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
@@ -89,190 +85,37 @@ fun protocolFamilyOf(scheme: String): ProtocolFamily =
     }
 
 /**
- * The single tone table for every protocol. Both lists read it, so the Servers page and the Home
- * page can never paint the same scheme in two different colours again.
+ * MARBLE_PROTOCOL_TEXT_IDENTITY_V193 — the single tone table for every protocol. Both lists read
+ * it, so the Servers page and the Home page can never paint the same scheme in two different
+ * colours again.
+ *
+ * Every family owns its own hue now — one hand-picked colour per wire scheme, chosen to stay
+ * legible on both the light and the dark surface (mid-tone 500-class hues on their own faint
+ * tint) and to be unmistakable from its neighbours: violet, sky, emerald, amber, rose, teal,
+ * indigo, magenta, orange and cool grey. Ten schemes, ten hues, zero collisions.
  */
 @Composable
 fun protocolTone(family: ProtocolFamily): Color = when (family) {
-    ProtocolFamily.VLESS -> Aether.Amethyst
-    ProtocolFamily.VMESS -> Aether.Cyan
-    ProtocolFamily.TROJAN -> Aether.Emerald
-    ProtocolFamily.SHADOWSOCKS -> Aether.Amber
-    ProtocolFamily.HYSTERIA2 -> Aether.CyanBright
-    ProtocolFamily.WIREGUARD -> Aether.SlateBright
-    ProtocolFamily.SSH -> Aether.Slate
-    ProtocolFamily.SOCKS -> Aether.InkMuted
-    ProtocolFamily.HTTP -> Aether.AmethystBright
-    ProtocolFamily.OTHER -> Aether.Cyan
+    ProtocolFamily.VLESS -> Color(0xFF7C5CFF)          // electric violet
+    ProtocolFamily.VMESS -> Color(0xFF0EA5E9)          // sky blue
+    ProtocolFamily.TROJAN -> Color(0xFF10B981)         // emerald
+    ProtocolFamily.SHADOWSOCKS -> Color(0xFFF59E0B)    // amber
+    ProtocolFamily.HYSTERIA2 -> Color(0xFFF43F5E)      // rose — the fast, loud one
+    ProtocolFamily.WIREGUARD -> Color(0xFF14B8A6)      // teal
+    ProtocolFamily.SSH -> Color(0xFF6366F1)            // indigo
+    ProtocolFamily.SOCKS -> Color(0xFFEC4899)          // magenta
+    ProtocolFamily.HTTP -> Color(0xFFF97316)           // orange
+    ProtocolFamily.OTHER -> Color(0xFF94A3B8)          // cool slate grey
 }
 
 @Composable
 fun protocolToneOf(scheme: String): Color = protocolTone(protocolFamilyOf(scheme))
 
 /**
- * The protocol's own glyph: one minimal stroke drawing in a 24×24 design space, scaled to the
- * requested size. Each family is deliberately its own silhouette — a V that ripples, an envelope,
- * a shield with a keyhole, a sock, a double chevron, a key, a terminal prompt, a tunnel ring and
- * a swap of arrows — so a server's type is readable even with the label cropped away.
- */
-@Composable
-fun ProtocolGlyph(family: ProtocolFamily, color: Color, modifier: Modifier = Modifier) {
-    Canvas(modifier) {
-        // Everything is drawn in 24×24 design units and scaled by the real canvas size, so the
-        // glyph keeps its stroke weight ratio from 11 dp badges up to full-size tiles.
-        val u = size.width / 24f
-        fun p(x: Float, y: Float) = Offset(x * u, y * u)
-        val stroke = 1.9f * u
-        // MARBLE_GLYPH_SCALE_FIX — every path is authored in the 24×24 design space and must be
-        // scaled by the same factor as the lines and circles. The raw paths used to be drawn in
-        // pixels, so the V, the chevrons and the shields rendered a few pixels wide in the
-        // tile's top-left corner instead of filling its centre.
-        val designToCanvas = Matrix().apply { scale(u, u) }
-        fun glyph(block: Path.() -> Unit): Path = Path().apply(block).apply { transform(designToCanvas) }
-        val line = Stroke(width = stroke, cap = StrokeCap.Round, join = StrokeJoin.Round)
-
-        when (family) {
-            // A lean V with one signal ripple leaving its tip: "less" is a stream.
-            ProtocolFamily.VLESS -> {
-                drawPath(
-                    glyph {
-                        moveTo(6.4f, 6.6f); lineTo(12f, 17.4f); lineTo(17.6f, 6.6f)
-                    },
-                    color, style = line
-                )
-                drawPath(
-                    glyph {
-                        moveTo(8.9f, 19.7f); cubicTo(10.97f, 21.43f, 13.03f, 21.43f, 15.1f, 19.7f)
-                    },
-                    color, style = line
-                )
-            }
-
-            // An envelope with its flap: a message in transit.
-            ProtocolFamily.VMESS -> {
-                drawPath(
-                    glyph {
-                        moveTo(6.8f, 6.6f); lineTo(17.2f, 6.6f); cubicTo(18.67f, 6.6f, 19.4f, 7.33f, 19.4f, 8.8f)
-                        lineTo(19.4f, 15.2f); cubicTo(19.4f, 16.67f, 18.67f, 17.4f, 17.2f, 17.4f)
-                        lineTo(6.8f, 17.4f); cubicTo(5.33f, 17.4f, 4.6f, 16.67f, 4.6f, 15.2f)
-                        lineTo(4.6f, 8.8f); cubicTo(4.6f, 7.33f, 5.33f, 6.6f, 6.8f, 6.6f); close()
-                    },
-                    color, style = line
-                )
-                drawPath(
-                    glyph {
-                        moveTo(5.6f, 7.8f); lineTo(12f, 13.4f); lineTo(18.4f, 7.8f)
-                    },
-                    color, style = line
-                )
-            }
-
-            // A shield with a keyhole: hidden armour.
-            ProtocolFamily.TROJAN -> {
-                drawPath(
-                    glyph {
-                        moveTo(12f, 3.6f); lineTo(18.7f, 6.4f); lineTo(18.7f, 11.8f)
-                        cubicTo(18.7f, 15.5f, 16.1f, 18.8f, 12f, 20.7f)
-                        cubicTo(7.9f, 18.8f, 5.3f, 15.5f, 5.3f, 11.8f)
-                        lineTo(5.3f, 6.4f); close()
-                    },
-                    color, style = line
-                )
-                drawCircle(color, radius = 1.35f * u, center = p(12f, 10.4f))
-                drawLine(color, p(12f, 11.9f), p(12f, 14.3f), stroke, StrokeCap.Round)
-            }
-
-            // The sock itself — the silhouette the name was built on.
-            ProtocolFamily.SHADOWSOCKS -> {
-                drawPath(
-                    glyph {
-                        moveTo(9f, 4.6f); lineTo(9f, 10.2f)
-                        cubicTo(9f, 13.1f, 10.8f, 15.3f, 13.6f, 16.3f)
-                        lineTo(17f, 17.5f); cubicTo(19f, 18.2f, 20.1f, 15.7f, 18.5f, 14.4f)
-                        lineTo(13.8f, 10.8f); lineTo(13.8f, 4.6f)
-                    },
-                    color, style = line
-                )
-                drawLine(color, p(7.7f, 4.6f), p(15.1f, 4.6f), stroke, StrokeCap.Round)
-            }
-
-            // Twin chevrons pushing right: pure speed.
-            ProtocolFamily.HYSTERIA2 -> {
-                drawPath(
-                    glyph {
-                        moveTo(5.9f, 6.9f); lineTo(12.1f, 12f); lineTo(5.9f, 17.1f)
-                    },
-                    color, style = line
-                )
-                drawPath(
-                    glyph {
-                        moveTo(11.9f, 6.9f); lineTo(18.1f, 12f); lineTo(11.9f, 17.1f)
-                    },
-                    color, style = line
-                )
-            }
-
-            // A key: what it guards.
-            ProtocolFamily.WIREGUARD -> {
-                drawCircle(color, radius = 3.4f * u, center = p(8.6f, 12f), style = line)
-                drawLine(color, p(12f, 12f), p(19.4f, 12f), stroke, StrokeCap.Round)
-                drawLine(color, p(16.2f, 12f), p(16.2f, 15.2f), stroke, StrokeCap.Round)
-                drawLine(color, p(19.1f, 12f), p(19.1f, 14.6f), stroke, StrokeCap.Round)
-            }
-
-            // A terminal prompt: the shell of remote access.
-            ProtocolFamily.SSH -> {
-                drawPath(
-                    glyph {
-                        moveTo(6.4f, 8.2f); lineTo(10.8f, 12f); lineTo(6.4f, 15.8f)
-                    },
-                    color, style = line
-                )
-                drawLine(color, p(13.2f, 15.8f), p(18f, 15.8f), stroke, StrokeCap.Round)
-            }
-
-            // A tunnel ring: a layer you step through.
-            ProtocolFamily.SOCKS -> {
-                drawCircle(color, radius = 7.4f * u, center = p(12f, 12f), style = line)
-                drawCircle(color, radius = 3.2f * u, center = p(12f, 12f), style = line)
-            }
-
-            // A request and a reply, one above the other.
-            ProtocolFamily.HTTP -> {
-                drawLine(color, p(5.8f, 9.2f), p(18.2f, 9.2f), stroke, StrokeCap.Round)
-                drawPath(
-                    glyph {
-                        moveTo(15.2f, 6.4f); lineTo(18.2f, 9.2f); lineTo(15.2f, 12f)
-                    },
-                    color, style = line
-                )
-                drawLine(color, p(18.2f, 14.8f), p(5.8f, 14.8f), stroke, StrokeCap.Round)
-                drawPath(
-                    glyph {
-                        moveTo(8.8f, 12f); lineTo(5.8f, 14.8f); lineTo(8.8f, 17.6f)
-                    },
-                    color, style = line
-                )
-            }
-
-            // The fallback: a sealed hex with its own centre.
-            ProtocolFamily.OTHER -> {
-                drawPath(
-                    glyph {
-                        moveTo(12f, 4.4f); lineTo(18.58f, 8.2f); lineTo(18.58f, 15.8f)
-                        lineTo(12f, 19.6f); lineTo(5.42f, 15.8f); lineTo(5.42f, 8.2f); close()
-                    },
-                    color, style = line
-                )
-                drawCircle(color, radius = 1.55f * u, center = p(12f, 12f))
-            }
-        }
-    }
-}
-
-/**
- * The tiny type badge: the glyph beside a two-to-five letter label, on a tint that is barely
- * there. This is the "what kind of server is this" answer, sized to sit under a server name.
+ * MARBLE_PROTOCOL_TEXT_IDENTITY_V193 — the protocol as pure text: a solid, pill-shaped chip in
+ * the family's own hue, its label bold and slightly tracked. No glyph, no icon well — the colour
+ * IS the second identifier, and each of the ten families owns one. This is the "what kind of
+ * server is this" answer, sized to sit under a server name.
  */
 @Composable
 fun ProtocolBadge(
@@ -282,51 +125,33 @@ fun ProtocolBadge(
 ) {
     val family = protocolFamilyOf(scheme)
     val tone = protocolTone(family)
-    val shape = RoundedCornerShape(9.dp)
-    Row(
+    Text(
+        text = label ?: family.label,
+        color = tone,
+        style = TextStyle(
+            fontSize = 9.5.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = .45.sp
+        ),
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
         modifier = modifier
-            .height(25.dp)
-            .clip(shape)
-            .background(tone.copy(alpha = .12f))
-            .border(1.dp, tone.copy(alpha = .34f), shape)
-            .padding(start = 4.dp, end = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(5.dp)
-    ) {
-        // A solid icon well makes the protocol legible at a glance; the old bare outline glyph
-        // and loose text looked like an accidental debug label in dense server rows.
-        Box(
-            modifier = Modifier
-                .size(18.dp)
-                .clip(CircleShape)
-                .background(tone.copy(alpha = .22f)),
-            contentAlignment = Alignment.Center
-        ) {
-            ProtocolGlyph(family, tone, Modifier.size(12.dp))
-        }
-        Text(
-            text = label ?: family.label,
-            color = tone,
-            style = TextStyle(
-                fontSize = 9.5.sp,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = .35.sp
-            ),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-    }
+            .clip(RoundedCornerShape(6.5.dp))
+            .background(tone.copy(alpha = .14f))
+            .border(1.dp, tone.copy(alpha = .38f), RoundedCornerShape(6.5.dp))
+            .padding(horizontal = 6.dp, vertical = 3.dp)
+    )
 }
 
 /**
- * The circular protocol container of a server row: the glyph centred on a quiet tint, a hairline
- * rim that lights up when the row carries traffic or is the selected one, and an optional flag
- * badge in the corner so the country stays readable at a glance.
+ * The circular server avatar of a row.
  *
- * MARBLE_SERVER_LOCATION_V192 — when [flagCode] names a country the art library knows, the flag
- * IS the tile: the real national flag fills the circle edge to edge (no emoji, no rim chip), and
- * the protocol's hue survives as the resting rim. The row below then carries the location, the
- * one fact a VPN user reads first.
+ * MARBLE_PROTOCOL_TEXT_IDENTITY_V193 — the flag IS the circle, always. The hand-drawn protocol
+ * glyphs that used to sit inside these circles are gone; when the endpoint's country is known the
+ * real national flag fills the circle edge to edge, and when it is not, the country the server's
+ * own name leads with (its emoji glyph) stands in at full size on the protocol's tinted well —
+ * never a wire-scheme doodle. The protocol's hue survives as the resting rim, and the type itself
+ * is spoken by [ProtocolBadge]'s coloured text chip on the line below.
  *
  * [stateTone] — when the row is connected or selected — overrides the rim and casts the soft
  * shadow, so the connection state and the protocol identity never fight over the same pixel.
@@ -336,7 +161,6 @@ fun ProtocolTile(
     scheme: String,
     modifier: Modifier = Modifier,
     size: Dp = 40.dp,
-    glyphFraction: Float = .56f,
     flag: String? = null,
     flagCode: String? = null,
     stateTone: Color? = null,
@@ -356,6 +180,9 @@ fun ProtocolTile(
         label = "protocol-tile-fill"
     )
     val flagArt = flagCode?.takeIf { it.isNotBlank() }?.takeIf { CountryFlagSupported(it) }
+    // The emoji a server's own name leads with (🇩🇪, 🇳🇱 …) is the stand-in while the tested
+    // location is still unknown — drawn large, centred, filling the well like a flag would.
+    val nameFlag = flag?.takeIf { it.isNotBlank() }
     Box(
         modifier = modifier
             .size(size)
@@ -381,38 +208,21 @@ fun ProtocolTile(
                 .border(1.dp, rim.copy(alpha = rimAlpha), CircleShape),
             contentAlignment = Alignment.Center
         ) {
-            if (flagArt != null) {
-                // The flag fills the whole circle: sized to the tile's inner area (the 1 dp rim
-                // stays visible) and clipped to the same CircleShape, so nothing of it is cut.
-                CountryFlagCircle(
-                    code = flagArt,
-                    size = size - 2.dp,
-                    fallbackText = flagArt,
-                    fallbackTone = tone,
-                    fallbackFill = tone.copy(alpha = .28f)
-                )
-            } else {
-                ProtocolGlyph(family, tone, Modifier.size((size.value * glyphFraction).dp))
-            }
-        }
-        // Legacy emoji chip, only while a real flag is not available for this node.
-        if (flagArt == null && !flag.isNullOrBlank()) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .offset(x = 1.dp, y = 1.dp)
-                    .clip(CircleShape)
-                    .background(Aether.VoidElevated)
-                    .border(1.dp, Aether.GlassBorderSoft, CircleShape)
-                    .padding(horizontal = 2.5.dp, vertical = 0.5.dp)
-            ) {
-                Text(
-                    text = flag,
-                    style = TextStyle(fontSize = 8.5.sp),
-                    maxLines = 1,
-                    overflow = TextOverflow.Clip
-                )
-            }
+            // One content rule for every state: a real flag fills the circle when the location
+            // is known; the name's own flag glyph fills it otherwise. The wire scheme never
+            // draws inside this circle again.
+            CountryFlagCircle(
+                code = flagArt,
+                size = size - 2.dp,
+                fallbackText = nameFlag ?: "🌐",
+                fallbackTone = if (nameFlag != null) Aether.Ink else tone,
+                fallbackFill = Color.Transparent,
+                styleOverride = if (nameFlag != null) {
+                    TextStyle(fontSize = (size.value * .52f).sp)
+                } else {
+                    null
+                }
+            )
         }
     }
 }

@@ -2476,10 +2476,22 @@ check(
     and "fun displayServerName(" in files["design"],
 )
 check(
-    "V190 protocol glyph paths are scaled into the canvas and the meter is centred",
-    "Path().apply(block).apply { transform(designToCanvas) }" in files["protocolIdentity"]
-    and "val total = barW * 3f + gap * 2f" in files["protocolIdentity"]
+    "V190 the ping meter keeps its centred three-bar geometry",
+    "val total = barW * 3f + gap * 2f" in files["protocolIdentity"]
     and "heights.sum() + gap" not in files["protocolIdentity"],
+)
+check(
+    "V193 the flag is the circle and the wire scheme speaks as text",
+    # MARBLE_PROTOCOL_TEXT_IDENTITY_V193 — the tile's one content rule: the flag art fills the
+    # disc when the location is known, the name's own flag glyph stands in at full size — the
+    # hand-drawn wire-scheme glyphs never draw inside the circle again.
+    "CountryFlagCircle(" in _fun_body(files["protocolIdentity"], "fun ProtocolTile(")
+    and "fallbackText = nameFlag" in _fun_body(files["protocolIdentity"], "fun ProtocolTile(")
+    and "ProtocolGlyph" not in files["protocolIdentity"]
+    # The protocol identifies as TEXT in its own hue: a text pill with no glyph well.
+    and "Box(" not in _fun_body(files["protocolIdentity"], "fun ProtocolBadge(")
+    and "protocolTone(family)" in _fun_body(files["protocolIdentity"], "fun ProtocolBadge(")
+    and "background(tone.copy(alpha = .14f))" in files["protocolIdentity"],
 )
 check(
     "V190 one colour source per theme",

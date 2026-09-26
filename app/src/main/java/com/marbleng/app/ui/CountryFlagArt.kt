@@ -40,6 +40,7 @@ import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
@@ -849,7 +850,8 @@ fun CountryFlagCircle(
     fallbackText: String = "◈",
     fallbackTone: Color = Color(0xFF8899AA),
     fallbackFill: Color = Color(0x26334455),
-    description: String = ""
+    description: String = "",
+    styleOverride: TextStyle? = null
 ) {
     val supported = code != null && CountryFlagSupported(code)
     Box(
@@ -877,7 +879,7 @@ fun CountryFlagCircle(
                 Text(
                     text = fallbackText,
                     color = fallbackTone,
-                    style = MaterialTheme.typography.labelSmall,
+                    style = styleOverride ?: MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.Bold,
                     textAlign = TextAlign.Center,
                     maxLines = 1

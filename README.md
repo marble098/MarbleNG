@@ -94,7 +94,12 @@ scrolling.
 
 ## Motion that feels like the newest Android
 
-`docs/EXPRESSIVE_MOTION_V186.md` is the newest chapter.
+`docs/SMOOTH_MOTION_DEDUP_AND_FLAG_IDENTITY_V193.md` is the newest chapter: the ambient clock now
+caps itself at 60 fps (and feeds the full-screen backdrop a 15 Hz coarse twin), every per-frame
+read moved into the draw phase, and servers marquee three passes instead of forever — so
+animations and transitions stay smooth while the room behind them breathes.
+
+`docs/EXPRESSIVE_MOTION_V186.md` is the motion-language chapter.
 
 **Every movement in MarbleNG now speaks Material 3 Expressive**, the motion language shipping on
 current Android — built entirely from primitives every supported device has, so minSdk stays 26
