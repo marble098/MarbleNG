@@ -276,7 +276,9 @@ internal fun HomeLivePingMeter(
         animationSpec = MarbleExpressiveSpecs.ProgressSettleFloat,
         label = "live-ping-fill"
     )
-    val pulse = if (measuring) MarbleMotion.current.loop(1_200) else 0f
+    // MARBLE_SMOOTH_CLOCK_V193 — the measuring pulse is read in the dot's layer phase, so the
+    // gauge recomposes for measurements, not for frames.
+    val gaugeMotion = MarbleMotion.current
 
     // MARBLE_MATERIAL_YOU_REFRESH_V185 — Home cards round to the refreshed card radius.
     val shape = RoundedCornerShape(22.dp)
@@ -347,8 +349,11 @@ internal fun HomeLivePingMeter(
             Box(
                 Modifier
                     .size(6.dp)
+                    .graphicsLayer {
+                        alpha = if (measuring) .35f + .65f * gaugeMotion.loop(1_200) else 1f
+                    }
                     .clip(CircleShape)
-                    .background(valueTone.copy(alpha = if (measuring) .35f + .65f * pulse else 1f))
+                    .background(valueTone)
             )
             Text(
                 t.livePing.uppercase(),
@@ -685,7 +690,8 @@ internal fun ConnectButtonStream(
     val motion = MarbleMotion.current
     val busy = evidence.connecting || evidence.disconnecting
     val period = if (busy) 1_600 else if (evidence.connected) 3_400 else 5_600
-    val phase = motion.loop(period)
+    // MARBLE_SMOOTH_CLOCK_V193 — `phase` is read inside the travelling band's draw lambda, so
+    // this button recomposes when the connection state changes, never at the frame rate.
     val shape = RoundedCornerShape(22.dp)
     val label = homeActionLabel(evidence)
 
@@ -730,6 +736,7 @@ internal fun ConnectButtonStream(
                 // MARBLE_EXPRESSIVE_MOTION_V186 — the ribbon is a blob, not a stripe: its
                 // width swells and thins once per pass on the wave curve, exactly the
                 // stretching rhythm of the newest Android travelling indicators.
+                val phase = motion.loop(period)
                 val bandWidth = size.width * ExpressiveMath.wavyValue(phase, .24f, .46f)
                 val travel = size.width + bandWidth
                 val x = size.width + bandWidth - travel * phase
@@ -845,8 +852,8 @@ internal fun ConnectButtonFloating(
 ) {
     val motion = MarbleMotion.current
     val busy = evidence.connecting || evidence.disconnecting
-    val breathe = if (busy || evidence.connected) motion.breathe(2_400) else 0f
-    val sweep = if (busy) motion.loop(1_150) * 360f else 0f
+    // MARBLE_SMOOTH_CLOCK_V193 — breathe/sweep moved into the draw lambda below: this control
+    // used to recompose at the frame rate the whole time it was connected.
     val label = homeActionLabel(evidence)
     val iconFraction by animateFloatAsState(
         targetValue = if (evidence.connected) .30f else .36f,
@@ -876,7 +883,7 @@ internal fun ConnectButtonFloating(
                 .background(
                     Brush.radialGradient(
                         listOf(
-                            animatedTone.copy(alpha = .24f + .08f * breathe),
+                            animatedTone.copy(alpha = .28f),
                             animatedTone.copy(alpha = .06f)
                         )
                     )
@@ -896,6 +903,10 @@ internal fun ConnectButtonFloating(
             Canvas(Modifier.matchParentSize().padding(7.dp)) {
                 val r = size.minDimension / 2f
                 val c = Offset(size.width / 2f, size.height / 2f)
+                // Draw-phase clock reads (MARBLE_SMOOTH_CLOCK_V193) — the button surface
+                // never recomposes for ambient motion; only this canvas redraws.
+                val breathe = if (busy || evidence.connected) motion.breathe(2_400) else 0f
+                val sweep = if (busy) motion.loop(1_150) * 360f else 0f
                 when {
                     busy -> {
                         drawCircle(

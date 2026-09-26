@@ -415,8 +415,12 @@ internal fun PrismBackdrop(
         // Base vertical wash.
         drawRect(brush = baseBrush)
         // Breathing factors: 0..1 waves, out of phase; static 0.5 when motion is off.
-        val waveA = if (motionOn) motion.breathe(11_000) else .5f
-        val waveB = if (motionOn) motion.breathe(15_000, offset = .35f) else .5f
+        // MARBLE_SMOOTH_CLOCK_V193 — these waves have periods of 11 and 15 seconds; sampling
+        // them on the coarse clock (~15 Hz) invalidates this full-screen canvas a fraction as
+        // often while looking identical, and it is the difference between the backdrop fighting
+        // every scroll or swipe for the GPU and quietly breathing behind it.
+        val waveA = if (motionOn) motion.coarseBreathe(11_000) else .5f
+        val waveB = if (motionOn) motion.coarseBreathe(15_000, offset = .35f) else .5f
         val aFactor = .82f + .36f * waveA
         val bFactor = .82f + .36f * waveB
         fun glowAlpha(base: Float, factor: Float): Float = (base * factor).coerceIn(0f, 1f)
@@ -1108,11 +1112,14 @@ internal fun PrismRouteFrame(
     radius: Dp = 22.dp
 ) {
     val motion=MarbleMotion.current
-    val flow=motion.loop(3_400)
-    val breathe=.72f + .28f*motion.breathe(2_600)
     val accent=Aether.Cyan
 
     Canvas(modifier) {
+        // MARBLE_SMOOTH_CLOCK_V193 — the flow and breathe phases are read in the DRAW phase, so
+        // the live route's ambient ring invalidates only this canvas instead of recomposing the
+        // whole card that hosts it on every frame.
+        val flow=motion.loop(3_400)
+        val breathe=.72f + .28f*motion.breathe(2_600)
         val ring=(1.15.dp + .75.dp*breathe).toPx()
         val inset=ring/2f
         val corner=radius.toPx()
@@ -1430,8 +1437,9 @@ internal fun PrismConnectionStage(
     val surface=Aether.VoidElevated
     val outline=tone.copy(alpha=.18f)
     val muted=Aether.InkMuted
-    val phase=MarbleMotion.current.loop(if(connecting) 950 else 1_650)
-    val breathe=MarbleMotion.current.breathe(2_400)
+    // MARBLE_SMOOTH_CLOCK_V193 — both ambient phases are read inside the draw lambda below, so
+    // this control no longer recomposes at the frame rate while the route dot travels.
+    val motion=MarbleMotion.current
     val progress=qualityScore.coerceIn(0,100)/100f
     val label=when {
         connected -> "Disconnect"
@@ -1452,6 +1460,9 @@ internal fun PrismConnectionStage(
         contentAlignment=Alignment.Center
     ) {
         Canvas(Modifier.matchParentSize()) {
+            // MARBLE_SMOOTH_CLOCK_V193 — draw-phase ambient reads: recomposes nothing.
+            val phase=motion.loop(if(connecting) 950 else 1_650)
+            val breathe=motion.breathe(2_400)
             val left=Offset(size.width*.16f,size.height*.43f)
             val center=Offset(size.width*.50f,size.height*.40f)
             val right=Offset(size.width*.84f,size.height*.43f)

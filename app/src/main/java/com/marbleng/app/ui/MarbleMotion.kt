@@ -114,9 +114,14 @@ class MarbleMotionState internal constructor(
     val motionEnabled: Boolean
 ) {
     private var elapsedSeconds by mutableFloatStateOf(0f)
+    private var coarseSeconds by mutableFloatStateOf(0f)
 
     internal fun updateElapsed(seconds: Float) {
         elapsedSeconds = if (motionEnabled) seconds.coerceAtLeast(0f) else 0f
+    }
+
+    internal fun updateCoarse(seconds: Float) {
+        coarseSeconds = if (motionEnabled) seconds.coerceAtLeast(0f) else 0f
     }
 
     /** A stable 0..1 loop driven by Marble's one shared frame clock. */
@@ -130,6 +135,25 @@ class MarbleMotionState internal constructor(
     /** A smooth 0..1 breathing wave without allocating another infinite transition. */
     fun breathe(periodMillis: Int, offset: Float = 0f): Float {
         val phase = loop(periodMillis, offset)
+        return .5f - .5f * cos(phase * 2f * PI.toFloat())
+    }
+
+    /**
+     * MARBLE_SMOOTH_CLOCK_V193 — the coarse loop: the same wave as [loop], sampled ~15 times a
+     * second instead of every frame. Ambient effects with periods of many seconds (the page
+     * backdrop's breathing glows) are visually identical at this rate, and their hosting surfaces
+     * now invalidate ~15 times a second instead of 60–120.
+     */
+    fun coarseLoop(periodMillis: Int, offset: Float = 0f): Float {
+        if (!motionEnabled) return 0f
+        val periodSeconds = periodMillis.coerceAtLeast(1) / 1_000f
+        val raw = coarseSeconds / periodSeconds + offset
+        return ((raw % 1f) + 1f) % 1f
+    }
+
+    /** The coarse twin of [breathe], for large, slow ambient surfaces. */
+    fun coarseBreathe(periodMillis: Int, offset: Float = 0f): Float {
+        val phase = coarseLoop(periodMillis, offset)
         return .5f - .5f * cos(phase * 2f * PI.toFloat())
     }
 }
@@ -148,7 +172,20 @@ object MarbleMotion {
  *
  * Android's global animator scale is honored: when the user disables animations, ambient motion
  * freezes and direct interactions resolve immediately to their resting state.
+ *
+ * MARBLE_SMOOTH_CLOCK_V193 — the clock also owns two anti-jank duties for the whole app:
+ *  1. it never delivers ambient frames faster than [AMBIENT_FPS_CAP] — on a 90/120 Hz panel the
+ *     old loop recomposed every ambient reader at the panel rate, doubling or quadrupling the
+ *     recomposition load behind every animation for motion the eye cannot tell from 60;
+ *  2. it publishes a coarse twin of the elapsed time at [COARSE_FPS], for the very large and
+ *     very slow surfaces (the full-screen page backdrop's 9–15 s waves) whose draw invalidation
+ *     at 60 fps bought nothing but GPU work on every frame.
  */
+private const val AMBIENT_FPS_CAP = 60
+private const val COARSE_FPS = 15
+private const val AMBIENT_MIN_FRAME_NANOS = 1_000_000_000L / AMBIENT_FPS_CAP
+private const val COARSE_STEP_NANOS = 1_000_000_000L / COARSE_FPS
+
 @Composable
 fun ProvideMarbleMotion(content: @Composable () -> Unit) {
     val context = LocalContext.current
@@ -169,10 +206,23 @@ fun ProvideMarbleMotion(content: @Composable () -> Unit) {
             return@LaunchedEffect
         }
         var originNanos = 0L
+        var lastFrameNanos = 0L
+        var lastCoarseNanos = 0L
         while (currentCoroutineContext().isActive) {
             withFrameNanos { frameNanos ->
                 if (originNanos == 0L) originNanos = frameNanos
-                engine.updateElapsed((frameNanos - originNanos) / 1_000_000_000f)
+                // One state write per delivered frame. A frame faster than the cap (90/120 Hz
+                // panels, or a fast recomposition burst) is folded into the next delivery.
+                if (frameNanos - lastFrameNanos >= AMBIENT_MIN_FRAME_NANOS) {
+                    lastFrameNanos = frameNanos
+                    engine.updateElapsed((frameNanos - originNanos) / 1_000_000_000f)
+                }
+                // The coarse twin only changes value every COARSE_STEP_NANOS, so readers of
+                // [coarseLoop]/[coarseBreathe] invalidate that rarely.
+                if (frameNanos - lastCoarseNanos >= COARSE_STEP_NANOS) {
+                    lastCoarseNanos = frameNanos
+                    engine.updateCoarse((frameNanos - originNanos) / 1_000_000_000f)
+                }
             }
         }
     }

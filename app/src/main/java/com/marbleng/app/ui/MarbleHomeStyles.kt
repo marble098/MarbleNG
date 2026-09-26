@@ -634,11 +634,8 @@ private fun ConnectButtonRound(
 ) {
     val motion = MarbleMotion.current
     val busy = evidence.connecting || evidence.disconnecting
-    val sweep = if (busy) motion.loop(1_150) * 360f else 0f
-    // The securing arc breathes while it rotates: width and alpha pulse on a shared clock.
-    val busyPulse = if (busy) motion.breathe(1_150) else 0f
-    // The connected halo breathes slowly; disconnected holds still.
-    val haloPulse = if (evidence.connected) motion.breathe(2_800) else 0f
+    // MARBLE_SMOOTH_CLOCK_V193 — sweep/busyPulse/haloPulse moved into the draw lambda below;
+    // this round button no longer recomposes at the frame rate while connected.
     val label = homeActionLabel(evidence)
     // One-shot acknowledgement ring: 0 = rest, 1 = fully expanded and faded.
     val tapRipple = remember { Animatable(0f) }
@@ -705,6 +702,12 @@ private fun ConnectButtonRound(
             Canvas(Modifier.matchParentSize().padding(10.dp)) {
                 val r = size.minDimension / 2f
                 val c = Offset(size.width / 2f, size.height / 2f)
+                // Draw-phase clock reads (MARBLE_SMOOTH_CLOCK_V193) — recomposes nothing.
+                val sweep = if (busy) motion.loop(1_150) * 360f else 0f
+                // The securing arc breathes while it rotates: width and alpha pulse on a shared clock.
+                val busyPulse = if (busy) motion.breathe(1_150) else 0f
+                // The connected halo breathes slowly; disconnected holds still.
+                val haloPulse = if (evidence.connected) motion.breathe(2_800) else 0f
                 // Outer rim — the calm resting statement of the current state.
                 drawCircle(
                     color = animatedTone.copy(alpha = .22f),
@@ -891,7 +894,7 @@ private fun ConnectButtonSlide(
     val scope = rememberCoroutineScope()
     val knob = remember { Animatable(0f) }
     val progress = (knob.value / travelPx).coerceIn(0f, 1f)
-    val shimmer = if (busy) motion.loop(1_400) else 0f
+    // MARBLE_SMOOTH_CLOCK_V193 — the shimmer phase is read in the draw lambda below.
     var dragging by remember { mutableStateOf(false) }
     val thresholdReached = progress >= threshold
 
@@ -941,7 +944,8 @@ private fun ConnectButtonSlide(
                     Canvas(Modifier.matchParentSize()) {
                         // One travelling highlight, drawn only while the tunnel is actually
                         // opening or closing: the track states progress without ever moving.
-                        val x = size.width * shimmer
+                        // Draw-phase clock read (MARBLE_SMOOTH_CLOCK_V193).
+                        val x = size.width * (if (busy) motion.loop(1_400) else 0f)
                         drawRect(
                             brush = Brush.horizontalGradient(
                                 listOf(Color.Transparent, animatedTone.copy(alpha = .22f), Color.Transparent),
@@ -1100,7 +1104,7 @@ private fun ConnectButtonClassic(
 ) {
     val motion = MarbleMotion.current
     val busy = evidence.connecting || evidence.disconnecting
-    val sweep = if (busy) motion.loop(1_150) * 360f else 0f
+    // MARBLE_SMOOTH_CLOCK_V193 — the securing sweep is read in the draw lambda below.
     val shape = RoundedCornerShape(14.dp)
     val label = homeActionLabel(evidence)
 
@@ -1143,6 +1147,8 @@ private fun ConnectButtonClassic(
                 Canvas(Modifier.matchParentSize()) {
                     val r = size.minDimension / 2f
                     val c = Offset(size.width / 2f, size.height / 2f)
+                    // Draw-phase clock read (MARBLE_SMOOTH_CLOCK_V193) — recomposes nothing.
+                    val sweep = if (busy) motion.loop(1_150) * 360f else 0f
                     drawCircle(
                         color = animatedTone.copy(alpha = .18f),
                         radius = r * .92f,
@@ -2784,10 +2790,11 @@ private fun IosServerItemRow(
         else -> ""
     }
 
-    // MARBLE_PROTOCOL_IDENTITY — the row now opens with the server's type in a circular tile
-    // (the protocol's own glyph and tone, the flag on the rim, the connection state on the rim
-    // colour), then the name with its tiny protocol badge, and the latency in its own
-    // right-aligned stat column with a quality meter — the same anatomy the Servers page uses.
+    // MARBLE_PROTOCOL_TEXT_IDENTITY_V193 — the row now opens with the server's place in a
+    // circular tile: the real flag when the location is known, the name's own flag glyph
+    // otherwise — never a protocol doodle. Then the name with its coloured text badge (each
+    // protocol its own hue), and the latency in its own right-aligned stat column with a
+    // quality meter — the same anatomy the Servers page uses.
     Row(
         modifier = Modifier
             .fillMaxWidth()
