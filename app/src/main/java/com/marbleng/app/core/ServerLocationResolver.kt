@@ -22,6 +22,7 @@ import java.net.Inet4Address
 import java.net.Inet6Address
 import java.net.InetAddress
 import java.net.URL
+import java.util.concurrent.Callable
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
@@ -87,7 +88,7 @@ object ServerLocationResolver {
         val pool = Executors.newFixedThreadPool(ENDPOINTS.size)
         return try {
             val jobs = ENDPOINTS.map { builder ->
-                pool.submit<GeoObservation?> {
+                Callable {
                     runCatching { http.fetch(builder(address)) }
                         .getOrNull()
                         ?.let { parseLookup(it, address) }
