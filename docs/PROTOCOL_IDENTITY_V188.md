@@ -8,6 +8,18 @@ VPN clients on the Play Store (the ZedSecure lineage): circular icon containers,
 surfaces, hairline borders that light up with state, and a latency readout that owns its own
 column instead of floating in the middle of a row.
 
+> **Update — V193 (`MARBLE_PROTOCOL_TEXT_IDENTITY_V193`).** The hand-drawn glyph set this
+> chapter introduced (`ProtocolGlyph`: the V, the envelope, the sock and their siblings) has been
+> **removed** — at tile size it read as the ugly, unexplainable shapes inside the server circles.
+> The circle now always carries the country: the real national flag drawn edge-to-edge when the
+> tested location is known, the server name's own flag glyph at full size otherwise. The wire
+> scheme speaks as **text**: `ProtocolBadge` is a pill with the label in a hue that belongs to
+> each family alone (ten hand-picked colours in `protocolTone`), and that hue survives as the
+> tile's resting rim. `docs/SMOOTH_MOTION_DEDUP_AND_FLAG_IDENTITY_V193.md` is the chapter of
+> record for the current contract; the system integrity audit pins it under
+> *"V193 the flag is the circle and the wire scheme speaks as text"*. Everything else this
+> chapter established — the shared tone table, the stat-column readout, the state chips — stands.
+
 ## 1. One identity per protocol — `MarbleProtocolIdentity.kt`
 
 Before this chapter a server's type was a plain text chip (`VLESS/REALITY`) in a flat colour,
