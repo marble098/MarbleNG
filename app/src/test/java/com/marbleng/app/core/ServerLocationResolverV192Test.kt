@@ -109,14 +109,14 @@ class ServerLocationResolverV192Test {
     // ── consensus ───────────────────────────────────────────────────────────────────────
 
     @Test
-    fun voteMajorityAndSingles() {
+    fun voteRequiresAnIndependentQuorum() {
         val tr = GeoObservation("TR")
         val de = GeoObservation("DE")
         assertEquals("TR", ServerLocationResolver.voteCountry(listOf(tr, tr)))
         assertEquals("TR", ServerLocationResolver.voteCountry(listOf(tr, de, tr)))
         assertEquals("TR", ServerLocationResolver.voteCountry(listOf(GeoObservation("tr"), tr)))
-        // A single usable observation is still an answer.
-        assertEquals("TR", ServerLocationResolver.voteCountry(listOf(GeoObservation(""), tr)))
+        // One provider is not enough to paint a national flag.
+        assertEquals("", ServerLocationResolver.voteCountry(listOf(GeoObservation(""), tr)))
         // A tie is a coin flip — the product refuses to flip.
         assertEquals("", ServerLocationResolver.voteCountry(listOf(tr, de)))
         assertEquals("", ServerLocationResolver.voteCountry(listOf(tr, de, GeoObservation("FR"))))

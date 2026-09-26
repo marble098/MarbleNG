@@ -282,24 +282,35 @@ fun ProtocolBadge(
 ) {
     val family = protocolFamilyOf(scheme)
     val tone = protocolTone(family)
-    val shape = RoundedCornerShape(7.dp)
+    val shape = RoundedCornerShape(9.dp)
     Row(
         modifier = modifier
+            .height(25.dp)
             .clip(shape)
-            .background(tone.copy(alpha = .10f))
-            .border(1.dp, tone.copy(alpha = .24f), shape)
-            .padding(start = 5.dp, end = 5.dp, top = 1.5.dp, bottom = 1.5.dp),
+            .background(tone.copy(alpha = .12f))
+            .border(1.dp, tone.copy(alpha = .34f), shape)
+            .padding(start = 4.dp, end = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(3.5.dp)
+        horizontalArrangement = Arrangement.spacedBy(5.dp)
     ) {
-        ProtocolGlyph(family, tone, Modifier.size(11.dp))
+        // A solid icon well makes the protocol legible at a glance; the old bare outline glyph
+        // and loose text looked like an accidental debug label in dense server rows.
+        Box(
+            modifier = Modifier
+                .size(18.dp)
+                .clip(CircleShape)
+                .background(tone.copy(alpha = .22f)),
+            contentAlignment = Alignment.Center
+        ) {
+            ProtocolGlyph(family, tone, Modifier.size(12.dp))
+        }
         Text(
             text = label ?: family.label,
             color = tone,
             style = TextStyle(
-                fontSize = 9.sp,
+                fontSize = 9.5.sp,
                 fontWeight = FontWeight.Bold,
-                letterSpacing = .45.sp
+                letterSpacing = .35.sp
             ),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
