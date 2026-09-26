@@ -131,6 +131,13 @@ data class ServerCountry(
         }
 
         /**
+         * The code an English country name (or a common alias) names, or null when the table
+         * does not know it. Geolocation lookups answer with spelled-out names as often as with
+         * codes, so the reverse mapping is product surface, not an implementation detail.
+         */
+        fun codeForName(name: String): String? = ALIASES[name.trim().uppercase()]
+
+        /**
          * The country of the first flag emoji in a label, or null when there is none.
          *
          * Read as code points instead of with a regular expression: a regional indicator is a

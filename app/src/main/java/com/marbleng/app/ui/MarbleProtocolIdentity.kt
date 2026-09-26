@@ -56,6 +56,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.marbleng.app.core.ServerCountry
 import androidx.compose.ui.unit.sp
 
 /** The wire schemes Marble knows how to draw an identity for. */
@@ -311,6 +312,11 @@ fun ProtocolBadge(
  * rim that lights up when the row carries traffic or is the selected one, and an optional flag
  * badge in the corner so the country stays readable at a glance.
  *
+ * MARBLE_SERVER_LOCATION_V192 — when [flagCode] names a country the art library knows, the flag
+ * IS the tile: the real national flag fills the circle edge to edge (no emoji, no rim chip), and
+ * the protocol's hue survives as the resting rim. The row below then carries the location, the
+ * one fact a VPN user reads first.
+ *
  * [stateTone] — when the row is connected or selected — overrides the rim and casts the soft
  * shadow, so the connection state and the protocol identity never fight over the same pixel.
  */
@@ -321,6 +327,7 @@ fun ProtocolTile(
     size: Dp = 40.dp,
     glyphFraction: Float = .56f,
     flag: String? = null,
+    flagCode: String? = null,
     stateTone: Color? = null,
     lifted: Boolean = false
 ) {
@@ -337,10 +344,17 @@ fun ProtocolTile(
         animationSpec = tween(durationMillis = 180),
         label = "protocol-tile-fill"
     )
+    val flagArt = flagCode?.takeIf { it.isNotBlank() }?.takeIf { CountryFlagSupported(it) }
     Box(
         modifier = modifier
             .size(size)
-            .semantics { contentDescription = family.label },
+            .semantics {
+                contentDescription = if (flagArt != null) {
+                    "Server in ${ServerCountry.nameFor(flagArt)}"
+                } else {
+                    family.label
+                }
+            },
         contentAlignment = Alignment.Center
     ) {
         Box(
@@ -356,11 +370,22 @@ fun ProtocolTile(
                 .border(1.dp, rim.copy(alpha = rimAlpha), CircleShape),
             contentAlignment = Alignment.Center
         ) {
-            ProtocolGlyph(family, tone, Modifier.size((size.value * glyphFraction).dp))
+            if (flagArt != null) {
+                // The flag fills the whole circle: sized to the tile's inner area (the 1 dp rim
+                // stays visible) and clipped to the same CircleShape, so nothing of it is cut.
+                CountryFlagCircle(
+                    code = flagArt,
+                    size = size - 2.dp,
+                    fallbackText = flagArt,
+                    fallbackTone = tone,
+                    fallbackFill = tone.copy(alpha = .28f)
+                )
+            } else {
+                ProtocolGlyph(family, tone, Modifier.size((size.value * glyphFraction).dp))
+            }
         }
-        // The flag chip rides on the rim's edge; it sits OUTSIDE the clipped circle so its
-        // border is never cut by the tile's own shape.
-        if (!flag.isNullOrBlank()) {
+        // Legacy emoji chip, only while a real flag is not available for this node.
+        if (flagArt == null && !flag.isNullOrBlank()) {
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomEnd)

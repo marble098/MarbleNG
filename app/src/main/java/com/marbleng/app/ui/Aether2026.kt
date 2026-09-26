@@ -6257,6 +6257,9 @@ private fun ServersNodeCard(
     val country = ServersQuery.countryOf(profile)
     val name = displayServerName(profile.name, profile.host, profile.scheme)
     val flag = leadingFlagGlyph(profile.name) ?: country.flag
+    // MARBLE_SERVER_LOCATION_V192 — the tile's flag is the repository's answer for this
+    // endpoint: the once-tested geolocation when learned, the label's own country otherwise.
+    val locationCode = repo.serverLocation(profile).code
     val clipboard = LocalClipboardManager.current
 
     val swipeState = rememberSwipeToDismissBoxState()
@@ -6362,11 +6365,15 @@ private fun ServersNodeCard(
                 ) {
                     // MARBLE_PROTOCOL_IDENTITY — the row opens with the server's type: a circular
                     // tile with the protocol's own glyph, its tone, and the country flag riding
-                    // the rim. Inside a subscription it is the smaller of the two tile sizes.
+                    // the rim. MARBLE_SERVER_LOCATION_V192 — when the location is known, the real
+                    // national flag fills the circle instead; the emoji chip only fills in when
+                    // the art library cannot name the country yet. Inside a subscription it is
+                    // the smaller of the two tile sizes.
                     ProtocolTile(
                         scheme = profile.scheme,
                         size = ServersHierarchy.ROW_TILE_DP.dp,
                         flag = flag.takeIf { it.isNotBlank() && it != ServerCountry.UNKNOWN.flag },
+                        flagCode = locationCode,
                         stateTone = tileStateTone
                     )
                     Spacer(Modifier.width(9.dp))
@@ -8317,6 +8324,41 @@ private fun ConnectionDetailPage(
             }
         }
 
+        // MARBLE_SESSION_USAGE_V192 — how much this exact server has carried, across all its
+        // recorded sessions plus the live one while connected. Zero-usage servers never grew a
+        // section, so the page stays as quiet as before for unconnected nodes.
+        {
+            val sessions = repo.usageSessions.filter { it.profileId == current.id }
+            val storedBytes = sessions.sumOf { it.bytes }
+            val liveBytes = if (active && repo.state == "CONNECTED") repo.sessionBytes else 0L
+            val last = sessions.firstOrNull()
+            if (storedBytes > 0L || liveBytes > 0L) {
+                item {
+                    // The duration is rendered as text first ("12 min", "45 sec") and only then
+                    // translated, so the pattern rules can read the number off the string.
+                    val lastLine = last?.let {
+                        val seconds = (it.endedAtMs - it.startedAtMs) / 1000L
+                        val duration = if (seconds >= 60) trx("${seconds / 60} min") else trx("${seconds} sec")
+                        "${formatBytes(it.bytes)} · $duration"
+                    }
+                    HoloGlass(Modifier.fillMaxWidth()) {
+                        SectionLabel(trx("Data usage"))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            MiniMetric(trx("Total"), formatBytes(storedBytes + liveBytes), "", Modifier.weight(1f))
+                            MiniMetric(trx("Sessions"), sessions.size.toString(), "", Modifier.weight(1f))
+                        }
+                        DetailRow(
+                            trx("Last session"),
+                            lastLine ?: formatBytes(liveBytes)
+                        )
+                        if (liveBytes > 0L) {
+                            DetailRow(trx("Current session"), formatBytes(liveBytes))
+                        }
+                    }
+                }
+            }
+        }
+
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 CyberButton(
@@ -8668,10 +8710,11 @@ private fun dockSlotSubtitle(target: DockSlotTarget): String = when (target.kind
 
 /** The flag tile every fourth-slot surface uses for one node: flat, inset, one glyph. */
 @Composable
-private fun DockFlagTile(profile: ProxyProfile?, size: Dp = 38.dp) {
+private fun DockFlagTile(profile: ProxyProfile?, size: Dp = 38.dp, flagCode: String? = null) {
     val flag = profile?.name?.let(::leadingFlagGlyph)
         ?: profile?.host?.let(::countryGlyph)?.takeIf { it.isNotBlank() && it != "◈" }
     val shape = RoundedCornerShape(size / 3)
+    val code = flagCode?.takeIf { it.isNotBlank() }?.takeIf { CountryFlagSupported(it) }
     Box(
         modifier = Modifier
             .size(size)
@@ -8680,13 +8723,19 @@ private fun DockFlagTile(profile: ProxyProfile?, size: Dp = 38.dp) {
             .border(1.dp, homeCloudInsetBorder(), shape),
         contentAlignment = Alignment.Center
     ) {
-        Text(
-            text = flag
-                ?: profile?.scheme?.trim()?.take(1)?.uppercase()?.ifBlank { "M" }
-                ?: "🌐",
-            fontSize = (size.value * .42f).sp,
-            maxLines = 1
-        )
+        // MARBLE_SERVER_LOCATION_V192 — the real flag fills the tile when the location is
+        // known; the single glyph is the fallback, never a second flag.
+        if (code != null) {
+            CountryFlagCircle(code = code, size = size - 2.dp)
+        } else {
+            Text(
+                text = flag
+                    ?: profile?.scheme?.trim()?.take(1)?.uppercase()?.ifBlank { "M" }
+                    ?: "🌐",
+                fontSize = (size.value * .42f).sp,
+                maxLines = 1
+            )
+        }
     }
 }
 
@@ -8850,6 +8899,7 @@ private fun CustomDockPage(
                                 probeState = repo.probeStateOf(profile.id),
                                 active = repo.isActiveProfile(profile),
                                 selected = repo.isSelectedProfile(profile),
+                                flagCode = repo.serverLocation(profile).code,
                                 onSelect = {
                                     if (repo.probeActive || repo.probeCancelling) {
                                         repo.setRuntimeMessage("Wait until ping finishes before changing server")
@@ -8972,7 +9022,11 @@ private fun DockPulseLiveCard(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(9.dp)
         ) {
-            DockFlagTile(evidence.profile, size = 36.dp)
+            DockFlagTile(
+                evidence.profile,
+                size = 36.dp,
+                flagCode = evidence.profile?.let { repo.serverLocation(it).code }
+            )
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
                 Text(
                     evidence.nodeName.ifBlank { Tr.now.chooseRoute },
@@ -9274,6 +9328,7 @@ private fun DockNodeRow(
     probeState: ProbeState,
     active: Boolean,
     selected: Boolean,
+    flagCode: String = "",
     onSelect: () -> Unit,
     onDetails: () -> Unit
 ) {
@@ -9300,7 +9355,7 @@ private fun DockNodeRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(9.dp)
     ) {
-        DockFlagTile(profile, size = 32.dp)
+        DockFlagTile(profile, size = 32.dp, flagCode = flagCode)
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
             Text(
                 stripLeadingFlag(profile.name),
@@ -9387,7 +9442,7 @@ private fun DockConfigCard(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            DockFlagTile(pinned, size = 40.dp)
+            DockFlagTile(pinned, size = 40.dp, flagCode = repo.serverLocation(pinned).code)
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
                 Text(
                     stripLeadingFlag(pinned.name),
@@ -10364,66 +10419,56 @@ private fun SettingsHub(
             MarbleCompactTopBar(title = "Settings")
         }
 
-        // The decisions people touch every day stay here and apply instantly.
-        item(key = "hub-quick") {
+        // MARBLE_SETTINGS_HIERARCHY_V192 — the flat "Most used" / "Essentials" shelves are
+        // gone: every control now lives inside the parent card of the surface it changes, and
+        // the hub reads as six parents in the order the user reads their phone — what Home
+        // shows, how traffic is routed, the engine underneath, where the data lives, how it
+        // looks, and the system around it.
+        // ------------------------------------------------ Home & display
+        item(key = "hub-home") {
             SettingsHubCard(
                 modifier = Modifier.marbleStaggerIn(1, enabled = entranceArmed()),
-                title = t.quickSettingsTitle,
-                subtitle = t.quickSettingsDetail,
+                title = t.categoryHome,
+                subtitle = "What the Home screen shows and how it looks",
                 tone = Aether.Cyan
             ) {
-                SettingsThemeMiniRow(repo)
+                // The four Home presentations at a glance — the quick pick stays with the
+                // surface it changes instead of on a "most used" shelf.
                 SettingsStyleMiniRow(repo)
-            }
-        }
-
-        // Keep the three everyday safety/automation choices on the hub. They used to be buried
-        // among expert tunnel controls, which made Settings feel larger without making it useful.
-        item(key = "hub-essentials") {
-            SettingsHubCard(
-                modifier = Modifier.marbleStaggerIn(2, enabled = entranceArmed()),
-                title = "Essentials",
-                subtitle = "Home, automation and your data",
-                tone = Aether.Emerald
-            ) {
                 SettingSwitch(
                     title = "Live speed on Home",
                     subtitle = "Show real-time download and upload only while connected",
                     checked = settings.homeSpeedWidgetEnabled
                 ) { repo.updateSettings(repo.settings.copy(homeSpeedWidgetEnabled = it)) }
+                // MARBLE_SESSION_USAGE_V192 — the per-connection data readout: the live total
+                // while connected, the last session's total when disconnected.
                 SettingSwitch(
-                    title = "Connect to best after scan",
-                    subtitle = "Automatically select and connect the fastest reachable server",
-                    checked = settings.autoConnectBestAfterScan
-                ) { repo.updateSettings(repo.settings.copy(autoConnectBestAfterScan = it)) }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    CyberButton(
-                        label = "Back up",
-                        color = Aether.Cyan,
-                        icon = HomeIcon.DETAILS,
-                        compact = true,
-                        modifier = Modifier.weight(1f)
-                    ) { backupLauncher.launch("marbleng-backup.json") }
-                    CyberButton(
-                        label = "Restore",
-                        color = Aether.Amethyst,
-                        icon = HomeIcon.RESET,
-                        compact = true,
-                        modifier = Modifier.weight(1f)
-                    ) { restoreLauncher.launch(arrayOf("application/json", "text/plain")) }
-                }
+                    title = "Show data usage",
+                    subtitle = "How much this connection has moved, and the last session's total",
+                    checked = settings.homeShowDataUsage
+                ) { repo.updateSettings(repo.settings.copy(homeShowDataUsage = it)) }
+                // MARBLE_SERVER_LOCATION_V192 — each server's country is verified once, in the
+                // background, then remembered; the flags fill the circles on every surface.
+                SettingSwitch(
+                    title = "Auto-detect server locations",
+                    subtitle = "Each server's country is verified once, in the background, then remembered",
+                    checked = settings.serverLocationAutoDetect
+                ) { repo.updateSettings(repo.settings.copy(serverLocationAutoDetect = it)) }
+                SettingsHubRow(
+                    title = t.homeStyleTitle,
+                    subtitle = homeStyleLabel(activeStyle),
+                    tone = Aether.Cyan,
+                    onClick = { onNavigate(SettingsPages.HOME_STYLE) }
+                ) { SettingsStyleMotif(activeStyle, Aether.Cyan, Modifier.size(width = 34.dp, height = 20.dp)) }
             }
         }
 
-    // ------------------------------------------------ Connection
+        // ------------------------------------------------ Connection & routing
         item(key = "hub-connection") {
             SettingsHubCard(
-                modifier = Modifier.marbleStaggerIn(3, enabled = entranceArmed()),
+                modifier = Modifier.marbleStaggerIn(2, enabled = entranceArmed()),
                 title = t.categoryConnection,
-                subtitle = "Routing, tests and servers",
+                subtitle = "Routing, tests and what happens after a scan",
                 tone = Aether.Emerald
             ) {
                 SettingsHubRow(
@@ -10449,6 +10494,62 @@ private fun SettingsHub(
                     tone = Aether.Cyan,
                     onClick = { onNavigate(SettingsPages.workspace(SettingsWorkspaceTab.TESTS)) }
                 ) { SettingsTestPreview(Aether.Cyan) }
+                SettingSwitch(
+                    title = "Connect to best after scan",
+                    subtitle = "Automatically select and connect the fastest reachable server",
+                    checked = settings.autoConnectBestAfterScan
+                ) { repo.updateSettings(repo.settings.copy(autoConnectBestAfterScan = it)) }
+            }
+        }
+
+        // ------------------------------------------------ Engine
+        item(key = "hub-engine") {
+            SettingsHubCard(
+                modifier = Modifier.marbleStaggerIn(3, enabled = entranceArmed()),
+                title = t.categoryEngine,
+                subtitle = "The cores and tunnel options under the route",
+                tone = Aether.Amber
+            ) {
+                // MARBLE_SETTINGS_DEDUP — one door owns the whole engine surface, and it still
+                // names the running core on the title line (MARBLE_CORE_NAME_IN_SETTINGS_V160)
+                // before the page is opened.
+                SettingsHubRow(
+                    title = "Engine & tunnel",
+                    subtitle = "Core switch, Xray, sing-box, fragment and mux",
+                    tone = Aether.Amber,
+                    badge = CoreEngineInfo.displayName(repo.activeCoreEngine),
+                    onClick = { onNavigate(SettingsPages.workspace(SettingsWorkspaceTab.ENGINE)) }
+                ) { HomeVectorIcon(HomeIcon.TUNNEL, Aether.Amber, Modifier.size(22.dp)) }
+            }
+        }
+
+        // ------------------------------------------------ Data & sources
+        item(key = "hub-data") {
+            SettingsHubCard(
+                modifier = Modifier.marbleStaggerIn(4, enabled = entranceArmed()),
+                title = t.categoryData,
+                subtitle = "Backups, restores and the app's data",
+                tone = Aether.CyanBright
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    CyberButton(
+                        label = "Back up",
+                        color = Aether.Cyan,
+                        icon = HomeIcon.DETAILS,
+                        compact = true,
+                        modifier = Modifier.weight(1f)
+                    ) { backupLauncher.launch("marbleng-backup.json") }
+                    CyberButton(
+                        label = "Restore",
+                        color = Aether.Amethyst,
+                        icon = HomeIcon.RESET,
+                        compact = true,
+                        modifier = Modifier.weight(1f)
+                    ) { restoreLauncher.launch(arrayOf("application/json", "text/plain")) }
+                }
             }
         }
 
@@ -10459,11 +10560,14 @@ private fun SettingsHub(
         // ------------------------------------------------ Appearance
         item(key = "hub-appearance") {
             SettingsHubCard(
-                modifier = Modifier.marbleStaggerIn(4, enabled = entranceArmed()),
+                modifier = Modifier.marbleStaggerIn(5, enabled = entranceArmed()),
                 title = t.categoryAppearance,
-                subtitle = "Theme, Home style, typeface and language",
+                subtitle = "Theme, fourth tab, typeface and language",
                 tone = Aether.Amethyst
             ) {
+                // The quick theme pick moves with its parent card: the mini grid stays one tap
+                // away, the full previews stay on the Theme page.
+                SettingsThemeMiniRow(repo)
                 SettingsHubRow(
                     title = "Theme",
                     subtitle = when (activeTheme) {
@@ -10487,12 +10591,6 @@ private fun SettingsHub(
                         }
                     }
                 }
-                SettingsHubRow(
-                    title = t.homeStyleTitle,
-                    subtitle = homeStyleLabel(activeStyle),
-                    tone = Aether.Cyan,
-                    onClick = { onNavigate(SettingsPages.HOME_STYLE) }
-                ) { SettingsStyleMotif(activeStyle, Aether.Cyan, Modifier.size(width = 34.dp, height = 20.dp)) }
                 // MARBLE_DOCK_SLOT_V167 — the fourth tab of the bar is the user's, so the hub
                 // answers "what is in it right now?" before the page is even opened.
                 SettingsHubRow(
@@ -10531,12 +10629,12 @@ private fun SettingsHub(
             }
         }
 
-        // ------------------------------------------------ System
+        // ------------------------------------------------ System & privacy
         item(key = "hub-system") {
             SettingsHubCard(
-                modifier = Modifier.marbleStaggerIn(5, enabled = entranceArmed()),
+                modifier = Modifier.marbleStaggerIn(6, enabled = entranceArmed()),
                 title = t.categorySystem,
-                subtitle = "Notifications, engine, general and information",
+                subtitle = "Notifications, general and information",
                 tone = Aether.SlateBright
             ) {
                 SettingsHubRow(
@@ -10549,19 +10647,6 @@ private fun SettingsHub(
                         )
                     }
                 ) { HomeVectorIcon(HomeIcon.STATUS, Aether.Cyan, Modifier.size(22.dp)) }
-                // MARBLE_SETTINGS_DEDUP — the engine used to answer "which core?" from FOUR
-                // doors on the hub: Engine & tunnel, Tunnel core, Xray core settings and
-                // sing-box extended — three of them rendering the same switch cards a second
-                // time. One door now owns the whole engine surface, and it still names the
-                // running core on the title line (MARBLE_CORE_NAME_IN_SETTINGS_V160) before
-                // the page is opened.
-                SettingsHubRow(
-                    title = "Engine & tunnel",
-                    subtitle = "Core switch, Xray, sing-box, fragment and mux",
-                    tone = Aether.Amber,
-                    badge = CoreEngineInfo.displayName(repo.activeCoreEngine),
-                    onClick = { onNavigate(SettingsPages.workspace(SettingsWorkspaceTab.ENGINE)) }
-                ) { HomeVectorIcon(HomeIcon.TUNNEL, Aether.Amber, Modifier.size(22.dp)) }
                 SettingsHubRow(
                     title = "General",
                     subtitle = "Home layout, sources and app updates",

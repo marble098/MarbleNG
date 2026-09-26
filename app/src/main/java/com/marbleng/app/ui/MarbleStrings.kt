@@ -97,6 +97,10 @@ data class MarbleStrings(
     val categoryEngine: String,
     val categoryTests: String,
     val categorySystem: String,
+    // MARBLE_SETTINGS_HIERARCHY_V192 — the hub's two new parent titles: everything the user
+    // sees on Home in one card, everything that moves their data in another.
+    val categoryHome: String,
+    val categoryData: String,
     val categoryInformation: String,
     val informationTitle: String,
     val informationDetail: String,
@@ -258,6 +262,8 @@ private val EnglishStrings = MarbleStrings(
     categoryEngine = "Engine",
     categoryTests = "Tests",
     categorySystem = "System",
+    categoryHome = "Home & display",
+    categoryData = "Data & sources",
     categoryInformation = "Information",
     informationTitle = "About MarbleNG",
     informationDetail = "Versions, cores and the project on GitHub",
@@ -408,6 +414,8 @@ private val PersianStrings = MarbleStrings(
     categoryEngine = "موتور",
     categoryTests = "تست‌ها",
     categorySystem = "سیستم",
+    categoryHome = "صفحه اصلی و نمایش",
+    categoryData = "داده و منابع",
     categoryInformation = "اطلاعات",
     informationTitle = "درباره MarbleNG",
     informationDetail = "نسخه‌ها، هسته‌ها و گیت‌هاب برنامه",

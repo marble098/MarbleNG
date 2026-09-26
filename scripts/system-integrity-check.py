@@ -2131,10 +2131,15 @@ check(
     and "val SelectedElevation = 7.dp" in files["design"]
     and "MARBLE_HOME_CLOUD_DEPTH_V191" in files["design"]
     and "homeStatusText(evidence)" in _banner_body
-    and "visible = evidence.connected && evidence.showSpeedWidget" in _banner_body
-    and _banner_body.count("HomeConnectionMetric(") == 2
+    # MARBLE_SESSION_USAGE_V192 — the telemetry row now answers to EITHER display choice: the
+    # live rates (speed widget) and/or the session's data total, and the last session's usage
+    # keeps the status row honest while disconnected.
+    and "visible = evidence.connected && (evidence.showSpeedWidget || evidence.showDataUsage)" in _banner_body
+    and _banner_body.count("HomeConnectionMetric(") == 3
     and "glyph = HomeGlyph.DOWNLOAD" in _banner_body
     and "glyph = HomeGlyph.UPLOAD" in _banner_body
+    and "glyph = HomeGlyph.DATA" in _banner_body
+    and "evidence.lastSessionBytes" in _banner_body
     and "clickable { actions.onIpDetails() }" in _banner_body
     and "HomeIpRow(" not in _banner_body
     and ".weight(1f)" in _theme1_body
